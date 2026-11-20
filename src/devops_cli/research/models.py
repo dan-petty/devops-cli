@@ -42,7 +42,9 @@ class Component(BaseModel):
     """One pin: a named component at a version, in one place of one file.
 
     `file` is the path from the repository root, with `/` separators. `line` counts from 1, and is
-    0 when the file's parser gives no line and the text of the file does not show it.
+    0 when the file's parser gives no line and the text of the file does not show it. `commit` is
+    the commit sha that an Action pin names, beside its version, and empty for a pin that names
+    none.
 
     `osv_ecosystem` and `osv_name` are the identity that OSV gives the component, which differs
     from its inventory identity for an image, a chart or a release binary; `purl` is the package
@@ -59,6 +61,7 @@ class Component(BaseModel):
     version: str
     file: str
     line: int
+    commit: str = ""
     osv_ecosystem: str = ""
     osv_name: str = ""
     purl: str = ""

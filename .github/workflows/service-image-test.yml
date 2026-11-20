@@ -76,7 +76,7 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
-          cache-from: type=gha,scope=service
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
 
       - name: Upload Service Image
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -191,7 +191,7 @@ jobs:
             -v "$TOOLS_DIR:$TOOLS_DIR:ro" \
             -w /workspace/project \
             -e PYTHONPATH="/opt/service-test/boot" \
-            -e PATH="/app/.venv/bin:/opt/devops-tools/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
+            -e PATH="/app/.venv/bin:$TOOLS_DIR/bin:/usr/local/bin:/usr/bin:/bin" \
             --entrypoint /app/.venv/bin/python \
             "$IMAGE" \
             -c 'import pathlib, sys, devops_cli; os_rel = pathlib.Path("/etc/os-release").read_text(encoding="utf-8"); assert "VERSION_CODENAME=trixie" in os_rel, os_rel; assert (devops_cli.__file__ or "").startswith("/app/.venv/"), devops_cli.__file__; import pytest; raise SystemExit(pytest.main(["-o", "pythonpath=", "-q", "-rfEs", "--durations=10", "--no-cov", "--snapshot-warn-unused", *sys.argv[1:]]))' \

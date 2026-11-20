@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.183.1](https://github.com/dan-petty/devops-cli/compare/v0.183.0...v0.183.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **docs:** report missing required options in command resolver ([#6373](https://github.com/dan-petty/devops-cli/issues/6373)) ([1b52008](https://github.com/dan-petty/devops-cli/commit/1b52008a7fe2f3cf912a45e927b568b7fec7c99b))
+* **k8s:** load only the needed Secret keys in runner Jobs ([#6520](https://github.com/dan-petty/devops-cli/issues/6520)) ([a656f4b](https://github.com/dan-petty/devops-cli/commit/a656f4b63eb83855567534870ffcb20ffa48f5b0)), closes [#6518](https://github.com/dan-petty/devops-cli/issues/6518)
+* **roadmap:** keep the last valid plan on a schema error ([#6484](https://github.com/dan-petty/devops-cli/issues/6484)) ([9564fb5](https://github.com/dan-petty/devops-cli/commit/9564fb53a88def282916bfb0d23b6eb9b1106626))
+* **roadmap:** Name the failed refine form check to the model ([#6507](https://github.com/dan-petty/devops-cli/issues/6507)) ([582ad22](https://github.com/dan-petty/devops-cli/commit/582ad224717a2b46a93a000c6e04bda2e0a6115d))
+
+
+### Performance Improvements
+
+* **roadmap:** build the cycle graph once for each selection ([#6534](https://github.com/dan-petty/devops-cli/issues/6534)) ([2990a57](https://github.com/dan-petty/devops-cli/commit/2990a57ab6379ba46b31cd85a13c54369e62894f))
+
+## [0.183.0](https://github.com/dan-petty/devops-cli/compare/v0.182.3...v0.183.0) (2026-11-20)
+
+
+### Features
+
+* **research:** Map a pinned Action commit to its release ([#6490](https://github.com/dan-petty/devops-cli/issues/6490)) ([d27abc8](https://github.com/dan-petty/devops-cli/commit/d27abc8b14e63c5e019c1f01af77baebbdd36cbc))
+
+
+### Bug Fixes
+
+* **roadmap:** Name a dependency cycle in the roadmap jobs ([#6505](https://github.com/dan-petty/devops-cli/issues/6505)) ([494de4f](https://github.com/dan-petty/devops-cli/commit/494de4f931aed904cded0e8cfd192c306cd3c5df))
+* **roadmap:** Read only blockers under Dependencies ([#6514](https://github.com/dan-petty/devops-cli/issues/6514)) ([59fc325](https://github.com/dan-petty/devops-cli/commit/59fc325881462ce6a90cb5dada12a3a3fc510317))
+
+
+### Code Refactoring
+
+* **docker:** build the runner image FROM devtools with no tool install ([#6513](https://github.com/dan-petty/devops-cli/issues/6513)) ([a165aaa](https://github.com/dan-petty/devops-cli/commit/a165aaa8dd79d91d376fa453219fbb83aec856a3)), closes [#4361](https://github.com/dan-petty/devops-cli/issues/4361)
+
 ## [0.182.3](https://github.com/dan-petty/devops-cli/compare/v0.182.2...v0.182.3) (2026-11-20)
 
 

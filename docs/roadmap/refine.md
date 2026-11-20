@@ -18,7 +18,17 @@ The comment of refine is one event line. It names the next step and the parts of
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
-The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
+The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Each `#N` of the section names a blocker, also in prose, such as `- #N`, `#5134, #5135`, `Merge first: #N`, `Depends on #N`, `#N (merged first).` or `Open the pull request after the pull request of #N merges.`. A missed blocker lets a job take an item while its blocker is open, so the rule keeps a `#N` unless the text says that it names a link (#6451):
+
+- A block (a paragraph or the text of a list item) that starts with `None` or `No`, such as `None. #N uses these records.`, names no blocker.
+- A `#N` after a link word of its sentence names no blocker: a parent (`Part of #N`), a child (`Child 2 of #N`), a tracker (`Tracker: #N`), a related issue (`Related: #N, #M`), the source line of intake (`Source: #N`) and the issue of an owner decision (`owner decision 4 in #N`). `Merge first: #4835, child 8 of #4833.` names #4835 and not #4833.
+- A sentence with a reverse phrase names no blocker, in any case: `#N needs this item`, `#N waits for this item`, `#N depends on this item`, `#N is blocked by this item`, `#N comes after this item`, `This item blocks #N`, `#N is the parent tracker`, `It does not wait for #N` and `#N is not a dependency`. A sentence ends at `.`, `;`, `!` or `?` and at the end of a line, outside parentheses, so `#4550 puts the catalog first. #4691 needs this item.` names only #4550.
+- A block that names an issue that merges in either order (`No merge order`, `Rebase before the second of the two merges`) names no blocker.
+- A `#N` in parentheses with other words is a note and names no blocker, and `(#N)` alone names one. So the hold line `- #6521 (hold: ... of #6519)` names the hold issue #6521 and not the tracker #6519.
+
+The narrower rule removes false dependencies, so it sets a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-20T14:03:08Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until they close, a person replies or a person edits the body.
+
+Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
 
 Refine looks at the item again after a reply, a body edit, or the close of those open items. It also looks again after a commit on the default branch that changes a file that the block cites. The report groups every item by its next step.
 
@@ -42,7 +52,7 @@ The Service App and the workflows of the repository open items. Examples are the
 
 Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task `ai.tasks.refine_review`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`. Only a `blocker` or a `major` finding is open, as in the stage job ([stage page](stage.md)), so a `minor` or a `nit` finding refuses no item (#5411).
 
-With an open finding, the item stays New and refine records `refine.judge` `refused`. A refusal is a job failure with the check `judge_refused` (see below), so no person edits the body. The job record keeps each open finding with its evidence in `refine.judge_findings`. The next round refines the item again, and its request gives the findings to the model as `judge_findings`. The model fixes each finding or takes out the claim. At the third try on the same body, the step is `failed` and the inbox lists the item. Refine writes no comment for a refusal. An item of a person gets no review, so a refusal never stops it.
+With an open finding, the item stays New and refine records `refine.judge` `refused`. A refusal is a job failure with the check `judge_refused` (see below), so no person edits the body. The job record keeps each open finding with its evidence in `refine.judge_findings`. The next round refines the item again, and its request gives the findings to the model as `judge_findings`, beside the whole failure of the earlier try. The model fixes each finding or takes out the claim. At the third try on the same body, the step is `failed` and the inbox lists the item. Refine writes no comment for a refusal. An item of a person gets no review, so a refusal never stops it.
 
 The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. A Ready bot item that the review refuses after a body edit goes back to New with the step `retry`. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
 
@@ -108,7 +118,7 @@ An item that is too big for one pull request still waits for a person to split i
 
 A person has nothing to do for a failed job. These cases are job failures, not person waits:
 
-- The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. A proposal that needs a split has no criterion to check.
+- The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. The failure names each failed check and, for each failed acceptance criterion, the index of the criterion and the part that failed, such as `acceptance_criteria[0].then`. A proposal that needs a split has no criterion to check.
 - A quoted title in the Dependencies section names no item, or two items (`dependencies`). The error names the title and asks for the issue as `#<number>`.
 - A question has no verified source after the investigation (`missing_source`), or a question of the body has no answer (`unanswered_question`).
 - The investigation ended with no proposal while such a question is open (`investigation_stopped`).
@@ -121,14 +131,16 @@ A job failure writes no body and no comment. A refusal of the review is the one 
 | `refine.next_step` | `retry` below the limit of tries, then `failed` |
 | `refine.tries` | The count of rounds that failed on this body. A body edit starts it at 1 again |
 | `refine.failed_check` | The names of the failed checks, comma separated |
-| `refine.failure` | The last error, with the calls of the read tools when they found no source. For `judge_refused`, the first open finding |
-| `refine.judge_findings` | Each open finding of the last refusal of the review, one on each line, at most 2,000 characters (`CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS`). A round that does not fail clears it |
+| `refine.failure` | The last error, with the calls of the read tools when they found no source. For a form check, each failed criterion with its index and part, such as `acceptance_criteria[0].then`. For `judge_refused`, the first open finding |
+| `refine.judge_findings` | Each open finding of the last refusal of the review, one on each line. The next request gives the model the whole failure of the earlier try beside them, with no character cap. A round that does not fail clears it |
+
+The result line of a round that fails a form check names the class `form_check` and each failed part, such as `failed_1=acceptance_criteria.0.then`.
 
 With the step `retry`, the next round refines the item again. At 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`) the step is `failed`: refine sends no model request for the item until a person edits its body, and [the inbox](inbox.md) lists it in the class `failed` with the checks, the count and the last error. A proposal that passes clears the keys. A job failure comes before a question for a person: a proposal that is not valid asks nobody.
 
 A Ready item whose new proposal fails a form check keeps its Status and its old design, because refine writes no body for a job failure. The record shows the failure, and the item has the step `retry` or `failed` like a New item. A Ready item that refine finds not ready, by contrast, goes back to New with a comment.
 
-An item that waited on a person under the rules before this one gets one new look: the version of these rules is the release of 0.72.0 (2026-11-06T19:25:37Z). A new proposal that fails a form check is then a job failure, and a new proposal that asks a person again writes one new comment.
+An item that waited on a person under the rules before this one got one new look: the version of these rules was the release of 0.72.0 (2026-11-06T19:25:37Z). A new proposal that fails a form check is then a job failure, and a new proposal that asks a person again writes one new comment.
 
 The plan report starts with the count of the items that go on without a person: the items that are Ready, blocked or in `retry`.
 

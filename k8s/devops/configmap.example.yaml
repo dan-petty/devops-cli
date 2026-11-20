@@ -193,8 +193,11 @@ data:
     roadmap:
       # The MCP server that the stage and implement jobs call at `<url>/<role>/mcp`. A job adds
       # the remote tools of its role only when `roadmap.stage.mcp` or `roadmap.implement.mcp` is
-      # true, and then sends the token of Secret devops/mcp-server (`devops k8s push-secrets`).
-      # Both are false, so no job calls this URL now.
+      # true. A stage Job and a runner Job hold no MCP token (#6518), so with the setting alone
+      # the client sends no token and the server answers 401. The change that turns a client on
+      # also adds its key (DEVOPS_CLI_MCP_STAGE_TOKEN or DEVOPS_CLI_MCP_IMPLEMENT_TOKEN of Secret
+      # devops/devops-cli) to the Job template and to the key list of the admission policy
+      # (k8s/README.md, Cluster Secrets). Both are false, so no job calls this URL now.
       mcp:
         url: http://mcp-server.devops.svc.cluster.local:8001
       stage:

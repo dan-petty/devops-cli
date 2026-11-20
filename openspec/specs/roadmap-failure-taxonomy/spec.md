@@ -6,11 +6,15 @@ The failure taxonomy of the implement job: the 12 classes of a failure, the pure
 ## Requirements
 
 ### Requirement: The failure classes
-The failure taxonomy SHALL have these 21 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `refused_reply`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan` and `git_config`.
+The failure taxonomy SHALL have these 23 classes: `provider`, `parser`, `test`, `lint`, `types`, `plan_defect`, `premise_false`, `oom`, `timeout`, `refused_tool`, `refused_reply`, `conflict`, `ci_infra`, `no_change_in_fix`, `tests_lost`, `head_moved`, `output_cap`, `read_only_path`, `limit_reached`, `outside_plan`, `git_config`, `plan_unreadable` and `form_check`.
 
 #### Scenario: The class list
 - **WHEN** a test reads the classes of the taxonomy
-- **THEN** it finds these 21 and no other
+- **THEN** it finds these 23 and no other
+
+#### Scenario: The class of a form check
+- **WHEN** a test reads the default action of `form_check`
+- **THEN** it is `retry`
 
 ### Requirement: A pure classifier
 `classify_failure` SHALL map the error text, the exit status, the refusal of a tool, the name of the check and the log of the check to one class, and SHALL read no file, make no request and change no state. It SHALL NOT read the last message of the agent. Input that no rule matches SHALL be `ci_infra`.
@@ -51,11 +55,11 @@ The table test of the classifier SHALL use the stop texts of the issues #2175, #
 - **THEN** the `mypy` stop of #2175 is `types`, the tool retries of #2735 are `refused_tool`, the Ollama error of #2747 is `parser`, the failed tests of #2924 are `test`, and each synthetic stop has the class of its pattern
 
 ### Requirement: One default action for each class
-`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra` and `head_moved` `retry`; `parser` `change_tier`; `test`, `lint` and `types` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `refused_reply`, `conflict`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan` and `git_config` `wait`.
+`ACTION_BY_CLASS` SHALL give each class exactly one default action: `provider`, `timeout`, `ci_infra`, `head_moved` and `form_check` `retry`; `parser` `change_tier`; `test`, `lint`, `types` and `conflict` `repair`; `plan_defect` `amend`; `premise_false` `return`; `oom`, `output_cap` and `limit_reached` `raise_limit`; `refused_tool`, `refused_reply`, `no_change_in_fix`, `read_only_path`, `tests_lost`, `outside_plan`, `git_config` and `plan_unreadable` `wait`.
 
 #### Scenario: The table
 - **WHEN** a test reads the table
-- **THEN** its keys are the 21 classes and each value is the action above
+- **THEN** its keys are the 23 classes and each value is the action above
 
 #### Scenario: A new runner image and a lost test
 - **WHEN** an item stopped with the class `tests_lost`, and the digest in the template differs from the digest of its Job

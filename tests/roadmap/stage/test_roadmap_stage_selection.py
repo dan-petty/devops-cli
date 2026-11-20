@@ -16,6 +16,7 @@ from devops_cli.exceptions import ValidationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.plan_check import PlanProblem
 from devops_cli.roadmap.planned import PlannedChanges
+from devops_cli.roadmap.refine.refine import DependencyGraph
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
     StageSelection,
@@ -31,6 +32,7 @@ from devops_cli.roadmap.stores.store import (
     RefineRecordKey,
     StageRecordKey,
 )
+from tests.support.call_counts import calls_of
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
@@ -303,6 +305,38 @@ def test_a_dependency_cycle_names_the_cycle_in_the_reason(store: InMemoryRoadmap
     assert f"#{waiting} → #{blocker} → #{waiting}" in reasons[waiting]
     assert reasons[outside] == MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{single}")
     assert "→" not in reasons[outside]
+
+
+def test_a_selection_builds_one_dependency_graph_for_its_items(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """Three items depend on one open issue: the selection leaves each out with the open-issue
+    reason and builds the dependency graph once, on the first of them (#6516)."""
+    blocker = _seed(store, status="New", priority="P2-Medium")
+    waiting = [_seed(store, body=f"### Dependencies\n#{blocker}\n") for _ in range(3)]
+
+    with calls_of(DependencyGraph.of) as builds:
+        selection = _select(store)
+
+    reason = MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}")
+    assert (len(builds), [_reasons(selection).get(number) for number in waiting]) == (
+        1,
+        [reason, reason, reason],
+    )
+
+
+def test_a_selection_whose_dependencies_are_closed_builds_no_dependency_graph(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """The items name only a closed issue, so no dependency is open and the selection builds no
+    dependency graph (#6516)."""
+    closed = _seed(store, state=GitHubState.CLOSED)
+    free = [_seed(store, body=f"### Dependencies\n#{closed}\n") for _ in range(2)]
+
+    with calls_of(DependencyGraph.of) as builds:
+        selection = _select(store)
+
+    assert (len(builds), _numbers(selection)) == (0, free)
 
 
 def test_an_item_that_names_an_open_issue_by_its_quoted_title_is_left_out(

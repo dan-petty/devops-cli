@@ -582,6 +582,41 @@ def test_a_schema_failure_after_a_refused_reply_keeps_both(
     assert record.schema_failure.count == 2
 
 
+def test_a_return_reply_that_breaks_the_schema_goes_back_with_the_refused_plan(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """The reply to a gate return has an earlier schema-valid plan, so a reply that breaks the
+    schema goes back with that plan, the problem of the checks and the violations, as one more
+    gate return (#6357)."""
+    model_fake.answer(_missing_path(), _two_violations(), make_stage_proposal())
+
+    plan = _plan(store, stage_repo)
+
+    asked = [json.loads(call.prompt) for call in model_fake.calls]
+    assert (len(plan.ready), model_fake.call_count, plan.attempts[0].gate_returns) == (1, 3, 2)
+    assert asked[2]["previous"] == asked[1]["previous"]
+    assert "tests/test_missing.py" in asked[2]["problem"]
+    assert "references.0.reason (string_too_short)" in asked[2]["problem"]
+
+
+def test_a_return_reply_that_breaks_the_schema_until_the_last_return_ends_as_parser(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    """The schema returns share `roadmap.stage.gate_returns` with the returns of the checks, and a
+    reply that breaks the schema after the last return ends the item with the class `parser`
+    (#6357)."""
+    model_fake.answer(_missing_path(), _two_violations())
+
+    plan = _plan(store, stage_repo)
+
+    (failure,) = plan.failed
+    assert (failure.error, failure.failure_class) == (
+        "StructuredOutputValidationError",
+        FailureClass.PARSER,
+    )
+    assert (model_fake.call_count, plan.attempts[0].gate_returns) == (4, 3)
+
+
 def test_a_schema_failure_logs_one_line_with_the_violations(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,

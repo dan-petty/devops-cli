@@ -137,12 +137,12 @@ import json
 import logging
 import re
 import subprocess
+from collections import deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, partial
-from graphlib import CycleError, TopologicalSorter
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import urlsplit
@@ -179,9 +179,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
-    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
-    CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
@@ -428,8 +426,8 @@ class JobCheck(StrEnum):
 class JobFailure:
     """A round whose job failed, with no person to ask (#3632): the checks that failed and the
     last error, which names the calls of the read tools when they found no source. It is one line
-    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`. A refusal of the review also holds
-    its open `findings`, one line each, which the next round gives to the model (#4798)."""
+    of text, whole. A refusal of the review also holds its open `findings`, one line each, which
+    the next round gives to the model (#4798)."""
 
     checks: tuple[JobCheck, ...]
     error: str
@@ -1223,21 +1221,151 @@ def body_questions(body: str) -> list[str]:
 
 
 def body_dependencies(body: str) -> list[int]:
-    """The issues the body names under a "Dependencies" heading, in order (#2654).
+    """The issues the body names as a blocker under a "Dependencies" heading, in order (#2654).
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
-    text under the heading, up to the next heading of the same or a higher level. A word that is
-    `#` and digits, with the punctuation of a list around it, is an issue; the body is parsed as
-    CommonMark, so a heading in a code block is not a heading.
+    text under the heading, up to the next heading of the same or a higher level. Each block of
+    the section, a paragraph or the text of a list item, names its blockers (`_block_blockers`);
+    the body is parsed as CommonMark, so a heading in a code block is not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    return [number for token in section if token.type == "inline" for number in _issues(token)]
+    return [
+        number
+        for token in section
+        if token.type == "inline"
+        for number in _block_blockers(token.content)
+    ]
+
+
+# The first words of a block that says that the item waits for no issue, such as `None.` (#6451).
+_NO_BLOCKER_WORDS: Final[frozenset[str]] = frozenset({"none", "no"})
+# The phrases of a block whose issue changes the same code and merges in either order (#6451).
+_ORDER_FREE: Final[tuple[str, ...]] = ("no merge order", "rebase before the second")
+# The words after which the next issue references name a link and no blocker: a parent, a child,
+# a tracker, a related issue, the source of the item, or the issue of an owner decision (#6451).
+_LINK_WORDS: Final[frozenset[str]] = frozenset(
+    {"child", "children", "parent", "tracker", "related", "source", "decision", "decisions"}
+)
+# `Part of #N` names the parent of the item (#6451).
+_PART_OF: Final[tuple[str, str]] = ("part", "of")
+# The words that join the issue references of one link, such as `Related: #1, #2 and #3`.
+_JOIN_WORDS: Final[frozenset[str]] = frozenset({"", "and", "or", "&"})
+# A sentence that names an issue that waits for this item, the parent of the item, or an issue
+# that the item does not wait for (#6451).
+_NOT_A_BLOCKER_RE = re.compile(
+    r"\b(?:needs|waits for|depends on|comes after|blocked by) this item\b"
+    r"|\bthis item blocks\b|\bis the (?:parent|tracker)\b"
+    r"|\bdoes not (?:wait for|depend on)\b|\bis not a dependency\b"
+)
+# The marks that end a sentence, and the marks that can close a sentence after its last word.
+_SENTENCE_ENDS: Final[tuple[str, ...]] = (".", ";", "!", "?")
+_CLOSING_MARKS: Final[str] = ")]\"'*_`"
+
+
+def _block_blockers(text: str) -> list[int]:
+    """The issues that one block of a Dependencies section names as blockers, in order (#6451).
+
+    Each issue reference names a blocker, also in prose such as `#5421 (merged first).` or
+    `Depends on #5380.`, because a missed blocker lets a job take an item too early. A reference
+    names no blocker in these cases: the block starts with `None` or `No`, the block names an issue
+    that merges in either order, its sentence names a reverse link or a parent
+    (`_NOT_A_BLOCKER_RE`), a link word such as `Part of`, `Child`, `Related` or `Source` comes
+    before it in its sentence (`_sentence_blockers`), or it is in parentheses with other words.
+    """
+    words = text.split()
+    if not words or _bare_word(words[0]) in _NO_BLOCKER_WORDS:
+        return []
+    if any(phrase in " ".join(words).casefold() for phrase in _ORDER_FREE):
+        return []
+    return [
+        number
+        for sentence in _sentences(text)
+        if not _NOT_A_BLOCKER_RE.search(" ".join(sentence).casefold())
+        for number in _sentence_blockers(_units(sentence))
+    ]
+
+
+def _bare_word(word: str) -> str:
+    """A word in lower case, stripped of the punctuation of a list and of emphasis."""
+    return word.strip(_REFERENCE_PUNCTUATION + _EMPHASIS_CHARS + '"').casefold()
+
+
+def _sentences(text: str) -> list[list[str]]:
+    """The words of each sentence of a block. A sentence ends at a word that ends with `.`, `;`,
+    `!` or `?`, and at the end of a line, outside parentheses."""
+    sentences: list[list[str]] = [[]]
+    depth = 0
+    for line in text.splitlines():
+        for word in line.split():
+            sentences[-1].append(word)
+            depth = max(0, depth + word.count("(") - word.count(")"))
+            if depth == 0 and word.rstrip(_CLOSING_MARKS).endswith(_SENTENCE_ENDS):
+                sentences.append([])
+        if depth == 0:
+            sentences.append([])
+    return [sentence for sentence in sentences if sentence]
+
+
+def _units(words: Sequence[str]) -> list[tuple[str, ...]]:
+    """The words of a sentence, with the words of each group in parentheses as one unit."""
+    units: list[tuple[str, ...]] = []
+    group: list[str] = []
+    depth = 0
+    for word in words:
+        inside = depth > 0
+        depth = max(0, depth + word.count("(") - word.count(")"))
+        if not inside and "(" not in word:
+            units.append((word,))
+            continue
+        group.append(word)
+        if depth == 0:
+            units.append(tuple(group))
+            group = []
+    if group:
+        units.append(tuple(group))
+    return units
+
+
+def _sentence_blockers(units: Sequence[tuple[str, ...]]) -> list[int]:
+    """The issues that one sentence names as blockers, in order (#6451).
+
+    The references that follow a link word, up to the first other word after them, name a link:
+    `Merge first: #4835, child 8 of #4833` names #4835 and not its parent #4833. A group in
+    parentheses names a blocker only when it holds issue references only, such as `(#123)`; a
+    note such as `(hold: ... of #6519)` names none.
+    """
+    found: list[int] = []
+    linked = named = False
+    for index, unit in enumerate(units):
+        if "(" in unit[0]:
+            inner = [word.strip(_REFERENCE_PUNCTUATION) for word in unit]
+            inner = [word for word in inner if word.casefold() not in _JOIN_WORDS]
+            if not linked and inner and all(_is_reference(word) for word in inner):
+                found.extend(int(word[1:]) for word in inner)
+            continue
+        word = unit[0].strip(_REFERENCE_PUNCTUATION)
+        bare = _bare_word(word)
+        after = _bare_word(units[index + 1][0]) if index + 1 < len(units) else ""
+        if bare in _LINK_WORDS or (bare, after) == _PART_OF:
+            linked, named = True, False
+        elif _is_reference(word):
+            named = linked
+            if not linked:
+                found.append(int(word[1:]))
+        elif linked and named and bare not in _JOIN_WORDS:
+            linked = False
+    return found
+
+
+def _is_reference(word: str) -> bool:
+    """Whether a word stripped of the punctuation of a list is `#` and digits, such as `#12`."""
+    return word.startswith("#") and word[1:].isdigit()
 
 
 def _issues(token: Token) -> list[int]:
     """The issues that an inline token names as `#` and digits, with list punctuation around."""
     words = (word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split())
-    return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
+    return [int(word[1:]) for word in words if _is_reference(word)]
 
 
 @dataclass(frozen=True)
@@ -1295,12 +1423,12 @@ class DependencyGraph:
     A node is an open item of the sequence the graph was built from. The edges of an item are the
     issues that its job record, its Dependencies section and its quoted titles name, less each
     issue that the sequence does not hold as an open item, so a closed dependency holds nothing
-    back. `cycles` gives, for each item that a dependency leads back to, the path from the item
-    through its dependencies back to it.
+    back. `cycle_of` gives, for an item that a dependency leads back to, a shortest path from the
+    item through its dependencies back to it. It searches only for the item that the caller asks
+    for (#6516).
     """
 
     edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
-    cycles: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     @classmethod
     def of(cls, items: Sequence[Item]) -> DependencyGraph:
@@ -1308,20 +1436,12 @@ class DependencyGraph:
         store and sends no request."""
         open_items = [item for item in items if item.state is GitHubState.OPEN]
         numbers = {item.number for item in open_items}
-        edges = {item.number: _edges_of(item, items, numbers) for item in open_items}
-        if not _holds_a_cycle(edges):
-            return cls(edges=edges)
-        cycles = {
-            item.number: path
-            for item in open_items
-            if (path := _path_back(edges, item.number)) is not None
-        }
-        return cls(edges=edges, cycles=cycles)
+        return cls(edges={item.number: _edges_of(item, items, numbers) for item in open_items})
 
     def cycle_of(self, number: int) -> tuple[int, ...] | None:
-        """The path from `number` through its dependencies back to it, or None when no dependency
-        of it leads back."""
-        return self.cycles.get(number)
+        """A shortest path from `number` through its dependencies back to it, or None when no
+        dependency of it leads back."""
+        return _path_back(self.edges, number)
 
 
 def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tuple[int, ...]:
@@ -1335,28 +1455,24 @@ def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tu
     return tuple(dict.fromkeys(number for number in named if number in numbers))
 
 
-def _holds_a_cycle(edges: Mapping[int, Sequence[int]]) -> bool:
-    """Whether a dependency leads back to its item, which the one sort of the graph finds."""
-    try:
-        TopologicalSorter({number: set(names) for number, names in edges.items()}).prepare()
-    except CycleError:
-        return True
-    return False
-
-
 def _path_back(edges: Mapping[int, Sequence[int]], start: int) -> tuple[int, ...] | None:
-    """The first path from `start` through the edges that ends at `start`, or None when no
-    dependency of `start` leads back to it."""
-    seen = {start}
-    stack: list[tuple[int, ...]] = [(start,)]
-    while stack:
-        path = stack.pop()
-        for next_number in edges.get(path[-1], ()):
+    """A shortest path from `start` through the edges that ends at `start`, or None when no
+    dependency of `start` leads back to it (#6516). The breadth-first search reaches each item at
+    its least distance first, in the order of the edges, and keeps one parent for each item, so the
+    first edge back to `start` closes a shortest cycle. It builds the path once, at the end."""
+    parents: dict[int, int] = {}
+    queue = deque([start])
+    while queue:
+        number = queue.popleft()
+        for next_number in edges.get(number, ()):
             if next_number == start:
-                return (*path, start)
-            if next_number not in seen:
-                seen.add(next_number)
-                stack.append((*path, next_number))
+                path = [number]
+                while path[-1] != start:
+                    path.append(parents[path[-1]])
+                return (*reversed(path), start)
+            if next_number not in parents:
+                parents[next_number] = number
+                queue.append(next_number)
     return None
 
 
@@ -1531,6 +1647,31 @@ def _suspected_block(proposal: RefinementProposal) -> str | None:
 def _complete(criterion: AcceptanceCriterion) -> bool:
     """Whether each part of a criterion's requirement block has text."""
     return all(part.strip() for part in criterion.model_dump().values())
+
+
+def form_check_details(proposal: RefinementProposal) -> tuple[str, ...]:
+    """The parts of `proposal` that fail a form check (`form_checks`), named for the model and a
+    person (#6327): the field of the proposal that holds no text, `acceptance_criteria` when a
+    proposal that fits one pull request holds no criterion, or the index and the part of each
+    criterion whose requirement block holds an empty part, such as `acceptance_criteria[0].then`.
+    """
+    details: list[str] = []
+    if not proposal.problem_statement.strip():
+        details.append(JobCheck.PROBLEM_STATEMENT.value)
+    if not proposal.existing_tool.strip():
+        details.append(JobCheck.EXISTING_TOOL.value)
+    if not proposal.fits_one_pr:
+        return tuple(details)
+    if not proposal.acceptance_criteria:
+        details.append(JobCheck.ACCEPTANCE_CRITERIA.value)
+        return tuple(details)
+    for index, criterion in enumerate(proposal.acceptance_criteria):
+        details.extend(
+            f"{JobCheck.ACCEPTANCE_CRITERIA.value}[{index}].{part}"
+            for part, text in criterion.model_dump().items()
+            if not str(text).strip()
+        )
+    return tuple(details)
 
 
 def form_checks(proposal: RefinementProposal) -> list[JobCheck]:
@@ -3067,11 +3208,15 @@ def _job_failure(
     (`DEPENDENCIES`, `unmatched`, #4803), or when another open question stays open after the
     investigation: the tools found no source (`MISSING_SOURCE`), the proposal left a question of
     the body without an answer (`UNANSWERED_QUESTION`), or the investigation ended with no
-    proposal (`INVESTIGATION_STOPPED`). The error names the title and asks for its `#N`, or names
-    the open question, the stop and the calls of the tools, so a person sees what they searched."""
+    proposal (`INVESTIGATION_STOPPED`). The error names the empty part of a form check
+    (`form_check_details`), the title and its `#N`, or the open question, the stop and the calls of
+    the tools, so a person sees what they searched."""
     texts = MESSAGES.roadmap
     checks = form_checks(proposal)
     parts: list[str] = []
+    details = form_check_details(proposal)
+    if details:
+        parts.append(texts.refine_failure_form_parts.format(parts=", ".join(details)))
     if unmatched:
         checks.append(JobCheck.DEPENDENCIES)
         parts.append(texts.refine_failure_dependency.format(title=unmatched[0]))
@@ -3095,14 +3240,7 @@ def _job_failure(
         )
     if not checks:
         return None
-    if not parts:
-        return JobFailure(tuple(checks), texts.refine_failure_form)
-    # The searched calls are what the issue asks for: they keep half of the room at most, and the
-    # stop and the open question give way to them, so a long question cannot cut them off.
-    room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
-    searched_text = searched_text[: room // 2]
-    head = _printable_line(" ".join(parts))[: room - len(searched_text) - 1]
-    return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
+    return JobFailure(tuple(checks), f"{_printable_line(' '.join(parts))} {searched_text}".strip())
 
 
 def _refusal(findings: Sequence[str]) -> JobFailure:
@@ -3110,9 +3248,7 @@ def _refusal(findings: Sequence[str]) -> JobFailure:
     the first open finding is the last error, and the record keeps each finding for the next
     round."""
     lines = tuple(_printable_line(finding) for finding in findings)
-    return JobFailure(
-        (JobCheck.JUDGE_REFUSED,), lines[0][:CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS], lines
-    )
+    return JobFailure((JobCheck.JUDGE_REFUSED,), lines[0], lines)
 
 
 def _tries_on(item: Item, body_hash: str) -> tuple[int, NextStep]:
@@ -3137,10 +3273,16 @@ def _failure_line(failure: JobFailure, tries: int) -> str:
 
 
 def _judge_findings(item: Item) -> list[str]:
-    """The open findings of the review that last refused the proposal for `item`, which the next
-    request gives to the model, or none (#4798)."""
+    """The failure of the earlier try and the open findings of the review that last refused the
+    proposal for `item`, which the next request gives to the model, or none (#4798, #6327). The
+    whole failure text stays, with no character cap, so the model reads the criterion and the part
+    that failed. A finding that the failure repeats joins the list once."""
     recorded = item.job_record.get(RefineRecordKey.JUDGE_FINDINGS) or ""
-    return [line for line in recorded.splitlines() if line.strip()]
+    findings = [line for line in recorded.splitlines() if line.strip()]
+    failure = (item.job_record.get(RefineRecordKey.FAILURE) or "").strip()
+    if failure and failure not in findings:
+        findings.append(failure)
+    return findings
 
 
 def _failed_round(
@@ -3964,13 +4106,7 @@ def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRec
         )
         return {**{key: None for key in keys if key in item.job_record}, **cleared}
     findings: JobRecord = (
-        {
-            RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)[
-                :CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS
-            ]
-        }
-        if failure.findings
-        else {}
+        {RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)} if failure.findings else {}
     )
     return {
         **cleared,
@@ -4190,19 +4326,40 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
 # The result of a refine attempt whose model call or write failed (#4845).
 _ATTEMPT_ERROR: Final = "error"
+# The form checks of a round: a failure that holds one writes the class `form_check` (#6327).
+_FORM_CHECKS: Final[frozenset[JobCheck]] = frozenset(
+    {JobCheck.ACCEPTANCE_CRITERIA, JobCheck.PROBLEM_STATEMENT, JobCheck.EXISTING_TOOL}
+)
+
+
+def _form_check_line(result: RefinedItem) -> tuple[FailureClass | None, dict[str, str] | None]:
+    """The class of a round whose job failure holds a form check, and the name of each failed
+    part, such as `failed_1=acceptance_criteria.0.then`, or the class None and no name (#6327).
+    A result line holds names only, so the brackets of a path are written as dots."""
+    if result.failure is None or not _FORM_CHECKS.intersection(result.failure.checks):
+        return None, None
+    names = {
+        f"failed_{index}": part.replace("[", ".").replace("]", "")
+        for index, part in enumerate(form_check_details(result.proposal), start=1)
+    }
+    return FailureClass.FORM_CHECK, names
 
 
 def _log_attempt(
     repo: str, result: RefinedItem | RefineFailure, write_failure: FailureClass | None = None
 ) -> None:
     """Log the result line of one item of a round: the next step that the item waits on, or
-    `error` with the class of the failed model call or of the failed write (#4845)."""
+    `error` with the class of the failed model call or of the failed write (#4845). A round whose
+    job failure holds a form check writes the class `form_check` and its failed parts (#6327)."""
+    failure: FailureClass | None
+    names: dict[str, str] | None
     if isinstance(result, RefineFailure):
-        outcome, failure = _ATTEMPT_ERROR, result.failure_class
+        outcome, failure, names = _ATTEMPT_ERROR, result.failure_class, None
     elif write_failure is not None:
-        outcome, failure = _ATTEMPT_ERROR, write_failure
+        outcome, failure, names = _ATTEMPT_ERROR, write_failure, None
     else:
-        outcome, failure = result.next_step.value, None
+        outcome = result.next_step.value
+        failure, names = _form_check_line(result)
     prior = result.item.job_record.get(RefineRecordKey.TRIES) or ""
     tries = (
         result.tries
@@ -4220,6 +4377,7 @@ def _log_attempt(
         outcome,
         failure=failure,
         counts=counts,
+        names=names,
     )
 
 
@@ -4403,6 +4561,7 @@ __all__ = [
     "collect_context",
     "comments_without_jobs",
     "dry_run_refine",
+    "form_check_details",
     "form_checks",
     "inspect_checkout",
     "needs_investigation",

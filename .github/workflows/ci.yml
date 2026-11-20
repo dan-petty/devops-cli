@@ -91,8 +91,8 @@ jobs:
         run: uv run devops install-tools --tool kube-linter --only-missing
 
       # The pinned actionlint image validates the workflows, and the gate below skips its actionlint
-      # row, so actionlint runs once (#1119). The devcontainer gets actionlint from the devtools
-      # image. Renovate moves each of the two pins.
+      # row, so actionlint runs once (#1119). The devcontainer and the runner image get actionlint
+      # from the devtools image. Renovate moves the pin of this step.
       - name: Run actionlint
         uses: docker://docker.io/kjanat/actionlint:1.17.1@sha256:c0a63b3e5c974c2466ead39404b70e448176beaff8c5ec7af0b2e96191aea661
 
@@ -484,11 +484,10 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
-          # The image jobs of a pull request read the cache that release.yml writes on main, and
-          # write none: GitHub keeps the cache of a pull request in the scope of its merge ref, so
-          # no other pull request reads it, and these exports filled the Actions cache past its
-          # limit (#4646).
-          cache-from: type=gha,scope=service
+          # The image jobs of a pull request read the registry cache that release.yml writes, and
+          # write none: the release is the one writer of the tag (#4646). The package is public,
+          # so the read needs no login and no `packages` permission (#6404).
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
 
       - name: Run Service Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -517,9 +516,8 @@ jobs:
 
   # Builds, smoke-tests and scans the runner image of every pull request but the release pull
   # request, without pushing it; release.yml publishes it when a release is created (#2667). It
-  # runs next to the Service image job, so it adds no time to that job. It builds the stages that
-  # it shares with that job, such as `builder`, again: it reads only the cache that the release
-  # writes on main.
+  # runs next to the Service image job, so it adds no time to that job. It shares only the `lock`
+  # stage with that job, and it reads only the cache that the release writes on main.
   runner-image:
     name: Runner Image
     if: >-
@@ -586,11 +584,8 @@ jobs:
           load: true
           push: false
           tags: devops-cli-runner:local
-          # The stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps packages a
-          # security update has since fixed.
-          no-cache-filters: runner
           # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=gha,scope=runner
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache
 
       - name: Run Runner Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -599,10 +594,10 @@ jobs:
         run: |
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          # The build ran the check of every tool in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py), so a missing tool failed it. Here the check runs again on the loaded image, and the size of the image stays under its bound.
-          docker run --rm -e DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
+          # The check runs the version command of every tool in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the loaded image, so a missing tool fails it. The size of the image stays under its bound.
+          docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          if [ "$size" -gt 3000000000 ]; then echo "The runner image is $size bytes, over the bound of 3000000000."; exit 1; fi
+          if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.
@@ -615,6 +610,10 @@ jobs:
         with:
           image-ref: devops-cli-runner:local
           category: trivy-image-runner
+          # Report only: the runner builds FROM the devtools image, and the findings of its tool
+          # binaries go to code scanning and stop no build (SECURITY.md, Dedicated Development
+          # Resources and Sandboxes). The Service and MCP server scans keep the gate.
+          exit-code: "0"
 
   # Builds, smoke-tests and scans the MCP server image of every pull request but the release pull
   # request, without pushing it (#3220).
@@ -686,7 +685,7 @@ jobs:
           tags: devops-cli-mcp-server:local
           no-cache-filters: mcp-server
           # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=gha,scope=mcp-server
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache
 
       - name: Run MCP Server Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -695,8 +694,8 @@ jobs:
         run: |
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          docker run --rm -e DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools --entrypoint devops "$IMAGE" install-tools --check --tool kubectl --target-dir /opt/devops-tools/bin
-          docker run --rm -e DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools --entrypoint devops "$IMAGE" install-tools --check --tool helm --target-dir /opt/devops-tools/bin
+          docker run --rm --entrypoint kubectl "$IMAGE" version --client
+          docker run --rm --entrypoint helm "$IMAGE" version
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
 

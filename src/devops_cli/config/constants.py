@@ -3479,15 +3479,9 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # records it as `refine.rules`. A wait on a person that older rules set gets one new round: the
 # record holds an older version, or, when it holds none, refine's last comment is older (#4795). A
 # change to a rule that sets a next step sets a later time in its pull request. This one is the
-# release of the rules of #3632 (0.72.0).
-CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 6, 19, 25, 37, tzinfo=UTC)
-# The most characters of the last error that the job record of a failed refine round keeps. The
-# text holds the calls of the read tools that found no source (#3632).
-CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS: Final[int] = 300
-# The most characters of the open findings of a refused review that the job record of a refine
-# round keeps for the next round (#4798). The verification pass lists a few findings, each with its
-# quote.
-CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS: Final[int] = 2000
+# blocker rule of the Dependencies section (#6451): it removes false dependencies, so a wait on a
+# person that a false dependency set, such as a dependency cycle, gets one new round.
+CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 20, 14, 3, 8, tzinfo=UTC)
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two
@@ -4033,10 +4027,11 @@ CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS: Final[int] = 3600
 # runs again gets the time that is left.
 CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS: Final[int] = 10800
 CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS: Final[int] = 1800
-# The keys of Secret devops-cli that a stage Job reads, each in the variable of its name: the
-# private key of the App and the key of the gateway. The admission policy `roadmap-service-jobs`
-# admits these keys and no other. The MCP client of the stage job is off (`roadmap.stage.mcp`),
-# and the MCP server accepts one token for every role, so the pod gets no MCP token.
+# The keys of Secret devops-cli that a stage Job and a runner Job (#6518) read, each in the
+# variable of its name: the private key of the App and the key of the gateway. The admission
+# policy `roadmap-service-jobs` admits these keys in `valueFrom` and no other. The MCP clients of
+# the stage and implement jobs are off (`roadmap.stage.mcp`, `roadmap.implement.mcp`), and the MCP
+# server accepts one token for every role, so the pods get no MCP token.
 CONST_ROADMAP_STAGE_JOB_SECRET_KEYS: Final[tuple[str, ...]] = (
     "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
     "DEVOPS_CLI_AI_API_KEY",

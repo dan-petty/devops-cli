@@ -6,7 +6,7 @@
 
 The command checks seven prerequisites in this order:
 
-1. **Issues are turned on.** GitHub must enable the issues feature for the repository (`has_issues: true`). When missing, the command outputs the `devops gh api -X PATCH` command that a person can run. The command itself never patches the repository.
+1. **Issues are turned on.** GitHub must enable the issues feature for the repository (`has_issues: true`). When missing, the command outputs the `devops gh api -X PATCH repos/<repo> -f has_issues=true` command that a person can run. The command itself never patches the repository.
 2. **The App devops-cli-service is installed on the repository.** When the process acts as the App, the command checks whether the repository is in the installation (`GET /installation/repositories`). When the process acts as a user, the command reports `not readable as <login>` and sends no installation request.
 3. **`.github/labels.yml` is on the default branch and is valid.** The file must exist, must be valid YAML, and must list labels with name and color. It holds the labels of the repository only, such as `scope/*`.
 4. **Every workflow label and every label of `.github/labels.yml` exists on GitHub.** The package declares the workflow labels: the labels that the roadmap code reads or writes, such as `type/*`, `status/*`, `owner/*` and `verdict/fix-plan` (`src/devops_cli/roadmap/workflow_labels.py`). The command compares them and the labels of the file with the repository labels. When row 3 is missing or not readable, it compares the workflow labels only. The output lists each missing label. Differing labels are listed and kept.

@@ -1259,6 +1259,7 @@ class DocsMessages:
     argv_unknown_command: str = "unknown command '{token}' under '{command_path}'"
     argv_unknown_option: str = "unknown option '{token}' for '{command_path}'"
     argv_unexpected_argument: str = "unexpected extra argument '{token}' for '{command_path}'"
+    argv_missing_required: str = "missing required parameter '{token}' for '{command_path}'"
     unsupported_format: str = (
         "Unsupported documentation format: {format}. Supported: markdown, json"
     )
@@ -3053,6 +3054,7 @@ class RoadmapMessages:
     # A job failure (#3632): the line of the report and of `explain`, and the parts of its error.
     refine_failure_line: str = "{checks}: {tries} of {limit} tries. Last error: {error}"
     refine_failure_form: str = "The reply of the model failed the form check."
+    refine_failure_form_parts: str = "The reply of the model failed the form check: {parts}."
     refine_failure_open: str = "Open: {question}"
     refine_failure_dependency: str = (
         'The Dependencies section names "{title}", and no single issue has this title. '
@@ -4560,6 +4562,13 @@ class RoadmapMessages:
     stage_verify_return: str = (
         "A model review of the plan found these defects. Fix each one, or show with a quote "
         "from the inputs that it is no defect:\n{findings}"
+    )
+    # The problem of a return whose reply broke the reply schema (#6357): the problem of the plan
+    # in `previous` again, then the violations of the reply that the job did not use.
+    stage_schema_return: str = (
+        "{problem}\n\nYour last reply did not agree with the reply schema, so the job did not use "
+        "it and sends the plan in `previous` again. Fix the problem above in a reply that agrees "
+        "with the schema. {violations}"
     )
     stage_comment_findings: str = (
         "\n\nA model review of the plan found these points. They stop no draft, and a person "

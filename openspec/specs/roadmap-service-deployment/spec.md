@@ -13,19 +13,19 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.max_ret
 - **THEN** the rendered config validates as settings with `ai.max_retries` 1
 
 ### Requirement: The Service image runs the pinned OpenSpec
-The Service image of `Dockerfile` SHALL carry the `node` binary of a digest-pinned `node` image whose major version is the one in `.node-version`, and the OpenSpec that `devops install-tools --tool openspec` installs from the lockfile of `src/devops_cli/tools_lock/openspec`. The directory of its `openspec` link SHALL be on the `PATH` of the service stage. The stage SHALL set `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1` and `DO_NOT_TRACK=1`.
+The Service image of `Dockerfile` SHALL carry the `node` binary of a digest-pinned `node` image whose major version is the one in `.node-version`, and the OpenSpec of the devtools image that the `Dockerfile` pins by digest. The `openspec` stage SHALL keep OpenSpec and only the packages that it needs, and `/usr/local/bin/openspec` SHALL link to it. The stage SHALL set `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1` and `DO_NOT_TRACK=1`.
 
-#### Scenario: OpenSpec comes from the lockfile
-- **WHEN** the builder stage, the `service-deps` stage and the service stage of `Dockerfile` are read
-- **THEN** the builder stage runs `devops install-tools --tool openspec` with a `--target-dir`, `service-deps` copies the tool directory from the builder to the same path, the service stage builds on `service-deps`, and that `--target-dir` is on the `PATH` of the service stage
+#### Scenario: OpenSpec comes from the devtools image
+- **WHEN** the smoke test of the Service Image job runs `docker run --rm --entrypoint openspec "$IMAGE" --version`
+- **THEN** the command prints the OpenSpec version of the devtools image and exits 0
 
 #### Scenario: The telemetry is off
 - **WHEN** the environment of the service stage is read
 - **THEN** it sets `OPENSPEC_TELEMETRY` to 0, `OPENSPEC_NO_UPDATE_CHECK` to 1 and `DO_NOT_TRACK` to 1
 
 #### Scenario: The Node runtime is the one of CI
-- **WHEN** the `node` stage of `Dockerfile` is read
-- **THEN** its image is pinned by digest and its major version equals the content of `.node-version`, and the builder, `runner-deps` and `service-deps` stages copy the `node` binary from it
+- **WHEN** a person runs `docker run --rm --entrypoint node <service image> --version`
+- **THEN** the major version equals the content of `.node-version`, because `service-deps` copies the `node` binary from the digest-pinned `node` stage
 
 ### Requirement: A deploy keeps the hourly request budget
 The ConfigMap that a deploy renders SHALL hold `service.github_requests_per_hour` when the active settings set it, and SHALL hold no such key when they do not.

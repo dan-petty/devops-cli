@@ -55,7 +55,11 @@ it stays and no finding has the fix class `never` (`gate_extension`, #4851), onc
 group that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
 group has a test and changes a path under `src/`, and an `other` group has no test and one of
 `verify` and `process`) fails the schema of the reply, and `chat_structured` sends it back once
-(`_REPLY_RETURNS`). A reply that names a path that is no file of the staged commit, and that no
+(`_REPLY_RETURNS`). A reply to a return or to a repair round that breaks the schema after that
+retry goes back to the planner with the earlier plan, its problem and the violations, in the same
+returns of `roadmap.stage.gate_returns`, and the item ends with the class `parser` once they are
+spent (#6357). A first reply has no earlier plan, so its schema failure ends the item. A reply
+that names a path that is no file of the staged commit, and that no
 group up to its own creates (`stage_paths`), is sent back as a refused reply: the problem lists the
 files with the same name, and a missing path after the last return stops the item, so no draft
 opens. The groups of a split are checked in the same
@@ -198,6 +202,7 @@ from devops_cli.roadmap.pull_form import (
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.pull_retry import BODY_TASK, BodyReply
 from devops_cli.roadmap.refine.refine import (
+    DependencyGraph,
     NextStep,
     body_dependencies,
     collect_context,
@@ -768,10 +773,16 @@ class _Judge:
         """Every Item, open and closed, read once for the titles that a body names (#4803)."""
         return self._store.items()
 
+    @cached_property
+    def _graph(self) -> DependencyGraph:
+        """The dependency graph of the items, built once for the selection, on the first item that
+        has an open dependency (#6516)."""
+        return DependencyGraph.of(self._items)
+
     def _dependency(self, item: Item) -> str | None:
-        """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
-        quoted title (#4803), from the shared check (#4009)."""
-        return open_dependency(item, self._store, self._items)
+        """An open issue that the Dependencies section of the body names as a blocker `#N` (#2654,
+        #6451) or by its quoted title (#4803), from the shared check (#4009)."""
+        return open_dependency(item, self._store, self._items, graph=lambda: self._graph)
 
     def _recorded_blocker(self, item: Item) -> str | None:
         """An open item that the record of a refine round or of the stage job names as the blocker
@@ -1869,17 +1880,21 @@ class _Planner:
         floor: int,
         proposal: StageProposal,
         invalid: str,
+        *,
+        used: int = 0,
     ) -> StagedChange | OverBudget | FalsePremise:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
         `roadmap.stage.gate_returns` times, and once more when `_extension` grants an extra return
         (#4851). A reply that stays refused ends the item, and the file of refused replies holds
-        each of them (#4348, #4312). Once the Service stops, no return starts: a return is a new
+        each of them (#4348, #4312). A reply to a return that breaks the reply schema goes back
+        as `_ask_return` gives (#6357). Once the Service stops, no return starts: a return is a new
         plan run of model requests, which the cut at the end of the drain does not stop (#4900).
-        `floor` is the number of runs before the ask. `invalid` is the failure text, with
-        `{returns}`, `{stop}` and `{problem}`."""
+        `floor` is the number of runs before the ask. `used` counts the returns that the ask of
+        `proposal` spent on schema failures, so all returns share one budget (#6357). `invalid`
+        is the failure text, with `{returns}`, `{stop}` and `{problem}`."""
         refused = self._refused
-        returns = 0
+        returns = used
         # True from the grant of the extra return until the checks judge its reply (#4851).
         extended = False
         try:
@@ -1889,7 +1904,11 @@ class _Planner:
                 outcome = self._settle(target, proposal, request, trace=self._trace_facts())
                 if isinstance(outcome, _Refused):
                     proposal, outcome = self._rewrite_mechanical(target, proposal, request, outcome)
-                self._note_gates(target, returns, outcome)
+                # A return of this call follows a reply that the checks refused in it, so only
+                # then is a reply before this one to compare with. The schema returns of `used`
+                # follow no such reply.
+                compared = returns > used
+                self._note_gates(target, returns, outcome, compared=compared)
                 if extended:
                     extended = False
                     passed = not isinstance(outcome, _Refused)
@@ -1904,7 +1923,7 @@ class _Planner:
                         findings=self._last_findings(),
                     )
                     return outcome
-                before = self._last_findings() if returns else None
+                before = self._last_findings() if compared else None
                 self._note_refused(target, floor, "refused")
                 refused.append((outcome.reply, outcome.problem))
                 if returns >= self._gate_returns:
@@ -1927,12 +1946,43 @@ class _Planner:
                 raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
                 returns += 1
                 self._returns += 1
-                proposal = self._ask_plan(
-                    target, key, refused, outcome.returned(request, self._window)
+                proposal, returns = self._ask_return(
+                    target, key, request, outcome.reply, outcome.problem, returns
                 )
         finally:
             if extended:
                 self._end_extension(target, returns, ExtensionEnd.ENDED)
+
+    def _ask_return(
+        self,
+        target: StageTarget,
+        key: str | None,
+        request: StageRequest,
+        previous: StageProposal,
+        problem: str,
+        returns: int,
+    ) -> tuple[StageProposal, int]:
+        """The reply to a return of `previous`, a plan that fits the reply schema, with `problem`,
+        and the returns of the call after it, from `returns`. A reply that breaks the schema past
+        its output retry loses no work: `previous` goes back again with `problem` and the
+        violations, as one more return of `roadmap.stage.gate_returns`. A schema failure once
+        `returns` reaches the setting stays, and ends the item with the class `parser` (#6357).
+        Once the Service stops, no return starts (#4900). The earlier plan is bounded when the
+        request would pass the tool-removal limit (#3529)."""
+        text = problem
+        while True:
+            ask = bound_previous(request, previous.model_dump(), text, self._window)
+            try:
+                return self._ask_plan(target, key, self._refused, ask), returns
+            except StructuredOutputValidationError as exc:
+                if returns >= self._gate_returns:
+                    raise
+                raise_if_service_stops(f"return {returns + 1} of the plan of #{target.item.number}")
+                returns += 1
+                self._returns += 1
+                text = MESSAGES.roadmap.stage_schema_return.format(
+                    problem=problem, violations=violation_summary(exc)
+                )
 
     def _rewrite_mechanical(
         self,
@@ -2077,10 +2127,13 @@ class _Planner:
         target: StageTarget,
         returns: int,
         outcome: StagedChange | OverBudget | FalsePremise | _Refused,
+        *,
+        compared: bool,
     ) -> None:
         """Observe the count of findings of one reply that the checks judged, under its number in
-        the plan: 0 for the first reply, and 1 more for each return. A reply after a return also
-        logs how its findings changed from those of the reply before it (#4846)."""
+        the plan: 0 for the first reply, and 1 more for each return. With `compared`, the reply
+        follows a reply that the checks refused, and it also logs how its findings changed from
+        those of the reply before it (#4846)."""
         findings = self._findings.get(outcome.problem, ()) if isinstance(outcome, _Refused) else ()
         if self._pull_repo:
             emit(
@@ -2088,7 +2141,7 @@ class _Planner:
                 len(findings),
                 {"repo": self._pull_repo, "reply": str(returns)},
             )
-        if returns:
+        if compared:
             counts = return_counts(self._last_findings(), findings)
             log_gate_findings(self._pull_repo, target.item.number, returns, counts)
 
@@ -2207,15 +2260,21 @@ class _Planner:
     ) -> StagedChange | OverBudget | FalsePremise:
         """The plan of one repair round: the planner gets the plan and each open finding of the
         review. Its revision goes back with the problem when the checks refuse it, as a first reply
-        does, and a revision that stays refused is kept and stops the item (#4348). The earlier plan
-        is bounded when the request would pass the tool-removal limit (#3529)."""
-        again = bound_previous(
-            request, change.proposal.model_dump(), return_problem(open_), self._window
-        )
+        does, and a revision that stays refused is kept and stops the item (#4348). A revision that
+        breaks the reply schema goes back with the plan of the round, as `_ask_return` gives, and
+        its returns count in the returns of the revision (#6357)."""
         floor = len(self._toolbox_traces())
-        revised = self._ask_plan(target, key, self._refused, again)
+        revised, used = self._ask_return(
+            target, key, request, change.proposal, return_problem(open_), 0
+        )
         return self._returned(
-            target, request, key, floor, revised, MESSAGES.roadmap.stage_invalid_revision
+            target,
+            request,
+            key,
+            floor,
+            revised,
+            MESSAGES.roadmap.stage_invalid_revision,
+            used=used,
         )
 
     def _input_of(
@@ -2429,9 +2488,9 @@ class _Planner:
         return [self._specs[name].request_entry(name) for name in names]
 
     def _declared_dependencies(self, body: str) -> list[dict[str, Any]] | None:
-        """The issues that the body declares as dependencies, each with its number and, when the
-        lookup holds the issue, its title (#4008). A dependency outside the lookup keeps its
-        number with no title."""
+        """The blockers that the Dependencies section of the body names (#6451), each with its
+        number and, when the lookup holds the issue, its title (#4008). A dependency outside the
+        lookup keeps its number with no title."""
         entries = []
         for number in body_dependencies(body):
             entry: dict[str, Any] = {"number": number}

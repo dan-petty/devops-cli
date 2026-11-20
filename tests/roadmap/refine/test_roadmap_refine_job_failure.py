@@ -17,10 +17,7 @@ from typing import Any
 import pytest
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
-    CONST_ROADMAP_REFINE_MAX_TRIES,
-)
+from devops_cli.config.constants import CONST_ROADMAP_REFINE_MAX_TRIES
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import (
@@ -38,6 +35,7 @@ from devops_cli.roadmap.refine.refine import (
 )
 from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.scripted_model import Script, call
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -56,6 +54,9 @@ _WHOLE = RefinementProposal(
     acceptance_criteria=[_CRITERION],
 )
 _NO_CRITERION = _WHOLE.model_copy(update={"acceptance_criteria": []})
+_EMPTY_THEN = _WHOLE.model_copy(
+    update={"acceptance_criteria": [_CRITERION.model_copy(update={"then": ""})]}
+)
 _OPEN_FACT = QuestionAnswer(question="Where is the sample function?", answer="?", kind="fact")
 _UNSOURCED = _WHOLE.model_copy(update={"key_questions": [_OPEN_FACT]})
 _SOURCED = _WHOLE.model_copy(
@@ -78,14 +79,16 @@ _PROPOSED_DECISION = QuestionAnswer(
 
 class _Client:
     """The proposal step's client: it answers each request from `proposals`, by the item's number,
-    and counts the requests."""
+    counts the requests and keeps each request document."""
 
     def __init__(self, proposals: dict[int, RefinementProposal]) -> None:
         self.proposals = proposals
         self.requests = 0
+        self.prompts: list[str] = []
 
     def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         self.requests += 1
+        self.prompts.append(prompt)
         return self.proposals[json.loads(prompt)["number"]]
 
 
@@ -163,7 +166,7 @@ def test_a_proposal_that_fails_a_form_check_makes_no_person_wait_and_counts_the_
 ) -> None:
     number = _seed(store)
 
-    plan = _round(store, git_repo, {number: _NO_CRITERION})
+    plan = _round(store, git_repo, {number: _EMPTY_THEN})
 
     refined = plan.refined_items[0]
     assert (
@@ -179,9 +182,63 @@ def test_a_proposal_that_fails_a_form_check_makes_no_person_wait_and_counts_the_
             "refine.next_step": "retry",
             "refine.tries": "1",
             "refine.failed_check": "acceptance_criteria",
-            "refine.failure": "The reply of the model failed the form check.",
+            "refine.failure": "The reply of the model failed the form check: "
+            "acceptance_criteria[0].then.",
         },
     )
+
+
+def test_a_form_check_failure_names_the_criterion_and_part(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """A form check names the field that holds no text, and the index and the part of a criterion
+    that does (#6327)."""
+    number = _seed(store)
+
+    plan = _round(store, git_repo, {number: _EMPTY_THEN})
+
+    failure = _record(store, number)["refine.failure"]
+    assert plan.refined_items[0].next_step == NextStep.RETRY
+    assert failure is not None
+    assert "acceptance_criteria[0].then" in failure
+    # Imported here, so that this module imports on the base commit and the test fails there on an
+    # assertion rather than at collection.
+    from devops_cli.roadmap.refine.refine import form_check_details
+
+    assert form_check_details(_EMPTY_THEN) == ("acceptance_criteria[0].then",)
+
+
+def test_form_check_details_names_each_empty_field_and_no_criterion_of_a_split() -> None:
+    """`form_check_details` names an empty problem statement and an empty existing tool, and a
+    proposal that needs a split has no criterion to name (#6327)."""
+    empty_fields = _EMPTY_THEN.model_copy(update={"problem_statement": "", "existing_tool": ""})
+    split = _WHOLE.model_copy(update={"fits_one_pr": False, "split_offs": ["Part one."]})
+    from devops_cli.roadmap.refine.refine import form_check_details
+
+    assert (
+        form_check_details(empty_fields),
+        form_check_details(split),
+    ) == (
+        ("problem_statement", "existing_tool", "acceptance_criteria[0].then"),
+        (),
+    )
+
+
+def test_an_empty_then_reaches_the_record_and_the_next_request(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """The empty part of the criterion stays in the record, and the next request carries the whole
+    failure of the earlier try (#6327)."""
+    number = _seed(store)
+    client = _Client({number: _EMPTY_THEN})
+
+    _round(store, git_repo, {}, client=client)
+    failure = _record(store, number)["refine.failure"]
+    _round(store, git_repo, {}, client=client)
+
+    assert failure is not None
+    assert "acceptance_criteria[0].then" in failure
+    assert json.loads(client.prompts[-1])["judge_findings"] == [failure]
 
 
 def test_a_later_round_tries_the_item_again_and_the_limit_ends_the_tries(
@@ -291,7 +348,8 @@ def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
     git_repo: Path, store: InMemoryRoadmapStore
 ) -> None:
     number = _seed(store)
-    long_fact = _OPEN_FACT.model_copy(update={"question": "Where is the sample function? " * 20})
+    question = " ".join(["Where is the sample function?"] * 20)
+    long_fact = _OPEN_FACT.model_copy(update={"question": question})
     long_proposal = _WHOLE.model_copy(update={"key_questions": [long_fact]})
     script = Script(call("search_code", text="no_such_symbol"), long_proposal)
 
@@ -299,8 +357,43 @@ def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
 
     failure = _record(store, number)["refine.failure"]
     assert failure is not None
-    assert len(failure) <= CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
+    assert question in failure
     assert failure.endswith("Searched: search_code 'no_such_symbol'")
+
+
+def test_the_next_request_carries_a_failure_longer_than_2000_characters(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """No character cap cuts the failure of an earlier try, so the next request carries the whole
+    text once (#6327)."""
+    number = _seed(store)
+    question = " ".join(["Where is the sample function?"] * 100)
+    long_fact = _OPEN_FACT.model_copy(update={"question": question})
+    long_proposal = _WHOLE.model_copy(update={"key_questions": [long_fact]})
+    script = Script(call("search_code", text="no_such_symbol"), long_proposal)
+    client = _Client({number: long_proposal})
+
+    _round(store, git_repo, {}, script, client=client)
+    failure = _record(store, number)["refine.failure"]
+    _round(store, git_repo, {}, script, client=client)
+
+    assert failure is not None
+    assert len(failure) > 2000
+    assert json.loads(client.prompts[-1])["judge_findings"] == [failure]
+
+
+def test_no_character_cap_cuts_a_refine_failure() -> None:
+    """Neither cap of a refine failure stays in the code, so the whole failure of an earlier try
+    reaches the record and the next request (#6327)."""
+    sources = (
+        REPO_ROOT / "src" / "devops_cli" / "config" / "constants.py",
+        REPO_ROOT / "src" / "devops_cli" / "roadmap" / "refine" / "refine.py",
+    )
+
+    text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+    assert "CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS" not in text
+    assert "CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS" not in text
 
 
 def test_an_investigation_that_runs_out_of_output_retries_is_a_job_failure(
