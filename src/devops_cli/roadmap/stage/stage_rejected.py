@@ -165,14 +165,16 @@ class ClosedPlan:
     closed_at: datetime
     reason: IssueComment | None
 
-    def rejection(self, tree: Collection[str] | None = None) -> tuple[RejectedPlan, str]:
+    def rejection(self, tracked_paths: Collection[str] | None = None) -> tuple[RejectedPlan, str]:
         """The record and the comment of the rejection. The hash is the one of the text that the
         plan came from (`stage.text_hash`), so an edit made before the job looks at the closed
         pull request ends the hold. A record that holds none has the hash of the text now. Only
-        the paths that `tree`, the files of the default branch, holds reach the record, so a
-        decimal, a version, a dotted setting or a domain takes no slot (#6444)."""
+        the paths that `tracked_paths`, the files of the default branch, holds reach the record,
+        so a decimal, a version, a dotted setting or a domain takes no slot (#6444)."""
         paths = (
-            text_paths(_reason_text(self.reason), tree=tree) if self.reason is not None else []
+            text_paths(_reason_text(self.reason), tracked_paths=tracked_paths)
+            if self.reason is not None
+            else []
         )
         planned = self.item.job_record.get(StageRecordKey.TEXT_HASH)
         plan = RejectedPlan(

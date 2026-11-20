@@ -23,9 +23,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cl
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `tests/support/roadmap_refine.py`, `tests/roadmap/refine/test_roadmap_refine_recorded_wait.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap/refine/test_roadmap_refine_recorded_wait.py`.
 
-- [x] 3.1 `test_a_record_written_before_the_tree_filter_gets_the_paths_of_the_tree` in `tests/roadmap/refine/test_roadmap_refine_recorded_wait.py`: an item waits on a person with no `refine.block_paths`, and its record, which a round wrote before the change for the comments that the issue holds now, holds `refine.wait_refs` `0.202,src/sample.py`. A round records `src/sample.py` alone, reads no commits of `0.202`, and makes no model call. On the base, `_recorded_reads` gives the record as it is, so the record keeps `0.202,src/sample.py` and `path_changed_at` reads `0.202`
+- [x] 3.1 `test_a_record_written_before_the_tree_filter_gets_the_paths_of_the_tree` in `tests/roadmap/refine/test_roadmap_refine_recorded_wait.py`: an item waits on a person with no `refine.block_paths`, and its record, which a round wrote before the change for the comments that the issue holds now, holds the decimal `0.202` and the file `sample.py` of the test clone in `refine.wait_refs`. A round records the file alone, reads no commits of `0.202`, and makes no model call. On the base, `_recorded_reads` gives the record as it is, so the record keeps `0.202` and `path_changed_at` reads it
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_recorded_wait.py` fails on the base
-- [ ] 3.2 Write the failing case first. In `src/devops_cli/roadmap/refine/refine.py`, give `_recorded_reads` the set `tracked_paths` and return None when the recorded `refine.wait_refs` holds a path that the set lacks, so `_wait_state` reads the comments once and `_read_marks` gives the filtered references. Give `_named_cause_ended` and `_person_wait_over` the set too, and remove each recorded path that the set lacks before the read of its commits
+- [x] 3.2 Write the failing case first. In `src/devops_cli/roadmap/refine/refine.py`, give `_recorded_reads` the set `tracked_paths` and return None when the recorded `refine.wait_refs` holds a path that the set lacks, so `_wait_state` reads the comments once and `_read_marks` gives the filtered references. Give `_named_cause_ended` and `_person_wait_over` the set too, and remove each recorded path that the set lacks before the read of its commits
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_recorded_wait.py tests/roadmap/refine/test_roadmap_refine_person_wait.py` passes
 
 ## 4. Keep each path of a run of paths
@@ -34,7 +34,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `tests/roadmap
 
 - [x] 4.1 `test_a_run_of_paths_keeps_each_path` in `tests/roadmap/refine/test_roadmap_refine_person_wait.py`: `text_paths('Read a.py b.py c.py d.py')` gives `a.py`, `b.py`, `c.py` and `d.py`. On the base, the trailing boundary of `_CITED_PATH_RE` consumes the space before `b.py` and `d.py`, so the call gives `['a.py', 'c.py']`
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_person_wait.py` fails on the base
-- [ ] 4.2 Write the failing case first. In `src/devops_cli/roadmap/refine/refine.py`, make the trailing boundary of `_CITED_PATH_RE` the lookahead `(?=[\s\)\]`:.,]|$)`, and keep the path group and the line groups
+- [x] 4.2 Write the failing case first. In `src/devops_cli/roadmap/refine/refine.py`, make the trailing boundary of `_CITED_PATH_RE` the lookahead `(?=[\s\)\]`:.,]|$)`, and keep the path group and the line groups
   - Verification: `$ uv run devops ci test tests/roadmap/refine` passes
 
 ## 5. Read the tree of the default branch in explain, and list the tree reads in the dry runs

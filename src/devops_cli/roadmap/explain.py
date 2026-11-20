@@ -151,12 +151,12 @@ class _Reads(NamedTuple):
 
 
 def _refine_verdict(
-    store: RoadmapStore, item: Item, tree: Collection[str] | None = None
+    store: RoadmapStore, item: Item, tracked_paths: Collection[str] | None = None
 ) -> JobVerdict:
     """Whether a round of the refine job takes the item, and, when it does not, why: the rule of
-    `refine_left_out`, which the round uses (#3483). `tree` is the set of paths that the clone
-    tracks, which keeps a value that is no path out of the references of a wait (#6444)."""
-    why = refine_left_out(store, item, tree=tree)
+    `refine_left_out`, which the round uses (#3483). `tracked_paths` is the set of files of the
+    default branch, which keeps a value that is no path out of the references of a wait (#6444)."""
+    why = refine_left_out(store, item, tracked_paths=tracked_paths)
     return JobVerdict(True) if why is None else JobVerdict(False, why)
 
 
@@ -287,7 +287,7 @@ def explain_item(
             repo, number, item.title if item else "", refusal, refusal, refusal, totals=totals
         )
     checkout = Path(source)
-    tree = frozenset(tree_files(checkout, "HEAD", operation=_GIT_OPERATION))
+    tracked_paths = frozenset(tree_files(checkout, "HEAD", operation=_GIT_OPERATION))
     stage_settings = load_settings().roadmap.stage
     reads = _Reads(
         read_remote_heads(checkout), read_planned_changes(checkout, operation=_GIT_OPERATION)
@@ -307,7 +307,7 @@ def explain_item(
         repo,
         number,
         item.title,
-        _refine_verdict(store, item, tree),
+        _refine_verdict(store, item, tracked_paths),
         _stage_verdict(
             store,
             repo=repo,

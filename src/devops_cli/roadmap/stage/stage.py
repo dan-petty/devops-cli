@@ -3166,13 +3166,15 @@ def _rejections(
     pushed = set(remote_branches(heads))
     staged = staged_plans(store.items(), planned, item_number)
     read = closed_plans(store, repo, staged, stop=(*_STOP_THE_RUN, GitHubRateLimitError))
-    tree: list[str] | None = None
+    tracked_paths: frozenset[str] | None = None
     found: list[Rejection] = []
     kept: list[KeptBranch] = []
     for closed in read.closed:
-        if tree is None:
-            tree = tree_files(source, f"origin/{planned.default}", operation=_GIT_OPERATION)
-        plan, comment = closed.rejection(tree)
+        if tracked_paths is None:
+            tracked_paths = frozenset(
+                tree_files(source, f"origin/{planned.default}", operation=_GIT_OPERATION)
+            )
+        plan, comment = closed.rejection(tracked_paths)
         branch = closed.item.job_record.get(StageRecordKey.BRANCH) or ""
         delete, tip = None, ""
         if branch in pushed:

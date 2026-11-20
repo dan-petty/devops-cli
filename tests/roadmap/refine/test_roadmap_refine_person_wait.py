@@ -217,7 +217,10 @@ def test_a_wait_text_keeps_the_first_five_paths_of_the_tree() -> None:
     slots."""
     paths = [f"src/file_{index}.py" for index in range(6)]
 
-    assert text_paths(" ".join(f"`{path}`" for path in paths), tree=frozenset(paths)) == paths[:5]
+    assert (
+        text_paths(" ".join(f"`{path}`" for path in paths), tracked_paths=frozenset(paths))
+        == paths[:5]
+    )
 
 
 def test_a_path_that_a_period_or_a_comma_follows_is_a_path() -> None:
@@ -225,8 +228,8 @@ def test_a_path_that_a_period_or_a_comma_follows_is_a_path() -> None:
     tree = frozenset({"src/devops_cli/commands/ai.py", "AGENTS.md"})
 
     assert (
-        text_paths("Read src/devops_cli/commands/ai.py.", tree=tree),
-        text_paths("See AGENTS.md,", tree=tree),
+        text_paths("Read src/devops_cli/commands/ai.py.", tracked_paths=tree),
+        text_paths("See AGENTS.md,", tracked_paths=tree),
     ) == (["src/devops_cli/commands/ai.py"], ["AGENTS.md"])
 
 
@@ -237,7 +240,9 @@ def test_a_run_of_paths_keeps_each_path() -> None:
 
 def test_a_directory_of_the_tree_is_a_path() -> None:
     """The tree holds a directory through the paths under it."""
-    assert text_paths("foo.bar holds the record", tree=frozenset({"foo.bar/x.py"})) == ["foo.bar"]
+    assert text_paths("foo.bar holds the record", tracked_paths=frozenset({"foo.bar/x.py"})) == [
+        "foo.bar"
+    ]
 
 
 def test_a_false_path_of_a_wait_text_reads_no_commits(git_repo: Path) -> None:
@@ -260,8 +265,10 @@ def test_the_explain_verdict_reads_the_tree_for_the_paths_of_the_wait(
     number = seed_person_wait(store, f"Should `{CITED_PATH}:2` return a name?")
     store.seed_commit(CITED_PATH, at=refine_comment_at(store, number) + timedelta(minutes=5))
 
-    held = refine_left_out(store, require_item(store, number), tree=frozenset())
-    ended = refine_left_out(store, require_item(store, number), tree=frozenset({CITED_PATH}))
+    held = refine_left_out(store, require_item(store, number), tracked_paths=frozenset())
+    ended = refine_left_out(
+        store, require_item(store, number), tracked_paths=frozenset({CITED_PATH})
+    )
 
     assert (held is not None, ended) == (True, None)
 
