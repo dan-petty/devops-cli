@@ -59,14 +59,26 @@ spec:
                 capabilities:
                   drop:
                     - ALL
-              envFrom:
-                - secretRef:
-                    name: devops-cli
               env:
                 - name: DEVOPS_CLI_CONFIG
                   value: /config/devops-cli.yaml
                 - name: DEVOPS_CLI_DATA_DIR
                   value: /home/devops/.data
+                # Only the keys of Secret devops-cli that the implement and fix-checks jobs read
+                # (#6518), the keys of a stage Job (`CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`): the
+                # job process acts as the App and calls the gateway. No other key reaches the pod.
+                # The MCP client of the implement job is off (`roadmap.implement.mcp`), so the
+                # change that turns it on adds its key.
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                - name: DEVOPS_CLI_AI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_AI_API_KEY
                 # Only the pod of a runner Job sets this. `devops roadmap implement --confirm`
                 # runs a step only when it is true.
                 - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER

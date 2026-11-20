@@ -254,7 +254,7 @@ def _add_init_container(job: dict[str, Any]) -> None:
 
 
 def _add_env_from(source: dict[str, Any]) -> Mutation:
-    return lambda job: _container(job)["envFrom"].append(source)
+    return lambda job: _container(job).setdefault("envFrom", []).append(source)
 
 
 def _add_env_value_from(job: dict[str, Any]) -> None:
@@ -678,6 +678,26 @@ def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
     ]
 
     assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+
+
+def check_a_runner_job_may_read_the_keys_of_the_constant_or_take_the_secret_with_env_from() -> None:
+    """A runner Job reads the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` (#6518), and the
+    policy refuses another key of the Secret, such as the password of the cache or an MCP token. A
+    runner Job that the Service made from the template before #6518 takes the whole Secret with
+    `envFrom`, and the Service still patches it, so the policy admits it."""
+    keys = (
+        *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
+        "DEVOPS_CLI_VALKEY_PASSWORD",
+        "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
+    )
+    admitted = [
+        key
+        for key in keys
+        if not _refusals(_changed(_drop_secret_keys, _add_secret_key("devops-cli", key)))
+    ]
+    made_before = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "devops-cli"}}))
+
+    assert (admitted, _refusals(made_before)) == (list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS), [])
 
 
 def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:

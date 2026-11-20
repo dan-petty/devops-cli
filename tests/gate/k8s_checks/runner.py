@@ -9,6 +9,7 @@ import pytest
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
+from devops_cli.config.constants import CONST_ROADMAP_STAGE_JOB_SECRET_KEYS
 from tests.gate.k8s_render import kustomize
 from tests.support.paths import REPO_ROOT
 
@@ -107,16 +108,22 @@ def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_fr
 ):
     container = _runner_container()
     env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    sourced = [(e["name"], e["valueFrom"]) for e in container["env"] if "valueFrom" in e]
     service = _object("Deployment", "roadmap-service")["spec"]["template"]["spec"]["containers"][0]
     default = _cronjob_pod("devops-cli")["containers"][0]
+    keys = [
+        (key, {"secretKeyRef": {"name": "devops-cli", "key": key}})
+        for key in CONST_ROADMAP_STAGE_JOB_SECRET_KEYS
+    ]
 
     assert (
         env["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"],
-        container["envFrom"],
+        "envFrom" in container,
+        sourced,
         env["DEVOPS_CLI_CONFIG"],
         [e["name"] for e in service["env"] if "IN_RUNNER" in e["name"]],
         [e["name"] for e in default["env"] if "IN_RUNNER" in e["name"]],
-    ) == ("true", [{"secretRef": {"name": "devops-cli"}}], "/config/devops-cli.yaml", [], [])
+    ) == ("true", False, keys, "/config/devops-cli.yaml", [], [])
 
 
 def check_the_runner_home_is_an_empty_dir_with_a_size_limit_and_the_data_dir_lives_in_it() -> None:

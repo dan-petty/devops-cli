@@ -207,7 +207,7 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
 
     (job,) = _jobs(kube)
     (container,) = job["spec"]["template"]["spec"]["containers"]
-    env = {entry["name"]: entry["value"] for entry in container["env"]}
+    env = {entry["name"]: entry.get("value") for entry in container["env"]}
     record = _record(store, number)
     assert (
         outcome,
