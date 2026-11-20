@@ -28,7 +28,7 @@ Kind: other.
   - Verification: `$ ! git grep -n DOCKER_CLI_HINTS -- src/devops_cli/templates`
 - [x] 3.3 Make the extension lists of the scaffold the same as the lists of `.devcontainer/devcontainer.json`
   - Verification: `$ d=$(mktemp -d) && uv run devops devcontainer init "$d" > /dev/null && jq -se '[.[].customizations | map_values(.extensions)] | .[0] == .[1]' .devcontainer/devcontainer.json "$d/.devcontainer/devcontainer.json"`
-- [ ] 3.4 Remove the `name==version` pins and the version column of `python_packages.md` and the pins of four library articles, and say that `pyproject.toml` and `uv.lock` own the versions
+- [x] 3.4 Remove the `name==version` pins and the version column of `python_packages.md` and the pins of four library articles, and say that `pyproject.toml` and `uv.lock` own the versions
   - Verification: `$ ! git grep -nE '[a-z0-9-]+==[0-9]' -- src/devops_cli/ai/knowledge_base`
 - [ ] 3.5 Remove the version after each PyPI link of the library articles
   - Verification: `$ ! git grep -nE 'pypi\.org/project/[^)]*\) \(.[0-9]' -- src/devops_cli/ai/knowledge_base`

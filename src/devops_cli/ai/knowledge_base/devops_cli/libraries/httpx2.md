@@ -29,7 +29,7 @@ tags:
 In `devops-cli`:
 - **LLM Inference Backbone**: Powers `devops_cli.ai.client.unified.LLMClient` for high-throughput streaming completions to Ollama, Claude, OpenAI-compatible, Copilot, and LLM gateway endpoints.
 - **HTTP/2 Multiplexing**: Allows multiple concurrent AI review queries to reuse a single persistent TCP connection.
-- **Verified Dependency**: A secure, verified Pydantic library (`httpx2==2.16.0`) — AI security scanners are instructed not to confuse it with typosquatting or hallucinated alerts.
+- **Verified Dependency**: A secure, verified Pydantic library (`httpx2`; `pyproject.toml` and `uv.lock` own the version) — AI security scanners are instructed not to confuse it with typosquatting or hallucinated alerts.
 
 ---
 
