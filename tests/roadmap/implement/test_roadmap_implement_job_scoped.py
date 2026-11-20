@@ -164,6 +164,99 @@ def test_a_failed_install_stops_the_item_before_any_model_request(job_world: Job
     assert _git_push(job_world) == []
 
 
+# ── The coder environment (#6517) ─────────────────────────────────────────────────────────
+
+SYNC = "uv sync --locked --group dev"
+NPM = "npm ci --ignore-scripts"
+
+
+@pytest.fixture
+def locked_world(job_world: JobWorld) -> JobWorld:
+    """The job world, with `uv.lock` and `package-lock.json` on `main` of `origin`."""
+    repo = job_world.repo
+    for name in ("uv.lock", "package-lock.json"):
+        (repo.clone / name).write_text("{}\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "Lock the dependencies")
+    repo.git("push", "-q", "origin", "main")
+    return job_world
+
+
+def test_the_job_bootstraps_the_worktree_before_the_hooks_and_the_first_model_request(
+    locked_world: JobWorld,
+) -> None:
+    script = two_groups()
+    requests: list[int] = []
+
+    def sync(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        requests.append(len(script.seen))
+        return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+    locked_world.programs.answer(
+        lambda call: command_text(call).startswith(SYNC), ProcessAnswer(side_effect=sync)
+    )
+
+    locked_world.run(script)
+
+    calls = locked_world.programs.calls
+    sync_call = calls[_position(locked_world, SYNC)]
+    install = calls[_position(locked_world, INSTALL)]
+    assert (
+        requests,
+        _position(locked_world, SYNC) < _position(locked_world, NPM),
+        _position(locked_world, NPM) < _position(locked_world, INSTALL),
+        sync_call.cwd,
+        calls[_position(locked_world, NPM)].cwd,
+        sync_call.env,
+    ) == (
+        [0],
+        True,
+        True,
+        install.cwd,
+        install.cwd,
+        {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"},
+    )
+    assert sync_call.cwd != locked_world.repo.clone
+
+
+def test_a_failed_bootstrap_stops_the_item_before_any_model_request(
+    locked_world: JobWorld,
+) -> None:
+    locked_world.programs.answer(
+        lambda call: command_text(call).startswith(SYNC),
+        ProcessAnswer(returncode=2, stderr="error: Failed to fetch example.com"),
+    )
+    script = two_groups()
+
+    applied = locked_world.run(script)
+
+    status, record = _item_record(locked_world)
+    assert (applied.stopped, script.seen, status, record["implement.stopped"]) == (
+        (1,),
+        [],
+        "Blocked",
+        "bootstrap",
+    )
+    assert any("error: Failed to fetch example.com" in c for c in locked_world.issue_comments())
+    assert _count(locked_world, INSTALL) == 0
+    assert _git_push(locked_world) == []
+
+
+def test_the_hooks_and_the_scoped_checks_find_the_tools_of_the_checkout_first(
+    locked_world: JobWorld,
+) -> None:
+    """A check that the job starts gets `node_modules/.bin` and the venv of the worktree first on
+    PATH, so a Node tool and a dev tool come from the checkout and not from the image."""
+    locked_world.run(two_groups())
+
+    calls = locked_world.programs.calls
+    checks = [calls[_position(locked_world, name)] for name in (PRE_COMMIT, PRE_PUSH, STATIC)]
+    worktree = checks[0].cwd
+    assert worktree is not None
+    first = f"{worktree / 'node_modules' / '.bin'}:{worktree / '.venv' / 'bin'}:"
+    assert [(call.env or {}).get("PATH", "").startswith(first) for call in checks] == [True] * 3
+
+
 # ── The scoped checks ─────────────────────────────────────────────────────────────────────
 
 

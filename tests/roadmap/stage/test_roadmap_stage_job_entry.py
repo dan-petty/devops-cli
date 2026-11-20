@@ -50,6 +50,7 @@ from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_job_result import result_lines
 from tests.support.roadmap_stage import (
@@ -433,6 +434,31 @@ def test_a_clone_failure_exits_75(
         False,
         JOB,
     )
+    assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
+        ["result=failed", "success=false", "class=ci_infra", "infra=true"]
+    ]
+
+
+def test_the_job_bootstraps_its_clone_before_the_first_model_request(
+    store: InMemoryRoadmapStore,
+    stageable: int,
+    tmp_path: Path,
+    process_fake: ProcessFake,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The Job builds the coder environment of its clone before it plans (#6517). A sync that
+    fails is an infrastructure failure, which the Job runs again, and no model request is made."""
+    clone = tmp_path / "job-clone"
+    clone.mkdir()
+    (clone / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    process_fake.answer("uv", ProcessAnswer(returncode=2, stderr="error: Failed to fetch\n"))
+
+    with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
+        run = run_stage_job(store, repo=STAGE_REPO, item=stageable, source=clone, now=NOW)
+
+    synced = [call.cwd for call in process_fake.calls if "sync" in call.argv]
+    assert (run.exit_code, synced, model_fake.call_count) == (StageJobExit.EVICTED, [clone], 0)
     assert [line.removeprefix(LINE_PREFIX).split()[3:7] for line in result_lines(caplog)] == [
         ["result=failed", "success=false", "class=ci_infra", "infra=true"]
     ]

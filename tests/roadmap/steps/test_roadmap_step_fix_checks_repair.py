@@ -546,3 +546,23 @@ def test_the_checkout_refuses_another_branch_or_head_and_removes_its_worktree(
 
     assert repo.git("worktree", "list").count("\n") == 0
     assert repo.git("branch", "--list", BRANCH) == ""
+
+
+def test_the_checkout_bootstraps_the_worktree_before_it_opens(
+    stage_repo: StageRepo, app_slug: None, process_fake: ProcessFake
+) -> None:
+    """Tier 1 and the model fix run the tools of the venv of the worktree, so the checkout builds
+    that venv before it opens (#6517)."""
+    push_staged_branch(stage_repo, files={"uv.lock": "version = 1\n"})
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    head = stage_repo.origin_git("rev-parse", BRANCH)
+    status = PullStatus(state="open", head_ref=BRANCH, head_sha=head)
+
+    with pull_checkout(STAGE_REPO, status, 1, source=stage_repo.clone) as checkout:
+        synced = [
+            call.cwd
+            for call in process_fake.calls
+            if command_text(call).startswith("uv sync --locked --group dev")
+        ]
+
+    assert synced == [checkout.path]

@@ -46,6 +46,7 @@ from devops_cli.roadmap.implement.implement_hooks import (
     pre_commit_command,
     stage_arguments,
 )
+from devops_cli.roadmap.runner_tools import checkout_environment
 from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, ToolchainPreset
 
 _TEST_MODULE_PREFIX = "test_"
@@ -162,7 +163,8 @@ def scoped_checks(
 
 def _run_check(source: Path, check: ScopedCheck) -> ScopedResult:
     """Run one check in the checkout, outside any agent shell and with no token: the child is
-    `uv`. A check that runs out of time failed."""
+    `uv`. The tools of the checkout come first on PATH (#6517). A check that runs out of time
+    failed."""
     shown = " ".join(check.argv)
     limit = load_settings().roadmap.implement.command_timeout_seconds
     began = time.monotonic()
@@ -170,7 +172,7 @@ def _run_check(source: Path, check: ScopedCheck) -> ScopedResult:
         done = run_subprocess(
             list(check.argv),
             cwd=source,
-            env=dict(check.env) or None,
+            env={**checkout_environment(source), **check.env},
             quiet=True,
             timeout=limit,
         )

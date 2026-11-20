@@ -51,6 +51,7 @@ from devops_cli.roadmap.implement.implement_step import (
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.run import model_clone
+from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
 from devops_cli.roadmap.steps.fix_checks import (
     Fixed,
     ModelFixer,
@@ -100,7 +101,8 @@ def pull_checkout(
     """The worktree of the clone `source`, or of the clone `model-clone` of `repo`, on the head
     branch of the pull request of `status`, the branch of `item`. The take-over refuses a branch
     with a commit past main that the App did not write. The worktree must be on the head branch of
-    the pull request and at its judged head."""
+    the pull request and at its judged head. The worktree gets its coder environment before the
+    block starts (`bootstrap_checkout`, #6517)."""
     source = source or model_clone(repo)
     url = origin_url(source)
     report = add_worktree(source, issue=item, origin=OriginGit(source, url))
@@ -118,6 +120,7 @@ def pull_checkout(
                 f"{status.head_sha[:12]}."
             )
         (path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
+        bootstrap_checkout(path)
         yield WorktreeCheckout(path, report.branch, status.head_sha, OriginGit(path, url))
     finally:
         git(source, "worktree", "remove", "--force", str(path), operation=_OPERATION)
@@ -198,10 +201,16 @@ def tier1_commands(
 
 
 def _exit_status(path: Path, argv: Sequence[str], limit: int) -> int | None:
-    """The exit status of `argv` in `path`, or None when it ran out of time."""
+    """The exit status of `argv` in `path`, with the tools of the checkout first on PATH, or None
+    when it ran out of time."""
     try:
         return run_subprocess(
-            list(argv), cwd=path, check=False, quiet=True, timeout=limit
+            list(argv),
+            cwd=path,
+            env=checkout_environment(path),
+            check=False,
+            quiet=True,
+            timeout=limit,
         ).returncode
     except subprocess.TimeoutExpired:
         return None

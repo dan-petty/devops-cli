@@ -101,6 +101,7 @@ from devops_cli.exceptions import (
     RoadmapImplementError,
     SecurityError,
     ServiceStoppingError,
+    ToolExecutionError,
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
 from devops_cli.git.worktree_add import add_worktree
@@ -200,6 +201,7 @@ from devops_cli.roadmap.pull_labels import (
 )
 from devops_cli.roadmap.pull_retry import GatewayPullBody, RefusedPullReply, retried_body
 from devops_cli.roadmap.return_item import apply_return, plan_return
+from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
 from devops_cli.roadmap.stage.stage_change import (
     closing_keyword_in,
     criteria_section,
@@ -801,7 +803,13 @@ class _ItemRun:
         texts = MESSAGES.roadmap
         limit = load_settings().roadmap.implement.command_timeout_seconds
         try:
-            done = run_subprocess(list(argv), cwd=self.path, quiet=True, timeout=limit)
+            done = run_subprocess(
+                list(argv),
+                cwd=self.path,
+                env=checkout_environment(self.path),
+                quiet=True,
+                timeout=limit,
+            )
         except subprocess.TimeoutExpired as exc:
             self.trace.check(shown, None)
             reason = texts.implement_stop_program_timeout.format(command=shown, seconds=limit)
@@ -896,6 +904,7 @@ class _ItemRun:
             marks[ImplementRecordKey.SPEND_COUNTED] = None
         write_status(self.store, self._fresh(), StatusFacts(job_active=True), marks=marks)
         self._sync()
+        self._bootstrap()
         self._install_hooks()
 
     def _base(self) -> str:
@@ -924,6 +933,18 @@ class _ItemRun:
                 MESSAGES.roadmap.plan_check_read.format(path=error.path, reason=error.reason),
                 failure_class=FailureClass.PLAN_DEFECT,
             ) from error
+
+    def _bootstrap(self) -> None:
+        """Build the coder environment of the worktree before the first model request: the venv
+        of its `uv.lock` with the dev group and its Node packages (#6517). A failure stops the
+        item with nothing to push."""
+        self.step = MESSAGES.roadmap.implement_step_names["bootstrap"]
+        try:
+            bootstrap_checkout(self.path)
+        except ToolExecutionError as exc:
+            raise _StopError(
+                self.step, str(exc), push=False, failure_class=FailureClass.CI_INFRA
+            ) from exc
 
     def _install_hooks(self) -> None:
         """Fetch the hook environments before the first model request, so that no network failure

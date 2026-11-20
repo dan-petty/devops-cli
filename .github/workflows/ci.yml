@@ -594,14 +594,14 @@ jobs:
         run: |
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          # The check runs the version command of every tool in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the loaded image, so a missing tool fails it. The size of the image stays under its bound.
+          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the loaded image, so a missing tool fails it. The size of the image stays under its bound.
           docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
-          # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.
-          docker run --rm --read-only --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && uv run --locked ruff --version'
+          # A Job builds the venv of its checkout with the dev group before its first agent step (#6517), and the image holds no dev dependency. So the check runs the bootstrap of the Job on a copy of the checkout, checks the tools of its venv, and runs ruff, pytest and mypy from it. The checkout's .python-version names a patch release that the base image can lack.
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
 
       - name: Scan Runner Image for Vulnerabilities
         if: steps.image_changes.outputs.changed == 'true'

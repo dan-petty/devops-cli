@@ -96,6 +96,7 @@ from devops_cli.roadmap.failure import (
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.round_log import log_failed_item
+from devops_cli.roadmap.runner_tools import bootstrap_checkout
 from devops_cli.roadmap.stage.stage import (
     StageApplied,
     StagePlan,
@@ -454,8 +455,10 @@ def run_stage_job(
     now: datetime | None = None,
 ) -> StageJobRun:
     """Plan and publish item `item` of `repo` as one stage Job, as the module says. `source` is a
-    clone to work in; without it, the Job makes a blobless clone. `model` and `verifier` are the
-    models of `plan_stage`. `now` is the time of the records, the time of the system without it.
+    clone to work in; without it, the Job makes a blobless clone. The Job builds the coder
+    environment of the clone before it plans (`bootstrap_checkout`, #6517); a failure of it is an
+    infrastructure failure. `model` and `verifier` are the models of `plan_stage`. `now` is the
+    time of the records, the time of the system without it.
 
     Raises `RoadmapStageError` before any clone or request when the token of the App is not
     limited to `repo`, `AICredentialsError` when credentials are refused, the errors of
@@ -475,6 +478,7 @@ def run_stage_job(
     try:
         with sigterm_raises():
             clone = Path(source) if source is not None else _clone(repo)
+            bootstrap_checkout(clone)
             writer = StageWriter(store, clone, now=now)
             plan = plan_stage(
                 store,
