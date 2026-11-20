@@ -15,9 +15,9 @@ Adds: `_COMMIT_LENGTH`, `_commit_ref`
 Kind: behavior. Reads: `src/devops_cli/research/version_match.py`, `tests/research/test_version_match.py`. Changes: `src/devops_cli/research/version_match.py`, `tests/research/test_version_match.py`.
 Adds: `full_release`, `release_for_commit`
 
-- [ ] 2.1 `test_the_highest_full_release_tag_of_the_commit_is_the_release` in `tests/research/test_version_match.py`, which covers the scenario `The highest release of the commit wins` of the requirement `A pinned commit takes the highest full release of its tags`
+- [x] 2.1 `test_the_highest_full_release_tag_of_the_commit_is_the_release` in `tests/research/test_version_match.py`, which covers the scenario `The highest release of the commit wins` of the requirement `A pinned commit takes the highest full release of its tags`
   - Verification: `$ uv run devops ci test tests/research/test_version_match.py` fails on the base
-- [ ] 2.2 Add `full_release(text)` to `src/devops_cli/research/version_match.py:def pinned_version`: it gives the `Version` of a tag that holds three release numbers and no prerelease, dev, local or post part, and None otherwise. Add `release_for_commit(tags, commit)`: it takes pairs of tag name and commit sha and gives the name of the highest full release tag whose sha equals `commit`, and None when no tag does. Cover a major tag, a prerelease tag, two releases at one commit and a tag at another commit in `tests/research/test_version_match.py`
+- [x] 2.2 Add `full_release(text)` to `src/devops_cli/research/version_match.py:def pinned_version`: it gives the `Version` of a tag that holds three release numbers and no prerelease, dev, local or post part, and None otherwise. Add `release_for_commit(tags, commit)`: it takes pairs of tag name and commit sha and gives the name of the highest full release tag whose sha equals `commit`, and None when no tag does. Cover a major tag, a prerelease tag, two releases at one commit and a tag at another commit in `tests/research/test_version_match.py`
   - Verification: `$ uv run devops ci test tests/research/test_version_match.py` passes
 
 ## 3. Read the tags of an Action repository
