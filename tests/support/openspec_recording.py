@@ -14,7 +14,9 @@ inside pytest, so that the isolation of the suite applies: a helper of `tests/su
 through pytest. Add a scratch test marked `live("openspec")` that calls `record_scenarios()`, run
 it with `uv run pytest <file> -m live`, and delete it.
 
-`tests/tools_lock/test_openspec_contract.py` fails until the record is of the locked version.
+No test compares the version of the record with the pin, so a bump of the pin in
+`package-lock.json` needs no new record unless a command of the gate or the archive answers
+otherwise. The `--version` run is answered by the fake, from the pin.
 """
 
 from __future__ import annotations

@@ -1,5 +1,6 @@
-"""The recorded OpenSpec the fake replays is the pinned tool's, and is the record of the commands
-the gate and `devops openspec archive` run and no others (#1844, ADR 0007). The listing of the
+"""The recorded OpenSpec that the fake replays is the record of the commands the gate and
+`devops openspec archive` run and no others (#1844, ADR 0007). No test compares the version of the
+record with the pin of `package-lock.json`, so a bump of the pin edits no test (#6409). The listing of the
 capabilities that the fake makes from a tree is the listing of the real tool (#4622)."""
 
 from __future__ import annotations
@@ -13,7 +14,6 @@ from devops_cli.openspec.tool import isolated_openspec
 from tests.support.fakes.openspec import LIST_SPECS, OpenSpecFake, spec_listing
 from tests.support.openspec_recording import run_scenario
 from tests.support.openspec_scenarios import SCENARIOS
-from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -29,14 +29,6 @@ _TREE = {
     "openspec/specs/spec.md": _SPEC,
     "openspec/specs/empty/README.md": "x\n",
 }
-
-
-def test_the_record_is_of_the_openspec_the_root_lockfile_pins(openspec_fake: OpenSpecFake) -> None:
-    """A bump of the pin in `package-lock.json` fails here until the real tool is recorded again
-    (tests/support/openspec_recording.py)."""
-    lock = json.loads((REPO_ROOT / "package-lock.json").read_text(encoding="utf-8"))
-
-    assert openspec_fake.version == lock["packages"]["node_modules/@fission-ai/openspec"]["version"]
 
 
 def test_every_scenario_is_recorded_and_no_other(openspec_fake: OpenSpecFake) -> None:
