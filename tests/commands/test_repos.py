@@ -890,13 +890,8 @@ def test_repos_sync_pull_and_errors(
     assert (res_err.exit_code, "Git network timeout" in res_err.output) == (1, True)
 
 
-def test_repos_sync_reports_failures_and_exits_nonzero(
-    tmp_path: Path, config: Callable[..., Path], git_fake: GitFake
-) -> None:
-    """`repos sync` reports failed repos with git's reason, finishes remaining repos, and exits 1.
-    The workspace file goes under `tmp_path`: the default `.code-workspace` is relative, so the
-    run would write it into the directory of the test run, the root of the worktree."""
-    _workspace(config, tmp_path)
+def test_repos_sync_reports_failures_and_exits_nonzero(tmp_path: Path, git_fake: GitFake) -> None:
+    """`repos sync` reports failed repos with git's reason, finishes remaining repos, and exits 1."""
     repos_dir = tmp_path / "repos"
     repo1 = repos_dir / "group" / "repo1"
     repo2 = repos_dir / "group" / "repo2"
