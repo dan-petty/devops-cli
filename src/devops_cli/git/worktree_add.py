@@ -290,13 +290,13 @@ def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> Recla
     """
     _require_origin(repo_root)
     repo = get_repo_origin_name(repo_root)
-    entries, kept = _split_by_scope(
-        inventory_worktrees(repo_root), managed_folder(repo_root).resolve()
-    )
+    folder = managed_folder(repo_root).resolve()
+    entries, kept = _split_by_scope(inventory_worktrees(repo_root), folder)
     if dry_run:
-        return ReclaimResult(kept=kept, requests=plan_prune(entries, repo=repo).requests)
+        plan = plan_prune(entries, repo=repo, managed_root=folder)
+        return ReclaimResult(kept=kept, requests=plan.requests)
     try:
-        report = prune_worktrees(repo_root, entries, repo=repo, confirm=True)
+        report = prune_worktrees(repo_root, entries, repo=repo, managed_root=folder, confirm=True)
     except DevOpsCLIError as exc:
         return ReclaimResult(kept=kept, error=str(exc))
     failed = [f"{item.path}: {item.reason}" for item in report.items if item.status == "failed"]

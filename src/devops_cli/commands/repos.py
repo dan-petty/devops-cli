@@ -49,6 +49,7 @@ from devops_cli.git.worktree_add import (
     ReclaimResult,
     WorktreeAddReport,
     add_worktree,
+    managed_folder,
     reclaim_merged_worktrees,
 )
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
@@ -967,10 +968,13 @@ def worktrees_prune(
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
     origin = get_repo_origin_name(root)
+    folder = managed_folder(root).resolve()
     if is_plan:
-        report = plan_prune(entries, repo=origin, force=force)
+        report = plan_prune(entries, repo=origin, managed_root=folder, force=force)
     else:
-        report = prune_worktrees(root, entries, repo=origin, force=force, confirm=confirm)
+        report = prune_worktrees(
+            root, entries, repo=origin, managed_root=folder, force=force, confirm=confirm
+        )
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
