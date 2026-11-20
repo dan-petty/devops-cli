@@ -100,7 +100,7 @@ from devops_cli.roadmap.planned import (
     read_planned_changes,
     tasks_on_default,
 )
-from devops_cli.roadmap.refine.refine import inspect_checkout
+from devops_cli.roadmap.refine.refine import DependencyGraph, inspect_checkout
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
     StageFilter,
@@ -376,10 +376,16 @@ class _Judge:
         """The registry table of the repository, built once from its checkout (#4695)."""
         return registry_table(self._source)
 
+    @cached_property
+    def _graph(self) -> DependencyGraph:
+        """The dependency graph of the items, built once for the selection, on the first item that
+        has an open dependency (#6516)."""
+        return DependencyGraph.of(self._items)
+
     def _dependency(self, item: Item) -> str | None:
         """An open issue that the Dependencies section of the body names as a blocker `#N` (#2654,
         #6451) or by its quoted title (#4803), from the shared check (#4009)."""
-        return open_dependency(item, self._store, self._items)
+        return open_dependency(item, self._store, self._items, graph=lambda: self._graph)
 
     def _route(self, item: Item) -> RecordedBranch | _Planned | None:
         """A Staged item keeps its branch while the branch is on `origin`, or while no plan is on

@@ -4,11 +4,13 @@ The stage job and the implement job read the same declaration: a blocker `#N` in
 section of the body (#2654, #6451), or a quoted title of another item (#4803). A dependency that is still open
 holds both jobs back, and the message is the same in both. An item that a dependency leads back to
 gets the reason of its cycle, so the jobs name the cycle and not only the next open issue (#6449).
+Each job builds the dependency graph at most once for each selection and gives it to each item
+(#6516).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine.refine import (
@@ -33,10 +35,19 @@ def open_issue_dependencies(numbers: Iterable[int], store: RoadmapStore) -> str 
     return MESSAGES.roadmap.stage_left_dependency.format(issues=", ".join(open_issues))
 
 
-def open_dependency(item: Item, store: RoadmapStore, items: Sequence[Item]) -> str | None:
+def open_dependency(
+    item: Item,
+    store: RoadmapStore,
+    items: Sequence[Item],
+    *,
+    graph: Callable[[], DependencyGraph],
+) -> str | None:
     """The reason that the open issue named by the Dependencies section of `item` gives, or None
     when every dependency is closed or the body names none. An item that a dependency leads back to
-    gets the reason of its cycle (#6449)."""
+    gets the reason of its cycle (#6449). `graph` returns the dependency graph of the selection,
+    and the call reads it only when a dependency is open, so a caller that builds the graph on its
+    first call builds it at most once for each selection and builds none when no item has an open
+    dependency (#6516)."""
     open_reason = open_issue_dependencies(
         [
             *body_dependencies(item.body),
@@ -46,7 +57,7 @@ def open_dependency(item: Item, store: RoadmapStore, items: Sequence[Item]) -> s
     )
     if open_reason is None:
         return None
-    cycle = DependencyGraph.of(items).cycle_of(item.number)
+    cycle = graph().cycle_of(item.number)
     if cycle is None:
         return open_reason
     return MESSAGES.roadmap.dependency_cycle.format(cycle=cycle_text(cycle))
