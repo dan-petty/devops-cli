@@ -223,8 +223,11 @@ class NewCandidate:
     filed_by: Filer = Filer.AGENT
 
     def filed_body(self) -> str:
-        """The body the issue is filed with: the candidate's, then its source link."""
-        return f"{self.body}\n\nSource: {self.source}" if self.source else self.body
+        """The body the issue is filed with: the candidate's, then its source under a `## Source`
+        heading, so the source never falls under the Dependencies section (#6451)."""
+        if not self.source:
+            return self.body
+        return f"{self.body}\n\n## Source\n\n{self.source}"
 
     def refuse_secrets(self) -> None:
         """Raise when the title, body or source holds what looks like a secret: the text would

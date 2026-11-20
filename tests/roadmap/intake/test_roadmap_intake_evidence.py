@@ -8,6 +8,7 @@ from devops_cli.roadmap.intake.intake import (
     NewCandidate,
     intake_candidate,
 )
+from devops_cli.roadmap.refine.refine import body_dependencies
 from devops_cli.roadmap.stores.store import (
     Evidence,
     EvidenceKind,
@@ -90,8 +91,23 @@ def test_evidence_the_entry_points_caller_attaches_is_trusted_and_the_source_is_
     assert (
         roadmap.fields(attached.number or 0)[1::3],
         roadmap.fields(claimed.number or 0)[1::3],
-        body.endswith("Source: https://example.test/review/1"),
+        body.endswith("## Source\n\nhttps://example.test/review/1"),
     ) == (("P0-Critical", None), ("P1-High", None), True)
+
+
+def test_a_filed_candidate_names_its_source_under_its_own_heading() -> None:
+    """A candidate whose body ends with a Dependencies section files its source under a
+    `## Source` heading, so the source never falls under Dependencies (#6451)."""
+    body = NewCandidate(
+        title="fix: the source of the candidate",
+        body="The crash happens on start.\n\n## Dependencies\n\nNone.",
+        source="#4989",
+    ).filed_body()
+    assert (
+        "## Source" in body,
+        body.index("## Source") < body.index("#4989"),
+        body_dependencies(body),
+    ) == (True, True, [])
 
 
 def test_evidence_counts_as_a_whole_token_anywhere_in_the_text(roadmap: Roadmap) -> None:
