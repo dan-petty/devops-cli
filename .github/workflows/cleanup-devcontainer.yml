@@ -67,7 +67,8 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
           # Dynamically determine open pull requests to protect their tags
-          BASE_EXCLUDE="latest,v*,main"
+          # `buildcache` holds the registry build cache that the release writes (#6404).
+          BASE_EXCLUDE="latest,v*,main,buildcache"
           if OPEN_PRS=$(gh pr list --repo "$REPO" --state open --limit 200 --json number --jq '.[].number | "pr-\(.)"'); then
             OPEN_PR_TAGS=$(echo "$OPEN_PRS" | tr '\n' ',' | sed 's/,$//')
           else

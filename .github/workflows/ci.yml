@@ -484,11 +484,10 @@ jobs:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
           no-cache-filters: service
-          # The image jobs of a pull request read the cache that release.yml writes on main, and
-          # write none: GitHub keeps the cache of a pull request in the scope of its merge ref, so
-          # no other pull request reads it, and these exports filled the Actions cache past its
-          # limit (#4646).
-          cache-from: type=gha,scope=service
+          # The image jobs of a pull request read the registry cache that release.yml writes, and
+          # write none: the release is the one writer of the tag (#4646). The package is public,
+          # so the read needs no login and no `packages` permission (#6404).
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
 
       - name: Run Service Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -586,7 +585,7 @@ jobs:
           push: false
           tags: devops-cli-runner:local
           # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=gha,scope=runner
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache
 
       - name: Run Runner Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -686,7 +685,7 @@ jobs:
           tags: devops-cli-mcp-server:local
           no-cache-filters: mcp-server
           # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=gha,scope=mcp-server
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache
 
       - name: Run MCP Server Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
