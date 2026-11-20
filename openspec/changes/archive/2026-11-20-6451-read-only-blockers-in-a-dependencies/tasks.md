@@ -35,6 +35,20 @@ Kind: other. Reads: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roa
 - [x] 4.2 Rewrite `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` to state that only a blocker line under Dependencies names a dependency and that intake files its source under its own heading
   - Verification: `$ uv run devops ci docs` passes
 
+## 5. Fix the findings of the plan review
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/config/constants.py`. Changes: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/config/constants.py`, `tests/roadmap/refine/test_roadmap_refine_dependencies.py`, `tests/roadmap/test_roadmap_dependencies.py`, `tests/roadmap/intake/test_roadmap_intake_evidence.py`, `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `tests/roadmap/intake/test_roadmap_intake_agent_candidates.py`.
+Adds: `_blocker_issues`, `NewCandidate.filed_bodies`
+
+- [x] 5.1 Keep the prose blockers: a line that starts with `Merge first`, `Depends on`, `Blocked by`, `Waits for` or `Wait for` in any case, and a paragraph outside a list whose first word is `#N`. A line with a reverse phrase names no blocker, and a `#N` after `of` names a parent. Write the failing tests first from short copies of the Dependencies sections of #4867, #5430, #4993, #4921, #5379, #5348, #4765, #4848, #5001 and #5026
+  - Verification: `$ uv run devops ci test src/devops_cli/roadmap/refine/refine.py` passes
+- [x] 5.2 Test `open_dependency`: `Related: #N` with #N open gives no reason, and `Depends on #N` with #N open gives the reason
+  - Verification: `$ uv run devops ci test src/devops_cli/roadmap/dependencies.py` passes
+- [x] 5.3 Write `Source: <source>` under the `## Source` heading, and let `_new_subject` find an issue of the old form
+  - Verification: `$ uv run devops ci test src/devops_cli/roadmap/intake/intake.py` passes
+- [x] 5.4 Set `CONST_ROADMAP_REFINE_RULES_SINCE` to the time of the fix, and state the full rule in the base specs and the roadmap pages
+  - Verification: `$ uv run devops openspec check` passes
+
 ## Criteria
 
 - Group 1: Test first: a Dependencies section that holds "None.", then "Source: #N", gives no dependency. The test fails on the base.

@@ -18,13 +18,17 @@ The comment of refine is one event line. It names the next step and the parts of
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
-The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Only a blocker line under Dependencies names a dependency. A blocker line is one of these three:
+The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Only a blocker line under Dependencies names a dependency (#6451). A blocker line is one of these three:
 
-- A list item whose first word is `#N`, such as `- #N` or `- #4989: the prerequisite`.
-- A line that holds issue references only, such as `#5134, #5135`.
-- A line that starts with `Merge first`, such as `Merge first: #5134`.
+- A line that starts with a blocker opener, in any case: `Merge first`, `Depends on`, `Blocked by`, `Waits for` or `Wait for`. For example, `Merge first: #5134` or `Depends on #5380 (the step budget).`.
+- The first text of a list item, when its first word is `#N`, such as `- #N` or `- #4989: the prerequisite`.
+- A paragraph outside a list, when its first word is `#N`. The paragraph can go on in prose, such as `#4847; #4798 with its scope comment, merged first.` or `#5134, #5135`.
 
-No other mention of the section names a dependency. A parent link (`Part of #N`), a child link (`Child 2 of #N`), a related issue (`Related: #N`), a reverse link (`#N needs this item`), the source line of intake and a sentence that mentions an issue name no dependency (#6451).
+A line that holds a reverse phrase names no blocker, in any case: `needs this item`, `waits for this item`, `depends on this item` or `blocked by this item`. On a blocker line, each `#N` is a dependency, except a `#N` that directly follows `of`, which names a parent: `Merge first: #4835, child 8 of #4833.` names only #4835.
+
+No other mention of the section names a dependency. A parent link (`Part of #N`), a child link (`Child 2 of #N`), a related issue (`Related: #N`), a tracker (`- Tracker: #N`), the source line of intake (`Source: #N`) and a sentence that opens with other words, such as `It does not wait for #N.`, name no dependency.
+
+The narrower rule removes false dependencies, so it sets a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-20T14:03:08Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until they close, a person replies or a person edits the body.
 
 Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
 
@@ -136,7 +140,7 @@ With the step `retry`, the next round refines the item again. At 3 tries (`CONST
 
 A Ready item whose new proposal fails a form check keeps its Status and its old design, because refine writes no body for a job failure. The record shows the failure, and the item has the step `retry` or `failed` like a New item. A Ready item that refine finds not ready, by contrast, goes back to New with a comment.
 
-An item that waited on a person under the rules before this one gets one new look: the version of these rules is the release of 0.72.0 (2026-11-06T19:25:37Z). A new proposal that fails a form check is then a job failure, and a new proposal that asks a person again writes one new comment.
+An item that waited on a person under the rules before this one got one new look: the version of these rules was the release of 0.72.0 (2026-11-06T19:25:37Z). A new proposal that fails a form check is then a job failure, and a new proposal that asks a person again writes one new comment.
 
 The plan report starts with the count of the items that go on without a person: the items that are Ready, blocked or in `retry`.
 

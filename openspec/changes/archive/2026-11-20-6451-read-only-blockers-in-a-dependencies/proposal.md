@@ -6,10 +6,11 @@ The stage job and the implement job read each `#N` under a Dependencies heading 
 
 ## What Changes
 
-- `src/devops_cli/roadmap/refine/refine.py` keeps only a blocker line of the Dependencies section: a list item whose first word is `#N`, a line that holds issue references only, or a line that starts with `Merge first`. A parent, a child, a related issue, a reverse link and the source line name no dependency.
+- `src/devops_cli/roadmap/refine/refine.py` keeps only a blocker line of the Dependencies section: a line that starts with a blocker opener in any case (`Merge first`, `Depends on`, `Blocked by`, `Waits for`, `Wait for`), or a line whose first word is `#N` when it is the first text of a list item or a paragraph outside a list. A line with a reverse phrase (`needs this item`, `waits for this item`, `depends on this item`, `blocked by this item`) names no blocker, and a `#N` that directly follows `of` names a parent. A parent, a child, a related issue, a tracker and the source line name no dependency.
+- `CONST_ROADMAP_REFINE_RULES_SINCE` in `src/devops_cli/config/constants.py` moves to the time of the fix, so a wait on a person that the older rule set gets one new round.
 - The new test module `tests/roadmap/refine/test_roadmap_refine_dependencies.py` holds the blocker and the non-blocker forms of the reader, so the stage, implement and consolidate paths that read the one reader keep their behavior with no change of their own.
-- `NewCandidate.filed_body` in `src/devops_cli/roadmap/intake/intake.py` writes the source under a `## Source` heading after the body, so the source leaves the Dependencies section. The assertion of `tests/roadmap/intake/test_roadmap_intake_evidence.py` and the one of `tests/roadmap/intake/test_roadmap_intake_sub_issues.py` move to the new form.
-- `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` state that only a blocker line under Dependencies names a dependency, and that intake writes its source under `## Source`.
+- `NewCandidate.filed_body` in `src/devops_cli/roadmap/intake/intake.py` writes the line `Source: <source>` under a `## Source` heading after the body, so the source names no dependency. `_new_subject` also finds an issue of the old form, which ends with the `Source:` line and no heading. The assertion of `tests/roadmap/intake/test_roadmap_intake_evidence.py` and the one of `tests/roadmap/intake/test_roadmap_intake_sub_issues.py` move to the new form.
+- `docs/roadmap/refine.md`, `docs/roadmap/stage.md` and `docs/roadmap/intake.md` state that only a blocker line under Dependencies names a dependency, and that intake writes its source under `## Source`. The base specs `roadmap-stage/context` and `roadmap-implement-job/selection` read each blocker that the Dependencies section names.
 - The change carries a spec delta, because the Dependencies section that a job of the service reads and the filed body of intake are behavior that a consumer observes.
 - The change fits one pull request.
 
@@ -21,14 +22,16 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-refine/waits`: A blocker line under Dependencies names a dependency, A non-blocker mention under Dependencies holds nothing back
+- `roadmap-refine/waits`: A blocker line under Dependencies names a dependency, A reverse phrase or a parent names no blocker, A non-blocker mention under Dependencies holds nothing back
 - `roadmap-intake-writes`: The filed body names its source under its own heading
+- `roadmap-stage/context`: The request lists the declared issue dependencies, The prompt names the declared dependencies (base spec text only)
+- `roadmap-implement-job/selection`: The implement judge leaves out an open dependency (base spec text only)
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`
+- Code: `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cli/config/constants.py`
 - Documents: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`, `docs/roadmap/intake.md`
-- Tests: `tests/roadmap/refine/test_roadmap_refine_dependencies.py`, `tests/roadmap/intake/test_roadmap_intake_evidence.py`, `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`
+- Tests: `tests/roadmap/refine/test_roadmap_refine_dependencies.py`, `tests/roadmap/test_roadmap_dependencies.py`, `tests/roadmap/intake/test_roadmap_intake_evidence.py`, `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `tests/roadmap/intake/test_roadmap_intake_agent_candidates.py`
 
 ## Feasibility
 
@@ -44,7 +47,7 @@ None.
 - `read_file tests/roadmap/test_roadmap_consolidate_shortlist.py 160 176` showed `tests/roadmap/test_roadmap_consolidate_shortlist.py:174:assert [Signal.LINK in signals(lists, 3, n) for n in (2, 4, 5)] == [True, True, False]`, so a paragraph of two references names both and the rule must keep it.
 - `read_file tests/roadmap/implement/test_roadmap_implement_selection.py 112 130` showed `tests/roadmap/implement/test_roadmap_implement_selection.py:123:- #{blocker}: the prerequisite`, a list item whose first word is an issue reference and whose text goes on, so the rule reads the whole item.
 - `read_file src/devops_cli/roadmap/intake/intake.py 200 240` showed `src/devops_cli/roadmap/intake/intake.py:227:return f"{self.body}\n\nSource: {self.source}" if self.source else self.body`, which appends the source line to the end of the body, so a source that names `#4989` lands under the last heading of the body.
-- `read_file src/devops_cli/roadmap/intake/intake.py 688 708` showed `src/devops_cli/roadmap/intake/intake.py:698:body = new.filed_body()` in `_new_subject`, so the retry match reads the same filed body on both sides and the new heading keeps it consistent.
+- `read_file src/devops_cli/roadmap/intake/intake.py 688 708` showed `src/devops_cli/roadmap/intake/intake.py:698:body = new.filed_body()` in `_new_subject`. The issue side of that match is the body on GitHub, so an issue filed before the change keeps the old form, and the match must accept both forms.
 - `read_file tests/roadmap/intake/test_roadmap_intake_evidence.py 60 110` showed `tests/roadmap/intake/test_roadmap_intake_evidence.py:93:body.endswith("Source: https://example.test/review/1"),`, and `read_file tests/roadmap/intake/test_roadmap_intake_sub_issues.py 170 196` showed `tests/roadmap/intake/test_roadmap_intake_sub_issues.py:187:assert (outcome, sent, [body.endswith(f"Source: {source}") for body in bodies]) == (`, so two tests pin the filed-body form and the plan moves both with the body.
 - `read_file tests/roadmap/intake/test_roadmap_intake_agent_candidates.py 100 130` showed `tests/roadmap/intake/test_roadmap_intake_agent_candidates.py:117:candidate.title, candidate.filed_body(), labels=("source/agent",), author="NONE"`, whose assertion reads no source, so that module stays unchanged.
 - `read_file docs/roadmap/refine.md 12 28` showed `docs/roadmap/refine.md:21:The Dependencies section of the body names an issue as`, which gives no rule for a parent, a related issue, a reverse link or a source line, and `read_file docs/roadmap/stage.md 24 36` showed `docs/roadmap/stage.md:30:The job leaves out an item that is not Ready, and some other items`, which points at the Dependencies section as refine reads it.

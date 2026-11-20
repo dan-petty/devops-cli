@@ -29,7 +29,7 @@ For each candidate, intake sets these fields on GitHub:
 
 A label that a person set stays. Intake sets no milestone, because a person plans the milestones. A milestone that an issue has stays.
 
-A new candidate has a source, which is the link that its caller gives. Intake writes the source under a `## Source` heading after the body, so that the source never falls under the Dependencies section of the body, also when it names an issue as `#N` (#6451).
+A new candidate has a source, which is the link that its caller gives. Intake writes the line `Source: <source>` under a `## Source` heading after the body (#6451). The heading ends a Dependencies section of level 2 or lower, and the line opens with a word, so the source names no dependency, also when it names an issue as `#N` under a level-1 Dependencies heading. A retry of a run that stopped after it filed the issue also finds an issue of the form from before #6451, which ends with the `Source:` line and no heading.
 
 ### Priority criteria
 
