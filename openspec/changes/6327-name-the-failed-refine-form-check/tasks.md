@@ -41,9 +41,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/failure.py`, `src/devops_cli/road
 
 Kind: other. Reads: `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md`. Changes: `docs/roadmap/refine.md`, `docs/ROADMAP_WORKFLOW.md`.
 
-- [ ] 5.1 Update the form-check bullet and the rows of `refine.failure` and `refine.judge_findings` in `docs/roadmap/refine.md`, and the refine rows of `docs/ROADMAP_WORKFLOW.md`, to name the criterion index and part of a form-check failure, the whole failure that the next request carries, and the class `form_check` of the result line. Drop the sentence and the row text that name the removed character caps
+- [x] 5.1 Update the form-check bullet and the rows of `refine.failure` and `refine.judge_findings` in `docs/roadmap/refine.md`, and the refine rows of `docs/ROADMAP_WORKFLOW.md`, to name the criterion index and part of a form-check failure, the whole failure that the next request carries, and the class `form_check` of the result line. Drop the sentence and the row text that name the removed character caps
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md` to name the criterion and part of a form-check failure, the whole failure that the next request carries, and the class `form_check` of the result line
+- [x] 5.2 Edit `docs/roadmap/refine.md` and `docs/ROADMAP_WORKFLOW.md` to name the criterion and part of a form-check failure, the whole failure that the next request carries, and the class `form_check` of the result line
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
