@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.182.3](https://github.com/dan-petty/devops-cli/compare/v0.182.2...v0.182.3) (2026-11-20)
+
+
+### Bug Fixes
+
+* **repos:** prune keeps worktrees with data or outside its folder ([#6477](https://github.com/dan-petty/devops-cli/issues/6477)) ([0fc3d13](https://github.com/dan-petty/devops-cli/commit/0fc3d1324d33543a4fa45f134bb4a8fd82e440c4))
+
 ## [0.182.2](https://github.com/dan-petty/devops-cli/compare/v0.182.1...v0.182.2) (2026-11-20)
 
 
