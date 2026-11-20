@@ -137,12 +137,12 @@ import json
 import logging
 import re
 import subprocess
+from collections import deque
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, partial
-from graphlib import CycleError, TopologicalSorter
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import urlsplit
@@ -1423,12 +1423,12 @@ class DependencyGraph:
     A node is an open item of the sequence the graph was built from. The edges of an item are the
     issues that its job record, its Dependencies section and its quoted titles name, less each
     issue that the sequence does not hold as an open item, so a closed dependency holds nothing
-    back. `cycles` gives, for each item that a dependency leads back to, the path from the item
-    through its dependencies back to it.
+    back. `cycle_of` gives, for an item that a dependency leads back to, a shortest path from the
+    item through its dependencies back to it. It searches only for the item that the caller asks
+    for (#6516).
     """
 
     edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
-    cycles: dict[int, tuple[int, ...]] = field(default_factory=dict)
 
     @classmethod
     def of(cls, items: Sequence[Item]) -> DependencyGraph:
@@ -1436,20 +1436,12 @@ class DependencyGraph:
         store and sends no request."""
         open_items = [item for item in items if item.state is GitHubState.OPEN]
         numbers = {item.number for item in open_items}
-        edges = {item.number: _edges_of(item, items, numbers) for item in open_items}
-        if not _holds_a_cycle(edges):
-            return cls(edges=edges)
-        cycles = {
-            item.number: path
-            for item in open_items
-            if (path := _path_back(edges, item.number)) is not None
-        }
-        return cls(edges=edges, cycles=cycles)
+        return cls(edges={item.number: _edges_of(item, items, numbers) for item in open_items})
 
     def cycle_of(self, number: int) -> tuple[int, ...] | None:
-        """The path from `number` through its dependencies back to it, or None when no dependency
-        of it leads back."""
-        return self.cycles.get(number)
+        """A shortest path from `number` through its dependencies back to it, or None when no
+        dependency of it leads back."""
+        return _path_back(self.edges, number)
 
 
 def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tuple[int, ...]:
@@ -1463,28 +1455,24 @@ def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tu
     return tuple(dict.fromkeys(number for number in named if number in numbers))
 
 
-def _holds_a_cycle(edges: Mapping[int, Sequence[int]]) -> bool:
-    """Whether a dependency leads back to its item, which the one sort of the graph finds."""
-    try:
-        TopologicalSorter({number: set(names) for number, names in edges.items()}).prepare()
-    except CycleError:
-        return True
-    return False
-
-
 def _path_back(edges: Mapping[int, Sequence[int]], start: int) -> tuple[int, ...] | None:
-    """The first path from `start` through the edges that ends at `start`, or None when no
-    dependency of `start` leads back to it."""
-    seen = {start}
-    stack: list[tuple[int, ...]] = [(start,)]
-    while stack:
-        path = stack.pop()
-        for next_number in edges.get(path[-1], ()):
+    """A shortest path from `start` through the edges that ends at `start`, or None when no
+    dependency of `start` leads back to it (#6516). The breadth-first search reaches each item at
+    its least distance first, in the order of the edges, and keeps one parent for each item, so the
+    first edge back to `start` closes a shortest cycle. It builds the path once, at the end."""
+    parents: dict[int, int] = {}
+    queue = deque([start])
+    while queue:
+        number = queue.popleft()
+        for next_number in edges.get(number, ()):
             if next_number == start:
-                return (*path, start)
-            if next_number not in seen:
-                seen.add(next_number)
-                stack.append((*path, next_number))
+                path = [number]
+                while path[-1] != start:
+                    path.append(parents[path[-1]])
+                return (*reversed(path), start)
+            if next_number not in parents:
+                parents[next_number] = number
+                queue.append(next_number)
     return None
 
 

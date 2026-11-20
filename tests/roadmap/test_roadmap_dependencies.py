@@ -7,6 +7,7 @@ from typing import Any
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.dependencies import open_dependency
+from devops_cli.roadmap.refine.refine import DependencyGraph
 from devops_cli.roadmap.stores.store import (
     GitHubState,
     ItemField,
@@ -38,10 +39,12 @@ def _seed(
 
 
 def _reason(store: InMemoryRoadmapStore, number: int) -> str | None:
-    """The reason that `open_dependency` gives for issue `number`, over the open items."""
+    """The reason that `open_dependency` gives for issue `number`, over the open items and their
+    dependency graph."""
     item = store.item(number)
     assert item is not None
-    return open_dependency(item, store, store.open_items())
+    items = store.open_items()
+    return open_dependency(item, store, items, graph=lambda: DependencyGraph.of(items))
 
 
 def test_the_reason_of_an_item_in_a_cycle_names_the_cycle() -> None:

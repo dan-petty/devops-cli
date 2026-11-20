@@ -198,6 +198,7 @@ from devops_cli.roadmap.pull_form import (
 from devops_cli.roadmap.pull_labels import add_pull_labels, read_title_labels, remove_pull_labels
 from devops_cli.roadmap.pull_retry import BODY_TASK, BodyReply
 from devops_cli.roadmap.refine.refine import (
+    DependencyGraph,
     NextStep,
     body_dependencies,
     collect_context,
@@ -768,10 +769,16 @@ class _Judge:
         """Every Item, open and closed, read once for the titles that a body names (#4803)."""
         return self._store.items()
 
+    @cached_property
+    def _graph(self) -> DependencyGraph:
+        """The dependency graph of the items, built once for the selection, on the first item that
+        has an open dependency (#6516)."""
+        return DependencyGraph.of(self._items)
+
     def _dependency(self, item: Item) -> str | None:
         """An open issue that the Dependencies section of the body names as a blocker `#N` (#2654,
         #6451) or by its quoted title (#4803), from the shared check (#4009)."""
-        return open_dependency(item, self._store, self._items)
+        return open_dependency(item, self._store, self._items, graph=lambda: self._graph)
 
     def _recorded_blocker(self, item: Item) -> str | None:
         """An open item that the record of a refine round or of the stage job names as the blocker
