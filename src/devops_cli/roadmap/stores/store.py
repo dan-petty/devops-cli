@@ -37,6 +37,7 @@ import re
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast, runtime_checkable
 
 from markdown_it import MarkdownIt
@@ -587,8 +588,9 @@ class Item(BaseModel):
     author's relation to the repository, and `author_login` the author's login, as on
     `IssueRecord`: the jobs take only an Item that the owner, a member or a collaborator opened,
     or that the bot of the Service App or of the workflows opened (#2478, #3502). `sub_issues` is how many
-    sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `updated_at` is
-    when the issue last changed, and `comments` how many comments it holds, as on `IssueRecord`.
+    sub-issues the issue has, as on `IssueRecord`: an Item with some is a tracker. `parent` is the
+    number of the issue that has the Item as a sub-issue, as on `IssueRecord` (#6450). `updated_at`
+    is when the issue last changed, and `comments` how many comments it holds, as on `IssueRecord`.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -604,6 +606,7 @@ class Item(BaseModel):
     author_association: str | None = None
     author_login: str | None = None
     sub_issues: int = 0
+    parent: int | None = None
     updated_at: datetime | None = None
     comments: int = 0
     status: str | None = None
@@ -631,6 +634,44 @@ class Item(BaseModel):
         """Whether the Item is a tracker: it has sub-issues or the label `type/epic`, so its
         sub-issues deliver it and no job plans or refines it of its own (#1985, #3703)."""
         return self.sub_issues > 0 or CONST_ROADMAP_EPIC_LABEL in self.labels
+
+
+class ItemTree:
+    """The sub-issue links of the Items of one read (#6450): the parent of each Item, and the open
+    Items under each issue. The issue listing of GitHub gives the parent of each issue, so the
+    tree sends no request. It reads `items` the first time a caller asks for a link, so a caller
+    that asks for none pays nothing."""
+
+    def __init__(self, items: Sequence[Item] = ()) -> None:
+        self._items = items
+
+    @cached_property
+    def _parents(self) -> dict[int, int]:
+        """The parent of each Item of the read that has one."""
+        return {item.number: item.parent for item in self._items if item.parent is not None}
+
+    @cached_property
+    def _open_children(self) -> dict[int, tuple[Item, ...]]:
+        """The open Items of the read under each issue, lowest number first."""
+        children: dict[int, list[Item]] = {}
+        for item in sorted(self._items, key=lambda each: each.number):
+            if item.parent is not None and item.state is GitHubState.OPEN:
+                children.setdefault(item.parent, []).append(item)
+        return {parent: tuple(held) for parent, held in children.items()}
+
+    def ancestors(self, item: Item) -> tuple[int, ...]:
+        """The parent of `item`, the parent of that, and so on, nearest first, as far as the read
+        holds the links. The parent of `item` is the one that `item` itself names."""
+        chain: list[int] = []
+        number = item.parent
+        while number is not None and number != item.number and number not in chain:
+            chain.append(number)
+            number = self._parents.get(number)
+        return tuple(chain)
+
+    def open_sub_issues(self, number: int) -> tuple[Item, ...]:
+        """The open Items of the read whose parent is issue `number`, lowest number first."""
+        return self._open_children.get(number, ())
 
 
 class Change(BaseModel):
@@ -1430,6 +1471,7 @@ __all__ = [
     "IssueRecord",
     "Item",
     "ItemField",
+    "ItemTree",
     "JobRecord",
     "Milestone",
     "OwnerQuestionRecordKey",

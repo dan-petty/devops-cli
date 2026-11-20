@@ -18,6 +18,8 @@ The comment of refine is one event line. It names the next step and the parts of
 
 A proposal that names an open issue as a dependency is not whole. The item waits on that issue. Refine does not set it to Ready, and a Ready item goes back to New. A closed dependency holds nothing back.
 
+One rule decides which open dependency holds an item back, for refine, stage, implement and the cycle check (`open_blockers` of `src/devops_cli/roadmap/dependencies.py`, #6450). No job closes a tracker: it closes after its sub-issues. So the parent tracker of the item, and each tracker above the parent, is no blocker. Another open tracker holds the item back with its open sub-issues: the item waits on them and not on the tracker, a sub-issue that is a tracker gives its own open sub-issues, and a tracker with no open sub-issue holds nothing back. The issue listing gives the parent of each issue, so the rule sends no request for it. The hold issue #6521 has no sub-issue and no label `type/epic`, so it is no tracker, and it holds the item back. A recorded wait follows the same rule: a recorded parent tracker ends the wait in the next round, and a recorded tracker gives the wait its open sub-issues. The Dependencies part of the section still names the tracker that the proposal names.
+
 The Dependencies section of the body names an issue as `#N` or by its quoted title, such as `- "feat(roadmap): run each refine item in its own pod".`. Each `#N` of the section names a blocker, also in prose, such as `- #N`, `#5134, #5135`, `Merge first: #N`, `Depends on #N`, `#N (merged first).` or `Open the pull request after the pull request of #N merges.`. A missed blocker lets a job take an item while its blocker is open, so the rule keeps a `#N` unless the text says that it names a link (#6451):
 
 - A block (a paragraph or the text of a list item) that starts with `None` or `No`, such as `None. #N uses these records.`, names no blocker.
@@ -26,7 +28,7 @@ The Dependencies section of the body names an issue as `#N` or by its quoted tit
 - A block that names an issue that merges in either order (`No merge order`, `Rebase before the second of the two merges`) names no blocker.
 - A `#N` in parentheses with other words is a note and names no blocker, and `(#N)` alone names one. So the hold line `- #6521 (hold: ... of #6519)` names the hold issue #6521 and not the tracker #6519.
 
-The narrower rule removes false dependencies, so it sets a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-20T14:03:08Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until they close, a person replies or a person edits the body.
+The narrower rule removes false dependencies, so it sets a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-20T14:03:08Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until none is an open blocker, a person replies or a person edits the body.
 
 Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
 
@@ -106,7 +108,7 @@ Refine reads the title in each round, so the first round after a title with a li
 
 ## Items that are trackers
 
-An item with sub-issues or the label `type/epic` is a tracker. Its sub-issues deliver it, so refine leaves it alone. The item waits with the text of `refine_left_tracker`, also under `--item`. The round makes no model call and writes nothing for it. A person closes the parent.
+An item with sub-issues or the label `type/epic` is a tracker. Its sub-issues deliver it, so refine leaves it alone. The item waits with the text of `refine_left_tracker`, also under `--item`. The round makes no model call and writes nothing for it. A person closes the parent. A tracker holds back no item of its own: a dependency on a tracker waits on its open sub-issues (see the dependency rule above).
 
 ## Parts that cannot be built now
 
