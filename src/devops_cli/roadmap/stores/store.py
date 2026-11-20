@@ -639,11 +639,22 @@ class Item(BaseModel):
 class ItemTree:
     """The sub-issue links of the Items of one read (#6450): the parent of each Item, and the open
     Items under each issue. The issue listing of GitHub gives the parent of each issue, so the
-    tree sends no request. It reads `items` the first time a caller asks for a link, so a caller
-    that asks for none pays nothing."""
+    tree sends no request for each Item. It calls `read` the first time a caller asks for a link,
+    so a caller that asks for none reads nothing: refine gives `store.items` and reads the whole
+    listing only when a dependency is an open tracker."""
 
-    def __init__(self, items: Sequence[Item] = ()) -> None:
-        self._items = items
+    def __init__(self, read: Callable[[], Sequence[Item]] = lambda: ()) -> None:
+        self._read = read
+
+    @classmethod
+    def of(cls, items: Sequence[Item]) -> ItemTree:
+        """The tree of the Items `items` that the caller already holds."""
+        return cls(lambda: items)
+
+    @cached_property
+    def _items(self) -> Sequence[Item]:
+        """The Items of the read, read once."""
+        return self._read()
 
     @cached_property
     def _parents(self) -> dict[int, int]:

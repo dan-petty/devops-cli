@@ -1426,8 +1426,9 @@ class DependencyGraph:
     name, by the rule that the jobs share (`dependencies.open_blockers`, #6450): an issue that the
     sequence does not hold as an open item gives no edge, so a closed dependency holds nothing
     back, the item and its parent trackers give no edge, and another tracker gives an edge to each
-    of its open sub-issues. `tree` holds the sub-issue links of the sequence, which the jobs read
-    for the same rule. `cycle_of` gives, for an item that a dependency leads back to, a shortest
+    of its open sub-issues. `tree` holds the sub-issue links, from the sequence unless the caller
+    gives a tree, and the jobs read it for the same rule. Refine gives a tree of all Items, so a
+    closed parent breaks no chain of ancestors. `cycle_of` gives, for an item that a dependency leads back to, a shortest
     path from the item through its dependencies back to it. It searches only for the item that the
     caller asks for (#6516).
     """
@@ -1436,11 +1437,12 @@ class DependencyGraph:
     tree: ItemTree = field(default_factory=ItemTree, compare=False, repr=False)
 
     @classmethod
-    def of(cls, items: Sequence[Item]) -> DependencyGraph:
+    def of(cls, items: Sequence[Item], *, tree: ItemTree | None = None) -> DependencyGraph:
         """The graph of the open items of `items`, built from that sequence alone: it reads no
-        store and sends no request."""
+        store and sends no request. `tree` gives the sub-issue links, the links of `items` when
+        None; a lazy tree reads its Items only when an open item names an open tracker."""
         open_items = {item.number: item for item in items if item.state is GitHubState.OPEN}
-        tree = ItemTree(items)
+        tree = tree if tree is not None else ItemTree.of(items)
         return cls(
             edges={
                 number: _edges_of(item, items, open_items, tree)
@@ -1747,7 +1749,7 @@ def _open_dependencies(
     """The open blockers among the dependencies that the validated proposal of `item` names, in
     its order. A closed issue holds nothing back (#3500), the parent tracker of the item is no
     blocker, and another tracker gives its open sub-issues (#6450). `tree` holds the sub-issue
-    links of the round."""
+    links of all Items."""
     return _blockers(item, proposal.dependencies, store.item, tree)
 
 
@@ -2799,7 +2801,7 @@ def _wait_state(
 def _open_blockers(store: RoadmapStore, item: Item, tree: ItemTree) -> tuple[int, ...]:
     """The open blockers among the issues that the record of `item` names, by the rule of the
     jobs (#6450): a parent tracker that a round recorded holds the item no longer, and another
-    tracker gives its open sub-issues. `tree` holds the sub-issue links of the round."""
+    tracker gives its open sub-issues. `tree` holds the sub-issue links of all Items."""
     return _blockers(item, recorded_blockers(item), store.item, tree)
 
 
@@ -2857,10 +2859,10 @@ def _still_waiting(
 
     A dependency cycle ends a blocked wait (#6449): no issue closes a cycle, so a person removes
     one edge, and the round refines the item. `graph` is the graph of the round, which the caller
-    built from the open items it read; without it, the graph is read here for the one item. The
-    open blockers of a blocked wait come from the rule of the jobs, with the sub-issue links of
-    that graph, so a recorded parent tracker ends the wait and another tracker names its open
-    sub-issues (#6450)."""
+    built from the open items it read; without it, the graph is read here for the one item, and
+    only when a recorded blocker is still open. The open blockers of a blocked wait come from the
+    rule of the jobs, with the sub-issue links of all Items, so a recorded parent tracker ends the
+    wait and another tracker names its open sub-issues (#6450)."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
@@ -2871,9 +2873,12 @@ def _still_waiting(
         case NextStep.EDIT | NextStep.FAILED:
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
-            held = graph if graph is not None else DependencyGraph.of(store.open_items())
-            blockers = _open_blockers(store, item, held.tree)
-            if not blockers or held.cycle_of(item.number) is not None:
+            tree = graph.tree if graph is not None else ItemTree(store.items)
+            blockers = _open_blockers(store, item, tree)
+            if not blockers:
+                return None
+            held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
+            if held.cycle_of(item.number) is not None:
                 return None
             details = tuple(f"#{number}" for number in blockers)
         case NextStep.ALTERNATIVES:
@@ -3552,8 +3557,9 @@ def refine_one_item(
     failure = _job_failure(proposal, open_questions, stopped, tools.searched, unmatched)
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
-    held = graph if graph is not None else DependencyGraph.of(store.open_items())
-    blockers = _open_dependencies(store, proposal, item, held.tree)
+    tree = graph.tree if graph is not None else ItemTree(store.items)
+    blockers = _open_dependencies(store, proposal, item, tree)
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
     cycle = held.cycle_of(item.number)
     proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
     # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
@@ -3889,7 +3895,8 @@ def plan_refine(
     sha = inspect_checkout(source_path, repo)
     open_items = store.open_items()
     frames = frames_of(open_items)
-    graph = DependencyGraph.of(open_items)
+    # The tree reads every Item, closed parents too, and only when an item names an open tracker.
+    graph = DependencyGraph.of(open_items, tree=ItemTree(store.items))
 
     candidates, waiting, queue = _select_round(
         store, item_number=item_number, limit=limit, actor=actor, frames=frames, graph=graph

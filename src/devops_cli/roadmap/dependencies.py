@@ -86,7 +86,7 @@ def open_issue_dependencies(
     """The reason that the open blockers among the dependencies `numbers` of `item` give
     (`open_blockers`, #6450), or None when no dependency holds the item back. `items` is the read
     whose sub-issue links the rule follows."""
-    blockers = open_blockers(item, numbers, store.item, ItemTree(items))
+    blockers = open_blockers(item, numbers, store.item, ItemTree.of(items))
     if not blockers:
         return None
     return MESSAGES.roadmap.stage_left_dependency.format(

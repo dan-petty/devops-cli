@@ -791,7 +791,7 @@ class _Judge:
         The rule of the jobs decides the blockers (#6450): a parent tracker is none, and another
         tracker gives its open sub-issues."""
         blockers = open_blockers(
-            item, recorded_blockers(item), self._store.item, ItemTree(self._items)
+            item, recorded_blockers(item), self._store.item, ItemTree.of(self._items)
         )
         if not blockers:
             return None
