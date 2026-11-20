@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.182.2](https://github.com/dan-petty/devops-cli/compare/v0.182.1...v0.182.2) (2026-11-20)
+
+
+### Bug Fixes
+
+* drop copied tool versions from generated files ([#6487](https://github.com/dan-petty/devops-cli/issues/6487)) ([6b51b58](https://github.com/dan-petty/devops-cli/commit/6b51b58a34449e00de8abf64b91a3e79137826da))
+
 ## [0.182.1](https://github.com/dan-petty/devops-cli/compare/v0.182.0...v0.182.1) (2026-11-20)
 
 
