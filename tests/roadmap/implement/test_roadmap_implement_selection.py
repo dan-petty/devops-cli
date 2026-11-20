@@ -21,7 +21,9 @@ from devops_cli.roadmap.implement.implement import (
     plan_implement,
     render_implement_plan,
 )
+from devops_cli.roadmap.refine.refine import DependencyGraph
 from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey, RefineRecordKey
+from tests.support.call_counts import calls_of
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -130,6 +132,24 @@ def test_a_dependency_cycle_names_the_cycle_in_the_reason(
     reason = _reasons(plan)[number]
     assert f"#{number} → #{blocker} → #{number}" in reason
     assert reason != MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}")
+
+
+def test_the_implement_selection_builds_one_dependency_graph_for_its_items(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """Two Staged items depend on one open issue: the selection leaves each out with the open-issue
+    reason and builds the dependency graph once, on the first of them (#6516)."""
+    blocker = seed_staged(store)
+    waiting = [seed_staged(store, body=f"## Dependencies\n\n#{blocker}\n") for _ in range(2)]
+
+    with calls_of(DependencyGraph.of) as builds:
+        plan = _plan(store, stage_repo)
+
+    reason = MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}")
+    assert (len(builds), [_reasons(plan).get(number) for number in waiting]) == (
+        1,
+        [reason, reason],
+    )
 
 
 def test_an_item_with_an_open_plan_dependency_is_left_out(

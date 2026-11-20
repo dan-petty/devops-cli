@@ -113,3 +113,64 @@ def test_two_cycles_that_share_an_edge() -> None:
     graph = DependencyGraph.of([a, b, c])
 
     assert [_names_cycle(graph, number) for number in (1, 2, 3)] == [True, True, True]
+
+
+def test_the_path_of_an_item_is_a_shortest_cycle() -> None:
+    """A names B and C, B names A, C names D and D names A: the path of A is the shorter cycle
+    `#A → #B → #A`, and not `#A → #C → #D → #A`. Each other item gets its own shortest cycle
+    (#6516)."""
+    from devops_cli.roadmap.refine.refine import DependencyGraph
+
+    graph = DependencyGraph.of(
+        [
+            _item(1, body=_depends_on(2, 3)),
+            _item(2, body=_depends_on(1)),
+            _item(3, body=_depends_on(4)),
+            _item(4, body=_depends_on(1)),
+        ]
+    )
+
+    assert [graph.cycle_of(number) for number in (1, 2, 3, 4)] == [
+        (1, 2, 1),
+        (2, 1, 2),
+        (3, 4, 1, 3),
+        (4, 1, 3, 4),
+    ]
+
+
+def test_a_self_loop_a_lead_in_and_a_closed_link_keep_their_paths() -> None:
+    """An item that names itself gets the path back to itself. An item that only leads into the
+    cycle of two others gets no path, and each of the two gets its own. A closed item between two
+    open items breaks their chain, so neither gets a path (#6516)."""
+    from devops_cli.roadmap.refine.refine import DependencyGraph
+
+    graph = DependencyGraph.of(
+        [
+            _item(5, record=5),
+            _item(6, record=7),
+            _item(7, record=8),
+            _item(8, record=7),
+            _item(9, record=10),
+            _item(10, record=9, state=GitHubState.CLOSED),
+        ]
+    )
+
+    assert [graph.cycle_of(number) for number in (5, 6, 7, 8, 9)] == [
+        (5, 5),
+        None,
+        (7, 8, 7),
+        (8, 7, 8),
+        None,
+    ]
+
+
+def test_a_long_ring_gives_its_item_the_whole_ring() -> None:
+    """In a ring of 20,000 items, each item names the next and the last names the first: the
+    path of the first item is the whole ring back to it. The search keeps one parent for each item,
+    so the ring ends in one pass and copies no path at each step (#6516)."""
+    from devops_cli.roadmap.refine.refine import DependencyGraph
+
+    size = 20_000
+    ring = {number: (number % size + 1,) for number in range(1, size + 1)}
+
+    assert DependencyGraph(edges=ring).cycle_of(1) == (*range(1, size + 1), 1)
