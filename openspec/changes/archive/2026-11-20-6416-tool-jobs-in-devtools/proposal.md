@@ -19,7 +19,7 @@ Issue #6416: CI jobs install their tools with `uv run devops install-tools` befo
 - `docs/SDLC.md` names the source of the tools of a CI job, the kubectl and helm of the image pins job and the paths of the Service Image Tests. `docs/CLUSTER.md` names the promtool of the devtools image.
 - The specs `devcontainer-image-tools`, `ci-service-image-tests` and `k8s-image-pins` name the `install-tools` step, the pinned helm and the old path lists, so the delta changes those requirements. `review-tool-runs` gets the requirement of the rules lock with no Semgrep version.
 
-The OpenSpec and Style Dictionary steps stay for #6409, which installs them with `npm ci` from the root `package-lock.json`.
+The OpenSpec and Style Dictionary steps install from the root `package-lock.json` with `npm ci` (#6409). Their `echo "$HOME/.local/bin" >> "$GITHUB_PATH"` line served only the `install-tools` lines, so it goes. After this change, no workflow runs `devops install-tools`.
 
 The change fits one pull request.
 

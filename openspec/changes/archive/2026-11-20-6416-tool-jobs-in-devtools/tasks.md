@@ -10,8 +10,8 @@ Kind: other. Reads: `.github/workflows/ci.yml`, `.github/workflows/copilot-setup
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
 - [x] 1.3 Call the action from `Static Analysis`, the test shards, `Copilot Setup Steps`, `Image Pins` and `Service Image Tests` in place of their `install-tools` lines, and add `.devcontainer/Dockerfile` and the action folder to the `paths` of `copilot-setup-steps.yml`, `image-pins.yml` and `service-image-test.yml`. Remove the four tool lines from the copilot run lines of the workflow contract test, delete the trivy step order test and the allowlist entries of the three removed steps of `ci.yml`, lower the count of `tests/commands/test_ci.py` in `config_reads.toml`, and let the runner tools test read the `commands` of the action as tools of the required jobs
   - Verification: `$ uv run devops ci test tests/invariants/test_workflow_contracts.py tests/commands/test_ci.py tests/roadmap/test_roadmap_runner_tools.py`
-- [x] 1.4 Confirm that no workflow installs a tool of the devtools image with `devops install-tools`
-  - Verification: `$ ! git grep -n -E 'install-tools --tool (tofu|osv-scanner|trivy|kube-linter|promtool|gitleaks|semgrep|tuicr|helm|kubectl)' -- .github`
+- [x] 1.4 Remove the `$HOME/.local/bin` PATH line of the OpenSpec steps of `Static Analysis` and `Copilot Setup Steps`, which served only the `install-tools` lines, and confirm that no workflow runs `devops install-tools`
+  - Verification: `$ ! git grep -n -F 'devops install-tools' -- .github .pre-commit-config.yaml`
 
 ## 2. The rules lock holds no Semgrep version
 
@@ -31,6 +31,5 @@ Kind: documents. Reads: `docs/SDLC.md`, `docs/CLUSTER.md`. Changes: `docs/SDLC.m
 
 ## Workflow follow-up
 
-- #6409 installs OpenSpec and Style Dictionary with `npm ci` from the root `package-lock.json`, in place of the three OpenSpec steps and the Style Dictionary step.
 - #4363 deletes `devops install-tools`, `src/devops_cli/tools_lock/` and the `src/devops_cli/tools_lock/**` path of `service-image-test.yml`.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

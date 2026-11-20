@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The in-image suite runs nightly and on image pull requests
-The Service Image Tests workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `src/devops_cli/tools_lock/`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands/` or the workflow file. A pull request that changes only other `src/` files SHALL start no job of it.
+The Service Image Tests workflow SHALL run on the daily schedule, on a manual run, and on a pull request that changes `Dockerfile`, `.dockerignore`, `pyproject.toml`, `uv.lock`, `package.json`, `package-lock.json`, `src/devops_cli/tools_lock/`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands/` or the workflow file. A pull request that changes only other `src/` files SHALL start no job of it.
 
 #### Scenario: A pull request changes only src
 - **WHEN** a pull request changes only files under `src/` that are not under `src/devops_cli/tools_lock/`
@@ -9,6 +9,10 @@ The Service Image Tests workflow SHALL run on the daily schedule, on a manual ru
 
 #### Scenario: A pull request changes an image input
 - **WHEN** a pull request changes `uv.lock`
+- **THEN** the six Service Image Tests shards run the suite inside the built Service image
+
+#### Scenario: A pull request changes the root npm lockfile
+- **WHEN** a pull request changes `package-lock.json`, from which the `openspec` stage of `Dockerfile` installs the OpenSpec of the Service image
 - **THEN** the six Service Image Tests shards run the suite inside the built Service image
 
 #### Scenario: A pull request changes the source of the test tools
