@@ -22,7 +22,7 @@ Kind: behavior.
 
 Kind: other.
 
-- [ ] 3.1 Seed the empty-database digest with a string that has no version, and remove the version from the docstring of `src/devops_cli/security/osv_scanner.py`
+- [x] 3.1 Seed the empty-database digest with a string that has no version, and remove the version from the docstring of `src/devops_cli/security/osv_scanner.py`
   - Verification: `$ ! git grep -nE '[0-9]+\.[0-9]+\.[0-9]+' -- src/devops_cli/security/osv_scanner.py`
 - [ ] 3.2 Remove `DOCKER_CLI_HINTS` from the scaffold, because the published image has no Docker CLI
   - Verification: `$ ! git grep -n DOCKER_CLI_HINTS -- src/devops_cli/templates`
