@@ -35,8 +35,8 @@ scanner by its name. `runs` holds each request that the fake answered: the comma
 executor starts, the directory that it starts the command in and, when the fake snapshots working
 directories, the bytes of each file in that directory as the run started.
 
-Each recorded run is the real tool's, at the version `tools.lock` pins, started through its
-adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
+Each recorded run is the real tool's, at the version installed when it was recorded, started
+through its adapter as a review starts it, over one file holding `print("hello")`, on 2026-10-20: a scan
 that finds nothing. Semgrep's was recorded again on 2026-10-28, offline, with a rule file in
 place of the registry's `p/default`, which a recording cannot fetch, and with the rules that a
 review leaves out (#1024). Gitleaks' was recorded again
@@ -188,7 +188,7 @@ class ScannerFake(ToolExecutorFake):
         the directory that run started in.
 
         The runs are in `tests/fixtures/scanner_runs/runs_with_findings.json`, each the real
-        tool's, at the version `tools.lock` pins when it pins one, started with the command its
+        tool's, at the version installed when it was recorded, started with the command its
         adapter makes. In each, a placeholder such as `{tree}` stands for the path given as that
         keyword."""
         recorded = files("tests").joinpath("fixtures", "scanner_runs", "runs_with_findings.json")

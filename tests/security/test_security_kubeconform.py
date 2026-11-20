@@ -18,7 +18,6 @@ import pytest
 from devops_cli.ai.review_schema import Finding
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.kubeconform import KubeconformScanner, run_kubeconform_validation
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer
 from tests.support.paths import FIXTURES
@@ -148,7 +147,6 @@ def test_kubeconform_gives_no_finding_for_a_valid_or_skipped_resource(
 
     findings = KubeconformScanner().parse_output(report, manifests)
 
-    assert run["version"] == load_tools_lock().tools()["kubeconform"].version
     assert [status["status"] for status in report["resources"]] == [
         "statusSkipped",
         "statusError",

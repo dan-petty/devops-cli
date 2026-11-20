@@ -3,8 +3,8 @@ request the same way (#772, ADR 0007).
 
 A review tool starts through a `ToolExecutor`. The real executor builds a bubblewrap command and
 starts it through `run_subprocess`. `ToolExecutorFake` starts nothing. Each shared case runs over
-both, with a stand-in for the tool on disk. The stand-in is a shell script named after a tool that
-`tools.lock` pins, and a test puts it first on PATH. The real side carries the `bwrap` mark, so
+both, with a stand-in for the tool on disk. The stand-in is a shell script named after a native
+tool, and a test puts it first on PATH. The real side carries the `bwrap` mark, so
 tests skip it where bubblewrap is missing.
 
 `DirectToolExecutor` starts the tool itself, as a review did before the sandbox. The floor of the
@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_TOOL_DIGEST_UNAVAILABLE,
     CONST_TOOL_EXECUTOR_DIRECT,
     CONST_TOOL_NETWORK_HOST,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 from devops_cli.config.defaults import DEFAULT_REPOMAP_MAX_FILE_SIZE_BYTES
 from devops_cli.exceptions.sandbox import (
@@ -61,7 +62,6 @@ from devops_cli.security.tool_executor import (
     ToolResult,
     ToolRun,
 )
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer, ToolExecutorFake
 from tests.support.waits import wait_until
@@ -69,7 +69,7 @@ from tests.support.waits import wait_until
 if TYPE_CHECKING:
     from tests.support.fakes.git import GitFake
 
-# A tool that `tools.lock` pins, so the run records the locked version; the stand-in is not it.
+# A native tool: no installed distribution names its version, so the run records `unknown`.
 _TOOL = "helm"
 _SANDBOX_ARGS = ("--unshare-all", "--new-session", "--die-with-parent", "--clearenv")
 # The sandbox's private tmpfs, which is also the HOME of the tool.
@@ -137,9 +137,10 @@ class Scenario:
         return hashlib.sha256(self.stand_in.read_bytes()).hexdigest()
 
     @property
-    def locked_version(self) -> str:
-        """The version `tools.lock` pins for the tool."""
-        return load_tools_lock().tools()[_TOOL].version
+    def version(self) -> str:
+        """The version that a run records for the stand-in: no installed distribution names it
+        and no pin does either, so it is `unknown` (#4388)."""
+        return CONST_TOOL_VERSION_UNKNOWN
 
     @property
     def interpreter(self) -> Path:
@@ -324,7 +325,7 @@ def executor(request: pytest.FixtureRequest, scenario: Scenario) -> ToolExecutor
             exit_code=3,
             stdout=f"scanned: {scenario.target}\n",
             stderr="warning\n",
-            version=scenario.locked_version,
+            version=scenario.version,
             binary_sha256=scenario.binary_sha256,
         ),
     )
@@ -365,13 +366,13 @@ def test_the_settled_record_of_a_run_holds_its_exit_code_and_the_success_its_cal
 def test_a_run_records_the_tool_the_files_it_read_and_the_commit(
     executor: ToolExecutor, scenario: Scenario
 ) -> None:
-    """The record names the tool as `tools.lock` pins it, the digest of the binary that ran, the
-    argument template, and the commit of the tree."""
+    """The record names the tool, its version, the digest of the binary that ran, the argument
+    template, and the commit of the tree."""
     run = executor.run(scenario.request()).run
 
     assert (run.tool, run.version, run.binary_sha256, run.argv_template, run.commit) == (
         _TOOL,
-        scenario.locked_version,
+        scenario.version,
         scenario.binary_sha256,
         (_TOOL, "scan", "{targets}"),
         scenario.commit,
@@ -384,8 +385,8 @@ def test_a_request_that_names_a_program_starts_it_and_records_it_by_its_name(
     """Mypy runs from the interpreter of the `.venv` of the reviewed repository, which the PATH of
     the host does not name. A request names that program. The record names the tool, and the
     program by its file name, not by its path, so the same scan records the same template. With
-    no distribution of the tool beside the program, the version is the pin of `tools.lock` and the
-    digest is the digest of the program file."""
+    no distribution of the tool beside the program, the version is `unknown` and the digest is the
+    digest of the program file."""
     result = executor.run(scenario.request(program=scenario.interpreter))
 
     assert (
@@ -397,7 +398,7 @@ def test_a_request_that_names_a_program_starts_it_and_records_it_by_its_name(
     ) == (
         f"scanned: {scenario.target}\n",
         _TOOL,
-        scenario.locked_version,
+        scenario.version,
         scenario.binary_sha256,
         ("interpreter", "scan", "{targets}"),
     )

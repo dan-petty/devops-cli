@@ -11,9 +11,9 @@
     4. EXEC the export of the default branch, unpacked and removed after the read
          git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
     5. EXEC the Ansible config of the export
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-config dump --format json --only-changed  [only if an Ansible tool environment is installed]
+         <tmp>/ansible/bin/ansible-config dump --format json --only-changed  [only if an Ansible tool environment is installed]
     6. EXEC the Ansible inventory of the export
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list  [only if an Ansible tool environment is installed and the project profile names an inventory]
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list  [only if an Ansible tool environment is installed and the project profile names an inventory]
     7. EXEC the host key of <host> in known_hosts
          ssh-keygen -F '<host>' -f <tmp>/home/.ssh/known_hosts  [only if <tmp>/home/.ssh/known_hosts exists]  [repeated for each host in service]
     8. EXEC the kubeconfig contexts
@@ -27,7 +27,7 @@
   '''
   # Onboarding of example-org/infra at <repo>
   Reads origin/main at f5961bd2da6856e31914037c0f048337989dfbe7, not the working tree of the checkout.
-  1. The Ansible tool environment is installed: present (ansible-core 2.22.0)
+  1. The Ansible tool environment is installed: present (the ansible-runner on PATH, in <ansible>)
   2. The project profile of the repository has the type ansible-k8s: present (declared in .devops/project.toml; each value with its source)
      - extends = "ansible-k8s" (.devops/project.toml)
      - ansible.inventory = ["ansible/inventory/hosts.yaml"] (.devops/project.toml)

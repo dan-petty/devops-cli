@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Final
 
 from packaging.version import InvalidVersion, Version
 
+from devops_cli.config.commands import BIN_KUBECTL
 from devops_cli.config.constants import (
     CONST_K8S_CONDITION_READY,
     CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR,
@@ -38,10 +40,14 @@ from devops_cli.config.defaults import (
     DEFAULT_K8S_DOCTOR_RESTART_THRESHOLD,
     DEFAULT_K8S_DOCTOR_STUCK_SECONDS,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.k8s.service import read_pod_log_text
 from devops_cli.models.k8s import DoctorReport, Finding, node_is_ready
 from devops_cli.security.sanitizer import mask_secrets
+
+# The local read of the version of the kubectl on PATH; it reaches no cluster.
+KUBECTL_CLIENT_VERSION: Final[tuple[str, ...]] = (BIN_KUBECTL, "version", "--client", "-o", "json")
 
 
 @dataclass
@@ -50,6 +56,8 @@ class Snapshot:
 
     context: str = ""
     server_version: str = ""
+    # The version of the kubectl on PATH (`kubectl_client_version`), empty when none answers.
+    kubectl_version: str = ""
     nodes: list[Any] = field(default_factory=list)
     pods: list[Any] = field(default_factory=list)
     events: list[Any] = field(default_factory=list)
@@ -510,31 +518,28 @@ def _parse_version(ver_str: str) -> Version | None:
         return None
 
 
-def _resolve_kubectl_version(kubectl_version: str | None = None) -> str | None:
-    """Resolve kubectl version from argument or tools.lock."""
-    if kubectl_version is not None:
-        return kubectl_version
-    try:
-        from devops_cli.tools_lock import load_tools_lock
-
-        lock = load_tools_lock()
-        kubectl_tool = lock.binary.get("kubectl")
-        if kubectl_tool:
-            return kubectl_tool.version
-    except FileNotFoundError, KeyError:
+def kubectl_client_version() -> str | None:
+    """The version of the kubectl on PATH: `clientVersion.gitVersion` of
+    `kubectl version --client -o json`, with no leading `v` (#4388). None when no kubectl answers
+    with a version. The run is a local read and reaches no cluster."""
+    result = run_subprocess(list(KUBECTL_CLIENT_VERSION), check=False, local_read=True)
+    if result.returncode != 0:
         return None
-    return None
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return None
+    client = data.get("clientVersion") if isinstance(data, dict) else None
+    version = client.get("gitVersion") if isinstance(client, dict) else None
+    return version.removeprefix("v") if isinstance(version, str) and version else None
 
 
-def check_kubectl_version_skew(
-    server_version: str,
-    kubectl_version: str | None = None,
-) -> str | None:
+def check_kubectl_version_skew(server_version: str, kubectl_version: str | None) -> str | None:
     """Check version skew between kubectl and server, returning a warning message if skewed."""
     if not server_version:
         return None
 
-    k_version = _resolve_kubectl_version(kubectl_version)
+    k_version = kubectl_version
     if not k_version:
         return None
 
@@ -619,7 +624,7 @@ def diagnose_version_skew(
     # 1. Kubectl skew
     warn_msg = check_kubectl_version_skew(server_version_str, kubectl_version_str)
     if warn_msg:
-        k_version = _resolve_kubectl_version(kubectl_version_str)
+        k_version = kubectl_version_str
         k_parsed = _parse_version(k_version or "")
         k_minor = k_parsed.minor if k_parsed else 0
         min_minor = max(0, k_minor - 1)
@@ -713,7 +718,7 @@ def diagnose(
 
     # 5. Cluster rules: version skew
     effective_server_ver = getattr(s, "server_version", "") or server_version
-    skew_findings = diagnose_version_skew(effective_server_ver, s.nodes)
+    skew_findings = diagnose_version_skew(effective_server_ver, s.nodes, s.kubectl_version or None)
     findings.extend(skew_findings)
 
     # Restarts map for ranking
@@ -843,6 +848,7 @@ def collect(
     return Snapshot(
         context=context,
         server_version=server_version,
+        kubectl_version=kubectl_client_version() or "",
         nodes=nodes,
         pods=pods,
         events=events,
@@ -865,6 +871,7 @@ __all__ = [
     "diagnose",
     "diagnose_version_skew",
     "get_k8s_client",
+    "kubectl_client_version",
     "plan_doctor_requests",
     "sort_findings",
 ]

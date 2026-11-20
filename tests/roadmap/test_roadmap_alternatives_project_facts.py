@@ -46,7 +46,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/roadmap"
 NOW = datetime(2026, 11, 12, 12, 0, tzinfo=UTC)
-PATHS = ("k8s", "tf", ".devcontainer", "src/devops_cli/tools_lock/tools.lock")
+PATHS = ("k8s", "tf", ".devcontainer")
 REASON = "The tool reads a directory, and the item needs that."
 IN_REPOSITORY = "The repository already uses this tool."
 CENSUS = FIXTURES / "roadmap" / "alternatives_census.json"

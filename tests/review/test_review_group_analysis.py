@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Final
 
@@ -38,6 +39,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.exceptions.tools import DependencyError
 from devops_cli.main import app
 from devops_cli.review.anchors import AdvisoryAnchor, ToolAnchor
 from devops_cli.review.finding import Finding
@@ -514,6 +516,44 @@ def _persisted_analysis(directory: Path, report: Any) -> dict[str, Any]:
     session = ReviewSession(directory / "analysis-session")
     session.write_analysis(report)
     return json.loads((session.publish() / CONST_REVIEW_ANALYSIS_FILENAME).read_text("utf-8"))
+
+
+def test_the_python_block_check_raises_when_no_ruff_is_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no checker given, the Python block check runs the `ruff` on PATH. With no `ruff` on
+    PATH it raises `DependencyError` with an install hint (#4362)."""
+    from devops_cli.review.analysis import (
+        EnvironmentFacts,
+        GroupAnalysisOutput,
+        build_analysis_job_input,
+        group_findings_for_analysis,
+        verify_group_analysis,
+    )
+
+    source = "import os\n"
+    finding = _make_region_finding(path="src/app.py", line=1, fingerprint="fp-1")
+    (group,) = group_findings_for_analysis([finding], file_contents={"src/app.py": source})
+    job = build_analysis_job_input(
+        group,
+        file_contents={"src/app.py": source},
+        environment=EnvironmentFacts(language_floor="py314", python_pin="3.14"),
+    )
+    output = GroupAnalysisOutput(
+        explanation="Remove the import:\n```python\nVALUE = 1\n```",
+        root_cause="Unused import left in module.",
+    )
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+
+    with pytest.raises(DependencyError) as caught:
+        verify_group_analysis(output, job, admitted_finding_ids={"fp-1"})
+
+    assert (
+        caught.value.details["tool_name"],
+        "docs.astral.sh/ruff" in caught.value.details["install_hint"],
+    ) == ("ruff", True)
 
 
 def test_dispatch_runs_one_job_per_group_via_pool_capped_at_slots_and_records_sampling(
@@ -1613,6 +1653,21 @@ def _plan_payload(finding_id: str = "fp-a") -> str:
             ],
             "deferred": [],
         }
+    )
+
+
+def test_the_environment_names_the_version_that_the_tool_run_recorded() -> None:
+    """The analysis takes the version of a tool from the record of its run, which names the
+    installed tool, and no version from a pin (#4388)."""
+    from devops_cli.review.analysis import default_environment_facts
+
+    finding = _make_region_finding(tool="semgrep", tool_version="1.2.3", fingerprint="fp-s")
+
+    env = default_environment_facts([finding])
+
+    assert (env.tool_versions, env.python_pin) == (
+        {"semgrep": "1.2.3"},
+        f"{sys.version_info.major}.{sys.version_info.minor}",
     )
 
 

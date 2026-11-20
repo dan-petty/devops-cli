@@ -479,7 +479,9 @@ class InfraErrorMessages:
         "{key}."
     )
     tool_missing: str = (
-        "No Ansible tool environment is installed. Run devops install-tools --tool ansible-core."
+        "No Ansible tool environment is installed: no ansible-runner is on PATH. Install "
+        "ansible-core and ansible-runner "
+        "(https://ansible.readthedocs.io/projects/runner/en/stable/install/)."
     )
     no_inventory: str = (
         "The project profile of {repo} names no inventory. Run devops infra onboard {repo} for "

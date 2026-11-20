@@ -149,6 +149,11 @@ class ReviewMessages:
     rules_test_checked: str = (
         "Tested {count} rule(s) with Semgrep {version}; [bold]{path}[/bold] is up to date."
     )
+    semgrep_install_hint: str = (
+        "Install Semgrep (https://semgrep.dev/docs/getting-started/quickstart), or use the "
+        "devtools image {image}."
+    )
+    ruff_install_hint: str = "Install Ruff (https://docs.astral.sh/ruff/installation/)."
     rules_fetch_dry_run_heading: str = (
         "Dry run: no request was made. rules fetch would make these requests, in order:"
     )
@@ -1334,13 +1339,12 @@ class InfraMessages:
         "Commit .devops/project.toml with these values, so that the profile does not change when "
         "a file that detection reads changes."
     )
-    tool_missing: str = (
-        "No Ansible tool environment is installed: no install of devops install-tools, and no "
-        "ansible-runner on PATH."
-    )
-    tool_version: str = "ansible-core {version}"
+    tool_missing: str = "No Ansible tool environment is installed: no ansible-runner is on PATH."
     tool_on_path: str = "the ansible-runner on PATH, in {folder}"
-    tool_step: str = "devops install-tools --tool ansible-core"
+    tool_step: str = (
+        "Install ansible-core and ansible-runner "
+        "(https://ansible.readthedocs.io/projects/runner/en/stable/install/)."
+    )
     config_file_other: str = "Ansible reads {file}, not a file of the repository."
     config_file_none: str = "Ansible reads no config file."
     config_file_step: str = (

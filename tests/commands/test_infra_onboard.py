@@ -54,6 +54,7 @@ def test_onboard_prints_one_row_for_each_check(
     cli: Callable[..., Any],
     ready: Path,
     infra_repo: Path,
+    ansible_installed: Path,
     process_fake: ProcessFake,
     person_caller: None,
     snapshot: SnapshotAssertion,
@@ -67,7 +68,8 @@ def test_onboard_prints_one_row_for_each_check(
     )
 
     assert result.exit_code == 1
-    assert result.output.replace(str(infra_repo), "<repo>") == snapshot
+    shown = result.output.replace(str(infra_repo), "<repo>")
+    assert shown.replace(str(ansible_installed), "<ansible>") == snapshot
     assert ready.read_bytes() == before
 
 

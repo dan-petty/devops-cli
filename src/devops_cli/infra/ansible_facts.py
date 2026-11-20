@@ -1,7 +1,7 @@
 """The local Ansible facts of an infra repo: its effective config and its inventory (#5121).
 
-devops runs the Ansible commands of the tool environment of `[python.ansible-core]` of the tools
-lock as child processes in the root of the checkout. The child gets the environment of
+devops runs the Ansible commands of the tool environment of the `ansible-runner` on PATH as child
+processes in the root of the checkout. The child gets the environment of
 `run_subprocess`, so no `ANSIBLE_` variable of the person reaches it, and the `ansible.cfg` of the
 repo alone sets Ansible. Neither command connects to a host. An inventory script or plugin that the
 repo names runs, as it does for each Ansible command in the repo.
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import shlex
-import shutil
 from collections import Counter
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
@@ -19,12 +18,11 @@ from pathlib import Path
 from typing import Any, Final
 
 from devops_cli.config.defaults import DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS
+from devops_cli.core.binaries import check_binary, require_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.lang import ERRORS
-from devops_cli.tools_lock import PythonTool, installed_commands, load_tools_lock, tool_install_dir
 
-ANSIBLE_TOOL: Final[str] = "ansible-core"
 RUNNER_COMMAND: Final[str] = "ansible-runner"
 CONFIG_DUMP_ARGS: Final[tuple[str, ...]] = ("dump", "--format", "json", "--only-changed")
 INVENTORY_LIST_ARGS: Final[tuple[str, ...]] = ("--list",)
@@ -54,30 +52,30 @@ _TEMPLATE_START: Final[str] = "{{"
 
 @dataclass(frozen=True)
 class AnsibleTool:
-    """The Ansible tool environment: its `bin` folder, and the ansible-core version of its pin
-    when it is the install of `devops install-tools`."""
+    """The Ansible tool environment: the `bin` folder of the `ansible-runner` on PATH, or none
+    when no `ansible-runner` is on PATH."""
 
-    bin_dir: Path
-    installed: bool
-    version: str | None = None
+    bin_dir: Path | None
+
+    @property
+    def installed(self) -> bool:
+        """Whether an `ansible-runner` is on PATH."""
+        return self.bin_dir is not None
 
     def argv(self, command: str, *args: str) -> list[str]:
-        """The command line of `command` of the environment, with `args`."""
-        return [str(self.bin_dir / command), *args]
+        """The command line of `command` of the environment, with `args`. With no environment,
+        the command has no folder, as a dry run shows it."""
+        program = command if self.bin_dir is None else str(self.bin_dir / command)
+        return [program, *args]
 
 
 def ansible_tool() -> AnsibleTool:
-    """The Ansible tool environment: the pinned install of `devops install-tools` under the user
-    data root, else the folder of the `ansible-runner` on PATH, such as the one of the devcontainer
-    image. Only `ansible-runner` goes on PATH; the other commands are beside it."""
-    tool = load_tools_lock().python[ANSIBLE_TOOL]
-    bin_dir = tool_install_dir(ANSIBLE_TOOL, tool.version).joinpath(*PythonTool.command_dir)
-    if all(path.is_file() for path in installed_commands(ANSIBLE_TOOL, tool).values()):
-        return AnsibleTool(bin_dir=bin_dir, installed=True, version=tool.version)
-    found = shutil.which(RUNNER_COMMAND)
-    if found is not None:
-        return AnsibleTool(bin_dir=Path(found).resolve().parent, installed=True)
-    return AnsibleTool(bin_dir=bin_dir, installed=False)
+    """The Ansible tool environment: the folder of the `ansible-runner` on PATH, such as the one of
+    the devtools image (#4362). Only `ansible-runner` goes on PATH; the other commands are beside
+    it, so the folder is the one of the resolved file."""
+    if not check_binary(RUNNER_COMMAND):
+        return AnsibleTool(bin_dir=None)
+    return AnsibleTool(bin_dir=require_binary(RUNNER_COMMAND).parent)
 
 
 @dataclass(frozen=True)
@@ -293,7 +291,6 @@ def is_template(value: Any) -> bool:
 
 
 __all__ = [
-    "ANSIBLE_TOOL",
     "CONFIG_DUMP_ARGS",
     "INVENTORY_LIST_ARGS",
     "AnsibleConfig",

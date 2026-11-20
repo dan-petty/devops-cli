@@ -2,27 +2,24 @@
 (#1666, #1982, ADR 0007).
 
 Each run in `tests/fixtures/scanner_runs/recorded_runs.json` is the real tool's, at the version
-`tools.lock` pins, started through its adapter as a review starts it (Semgrep's on 2026-10-24,
+that was installed when it was recorded, started through its adapter as a review starts it (Semgrep's on 2026-10-24,
 Gitleaks' on 2026-10-25, the others' on 2026-10-20), over one file holding `print("hello")`. Semgrep's recording ran
 offline, with the rule file `_SEMGREP_RULES` in place of the registry's `p/default`, which a
 recording cannot fetch. Each case starts the adapter that way again, through the default tool
 executor, which `ScannerFake` answers. It checks that the adapter made the recorded command and
 read the recorded run as it read the real one: a scan that ran and found nothing. Where a case
-fails, the recording no longer stands for the real tool: record the run again with the real tool
-at its locked version, as the fake's
-docstring says. The last cases hold the fake to its install: the recorded scanners are on PATH,
+fails, the recording no longer stands for the real tool: record the run again with the installed
+tool, as the fake's docstring says. The last cases hold the fake to its install: the recorded scanners are on PATH,
 the fake answers them and no other tool, and it answers the canary run of each tool with the
 recorded canary output, through the default executor and as the executor that a test gives."""
 
 from __future__ import annotations
 
 import shutil
-import tomllib
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from packaging.requirements import Requirement
 
 from devops_cli.review.canary import run_tool_canary
 from devops_cli.review.rules_pack import RULE_PACK_DIR
@@ -33,12 +30,10 @@ from devops_cli.security.osv_scanner import run_osv_scan
 from devops_cli.security.registry import ScannerRegistry
 from devops_cli.security.semgrep import run_semgrep_scan
 from devops_cli.security.tool_executor import DirectToolExecutor, ToolRequest
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.fakes.scanners import ScannerFake, ScannerRun
 from tests.support.fakes.tool_executor import FAKE_EXECUTOR, ToolAnswer
-from tests.support.paths import REPO_ROOT
 
 ReviewScan = Callable[[Path, Path], ScanOutcome]
 
@@ -88,48 +83,23 @@ def test_an_adapter_makes_the_recorded_command_and_reads_the_recorded_run(
     assert (run.argv, outcome.status, outcome.findings) == (recorded, "ran", [])
 
 
-def test_a_registry_scan_whose_pinned_program_is_missing_runs_no_built_in_patterns(
+def test_a_registry_scan_whose_program_is_missing_runs_no_built_in_patterns(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A scanner whose program `tools.lock` pins runs that program, and with no program on PATH
-    its scan gives no result: no hand-written check stands in for the pinned tool (#2214)."""
-    pinned = {command for tool in load_tools_lock().tools().values() for command in tool.commands}
+    """A scanner runs the program on PATH, and with no program on PATH its scan gives no result:
+    no hand-written check stands in for the tool (#2214, #4388)."""
     registry = ScannerRegistry(auto_load_defaults=True)
-    names = [
-        name
-        for name in registry.list_scanners()
-        if (scanner := registry.get(name)) is not None and scanner.binary_name in pinned
-    ]
     no_programs = tmp_path / "no-programs"
     no_programs.mkdir()
     monkeypatch.setenv("PATH", str(no_programs))
     (tmp_path / "deploy.yaml").write_text("apiVersion: v1\nkind: ConfigMap\n", encoding="utf-8")
 
-    outcomes = registry.scan_all(tmp_path, names=names)
+    outcomes = registry.scan_all(tmp_path, names=registry.list_scanners())
 
     assert outcomes
     assert [
         name for name, outcome in outcomes.items() if outcome.status == "built-in patterns"
     ] == []
-
-
-def test_every_scanner_of_the_registry_has_a_pinned_program() -> None:
-    """A scanner's program is a command of a tool in `tools.lock`, or a dev dependency that
-    `pyproject.toml` pins, so no scanner of the registry names a program that nothing installs
-    at a known version (#2427)."""
-    pinned = {command for tool in load_tools_lock().tools().values() for command in tool.commands}
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    dev_pins = {Requirement(pin).name for pin in pyproject["dependency-groups"]["dev"]}
-    registry = ScannerRegistry(auto_load_defaults=True)
-
-    unpinned = [
-        name
-        for name in registry.list_scanners()
-        if (scanner := registry.get(name)) is not None
-        and scanner.binary_name not in pinned | dev_pins
-    ]
-
-    assert unpinned == []
 
 
 def test_the_fake_finds_and_answers_only_the_recorded_scanners(

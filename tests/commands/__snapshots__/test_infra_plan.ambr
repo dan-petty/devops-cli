@@ -13,11 +13,11 @@
     5. EXEC the export of <commit of origin/fix/k3s> into <tmp>/.data/infra/example-org/infra/plans/<new folder>/project
          git -C <tmp>/repo archive --format=tar '--output=<tmp>/.data/infra/example-org/infra/plans/<new folder>/tree.tar' '<commit of origin/fix/k3s>'
     6. EXEC the Ansible inventory of the export
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-inventory -i '<inventory>' --list
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
     7. EXEC the install of the pinned collections
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-galaxy collection install -r '<tmp>/.data/infra/example-org/infra/plans/<new folder>/project/collections/requirements.yml' -p '<collections folder>'  [only if the repo has collections/requirements.yml and no install of it is kept]
+         <tmp>/ansible/bin/ansible-galaxy collection install -r '<tmp>/.data/infra/example-org/infra/plans/<new folder>/project/collections/requirements.yml' -p '<collections folder>'  [only if the repo has collections/requirements.yml and no install of it is kept]
     8. EXEC the check-mode run of the playbook on the hosts in service
-         <tmp>/user-data/tools/ansible-core/2.22.0/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<new folder>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=--check --diff -v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+         <tmp>/ansible/bin/ansible-runner run '<tmp>/.data/infra/example-org/infra/plans/<new folder>' --playbook ansible/playbooks/03_k3s.yaml --ident '<ident>' --limit 'node-3.example.com:!<offline group>' --quiet '--cmdline=--check --diff -v -i '"'"'<inventory>'"'"' -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
     9. WRITE <tmp>/.data/infra/example-org/infra/plans/<plan id>/plan.json
   Check mode changes no host. A task with check_mode: false runs for real; devops infra onboard lists each one.
   

@@ -1,0 +1,54 @@
+"""The Ansible tool environment comes from the `ansible-runner` on PATH (#4362)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from devops_cli.infra.ansible_facts import ansible_tool
+
+
+def _stand_in(folder: Path) -> Path:
+    """An executable `ansible-runner` stand-in in `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    stand_in = folder / "ansible-runner"
+    stand_in.write_text("#!/bin/sh\n", encoding="utf-8")
+    stand_in.chmod(0o755)
+    return stand_in
+
+
+def test_the_tool_environment_is_the_folder_of_the_ansible_runner_on_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link on PATH names the environment of the file that it points to, where the other
+    Ansible commands are."""
+    real = _stand_in(tmp_path / "venv" / "bin")
+    on_path = tmp_path / "bin"
+    on_path.mkdir()
+    (on_path / "ansible-runner").symlink_to(real)
+    monkeypatch.setenv("PATH", str(on_path))
+
+    tool = ansible_tool()
+
+    assert (tool.installed, tool.argv("ansible-config", "dump")) == (
+        True,
+        [str(real.parent.resolve() / "ansible-config"), "dump"],
+    )
+
+
+def test_no_ansible_runner_on_path_gives_no_tool_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no `ansible-runner` on PATH, no other folder gives the tool environment, and a dry run
+    shows each command with no folder."""
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+
+    tool = ansible_tool()
+
+    assert (tool.installed, tool.argv("ansible-config", "dump")) == (
+        False,
+        ["ansible-config", "dump"],
+    )

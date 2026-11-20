@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_INVALIDATED,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -1838,7 +1839,7 @@ def _materialise_golden(
 
 
 def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
-    """What could change the scored reviews: their prompts, conventions, pinned tools and the
+    """What could change the scored reviews: their prompts, conventions, the tools that ran and the
     registry rules Semgrep scanned with."""
     profiles = [p for p in (ReviewProfile.load(d) for d in sessions) if p is not None]
     return {
@@ -1846,7 +1847,7 @@ def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
         for name in (
             "prompt_digest",
             "conventions_digest",
-            "tools_lock_digest",
+            "tool_versions_digest",
             "semgrep_registry_digest",
         )
     }

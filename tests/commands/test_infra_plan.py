@@ -86,12 +86,7 @@ def test_plan_shows_the_changes_of_each_host_and_keeps_the_record(
 
     assert result.exit_code == 0, result.output
     plan = json.loads(result.output)
-    assert (plan["status"], plan["commit"], plan["ref"], plan["ansible_core"]) == (
-        "ok",
-        ORIGIN_COMMIT,
-        "origin/main",
-        "2.22.0",
-    )
+    assert (plan["status"], plan["commit"], plan["ref"]) == ("ok", ORIGIN_COMMIT, "origin/main")
     [host] = plan["hosts"]
     assert (host["host"], host["disruptive"], [t["diff_hidden"] for t in host["changed"]]) == (
         "node-3.example.com",
