@@ -864,7 +864,7 @@ To compare models rather than prompts, run every arm from one checkout and pin e
 from the shell. The model that `devops-review` serves has a gateway group of its own
 (`qwen3.8:27b`), and each hosted model has one too.
 `DEVOPS_CLI_AI_TASK_ANALYSIS_MODEL` names a group for the analysis task. `devops review benchmark
---no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
+<targets> --no-static-scan` keeps scanner findings out of the model's recall. With `DEVOPS_CLI_DATA_DIR`
 unset, `DEVOPS_CLI_DATA_REVIEWS_DIR` and `DEVOPS_CLI_DATA_ANALYSIS_DIR` give each arm its own
 sessions and pre-analysis metadata, which also keeps its sessions out of `devops review stats`.
 

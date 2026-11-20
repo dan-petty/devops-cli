@@ -251,9 +251,10 @@ def _parse(
     known option missing its value stopped the parser before it bound the positionals, so
     its leftovers are not extra arguments. Click converts values before it looks for extra
     arguments, so a value that fails conversion -- usually a placeholder -- hides them, and
-    a lenient parse recovers the leftovers instead. Click's parser consumes the list it is
-    given, so each parse gets its own. An exit is a fallback for any other callback that
-    ends the command.
+    a lenient parse recovers the leftovers instead. A conversion error hides a missing
+    required parameter too, so the lenient path looks for one first. Click's parser consumes
+    the list it is given, so each parse gets its own. An exit is a fallback for any other
+    callback that ends the command.
     """
     args = [str(token) for token in tokens]
     if not args or _gives_action_option(command, name, args, parent):
@@ -266,13 +267,9 @@ def _parse(
     except typer.TyperException as error:
         if hasattr(error, "option_name"):
             return None, _unknown_option(error, path)
-        if _is_missing_parameter(error):
-            return None, _missing_required(error, path)
+    missing = _missing_required(command, name, args, parent, path)
     context = command.make_context(name, args, parent=parent, resilient_parsing=True)
-    missing_opt = _missing_required_option(command, path, tokens)
-    if missing_opt is not None:
-        return context, missing_opt
-    return context, _unexpected_argument(context, path, tokens)
+    return context, missing or _unexpected_argument(context, path, tokens)
 
 
 def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) -> bool:
@@ -289,52 +286,34 @@ def _gives_action_option(command: Any, name: str, args: list[str], parent: Any) 
     return any(parameter.is_eager or not parameter.expose_value for parameter in given)
 
 
-def _is_missing_parameter(error: Exception) -> bool:
-    """Whether error is Click's MissingParameter."""
-    return type(error).__name__ == "MissingParameter" and hasattr(error, "param")
-
-
-def _param_token(param: Any) -> str:
-    """The token representing the missing parameter: long option name or argument name."""
-    if getattr(param, "param_type_name", None) == "option":
-        opts = getattr(param, "opts", [])
-        return next(
-            (opt for opt in opts if opt.startswith("--")),
-            opts[0] if opts else f"--{param.name}",
-        )
-    return str(getattr(param, "name", ""))
-
-
-def _missing_required(error: Exception, path: str) -> CommandReferenceFinding:
-    """Report the missing parameter from Click's MissingParameter error."""
-    param = getattr(error, "param", None)
-    return _found(CommandReferenceDefect.MISSING_REQUIRED, path, _param_token(param))
-
-
-def _is_option_given(param: Any, tokens: Sequence[ArgvToken]) -> bool:
-    """Whether the option `param` is provided in `tokens` or covered by [OPTIONS]."""
-    opts = set(getattr(param, "opts", []))
-    for t in tokens:
-        s = str(t)
-        if any(s == opt or s.startswith(f"{opt}=") for opt in opts):
-            return True
-        if isinstance(t, ArgvPlaceholder) and t.expression in ("[OPTIONS]", "OPTIONS"):
-            return True
-    return False
-
-
-def _missing_required_option(
-    command: Any, path: str, tokens: Sequence[ArgvToken]
+def _missing_required(
+    command: Any, name: str, args: list[str], parent: Any, path: str
 ) -> CommandReferenceFinding | None:
-    """Report the first required option of `command` that `tokens` does not provide."""
-    for param in getattr(command, "params", []):
-        if (
-            getattr(param, "required", False)
-            and getattr(param, "param_type_name", None) == "option"
-            and not _is_option_given(param, tokens)
-        ):
-            return _found(CommandReferenceDefect.MISSING_REQUIRED, path, _param_token(param))
+    """The first required parameter of `command` that `args` leaves empty, as Click finds it.
+
+    Click raises `MissingParameter` only after it converts the values before that parameter,
+    so a placeholder that fails conversion hides it. Here only the option parser runs, on a
+    context parsed from no arguments, as in `_gives_action_option`. Each parameter then takes
+    its value with Click's own `consume_value`, from a word, an environment variable or a
+    default, and Click's `value_is_missing` decides. No value is converted. A placeholder is
+    one word, so it fills the argument at its position and never an option (#4862).
+    """
+    probe = command.make_context(name, [], parent=parent, resilient_parsing=True)
+    opts, _, _ = command.make_parser(probe).parse_args(list(args))
+    for parameter in command.get_params(probe):
+        value, _ = parameter.consume_value(probe, opts)
+        if parameter.required and parameter.value_is_missing(value):
+            token = _parameter_token(parameter)
+            return _found(CommandReferenceDefect.MISSING_REQUIRED, path, token)
     return None
+
+
+def _parameter_token(parameter: Any) -> str:
+    """The name a document writes for `parameter`: the first long name of an option, else its
+    first name, and the name of an argument."""
+    if parameter.param_type_name != "option":
+        return str(parameter.name)
+    return str(next((opt for opt in parameter.opts if opt.startswith("--")), parameter.opts[0]))
 
 
 def _unknown_option(error: Exception, path: str) -> CommandReferenceFinding | None:

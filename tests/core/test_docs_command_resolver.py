@@ -345,3 +345,25 @@ def test_resolver_treats_placeholder_as_argument_not_option() -> None:
         CommandReferenceDefect.MISSING_REQUIRED, "devops pr describe", "--summary"
     )
     assert resolve_devops_argv(["pr", "describe", issue_placeholder, "--summary", "x"]) is None
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        ["pr", "describe", ArgvPlaceholder(expression="issue"), "-sx"],
+        ["pr", "describe", ArgvPlaceholder(expression="issue"), "--summary=x"],
+    ],
+    ids=["short-option-with-attached-value", "long-option-with-equals-value"],
+)
+def test_a_required_option_is_given_as_click_parses_it(tokens: list[ArgvToken]) -> None:
+    """A required option is given in each form that Click's parser takes, also when a
+    placeholder fails conversion first (#4862)."""
+    assert resolve_devops_argv(tokens) is None
+
+
+def test_resolver_reports_a_missing_variadic_argument() -> None:
+    """A required argument that takes any number of words is missing when no word fills it
+    (#4862)."""
+    assert resolve_devops_argv(["review", "benchmark", "--no-static-scan"]) == _finding(
+        CommandReferenceDefect.MISSING_REQUIRED, "devops review benchmark", "targets"
+    )
