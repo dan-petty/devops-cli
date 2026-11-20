@@ -166,12 +166,11 @@ def test_a_failed_install_stops_the_item_before_any_model_request(job_world: Job
 
 # ── The coder environment (#6517) ─────────────────────────────────────────────────────────
 
-# A staged branch is an existing branch: its sync locks again when its `uv.lock` is stale, as the
-# `uv run` of the hook install did before the bootstrap (#6517).
-SYNC = "uv sync --group dev"
+# A staged branch is an existing branch: the bootstrap installs its locks as they are and writes
+# no tracked file, so a stale lock is the work of the agent (#6557).
+SYNC = "uv sync --frozen --group dev"
 LOCKED_SYNC = "uv sync --locked --group dev"
-# A staged item has an existing branch, so npm installs with `npm install` (#6517).
-NPM = "npm install --ignore-scripts"
+NPM = "npm install --no-save --ignore-scripts"
 
 
 def _lock(world: JobWorld) -> JobWorld:
@@ -255,20 +254,34 @@ def test_a_failed_bootstrap_stops_the_item_before_any_model_request(
     assert _git_push(locked_world) == []
 
 
-def test_a_stale_lock_of_a_staged_branch_locks_again_and_stops_nothing(
+def _write_stale_locks(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    """Answer a bootstrap command as uv and npm answer it on a stale lock: a sync with neither
+    `--frozen` nor `--locked` locks again and writes `uv.lock`, and an `npm install` with no
+    `--no-save` writes `package-lock.json`."""
+    text = command_text(call)
+    words = set(text.split())
+    assert call.cwd is not None
+    if text.startswith("uv sync") and not words & {"--frozen", "--locked"}:
+        (call.cwd / "uv.lock").write_text("version = 2\n", encoding="utf-8")
+    if text.startswith("npm install") and "--no-save" not in words:
+        (call.cwd / "package-lock.json").write_text('{"lockfileVersion": 3}\n', encoding="utf-8")
+    return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+
+def test_a_stale_lock_of_a_staged_branch_leaves_the_worktree_clean_and_stops_nothing(
     locked_world: JobWorld,
 ) -> None:
-    """A sync with `--locked` refuses a `uv.lock` that does not match `pyproject.toml`. The staged
-    branch syncs without it, so a stale lock locks again and the item goes on, as before the
-    bootstrap."""
+    """A staged branch can hold a `uv.lock` and a `package-lock.json` that do not match their
+    manifests. The bootstrap installs both locks as they are and writes no tracked file, so the
+    first step finds a clean worktree and the item goes on (#6557)."""
     locked_world.programs.answer(
-        lambda call: command_text(call).startswith(LOCKED_SYNC),
-        ProcessAnswer(returncode=1, stderr="error: The lockfile at `uv.lock` needs to be updated"),
+        lambda call: command_text(call).startswith(("uv sync", "npm install")),
+        ProcessAnswer(side_effect=_write_stale_locks),
     )
 
     applied = locked_world.run(two_groups())
 
-    assert (applied.stopped, _syncs(locked_world)) == ((), [SYNC])
+    assert (applied.stopped, _syncs(locked_world), _count(locked_world, NPM)) == ((), [SYNC], 1)
 
 
 def test_a_planned_item_syncs_with_the_lock_of_the_default_branch(planned_world: JobWorld) -> None:

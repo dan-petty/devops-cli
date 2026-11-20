@@ -938,8 +938,9 @@ class _ItemRun:
         """Build the coder environment of the worktree before the first model request: the venv
         of its `uv.lock` with the dev group and its Node packages (#6517). The new branch of a
         Planned item starts at the fetched default branch, so its sync refuses a stale lock
-        (`--locked`). A staged branch exists: its sync locks again a stale `uv.lock`, as the
-        `uv run` of the hook install did before. A failure stops the item with nothing to push."""
+        (`--locked`). A staged branch exists: the bootstrap installs its locks as they are and
+        writes no tracked file, so the first step finds a clean worktree, and the agent locks a
+        stale lock again in its shell (#6557). A failure stops the item with nothing to push."""
         self.step = MESSAGES.roadmap.implement_step_names["bootstrap"]
         try:
             bootstrap_checkout(self.path, locked=self.target.new_branch is not None)

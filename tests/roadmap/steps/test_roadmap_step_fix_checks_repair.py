@@ -600,8 +600,8 @@ def test_the_model_fix_bootstraps_the_worktree_before_the_first_model_request(
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
 ) -> None:
     """The model step runs the dev tools of the venv of the worktree, so the fix builds that venv
-    first. The branch exists, so the sync locks again a stale `uv.lock`, as the `uv run` of the
-    hook install did before (#6517)."""
+    first (#6517). The branch exists, so the sync installs its `uv.lock` as it is and writes no
+    tracked file (#6557)."""
     repo, store, _head = locked_draft
     _api, programs = github_api_and_gh
     script = ModelScript(*a_fix())
@@ -627,7 +627,7 @@ def test_the_model_fix_bootstraps_the_worktree_before_the_first_model_request(
     syncs = [command_text(c) for c in programs.calls if command_text(c).startswith("uv sync")]
     assert (report.result, syncs, [requests for _cwd, requests in synced]) == (
         FixChecksResult.REPAIRED,
-        ["uv sync --group dev"],
+        ["uv sync --frozen --group dev"],
         [0],
     )
     assert synced[0][0] not in (None, repo.clone)

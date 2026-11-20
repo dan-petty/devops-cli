@@ -313,6 +313,9 @@ def test_main_checks_the_tools_of_the_image_and_no_tool_of_the_checkout(
 
 SYNC = ("uv", "sync", "--locked", "--group", "dev")
 NPM = ("npm", "ci", "--ignore-scripts")
+# An existing branch: the lock as it is, and no write of a tracked file (#6557).
+FROZEN_SYNC = ("uv", "sync", "--frozen", "--group", "dev")
+NPM_NO_SAVE = ("npm", "install", "--no-save", "--ignore-scripts")
 LOCK = "version = 1\n"
 
 
@@ -397,40 +400,43 @@ def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
     assert not uv_cache.exists()
 
 
-def test_a_sync_that_may_lock_again_runs_without_locked(
+def test_an_unlocked_bootstrap_syncs_the_lock_as_it_is(
     tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
 ) -> None:
-    """A Job on an existing branch syncs as `uv run` does, so a stale `uv.lock` is locked again
-    and does not fail the bootstrap (#6517)."""
+    """The `uv.lock` of an existing branch can be stale. A sync that locks again writes `uv.lock`,
+    and the step then refuses the dirty worktree. So the sync installs the lock as it is
+    (`--frozen`), and the agent locks again in its shell (#6557)."""
     checkout = _checkout(tmp_path, "uv.lock")
 
     bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
 
-    assert [_argv(call) for call in process_fake.calls] == [("uv", "sync", "--group", "dev")]
+    assert [(_argv(call), call.cwd, call.env) for call in process_fake.calls] == [
+        (FROZEN_SYNC, checkout, {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
+    ]
 
 
-def test_a_bootstrap_that_may_lock_again_installs_the_npm_packages_without_ci(
+def test_an_unlocked_bootstrap_installs_the_npm_packages_and_saves_no_lock(
     tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
 ) -> None:
-    """On an existing branch `npm ci` would refuse a `package-lock.json` that does not match
-    `package.json`, as `uv sync --locked` refuses a stale `uv.lock`. So the bootstrap runs
-    `npm install`, which updates the lock as the unlocked sync does (#6517)."""
+    """On an existing branch `npm ci` refuses a stale `package-lock.json`, and `npm install`
+    writes it again. With `--no-save`, npm installs and writes no `package.json` and no
+    `package-lock.json`, so the step finds a clean worktree (#6557)."""
     checkout = _checkout(tmp_path, "uv.lock", "package-lock.json")
 
     bootstrap_checkout(checkout, locked=False, seed=tmp_path / "no-seed")
 
-    assert [_argv(call) for call in process_fake.calls] == [
-        ("uv", "sync", "--group", "dev"),
-        ("npm", "install", "--ignore-scripts"),
+    assert [(_argv(call), call.cwd) for call in process_fake.calls] == [
+        (FROZEN_SYNC, checkout),
+        (NPM_NO_SAVE, checkout),
     ]
 
 
-def test_a_seed_that_fits_a_bootstrap_that_may_lock_again_fills_the_cache_and_syncs_online(
+def test_a_seed_that_fits_an_unlocked_bootstrap_syncs_the_lock_offline(
     tmp_path: Path, process_fake: ProcessFake, uv_cache: Path
 ) -> None:
-    """The seed hash covers `uv.lock` only, so a stale lock can fit it. To lock again, uv must
-    resolve, which the offline cache cannot do. So without `locked` the bootstrap copies the seed
-    into the cache and syncs online (#6517)."""
+    """`--frozen` does not resolve: it installs the packages of `uv.lock`, and a seed that fits
+    holds the packages of that `uv.lock`. So the unlocked sync runs offline from the seed, as the
+    locked sync does (#6557)."""
     process_fake.answer(
         lambda call: _argv(call) == ("uv", "--version"),
         ProcessAnswer(stdout="uv job-uv (x86_64-unknown-linux)\n"),
@@ -441,9 +447,7 @@ def test_a_seed_that_fits_a_bootstrap_that_may_lock_again_fills_the_cache_and_sy
     bootstrap_checkout(checkout, locked=False, seed=seed)
 
     synced = [(_argv(call), call.env) for call in process_fake.calls if _argv(call)[1] == "sync"]
-    assert synced == [
-        (("uv", "sync", "--group", "dev"), {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"})
-    ]
+    assert synced == [((*FROZEN_SYNC, "--offline"), {"UV_MALWARE_CHECK": "0"})]
     assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
 
 

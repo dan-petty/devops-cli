@@ -2,13 +2,13 @@
 
 ## Why
 
-The coder bootstrap of #6517 (PR #6537) runs `uv sync` without `--locked` on an existing branch, so a stale `uv.lock` is locked again. But it still ran `npm ci --ignore-scripts` there, which refuses a `package-lock.json` that does not match `package.json`, and its uv-seed path synced offline whenever the sha256 of `uv.lock` fit the seed, which a stale lock can do; an offline sync cannot resolve. Closes #6557.
+The coder bootstrap of #6517 (PR #6537) runs `uv sync` with no `--locked` on an existing branch. On a stale `uv.lock`, that sync locks again and writes `uv.lock`. The bootstrap also runs `npm ci --ignore-scripts` there, which refuses a `package-lock.json` that does not match `package.json`. Both locks are tracked files. After the bootstrap, the step refuses a dirty worktree (`_require_clean`), so fix-checks returns no fix and the implement Job stops at group 1 before its first model request. Closes #6557.
 
 ## What Changes
 
-- On an existing branch (`locked` false), `bootstrap_checkout` runs `npm install --ignore-scripts`; the new branch of a Planned item keeps `npm ci`.
-- The offline seed sync runs only with `--locked`. Without it, the seed fills the uv cache and the sync stays online.
-- The spec scenario of a stale staged lock states the one sync that runs.
+- On an existing branch (`locked` false), `bootstrap_checkout` runs `uv sync --frozen --group dev` and `npm install --no-save --ignore-scripts`. Both install the lock as it is and write no tracked file. The new branch of a Planned item keeps `--locked` and `npm ci`.
+- A stale lock of an existing branch is the work of the agent: its shell can run `uv lock` or `npm install` and commit the lock.
+- `--frozen` does not resolve, so a seed that fits makes the sync offline in both modes, as before #6557.
 
 ## Capabilities
 
@@ -16,14 +16,15 @@ The coder bootstrap of #6517 (PR #6537) runs `uv sync` without `--locked` on an 
 
 ## Impact
 
-A staged branch or a fix-checks branch with a stale lock no longer stops at the step `bootstrap`. No new step, gate, retry or failure class.
+A staged branch or a fix-checks branch with a stale lock no longer stops at the step `bootstrap` or at the clean-worktree check of its first step. No new step, gate, retry or failure class.
 
 ## Feasibility
 
 - `npm ci --ignore-scripts` exits 1 with `EUSAGE` when `package.json` holds a dependency that the lock lacks (npm 12).
-- uv 0.13.9: `uv sync --group dev --offline` fails when `pyproject.toml` changed after the lock, with "the network was disabled".
-- Two new tests in `tests/roadmap/test_roadmap_runner_tools.py` fail before the change and pass after it.
+- uv 0.13.9: `uv sync --group dev` with no `--locked` or `--frozen` writes a stale `uv.lock` again. `uv sync --help` gives `--frozen` as "Sync without updating the `uv.lock` file".
+- npm 12.2.2 (`@npmcli/config` definitions): `save` false "will also prevent writing to `package-lock.json`".
+- A scratch repository with a stale `uv.lock` and a stale `package-lock.json`, both committed: `bootstrap_checkout(path, locked=False)` passes and `git status --porcelain` is empty.
 
 ## Existing Tool Considered
 
-npm and uv already give both modes (`npm ci` / `npm install`, `--locked` / unlocked, `--offline`). The change only chooses the mode by the existing `locked` flag.
+uv and npm already give both modes (`--locked` / `--frozen`, `npm ci` / `npm install --no-save`, `--offline`). The change only chooses the mode by the existing `locked` flag.

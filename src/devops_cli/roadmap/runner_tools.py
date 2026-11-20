@@ -11,10 +11,13 @@ no source of the gate runs it in a Job. So a person sees that a decision was mad
 **The image and the checkout.** The runner image holds the runtime of devops-cli and its `review`
 extra, and no dev dependency. The implement Job and the model fix of the fix-checks Job run
 `bootstrap_checkout` in their checkout before the first agent step: `uv sync --group dev` builds
-the venv of the checkout, as the post-create step of the devcontainer does, and
-`npm ci --ignore-scripts` installs the Node tools of a root `package-lock.json`. The sync adds
-`--locked` on a new branch; on an existing branch it locks again a stale `uv.lock`, as `uv run`
-does. The stage Job runs in the Service image, which holds no uv, so it runs no bootstrap. The dev
+the venv of the checkout, as the post-create step of the devcontainer does, and npm installs
+the Node tools of a root `package-lock.json`. On a new branch, the sync adds `--locked` and npm
+runs `npm ci --ignore-scripts`: both refuse a stale lock. On an existing branch, the sync adds
+`--frozen` and npm runs `npm install --no-save --ignore-scripts`: both install the lock as it is
+and write no tracked file (#6557). A step refuses a dirty worktree, so a stale lock of an existing
+branch is the work of the agent: its shell can run `uv lock` or `npm install` and commit the lock.
+The stage Job runs in the Service image, which holds no uv, so it runs no bootstrap. The dev
 tools (`ToolSource.CHECKOUT`) then come from the venv of the checkout. `checkout_environment` puts `node_modules/.bin` and that venv first on
 the PATH of the agent and of the checks that the Job starts. A child that gets a token never gets
 it, because the agent can write both folders.
@@ -23,7 +26,8 @@ it, because the agent can write both folders.
 `seed.json` holds the uv version, the Python version (`<major>.<minor>`) and the sha256 of the
 `uv.lock` of the checkout (the keys `uv`, `python` and `uv_lock_sha256`), the bootstrap copies
 `/opt/uv-seed/cache` into the uv cache on the home volume and syncs offline, with no malware check:
-CI checked the same hashes when it built the seed. With no seed, or a seed of another lock, the
+CI checked the same hashes when it built the seed. Neither `--locked` nor `--frozen` resolves, so
+the seed holds each package that the sync installs. With no seed, or a seed of another lock, the
 sync runs online with `UV_HTTP_RETRIES=5`. The Job never needs the seed to start.
 
 The smoke test of the runner image in `ci.yml` and `release.yml` runs
@@ -306,7 +310,9 @@ _SEED_CACHE: Final[str] = "cache"
 _UV_LOCK: Final[str] = "uv.lock"
 _NPM_LOCK: Final[str] = "package-lock.json"
 _SYNC: Final[tuple[str, ...]] = (BIN_UV, "sync")
-_LOCKED: Final[tuple[str, ...]] = ("--locked",)
+# A new branch refuses a stale lock; an existing branch installs its lock as it is (#6557).
+_LOCKED: Final[str] = "--locked"
+_FROZEN: Final[str] = "--frozen"
 _DEV_GROUP: Final[tuple[str, ...]] = ("--group", "dev")
 # The online sync waits out more failed downloads than the 3 of uv; the malware check of uv runs.
 _ONLINE: Final[dict[str, str]] = {"UV_HTTP_RETRIES": "5", "UV_MALWARE_CHECK": "1"}
@@ -368,25 +374,23 @@ def _run(checkout: Path, argv: Sequence[str], env: dict[str, str] | None = None)
 def bootstrap_checkout(checkout: Path, *, locked: bool = True, seed: Path = UV_SEED_DIR) -> None:
     """Build the coder environment of `checkout`, as the module says: the venv of its `uv.lock`
     with the dev group, from the uv seed `seed` when it fits, and the Node packages of its
-    `package-lock.json`. With `locked`, the sync refuses a `uv.lock` that does not match
-    `pyproject.toml` (`--locked`) and npm installs with `npm ci`; without it, uv locks again first,
-    as `uv run` does, and npm installs with `npm install`, which updates a stale lock, for the
-    checkout of an existing branch. The seed hash covers `uv.lock` only, so the offline sync runs
-    only with `locked`; without it, the seed fills the cache and the sync stays online, so that a
-    stale lock can resolve. A checkout with neither file gets no command. Raises
-    `ToolExecutionError` when a command fails or runs out of time."""
+    `package-lock.json`. With `locked`, for a new branch, the sync refuses a `uv.lock` that does
+    not match `pyproject.toml` (`--locked`) and npm runs `npm ci`. Without it, for the checkout of
+    an existing branch, the sync installs `uv.lock` as it is (`--frozen`) and npm runs
+    `npm install --no-save`, so a stale lock stays as it is and the worktree stays clean (#6557).
+    Neither sync resolves, so a seed that fits makes both syncs offline. A checkout with neither
+    file gets no command. Raises `ToolExecutionError` when a command fails or runs out of time."""
     if (checkout / _UV_LOCK).is_file():
-        sync = (*_SYNC, *(_LOCKED if locked else ()), *_DEV_GROUP)
-        fits = _seed_fits(checkout, seed)
-        if fits:
+        sync = (*_SYNC, _LOCKED if locked else _FROZEN, *_DEV_GROUP)
+        if _seed_fits(checkout, seed):
             cache = Path(os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"))
             shutil.copytree(seed / _SEED_CACHE, cache, symlinks=True, dirs_exist_ok=True)
-        if locked and fits:
             _run(checkout, (*sync, "--offline"), _OFFLINE)
         else:
             _run(checkout, sync, _ONLINE)
     if (checkout / _NPM_LOCK).is_file():
-        _run(checkout, (BIN_NPM, "ci" if locked else "install", "--ignore-scripts"))
+        npm = ("ci",) if locked else ("install", "--no-save")
+        _run(checkout, (BIN_NPM, *npm, "--ignore-scripts"))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
