@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The runner Job knows it is a runner and holds a home volume
-The container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, take the keys `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_AI_API_KEY` of Secret `devops-cli` through `secretKeyRef`, each in the variable of its name, and no `envFrom` and no other key of the Secret, mount ConfigMap `devops-cli-config`, and mount an `emptyDir` of 8 Gi as its home and an `emptyDir` of 1 Gi as `/tmp`. The other CronJob SHALL not set that variable. The `ephemeral-storage` limit SHALL cover both volumes.
+The container of CronJob `devops-cli-runner` SHALL set `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` to `true`, take only the keys `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_AI_API_KEY` of Secret `devops-cli`, through `secretKeyRef` and with no `envFrom`, mount ConfigMap `devops-cli-config`, and mount an `emptyDir` of 8 Gi as its home and an `emptyDir` of 1 Gi as `/tmp`. The other CronJob SHALL not set that variable. The `ephemeral-storage` limit SHALL cover both volumes.
 
 #### Scenario: The variable
 - **WHEN** a test reads the rendered `k8s/devops` kustomization
