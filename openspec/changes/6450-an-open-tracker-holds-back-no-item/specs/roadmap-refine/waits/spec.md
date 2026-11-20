@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: An open dependency outside a cycle blocks the item
-`devops roadmap refine` SHALL give an item the next step `blocked` when its validated proposal names a dependency that gives an open blocker (the rule of `roadmap-dependency-cycle`) and no dependency of the item leads back to the item. This applies when the proposal has no open question and fits one pull request. It SHALL record the open blockers of the item and SHALL NOT set the Status to Ready. A Ready item SHALL go back to New. A closed dependency and the parent tracker of the item SHALL NOT hold the item back, and another tracker SHALL hold it back with its open sub-issues.
+`devops roadmap refine` SHALL give an item the next step `blocked` when its validated proposal has no open question, fits one pull request and names a dependency that gives an open blocker (the rule of `roadmap-dependency-cycle`), and no dependency leads back to the item. It SHALL record the open blockers and SHALL NOT set the Status to Ready. A Ready item SHALL go back to New. A closed dependency and the parent tracker SHALL NOT hold the item back.
 
 #### Scenario: A complete proposal with one open dependency
 - **WHEN** a New item has a complete proposal with one open dependency (no open question, no split, no suspected block)

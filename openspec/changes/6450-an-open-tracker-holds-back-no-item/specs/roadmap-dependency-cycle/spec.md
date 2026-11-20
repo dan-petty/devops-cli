@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: One rule decides the open blockers of an item
-`open_blockers` SHALL decide the open blockers among the dependencies of an item for refine, stage, implement and the dependency graph. The item itself, its parent tracker and each tracker above the parent SHALL be no blocker. An open dependency that is no tracker SHALL be a blocker, and a closed issue SHALL hold nothing back. The rule SHALL read the parent links from a read that the job already makes, and it SHALL send no request for them.
+`open_blockers` SHALL decide the open blockers among the dependencies of an item for refine, stage, implement and the dependency graph. The item itself, its parent tracker and each tracker above the parent SHALL be no blocker. An open dependency that is no tracker SHALL be a blocker, and a closed issue SHALL hold nothing back. The rule SHALL read the parent links of every Item, closed ones too, from the issue listing, and only when a dependency is an open tracker.
 
 #### Scenario: The parent tracker of an item
 - **WHEN** a test calls `open_dependency` for an item whose Dependencies section names its open parent tracker
@@ -37,7 +37,7 @@ An open tracker that is no ancestor of the item SHALL give its open sub-issues i
 ## MODIFIED Requirements
 
 ### Requirement: The dependency graph names a cycle for each item
-The check SHALL build one graph from the open items that a round lists. The edges of an item SHALL be the blockers that the rule of the requirement "One rule decides the open blockers of an item" gives for the issues that its job record, its Dependencies section and its quoted titles declare, with only the open items of the sequence as dependencies. It SHALL keep only an open item as a node, and it SHALL drop an edge to an issue that the sequence does not hold. When a caller asks for the cycle of an item, the check SHALL give a path from the item through its dependencies back to the item, or no path when no dependency of the item leads back to it.
+The check SHALL build one graph from the open items that a round lists. The edges of an item SHALL be its open blockers (the requirement "One rule decides the open blockers of an item") among the issues that its job record, its Dependencies section and its quoted titles declare. Only an open item of the sequence SHALL be a node or a dependency. For an item, the check SHALL give a path through its dependencies back to it, or no path when none leads back.
 
 #### Scenario: Each item of a cycle gets its own path
 - **WHEN** a test builds `DependencyGraph.of` from items A and B, where the record of A names B and the Dependencies section of B names A
@@ -62,6 +62,21 @@ The check SHALL build one graph from the open items that a round lists. The edge
 #### Scenario: An edge to another tracker
 - **WHEN** a test builds `DependencyGraph.of` from the items A, T and B, where the record of A names the tracker T, B is the open sub-issue of T, and the record of B names A
 - **THEN** the path of A is `#A → #B → #A`
+
+### Requirement: The round builds one graph from the listing it already reads
+`devops roadmap refine` SHALL build the graph once for each round from the open items that the round already reads for the owner-question frames. It SHALL give that graph to the selection and to the refine of each item, and it SHALL read the open items once for the round. The graph SHALL read the whole item listing for the parent links only when an open item names an open tracker. A blocked wait SHALL build no graph of its own while no recorded blocker is open.
+
+#### Scenario: One graph for each round
+- **WHEN** a test runs a refine round over a store that counts the calls of `open_items()`, and the items of the store hold the cycle A to B to A
+- **THEN** the store counts one call of `open_items()` and the round gives A and B the step `person`
+
+#### Scenario: A round reads no listing for the graph
+- **WHEN** a test runs a refine round over a store that counts the reads of the whole item listing, the store holds no item that the round refines, and no open item names an open tracker
+- **THEN** the round makes the one read of the whole item listing that the backlog makes, and reads no other listing for the graph
+
+#### Scenario: A wait whose blocker closed builds no graph
+- **WHEN** `refine_left_out` judges an item whose record holds the step `blocked` on an issue that closed, over a store that counts the calls of `open_items()`
+- **THEN** it gives no wait, and the store counts one call of `open_items()`, for the frames
 
 ### Requirement: The path of an item is a shortest cycle
 The path that the check gives for an item SHALL be a shortest cycle through the item. A breadth-first search over the edges, in their order, SHALL find the path, and the check SHALL search only for the item that the caller asks for.

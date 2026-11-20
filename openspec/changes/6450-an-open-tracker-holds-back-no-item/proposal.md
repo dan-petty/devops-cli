@@ -7,7 +7,7 @@ Refine, stage and implement count an open tracker as an open dependency (#6450).
 ## What Changes
 
 - `Item` gets the field `parent`, the number of the issue that has the item as a sub-issue. The issue listing of GitHub already gives it, and `IssueRecord.parent` already holds it, so the store sends no new request.
-- The new class `ItemTree` in `src/devops_cli/roadmap/stores/store.py` gives the ancestors of an item and the open sub-issues of an issue from the Items of one read.
+- The new class `ItemTree` in `src/devops_cli/roadmap/stores/store.py` gives the ancestors of an item and the open sub-issues of an issue from the Items of one read. It calls the read only when a dependency is an open tracker. Refine gives it `store.items`, so a closed parent breaks no chain of ancestors.
 - The new function `open_blockers` in `src/devops_cli/roadmap/dependencies.py` is the one rule that decides the open blockers of an item:
   - The item itself, its parent tracker and each tracker above it is no blocker.
   - An open tracker gives its open sub-issues in its place. A sub-issue that is a tracker gives its own. The item and its ancestors are never in that list. A tracker with no open sub-issue holds nothing back.
@@ -27,7 +27,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-dependency-cycle`: The dependency graph names a cycle for each item, The path of an item is a shortest cycle, One rule decides the open blockers of an item (added), Another tracker holds an item back with its open sub-issues (added)
+- `roadmap-dependency-cycle`: The dependency graph names a cycle for each item, The path of an item is a shortest cycle, The round builds one graph from the listing it already reads, One rule decides the open blockers of an item (added), Another tracker holds an item back with its open sub-issues (added)
 - `roadmap-refine/waits`: An open dependency outside a cycle blocks the item, The last blocker to close ends the block
 - `roadmap-stage/selection`: The stage selection leaves out an item with an open recorded blocker, An open tracker holds back no Ready item (added)
 - `roadmap-implement-job/selection`: The implement judge leaves out an open dependency

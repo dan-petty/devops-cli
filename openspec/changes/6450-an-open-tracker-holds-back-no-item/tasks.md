@@ -25,6 +25,15 @@ Kind: other. Changes: `docs/roadmap/refine.md`, `docs/roadmap/stage.md`.
 - [x] 3.1 State in `docs/roadmap/refine.md` and `docs/roadmap/stage.md` that the parent tracker and each tracker above it is no blocker, and that another tracker waits on its open sub-issues
   - Verification: `$ uv run devops ci docs`
 
+## 4. Read the ancestors of all items in refine
+
+Kind: behavior. Changes: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/dependencies.py`, `src/devops_cli/roadmap/stage/stage.py`, `tests/roadmap/refine/test_roadmap_refine_blocked.py`, `tests/roadmap/refine/test_roadmap_refine_cycle.py`.
+
+- [x] 4.1 Write the failing tests: a tracker above a closed parent holds nothing back in refine, and `refine_left_out` reads the open items once for a blocked wait whose blocker closed
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_blocked.py tests/roadmap/refine/test_roadmap_refine_cycle.py` fails on the head of group 2
+- [x] 4.2 Give `ItemTree` a lazy read and `ItemTree.of` for a held sequence, give refine the tree of `store.items`, and build the graph of a blocked wait only when a recorded blocker is open
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_blocked.py tests/roadmap/refine/test_roadmap_refine_cycle.py`
+
 ## Workflow follow-up
 
 - Pending a person: after the release, `devops roadmap explain 4909` gives no tracker as the reason, and the next refine round of #4671 records no `4624`.
