@@ -11,7 +11,7 @@ Kind: behavior. Changes: `src/devops_cli/openspec/tool.py`, `src/devops_cli/open
 
 ## 2. Audit and list the root lockfile
 
-Kind: behavior. Changes: `src/devops_cli/commands/ci.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/research/tool_pins.py`, `tests/commands/test_ci.py`, `tests/commands/test_dependency_audit.py`, `tests/core/test_dependency_audit_ignores.py`, `tests/research/test_inventory.py`, `tests/research/test_advisories.py`, `tests/fixtures/research/repo/package-lock.json` (new).
+Kind: behavior. Changes: `src/devops_cli/commands/ci.py`, `src/devops_cli/config/commands.py`, `src/devops_cli/research/tool_pins.py`, `tests/commands/test_ci.py`, `tests/commands/test_dependency_audit.py`, `tests/core/test_dependency_audit_ignores.py`, `tests/research/test_inventory.py`, `tests/research/test_advisories.py`, `tests/commands/test_research_inventory.py`, `tests/fixtures/research/repo/package-lock.json` (new).
 
 - [x] 2.1 `test_the_audit_check_audits_uv_and_each_npm_lockfile_without_a_shell` expects `npm audit ... --prefix .`, the ignore tests of `tests/commands/test_dependency_audit.py` name `package-lock.json`, and `test_inventory_lists_one_component_for_each_pin_of_the_fixture_repository` expects the package of the root lockfile of the fixture repository; the cases failed on the base
   - Verification: `$ uv run devops ci test tests/commands/test_ci.py tests/commands/test_dependency_audit.py tests/research`
