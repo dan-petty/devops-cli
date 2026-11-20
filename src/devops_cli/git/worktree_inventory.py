@@ -190,13 +190,24 @@ def parse_worktree_porcelain_z(raw_output: str | bytes) -> list[WorktreeInfo]:
 def count_dirty_paths(worktree_dir: Path) -> int | None:
     """Count uncommitted, modified, and untracked paths via git status --porcelain -z.
 
-    A directory that is gone has nothing uncommitted, so it counts 0. None means `git status`
-    failed, so nothing is known about the directory.
+    `--untracked-files=normal` overrides `status.showUntrackedFiles`: with that setting at `no`,
+    `git status` hides the untracked files, and the check of `git worktree remove` obeys it too,
+    so a worktree with untracked files looks clean and prune deletes them (#6435). A directory
+    that is gone has nothing uncommitted, so it counts 0. None means `git status` failed, so
+    nothing is known about the directory.
     """
     if not worktree_dir.is_dir():
         return 0
     proc = run_subprocess(
-        ["git", "-C", str(worktree_dir), "status", "--porcelain", "-z"],
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+            "-z",
+        ],
         check=False,
         quiet=True,
         local_read=True,
@@ -239,7 +250,9 @@ def count_ignored_data_files(worktree_dir: Path) -> int | None:
     (#6435). `git ls-files --others --ignored --exclude-standard` applies the ignore rules of the
     worktree and lists each file inside an ignored directory, so it tells `.data/cache` from
     `.data/agent`; it lists no empty directory. A directory that is gone holds no file, so it
-    counts 0. None means that `git ls-files` failed, so the count is unknown.
+    counts 0. None means that `git ls-files` failed, so the count is unknown. A warning also
+    makes the count unknown: when git cannot open a directory, it warns, leaves out the files of
+    that directory and still exits 0.
     """
     if not worktree_dir.is_dir():
         return 0
@@ -261,7 +274,7 @@ def count_ignored_data_files(worktree_dir: Path) -> int | None:
         quiet=True,
         local_read=True,
     )
-    if proc.returncode != 0:
+    if proc.returncode != 0 or str(proc.stderr or "").strip():
         return None
     raw = (
         proc.stdout.decode("utf-8", errors="surrogateescape")
@@ -561,7 +574,11 @@ def prune_worktrees(
     holds ignored data files stays, and its pull request is not read (`scope_refusal`, #6435).
     `force` never removes the main worktree or the worktree of the current directory.
     Every worktree is decided before any is removed, so a failed GitHub read ends the run with
-    nothing removed. Without `confirm` the run removes nothing and reports `would remove`. A
+    nothing removed. The decision pass takes one GitHub read for each worktree, and an agent can
+    write a data file in a worktree in that time, while `git worktree remove` deletes ignored
+    files without a check. So without `force`, the run asks `scope_refusal` again right before
+    each removal and reports a worktree that it now refuses as `refused`. Without `confirm` the
+    run removes nothing and reports `would remove`. A
     removal that git refuses is reported as `failed`, with git's message, and its directory stays.
     A worktree that a parallel run already removed cannot be removed again: git reports `is not a
     working tree`, and the run reports the worktree as `removed`, so it counts as done, not failed.
@@ -590,8 +607,11 @@ def prune_worktrees(
     items: list[WorktreePruneItem] = []
     for decision in decisions:
         path = decision.entry.path
-        if not decision.removable:
-            items.append(WorktreePruneItem(path=path, status="refused", reason=decision.reason))
+        refusal = None if decision.removable else decision.reason
+        if refusal is None and confirm and not force:
+            refusal = scope_refusal(decision.entry, managed_root=managed_root)
+        if refusal is not None:
+            items.append(WorktreePruneItem(path=path, status="refused", reason=refusal))
             continue
         size = _size_of(path)
         if not confirm:

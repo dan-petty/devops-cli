@@ -790,8 +790,10 @@ CONST_AGENT_WORKTREE_PREFIX: Final[str] = "w-"
 # cache or a build output that a command makes again, so it holds no data: `uv sync` makes `.venv`,
 # a test run makes `__pycache__`, `.pytest_cache`, `.hypothesis` and the coverage outputs of
 # `pyproject.toml`. A plain pathspec matches at the root of the worktree and covers the files under
-# it, so `dist` under `.data/agent/scratch` stays data; the glob ones match at any depth. Each
-# other file that `.gitignore` hides is data and keeps the worktree from `worktrees prune`.
+# it, so `dist` under `.data/agent/scratch` stays data; the `**/` globs match at any depth. The
+# coverage data files match only at the root, where coverage writes them by default, and under
+# `.data`, where `pyproject.toml` writes them, so a note named `.coverage-notes.md` stays data.
+# Each other file that `.gitignore` hides is data and keeps the worktree from `worktrees prune`.
 CONST_WORKTREE_REGENERABLE_PATHSPECS: Final[tuple[str, ...]] = (
     ":(exclude).venv",
     ":(exclude)dist",
@@ -802,13 +804,16 @@ CONST_WORKTREE_REGENERABLE_PATHSPECS: Final[tuple[str, ...]] = (
     ":(exclude).data/htmlcov",
     ":(exclude).data/coverage.xml",
     ":(exclude).data/coverage.json",
+    ":(exclude).coverage",
+    ":(exclude,glob).coverage.*",
+    ":(exclude).data/.coverage",
+    ":(exclude,glob).data/.coverage.*",
     ":(exclude,glob)**/__pycache__/**",
     ":(exclude,glob)**/.pytest_cache/**",
     ":(exclude,glob)**/.ruff_cache/**",
     ":(exclude,glob)**/.mypy_cache/**",
     ":(exclude,glob)**/.hypothesis/**",
     ":(exclude,glob)**/node_modules/**",
-    ":(exclude,glob)**/.coverage*",
 )
 CONST_GIT_REMOTE_ORIGIN: Final[str] = "origin"
 # Host-folder shares (WSL's drvfs over 9p) answer each file check hundreds of times slower than
