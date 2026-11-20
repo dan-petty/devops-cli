@@ -50,7 +50,7 @@ Every file of `k8s/devops/crawl4ai/` SHALL be in its `kustomization.yaml`, in `k
 - **THEN** the render and the list of the dry run each hold every file of `k8s/devops/crawl4ai/`
 
 ### Requirement: The scan of the third-party image only reports
-The job `third-party-image-scan` of `.github/workflows/third-party-image-scan.yml` SHALL scan the image of the Deployment with Trivy at the version that `tools.lock` pins and SHALL exit 0 whatever it finds. The workflow SHALL run only for a pull request that changes `k8s/devops/crawl4ai/deployment.yaml` or the workflow file.
+The job `third-party-image-scan` of `.github/workflows/third-party-image-scan.yml` SHALL scan the image of the Deployment with `.github/actions/image-scan` at exit code 0 under the category `trivy-image-crawl4ai`, and SHALL exit 0 whatever it finds. The workflow SHALL run only for a pull request that changes `k8s/devops/crawl4ai/deployment.yaml`, the workflow file or the action.
 
 #### Scenario: The scan fails the job
 - **WHEN** a pull request changes `k8s/devops/crawl4ai/deployment.yaml`, and a person runs `uv run devops gh pr checks <number>`

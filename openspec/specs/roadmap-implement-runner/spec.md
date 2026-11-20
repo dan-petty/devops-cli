@@ -225,7 +225,7 @@ The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH
 
 #### Scenario: No release of the tool fixes the finding
 - **WHEN** the newest release of a tool that the gate needs holds a fixed HIGH finding, and no release of the tool holds the fix
-- **THEN** `.trivyignore-tofu` holds an entry for the finding with a reason, a tracking issue and an `exp:` date, and the scan of the Runner Image job exits 0
+- **THEN** `.trivyignore.yaml` holds an entry for the finding under `vulnerabilities:`, scoped to the binary with `paths` and `purls`, with a `statement` that names a tracking issue and an `expired_at` date, and the scan of the Runner Image job exits 0
 
 #### Scenario: A tool fails the scan
 - **WHEN** the image stops holding a tool that the gate needs, because of a finding that SECURITY.md allows no ignore entry for
@@ -236,7 +236,7 @@ The runner image SHALL pass the scan of `ci.yml` and `release.yml` (Trivy, `HIGH
 - **THEN** `RUNNER_TOOLS` holds `actionlint`, `shellcheck` and `trivy`, and the `runner` stage installs all three
 
 #### Scenario: The image is scanned
-- **WHEN** the Runner Image job runs `trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1` with the ignore files `.trivyignore` and `.trivyignore-tofu` on the built `runner` target
+- **WHEN** the Runner Image job scans the built `runner` target with `.github/actions/image-scan` (`--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`, ignore file `.trivyignore.yaml`)
 - **THEN** it exits 0
 
 ### Requirement: The policy admits only the sizes in the table
