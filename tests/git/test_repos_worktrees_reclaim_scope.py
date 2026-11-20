@@ -2,9 +2,10 @@
 
 The reclaim removes a worktree only under the folder that `add` manages (`agent/worktrees` of the
 data directory), only when its branch is merged, and only when it holds no uncommitted file and no
-file that `.gitignore` hides. It names each worktree that it removes, and each one that it leaves
-because it is outside the folder or holds an ignored file. The repositories are real, in
-`tmp_path`; `origin` is a bare repository at `example-org/app.git`, so git reaches no network.
+ignored data file: a file that `.gitignore` hides and that no regenerable cache holds (#6435). It
+names each worktree that it removes, and each one that it leaves because it is outside the folder
+or holds an ignored data file. The repositories are real, in `tmp_path`; `origin` is a bare
+repository at `example-org/app.git`, so git reaches no network.
 """
 
 from __future__ import annotations
@@ -18,7 +19,11 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from devops_cli.git.worktree_inventory import directory_size
+from devops_cli.git.worktree_inventory import (
+    directory_size,
+    inventory_worktrees,
+    scope_refusal,
+)
 from devops_cli.output import format_bytes
 from tests.support.fakes.github import github_json
 
@@ -32,7 +37,12 @@ Git = Callable[..., None]
 Cli = Callable[..., Any]
 
 PULLS_PATH = "/repos/example-org/app/commits/{sha}/pulls?per_page=100"
-OUTSIDE = "outside the managed folder"
+OUTSIDE = "outside the managed folder {folder}"
+# The committed `.gitignore` of a worktree that holds caches and data, as the repository hides them.
+GITIGNORE = ".venv\n__pycache__/\n.pytest_cache/\n.data/*\n.env.*\n"
+# Regenerable caches: a command makes each one again, so none of them is data.
+CACHES = (".venv/x", "src/pkg/__pycache__/m.pyc", ".pytest_cache/v")
+NOTE = ".data/agent/scratch/note.md"
 
 
 @pytest.fixture
@@ -98,8 +108,29 @@ def _said(result: Any) -> str:
     return " ".join(result.output.split())
 
 
+def _put(worktree: Path, *names: str) -> None:
+    """Write one small file at each path of `names` under `worktree`."""
+    for name in names:
+        target = worktree / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{name}\n", encoding="utf-8")
+
+
+def _worktree_with(git: Git, repo: Path, branch: str, path: Path, *names: str) -> str:
+    """Add a worktree whose `.gitignore` is `GITIGNORE` and put the files of `names` in it."""
+    tip = _worktree(git, repo, branch, path, gitignore=GITIGNORE)
+    _put(path, *names)
+    return tip
+
+
 def test_worktree_outside_managed_folder_is_kept(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    tmp_path: Path,
+    managed: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
 ) -> None:
     outside = tmp_path / "wt_outside"
     _merged(github_api, _worktree(git, repo, "fix/2100-other", outside))
@@ -108,8 +139,7 @@ def test_worktree_outside_managed_folder_is_kept(
 
     assert result.exit_code == 0, result.output
     assert (outside.is_dir(), github_api.requested, new_dir.is_dir()) == (True, [], True)
-    assert str(outside) in _said(result)
-    assert OUTSIDE in _said(result)
+    assert f"kept {outside}: {OUTSIDE.format(folder=managed)}" in _said(result)
 
 
 def test_merged_clean_worktree_inside_folder_is_removed_and_named(
@@ -144,12 +174,17 @@ def test_ignored_file_keeps_worktree(
 
     assert result.exit_code == 0, result.output
     assert ((kept / "keep.log").is_file(), new_dir.is_dir()) == (True, True)
-    assert str(kept) in _said(result)
-    assert "ignored" in _said(result)
+    assert f"kept {kept}: holds 1 ignored data file" in _said(result)
 
 
 def test_missing_directory_outside_folder_is_kept(
-    cli: Cli, repo: Path, git: Git, tmp_path: Path, github_api: GitHubApiFake, new_dir: Path
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    tmp_path: Path,
+    managed: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
 ) -> None:
     gone = tmp_path / "wt_gone"
     _worktree(git, repo, "fix/2100-other", gone)
@@ -161,8 +196,7 @@ def test_missing_directory_outside_folder_is_kept(
     assert result.exit_code == 0, result.output
     assert str(gone) in _listed(repo)
     assert github_api.requested == []
-    assert str(gone) in _said(result)
-    assert OUTSIDE in _said(result)
+    assert f"kept {gone}: {OUTSIDE.format(folder=managed)}" in _said(result)
     assert new_dir.is_dir()
 
 
@@ -195,8 +229,8 @@ def test_json_report_lists_each_kept_worktree_with_its_reason(
     kept = {item["path"]: item for item in json.loads(result.stdout)["kept"]}
     assert result.exit_code == 0, result.output
     assert set(kept) == {str(outside), str(ignored)}
-    assert kept[str(outside)]["reason"] == OUTSIDE
-    assert "ignored" in kept[str(ignored)]["reason"]
+    assert kept[str(outside)]["reason"] == OUTSIDE.format(folder=managed)
+    assert kept[str(ignored)]["reason"] == "holds 1 ignored data file"
     assert github_api.requested == []
 
 
@@ -211,7 +245,85 @@ def test_worktree_whose_status_fails_is_kept(
 
     assert result.exit_code == 0, result.output
     assert (broken.is_dir(), github_api.requested, new_dir.is_dir()) == (True, [], True)
-    assert "git status failed" in _said(result)
+    assert f"kept {broken}: ignored data files are unknown (git ls-files failed)" in _said(result)
+
+
+def test_scope_refusal_names_the_folder_and_the_data_count(
+    repo: Path, git: Git, tmp_path: Path, managed: Path
+) -> None:
+    """The shared rule refuses a worktree outside the folder and one that holds data files, and
+    allows one that holds only caches, an empty directory or nothing at all (#6435)."""
+    _worktree_with(git, repo, "fix/2100-other", tmp_path / "wt_outside")
+    _worktree_with(git, repo, "fix/2101-one", managed / "w-2101", *CACHES, NOTE)
+    three = (NOTE, ".data/agent/scratch/other.md", ".env.local")
+    _worktree_with(git, repo, "fix/2102-three", managed / "w-2102", *three)
+    caches = managed / "w-2103"
+    _worktree_with(git, repo, "fix/2103-caches", caches, *CACHES, ".data/cache/x")
+    (caches / ".data" / "agent" / "empty").mkdir(parents=True)
+    gone = managed / "w-2104"
+    _worktree_with(git, repo, "fix/2104-gone", gone)
+    shutil.rmtree(gone)
+    entries = {Path(entry.path).name: entry for entry in inventory_worktrees(repo)}
+
+    refusals = {
+        name: scope_refusal(entries[name], managed_root=managed)
+        for name in ("wt_outside", "w-2101", "w-2102", "w-2103", "w-2104")
+    }
+
+    assert refusals == {
+        "wt_outside": OUTSIDE.format(folder=managed),
+        "w-2101": "holds 1 ignored data file",
+        "w-2102": "holds 3 ignored data files",
+        "w-2103": None,
+        "w-2104": None,
+    }
+
+
+@pytest.mark.parametrize("names", [CACHES, (".data/cache/x",)], ids=["caches", "data-cache"])
+def test_the_reclaim_takes_a_merged_worktree_that_holds_only_caches(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    names: tuple[str, ...],
+) -> None:
+    """A regenerable cache holds no data, so it keeps no merged worktree (#6435)."""
+    old = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", old, *names))
+
+    result = _add(cli, repo)
+
+    assert result.exit_code == 0, result.output
+    assert (old.exists(), new_dir.is_dir()) == (False, True)
+    assert f"removed {old}" in _said(result)
+
+
+@pytest.mark.parametrize(
+    "names", [(*CACHES, NOTE), (".env.local",)], ids=["scratch-note", "env-file"]
+)
+def test_the_reclaim_keeps_a_merged_worktree_that_holds_data(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    names: tuple[str, ...],
+) -> None:
+    """Each ignored file that no cache holds is data: the reclaim keeps the worktree and counts
+    only that file (#6435)."""
+    kept = managed / "w-2100"
+    _merged(github_api, _worktree_with(git, repo, "fix/2100-old", kept, *names))
+
+    result = _add(cli, repo, "--json")
+
+    reasons = {item["path"]: item["reason"] for item in json.loads(result.stdout)["kept"]}
+    assert result.exit_code == 0, result.output
+    assert reasons == {str(kept): "holds 1 ignored data file"}
+    assert [(kept / name).is_file() for name in names] == [True] * len(names)
+    assert (github_api.requested, new_dir.is_dir()) == ([], True)
 
 
 def test_the_dry_run_lists_a_read_only_for_a_worktree_inside_the_folder(
