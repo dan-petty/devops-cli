@@ -19,7 +19,7 @@ Closes #5098.
 
 The upgrade changes behavior that the change keeps as upstream gives it:
 
-- `Coder` answers the call that spends the retries of a tool with the last error as a failed result, and the run goes on (0.65). So the reason of a step names no last retries. The `roadmap-implement-step/trace` delta states this.
+- `Coder` answers the call that spends the retries of a tool with the last error as a failed result, and the run goes on (0.65). So the reason of a step names no last retries, and that call counts as no retry. The `roadmap-implement-step/trace` delta states this.
 - `Coder` has new base instructions (0.69), sends its tools with no strict schema (0.64), and protects the `.git` file of a worktree.
 - A reply that the output token limit cuts with no output ends the run with `OutputTokenLimitExceeded`, a kind of `UnexpectedModelBehavior`, at once (2.68). The stop of refine names that class.
 
@@ -31,7 +31,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-step/trace`: a step goes on when a file tool spends its retries, so its reason names no last retries.
+- `roadmap-implement-step/trace`: a step goes on when a file tool spends its retries, so its reason names no last retries, and the call that `Coder` answers with a failed result counts as no retry.
 
 ## Impact
 

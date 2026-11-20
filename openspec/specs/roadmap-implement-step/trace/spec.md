@@ -78,12 +78,16 @@ A step that stops on a pydantic-ai error SHALL count the tool calls that a tool 
 - **THEN** the reason ends with "Refused commands: 0. Other retries: 6."
 
 #### Scenario: A path outside the root
-- **WHEN** the model calls `read_file` with the path `/etc/passwd` in every reply
-- **THEN** the reason ends with "Refused commands: 0. Other retries: 6."
+- **WHEN** the model calls `read_file` with a path outside the root in five replies, and its next reply breaks the rules
+- **THEN** the reason ends with "Refused commands: 0. Other retries: 5."
 
 #### Scenario: A run with no retry
 - **WHEN** the model calls `read_file` with a valid path in every reply until the request limit
 - **THEN** the reason holds the message of the error and holds neither count
+
+#### Scenario: The call that spends the retries of a file tool
+- **WHEN** the model calls `edit_file` with an `old_text` that the file does not hold in six replies, and its next reply breaks the rules
+- **THEN** `Coder` answers the sixth call with a failed result, and the reason ends with "Refused commands: 0. Other retries: 5."
 
 ### Requirement: Every tool call of a step writes one line to the Job log
 The agent SHALL write one line to the standard error stream when each tool call ends. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. A shell refusal has the outcome `refused`. The program SHALL be the first word of the command when it is a program of the allowlist or of `IMPLEMENT_SHELL_REPLACEMENTS`, else `other:<digest>`. The line SHALL hold nothing else but the reason of a retry.
