@@ -50,33 +50,6 @@ class ToolDownloadError(ToolExecutionError):
         )
 
 
-class ChecksumMismatchError(ToolExecutionError):
-    """Raised when downloaded tool archive SHA-256 does not match expected checksum."""
-
-    error_code = "CHECKSUM_MISMATCH"
-
-    def __init__(
-        self,
-        filename: str,
-        actual_checksum: str,
-        *,
-        expected_checksum: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        msg = f"SHA-256 checksum mismatch for '{filename}' (got {actual_checksum[:16]}...)"
-        err_details = {
-            "filename": filename,
-            "actual_checksum": actual_checksum,
-            "expected_checksum": expected_checksum,
-        }
-        if details:
-            err_details.update(details)
-        super().__init__(
-            msg,
-            details=err_details,
-        )
-
-
 class SubprocessError(ToolExecutionError):
     """Raised when an external subprocess command exits with a non-zero code or fails execution."""
 

@@ -2028,9 +2028,9 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # of init-module for `npm init`. node-gyp, which `npm install` runs for a package with a
     # binding.gyp, starts the interpreter of npm_config_python and of PYTHON.
     # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
-    # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
-    # them, and a caller names a file that it controls. npm_config_cache stays accepted for the
-    # same reason (#2747): a caller sets it, and npm writes its log below it.
+    # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: a caller that
+    # sets one names a file that it controls. npm_config_cache stays accepted for the same reason
+    # (#2747), and npm writes its log below it. Since #4363 no devops-cli caller sets the npm keys.
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
     "UV_PROJECT_ENVIRONMENT",
@@ -2065,8 +2065,8 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # PYTHONSTARTUP, which this tuple refuses from a caller. Exact entries: a pattern such as
     # YARN_* would refuse YARN_ENABLE_TELEMETRY, and no probe made that key dangerous.
     # npm_config_cache stays accepted: the probe showed that `npx` starts the bin script of a
-    # package from a cache that the caller prepared, but a caller sets the key for `npm ci`, and
-    # devops-cli runs no `npx`.
+    # package from a cache that the caller prepared, but devops-cli runs no `npx`, and since #4363
+    # no devops-cli caller sets the key.
     "GOFLAGS",
     "YARN_YARN_PATH",
     "UV_TOOL_DIR",

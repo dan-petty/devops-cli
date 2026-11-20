@@ -98,7 +98,6 @@ from devops_cli.exceptions.telemetry import (
     TelemetryError,
 )
 from devops_cli.exceptions.tools import (
-    ChecksumMismatchError,
     DependencyError,
     SubprocessError,
     ToolDownloadError,
@@ -161,7 +160,6 @@ __all__ = [
     "ArgoWorkflowTimeoutError",
     "BranchAlreadyExistsError",
     "ChaosExecutionError",
-    "ChecksumMismatchError",
     "CloudflareAPIError",
     "CloudflareAuthError",
     "CloudflareError",

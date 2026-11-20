@@ -101,7 +101,7 @@
       "registryUrls": ["https://registry.opentofu.org"]
     },
     {
-      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such a file is DEFAULT_PYTHON_VERSION. No custom manager writes a tool version into a file under src/ (#5585, #4363). A group takes the prefix of its first update, so each group with such a member sets the prefix itself: python runtime and bandit.",
+      "description": "A file under src/devops_cli/ is runtime code, so the update is a fix: the Semantic PR title check refuses a hidden type there, and release-please releases it (#6061). Such a file is DEFAULT_PYTHON_VERSION. No custom manager writes a tool version into a file under src/ (#5585, #4363). A group takes the prefix of its first update, so each group with such a member sets the prefix itself: python runtime.",
       "matchFileNames": ["src/devops_cli/**"],
       "commitMessagePrefix": "fix(deps):"
     },

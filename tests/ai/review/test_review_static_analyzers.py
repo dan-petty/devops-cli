@@ -405,7 +405,7 @@ def _static_scan(tmp_path: Path) -> tuple[ReviewPipelineOrchestrator, ReviewProf
 def test_a_review_scans_with_the_cached_registry_ruleset_and_records_its_digest(
     scanner_fake: ScannerFake, cached_default_ruleset: Path, tmp_path: Path
 ) -> None:
-    """The ruleset is an input of the review as the tools lock is: the profile keeps its digest
+    """The ruleset is an input of the review as the tools that ran are: the profile keeps its digest
     (#1144)."""
     orchestrator, profile = _static_scan(tmp_path)
 

@@ -152,3 +152,5 @@ The merge of the pull request that adds this record is the approval of this reco
 ADR 0001, ADR 0016 and the rules of ADR 0021 section 3 stay as they are. GitHub stays the source of truth.
 
 2026-11-12: Living detail moved to tracker #4624: the items that build this record and their state (#5225).
+
+2026-11-20: Fact out of date: the deployed paths name three source files of programs in place of `tools.lock` (#4363).

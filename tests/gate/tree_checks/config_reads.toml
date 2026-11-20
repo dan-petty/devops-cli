@@ -37,6 +37,7 @@
 "tests/invariants/test_runner_image.py" = 1
 "tests/invariants/test_service_image.py" = 2
 "tests/invariants/test_workflow_contracts.py" = 21
+"tests/k8s/test_k8s_argo_workflows.py" = 8
 "tests/prometheus/test_dashboard_queries.py" = 7
 "tests/prometheus/test_implement_failure_labels.py" = 1
 "tests/prometheus/test_k8s_monitoring_alerting.py" = 6

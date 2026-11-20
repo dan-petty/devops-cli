@@ -23,7 +23,7 @@ and the network profile of the request, as the sandbox executor does.
 A test scripts only what the programs of the host decide. These are the version and the binary
 digest of the tool, its exit code, its output and whether it ran out of time. A tool that is not
 installed has no binary. So the `version` and `binary_sha256` of the answer replace two values. The
-real executor reads them from the tools lock and from the binary on disk.
+real executor reads them from the installed distribution and from the binary on disk.
 
 The contract suite is `tests/test_tool_executor_contract.py`. It runs each shared case over this
 fake and over the real executor, with a stand-in for the tool on disk. It holds both to the same

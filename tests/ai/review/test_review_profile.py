@@ -679,7 +679,7 @@ def test_a_review_warns_when_its_own_source_changes_during_the_run(
 
 
 def test_the_profile_records_the_digest_of_the_registry_ruleset_a_review_scanned_with() -> None:
-    """Semgrep's registry rules are an input of a review as the tools lock is, so the profile
+    """Semgrep's registry rules are an input of a review as the tools that ran are, so the profile
     keeps their digest, empty when the review read none (#1144)."""
     with profiling() as profiler:
         none_read = profiler.build(session_id="s", target="t").semgrep_registry_digest

@@ -64,3 +64,7 @@ Review work runs as content-addressed jobs pulled by one worker per GPU tier slo
   - CONTEXT.md's code-review terms change, and VISION.md items 8 and 16 change;
   - README.md, AGENTS.md section 5, SELF_IMPROVEMENT.md, KNOWN_ISSUES.md and TELEMETRY.md are rewritten through their usual paths;
   - the findings metric's `persona` label becomes `producer`.
+
+## Status History
+
+2026-11-20: Fact out of date: the tools lock is gone; the devtools image installs the review tools, and a review profile hashes the versions of its tool runs (#4363).

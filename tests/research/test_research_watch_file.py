@@ -23,7 +23,6 @@ from tests.support.paths import FIXTURES, REPO_ROOT
 _MAPPING_FILE = REPO_ROOT / WATCH_FILE
 # The fixtures of the research package: the recorded answers of OSV, GitHub and the scanners.
 _RESEARCH_FIXTURES = FIXTURES / "research"
-# The release binaries whose repository publishes them as a Go module.
 # RFC 1918's three blocks. `ipaddress.is_private` also holds the documentation blocks of RFC 5737,
 # which a fixture may name.
 _RFC1918 = tuple(

@@ -1,7 +1,7 @@
 # docs-ste-style Specification
 
 ## Purpose
-The Vale style that checks the hand-written prose against the four ASD-STE100 rules of AGENTS.md rule 9, and its pinned tool.
+The Vale style that checks the hand-written prose against the four ASD-STE100 rules of AGENTS.md rule 9.
 
 ## Requirements
 

@@ -8,7 +8,7 @@
 - **A recorded version or none.** The analysis, the knowledge base and the profile read the versions of the tool runs. A manual drifts only from a recorded version, so a review with no run lists no drift.
 - **No `--version` in the record path.** The canary and the tool executor record the installed distribution, else `unknown`, with the binary digest. They do not start a tool outside its sandbox for a version.
 - **An old plan record is planned again.** `PlanContent` refuses an unknown field, so a record with `ansible_core` does not read, and the apply says to plan again.
-- **The CLIs of the alternatives inventory.** `config/commands.py` names each CLI that devops-cli starts. A CLI that only the image holds counts as in use only when a deployed path names it.
+- **The CLIs of the alternatives inventory.** `config/commands.py`, `roadmap/runner_tools.py` and `infra/ansible_facts.py` name, with no version, each program that devops-cli or a Job starts, such as kubeconform, tflint and ansible-runner.
 - **The image scan replaces the tag floor.** The third-party image scan runs one matrix job for each pinned cluster image.
 
 ## Rejected alternatives

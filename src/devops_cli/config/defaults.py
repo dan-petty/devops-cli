@@ -925,13 +925,17 @@ DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS: int = 30
 DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS: int = 3
 DEFAULT_ROADMAP_ALTERNATIVES_INTERVAL_MINUTES: int = 239
 # The deployed paths of a clone that the alternatives check reads for the tools in use that no
-# manifest names: services, images and CLIs (#4661). `config/commands.py` names each CLI that
-# devops-cli starts; it takes the place of the tools lock, which the devtools image replaced (#4363).
+# manifest names: services, images and CLIs (#4661). Three source files name the programs, with no
+# version, in place of the tools lock (#4363): `config/commands.py` the commands that devops-cli
+# starts, `roadmap/runner_tools.py` each program that a Job needs or leaves out, and
+# `infra/ansible_facts.py` the Ansible commands.
 DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS: tuple[str, ...] = (
     "k8s",
     "tf",
     ".devcontainer",
     "src/devops_cli/config/commands.py",
+    "src/devops_cli/roadmap/runner_tools.py",
+    "src/devops_cli/infra/ansible_facts.py",
 )
 # The PyPI JSON API reads of a package (`{name}` is one URL path segment) and its timeout.
 DEFAULT_PYPI_PACKAGE_URL: str = "https://pypi.org/pypi/{name}/json"

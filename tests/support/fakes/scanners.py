@@ -45,9 +45,9 @@ on 2026-10-25, with the command that writes its report on stdout (#1434). They a
 for the scanned tree, `{workdir}` for the directory the scanner ran in and `{rule_pack}` for
 devops-cli's Semgrep rule pack. The contract suite, `tests/test_scanner_contract.py`, starts each
 adapter that way over the fake and checks that it still makes the recorded command and reads the
-run as it read the real one, and that each recording is of the locked version. When either
-changes, record the run again: start the adapter as the contract suite does, with the real tool
-at its locked version on PATH, and keep the command, exit code, stdout and stderr it ran with.
+run as it read the real one. When either changes, record the run again: start the adapter as the
+contract suite does, with the installed tool of the devtools image on PATH, and keep the command,
+exit code, stdout and stderr it ran with.
 
 A run that finds something is in `tests/fixtures/scanner_runs/runs_with_findings.json`, recorded
 on 2026-10-25 with the command each adapter makes, and `script_run_with_findings` answers with it
@@ -56,7 +56,7 @@ not in the recording. Pluto ran over two objects whose APIs Kubernetes removed, 
 replacement. Popeye ran at warn level over the namespace of a lab cluster; its report keeps three
 of its sections and two of its resources, and the names of the cluster and the context read
 `example`. uv audit 0.12.23 ran on 2026-10-28 over a project whose `uv.lock` pins idna 3.6
-(#2106). No tools lock pins uv, and uv 0.13.6, which the images pin, writes a report of the same
+(#2106). uv 0.13.6, which the images pin, writes a report of the same
 layout. kubeconform ran on 2026-10-28 over a manifest with two invalid resources and one custom
 resource with no schema (#2214). tflint 0.65.0 ran on 2026-10-30 with `--format json --recursive`
 over a tree of two `.tf` files, one in `modules/network`; it exited 2 with six warnings of its

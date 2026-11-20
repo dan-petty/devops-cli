@@ -26,7 +26,7 @@ def test_the_template_keeps_the_update_check_off() -> None:
 
 
 def test_the_ignore_file_hides_only_generated_documents() -> None:
-    """A lockfile, the tools lock and CHANGELOG.md stay in front of the person."""
+    """A lockfile and CHANGELOG.md stay in front of the person."""
     patterns = [
         line
         for line in _IGNORE_FILE.read_text(encoding="utf-8").splitlines()

@@ -11,7 +11,7 @@ The digest SHALL list each command that the command tree registers, with its gro
 - **THEN** The behavior test asserts that the digest holds each registered command, each settings section and field with its model default or factory name, and no absent command.
 
 ### Requirement: Each pin comes from the file that owns it
-The digest SHALL read each pinned version from the uv lock, the tools lock or the project manifest, and SHALL name the file that holds it. The digest MUST copy no version from prose.
+The digest SHALL read each pinned version from the uv lock, the root `package-lock.json` or the project manifest, and SHALL name the file that holds it. The digest MUST copy no version from prose.
 
 #### Scenario: A changed lock changes the digest
 - **WHEN** A test copies `pyproject.toml` and `uv.lock` into a temporary root, changes one version in the copy and builds the digest over that root.

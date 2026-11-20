@@ -10,7 +10,6 @@ import textwrap
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.exceptions import (
     BranchAlreadyExistsError,
-    ChecksumMismatchError,
     ConfigurationError,
     DevOpsCLIError,
     GitOperationError,
@@ -113,13 +112,6 @@ def test_tool_exceptions() -> None:
     dl_err = ToolDownloadError("https://example.com/bin", "HTTP 404")
     assert isinstance(dl_err, ToolExecutionError)
     assert dl_err.error_code == "TOOL_DOWNLOAD_ERROR"
-
-    csum_err = ChecksumMismatchError(
-        "trivy.tar.gz", "actualsha256sumhere", expected_checksum="expectedsha256"
-    )
-    assert isinstance(csum_err, ToolExecutionError)
-    assert csum_err.error_code == "CHECKSUM_MISMATCH"
-    assert csum_err.details["expected_checksum"] == "expectedsha256"
 
 
 def test_config_exceptions() -> None:
