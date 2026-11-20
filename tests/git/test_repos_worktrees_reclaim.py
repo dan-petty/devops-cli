@@ -274,7 +274,9 @@ def test_prune_reports_a_parallel_removed_worktree_as_removed(
     entries = inventory_worktrees(repo)
     git(repo, "worktree", "remove", str(merged))
 
-    report = prune_worktrees(repo, entries, repo="example-org/app", confirm=True)
+    report = prune_worktrees(
+        repo, entries, repo="example-org/app", managed_root=managed, confirm=True
+    )
 
     item = next(i for i in report.items if Path(i.path).name == "wt_merged")
     assert item.status == "removed"

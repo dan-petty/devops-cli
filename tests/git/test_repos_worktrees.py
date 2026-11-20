@@ -116,7 +116,9 @@ class WorktreeRepoState:
                 tokens.append(f"?? {item.name}")
         return tokens
 
-    def _handle_status(self, repo_dir: Path) -> ProcessAnswer:
+    def _refusal(self, repo_dir: Path) -> ProcessAnswer | None:
+        """The failure of a git command in `repo_dir`, as real git exits: 128 for a directory that
+        is no worktree and for a `.git` file that is no gitdir pointer, else None."""
         if repo_dir != self.repo_dir and repo_dir not in self.worktrees:
             return ProcessAnswer(returncode=128, stderr="fatal: not a git repository")
         git_marker = repo_dir / ".git"
@@ -124,6 +126,11 @@ class WorktreeRepoState:
             content = git_marker.read_text(encoding="utf-8", errors="replace")
             if not content.startswith("gitdir:"):
                 return ProcessAnswer(returncode=128, stderr="fatal: invalid gitdir pointer")
+        return None
+
+    def _handle_status(self, repo_dir: Path) -> ProcessAnswer:
+        if (refusal := self._refusal(repo_dir)) is not None:
+            return refusal
         tokens = self._collect_status_tokens(repo_dir)
         if tokens:
             return ProcessAnswer(stdout="".join(f"{t}\0" for t in tokens))
@@ -235,6 +242,9 @@ class WorktreeRepoState:
             return self._handle_rev_list(sub_argv)
         if cmd == "status":
             return self._handle_status(repo_dir)
+        if cmd == "ls-files":
+            # The worktrees of this fake hold no ignored file, so each listing is empty.
+            return self._refusal(repo_dir) or ProcessAnswer(stdout="")
         if cmd == "worktree":
             return self._handle_worktree(sub_argv)
         if cmd == "commit":
@@ -398,10 +408,10 @@ def test_worktree_with_unreadable_status_has_unknown_dirty_count(
 
 
 def test_prune_removes_worktree_whose_tip_heads_a_merged_pull_request(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """A squash merge leaves the branch tip out of main; the merged pull request is the record."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     request = _route_pulls(github_api, tip, _pull(tip, number=2134))
 
@@ -417,11 +427,11 @@ def test_prune_removes_worktree_whose_tip_heads_a_merged_pull_request(
 
 
 def test_prune_keeps_new_worktree_at_the_tip_of_main(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """A new worktree has no commit of its own: main contains its tip, but no pull request has it
     as head, even when GitHub names the squash merge that put the tip into main."""
-    fresh = tmp_path / "wt_fresh"
+    fresh = managed / "wt_fresh"
     tip = _add_worktree(git, git_repo, "branch-fresh", fresh)
     _route_pulls(github_api, tip, _pull("0f" * 20, number=2339))
 
@@ -435,10 +445,10 @@ def test_prune_keeps_new_worktree_at_the_tip_of_main(
 
 
 def test_prune_keeps_pushed_branch_with_an_open_pull_request(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """The remote ref of the branch itself contains the tip, but the pull request is not merged."""
-    pushed = tmp_path / "wt_pushed"
+    pushed = managed / "wt_pushed"
     tip = _add_worktree(git, git_repo, "branch-pushed", pushed, commit=True)
     git(git_repo, "update-ref", "refs/remotes/origin/branch-pushed", tip)
     _route_pulls(github_api, tip, _pull(tip, merged_at=None))
@@ -450,10 +460,10 @@ def test_prune_keeps_pushed_branch_with_an_open_pull_request(
 
 
 def test_prune_keeps_worktree_with_a_commit_after_the_merge(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """The merged pull request ended on an earlier commit than the tip of the worktree."""
-    later = tmp_path / "wt_later"
+    later = managed / "wt_later"
     tip = _add_worktree(git, git_repo, "branch-later", later, commit=True)
     _route_pulls(github_api, tip, _pull("1a" * 20))
 
@@ -464,10 +474,10 @@ def test_prune_keeps_worktree_with_a_commit_after_the_merge(
 
 
 def test_prune_keeps_commit_that_github_does_not_know(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """GitHub answers 422 for a commit that was never pushed; the worktree stays and prune works."""
-    local = tmp_path / "wt_local"
+    local = managed / "wt_local"
     tip = _add_worktree(git, git_repo, "branch-local", local, commit=True)
     github_api.route(
         "GET",
@@ -482,17 +492,18 @@ def test_prune_keeps_commit_that_github_does_not_know(
 
 
 def test_prune_reads_no_pull_request_for_locked_dirty_or_unreadable_worktrees(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
-    """Local state decides first: lock, uncommitted paths and a failed `git status` each keep the
-    worktree, and none of them costs a request."""
-    locked = tmp_path / "wt_locked"
+    """Local state decides first: a lock, uncommitted paths and a broken `.git` file each keep the
+    worktree, and none of them costs a request. Git cannot list the ignored files of the broken
+    worktree, so the scope rule keeps it before its dirty state is read."""
+    locked = managed / "wt_locked"
     _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
     git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
-    dirty = tmp_path / "wt_dirty"
+    dirty = managed / "wt_dirty"
     _add_worktree(git, git_repo, "branch-dirty", dirty, commit=True)
     (dirty / "scratch.txt").write_text("wip\n", encoding="utf-8")
-    broken = tmp_path / "wt_broken"
+    broken = managed / "wt_broken"
     _add_worktree(git, git_repo, "branch-broken", broken, commit=True)
     (broken / ".git").write_text("not a gitdir pointer\n", encoding="utf-8")
 
@@ -503,16 +514,16 @@ def test_prune_reads_no_pull_request_for_locked_dirty_or_unreadable_worktrees(
         "repo": ("refused", "main worktree"),
         "wt_locked": ("refused", "locked (agent-42)"),
         "wt_dirty": ("refused", "dirty (1 uncommitted path)"),
-        "wt_broken": ("refused", "dirty state unknown (git status failed)"),
+        "wt_broken": ("refused", "ignored data files are unknown (git ls-files failed)"),
     }
     assert [p.exists() for p in (locked, dirty, broken)] == [True, True, True]
 
 
 def test_prune_removes_the_record_of_a_worktree_whose_directory_is_gone(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """A deleted directory holds nothing, so prune drops git's record of it without a lookup."""
-    gone = tmp_path / "wt_gone"
+    gone = managed / "wt_gone"
     _add_worktree(git, git_repo, "branch-gone", gone, commit=True)
     shutil.rmtree(gone)
 
@@ -526,13 +537,13 @@ def test_prune_removes_the_record_of_a_worktree_whose_directory_is_gone(
 
 
 def test_prune_removes_nothing_when_a_pull_request_read_fails(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """Every worktree is decided before one is removed: a read that fails ends the run first."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     _route_pulls(github_api, tip, _pull(tip))
-    unread = tmp_path / "wt_unread"
+    unread = managed / "wt_unread"
     _add_worktree(git, git_repo, "branch-unread", unread, commit=True)
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm")
@@ -541,10 +552,10 @@ def test_prune_removes_nothing_when_a_pull_request_read_fails(
 
 
 def test_prune_without_confirm_reads_github_and_removes_nothing(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """The default run is a preview: it reads, lists and changes nothing."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     request = _route_pulls(github_api, tip, _pull(tip, number=2134))
 
@@ -557,12 +568,12 @@ def test_prune_without_confirm_reads_github_and_removes_nothing(
 
 
 def test_prune_dry_run_makes_no_request_and_lists_the_requests(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """A dry run reads local git only and returns the report with the requests a run would make."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
-    locked = tmp_path / "wt_locked"
+    locked = managed / "wt_locked"
     _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
     git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
 
@@ -579,10 +590,10 @@ def test_prune_dry_run_makes_no_request_and_lists_the_requests(
 
 
 def test_prune_dry_run_prints_the_request_plan(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """The table output of a dry run is the numbered request plan."""
-    tip = _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+    tip = _add_worktree(git, git_repo, "branch-merged", managed / "wt_merged", commit=True)
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run")
 
@@ -591,10 +602,10 @@ def test_prune_dry_run_prints_the_request_plan(
 
 
 def test_prune_refuses_dry_run_with_confirm(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+    git_repo: Path, managed: Path, git: Git, cli: Cli
 ) -> None:
     """A dry run changes nothing, so a confirmed dry run is a contradiction, not a removal."""
-    wt = tmp_path / "wt_one"
+    wt = managed / "wt_one"
     _add_worktree(git, git_repo, "branch-one", wt, commit=True)
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run", "--confirm")
@@ -603,7 +614,7 @@ def test_prune_refuses_dry_run_with_confirm(
 
 
 def test_prune_without_a_github_origin_names_the_cause(
-    tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake, git_fake: GitFake
+    tmp_path: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake, git_fake: GitFake
 ) -> None:
     """The merged pull request is read from the origin; without one prune stops before any read."""
     repo = tmp_path / "plain"
@@ -611,7 +622,7 @@ def test_prune_without_a_github_origin_names_the_cause(
     (repo / ".git").mkdir()
     (repo / "file.txt").write_text("base\n", encoding="utf-8")
     WorktreeRepoState(repo, git_fake, origin_url=None)
-    wt = tmp_path / "wt_one"
+    wt = managed / "wt_one"
     _add_worktree(git, repo, "branch-one", wt, commit=True)
 
     result = cli("repos", "worktrees", "prune", "-r", str(repo), "--confirm")
@@ -625,10 +636,10 @@ def test_prune_without_a_github_origin_names_the_cause(
 
 
 def test_forced_prune_of_a_locked_worktree_reports_the_failure_and_keeps_the_directory(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """Git refuses to remove a locked worktree with one --force; prune says so and deletes nothing."""
-    locked = tmp_path / "wt_locked"
+    locked = managed / "wt_locked"
     _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
     git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
 
@@ -647,10 +658,10 @@ def test_forced_prune_of_a_locked_worktree_reports_the_failure_and_keeps_the_dir
 
 
 def test_forced_prune_removes_an_unmerged_worktree_without_reading_github(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """Criteria 5 & 6: --force --confirm removes any other worktree and cleans git metadata."""
-    unmerged = tmp_path / "wt_force"
+    unmerged = managed / "wt_force"
     _add_worktree(git, git_repo, "branch-force", unmerged, commit=True)
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--force", "--confirm")
@@ -667,13 +678,13 @@ def test_forced_prune_removes_an_unmerged_worktree_without_reading_github(
 
 
 def test_prune_report_in_table_names_removed_and_refused_worktrees(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """The table output reports each outcome and the totals."""
-    tip = _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+    tip = _add_worktree(git, git_repo, "branch-merged", managed / "wt_merged", commit=True)
     _route_pulls(github_api, tip, _pull(tip))
-    _add_worktree(git, git_repo, "branch-new", tmp_path / "wt_new")
-    _route_pulls(github_api, _tip(tmp_path / "wt_new"))
+    _add_worktree(git, git_repo, "branch-new", managed / "wt_new")
+    _route_pulls(github_api, _tip(managed / "wt_new"))
 
     result = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--confirm")
 
@@ -757,14 +768,14 @@ def _directory_bytes(path: Path) -> int:
 
 def test_prune_keeps_the_worktree_of_the_current_directory_and_reads_nothing_for_it(
     git_repo: Path,
-    tmp_path: Path,
+    managed: Path,
     git: Git,
     cli: Cli,
     github_api: GitHubApiFake,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A shell inside a merged worktree must not lose its directory (#2338)."""
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     _route_pulls(github_api, tip, _pull(tip, number=2134))
     monkeypatch.chdir(merged)
@@ -778,13 +789,13 @@ def test_prune_keeps_the_worktree_of_the_current_directory_and_reads_nothing_for
 
 def test_forced_prune_keeps_the_worktree_of_the_current_directory(
     git_repo: Path,
-    tmp_path: Path,
+    managed: Path,
     git: Git,
     cli: Cli,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    here = tmp_path / "wt_here"
-    other = tmp_path / "wt_other"
+    here = managed / "wt_here"
+    other = managed / "wt_other"
     _add_worktree(git, git_repo, "branch-here", here)
     _add_worktree(git, git_repo, "branch-other", other)
     monkeypatch.chdir(here)
@@ -800,9 +811,9 @@ def test_forced_prune_keeps_the_worktree_of_the_current_directory(
 
 
 def test_prune_reports_the_size_of_each_removed_worktree(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     _route_pulls(github_api, tip, _pull(tip, number=2134))
     size = _directory_bytes(merged)
@@ -816,9 +827,9 @@ def test_prune_reports_the_size_of_each_removed_worktree(
 
 
 def test_prune_preview_and_final_lines_give_the_size(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
-    merged = tmp_path / "wt_merged"
+    merged = managed / "wt_merged"
     tip = _add_worktree(git, git_repo, "branch-merged", merged, commit=True)
     _route_pulls(github_api, tip, _pull(tip, number=2134))
     shown = format_bytes(_directory_bytes(merged))
@@ -834,9 +845,9 @@ def test_prune_preview_and_final_lines_give_the_size(
 
 
 def test_a_worktree_whose_directory_is_gone_has_no_size(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli
+    git_repo: Path, managed: Path, git: Git, cli: Cli
 ) -> None:
-    gone = tmp_path / "wt_gone"
+    gone = managed / "wt_gone"
     _add_worktree(git, git_repo, "branch-gone", gone)
     shutil.rmtree(gone)
 
@@ -885,10 +896,10 @@ def test_status_runs_under_the_dry_run_flag(
 
 
 def test_prune_under_the_dry_run_flag_prints_the_request_plan(
-    git_repo: Path, tmp_path: Path, git: Git, cli: Cli, github_api: GitHubApiFake
+    git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
     """`devops --dry-run repos worktrees prune` gives the plan of `--dry-run` (#2258)."""
-    _add_worktree(git, git_repo, "branch-merged", tmp_path / "wt_merged", commit=True)
+    _add_worktree(git, git_repo, "branch-merged", managed / "wt_merged", commit=True)
 
     flag = cli("repos", "worktrees", "prune", "-r", str(git_repo), "--dry-run")
     root = cli("--dry-run", "repos", "worktrees", "prune", "-r", str(git_repo))

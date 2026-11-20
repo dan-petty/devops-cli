@@ -49,6 +49,7 @@ from devops_cli.git.worktree_add import (
     ReclaimResult,
     WorktreeAddReport,
     add_worktree,
+    managed_folder,
     reclaim_merged_worktrees,
 )
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
@@ -885,7 +886,8 @@ def worktrees_add(
 
     The command first removes the worktrees of merged pull requests under the agent worktrees
     folder, as prune --confirm does, because a merged worktree still holds its issue. It keeps
-    a worktree outside that folder and a worktree that holds ignored files, and names each. Then it refuses an issue that a worktree,
+    a worktree outside that folder and a worktree that holds ignored data files, and names each;
+    regenerable caches, such as .venv, are no data. Then it refuses an issue that a worktree,
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
     worktree on it and takes --type and --slug from it. After the worktree exists, the command
@@ -959,7 +961,17 @@ def worktrees_prune(
         typer.Option("--json", help=HELP.repos.worktrees_json),
     ] = False,
 ) -> None:
-    """Remove the worktrees whose tip heads a merged pull request; preview unless --confirm."""
+    """Remove the worktrees whose tip heads a merged pull request; preview unless --confirm.
+
+    Prune removes only a clean, unlocked worktree under the managed folder (.data/agent/worktrees
+    by default) that holds no ignored data file. It keeps a worktree outside that folder, also a
+    record whose directory is missing, and a worktree that holds ignored data files, and it reads
+    no pull request for them. An ignored data file is a file that .gitignore hides, but the
+    regenerable caches and build outputs, such as .venv, .pytest_cache, dist and .data/cache,
+    are no data. Without --confirm it reads GitHub and removes nothing; --dry-run makes no
+    request. --force removes every worktree but the main worktree and the worktree that
+    holds the current directory, whatever its state or folder.
+    """
     is_plan = dry_run or is_dry_run()
     if is_plan and confirm:
         print_error(MESSAGES.repos.worktrees_dry_run_confirm)
@@ -967,10 +979,13 @@ def worktrees_prune(
     root = (repo_dir or find_repo_root()).resolve()
     entries = inventory_worktrees(root)
     origin = get_repo_origin_name(root)
+    folder = managed_folder(root).resolve()
     if is_plan:
-        report = plan_prune(entries, repo=origin, force=force)
+        report = plan_prune(entries, repo=origin, managed_root=folder, force=force)
     else:
-        report = prune_worktrees(root, entries, repo=origin, force=force, confirm=confirm)
+        report = prune_worktrees(
+            root, entries, repo=origin, managed_root=folder, force=force, confirm=confirm
+        )
 
     resolved = resolve_format(output_format, json_output=json_output)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

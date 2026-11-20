@@ -4,6 +4,10 @@ Provides NUL-separated porcelain parsing for `git worktree list -z`, ahead-of-ma
 dirty-path counting, and pruning. A worktree is removable only when GitHub reports a merged pull
 request whose head is the tip of the worktree: the repository squash-merges, so no ref that
 contains a tip shows that its work is merged.
+
+Prune and the reclaim of `worktrees add` share one scope rule, `scope_refusal` (#6435): they keep
+a worktree outside the managed folder and a worktree that holds ignored data files, and read no
+pull request for it. Only `--force` removes such a worktree.
 """
 
 from __future__ import annotations
@@ -21,7 +25,6 @@ from devops_cli.config.constants import (
     CONST_GIT_BRANCH_PREFIX,
     CONST_GIT_DETACHED_TOKEN,
     CONST_GIT_HEAD_PREFIX,
-    CONST_GIT_IGNORED_PREFIX,
     CONST_GIT_LOCKED_TOKEN,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_NAME_STATUS_TWO_PATH_LETTERS,
@@ -29,12 +32,14 @@ from devops_cli.config.constants import (
     CONST_GIT_PRUNABLE_TOKEN,
     CONST_GIT_WORKTREE_PREFIX,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_WORKTREE_REGENERABLE_PATHSPECS,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.git.branch_form import issue_of_branch
+from devops_cli.lang import MESSAGES
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -185,13 +190,24 @@ def parse_worktree_porcelain_z(raw_output: str | bytes) -> list[WorktreeInfo]:
 def count_dirty_paths(worktree_dir: Path) -> int | None:
     """Count uncommitted, modified, and untracked paths via git status --porcelain -z.
 
-    A directory that is gone has nothing uncommitted, so it counts 0. None means `git status`
-    failed, so nothing is known about the directory.
+    `--untracked-files=normal` overrides `status.showUntrackedFiles`: with that setting at `no`,
+    `git status` hides the untracked files, and the check of `git worktree remove` obeys it too,
+    so a worktree with untracked files looks clean and prune deletes them (#6435). A directory
+    that is gone has nothing uncommitted, so it counts 0. None means `git status` failed, so
+    nothing is known about the directory.
     """
     if not worktree_dir.is_dir():
         return 0
     proc = run_subprocess(
-        ["git", "-C", str(worktree_dir), "status", "--porcelain", "-z"],
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "status",
+            "--porcelain",
+            "--untracked-files=normal",
+            "-z",
+        ],
         check=False,
         quiet=True,
         local_read=True,
@@ -224,29 +240,70 @@ def count_dirty_paths(worktree_dir: Path) -> int | None:
     return count
 
 
-def count_ignored_paths(worktree_dir: Path) -> int | None:
-    """Count the paths that `.gitignore` hides, via git status --porcelain --ignored -z.
+def count_ignored_data_files(worktree_dir: Path) -> int | None:
+    """Count the ignored data files of a worktree: the files that `.gitignore` hides and that no
+    regenerable path of `CONST_WORKTREE_REGENERABLE_PATHSPECS` holds.
 
-    `git status` prints none of them without `--ignored`, so `count_dirty_paths` counts a worktree
-    that holds only ignored data as clean, and `git worktree remove` deletes that data (#4092). A
-    directory that is gone holds none, so it counts 0. None means `git status` failed.
+    `git status` shows no ignored file, so `count_dirty_paths` counts a worktree that holds only
+    ignored data as clean, and `git worktree remove` deletes that data (#4092). A regenerable path,
+    such as `.venv` or `__pycache__`, is a cache that a command makes again, so it is no data
+    (#6435). `git ls-files --others --ignored --exclude-standard` applies the ignore rules of the
+    worktree and lists each file inside an ignored directory, so it tells `.data/cache` from
+    `.data/agent`; it lists no empty directory. A directory that is gone holds no file, so it
+    counts 0. None means that `git ls-files` failed, so the count is unknown. A warning also
+    makes the count unknown: when git cannot open a directory, it warns, leaves out the files of
+    that directory and still exits 0.
     """
     if not worktree_dir.is_dir():
         return 0
     proc = run_subprocess(
-        ["git", "-C", str(worktree_dir), "status", "--porcelain", "--ignored", "-z"],
+        [
+            "git",
+            "-C",
+            str(worktree_dir),
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            "--",
+            ".",
+            *CONST_WORKTREE_REGENERABLE_PATHSPECS,
+        ],
         check=False,
         quiet=True,
         local_read=True,
     )
-    if proc.returncode != 0:
+    if proc.returncode != 0 or str(proc.stderr or "").strip():
         return None
     raw = (
         proc.stdout.decode("utf-8", errors="surrogateescape")
         if isinstance(proc.stdout, bytes)
         else proc.stdout
     )
-    return sum(1 for token in raw.split("\0") if token.startswith(CONST_GIT_IGNORED_PREFIX))
+    return sum(1 for name in raw.split("\0") if name)
+
+
+def scope_refusal(entry: WorktreeEntry, *, managed_root: Path) -> str | None:
+    """Why the scope rule keeps a worktree from removal, or None when the rule allows it.
+
+    `worktrees prune` and the reclaim of `worktrees add` both ask this rule, so the two cannot
+    drift (#6435). The folder comes first: a worktree outside `managed_root` belongs to another
+    tool or agent, also when its directory looks missing, because another container or tool can
+    still use that directory. Then the data: a worktree that holds an ignored data file
+    (`count_ignored_data_files`) stays, and so does one whose count is unknown. `managed_root` is
+    the resolved managed folder. The rule needs no GitHub read.
+    """
+    messages = MESSAGES.repos
+    directory = Path(entry.path)
+    if not directory.resolve().is_relative_to(managed_root):
+        return messages.worktrees_kept_outside.format(folder=managed_root)
+    count = count_ignored_data_files(directory)
+    if count is None:
+        return messages.worktrees_kept_data_unknown
+    if count:
+        return messages.worktrees_kept_data.format(count=count, plural="s" if count != 1 else "")
+    return None
 
 
 def _resolve_base_ref(repo_root: Path, preferred: str) -> str | None:
@@ -384,14 +441,19 @@ class _Decision:
 
 
 def _decided_by_local_state(
-    entry: WorktreeEntry, *, force: bool, current_dir: Path
+    entry: WorktreeEntry, *, force: bool, current_dir: Path, managed_root: Path
 ) -> _Decision | None:
     """What git shows of the worktree decides, or None when the pull request of its tip must.
 
-    The main worktree and the worktree that holds the current directory stay under `--force` too:
-    removing the second would take the directory away from the shell that runs the command
-    (#2338). A worktree whose directory is gone is removable: it holds nothing, and removing it
-    drops only git's record.
+    The order is: main worktree, current directory, `--force`, scope (`scope_refusal`: the
+    managed folder, then the ignored data files), lock, missing directory, dirty state. The main
+    worktree and the worktree that holds the current directory stay under `--force` too: removing
+    the second would take the directory away from the shell that runs the command (#2338).
+    `--force` skips every later rule. The scope comes before the missing directory, so a worktree
+    outside `managed_root` stays also when its directory looks missing, as the reclaim keeps it
+    (#6435), and before the lock and the dirty state, so prune and the reclaim give one reason. A
+    worktree under `managed_root` whose directory is gone is removable: it holds nothing, and
+    removing it drops only git's record.
     """
     if entry.is_main:
         return _Decision(entry, removable=False, reason="main worktree")
@@ -399,6 +461,8 @@ def _decided_by_local_state(
         return _Decision(entry, removable=False, reason="current directory")
     if force:
         return _Decision(entry, removable=True, reason="forced")
+    if (refusal := scope_refusal(entry, managed_root=managed_root)) is not None:
+        return _Decision(entry, removable=False, reason=refusal)
     if entry.locked:
         reason = f"locked ({entry.lock_reason})" if entry.lock_reason else "locked"
         return _Decision(entry, removable=False, reason=reason)
@@ -419,10 +483,14 @@ def _decide(
     *,
     force: bool,
     current_dir: Path,
+    managed_root: Path,
     merged_pull: Callable[[str], int | None],
 ) -> _Decision:
-    """Decide one worktree: local state first, then the merged pull request of its tip."""
-    local = _decided_by_local_state(entry, force=force, current_dir=current_dir)
+    """Decide one worktree: local state and the scope under `managed_root` first, then the merged
+    pull request of its tip."""
+    local = _decided_by_local_state(
+        entry, force=force, current_dir=current_dir, managed_root=managed_root
+    )
     if local is not None:
         return local
     number = merged_pull(entry.head)
@@ -448,15 +516,19 @@ def plan_prune(
     entries: list[WorktreeEntry],
     *,
     repo: str | None,
+    managed_root: Path,
     force: bool = False,
 ) -> WorktreePruneReport:
-    """The dry run of `prune_worktrees`: what local state decides, and the GitHub requests that
-    the other worktrees would need. It makes no request."""
+    """The dry run of `prune_worktrees`: what local state and the scope under `managed_root`
+    decide, and the GitHub requests that the other worktrees would need. It makes no request, and
+    lists none for a worktree that the scope refuses."""
     items: list[WorktreePruneItem] = []
     requests: list[str] = []
     current_dir = Path.cwd().resolve()
     for entry in entries:
-        local = _decided_by_local_state(entry, force=force, current_dir=current_dir)
+        local = _decided_by_local_state(
+            entry, force=force, current_dir=current_dir, managed_root=managed_root
+        )
         if local is None:
             requests.append(
                 PlannedRequest("GET", f"/repos/{repo}/commits/{entry.head}/pulls").line()
@@ -492,13 +564,21 @@ def prune_worktrees(
     entries: list[WorktreeEntry],
     *,
     repo: str | None,
+    managed_root: Path,
     force: bool = False,
     confirm: bool = False,
 ) -> WorktreePruneReport:
     """Prune worktrees whose tip heads a merged pull request, or all of them under `force`.
 
+    Without `force`, a worktree outside `managed_root`, the resolved managed folder, or one that
+    holds ignored data files stays, and its pull request is not read (`scope_refusal`, #6435).
+    `force` never removes the main worktree or the worktree of the current directory.
     Every worktree is decided before any is removed, so a failed GitHub read ends the run with
-    nothing removed. Without `confirm` the run removes nothing and reports `would remove`. A
+    nothing removed. The decision pass takes one GitHub read for each worktree, and an agent can
+    write a data file in a worktree in that time, while `git worktree remove` deletes ignored
+    files without a check. So without `force`, the run asks `scope_refusal` again right before
+    each removal and reports a worktree that it now refuses as `refused`. Without `confirm` the
+    run removes nothing and reports `would remove`. A
     removal that git refuses is reported as `failed`, with git's message, and its directory stays.
     A worktree that a parallel run already removed cannot be removed again: git reports `is not a
     working tree`, and the run reports the worktree as `removed`, so it counts as done, not failed.
@@ -515,14 +595,23 @@ def prune_worktrees(
 
     current_dir = Path.cwd().resolve()
     decisions = [
-        _decide(entry, force=force, current_dir=current_dir, merged_pull=merged_pull)
+        _decide(
+            entry,
+            force=force,
+            current_dir=current_dir,
+            managed_root=managed_root,
+            merged_pull=merged_pull,
+        )
         for entry in entries
     ]
     items: list[WorktreePruneItem] = []
     for decision in decisions:
         path = decision.entry.path
-        if not decision.removable:
-            items.append(WorktreePruneItem(path=path, status="refused", reason=decision.reason))
+        refusal = None if decision.removable else decision.reason
+        if refusal is None and confirm and not force:
+            refusal = scope_refusal(decision.entry, managed_root=managed_root)
+        if refusal is not None:
+            items.append(WorktreePruneItem(path=path, status="refused", reason=refusal))
             continue
         size = _size_of(path)
         if not confirm:

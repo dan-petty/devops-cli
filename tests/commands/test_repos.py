@@ -1213,6 +1213,18 @@ def _plan_lines(output: str) -> list[str]:
     return [line.split(". ", 1)[1] for line in output.splitlines() if re.match(r"^\s*\d+\. ", line)]
 
 
+def test_prune_help_names_the_managed_folder_the_data_refusal_and_force(
+    cli: Callable[..., Any],
+) -> None:
+    """The help of prune says which worktrees it removes, and which two `--force` keeps (#6435)."""
+    result = cli("repos", "worktrees", "prune", "--help")
+
+    said = " ".join(result.output.replace("\u2502", " ").split())
+    phrases = (".data/agent/worktrees", "ignored data file", "current directory", "--force")
+    assert result.exit_code == 0
+    assert {phrase: phrase in said for phrase in phrases} == dict.fromkeys(phrases, True)
+
+
 def test_repos_dry_run_classes() -> None:
     """Each repos command carries the dry-run class of what it reaches."""
     from devops_cli.commands import repos

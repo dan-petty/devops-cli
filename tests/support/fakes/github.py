@@ -270,7 +270,9 @@ class PacedClock:
 class GitHubApiDouble:
     """What the fake and the recorded API share: the client class that reaches them, and the
     record of every request each receives, the timeouts the client set on it, the egress level of
-    each client it answers, and the pauses and retry waits that took no time."""
+    each client it answers, and the pauses and retry waits that took no time. `before_answer`, when
+    a test sets it, runs on each request before the answer, as a change that another process makes
+    while the request is in flight."""
 
     def __init__(self) -> None:
         self.sent: list[httpx2.Request] = []
@@ -279,6 +281,7 @@ class GitHubApiDouble:
         self.paced: list[float] = []
         self.waits: list[float] = []
         self.delay = 0.0
+        self.before_answer: Callable[[httpx2.Request], None] | None = None
 
     @property
     def requested(self) -> list[str]:
@@ -299,6 +302,8 @@ class GitHubApiDouble:
         """Record `request` and give it its answer, `delay` seconds later."""
         self.sent.append(request)
         self.timeouts.append(request.extensions["timeout"])
+        if self.before_answer is not None:
+            self.before_answer(request)
         response = self._answer(request)
         return self._later(response) if self.delay else response
 

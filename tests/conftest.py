@@ -1173,6 +1173,10 @@ def isolate_devops_cli_config(
     floor's refusing port, as the Valkey cache does. Qdrant's address is one no test binds, so a
     test that reaches Qdrant without a double fails.
 
+    The workspace file is under `tmp_path`. The default `.code-workspace` resolves in the project
+    root, so a test that ran `repos clone`, `sync` or `update` wrote it into the checkout, and
+    `worktrees prune` then counted it as data of that worktree (#6435).
+
     A setting variable wins over the config file, so the fixture also removes the one that the pod
     of a runner Job sets and the floor does not: `DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER` (#3990).
     A test that needs the in-runner path sets `roadmap.implement.in_runner` through `config`.
@@ -1194,7 +1198,8 @@ def isolate_devops_cli_config(
         "  gateway_url: http://localhost:4000/v1\n"
         "  ollama_urls:\n    - http://localhost:11434\n"
         "qdrant:\n  url: http://localhost:6333\n"
-        f"valkey:\n  url: valkey://{side_channel}\n",
+        f"valkey:\n  url: valkey://{side_channel}\n"
+        f"workspace:\n  file: {tmp_path / '.code-workspace'}\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("DEVOPS_CLI_CONFIG", str(test_config))
