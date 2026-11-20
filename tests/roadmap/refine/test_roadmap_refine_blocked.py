@@ -193,6 +193,31 @@ def test_a_proposal_that_names_another_tracker_waits_on_its_open_sub_issues(
     )
 
 
+def test_a_tracker_above_a_closed_parent_holds_nothing_back(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """The parent of the item is closed, and the open tracker above it holds that parent and one
+    open sub-issue. The proposal names the tracker: it is an ancestor of the item, as the stage
+    job reads it, so it holds nothing back and refine sets the item Ready (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    sibling = seed_item(store, "In Progress", "P1-High")
+    parent = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(store, "New", "P1-High")
+    store.add_sub_issue(tracker, sibling)
+    store.add_sub_issue(tracker, parent)
+    store.add_sub_issue(parent, number)
+    store.as_actor("alice").close_by_hand(parent, CloseReason.COMPLETED)
+    model_fake.answer(blocked_by_issue(tracker))
+
+    plan = refine_round(store, git_repo)
+
+    assert (
+        [(r.item.number, r.next_step, r.blocked_by) for r in plan.refined_items],
+        require_item(store, number).status,
+    ) == ([(number, "ready", ())], CONST_ROADMAP_STATUS_READY)
+
+
 def test_a_recorded_wait_on_the_parent_tracker_ends_in_the_next_round(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:
