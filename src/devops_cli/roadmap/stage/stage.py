@@ -55,7 +55,10 @@ it stays and no finding has the fix class `never` (`gate_extension`, #4851), onc
 group that changes no file, has a blank text, or breaks the rules of its kind (`GroupKind`: a `behavior`
 group has a test and changes a path under `src/`, and an `other` group has no test and one of
 `verify` and `process`) fails the schema of the reply, and `chat_structured` sends it back once
-(`_REPLY_RETURNS`). A reply that names a path that is no file of the staged commit, and that no
+(`_REPLY_RETURNS`). A revision of a repair round that breaks the schema after that retry goes back
+to the planner with the last schema-valid plan and its violations, in the same returns of
+`roadmap.stage.gate_returns`, and the item ends with the class `parser` once they are spent
+(#6357). A reply that names a path that is no file of the staged commit, and that no
 group up to its own creates (`stage_paths`), is sent back as a refused reply: the problem lists the
 files with the same name, and a missing path after the last return stops the item, so no draft
 opens. The groups of a split are checked in the same
@@ -1869,6 +1872,8 @@ class _Planner:
         floor: int,
         proposal: StageProposal,
         invalid: str,
+        *,
+        used: int = 0,
     ) -> StagedChange | OverBudget | FalsePremise:
         """The change of `proposal`, a reply for the first ask or for a repair round. A reply that
         the checks refuse goes back to the model with the problem, up to
@@ -1876,10 +1881,11 @@ class _Planner:
         (#4851). A reply that stays refused ends the item, and the file of refused replies holds
         each of them (#4348, #4312). Once the Service stops, no return starts: a return is a new
         plan run of model requests, which the cut at the end of the drain does not stop (#4900).
-        `floor` is the number of runs before the ask. `invalid` is the failure text, with
-        `{returns}`, `{stop}` and `{problem}`."""
+        `floor` is the number of runs before the ask. `used` counts the returns that a revision
+        spent on its schema failures, so both kinds of return share one budget (#6357). `invalid`
+        is the failure text, with `{returns}`, `{stop}` and `{problem}`."""
         refused = self._refused
-        returns = 0
+        returns = used
         # True from the grant of the extra return until the checks judge its reply (#4851).
         extended = False
         try:
@@ -2207,15 +2213,34 @@ class _Planner:
     ) -> StagedChange | OverBudget | FalsePremise:
         """The plan of one repair round: the planner gets the plan and each open finding of the
         review. Its revision goes back with the problem when the checks refuse it, as a first reply
-        does, and a revision that stays refused is kept and stops the item (#4348). The earlier plan
-        is bounded when the request would pass the tool-removal limit (#3529)."""
-        again = bound_previous(
-            request, change.proposal.model_dump(), return_problem(open_), self._window
-        )
+        does, and a revision that stays refused is kept and stops the item (#4348). A revision that
+        breaks the reply schema after its output retry goes back with the last schema-valid plan and
+        its violations, up to `roadmap.stage.gate_returns` returns, and then ends the item with the
+        class `parser` (#6357). The earlier plan is bounded when the request would pass the
+        tool-removal limit (#3529)."""
+        problem = return_problem(open_)
         floor = len(self._toolbox_traces())
-        revised = self._ask_plan(target, key, self._refused, again)
+        used = 0
+        while True:
+            again = bound_previous(request, change.proposal.model_dump(), problem, self._window)
+            try:
+                revised = self._ask_plan(target, key, self._refused, again)
+                break
+            except StructuredOutputValidationError as exc:
+                if used >= self._gate_returns:
+                    raise
+                used += 1
+                self._returns += 1
+                problem = violation_summary(exc)
+                raise_if_service_stops(f"schema return {used} of the plan of #{target.item.number}")
         return self._returned(
-            target, request, key, floor, revised, MESSAGES.roadmap.stage_invalid_revision
+            target,
+            request,
+            key,
+            floor,
+            revised,
+            MESSAGES.roadmap.stage_invalid_revision,
+            used=used,
         )
 
     def _input_of(

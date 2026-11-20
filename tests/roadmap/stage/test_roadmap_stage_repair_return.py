@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pydantic import ValidationError
 
+from devops_cli.ai.client.models import StructuredOutputValidationError
+from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.config.settings import RoadmapStageConfig
 from devops_cli.exceptions import ServiceStoppingError, ended_by_stop
 from devops_cli.roadmap.service_stop import begin_service_stop
@@ -20,7 +22,7 @@ from devops_cli.roadmap.stage.stage_plan_record import RefusedRecord, refused_re
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
 from tests.support.builders import make_stage_proposal
-from tests.support.fakes.model import ModelFake
+from tests.support.fakes.model import ModelFake, ModelFakeReplies
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_stage import (
     GONE,
@@ -90,8 +92,26 @@ def _returns_plan() -> Verification:
     )
 
 
+def _schema_failure(*texts: ViolationText) -> StructuredOutputValidationError:
+    """The error of a reply that broke the reply schema, with the text of its violations."""
+    return StructuredOutputValidationError(
+        "The reply does not fit StageProposal",
+        violations=len(texts),
+        violation_texts=texts,
+        stop_reason="validation",
+    )
+
+
+def _broken_reply() -> str:
+    """The JSON text of a plan reply with a key that the reply schema refuses."""
+    return json.dumps(json.loads(make_stage_proposal().model_dump_json()) | {"dependences": []})
+
+
 def _plan(
-    store: InMemoryRoadmapStore, repo: StageRepo, model: ModelFake, verifier: ModelFake
+    store: InMemoryRoadmapStore,
+    repo: StageRepo,
+    model: ModelFake | ModelFakeReplies,
+    verifier: ModelFake,
 ) -> StagePlan:
     return plan_stage(
         store,
@@ -138,6 +158,79 @@ def test_a_revision_that_the_gates_accept_gets_no_return(
     plan = _plan(store, stage_repo, model_fake, verifier)
 
     assert (len(plan.ready), model_fake.call_count) == (1, 2)
+
+
+def test_a_revision_that_breaks_the_schema_returns_the_last_valid_plan(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """The last schema-valid plan is the one that the return sends back, so a revision that breaks
+    the reply schema loses no work (#6357)."""
+    model_fake.answer(
+        make_stage_proposal(),
+        _broken_reply(),
+        _broken_reply(),
+        make_stage_proposal(summary="Repaired"),
+    )
+    verifier.answer(_returns_plan(), later_review(GONE))
+
+    plan = _plan(store, stage_repo, model_fake.checking_replies(), verifier)
+
+    (change,) = plan.ready
+    assert (change.proposal.summary, model_fake.call_count) == ("Repaired", 4)
+    assert plan.attempts[0].gate_returns == 1
+
+
+def test_the_last_gate_return_of_a_revision_schema_failure_ends_as_parser(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """The schema return shares the budget of `roadmap.stage.gate_returns`, and a revision that
+    spends it ends the item with the class `parser` (#6357)."""
+    model_fake.answer(make_stage_proposal(), *[_schema_failure() for _ in range(4)])
+    verifier.answer(_returns_plan(), later_review(GONE))
+
+    plan = _plan(store, stage_repo, model_fake, verifier)
+
+    assert plan.ready == ()
+    assert plan.failed[0].error == "StructuredOutputValidationError"
+    assert plan.attempts[0].gate_returns == RoadmapStageConfig().gate_returns
+
+
+def test_the_return_of_a_revision_schema_failure_names_the_violations(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """The planner reads the schema violations of the failed revision in the problem of the
+    return (#6357)."""
+    model_fake.answer(
+        make_stage_proposal(),
+        _schema_failure(
+            ViolationText(
+                loc="dependences",
+                type="extra_forbidden",
+                message="Extra inputs are not permitted",
+            )
+        ),
+        make_stage_proposal(summary="Repaired"),
+    )
+    verifier.answer(_returns_plan(), later_review(GONE))
+
+    _plan(store, stage_repo, model_fake, verifier)
+
+    asked = [json.loads(call.prompt) for call in model_fake.calls]
+    assert "dependences (extra_forbidden)" in asked[2]["problem"]
+
+
+def test_a_first_reply_with_no_earlier_plan_ends_as_parser(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    """No earlier plan exists to return, so a first reply keeps its one output retry and ends the
+    item with the class `parser`, with no gate return (#6357)."""
+    model_fake.answer(_broken_reply(), _broken_reply())
+
+    plan = _plan(store, stage_repo, model_fake.checking_replies(), verifier)
+
+    assert plan.ready == ()
+    assert plan.failed[0].error == "StructuredOutputValidationError"
+    assert plan.attempts[0].gate_returns == 0
 
 
 def test_a_revision_that_the_gates_refuse_after_each_return_ends_the_item_with_the_problem(
