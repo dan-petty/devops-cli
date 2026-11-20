@@ -5,26 +5,12 @@ The container image target for the MCP server that serves role-scoped tool sets 
 
 ## Requirements
 
-### Requirement: MCP server image target
-The `Dockerfile` SHALL add an `mcp-server` target that inherits the `runner` stage.
-
-#### Scenario: Target inherits runner
-- **WHEN** A test parses the stages of the `Dockerfile`.
-- **THEN** The stage `mcp-server` exists and its `FROM` line names `runner`.
-
-### Requirement: Pinned cluster tools
-The `mcp-server` target SHALL install `kubectl` and `helm` at the versions that `tools.lock` pins.
-
-#### Scenario: Tool pins match
-- **WHEN** The image build runs the tool version check.
-- **THEN** Each installed version equals its pin, and a mismatch fails the build and names the tool.
-
 ### Requirement: Runtime user and directories
-The `mcp-server` target SHALL run as user `1000:1000` and SHALL keep the data and uv cache directories under `HOME`.
+The `mcp-server` target SHALL run as user `1000:1000` and SHALL keep the data directory under `HOME`.
 
 #### Scenario: Runtime user is non-root
-- **WHEN** A test reads the `USER` and `ENV` lines of the `mcp-server` stage.
-- **THEN** `USER` is `1000:1000` and `DEVOPS_CLI_DATA_DIR` and `UV_CACHE_DIR` start with `HOME`.
+- **WHEN** the smoke test runs `docker run --rm --entrypoint id "$IMAGE" -u`
+- **THEN** the command prints `1000`
 
 ### Requirement: MCP server image gate
 The `mcp-server` image SHALL pass the HIGH and CRITICAL vulnerability scan and SHALL stay at or below 3,000,000,000 bytes.
@@ -60,3 +46,17 @@ Each value of the keys `image` and `imageName` under `k8s/` that starts with `gh
 #### Scenario: Manifest names an unpublished image
 - **WHEN** A manifest under `k8s/` names `ghcr.io/dan-petty/devops-cli/<name>` and no job of `release.yml` attests `<name>`.
 - **THEN** The test fails and names the image and the file.
+
+### Requirement: The MCP server image builds on the Service image layers
+The `Dockerfile` SHALL add an `mcp-server` target that builds on `mcp-server-deps`, which builds on `service-deps` and so on `python:3.14-slim-trixie`, as the Service image does. It SHALL NOT build on the `runner` stage, and it SHALL hold no uv and no dev dependency.
+
+#### Scenario: The target holds no build tool
+- **WHEN** a person builds `--target mcp-server` and runs `docker run --rm --entrypoint sh <image> -c 'command -v uv'`
+- **THEN** the build exits 0 and the command exits non-zero
+
+### Requirement: The MCP server image copies its cluster tools from the devtools image
+The `mcp-server` target SHALL copy `kubectl` and `helm` from the devtools image that the `Dockerfile` pins by digest, and SHALL hold gh, git and OpenSpec as the Service image does. The `Dockerfile` SHALL name no version of these tools.
+
+#### Scenario: The cluster tools run
+- **WHEN** the smoke test of the MCP Server Image job runs `docker run --rm --entrypoint kubectl "$IMAGE" version --client` and `docker run --rm --entrypoint helm "$IMAGE" version`
+- **THEN** each command exits 0 and prints the version of the devtools image

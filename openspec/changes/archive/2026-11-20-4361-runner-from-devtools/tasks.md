@@ -5,11 +5,11 @@
 Kind: other. Reads: `Dockerfile`, `.devcontainer/Dockerfile`, `src/devops_cli/ai/mcp/roles.py`. Changes: `Dockerfile`.
 
 - [x] 1.1 Add the `devtools` stage, build `runner-deps` FROM it with bind mounts of the `lock` stage, add `runner-builder`, and copy only the project into `runner`
-  - Verification: `$ docker build --target runner -t devops-cli-runner:local .`
+  - Verification: a person runs `docker build --target runner .` and the smoke test of `ci.yml` on the image
 - [x] 1.2 Delete the gh download, the actionlint and `runner-tools` stages, each `devops install-tools` run and the `runner_tools` build step
-  - Verification: `$ sh -c "! git grep -n -e install-tools -e releases/download -e sha256sum -- Dockerfile"`
+  - Verification: `git grep -n -e install-tools -e releases/download -e sha256sum -- Dockerfile` prints nothing
 - [x] 1.3 Build the MCP server image on `service-deps` with kubectl and helm of the devtools image, and the Service image with gh and the pruned OpenSpec tree of the devtools image
-  - Verification: `$ docker build --target mcp-server -t devops-cli-mcp-server:local .`
+  - Verification: a person runs `docker build --target mcp-server .` and the smoke test of `ci.yml` on the image
 - [x] 1.4 Run every smoke command of `ci.yml` on the three images with a read-only root, `--tmpfs /home/devops:mode=1777`, `--cap-drop ALL` and `--security-opt no-new-privileges`, and scan them with the flags of `.github/actions/image-scan`
 
 ## 2. Smoke tests, scans and Renovate
@@ -21,7 +21,7 @@ Kind: other. Reads: `.github/actions/image-scan/action.yml`. Changes: `.github/w
 - [x] 2.2 Scan the runner with `exit-code: "0"`, move the kubectl entries of `.trivyignore.yaml` to `usr/local/bin/kubectl`, and drop the entries that only the runner scan read
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
 - [x] 2.3 Drop `/opt/devops-tools/bin` from the PATH of `service-image-test.yml`, and set the prefix of the devtools group and the rule descriptions in `.github/renovate.json`
-  - Verification: `$ npx --yes --package renovate@44.239.2 -- renovate-config-validator --strict .github/renovate.json`
+  - Verification: `renovate-config-validator --strict` of Renovate 44.239.2 passes on `.github/renovate.json`
 
 ## 3. Name the devtools image in the runner tool table
 

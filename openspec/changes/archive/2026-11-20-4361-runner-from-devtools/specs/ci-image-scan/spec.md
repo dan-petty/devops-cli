@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The image jobs scan with the action
-The Service, Runner and MCP Server image jobs of `ci.yml` and `release.yml` SHALL call the action with the category `trivy-image-service`, `trivy-image-runner` or `trivy-image-mcp-server`, SHALL grant `security-events: write`, and SHALL set a step timeout below the job timeout. The Service and MCP Server image jobs SHALL call it with exit code 1. The Runner Image jobs SHALL call it with exit code 0, because the runner builds FROM the devtools image and SECURITY.md (Dedicated Development Resources and Sandboxes) makes the findings of its tool binaries report-only. The image jobs of `ci.yml` SHALL run when `.trivyignore.yaml` or the action changes.
+The Service, Runner and MCP Server image jobs of `ci.yml` and `release.yml` SHALL call the action with the category `trivy-image-service`, `trivy-image-runner` or `trivy-image-mcp-server`, grant `security-events: write`, and set a step timeout below the job timeout. The Service and MCP Server jobs SHALL use exit code 1, and the Runner jobs exit code 0 (SECURITY.md, Dedicated Development Resources and Sandboxes). The image jobs of `ci.yml` SHALL run when `.trivyignore.yaml` or the action changes.
 
 #### Scenario: The image workflows are validated
 - **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`

@@ -15,8 +15,9 @@ holds a tool whose version command fails, fails the check. A test in
 table.
 
 The module holds no tool version (#5585). The runner image builds FROM the devtools image, which
-names the source of each tool, and the `Dockerfile` pins that image by digest (#4361). A copy here
-would be a second pin for each update to change. Only a dev dependency and the project must print a
+names the source of each tool, and the `Dockerfile` pins that image by digest (#4361). `uv.lock`
+gives the version of each dev dependency. A copy here would be a second pin for each update to
+change. Only a dev dependency and the project must print a
 version: the version of their installed distribution, so the program on PATH is the one of the venv.
 """
 
