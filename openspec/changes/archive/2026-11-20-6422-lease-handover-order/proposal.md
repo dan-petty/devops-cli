@@ -27,8 +27,8 @@ None. `LeaseHolder` in `src/devops_cli/k8s/lease.py` does not change.
 ## Feasibility
 - The log of job 135563733782 shows `At index 1 diff: False != True` at `tests/k8s/test_lease.py:111`: `given_back` was `False`.
 - A probe outside the repository made the read of `release()` wait 50 ms in its thread. With `leave()` before `release()`, `release()` returned `False` in 20 of 20 runs. With `leave()` after `release()`, it returned `True` in 20 of 20 runs.
-- On a host with 16 CPUs and no other load, the old order passed 500 of 500 runs in one process, and 2,000 of 2,000 runs in 4 xdist workers. With 8 pytest processes on 4 CPUs and coverage, as on a loaded runner, the old order failed in 4 of 200 runs of a shell loop, and in 18 and 11 of 2,000 runs in 8 xdist workers. Each failure showed `At index 1 diff: False != True`.
-- The runs of the new order are in the comment of the pull request.
+- On a host with 16 CPUs and no other load, the old order passed 500 of 500 runs in one process, and 2,000 of 2,000 runs in 4 xdist workers. With 8 pytest processes on 4 CPUs and coverage, as on a loaded runner, the old order failed in 4 of 200 runs of a shell loop, and in 18, 11 and 10 of 2,000 runs in 8 xdist workers. Each failure showed `At index 1 diff: False != True`.
+- On the same load, the new order passed 200 of 200 runs of the shell loop, and 2,000 of 2,000 runs in 8 xdist workers two times.
 
 ## Existing Tool Considered
 pytest and the `_LeaseClock` of the test cover the need. The change adds no dependency and builds no tool. Cost: about 120k tokens and 1.5 hours, most of it for the reproduction.
