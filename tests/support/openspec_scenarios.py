@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+# The npm lockfile at the root of a checkout, which pins the OpenSpec that the gate runs.
+NPM_LOCKFILE = "package-lock.json"
 # A configuration with one rule, written in the folded style the committed one uses.
 CONFIG = """schema: spec-driven
 
@@ -205,8 +207,9 @@ SCENARIOS: dict[str, OpenSpecScenario] = {
 
 
 def build_scenario(name: str, root: Path, committed_skills: Path) -> None:
-    """Write scenario `name` under `root` with the skills read from `committed_skills`, and make
-    `root` a git repository, which is how `devops` finds the root of a checkout."""
+    """Write scenario `name` under `root` with the skills and the npm lockfile read from the
+    checkout `committed_skills`, and make `root` a git repository, which is how `devops` finds the
+    root of a checkout. The lockfile pins the OpenSpec version that the gate compares with."""
     from devops_cli.openspec.skills import generated_files
 
     scenario = SCENARIOS[name]
@@ -216,4 +219,6 @@ def build_scenario(name: str, root: Path, committed_skills: Path) -> None:
     for path, content in generated_files(committed_skills).items():
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_bytes(content)
+    lockfile = root / NPM_LOCKFILE
+    lockfile.write_bytes((committed_skills / NPM_LOCKFILE).read_bytes())
     (root / ".git").mkdir(parents=True, exist_ok=True)

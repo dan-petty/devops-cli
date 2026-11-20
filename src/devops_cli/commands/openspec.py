@@ -52,10 +52,10 @@ def check() -> None:
 @trace_span("openspec.regenerate")
 def regenerate() -> None:
     """Rewrite the committed OpenSpec skills under the isolated custom profile. The command reads
-    the version of the binary on PATH first, and stops before it writes when that binary is not the
-    tools lock's version (#5375)."""
+    the version of the binary first, and stops before it writes when that binary is not at the
+    version that `package-lock.json` pins (#5375, #6409)."""
     root = find_worktree_root()
-    with isolated_openspec() as tool:
+    with isolated_openspec(root) as tool:
         if not is_dry_run():
             problem = version_finding(tool, root)
             if problem is not None:
@@ -79,8 +79,9 @@ def archive(
             [MESSAGES.openspec.archive_dry_run_output.format(change=change)],
         )
         return
-    with isolated_openspec() as tool:
-        archive_change(tool, find_worktree_root(), change)
+    root = find_worktree_root()
+    with isolated_openspec(root) as tool:
+        archive_change(tool, root, change)
     print_success(MESSAGES.openspec.archived.format(change=change))
 
 

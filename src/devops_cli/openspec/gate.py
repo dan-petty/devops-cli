@@ -1,9 +1,10 @@
 """The OpenSpec gate: what keeps a change folder valid and its tooling as committed (ADR 0010).
 
 OpenSpec's own `validate` passes two changes that rewrite one requirement. Its configuration fails
-quietly. So `devops openspec check` runs the pinned tool and reports every problem it finds. It
-reads the version that the command on PATH prints first: a binary other than the tools lock's
-writes other skill text, so no other check runs. Then:
+quietly. So `devops openspec check` runs the pinned tool and reports every problem it finds: the
+binary that `npm ci` installed in the checkout, else the `openspec` on PATH. It reads the version
+that the binary prints first: a binary other than the one that the `package-lock.json` of the
+checkout pins writes other skill text, so no other check runs. Then:
 
 1. `openspec validate --all --strict`, which fails an unknown key in a change's `.openspec.yaml`.
 2. `openspec validate --archived`, a separate run because `--archived` replaces `--all`, which
@@ -24,7 +25,6 @@ check vacuously.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -33,13 +33,16 @@ from pathlib import Path
 
 from devops_cli.config.commands import BIN_OPENSPEC, build_openspec_cmd
 from devops_cli.config.constants import (
+    CONST_NPM_LOCKFILE,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_OPENSPEC_CONFIG_FILENAME,
     CONST_OPENSPEC_DIR,
     CONST_OPENSPEC_INSTRUCTION_ARTIFACTS,
+    CONST_OPENSPEC_NPM_PACKAGE,
     CONST_OPENSPEC_PROBE_CHANGE,
     CONST_OPENSPEC_SCAFFOLD_MARKER,
 )
+from devops_cli.core.binaries import version_line
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
@@ -51,11 +54,10 @@ from devops_cli.openspec.tool import (
     active_changes,
     isolated_environment,
     isolated_openspec,
+    locked_version,
     output_of,
     settings_args,
 )
-from devops_cli.tools_lock import load_tools_lock
-from devops_cli.tools_lock.versions import version_line
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
 # The directories a dry run names in place of the real ones: the scratch configuration, the
@@ -109,12 +111,20 @@ def _instruction_args(artifact: str) -> tuple[str, ...]:
 
 
 def version_finding(tool: OpenSpecTool, root: Path) -> GateFinding | None:
-    """The problem of a command on PATH that is not the tools lock's version: the version it
-    prints, or that it printed none. None when it prints the locked version. `check_openspec` and
+    """The problem of a binary that is not at the version that the `package-lock.json` of the
+    checkout at `root` pins: the version it prints, or that it printed none, or a lockfile that
+    pins no OpenSpec. None when it prints the locked version. `check_openspec` and
     `devops openspec regenerate` both call it, so a write and a check read one version (#5375)."""
+    locked = locked_version(root)
+    if locked is None:
+        return GateFinding(
+            GateCheck.VERSION,
+            MESSAGES.openspec.version_unpinned.format(
+                lockfile=CONST_NPM_LOCKFILE, package=CONST_OPENSPEC_NPM_PACKAGE
+            ),
+        )
     printed = version_line(tool.run(VERSION_ARGS, root).stdout)
-    locked = load_tools_lock().tools()[BIN_OPENSPEC].version
-    path = shutil.which(BIN_OPENSPEC) or BIN_OPENSPEC
+    path = tool.path
     if printed is None:
         return GateFinding(
             GateCheck.VERSION,
@@ -221,12 +231,13 @@ def check_openspec(root: Path) -> list[GateFinding]:
     """Every problem the checks find in the checkout at `root`; none when it is sound. A
     checkout with no `openspec/config.yaml` has nothing to check, and that is the one problem.
 
-    Raises `DependencyError` naming the install command when `openspec` is not on PATH.
+    Raises `DependencyError` naming the install command when the checkout has no `openspec` from
+    `npm ci` and PATH has none.
     """
     if not (root / CONFIG_PATH).is_file():
         missing = MESSAGES.openspec.config_missing.format(path=CONFIG_PATH.as_posix())
         return [GateFinding(GateCheck.CONFIGURATION, missing)]
-    with isolated_openspec() as tool:
+    with isolated_openspec(root) as tool:
         version_problem = version_finding(tool, root)
         if version_problem is not None:
             return [version_problem]

@@ -20,13 +20,13 @@ from devops_cli.core.dependency_audit import (
     load_osv_audit_ignores,
 )
 
-_OPENSPEC_LOCK = "src/devops_cli/tools_lock/openspec/package-lock.json"
+_ROOT_LOCK = "package-lock.json"
 _PICOMATCH = "GHSA-fc5q-39xc-vjpf"
 
 
 def _ignore(
     advisory: str = _PICOMATCH,
-    paths: tuple[str, ...] = (_OPENSPEC_LOCK,),
+    paths: tuple[str, ...] = (_ROOT_LOCK,),
     expired_at: date = date(2026, 11, 20),
 ) -> NpmAuditIgnore:
     return NpmAuditIgnore(
@@ -45,7 +45,7 @@ def _ignore(
 def test_an_ignore_applies_until_its_expiry_date_as_trivy_reads_expired_at(
     today: date, active: set[str], expired: list[str]
 ) -> None:
-    applied = active_npm_ignores([_ignore()], _OPENSPEC_LOCK, today)
+    applied = active_npm_ignores([_ignore()], _ROOT_LOCK, today)
     assert set(applied.active) == active
     assert [entry.id for entry in applied.expired] == expired
 
@@ -53,7 +53,7 @@ def test_an_ignore_applies_until_its_expiry_date_as_trivy_reads_expired_at(
 def test_an_ignore_applies_only_to_the_lockfiles_it_names() -> None:
     applied = active_npm_ignores(
         [_ignore()],
-        "src/devops_cli/tools_lock/style-dictionary/package-lock.json",
+        "src/devops_cli/tools_lock/devcontainers-cli/package-lock.json",
         date(2026, 11, 17),
     )
     assert not applied.active
@@ -63,14 +63,14 @@ def test_an_ignore_applies_only_to_the_lockfiles_it_names() -> None:
 @pytest.mark.parametrize(
     ("entry", "error"),
     [
-        ({"id": "GHSA-*", "paths": [_OPENSPEC_LOCK]}, "one advisory, never a wildcard"),
+        ({"id": "GHSA-*", "paths": [_ROOT_LOCK]}, "one advisory, never a wildcard"),
         (
             {"id": _PICOMATCH, "paths": ["src/devops_cli/tools_lock/*/package-lock.json"]},
             "each lockfile, never a wildcard",
         ),
         ({"id": _PICOMATCH, "paths": []}, "at least 1 item"),
         (
-            {"id": _PICOMATCH, "paths": [_OPENSPEC_LOCK], "statement": "no fix yet"},
+            {"id": _PICOMATCH, "paths": [_ROOT_LOCK], "statement": "no fix yet"},
             "names the tracking issue",
         ),
     ],
@@ -94,7 +94,7 @@ def test_the_ignore_file_reads_the_trivy_yaml_form(tmp_path: Path) -> None:
         "vulnerabilities:\n"
         f"  - id: {_PICOMATCH}\n"
         "    paths:\n"
-        f"      - {_OPENSPEC_LOCK}\n"
+        f"      - {_ROOT_LOCK}\n"
         "    statement: picomatch ReDoS, no released fix (#6202)\n"
         "    expired_at: 2026-11-20\n",
         encoding="utf-8",

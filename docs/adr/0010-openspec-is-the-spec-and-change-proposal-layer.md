@@ -206,3 +206,5 @@ Two decisions the sequence depends on, confirmed by merging this ADR and reversi
 - 2026-11-17: Fact out of date: OpenSpec 2.0 retired `delivery`, so the isolated configuration does not set it; each run also takes that directory as its home (#5078).
 - 2026-11-17: Fact out of date: `openspec/config.yaml` also holds `skillsScope: project`, and `.gitignore` re-includes `.claude/skills/openspec-*` with no end slash, so it matches the links (#5078).
 - 2026-11-17: Fact out of date: when a committed skill differs, a regeneration gets the skills of the release from github.com with Git (#5078).
+- 2026-11-20: Amended by the owner decision in #6409, section Considered Options.
+- 2026-11-20: Fact out of date: the root package.json and package-lock.json pin OpenSpec, and tools.lock holds no OpenSpec entry (#6409).

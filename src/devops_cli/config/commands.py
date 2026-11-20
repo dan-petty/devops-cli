@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS, CONST_SEMGREP_JOBS
 from devops_cli.config.defaults import (
@@ -257,7 +257,7 @@ def npm_audit_lockfile(cmd: Sequence[str]) -> str | None:
     `build_npm_audit_cmd` reads; None for any other command."""
     if not cmd or cmd[0] != BIN_NPM or "--prefix" not in cmd:
         return None
-    return f"{cmd[cmd.index('--prefix') + 1]}/package-lock.json"
+    return (PurePosixPath(cmd[cmd.index("--prefix") + 1]) / "package-lock.json").as_posix()
 
 
 def build_osv_scanner_audit_cmd(requirement_file: Path | str) -> list[str]:

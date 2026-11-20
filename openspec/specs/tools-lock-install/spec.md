@@ -1,32 +1,13 @@
 # tools-lock-install Specification
 
 ## Purpose
-The tools lock pins each tool at an exact version, and `devops install-tools` reports each tool whose command on PATH is not at its pin.
+The tools lock pins each tool at an exact version, and `devops install-tools` reports each tool that is not linked at its pin.
 
 ## Requirements
 
-### Requirement: The check reads the version the openspec command prints
-`devops install-tools --check` SHALL run the `openspec` command that PATH resolves with `--version`, SHALL compare the first non-empty line of its output with the version in the tools lock, and SHALL print the path of that command with the locked version when the two match.
+### Requirement: The check judges each tool by its link
+`devops install-tools --check` SHALL report each tool whose commands in the target directory do not link to its locked version, SHALL exit 1 when it reports one, and SHALL make no request.
 
-#### Scenario: An older command fails the check
-- **WHEN** the `openspec` command on PATH prints `1.14.3` and the tools lock pins another version
-- **THEN** the output names the command path, `1.14.3` and the locked version, and the exit code is 1
-
-#### Scenario: The locked command passes the check
-- **WHEN** the `openspec` command on PATH prints the version that the tools lock pins, and the command in the target directory links to the locked version
-- **THEN** the output holds `openspec` with the locked version and the path of the command, and the exit code is 0
-
-#### Scenario: A command that prints no version fails the check
-- **WHEN** the `openspec` command on PATH exits 1
-- **THEN** the output says that the version of the command path cannot be read, and the exit code is 1
-
-#### Scenario: A path with no command keeps the link check
-- **WHEN** PATH resolves no `openspec` command and the command in the target directory links to the locked version
-- **THEN** the output holds no version line and the exit code is 0
-
-### Requirement: Only-missing installs openspec when PATH holds another version
-`devops install-tools --only-missing` SHALL install the locked `openspec` when the command on PATH prints another version than the tools lock.
-
-#### Scenario: An older command is replaced
-- **WHEN** the command in the target directory links to the locked version, the `openspec` command on PATH prints `1.14.3`, and the tools lock pins another version
-- **THEN** the command runs the `npm ci` install for `openspec` and the command in the target directory links to the locked version
+#### Scenario: A tool off its pin
+- **WHEN** every tool of the lock but `k9s` and `semgrep` links to its locked version in the target directory and PATH is empty
+- **THEN** the check names `k9s` and `semgrep`, exits 1 and makes no request, and exits 0 after both link to their locked versions

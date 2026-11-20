@@ -25,6 +25,9 @@ env/
 # uv
 .uv/
 
+# npm: `npm ci --ignore-scripts` installs the devDependencies of package-lock.json here
+/node_modules/
+
 # mypy
 .mypy_cache/
 .dmypy.json

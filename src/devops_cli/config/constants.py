@@ -235,7 +235,10 @@ CONST_AGENTS_MD_MANIFESTS: Final[tuple[tuple[str, str], ...]] = (
 CONST_UV_LOCK_FILENAME = "uv.lock"
 # The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
 # exact version, and the lockfile that records the sha512 of every package that version needs.
-CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", "package-lock.json")
+CONST_NPM_LOCKFILE: Final[str] = "package-lock.json"
+CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", CONST_NPM_LOCKFILE)
+# Where `npm ci` links the commands of the packages of a lockfile, from the directory of the lockfile.
+CONST_NPM_BIN_DIR: Final[str] = "node_modules/.bin"
 # Where the tools lock and its Node tools' directories sit in a checkout, from its root.
 CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
@@ -5633,6 +5636,10 @@ CONST_KB_SHA_DIGEST_LENGTH: Final[int] = 16
 # The folder the pinned OpenSpec plans into, from a checkout's root, and the file that carries the
 # planning conventions for every agent.
 CONST_OPENSPEC_DIR: Final[str] = "openspec"
+# The npm package of OpenSpec, a devDependency of the `package-lock.json` at the root of a checkout
+# (#6409), and its key in the `packages` of that lockfile.
+CONST_OPENSPEC_NPM_PACKAGE: Final[str] = "@fission-ai/openspec"
+CONST_OPENSPEC_LOCK_KEY: Final[str] = f"node_modules/{CONST_OPENSPEC_NPM_PACKAGE}"
 CONST_OPENSPEC_CONFIG_FILENAME: Final[str] = "config.yaml"
 # `openspec init` writes this file, so it marks a repository that uses OpenSpec (#4629).
 CONST_OPENSPEC_CONFIG_PATH: Final[str] = f"{CONST_OPENSPEC_DIR}/{CONST_OPENSPEC_CONFIG_FILENAME}"

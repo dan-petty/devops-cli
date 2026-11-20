@@ -149,16 +149,15 @@ jobs:
         with:
           cache-suffix: plan-check
 
-      # The Node that `.node-version` names runs the pinned OpenSpec, which the command runs.
+      # The Node that `.node-version` names runs the OpenSpec that package-lock.json pins, which the
+      # command runs from node_modules/.bin (#6409).
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
 
       - name: Install OpenSpec
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool openspec --only-missing
+        run: npm ci --ignore-scripts
 
       # The command counts tokens with the exact encoding and stops when the cache is missing.
       # tiktoken names a cache file by the SHA-1 of its blob URL and does not download the file

@@ -6,11 +6,15 @@ How `devops research inventory` reads the pins of a repository from its files in
 ## Requirements
 
 ### Requirement: The inventory lists each pin as a typed component
-`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the tools lock and its requirement and Node lock files, the Dockerfiles, the devcontainer lock, the workflows and composite actions of `.github/`, the YAML files under `k8s/` and the Terraform files under `tf/`. It SHALL list one component for each pin, with a kind, an ecosystem, a name, a version, the file from the repository root and the line, ordered by file, then line, then name.
+`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the tools lock with its requirement and Node lock files, the root `package-lock.json`, the Dockerfiles, the devcontainer lock, the workflows and actions of `.github/`, the YAML of `k8s/` and the Terraform of `tf/`. It SHALL list one component for each pin, with a kind, an ecosystem, a name, a version, the file from the repository root and the line, ordered by file, then line, then name.
 
 #### Scenario: Each kind of pin gives a component
 - **WHEN** the repository holds one pin of each kind in the formats above
 - **THEN** the list holds the components of the expected kind, name, version, file and line, and no other
+
+#### Scenario: A package of the root lockfile
+- **WHEN** the `package-lock.json` at the root of the repository pins the devDependency `example-dev-tool` at `2.1.0`
+- **THEN** the list holds a `node-package` component of the `npm` ecosystem with that name and version, the file `package-lock.json` and the line of its key
 
 #### Scenario: The same action at two versions
 - **WHEN** two workflow steps use `astral-sh/setup-uv` at two releases
