@@ -713,6 +713,17 @@ def _openspec_config_read(clone: str) -> PlannedRequest:
     )
 
 
+def _default_tree_read(clone: str, *, condition: str = "") -> PlannedRequest:
+    """The one read of the files that the default branch tracks: a path that a wait text or the
+    reason of a rejected plan names counts only when the branch holds it (#6444)."""
+    return PlannedRequest(
+        "git",
+        MESSAGES.roadmap.stage_requests["default_tree"],
+        argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", "-z", "origin/main"),
+        condition=condition,
+    )
+
+
 def stage_requests(
     repo: str,
     *,
@@ -730,8 +741,9 @@ def stage_requests(
     at the staged commit, the commit and the push of each item, the draft pull request, the
     record, the plan-state comment of the draft (an edit of the comment that holds its key, else a
     new comment) and the comment of the run (#6197), and the removal of the draft and the branch of
-    a closed item. `limit` and `item` change no request: they change how many items the run
-    repeats them for."""
+    a closed item. A run that finds a plan pull request closed with no merge reads the tracked
+    files of the default branch once, to keep the files that the reason names (#6444). `limit` and
+    `item` change no request: they change how many items the run repeats them for."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -773,6 +785,7 @@ def stage_requests(
             repeat=rep["stage_plan"],
         ),
         *within(store.comments_on(_p("pull")), cond["rejected_comments"], repeat=each_rejected),
+        _default_tree_read(clone, condition=cond["rejected_comments"]),
         git("fetch_branch", clone, "fetch", "-q", "origin", branch, repeat=each_rejected),
         *within(
             store.path_change(_p("path")),
@@ -1191,7 +1204,8 @@ def explain_requests(
     """What `devops roadmap explain` reads, in order (#2911). It makes no write and no model call.
     It reads what the plan of the implement job reads, which covers the clone, the issues, the
     branches and the change folders, whether the default branch holds `openspec/config.yaml`
-    (#4629), and the open issue that a stage item depends on. The command reads the heads of
+    (#4629), the open issue that a stage item depends on, and the tracked files of the default
+    branch, which keep the files that a wait names (#6444). The command reads the heads of
     `origin` and the plans once and gives them to both jobs, so the list holds each read once.
     With `trace` it reads the one issue and nothing else (#3032)."""
     if trace:
@@ -1200,7 +1214,9 @@ def explain_requests(
     store = StoreRequests(repo)
     blockers = within(store.issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"])
     refine = [*store.comments_on(f"#{item}"), *_wait_reads(store)]
-    return (*reads, _openspec_config_read("<model-clone>"), *blockers, *refine), ()
+    clone = "<model-clone>"
+    tree = _default_tree_read(clone)
+    return (*reads, _openspec_config_read(clone), *blockers, tree, *refine), ()
 
 
 def plan_recheck_requests(

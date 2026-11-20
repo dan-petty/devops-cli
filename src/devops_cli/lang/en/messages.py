@@ -4991,6 +4991,7 @@ class RoadmapMessages:
             "fetch_default": "fetch the default branch, to read its plans",
             "default_plans": "the change folders of the default branch",
             "openspec_config": "whether the default branch holds openspec/config.yaml: with no file, the job holds every item",
+            "default_tree": "the tracked files of the default branch, to keep only the files that a wait or the reason of a rejected plan names",
             "move_clone": "move the clone to the staged commit, the default branch of origin",
             "tracked_files": "the tracked files of the clone, to check the paths of each plan",
             "open_pulls": "the open pull requests and their files, to find an overlap",

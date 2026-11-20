@@ -287,10 +287,14 @@ def explain_item(
             repo, number, item.title if item else "", refusal, refusal, refusal, totals=totals
         )
     checkout = Path(source)
-    tracked_paths = frozenset(tree_files(checkout, "HEAD", operation=_GIT_OPERATION))
     stage_settings = load_settings().roadmap.stage
     reads = _Reads(
         read_remote_heads(checkout), read_planned_changes(checkout, operation=_GIT_OPERATION)
+    )
+    # A round of the Service reads the commit of the default branch, which the read of the plans
+    # fetched, and not the branch that the clone of a person holds (#6444).
+    tracked_paths = frozenset(
+        tree_files(checkout, f"origin/{reads.planned.default}", operation=_GIT_OPERATION)
     )
     implement, implement_effort = _implement_verdict(
         store,
