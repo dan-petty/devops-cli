@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.183.2](https://github.com/dan-petty/devops-cli/compare/v0.183.1...v0.183.2) (2026-11-20)
+
+
+### Bug Fixes
+
+* **roadmap:** harden the fix-checks Job process as implement does ([#6540](https://github.com/dan-petty/devops-cli/issues/6540)) ([7fc3d53](https://github.com/dan-petty/devops-cli/commit/7fc3d5335659b694a08bb6fc0512afd1c8ab99a5)), closes [#6539](https://github.com/dan-petty/devops-cli/issues/6539)
+
+
+### Performance Improvements
+
+* **ci:** keep the image build cache in GHCR ([#6530](https://github.com/dan-petty/devops-cli/issues/6530)) ([b5c9d12](https://github.com/dan-petty/devops-cli/commit/b5c9d1214d67b85b146594d0d96ed5c8049720cc)), closes [#6404](https://github.com/dan-petty/devops-cli/issues/6404)
+
 ## [0.183.1](https://github.com/dan-petty/devops-cli/compare/v0.183.0...v0.183.1) (2026-11-20)
 
 
