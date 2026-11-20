@@ -3155,10 +3155,16 @@ def _failure_line(failure: JobFailure, tries: int) -> str:
 
 
 def _judge_findings(item: Item) -> list[str]:
-    """The open findings of the review that last refused the proposal for `item`, which the next
-    request gives to the model, or none (#4798)."""
+    """The failure of the earlier try and the open findings of the review that last refused the
+    proposal for `item`, which the next request gives to the model, or none (#4798, #6327). The
+    whole failure text stays, with no character cap, so the model reads the criterion and the part
+    that failed. A finding that the failure repeats joins the list once."""
     recorded = item.job_record.get(RefineRecordKey.JUDGE_FINDINGS) or ""
-    return [line for line in recorded.splitlines() if line.strip()]
+    findings = [line for line in recorded.splitlines() if line.strip()]
+    failure = (item.job_record.get(RefineRecordKey.FAILURE) or "").strip()
+    if failure and failure not in findings:
+        findings.append(failure)
+    return findings
 
 
 def _failed_round(

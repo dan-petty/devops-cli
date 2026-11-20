@@ -79,14 +79,16 @@ _PROPOSED_DECISION = QuestionAnswer(
 
 class _Client:
     """The proposal step's client: it answers each request from `proposals`, by the item's number,
-    and counts the requests."""
+    counts the requests and keeps each request document."""
 
     def __init__(self, proposals: dict[int, RefinementProposal]) -> None:
         self.proposals = proposals
         self.requests = 0
+        self.prompts: list[str] = []
 
     def chat_structured(self, system: str, prompt: str, schema: type[Any], **_: Any) -> Any:
         self.requests += 1
+        self.prompts.append(prompt)
         return self.proposals[json.loads(prompt)["number"]]
 
 
@@ -204,6 +206,23 @@ def test_a_form_check_failure_names_the_criterion_and_part(
     from devops_cli.roadmap.refine.refine import form_check_details
 
     assert form_check_details(_EMPTY_THEN) == ("acceptance_criteria[0].then",)
+
+
+def test_an_empty_then_reaches_the_record_and_the_next_request(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """The empty part of the criterion stays in the record, and the next request carries the whole
+    failure of the earlier try (#6327)."""
+    number = _seed(store)
+    client = _Client({number: _EMPTY_THEN})
+
+    _round(store, git_repo, {}, client=client)
+    failure = _record(store, number)["refine.failure"]
+    _round(store, git_repo, {}, client=client)
+
+    assert failure is not None
+    assert "acceptance_criteria[0].then" in failure
+    assert json.loads(client.prompts[-1])["judge_findings"] == [failure]
 
 
 def test_a_later_round_tries_the_item_again_and_the_limit_ends_the_tries(
@@ -324,6 +343,27 @@ def test_a_long_open_question_does_not_cut_the_searches_from_the_failure(
     assert failure is not None
     assert question in failure
     assert failure.endswith("Searched: search_code 'no_such_symbol'")
+
+
+def test_the_next_request_carries_a_failure_longer_than_2000_characters(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """No character cap cuts the failure of an earlier try, so the next request carries the whole
+    text once (#6327)."""
+    number = _seed(store)
+    question = " ".join(["Where is the sample function?"] * 100)
+    long_fact = _OPEN_FACT.model_copy(update={"question": question})
+    long_proposal = _WHOLE.model_copy(update={"key_questions": [long_fact]})
+    script = Script(call("search_code", text="no_such_symbol"), long_proposal)
+    client = _Client({number: long_proposal})
+
+    _round(store, git_repo, {}, script, client=client)
+    failure = _record(store, number)["refine.failure"]
+    _round(store, git_repo, {}, script, client=client)
+
+    assert failure is not None
+    assert len(failure) > 2000
+    assert json.loads(client.prompts[-1])["judge_findings"] == [failure]
 
 
 def test_no_character_cap_cuts_a_refine_failure() -> None:
