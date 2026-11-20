@@ -1903,20 +1903,16 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Installs the openspec of package-lock.json that the openspec row runs, with npm ci (#6409)",
         (
             "static",
-            "Install Trivy",
-        ): "Installs the pinned Trivy that the Security Scan step runs, with the lock's installer",
+            "Put the tools of the devtools image on PATH",
+        ): "Puts the commands that the devtools-commands action copied on PATH, no row of the gate (#6416)",
         (
-            "static",
-            "Install kube-linter",
-        ): "Installs the pinned kube-linter that the kube-linter row of the gate runs, with the lock's installer (#6068)",
+            "test-shard",
+            "Put promtool on PATH",
+        ): "Puts the promtool that the devtools-commands action copied on PATH, no row of the gate (#6416)",
         (
             "static",
             "Run actionlint",
         ): "Runs the pinned actionlint via the docker image, so the gate skips it (#1119)",
-        (
-            "test-shard",
-            "Install promtool",
-        ): "Installs the pinned promtool that the rule tests of the test row run, with the lock's installer",
         (
             "test-shard",
             "Plan-Only Invariant Tests",
@@ -2060,27 +2056,6 @@ def test_ci_workflow_publishes_scanner_sarif_to_code_scanning() -> None:
         ".data/scan.sarif",
         "/devops-scan",
         "always()",
-    )
-
-
-def test_ci_security_scan_installs_the_pinned_trivy_for_its_iac_scan() -> None:
-    """Trivy's misconfiguration scan, `trivy-config`, took the place of Checkov in the scanner
-    registry (#2214). So the static job installs the pinned Trivy before its security scan, and the
-    scan checks the IaC files. The scan skips Trivy's filesystem scan, `trivy`, which took 194 s
-    over this tree."""
-    import yaml
-
-    workflow = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["static"]["steps"]
-    runs = [str(step.get("run", "")) for step in steps]
-    install = next(
-        (i for i, run in enumerate(runs) if "devops install-tools --tool trivy " in run), None
-    )
-    scan = next(i for i, step in enumerate(steps) if step.get("name") == "Security Scan")
-
-    assert (install is not None and install < scan, runs[scan]) == (
-        True,
-        "uv run devops scan report --sarif .data/scan.sarif --skip bandit,trivy,kubelinter",
     )
 
 

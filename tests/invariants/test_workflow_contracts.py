@@ -647,13 +647,9 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         [SETUP_NODE],
         {"node-version-file": ".node-version"},
         [
-            'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
             'echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"',
             "npm ci --ignore-scripts",
-            "uv run devops install-tools --tool gitleaks --only-missing",
-            "uv run devops install-tools --tool osv-scanner --only-missing",
-            "uv run devops install-tools --tool semgrep --only-missing",
-            "uv run devops install-tools --tool tuicr --only-missing",
+            'echo "$BIN_DIR" >> "$GITHUB_PATH"',
             "uv run pre-commit install --install-hooks",
         ],
     )

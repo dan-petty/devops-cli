@@ -5,7 +5,23 @@ name: Image Pins
 # The command reads the environment tree that `.devops/project.toml` names (#5131).
 # The native `paths` filter stops the run before a runner starts, so a pull request that changes
 # none of the paths starts no job and shows no check (#4653). The check is not required.
+# A push to main that changes the same paths runs the job too. The job only reads: it renders the
+# Applications in a temporary directory and sends HEAD requests. The run on main saves the cache
+# entry of kubectl and helm that each pull request restores (#6416).
 on:
+  push:
+    branches: [main]
+    paths:
+      - "k8s/**"
+      - "src/devops_cli/**/image_pins.py"
+      - "src/devops_cli/k8s/app_sources.py"
+      - "src/devops_cli/k8s/app_render.py"
+      - "src/devops_cli/k8s/environment.py"
+      - "src/devops_cli/docker/registry.py"
+      - ".devops/project.toml"
+      - ".devcontainer/Dockerfile"
+      - ".github/actions/devtools-commands/**"
+      - ".github/workflows/image-pins.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
@@ -17,13 +33,16 @@ on:
       - "src/devops_cli/k8s/environment.py"
       - "src/devops_cli/docker/registry.py"
       - ".devops/project.toml"
+      - ".devcontainer/Dockerfile"
+      - ".github/actions/devtools-commands/**"
       - ".github/workflows/image-pins.yml"
 
 permissions: {}
 
-# A newer push to the pull request cancels the run of the older head.
+# A newer push to the pull request cancels the run of the older head. The group of a push to main
+# is its commit, so a merge cancels no run of main before it saves the cache.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -33,10 +52,10 @@ env:
   UV_MANAGED_PYTHON: "1"
 
 jobs:
-  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with the
-  # runner's kubectl, as the Argo CD gate of the test row does, and a chart source with the pinned
-  # helm and the repository's value files. It resolves each image once with a HEAD request of its
-  # manifest (`tag_digest`), which Docker Hub does not count as a pull.
+  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with kubectl,
+  # as the Argo CD gate of the test row does, and a chart source with helm and the repository's
+  # value files. It resolves each image once with a HEAD request of its manifest (`tag_digest`),
+  # which Docker Hub does not count as a pull.
   image-pins:
     name: Image Pins
     runs-on: ubuntu-26.04
@@ -56,10 +75,20 @@ jobs:
           cache-suffix: image-pins
           save-uv-cache: "false"
 
-      - name: Install Helm
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool helm --only-missing
+      # The kubectl and helm of the devtools image, from the cache of the action (#6416). The job
+      # stays on the runner host: a container job pulls the whole image on each run. The next step
+      # puts their directory on PATH before /usr/local/bin, which holds the kubectl and helm of the
+      # runner image.
+      - name: Copy kubectl and helm from the devtools image
+        id: devtools
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: kubectl helm
+
+      - name: Put kubectl and helm on PATH
+        env:
+          BIN_DIR: ${{ steps.devtools.outputs.path }}
+        run: echo "$BIN_DIR" >> "$GITHUB_PATH"
 
       - name: Resolve the Image Pins
         run: uv run devops k8s image-pins

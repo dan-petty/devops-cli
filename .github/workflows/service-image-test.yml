@@ -2,10 +2,11 @@ name: Service Image Tests
 
 # The suite runs inside the Service image on the daily schedule, on a manual run and on a pull
 # request that changes an image input other than src/: the build recipe, the build context filter,
-# the project and lock files, the tool locks, or this workflow. A pull request that changes only
-# src/ starts no job here; Tests & Coverage tests it on the runner, and the next daily run tests it
-# in the image (#4644). The native paths filter stops the run before a runner starts, so a plan-only
-# pull request starts no job either.
+# the project and lock files, the tool locks, the stage and the action that give the test tools of
+# the devtools image, or this workflow. A pull request that changes only src/ starts no job here;
+# Tests & Coverage tests it on the runner, and the next daily run tests it in the image (#4644). The
+# native paths filter stops the run before a runner starts, so a plan-only pull request starts no
+# job either.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -18,6 +19,8 @@ on:
       - package.json
       - package-lock.json
       - src/devops_cli/tools_lock/**
+      - .devcontainer/Dockerfile
+      - .github/actions/devtools-commands/**
       - .github/workflows/service-image-test.yml
   schedule:
     # Daily at 04:30 UTC, before the 05:00 UTC run of ci.yml.
@@ -91,10 +94,10 @@ jobs:
           compression-level: 0
 
   # Runs the test suite inside the built Service image (`python:3.14-slim-trixie`) while
-  # `.devcontainer/Dockerfile` uses `debian:sid` (#1643). Dev packages and pinned test tools
-  # (`promtool`, `kubectl`) mount read-only from `$RUNNER_TEMP`, so the shipped `service` stage
-  # keeps its minimal package set and `USER 1000:1000` read-only security posture. Six shards run
-  # without coverage collection.
+  # `.devcontainer/Dockerfile` uses `debian:sid` (#1643). Dev packages and the test tools of the
+  # devtools image (`promtool`, `kubectl`) mount read-only from `$RUNNER_TEMP`, so the shipped
+  # `service` stage keeps its minimal package set and `USER 1000:1000` read-only security posture.
+  # Six shards run without coverage collection.
   service-image-test:
     name: Service Image Tests (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     needs: service-image-build
@@ -137,9 +140,20 @@ jobs:
       - name: Load Service Image
         run: docker load --input "$RUNNER_TEMP/service-image.tar"
 
+      # The job loads and runs the Service image with the Docker Engine of the runner, so it stays on
+      # the runner host and takes the two test tools from the devtools image (#6416). The next step
+      # copies them from the output directory to the tools directory that the suite mounts; no step
+      # of the runner runs them, so the job does not put them on PATH.
+      - name: Copy promtool and kubectl from the devtools image
+        id: devtools
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: promtool kubectl
+
       - name: Install Service Image Test Dependencies
         env:
           IMAGE: devops-cli-service:local
+          DEVTOOLS_BIN: ${{ steps.devtools.outputs.path }}
         run: |
           SITE_DIR="$RUNNER_TEMP/service-test-site"
           TOOLS_DIR="$RUNNER_TEMP/service-test-tools"
@@ -157,8 +171,7 @@ jobs:
             --entrypoint /usr/local/bin/uv \
             "$IMAGE" \
             pip install -q --python /app/.venv/bin/python --target /work/site-packages --compile-bytecode --require-hashes --no-deps -r /work/dev-requirements.txt
-          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool promtool --target-dir "$TOOLS_DIR/bin" --only-missing
-          DEVOPS_CLI_USER_DATA_ROOT="$TOOLS_DIR" uv run devops install-tools --tool kubectl --target-dir "$TOOLS_DIR/bin" --only-missing
+          cp "$DEVTOOLS_BIN/promtool" "$DEVTOOLS_BIN/kubectl" "$TOOLS_DIR/bin/"
           chmod -R a+rX "$SITE_DIR" "$TOOLS_DIR"
 
       - name: Run Test Suite in Service Image

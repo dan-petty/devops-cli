@@ -1097,7 +1097,7 @@ devops ai review rules test [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--rules-dir` | `path` | - | Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`. |
-| `--check` | `boolean` | - | Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it. |
+| `--check` | `boolean` | - | Verify that `rules.lock` matches the tested rules, without writing it. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
 
 #### `devops ai review rules fetch`

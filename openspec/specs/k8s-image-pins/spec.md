@@ -55,11 +55,11 @@ The command SHALL resolve each pinned image once with a HEAD request of its mani
 - **THEN** no request reaches a registry and the output names `HEAD https://<registry>/v2/<repository>/manifests/<reference>`
 
 ### Requirement: The CI job checks a pull request that changes the pins
-The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s image-pins` with read-only permissions and the pinned helm. The workflow SHALL run only for a pull request that changes `k8s/`, the command's modules, the registry module `src/devops_cli/docker/registry.py`, the project file `.devops/project.toml` or the workflow file.
+The job `image-pins` of `.github/workflows/image-pins.yml` SHALL run `devops k8s image-pins` with read-only permissions and the kubectl and helm of the devtools image. The workflow SHALL run only for a pull request or a push to `main` that changes `k8s/`, the command's modules, `src/devops_cli/docker/registry.py`, `.devops/project.toml`, `.devcontainer/Dockerfile`, `.github/actions/devtools-commands` or the workflow file.
 
 #### Scenario: The job's steps
-- **WHEN** `image-pins.yml` is read
-- **THEN** its `pull_request` trigger has the paths `k8s/**`, `src/devops_cli/**/image_pins.py`, `src/devops_cli/k8s/app_sources.py`, `src/devops_cli/k8s/environment.py`, `src/devops_cli/docker/registry.py`, `.devops/project.toml` and `.github/workflows/image-pins.yml`, the job has the permission `contents: read`, and its last step runs `uv run devops k8s image-pins`
+- **WHEN** `uv run devops ci --check --only actionlint,zizmor` checks `image-pins.yml`, and the live check reads the log of the `Image Pins` job of a pull request
+- **THEN** the check passes, the job has the permission `contents: read`, the step `Copy kubectl and helm from the devtools image` restores or builds the commands of the devtools image, the step `Put kubectl and helm on PATH` puts them first on the path, and the last step runs `uv run devops k8s image-pins`
 
 #### Scenario: A pull request that changes no pin
 - **WHEN** a pull request changes only `README.md`

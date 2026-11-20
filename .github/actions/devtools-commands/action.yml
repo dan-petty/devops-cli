@@ -1,0 +1,70 @@
+name: Copy commands of the devtools image
+description: >-
+  Copy commands of the devtools image to a directory of the runner and output that directory, for
+  a job on the runner host that cannot run in the image (#6416). The `devtools-bin` stage of
+  .devcontainer/Dockerfile holds the commands, so the digest that the Dockerfile pins also pins
+  each command, and Renovate moves that digest. The action names no version. The caller checks out
+  the repository first, and puts the `path` output on PATH in a step of its own job when it runs
+  the commands.
+
+inputs:
+  commands:
+    description: >-
+      The names of the commands, separated by spaces. Each one is a file of the `devtools-bin`
+      stage of .devcontainer/Dockerfile.
+    required: true
+
+outputs:
+  path:
+    description: The directory that holds the commands.
+    value: ${{ steps.key.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    # The cache key names the digest of the devtools image in .devcontainer/Dockerfile and the
+    # sorted commands, so a new digest or another list of commands makes a new key. The log of the
+    # cache step names the digest.
+    - name: Name the cache of the commands
+      id: key
+      shell: bash
+      env:
+        COMMANDS: ${{ inputs.commands }}
+      run: |
+        set -euo pipefail
+        digest="$(sed -n -E 's/^FROM ghcr\.io\/dan-petty\/devtools:[^@ ]+@sha256:([0-9a-f]{64}) AS devtools$/\1/p' .devcontainer/Dockerfile)"
+        if [ -z "$digest" ]; then
+          echo "::error file=.devcontainer/Dockerfile::No FROM line names the devtools image by tag and digest as the stage devtools."
+          exit 1
+        fi
+        names="$(tr -s ' ' '\n' <<< "$COMMANDS" | sed '/^$/d' | sort -u | paste -sd- -)"
+        echo "key=devtools-bin-${RUNNER_OS}-${RUNNER_ARCH}-${digest}-${names}" >> "$GITHUB_OUTPUT"
+        echo "path=$RUNNER_TEMP/devtools-bin" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the commands
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.key.outputs.path }}
+        key: ${{ steps.key.outputs.key }}
+
+    # Only on a cache miss: the Docker Engine of the runner pulls the devtools image, builds the
+    # stage and writes its files to a directory of the runner. The stage holds no file of the build
+    # context. The cache step saves the directory at the end of the job.
+    - name: Copy the commands from the devtools image
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        COMMANDS: ${{ inputs.commands }}
+        BIN_DIR: ${{ steps.key.outputs.path }}
+      run: |
+        set -euo pipefail
+        export_dir="$RUNNER_TEMP/devtools-bin-export"
+        docker buildx build --progress plain --file .devcontainer/Dockerfile --target devtools-bin \
+          --output "type=local,dest=$export_dir" .
+        mkdir -p "$BIN_DIR"
+        read -r -a names <<< "$COMMANDS"
+        for name in "${names[@]}"; do
+          mv "$export_dir/$name" "$BIN_DIR/$name"
+        done
+        rm -rf "$export_dir"

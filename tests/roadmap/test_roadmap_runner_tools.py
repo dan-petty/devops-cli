@@ -97,7 +97,8 @@ def _hook_programs() -> dict[str, set[str]]:
 
 
 def _gate_job_tools() -> dict[str, set[str]]:
-    """The tools that the required jobs `static` and `test-shard` of `ci.yml` install, by job."""
+    """The tools that the required jobs `static` and `test-shard` of `ci.yml` install or take from
+    the devtools image (#6416), by job."""
     jobs = yaml.safe_load(_text(".github/workflows/ci.yml"))["jobs"]
     found: dict[str, set[str]] = {}
     # The gate `test` installs its tools in the shard jobs `test-shard` (#3050).
@@ -106,6 +107,8 @@ def _gate_job_tools() -> dict[str, set[str]]:
         for step in jobs[job]["steps"]:
             if "actionlint" in step.get("uses", ""):
                 tools.add("actionlint")
+            if step.get("uses") == "./.github/actions/devtools-commands":
+                tools.update(str(step["with"]["commands"]).split())
             words = shlex.split(step.get("run", "").replace("\n", " "))
             tools.update(words[index + 1] for index, word in enumerate(words) if word == "--tool")
         found[name] = tools
