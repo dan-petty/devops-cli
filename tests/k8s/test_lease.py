@@ -43,10 +43,16 @@ class _LeaseClock:
         return self.now
 
     async def sleep(self, seconds: float) -> None:
+        """Wait until each running holder sleeps. Then give control back to the event loop, as
+        `asyncio.sleep` does. A holder that sleeps alone wakes itself. On CPython 3.14,
+        `asyncio.to_thread` can return with no yield when its thread ends first. Without this
+        yield, the holder can then make its next calls before a task that waits for a mark of
+        this time reads the state (#6545)."""
         woken: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._asleep.append(woken)
         self._wake(seconds)
         await woken
+        await asyncio.sleep(0)
 
     def leave(self) -> None:
         """One holder stops, so the other one sleeps alone from now on. Call it only after the
@@ -165,6 +171,27 @@ def test_a_holder_whose_renewals_fail_stops_at_the_renew_deadline(
     call = "read" if refused.startswith("get") else "update"
     failed = [m for m in caplog.messages if m.startswith(f"The {call} of the Lease")]
     assert (lost, len(failed)) == ((TIMING.renew_deadline, False), 5)
+
+
+def test_a_task_that_waits_for_a_mark_reads_before_the_sleeper_goes_on() -> None:
+    """A sleeper that is alone wakes itself. The task that waits for a mark reads the state at
+    that time, before the sleeper goes on past the mark (#6545)."""
+    lease_clock = _LeaseClock()
+    woke_at: list[float] = []
+
+    async def sleeper() -> None:
+        for _ in range(3):
+            await lease_clock.sleep(TIMING.retry)
+            woke_at.append(lease_clock.now)
+
+    async def watch() -> list[float]:
+        sleeping = asyncio.create_task(sleeper())
+        await lease_clock.reach(2 * TIMING.retry).wait()
+        seen = list(woke_at)
+        await sleeping
+        return seen
+
+    assert asyncio.run(watch()) == [TIMING.retry]
 
 
 def test_a_pod_that_another_pod_beat_to_the_create_tries_again(cluster: FakeCluster) -> None:
