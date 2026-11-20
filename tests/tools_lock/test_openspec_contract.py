@@ -10,10 +10,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.openspec.tool import isolated_openspec
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.openspec import LIST_SPECS, OpenSpecFake, spec_listing
 from tests.support.openspec_recording import run_scenario
 from tests.support.openspec_scenarios import SCENARIOS
+from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -31,10 +31,12 @@ _TREE = {
 }
 
 
-def test_the_record_is_of_the_openspec_the_tools_lock_pins(openspec_fake: OpenSpecFake) -> None:
-    """A bump of the pin fails here until the real tool is recorded again
+def test_the_record_is_of_the_openspec_the_root_lockfile_pins(openspec_fake: OpenSpecFake) -> None:
+    """A bump of the pin in `package-lock.json` fails here until the real tool is recorded again
     (tests/support/openspec_recording.py)."""
-    assert openspec_fake.version == load_tools_lock().npm["openspec"].version
+    lock = json.loads((REPO_ROOT / "package-lock.json").read_text(encoding="utf-8"))
+
+    assert openspec_fake.version == lock["packages"]["node_modules/@fission-ai/openspec"]["version"]
 
 
 def test_every_scenario_is_recorded_and_no_other(openspec_fake: OpenSpecFake) -> None:

@@ -588,7 +588,7 @@ def test_no_title_label_or_body_changes_the_result(
         ("src/devops_cli/ai/tasks/roadmap_stage_change.md",),
         (
             "src/devops_cli/tools_lock/tools.lock",
-            "src/devops_cli/tools_lock/openspec/package-lock.json",
+            "src/devops_cli/tools_lock/devcontainers-cli/package-lock.json",
         ),
         ("src/devops_cli/ai/knowledge_base/devops_cli/sample.py",),
         (".github/workflows/ci.yml", "k8s/devops/roadmap-service/deployment.yaml"),

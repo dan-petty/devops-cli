@@ -111,6 +111,7 @@ EXPECTED = [
         "src/devops_cli/tools_lock/example-npm/package-lock.json",
         14,
     ),
+    _component(_NODE, "example-dev-tool", "2.1.0", "package-lock.json", 11),
     _component(_PIP, "bandit", "1.9.4", "src/devops_cli/tools_lock/bandit.txt", 3),
     _component(_PIP, "colorama", "0.4.6", "src/devops_cli/tools_lock/bandit.txt", 6),
     Component(
@@ -207,7 +208,7 @@ def test_summary_counts_each_kind_and_ecosystem() -> None:
         "chart": 1,
         "container-image": 7,
         "devcontainer-feature": 1,
-        "node-package": 2,
+        "node-package": 3,
         "python-package": 6,
         "terraform-provider": 1,
         "tool": 4,

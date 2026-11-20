@@ -55,7 +55,8 @@ jobs:
       - name: Install OpenSpec and agent tools
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool openspec --only-missing
+          echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
+          npm ci --ignore-scripts
           uv run devops install-tools --tool gitleaks --only-missing
           uv run devops install-tools --tool osv-scanner --only-missing
           uv run devops install-tools --tool semgrep --only-missing

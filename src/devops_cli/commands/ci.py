@@ -891,12 +891,17 @@ def _bandit_cmds(tests_severity: str) -> list[list[str]]:
 
 
 def _npm_audit_cmds() -> list[list[str]]:
-    """`npm audit` of the lockfile of each Node tool in the tools lock, as the repository holds it,
-    which needs no install."""
+    """`npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
+    Dictionary (#6409), then of the lockfile of each Node tool in the tools lock, as the repository
+    holds them, which needs no install."""
     from devops_cli.tools_lock import load_tools_lock
 
     return [
-        build_npm_audit_cmd(f"{CONST_TOOLS_LOCK_REPO_DIR}/{name}") for name in load_tools_lock().npm
+        build_npm_audit_cmd("."),
+        *(
+            build_npm_audit_cmd(f"{CONST_TOOLS_LOCK_REPO_DIR}/{name}")
+            for name in load_tools_lock().npm
+        ),
     ]
 
 

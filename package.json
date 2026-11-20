@@ -1,0 +1,14 @@
+{
+  "name": "devops-cli",
+  "private": true,
+  "devDependencies": {
+    "@fission-ai/openspec": "2.1.0",
+    "style-dictionary": "5.8.0"
+  },
+  "overrides": {
+    "style-dictionary": {
+      "glob": "14.0.6",
+      "minimatch": "11.0.9"
+    }
+  }
+}

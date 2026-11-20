@@ -2621,8 +2621,8 @@ class InstallCommandHelp:
         "prints another version."
     )
     check: str = (
-        "Install nothing: report each tool not linked at its locked version, read the version the "
-        "openspec command on PATH prints, and exit 1 if any differs."
+        "Install nothing: report each tool not linked at its locked version, and exit 1 if any "
+        "differs."
     )
 
 

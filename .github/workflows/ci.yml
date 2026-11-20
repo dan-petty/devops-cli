@@ -67,7 +67,8 @@ jobs:
         with:
           cache-suffix: static
 
-      # The Node that `.node-version` names runs the pinned OpenSpec, which the openspec row needs.
+      # The Node that `.node-version` names runs the OpenSpec that package-lock.json pins, which the
+      # openspec row runs from node_modules/.bin (#6409).
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -76,7 +77,7 @@ jobs:
       - name: Install OpenSpec
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool openspec --only-missing
+          npm ci --ignore-scripts
           uv run devops install-tools --tool tofu --only-missing
           uv run devops install-tools --tool osv-scanner --only-missing
 
@@ -448,6 +449,8 @@ jobs:
             src
             pyproject.toml
             uv.lock
+            package.json
+            package-lock.json
             README.md
             .github/workflows/ci.yml
         run: |
@@ -550,6 +553,8 @@ jobs:
             src
             pyproject.toml
             uv.lock
+            package.json
+            package-lock.json
             README.md
             .github/workflows/ci.yml
         run: |
@@ -649,6 +654,8 @@ jobs:
             src
             pyproject.toml
             uv.lock
+            package.json
+            package-lock.json
             README.md
             .github/workflows/ci.yml
         run: |
@@ -815,7 +822,8 @@ jobs:
           filters: |
             design:
               - 'design/**'
-              - 'src/devops_cli/tools_lock/style-dictionary/**'
+              - 'package.json'
+              - 'package-lock.json'
               - 'src/devops_cli/design/**'
               - 'docs/assets/css/**'
               - 'k8s/monitoring/dashboards/**'
@@ -846,9 +854,7 @@ jobs:
       - name: Install Style Dictionary
         if: steps.changes.outputs.design == 'true'
         timeout-minutes: 2
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool style-dictionary --only-missing
+        run: npm ci --ignore-scripts
 
       - name: Build the Design Tokens
         if: steps.changes.outputs.design == 'true'

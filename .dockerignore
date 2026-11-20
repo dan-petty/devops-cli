@@ -4,3 +4,5 @@
 !README.md
 !src
 !src/**
+!package.json
+!package-lock.json

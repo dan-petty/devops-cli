@@ -63,11 +63,13 @@ VERSION_ARGS = ("--version",)
 @dataclass(frozen=True)
 class OpenSpecCall:
     """A command the fake answered: its arguments after the program name, the directory it was
-    started from, and the tool's environment variables it was given."""
+    started from, the tool's environment variables it was given, and the program it started: the
+    bare name that PATH resolves, or the path of the `openspec` that `npm ci` installed."""
 
     argv: tuple[str, ...]
     cwd: Path
     env: dict[str, str]
+    program: str = _PROGRAM
 
 
 class OpenSpecFake:
@@ -208,7 +210,7 @@ class OpenSpecFake:
             for key, value in kwargs.get("env", {}).items()
             if key.startswith(_TOOL_ENV_PREFIXES)
         }
-        self.calls.append(OpenSpecCall(arguments, cwd, env))
+        self.calls.append(OpenSpecCall(arguments, cwd, env, argv[0]))
         if arguments in self._scripted and self._scripted[arguments] is None:
             raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
         if len(arguments) == 3 and arguments[:2] == ("new", "change"):

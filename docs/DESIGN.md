@@ -27,7 +27,7 @@ Each color token holds its contrast rule in `$extensions.devops-cli.contrast`: `
 
 ### Build
 
-Style Dictionary, at the version of its lock, builds the tokens. `make design-tokens` runs one build for each config of `design/sd/`. Each config sets `log.warnings` to `"error"`, uses the transform group `css`, and uses only the built-in formats `css/variables` (with `outputReferences: true`) and `json/flat`. The group `web` is not used, because it writes `0.5rem` as `0.5px` in `json/flat`.
+Style Dictionary, at the version that `package-lock.json` pins, builds the tokens. `make design-tokens` runs one build for each config of `design/sd/`. Each config sets `log.warnings` to `"error"`, uses the transform group `css`, and uses only the built-in formats `css/variables` (with `outputReferences: true`) and `json/flat`. The group `web` is not used, because it writes `0.5rem` as `0.5px` in `json/flat`.
 
 | Config | Source | Selector | Outputs |
 | :--- | :--- | :--- | :--- |
@@ -42,16 +42,14 @@ A page selects its theme with the CSS files: `tokens-light.css` on `:root`, `tok
 
 ### Install Style Dictionary
 
-The devcontainer image holds `style-dictionary` on `PATH`. `src/devops_cli/tools_lock/style-dictionary/` holds the lock, and `[npm.style-dictionary]` is an entry of `tools.lock`, so the `audit` row of `devops ci` audits it and `devops install-tools` installs it. On another host, install the lock and give the program to `make`:
+Style Dictionary is a devDependency of `package.json`, and `package-lock.json` pins it with each package that it needs (#6409). The `audit` row of `devops ci` audits that lockfile. `npm ci --ignore-scripts` at the root of the checkout installs it into `node_modules/.bin`, and `make` calls it from there, so a `style-dictionary` on `PATH`, such as the one of the devtools image, has no effect on the build. The devcontainer runs `npm ci --ignore-scripts` at post-create. In a new worktree or on another host, run:
 
 ```bash
-devops install-tools --tool style-dictionary
+npm ci --ignore-scripts
 make design-tokens
 ```
 
-`devops install-tools` links `style-dictionary` into `$HOME/.local/bin`, so `make` finds it when that directory is on `PATH`.
-
-Renovate proposes each new release of Style Dictionary, a minor or a patch in the `tools` group and a major in a pull request of its own, and the CI job "Design Tokens" fails when the release changes an output (#4777).
+Renovate's npm manager proposes each new release of Style Dictionary, and the CI job "Design Tokens" fails when the release changes an output (#4777).
 
 ### Read the tokens in Python
 

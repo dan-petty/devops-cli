@@ -3,6 +3,7 @@ reports for each tree the real tool was recorded over (#1844)."""
 
 from __future__ import annotations
 
+import json
 import shlex
 import shutil
 from collections.abc import Callable
@@ -15,13 +16,15 @@ from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER, CONST_OP
 from devops_cli.exceptions import DependencyError
 from devops_cli.openspec import gate
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.openspec import OpenSpecFake
+from tests.support.paths import REPO_ROOT
 
 Cli = Callable[..., Any]
 
-INSTALL_COMMAND = "uv run devops install-tools --tool openspec --only-missing"
-# A release of OpenSpec other than the one the tools lock pins.
+INSTALL_COMMAND = "npm ci --ignore-scripts"
+# The key of OpenSpec in the `packages` of a `package-lock.json`.
+LOCKED_PACKAGE = "node_modules/@fission-ai/openspec"
+# A release of OpenSpec other than the one the lockfile pins.
 OLDER_VERSION = "1.14.3"
 # The commands the gate runs over a tree with no change and no spec, in order: the isolated
 # configuration, the version of the command on PATH, the change list, the two validations, the
@@ -172,8 +175,25 @@ def test_a_missing_openspec_names_the_command_that_installs_it(
 
 
 def _locked_version() -> str:
-    """The version of OpenSpec that the tools lock pins."""
-    return load_tools_lock().npm["openspec"].version
+    """The version of OpenSpec that the `package-lock.json` of the repository pins."""
+    lock = json.loads((REPO_ROOT / "package-lock.json").read_text(encoding="utf-8"))
+    return str(lock["packages"][LOCKED_PACKAGE]["version"])
+
+
+def _pin_in_lockfile(tree: Path, version: str) -> None:
+    """Make the `package-lock.json` of `tree` pin OpenSpec at `version`."""
+    lockfile = tree / "package-lock.json"
+    lock = json.loads(lockfile.read_text(encoding="utf-8"))
+    lock["packages"][LOCKED_PACKAGE]["version"] = version
+    lockfile.write_text(json.dumps(lock), encoding="utf-8")
+
+
+def _npm_installed_openspec(tree: Path) -> Path:
+    """The `openspec` that `npm ci --ignore-scripts` links into `node_modules/.bin` of `tree`."""
+    program = tree / "node_modules" / ".bin" / "openspec"
+    program.parent.mkdir(parents=True)
+    program.write_text("#!/usr/bin/env node\n", encoding="utf-8")
+    return program
 
 
 def test_the_gate_names_the_version_the_binary_prints(openspec_fake: OpenSpecFake) -> None:
@@ -223,6 +243,74 @@ def test_the_gate_reports_a_binary_that_prints_no_version(openspec_fake: OpenSpe
         str(openspec_fake.bin_dir / "openspec") in finding.detail,
         INSTALL_COMMAND in finding.detail,
     ) == (GateCheck.VERSION, True, True)
+
+
+def test_the_gate_compares_with_the_lockfile_of_the_checkout(openspec_fake: OpenSpecFake) -> None:
+    """The `package-lock.json` of the checkout is the pin, so a binary at the version of an older
+    pin fails when the lockfile moves, and the finding names both versions."""
+    tree = openspec_fake.tree("empty")
+    openspec_fake.version = _locked_version()
+    _pin_in_lockfile(tree, "9.9.9")
+
+    [finding] = check_openspec(tree)
+
+    assert (
+        finding.check,
+        _locked_version() in finding.detail,
+        "9.9.9" in finding.detail,
+        "package-lock.json" in finding.detail,
+        INSTALL_COMMAND in finding.detail,
+        [call.argv for call in openspec_fake.calls if call.argv[0] == "update"],
+    ) == (GateCheck.VERSION, True, True, True, True, [])
+
+
+def test_a_checkout_whose_lockfile_pins_no_openspec_fails_the_version_check(
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """With no `package-lock.json`, nothing says which OpenSpec writes the skills, so the gate
+    names the lockfile and the package and runs no other check."""
+    tree = openspec_fake.tree("empty")
+    (tree / "package-lock.json").unlink()
+
+    [finding] = check_openspec(tree)
+
+    assert (
+        finding.check,
+        "package-lock.json" in finding.detail,
+        "@fission-ai/openspec" in finding.detail,
+        [call.argv for call in openspec_fake.calls if call.argv[0] == "update"],
+    ) == (GateCheck.VERSION, True, True, [])
+
+
+def test_the_gate_runs_the_openspec_that_npm_installed_in_the_checkout(
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """`node_modules/.bin/openspec` of the checkout runs every command, so an `openspec` on PATH,
+    such as the one of the devtools image, has no effect on the gate: here PATH holds none."""
+    tree = openspec_fake.tree("empty")
+    program = _npm_installed_openspec(tree)
+    openspec_fake.installed = False
+
+    findings = check_openspec(tree)
+
+    assert (findings, {call.program for call in openspec_fake.calls}) == ([], {str(program)})
+
+
+def test_a_version_finding_names_the_openspec_that_npm_installed(
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """The version finding names the path of the binary that the gate ran."""
+    tree = openspec_fake.tree("empty")
+    program = _npm_installed_openspec(tree)
+    openspec_fake.version = OLDER_VERSION
+
+    [finding] = check_openspec(tree)
+
+    assert (
+        finding.check,
+        str(program) in finding.detail,
+        str(openspec_fake.bin_dir / "openspec") in finding.detail,
+    ) == (GateCheck.VERSION, True, False)
 
 
 @pytest.mark.parametrize(

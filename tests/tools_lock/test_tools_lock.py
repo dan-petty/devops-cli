@@ -119,23 +119,23 @@ def test_every_node_lockfile_is_version_3_with_a_sha512_for_each_registry_packag
             or urlsplit(str(entry.get("resolved"))).hostname != "registry.npmjs.org"
             or entry.get("hasInstallScript")
         ],
-    ) == ({"openspec": 3, "devcontainers-cli": 3, "style-dictionary": 3}, True, [])
+    ) == ({"devcontainers-cli": 3}, True, [])
 
 
 def test_a_node_tools_command_is_the_link_npm_makes_in_its_version_directory(
     isolate_user_data_root: Path,
 ) -> None:
     """`npm ci` links each `bin` of its packages into `node_modules/.bin`."""
-    openspec = load_tools_lock().npm["openspec"]
+    node_tool = load_tools_lock().npm["devcontainers-cli"]
 
-    assert installed_commands("openspec", openspec) == {
-        "openspec": isolate_user_data_root
+    assert installed_commands("devcontainers-cli", node_tool) == {
+        "devcontainer": isolate_user_data_root
         / "tools"
-        / "openspec"
-        / openspec.version
+        / "devcontainers-cli"
+        / node_tool.version
         / "node_modules"
         / ".bin"
-        / "openspec"
+        / "devcontainer"
     }
 
 
@@ -146,7 +146,7 @@ def test_the_digest_covers_each_node_tools_package_files(tmp_path: Path, filenam
     copy = tmp_path / "lock"
     shutil.copytree(LOCK_DIR, copy)
     before = tools_lock_digest(copy)
-    changed = copy / "openspec" / filename
+    changed = copy / "devcontainers-cli" / filename
     changed.write_text(changed.read_text(encoding="utf-8") + " ", encoding="utf-8")
 
     assert (before == tools_lock_digest(), tools_lock_digest(copy) != before) == (True, True)

@@ -78,11 +78,13 @@ def test_every_command_of_the_audit_check_has_a_reading() -> None:
         assert audit_verdict(audit_cmd, 1, "") in {AuditVerdict.VULNERABLE, AuditVerdict.NOT_RUN}
 
 
-_OPENSPEC_LOCK = "src/devops_cli/tools_lock/openspec/package-lock.json"
+# The lockfile at the root of the repository, which pins OpenSpec (#6409): its audit runs with
+# `--prefix .`, and an ignore names it by its path from the root.
+_ROOT_LOCK = "package-lock.json"
 # The ignore file that `devops ci audit` reads from the project root (#6204).
 _IGNORE_FILE = ".npm-audit-ignore.yaml"
 _PICOMATCH = "GHSA-fc5q-39xc-vjpf"
-_NPM_AUDIT_OPENSPEC = [*_NPM_AUDIT, "--prefix", "src/devops_cli/tools_lock/openspec"]
+_NPM_AUDIT_ROOT = [*_NPM_AUDIT, "--prefix", "."]
 
 
 def test_npm_audit_passes_when_every_advisory_of_the_report_is_ignored() -> None:
@@ -111,15 +113,15 @@ def _gate_run(
     (tmp_path / _IGNORE_FILE).write_text(
         "vulnerabilities:\n"
         f"  - id: {_PICOMATCH}\n"
-        f"    paths: [{_OPENSPEC_LOCK}]\n"
+        f"    paths: [{_ROOT_LOCK}]\n"
         "    statement: picomatch ReDoS, no released fix (#6202)\n"
         "    expired_at: 2026-11-20\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(ci, "_get_project_root", lambda: tmp_path)
     monkeypatch.setattr(ci, "_audit_today", lambda: today)
-    run = subprocess.CompletedProcess(_NPM_AUDIT_OPENSPEC, 1, _recorded("picomatch_redos"), "")
-    return ci._with_audit_failure_line(_NPM_AUDIT_OPENSPEC, run)
+    run = subprocess.CompletedProcess(_NPM_AUDIT_ROOT, 1, _recorded("picomatch_redos"), "")
+    return ci._with_audit_failure_line(_NPM_AUDIT_ROOT, run)
 
 
 def test_the_gate_passes_an_ignored_report_and_names_the_ignore(

@@ -48,3 +48,5 @@ The merge of the pull request that adds this record is the approval of this reco
 2026-11-12: Fact out of date: the docs site builds with Zensical, not Jekyll (#5183).
 
 2026-11-18: Fact out of date: the Style Dictionary lock is an entry of `tools.lock`, and `npm audit` of it is clean (#4777).
+
+2026-11-20: Fact out of date: Style Dictionary is a devDependency of the root package.json, which package-lock.json pins; the tool lock folder is gone (#6409).

@@ -648,7 +648,8 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
         {"node-version-file": ".node-version"},
         [
             'echo "$HOME/.local/bin" >> "$GITHUB_PATH"',
-            "uv run devops install-tools --tool openspec --only-missing",
+            'echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"',
+            "npm ci --ignore-scripts",
             "uv run devops install-tools --tool gitleaks --only-missing",
             "uv run devops install-tools --tool osv-scanner --only-missing",
             "uv run devops install-tools --tool semgrep --only-missing",
@@ -670,7 +671,8 @@ def test_copilot_setup_steps_installs_the_pinned_openspec_with_the_opt_outs() ->
 PATHS_FILTER = "dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"
 DESIGN_FILTER = [
     "design/**",
-    "src/devops_cli/tools_lock/style-dictionary/**",
+    "package.json",
+    "package-lock.json",
     "src/devops_cli/design/**",
     "docs/assets/css/**",
     "k8s/monitoring/dashboards/**",
