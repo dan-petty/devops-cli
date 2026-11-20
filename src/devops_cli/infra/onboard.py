@@ -258,8 +258,6 @@ def _tool_row(facts: _Facts) -> OnboardRow:
     tool = facts.tool
     if not tool.installed:
         return _row(texts.check_tool, _MISSING, texts.tool_missing, texts.tool_step)
-    if tool.version is not None:
-        return _row(texts.check_tool, _PRESENT, texts.tool_version.format(version=tool.version))
     return _row(texts.check_tool, _PRESENT, texts.tool_on_path.format(folder=tool.bin_dir))
 
 

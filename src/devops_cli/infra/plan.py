@@ -616,7 +616,6 @@ def _run(
         limit=request.limit,
         host_pattern=pattern,
         tags=request.tags,
-        ansible_core=tool.version,
         inventory_hash=inventory_hash(inventory),
         status=status,
         error=error,

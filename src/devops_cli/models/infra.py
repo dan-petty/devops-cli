@@ -240,10 +240,6 @@ class PlanContent(BaseModel):
         "of hosts out of service"
     )
     tags: str | None = Field(description="The --tags that the caller gave; none for all tasks")
-    ansible_core: str | None = Field(
-        description="The ansible-core version of the tool environment; none when it is not the "
-        "pinned install"
-    )
     inventory_hash: str = Field(
         description="The SHA-256 of the inventory listing, with its groups and raw host variables"
     )

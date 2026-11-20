@@ -195,7 +195,7 @@ def ping_env(tool: AnsibleTool) -> dict[str, str]:
     finds `ansible`, and host key checks on."""
     path = os.environ.get("PATH", "")
     return {
-        "PATH": os.pathsep.join(filter(None, (str(tool.bin_dir), path))),
+        "PATH": os.pathsep.join(filter(None, (str(tool.bin_dir or ""), path))),
         "ANSIBLE_HOST_KEY_CHECKING": "True",
     }
 

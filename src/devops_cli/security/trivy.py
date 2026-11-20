@@ -223,7 +223,7 @@ class TrivyScanner(BaseSecurityScanner):
 class TrivyConfigScanner(TrivyScanner):
     """Trivy's misconfiguration scan, `trivy config`, of the IaC files of the target: Dockerfiles,
     Kubernetes manifests, Helm charts, Terraform, CloudFormation, Azure ARM templates and Ansible
-    (#2214). It runs the Trivy that `tools.lock` pins with the checks bundle of Trivy."""
+    (#2214). It runs the Trivy on PATH with the checks bundle of Trivy (#4362)."""
 
     name: str = "trivy-config"
     scan_type: ClassVar[str] = CONST_TRIVY_CONFIG_SCAN_TYPE

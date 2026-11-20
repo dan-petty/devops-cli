@@ -1,5 +1,5 @@
-"""Kubeconform, the Kubernetes manifest validator against the JSON schemas, which `tools.lock` pins
-(#2214)."""
+"""Kubeconform, the Kubernetes manifest validator against the JSON schemas, found on PATH (#2214,
+#4362)."""
 
 from __future__ import annotations
 

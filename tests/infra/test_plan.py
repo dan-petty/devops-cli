@@ -378,7 +378,6 @@ def _content(tmp_path: Path, **changes: Any) -> PlanContent:
         "limit": "node-3.example.com",
         "host_pattern": "node-3.example.com:!offline",
         "tags": None,
-        "ansible_core": "2.22.0",
         "inventory_hash": "b" * 64,
         "status": PlanStatus.OK,
         "hosts": hosts,
