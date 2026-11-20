@@ -755,10 +755,10 @@ class TestDevcontainerCli:
         assert "Installed standalone claude CLI into $HOME/.local/bin" in result.output
         assert "Warning: Failed to install standalone claude CLI" not in result.output
 
-    def test_init_scaffolds_claude_extension_and_feature(
+    def test_init_with_an_image_adds_the_claude_extension_and_no_feature(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """Verify devcontainer init scaffolds claude extension and devcontainer feature."""
+        """An image that --image names owns its tools, so the scaffold adds no Feature."""
         result = runner.invoke(
             app, ["init", str(tmp_path), "--name", "claude-test", "--image", "python:3.14"]
         )
@@ -771,14 +771,13 @@ class TestDevcontainerCli:
         antigravity_exts = (
             dc_data.get("customizations", {}).get("antigravity", {}).get("extensions", [])
         )
-        features = dc_data.get("features", {})
 
         assert (
+            dc_data["image"],
             "anthropic.claude-code" in vscode_exts,
             "anthropic.claude-code" in antigravity_exts,
-            "ghcr.io/devcontainers/features/node:1" in features,
-            "ghcr.io/anthropics/devcontainer-features/claude-code:1" in features,
-        ) == (True, True, True, True)
+            "features" in dc_data,
+        ) == ("python:3.14", True, True, False)
 
     @pytest.mark.usefixtures("image_programs_installed", "no_configured_k8s_context")
     def test_run_lifecycle_command_executes_hooks(

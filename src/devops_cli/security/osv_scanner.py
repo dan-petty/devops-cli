@@ -1,6 +1,6 @@
 """Google OSV-Scanner dependency vulnerability and SBOM scanner integration (#1146).
 
-Runs osv-scanner 2.6.0 over lockfiles offline with a separately fetched database
+Runs osv-scanner over lockfiles offline with a separately fetched database
 snapshot (24 h TTL). Produces findings with AdvisoryAnchor and CycloneDX 1.5 inventory.
 """
 
@@ -100,7 +100,7 @@ def _compute_dir_snapshot_digest(base: Path) -> str:
         pass
 
     if not has_files:
-        h.update(b"osv-scanner-offline-v2.6.0")
+        h.update(b"osv-scanner-offline-empty-database")
     return f"sha256:{h.hexdigest()}"
 
 
@@ -210,7 +210,7 @@ def parse_osv_scanner_output(
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
         "version": 1,
-        "metadata": {"tools": [{"vendor": "Google", "name": "osv-scanner", "version": "2.6.0"}]},
+        "metadata": {"tools": [{"vendor": "Google", "name": "osv-scanner"}]},
         "components": components,
     }
     return findings, cyclonedx_inventory, locked_packages

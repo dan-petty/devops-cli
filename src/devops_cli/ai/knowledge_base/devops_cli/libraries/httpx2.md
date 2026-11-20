@@ -17,7 +17,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [github.com/pydantic/httpx2](https://github.com/pydantic/httpx2) |
 | **Public Git Repository** | [github.com/pydantic/httpx2](https://github.com/pydantic/httpx2) |
-| **Official PyPI Package** | [pypi.org/project/httpx2](https://pypi.org/project/httpx2/) (`2.13.0`) |
+| **Official PyPI Package** | [pypi.org/project/httpx2](https://pypi.org/project/httpx2/) |
 | **DevOps CLI Integration** | [`src/devops_cli/http/entry.py`](../../../../../../src/devops_cli/http/entry.py) • [`src/devops_cli/server/`](../../../../../../src/devops_cli/server/) |
 
 ---
@@ -29,7 +29,7 @@ tags:
 In `devops-cli`:
 - **LLM Inference Backbone**: Powers `devops_cli.ai.client.unified.LLMClient` for high-throughput streaming completions to Ollama, Claude, OpenAI-compatible, Copilot, and LLM gateway endpoints.
 - **HTTP/2 Multiplexing**: Allows multiple concurrent AI review queries to reuse a single persistent TCP connection.
-- **Verified Dependency**: A secure, verified Pydantic library (`httpx2==2.16.0`) — AI security scanners are instructed not to confuse it with typosquatting or hallucinated alerts.
+- **Verified Dependency**: A secure, verified Pydantic library (`httpx2`; `pyproject.toml` and `uv.lock` own the version) — AI security scanners are instructed not to confuse it with typosquatting or hallucinated alerts.
 
 ---
 

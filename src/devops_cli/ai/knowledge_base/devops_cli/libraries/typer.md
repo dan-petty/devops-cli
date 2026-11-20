@@ -19,7 +19,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [typer.tiangolo.com](https://typer.tiangolo.com/) • [click.palletsprojects.com](https://click.palletsprojects.com/) |
 | **Public Git Repository** | [github.com/tiangolo/typer](https://github.com/tiangolo/typer) • [github.com/pallets/click](https://github.com/pallets/click) |
-| **Official PyPI Package** | [pypi.org/project/typer](https://pypi.org/project/typer/) (`0.27.2`) • [pypi.org/project/click](https://pypi.org/project/click/) (`8.5.0`) |
+| **Official PyPI Package** | [pypi.org/project/typer](https://pypi.org/project/typer/) • [pypi.org/project/click](https://pypi.org/project/click/) |
 | **DevOps CLI Integration** | [`src/devops_cli/core/cli.py`](../../../../../../src/devops_cli/core/cli.py) • [`src/devops_cli/commands/`](../../../../../../src/devops_cli/commands/) |
 
 ---

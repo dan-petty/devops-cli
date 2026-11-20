@@ -18,7 +18,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [packaging.pypa.io](https://packaging.pypa.io/) |
 | **Public Git Repository** | [github.com/pypa/packaging](https://github.com/pypa/packaging) |
-| **Official PyPI Package** | [pypi.org/project/packaging](https://pypi.org/project/packaging/) (`26.3`) |
+| **Official PyPI Package** | [pypi.org/project/packaging](https://pypi.org/project/packaging/) |
 | **DevOps CLI Integration** | [`src/devops_cli/ai/kb.py`](../../../kb.py) |
 
 ---

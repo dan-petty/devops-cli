@@ -18,7 +18,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [docker-py.readthedocs.io](https://docker-py.readthedocs.io/) |
 | **Public Git Repository** | [github.com/docker/docker-py](https://github.com/docker/docker-py) |
-| **Official PyPI Package** | [pypi.org/project/docker](https://pypi.org/project/docker/) (`7.2.0`) |
+| **Official PyPI Package** | [pypi.org/project/docker](https://pypi.org/project/docker/) |
 | **DevOps CLI Integration** | [`src/devops_cli/commands/docker.py`](../../../../../../src/devops_cli/commands/docker.py) • [`src/devops_cli/docker/`](../../../../../../src/devops_cli/docker/) |
 
 ---

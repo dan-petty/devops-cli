@@ -11,6 +11,8 @@ This technical reference manual provides a comprehensive, deep-dive architectura
 2. **Development & Quality Tooling (`dependency-groups.dev`)**: High-speed testing, coverage validation, static typing, and AST security scanners enforcing the `devops ci` quality gate.
 3. **Build Backend (`build-system`)**: Standard PEP 517 build system for reproducible wheel generation via `hatchling`.
 
+`pyproject.toml` and `uv.lock` own the version of each package, and Renovate changes them. This manual names no version. To find the version of a package, read `uv.lock`.
+
 ```mermaid
 graph TD
     subgraph "Core CLI & Terminal UI"
@@ -54,7 +56,6 @@ graph TD
 ### 1. CLI & Terminal Interface
 
 #### `typer` & `click` ([Dedicated Manual](libraries/typer.md))
-- **Pinned Versions**: `typer==0.28.0`, `click==8.5.1`
 - **Ecosystem Role**: Provides declarative CLI application scaffolding, subcommand dispatching, argument/option parsing, shell autocompletion, and type inference.
 - **Codebase Integration**:
   - `devops_cli.core.cli.new_typer`: Factory creating standardized Typer apps with unified formatting, error handlers, and help text from `devops_cli.lang.HELP`.
@@ -77,7 +78,6 @@ def run_command(
 ```
 
 #### `rich` ([Dedicated Manual](libraries/rich.md))
-- **Pinned Version**: `rich==15.0.0`
 - **Ecosystem Role**: Terminal rendering engine providing colorized output, syntax highlighting, formatted tables, animated spinners, status displays, and progress bars.
 - **Codebase Integration**:
   - `devops_cli.output`: Centralized console abstractions (`print_table`, `print_success`, `print_error`, `print_info`, `print_warning`, `print_muted`).
@@ -88,7 +88,6 @@ def run_command(
 ### 2. Data Validation, Settings & Secrets
 
 #### `pydantic` (v2) ([Dedicated Manual](libraries/pydantic.md))
-- **Pinned Version**: `pydantic==2.14.3`
 - **Ecosystem Role**: High-performance data validation, parsing, serialization, and JSON Schema generation using compiled Rust core (`pydantic-core`).
 - **Codebase Integration**:
   - Domain models (`devops_cli.models`), review findings (`devops_cli.ai.review_schema.Finding`), tool schemas, and AI agent outputs inherit from `BaseModel`.
@@ -100,13 +99,11 @@ from devops_cli.ai.review_schema import Finding
 ```
 
 #### `pydantic-settings` ([Dedicated Manual](libraries/pydantic.md))
-- **Pinned Version**: `pydantic-settings==2.16.2`
 - **Ecosystem Role**: Layered configuration management loading settings from environment variables, `.env` files, TOML/JSON configs, and CLI overrides.
 - **Codebase Integration**:
   - `devops_cli.config.settings.Settings`: Unified singleton loading application configuration with prefix `DEVOPS_CLI_` and automatic type coercion.
 
 #### `keyring` ([Dedicated Manual](libraries/keyring.md))
-- **Pinned Version**: `keyring==25.7.0`
 - **Ecosystem Role**: Zero-trust credential security interface integrating with native OS vaults (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows).
 - **Codebase Integration**:
   - `devops_cli.config.settings` (keyring helpers) and `devops_cli.security.secrets` (provider chain): Securely retrieves and stores GitHub Personal Access Tokens, LLM API keys, and sensitive credentials without storing plaintext in files or environment variables.
@@ -116,39 +113,33 @@ from devops_cli.ai.review_schema import Finding
 ### 3. Agentic AI, LLM Client & Semantic Search
 
 #### `pydantic-ai` ([Dedicated Manual](libraries/pydantic_ai.md))
-- **Pinned Version**: `pydantic-ai==2.59.0`
 - **Ecosystem Role**: Multi-agent framework enabling type-safe tool execution, dynamic instructions, structured output validation, model overrides, and sub-agent delegation.
 - **Codebase Integration**:
   - `devops_cli.ai.client.factory.build_agent`: Unified factory constructing native Pydantic AI `Agent` instances with spend tracking hooks and capability integration.
   - `pydantic_ai.mcp.MCPToolset`: Pydantic AI's own client for an external Model Context Protocol server. devops-cli wires no outbound MCP client today; see the manual for the pattern.
 
 #### `httpx2` (Pydantic HTTP/2 Client) ([Dedicated Manual](libraries/httpx2.md))
-- **Pinned Version**: `httpx2==2.16.0`
 - **Ecosystem Role**: Advanced HTTP/2 and HTTP/1.1 client supporting connection pooling, asynchronous streaming, mTLS, and multiplexed requests.
 - **Codebase Integration**:
   - `devops_cli.ai.client.unified.LLMClient`: Executes high-throughput streaming requests to LLM inference endpoints (Ollama, Claude, OpenAI-compatible, Copilot, the LLM gateway) with bounded timeouts and TLS verification.
 
 #### `tiktoken` ([Dedicated Manual](libraries/tiktoken.md))
-- **Pinned Version**: `tiktoken==0.14.0`
 - **Ecosystem Role**: Fast BPE (Byte-Pair Encoding) tokenizer developed by OpenAI for token counting and context window management.
 - **Codebase Integration**:
   - `devops_cli.ai.context_budget`: Accurately counts tokens in diffs, prompts, and knowledge base files, preventing LLM context window overflows and optimizing cost.
 
 #### `pydantic-ai-harness` ([Dedicated Manual](libraries/pydantic_ai_harness.md))
-- **Pinned Version**: `pydantic-ai-harness[coder]==0.59.0`
 - **Ecosystem Role**: Capabilities for pydantic-ai agents. `Coder` gives an agent the file and shell tools of a coding agent.
 - **Codebase Integration**:
   - `devops_cli.roadmap.implement.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement --group`).
   - `devops_cli.roadmap.implement.implement_run`: Runs the steps of a staged item to a ready pull request (`devops roadmap implement`), in a runner pod only.
 
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
-- **Pinned Version**: `json-repair==0.64.9`
 - **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.
 - **Codebase Integration**:
   - `devops_cli.ai.response_repair` & `devops_cli.ai.client.structured`: Automatically repairs and parses structured model outputs without crashing when tokens are abruptly truncated.
 
 #### `qdrant-client` ([Dedicated Manual](libraries/qdrant_client.md))
-- **Pinned Version**: `qdrant-client==1.20.0`
 - **Ecosystem Role**: Vector database client supporting in-memory, local on-disk storage, and remote server connectivity for dense embeddings.
 - **Codebase Integration**:
   - `devops_cli.ai.rag.qdrant`, `.indexer` and `.retriever`: Manages vector collections, cosine distance indexing, and semantic search retrieval to ground AI code reviews against knowledge base manuals.
@@ -158,33 +149,28 @@ from devops_cli.ai.review_schema import Finding
 ### 4. Git, GitHub & DevSecOps Subsystems
 
 #### `gidgethub`
-- **Pinned Version**: `gidgethub==6.0.0`
 - **Ecosystem Role**: Sans-I/O GitHub REST client. It builds each request and decodes each answer. It sends nothing itself.
 - **Codebase Integration**:
   - `devops_cli.github.session` and `devops_cli.github.session_transport`: Send every REST request as the one identity of the process, read every `Link` page, and raise the typed GitHub errors. See ADR 0006.
   - `devops_cli.github.client`: Reads pull requests, the files, the merge base and the diff of a compare of two commits, files at a commit and repositories through the session. It posts review comments through the session.
 
 #### `cryptography` ([Dedicated Manual](libraries/cryptography.md))
-- **Pinned Version**: `cryptography==50.0.2`
 - **Ecosystem Role**: Industry-standard cryptographic library providing X.509 certificate generation, RSA/Ed25519 keypair creation, CSR signing, and TLS encryption.
 - **Codebase Integration**:
   - `devops_cli.crypto.tls_certificates`: Automatically generates root Certificate Authorities, server certificates with SAN (Subject Alternative Names), and exports PEM/CRT bundles.
   - `devops_cli.commands.ssh`: Generates and rotates Ed25519 SSH keys with 90-day expiry naming conventions.
 
 #### `tldextract` ([Dedicated Manual](libraries/tldextract.md))
-- **Pinned Version**: `tldextract==5.4.0`
 - **Ecosystem Role**: Accurately separates domain subtotals using the Public Suffix List (PSL).
 - **Codebase Integration**:
   - `devops_cli.security.reference_extractor`: Parses hosts from URLs and IP literals referenced in code (never bare words) for threat-intel lookups.
 
 #### `pathspec` ([Dedicated Manual](libraries/pathspec.md))
-- **Pinned Version**: `pathspec==1.1.1`
 - **Ecosystem Role**: Fast pattern matching utility implementing `.gitignore` style globbing rules.
 - **Codebase Integration**:
   - `devops_cli.core.gitignore` & `devops_cli.core.repo`: compile `.gitignore` patterns with `PathSpec.from_lines("gitignore", ...)` so ignored files are excluded from scans and review passes.
 
 #### `packaging` ([Dedicated Manual](libraries/packaging.md))
-- **Pinned Version**: `packaging==26.3`
 - **Ecosystem Role**: Core packaging utilities for parsing Semantic Versioning (SemVer 2.0.0) and PEP 440 specification rules.
 - **Codebase Integration**:
   - `devops_cli.core.validation`: Validates version strings and specifiers (PEP 440 / SemVer).
@@ -194,49 +180,41 @@ from devops_cli.ai.review_schema import Finding
 ### 5. Kubernetes, Containers, Observability & Services
 
 #### `kubernetes` ([Dedicated Manual](libraries/kubernetes.md))
-- **Pinned Version**: `kubernetes==36.0.3`
 - **Ecosystem Role**: Official Python client for the Kubernetes API (CoreV1Api, AppsV1Api, CustomObjectsApi).
 - **Codebase Integration**:
   - `devops_cli.commands.k8s`: Inspects cluster nodes, queries running pods, streams container logs, creates TLS secrets, and executes in-cluster diagnostics.
 
 #### `docker` ([Dedicated Manual](libraries/docker.md))
-- **Pinned Version**: `docker==7.2.0`
 - **Ecosystem Role**: Docker SDK for Python interacting with the Docker Engine daemon over Unix sockets or TCP.
 - **Codebase Integration**:
   - `devops_cli.commands.docker`: Collects real-time container CPU/memory statistics, checks container health, and inspects image layers.
 
 #### `fastmcp` ([Dedicated Manual](libraries/fastmcp.md))
-- **Pinned Version**: `fastmcp==4.1.8`
 - **Ecosystem Role**: High-level Model Context Protocol (MCP) server framework exposing Python functions as standardized tools and prompts.
 - **Codebase Integration**:
   - `devops_cli.ai.mcp.server`: Exposes `devops-cli` tools (`review_path`, `k8s_pods`, `tf_plan`, `scan_uv_audit`, `security_intel_package`) to AI assistants via stdio and SSE transports.
 
 #### `fastapi` & `uvicorn` ([Dedicated Manual](libraries/fastapi_uvicorn.md))
-- **Pinned Versions**: `fastapi==0.162.5`, `uvicorn==0.54.0`
 - **Ecosystem Role**: Asynchronous web framework and lightning-fast ASGI server for building high-performance REST APIs with auto-generated OpenAPI documentation.
 - **Codebase Integration**:
   - `devops_cli.server`: Powers `devops serve`, providing REST endpoints for health probes (`/health`, `/healthz`), Prometheus metrics (`/metrics`), status, workspaces, config and telemetry.
 
 #### `opentelemetry-sdk` ([Dedicated Manual](libraries/opentelemetry.md))
-- **Pinned Version**: `opentelemetry-sdk==1.45.2`
 - **Ecosystem Role**: The OpenTelemetry SDK: the `MeterProvider` that aggregates metrics as deltas before export.
 - **Codebase Integration**:
   - `devops_cli.telemetry.tracer`: Builds the spans, metrics and logs of CLI subcommands, multi-agent review stages and tool executions; `devops_cli.telemetry.exporter` posts them over OTLP/HTTP to the OpenTelemetry Collector.
 
 #### `PyYAML` & `jinja2` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
-- **Pinned Versions**: `PyYAML==6.0.3`, `jinja2==3.1.6`
 - **Ecosystem Role**: YAML parsing/serialization and expressive text templating engine.
 - **Codebase Integration**:
   - `devops_cli.commands.k8s` & `devops_cli.commands.devcontainer`: Dynamically renders DevContainer configurations, ArgoCD manifests, and Helm values files.
 
 #### `ruamel.yaml` ([Dedicated Manual](libraries/pyyaml_jinja2.md))
-- **Pinned Version**: `ruamel.yaml==0.19.1`
 - **Ecosystem Role**: YAML round-trip editing that keeps the comments, the order of the keys, the quotes and the unknown keys of a file.
 - **Codebase Integration**:
   - `devops_cli.config.round_trip`: `save_settings` edits `config.yaml` in place and writes only the keys whose values changed (#1999).
 
 #### `tomlkit`
-- **Pinned Version**: `tomlkit==0.15.2`
 - **Ecosystem Role**: TOML round-trip editing that keeps the comments and the order of the keys of a file. The standard library `tomllib` only reads TOML.
 - **Codebase Integration**:
   - `devops_cli.roadmap.implement.implement_strength`: the mutation run of the strength check adds the scoped test modules to `pytest_add_cli_args_test_selection` of `[tool.mutmut]` in `pyproject.toml`, and writes the bytes of the file back after the run (#5887).
@@ -247,22 +225,21 @@ from devops_cli.ai.review_schema import Finding
 
 The development environment leverages modern Python engineering tools managed via Astral `uv`:
 
-| Tool | Pinned Version | Quality Gate Role | Execution Command |
-| :--- | :--- | :--- | :--- |
-| **`ruff`** | `0.17.4` | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
-| **`mypy`** | `2.4.1` | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
-| **`ty`** | `0.0.101` | Type checker that `uv check` runs. The `dev` group pins it, and `uv check` uses the version in `uv.lock`, so a new release cannot fail `main` with no change in the repository. | `uv check` |
-| **`pytest`** | `9.2.0` | Comprehensive unit and integration test runner. | `uv run pytest` |
-| **`pytest-asyncio`** | `1.4.1.post1` | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
-| **`pytest-mock`** | `3.17.0` | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
-| **`pytest-cov`** | `7.1.0` | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
-| **`pytest-xdist`** | `3.8.0` | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
-| **`pytest-randomly`** | `5.1.0` | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
-| **`pytest-timeout`** | `2.4.0` | Fails a test that hangs at the per-test bound in `[tool.pytest.ini_options]` (`timeout`, `timeout_method = "signal"`), so a stuck test fails in its own process and the run carries on. | `@pytest.mark.timeout(<seconds>)` for a test that needs longer |
-| **`bandit`** | `1.9.4` | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run devops ci security` (`bandit -r src` at low, `bandit -r tests` at medium, with `--ini .bandit`) |
-
-| **`pre-commit`** | `4.7.0` | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |
-| **`hatchling`** | `>=1.33.0` | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
+| Tool | Quality Gate Role | Execution Command |
+| :--- | :--- | :--- |
+| **`ruff`** | Extreme-speed linter and code formatter running the rule families selected in `pyproject.toml` `[tool.ruff.lint]`. | `uv run ruff check .` / `uv run ruff format .` |
+| **`mypy`** | Strict static type checker validating 100% type coverage with Pydantic v2 plugin. | `uv run mypy src` |
+| **`ty`** | Type checker that `uv check` runs. The `dev` group pins it, and `uv check` uses the version in `uv.lock`, so a new release cannot fail `main` with no change in the repository. | `uv check` |
+| **`pytest`** | Comprehensive unit and integration test runner. | `uv run pytest` |
+| **`pytest-asyncio`** | Asyncio fixture and test execution plugin for asynchronous tool loops. | Included in pytest suite |
+| **`pytest-mock`** | Thin wrapper around standard library `unittest.mock` for clean fixture patching. | Included in pytest suite |
+| **`pytest-cov`** | Code coverage measurement enforcing strict $\ge 90\%$ minimum threshold project-wide. | `uv run pytest --cov=src` |
+| **`pytest-xdist`** | Multi-core parallel test execution distribution across worker subprocesses. | `uv run pytest -n auto` |
+| **`pytest-randomly`** | Shuffles test order and reseeds `random` for each test; blocked in `addopts` (`-p no:randomly`) and enabled only by `devops ci test --repeat`. | `uv run devops ci test --repeat 3 <test files>` |
+| **`pytest-timeout`** | Fails a test that hangs at the per-test bound in `[tool.pytest.ini_options]` (`timeout`, `timeout_method = "signal"`), so a stuck test fails in its own process and the run carries on. | `@pytest.mark.timeout(<seconds>)` for a test that needs longer |
+| **`bandit`** | AST-based Python security analyzer detecting insecure patterns (CWE checks). | `uv run devops ci security` (`bandit -r src` at low, `bandit -r tests` at medium, with `--ini .bandit`) |
+| **`pre-commit`** | Multi-hook manager orchestrating git commit quality gates. | `uv run pre-commit run --all-files` |
+| **`hatchling`** | Build backend complying with PEP 517 / PEP 621 for wheel generation. | `uv build` |
 
 ---
 

@@ -1047,7 +1047,7 @@ class CICommandHelp:
 
 @dataclass(frozen=True)
 class DevcontainerCommandHelp:
-    minikube: str = "Install the kubectl, helm and minikube devcontainer feature."
+    minikube: str = "Forward the ports of the services of the Minikube stack."
     app: str = "Manage devcontainer configurations."
     init: str = "Scaffold .devcontainer/ using the published DevOps CLI devcontainer image."
     update: str = "Update the Python image version in an existing devcontainer.json."

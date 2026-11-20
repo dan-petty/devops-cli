@@ -18,7 +18,7 @@ tags:
 | :--- | :--- |
 | **Official Documentation** | [rich.readthedocs.io](https://rich.readthedocs.io/) |
 | **Public Git Repository** | [github.com/Textualize/rich](https://github.com/Textualize/rich) |
-| **Official PyPI Package** | [pypi.org/project/rich](https://pypi.org/project/rich/) (`15.0.0`) |
+| **Official PyPI Package** | [pypi.org/project/rich](https://pypi.org/project/rich/) |
 | **DevOps CLI Integration** | [`src/devops_cli/output/`](../../../../../../src/devops_cli/output/) • [`src/devops_cli/output/formatters/`](../../../../../../src/devops_cli/output/formatters/) |
 
 ---

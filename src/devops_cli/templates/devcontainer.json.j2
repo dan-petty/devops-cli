@@ -2,39 +2,8 @@
   "name": {{ project_name | tojson }},
   {% if published %}
   "image": "ghcr.io/dan-petty/devops-cli/devcontainer:latest",
-  {% elif image %}
-  "image": {{ image | tojson }},
   {% else %}
-  "image": {{ ("python:" ~ python_version ~ "-trixie") | tojson }},
-  {% endif %}
-  {% if not published %}
-  "features": {
-    "ghcr.io/devcontainers/features/common-utils:2": {
-      "installZsh": "true",
-      "configureZshAsDefaultShell": "true",
-      "username": "vscode",
-      "userUid": "1000",
-      "userGid": "1000",
-      "upgradePackages": "true"
-    },
-    "ghcr.io/devcontainers/features/git:1": {},
-    "ghcr.io/devcontainers/features/docker-in-docker:2": {
-      "version": "latest",
-      "moby": false,
-      "enableNonRootDocker": true
-    }{% if minikube %},
-    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
-      "version": "latest",
-      "helm": "latest",
-      "minikube": "latest"
-    }{% endif %},
-    "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/node:1": {
-      "version": "24"
-    },
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
-  },
+  "image": {{ image | tojson }},
   {% endif %}
   "mounts": [
     "source=global-devcontainer-tmp,target=/tmp,type=volume",
@@ -67,7 +36,6 @@
     "GOTELEMETRY": "off",
     "PIP_DISABLE_PIP_VERSION_CHECK": "1",
     "npm_config_update_notifier": "false",
-    "DOCKER_CLI_HINTS": "false",
     "MINIKUBE_WANTUPDATENOTIFICATION": "false",
     "MINIKUBE_WANTREPORTERRORPROMPT": "false"
   },
@@ -123,8 +91,11 @@
         "anthropic.claude-code",
         "google.google-antigravity",
         "github.vscode-github-actions",
+        "ms-vscode.makefile-tools",
+        "golang.Go",
         "DavidAnson.vscode-markdownlint",
         "rust-lang.rust-analyzer",
+        "firefox-devtools.vscode-firefox-debug",
         "kilocode.Kilo-Code",
         "saoudrizwan.claude-dev"
       ],
@@ -177,8 +148,11 @@
         "anthropic.claude-code",
         "google.google-antigravity",
         "github.vscode-github-actions",
+        "ms-vscode.makefile-tools",
+        "golang.Go",
         "DavidAnson.vscode-markdownlint",
         "rust-lang.rust-analyzer",
+        "firefox-devtools.vscode-firefox-debug",
         "kilocode.Kilo-Code",
         "saoudrizwan.claude-dev"
       ],

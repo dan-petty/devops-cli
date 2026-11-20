@@ -172,6 +172,8 @@ def test_parse_osv_scanner_output_anchors_and_cyclonedx(tmp_path: Path) -> None:
     # CycloneDX 1.5 SBOM inventory check
     assert cdx["bomFormat"] == "CycloneDX"
     assert cdx["specVersion"] == "1.5"
+    # The adapter reads no version of the scanner that ran, so the optional field stays out.
+    assert cdx["metadata"]["tools"] == [{"vendor": "Google", "name": "osv-scanner"}]
     assert len(cdx["components"]) == 2
     comp_names = {c["name"] for c in cdx["components"]}
     assert comp_names == {"urllib3", "certifi"}
