@@ -828,11 +828,13 @@ def test_a_link_below_the_runtime_folder_does_not_move_the_token_folder(
     """A link at `<runtime folder>/devops-cli` points into a checkout. The token folder goes
     directly into the runtime folder, with no folder of devops-cli between them, so the link does
     not move it."""
+    import platformdirs
+
     runtime, checkout = tmp_path / "runtime", tmp_path / "checkout"
     runtime.mkdir(mode=0o700)
     (checkout / "sub").mkdir(parents=True)
     (runtime / "devops-cli").symlink_to(checkout / "sub", target_is_directory=True)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: runtime)
     child = _GhChild()
 
     _run_gh(child)
@@ -879,9 +881,11 @@ def test_the_root_of_the_file_system_as_the_current_folder_skips_no_candidate(
     pin_github_session: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Every folder is in the root of the file system, so it counts as no current folder."""
+    import platformdirs
+
     runtime = tmp_path / "runtime"
     runtime.mkdir(mode=0o700)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    monkeypatch.setattr(platformdirs, "user_runtime_path", lambda *_a, **_k: runtime)
     monkeypatch.chdir("/")
     child = _GhChild()
 
