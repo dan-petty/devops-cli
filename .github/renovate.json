@@ -4,7 +4,7 @@
     "github>dan-petty/devops-cli//.github/renovate/base"
   ],
   "vulnerabilityAlerts": {
-    "description": "Owner, 2026-11-16 (#6031): each security fix merges itself, major versions too, after the required checks of the ruleset main pass. GitHub auto-merge does the merge, so no check is skipped. The shared preset turns no automerge on.",
+    "description": "Owner, 2026-11-16 (#6031): each security fix merges itself, major versions too, after the required checks of the ruleset main pass. GitHub auto-merge does the merge, so no check is skipped. The shared preset merges each minor, patch and digest update after each of its checks passes (#6547); this object adds the major security fixes.",
     "automerge": true,
     "automergeType": "pr",
     "platformAutomerge": true
