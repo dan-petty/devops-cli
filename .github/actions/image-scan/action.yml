@@ -50,7 +50,8 @@ runs:
           --format sarif --output ${{ inputs.category }}.sarif ${{ inputs.image-ref }}
 
     # The SARIF goes to a file, so the log of the scan names no finding. This pass reads the cache
-    # that the scan wrote and takes less than 1 s. It only prints: the scan above is the gate.
+    # that the scan wrote and takes about 1 s. It prints a table for each binary with a finding,
+    # and no summary of the other targets. It only prints: the scan above is the gate.
     - name: Print the findings
       if: ${{ !cancelled() }}
       continue-on-error: true
@@ -58,7 +59,8 @@ runs:
       with:
         args: >-
           image --quiet --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
-          --timeout 1m --ignorefile ${{ inputs.ignore-file }} --format table ${{ inputs.image-ref }}
+          --timeout 1m --ignorefile ${{ inputs.ignore-file }} --format table --table-mode detailed
+          ${{ inputs.image-ref }}
 
     - name: Upload the SARIF to code scanning
       if: ${{ !cancelled() }}
