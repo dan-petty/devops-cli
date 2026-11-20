@@ -749,13 +749,6 @@ The five commands `devcontainer bootstrap-k8s`, `devcontainer post-create`, `dev
 - **WHEN** user executes `devops devcontainer unlock-keyring --dry-run`
 - **THEN** zero subprocesses execute and planned gnome-keyring and gh auth commands are printed
 
-### Requirement: install-tools-request-plans
-The `install-tools` command SHALL carry the `request-plan` dry-run class. Under dry run, it executes zero downloads or installer subprocesses and renders the planned requests.
-
-#### Scenario: Dry run on install-tools
-- **WHEN** user executes `devops install-tools --dry-run`
-- **THEN** zero HTTP requests or installer subprocesses execute and planned downloads are printed
-
 ### Requirement: devcontainer-no-external-request
 The four commands `devcontainer init`, `devcontainer update`, `devcontainer list`, and `devcontainer validate` SHALL carry the `no-external-request` dry-run class. `devcontainer init` and `devcontainer update` SHALL provide local previews under `--dry-run` without modifying filesystem paths.
 
@@ -774,13 +767,6 @@ The four commands `devcontainer init`, `devcontainer update`, `devcontainer list
 #### Scenario: Dry run on devcontainer validate
 - **WHEN** user executes `devops --dry-run devcontainer validate`
 - **THEN** the command executes locally and validates the manifest syntax
-
-### Requirement: install-tools-no-external-request
-The `install-tools status` command SHALL carry the `no-external-request` dry-run class, running locally without external requests.
-
-#### Scenario: Dry run on install-tools status
-- **WHEN** user executes `devops --dry-run install-tools status`
-- **THEN** the status check executes locally without external requests
 
 ### Requirement: git-workspace-request-plans
 The seven commands `branches sync`, `branches update`, `repos clone`, `repos clone-org`, `repos sync`, `repos update` and `repos worktrees prune` SHALL carry the `request-plan` dry-run class and SHALL expose `--dry-run`, in the forms `devops <command> --dry-run` and `devops --dry-run <command>`. A dry run SHALL make no external request and SHALL print the requests of the real run, numbered, in the order of the real run.

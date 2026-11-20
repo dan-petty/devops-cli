@@ -45,12 +45,12 @@ The preset SHALL turn on OSV alerts and give an alert pull request the labels `t
 - **AND** the only approval rules match `python` minor and major updates, and the `node`, PostgreSQL and Mattermost majors
 
 ### Requirement: Every pin of the repository has a Renovate manager
-No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor, the tools lock, CloudNativePG and Mattermost images, values tags with no repository and Grafana plugins. No custom manager SHALL write a tool version into a Python file under `src/`, except `DEFAULT_PYTHON_VERSION`. Pins of one tool in several files SHALL share one group of every update type.
+No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of its manager. Custom managers SHALL read the pins that no built-in manager reads: the Python minor, CloudNativePG and Mattermost images, values tags with no repository and Grafana plugins. No custom manager SHALL write a tool version into a file under `src/`, except `DEFAULT_PYTHON_VERSION`. Pins of one tool in several files SHALL share one group of every update type.
 
 #### Scenario: The managers are read against the tracked files
 - **WHEN** a test applies the file patterns and the match strings of the configuration to the tracked files
 - **THEN** each pinned file matches its manager, and the custom managers find exactly the expected pins
-- **AND** the coupled groups `trivy`, `argo`, `cloudflared`, `uv`, `node`, `python runtime`, `ruff`, `bandit`, `actionlint`, `openspec`, `dcgm-exporter` and `devtools` set no update type
+- **AND** the coupled groups `uv`, `node`, `python runtime`, `ruff`, `actionlint`, `openspec`, `dcgm-exporter` and `devtools` set no update type
 - **AND** the group `devtools` holds the devtools image of both Dockerfiles
 
 #### Scenario: A uv or Node update changes no runtime code
@@ -77,14 +77,6 @@ The shared preset SHALL set `vulnerabilityAlerts.separateMajorMinor` to false, s
 #### Scenario: The security settings are read
 - **WHEN** a test reads `vulnerabilityAlerts` of `.github/renovate/base.json`
 - **THEN** `vulnerabilityFixStrategy` is `highest` and `separateMajorMinor` is false
-
-### Requirement: Renovate holds a security fix that the semgrep pins block
-`.github/renovate.json` SHALL turn off the security fix of the indirect `mcp` and `opentelemetry-api` of `src/devops_cli/tools_lock/semgrep.in` only while the locked version is below the fix, because semgrep pins the vulnerable versions. The Dependency Dashboard footer SHALL name each held package and #3988.
-
-#### Scenario: The holds are read against the semgrep lock
-- **WHEN** a test reads the package rules of type `indirect`, the footer and `semgrep.txt`
-- **THEN** each hold matches `pip-compile`, `semgrep.in`, one package and a version below its fix, and sets `enabled` to false
-- **AND** each held package is locked below its fix, and the footer and each hold name #3988
 
 ### Requirement: A chart update has the prefix of a release
 The repository configuration SHALL give each update of the `helm` datasource the prefix `fix(deps):`, because the update changes the chart that `deploy-stack` and Argo CD install: `deploy-stack` reads the version from the Application of the chart (#6060). Each coupled group that holds a chart SHALL set the same prefix.
