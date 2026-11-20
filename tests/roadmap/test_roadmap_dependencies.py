@@ -83,3 +83,24 @@ def test_the_reason_of_an_item_whose_body_names_no_open_issue_is_none() -> None:
     )
 
     assert _reason(store, recorded) is None
+
+
+def test_a_related_mention_gives_no_reason_and_a_depends_on_line_gives_it() -> None:
+    """The Dependencies section of one item says `Related: #N`, and that of another says `Depends
+    on #N`, with #N open. The related mention gives no reason, and the blocker line gives the
+    reason that names #N (#6451)."""
+    store = InMemoryRoadmapStore()
+    blocker = _seed(store, "fix(roadmap): the open issue")
+    related = _seed(
+        store, "fix(roadmap): the related item", body=f"### Dependencies\n\nRelated: #{blocker}\n"
+    )
+    waiting = _seed(
+        store,
+        "fix(roadmap): the waiting item",
+        body=f"### Dependencies\n\nDepends on #{blocker}\n",
+    )
+
+    assert (_reason(store, related), _reason(store, waiting)) == (
+        None,
+        MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}"),
+    )

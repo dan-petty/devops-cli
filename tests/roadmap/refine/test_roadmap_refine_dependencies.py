@@ -1,28 +1,17 @@
 """The blocker lines of a Dependencies section, and the mentions that name no dependency (#6451).
 
-Only a blocker line holds an item back: a list item whose first word is an issue reference, a
-line that holds issue references only, or a line that starts with `Merge first`. A parent, a
-child, a related issue, a reverse link and the source line of intake name no dependency.
+A line names blockers when it starts with a blocker opener (`Merge first`, `Depends on`, `Blocked
+by`, `Waits for`, `Wait for`), or when its first word is an issue reference and it is the first
+text of a list item or a paragraph outside a list. A line with a reverse phrase, such as `needs
+this item`, names no blocker, and a reference that follows `of` names a parent. A parent, a child,
+a related issue and the source line of intake name no dependency.
 """
 
 from __future__ import annotations
 
-from devops_cli.roadmap.dependencies import open_dependency
+import pytest
+
 from devops_cli.roadmap.refine.refine import body_dependencies
-from devops_cli.roadmap.stores.store import GitHubState, ItemField
-from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-
-PRIORITY = "P2-Medium"
-
-
-def _seed(store: InMemoryRoadmapStore, title: str, *, body: str = "") -> int:
-    """An open issue whose body holds `body`."""
-    return store.seed_issue(
-        title,
-        body=body,
-        fields={ItemField.PRIORITY: PRIORITY},
-        state=GitHubState.OPEN,
-    )
 
 
 def test_body_dependencies_names_only_a_blocker_line() -> None:
@@ -41,17 +30,69 @@ def test_body_dependencies_names_only_a_blocker_line() -> None:
     ) == ([], [], [4989, 5134], [2, 4])
 
 
-def test_an_open_related_issue_holds_no_item_back() -> None:
-    """The Dependencies section names a related open issue and no blocker, so the item gets no
-    dependency reason (#6451)."""
-    store = InMemoryRoadmapStore()
-    related = _seed(store, "fix(roadmap): the related item")
-    waiting = _seed(
-        store,
-        "fix(roadmap): the waiting item",
-        body=f"### Dependencies\n\nRelated: #{related}\n",
-    )
-    item = store.item(waiting)
+@pytest.mark.parametrize(
+    ("section", "blockers"),
+    [
+        pytest.param(
+            "#4847; #4798 with the fixable check of its scope comment, merged first.",
+            [4847, 4798],
+            id="4867-prose-paragraph",
+        ),
+        pytest.param("#5421 (merged first).", [5421], id="5430-merged-first-note"),
+        pytest.param(
+            "#4991: the exporter CPU limits must go up first.\n\nSource: #4989",
+            [4991],
+            id="4993-prose-and-source",
+        ),
+        pytest.param(
+            "#4884, #4889, #3917. The scheduled reindex waits for #4566.",
+            [4884, 4889, 3917, 4566],
+            id="4921-references-then-prose",
+        ),
+        pytest.param("Depends on #5380 (the step budget).", [5380], id="5379-depends-on"),
+        pytest.param(
+            "Depends on #5356. The acceptance needs the running server.\n\n"
+            "It does not wait for #5343, because the Dockerfile does not change.",
+            [5356],
+            id="5348-depends-on-and-a-sentence",
+        ),
+        pytest.param(
+            "- #3741 (the gateway database backup sets the pattern).\n"
+            "- #3803 (move the database to a worker node) waits for this item.\n"
+            "- Tracker: #4742 (child 8).",
+            [3741],
+            id="4765-reverse-list-item",
+        ),
+        pytest.param("Merge first: #4835, child 8 of #4833.", [4835], id="4848-child-of-parent"),
+        pytest.param("None.\n\nSource: #4989", [], id="5001-source-after-none"),
+        pytest.param("- Part of #5014 (track the Service step jobs).", [], id="5026-part-of"),
+    ],
+)
+def test_body_dependencies_reads_the_blockers_of_real_bodies(
+    section: str, blockers: list[int]
+) -> None:
+    """Short copies of the Dependencies sections of open items give their blockers: a paragraph
+    or a list item that opens with `#N` and goes on in prose, and a `Depends on` line, keep every
+    reference; a reverse link, a parent after `of`, a tracker and the source line keep none
+    (#6451)."""
+    assert body_dependencies(f"### Dependencies\n\n{section}\n") == blockers
 
-    assert item is not None
-    assert open_dependency(item, store, store.open_items()) is None
+
+@pytest.mark.parametrize(
+    ("line", "blockers"),
+    [
+        pytest.param("Blocked by #12 and #13.", [12, 13], id="blocked-by"),
+        pytest.param("waits for #12.", [12], id="waits-for-lower-case"),
+        pytest.param("Wait for #12 to merge.", [12], id="wait-for"),
+        pytest.param("MERGE FIRST: #12", [12], id="merge-first-upper-case"),
+        pytest.param("#12 depends on this item.", [], id="depends-on-this-item"),
+        pytest.param("#12 is Blocked By This Item.", [], id="blocked-by-this-item"),
+        pytest.param("Depends on #12, part of #4833.", [12], id="part-of-parent"),
+    ],
+)
+def test_body_dependencies_reads_openers_and_reverse_phrases_in_any_case(
+    line: str, blockers: list[int]
+) -> None:
+    """Each blocker opener names the references of its line in any case, a reverse phrase in any
+    case names none, and a reference after `of` is a parent (#6451)."""
+    assert body_dependencies(f"## Dependencies\n\n{line}\n") == blockers
