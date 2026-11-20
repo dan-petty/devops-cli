@@ -24,7 +24,7 @@ Adds: `dependency_cycle`
 
 Kind: other. Reads: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/roadmap/dependencies.py`, `tests/roadmap/stage/test_roadmap_stage_selection.py`. Changes: `tests/roadmap/stage/test_roadmap_stage_selection.py`.
 
-- [ ] 3.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/stage/test_roadmap_stage_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the stage plan leaves item A out with a reason that names `#A → #B → #A`, where the Dependencies section of A names the open item B and the record of B names A, and an item whose open dependency is in no cycle keeps the open-issue reason that `open_dependency` gives
+- [x] 3.1 Add `test_a_dependency_cycle_names_the_cycle_in_the_reason` to `tests/roadmap/stage/test_roadmap_stage_selection.py` beside `test_an_item_with_an_open_body_dependency_is_left_out`: the stage plan leaves item A out with a reason that names `#A → #B → #A`, where the Dependencies section of A names the open item B and the record of B names A, and an item whose open dependency is in no cycle keeps the open-issue reason that `open_dependency` gives
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_selection.py` passes
 
 ## 4. Prove the implement reason names the cycle
