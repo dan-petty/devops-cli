@@ -49,7 +49,10 @@ class _LeaseClock:
         await woken
 
     def leave(self) -> None:
-        """One holder stops, so the other one sleeps alone from now on."""
+        """One holder stops, so the other one sleeps alone from now on. Call it only after the
+        last API call of the holder that stops: from then on, each sleep of the other holder moves
+        the clock at once, and a slow call of the holder that stops would let its Lease end
+        (#6422)."""
         self._parties -= 1
         self._asleep = [woken for woken in self._asleep if not woken.done()]
         self._wake(TIMING.retry)
@@ -102,8 +105,8 @@ def test_a_pod_that_waits_takes_the_lease_only_after_the_holder_gives_it_back(
         during = (new.held, _stored(cluster)["holderIdentity"])
         keeping.cancel()
         await asyncio.gather(keeping, return_exceptions=True)
-        lease_clock.leave()
         given_back = await old.release()
+        lease_clock.leave()
         await waiting
         spec = _stored(cluster)
         return during, given_back, new.held, spec["holderIdentity"], spec["leaseTransitions"]
