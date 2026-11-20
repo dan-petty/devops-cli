@@ -2461,9 +2461,9 @@ def test_an_environment_token_leaves_hosts_yml_alone(
     assert (_move_plaintext_gh_tokens(), calls) == ([], [])
 
 
-def test_post_create_leaves_semgrep_to_the_tools_lock(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Post-create installs no Semgrep of its own: the image installs the locked one,
-    so only one Semgrep is on PATH (#1142)."""
+def test_post_create_leaves_semgrep_to_the_image(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-create installs no Semgrep of its own: the devtools image installs it, so only one
+    Semgrep is on PATH (#1142)."""
     from devops_cli.commands.devcontainer import _bootstrap_developer_tools
 
     calls = _record_subprocess_calls(monkeypatch)

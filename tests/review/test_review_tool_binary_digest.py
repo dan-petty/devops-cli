@@ -88,7 +88,7 @@ def _install(
 
 
 def _on_path(monkeypatch: pytest.MonkeyPatch, path_dir: Path, *programs: Path) -> None:
-    """Link each program into `path_dir`, as `devops install-tools` links its commands, and make
+    """Link each program into `path_dir`, as an image links its commands, and make
     `path_dir` the only directory on PATH."""
     path_dir.mkdir(parents=True, exist_ok=True)
     for program in programs:

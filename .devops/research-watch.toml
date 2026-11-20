@@ -25,9 +25,9 @@
 # `external` and line 0. Leave `version` out when the environment holds the version and this
 # repository does not, and write no host name, no address and no device path here.
 #
-# Not mapped, because the advisories of their repositories name no package that matches the pin:
-# the binaries `helm` (the advisories name the Go module of Helm 3), `promtool` and `cloudflared`
-# (free text), and the image `portkeyai/gateway` (no package name).
+# Not mapped, because the advisories of its repository name no package that matches the pin: the
+# image `portkeyai/gateway` (no package name). The devtools image audits the tools that it
+# installs, so no release binary is named here (#4363).
 
 # Images and charts.
 
@@ -75,112 +75,6 @@ repo = "mattermost/mattermost"
 ecosystem = "docker"
 name = "ghcr.io/oliver006/redis_exporter"
 repo = "oliver006/redis_exporter"
-
-# Release binaries of the tools lock.
-
-[[watch]]
-ecosystem = "github-release"
-name = "kubectl"
-repo = "kubernetes/kubernetes"
-
-[[watch]]
-ecosystem = "github-release"
-name = "kustomize"
-repo = "kubernetes-sigs/kustomize"
-
-[[watch]]
-ecosystem = "github-release"
-name = "argo"
-repo = "argoproj/argo-workflows"
-package = "github.com/argoproj/argo-workflows/v4"
-osv_ecosystem = "Go"
-osv_name = "github.com/argoproj/argo-workflows/v4"
-
-[[watch]]
-ecosystem = "github-release"
-name = "argocd"
-repo = "argoproj/argo-cd"
-package = "github.com/argoproj/argo-cd/v3"
-osv_ecosystem = "Go"
-osv_name = "github.com/argoproj/argo-cd/v3"
-
-[[watch]]
-ecosystem = "github-release"
-name = "kubectl-argo-rollouts"
-repo = "argoproj/argo-rollouts"
-
-[[watch]]
-ecosystem = "github-release"
-name = "trivy"
-repo = "aquasecurity/trivy"
-package = "github.com/aquasecurity/trivy"
-osv_ecosystem = "Go"
-osv_name = "github.com/aquasecurity/trivy"
-
-[[watch]]
-ecosystem = "github-release"
-name = "kube-linter"
-repo = "stackrox/kube-linter"
-
-[[watch]]
-ecosystem = "github-release"
-name = "popeye"
-repo = "derailed/popeye"
-
-[[watch]]
-ecosystem = "github-release"
-name = "pluto"
-repo = "FairwindsOps/pluto"
-
-[[watch]]
-ecosystem = "github-release"
-name = "kubeconform"
-repo = "yannh/kubeconform"
-
-[[watch]]
-ecosystem = "github-release"
-name = "tflint"
-repo = "terraform-linters/tflint"
-
-[[watch]]
-ecosystem = "github-release"
-name = "k9s"
-repo = "derailed/k9s"
-
-[[watch]]
-ecosystem = "github-release"
-name = "gh-dash"
-repo = "dlvhdr/gh-dash"
-
-[[watch]]
-ecosystem = "github-release"
-name = "tuicr"
-repo = "agavra/tuicr"
-
-[[watch]]
-ecosystem = "github-release"
-name = "tofu"
-repo = "opentofu/opentofu"
-
-[[watch]]
-ecosystem = "github-release"
-name = "vale"
-repo = "errata-ai/vale"
-
-[[watch]]
-ecosystem = "github-release"
-name = "gitleaks"
-repo = "gitleaks/gitleaks"
-
-[[watch]]
-ecosystem = "github-release"
-name = "osv-scanner"
-repo = "google/osv-scanner"
-
-[[watch]]
-ecosystem = "github-release"
-name = "golangci-lint"
-repo = "golangci/golangci-lint"
 
 # Pins outside the repository: no file of it holds these, so the inventory lists them at the file
 # `external` and line 0.

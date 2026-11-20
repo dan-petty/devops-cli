@@ -27,7 +27,6 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_INVALIDATED,
-    CONST_TOOL_VERSION_UNKNOWN,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,

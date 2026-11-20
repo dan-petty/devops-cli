@@ -380,8 +380,8 @@ def _hash_binary_path(resolved_path: str) -> str:
 
 def _site_directories(scripts: Path) -> list[str]:
     """The site-packages directories of the environment whose scripts directory is `scripts`, as
-    `sysconfig` lays them out: a virtual environment of `devops install-tools`, a `uv tool` or
-    pipx environment, the `.venv` of a project, or a user or system prefix such as `/usr/local`."""
+    `sysconfig` lays them out: a virtual environment of an image, a `uv tool` or pipx
+    environment, the `.venv` of a project, or a user or system prefix such as `/usr/local`."""
     prefix = str(scripts.parent)
     layout = {"base": prefix, "platbase": prefix}
     return sorted({sysconfig.get_path(key, "venv", vars=layout) for key in ("purelib", "platlib")})

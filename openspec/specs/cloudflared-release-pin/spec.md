@@ -1,7 +1,7 @@
 # cloudflared-release-pin Specification
 
 ## Purpose
-The cloudflared release that the tunnel Deployment runs and that `devops install-tools` installs. Every pin holds a release that rejects the eight eMudhra intermediate certificates with weak private keys, so a forged certificate does not pass for a Cloudflare host or an origin.
+The cloudflared release that the tunnel Deployment runs. The pin holds a release that rejects the eight eMudhra intermediate certificates with weak private keys, so a forged certificate does not pass for a Cloudflare host or an origin.
 
 ## Requirements
 

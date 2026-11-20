@@ -1,7 +1,7 @@
 # tf-lint Specification
 
 ## Purpose
-The `devops tf lint` command lints Terraform and OpenTofu files with the tflint that `tools.lock` pins. It never reports a pass when tflint did not run.
+The `devops tf lint` command lints Terraform and OpenTofu files with the tflint on PATH. It never reports a pass when tflint did not run.
 
 ## Requirements
 

@@ -37,24 +37,8 @@ _EXTERNAL_PIN = (
     'osv_ecosystem = "Ubuntu"\n'
     'osv_name = "linux"\n'
 )
-_TOOLS_LOCK = (
-    'python_version = "3.14"\n'
-    "\n"
-    "[binary.homebrewed]\n"
-    'version = "2.0.0"\n'
-    'description = "A tool whose source is no GitHub repository"\n'
-    'source = "https://downloads.example.com/homebrewed"\n'
-    'bin = "homebrewed"\n'
-    'format = "binary"\n'
-    "\n"
-    "[binary.homebrewed.platforms.linux-amd64]\n"
-    'url = "https://downloads.example.com/homebrewed/2.0.0/homebrewed"\n'
-    'sha256 = "1111111111111111111111111111111111111111111111111111111111111111"\n'
-    "\n"
-    "[python]\n"
-    "\n"
-    "[npm]\n"
-)
+# An external pin that names no repository and no OSV identity: no source maps it.
+_UNMAPPED_PIN = '[[pin]]\nkind = "tool"\nname = "homebrewed"\nversion = "2.0.0"\n'
 
 
 def _write_repository(root: Path, mapping: str) -> None:
@@ -122,10 +106,7 @@ def test_an_extra_pin_of_the_mapping_file_is_listed(tmp_path: Path) -> None:
 def test_an_unmapped_pin_stays_unknown_and_is_counted(tmp_path: Path) -> None:
     from devops_cli.research.mapping import mapped_inventory
 
-    _write_repository(tmp_path, _MAPPED)
-    lock = tmp_path / "src" / "devops_cli" / "tools_lock" / "tools.lock"
-    lock.parent.mkdir(parents=True)
-    lock.write_text(_TOOLS_LOCK, encoding="utf-8")
+    _write_repository(tmp_path, _MAPPED + _UNMAPPED_PIN)
 
     inventory = mapped_inventory(tmp_path)
 
@@ -165,11 +146,11 @@ def test_a_package_component_gets_a_purl(tmp_path: Path) -> None:
         purl_of(
             Component(
                 kind=ComponentKind.TOOL,
-                ecosystem=Ecosystem.GITHUB_RELEASE,
+                ecosystem=Ecosystem.UNKNOWN,
                 name="kubectl",
                 version="1.37.1",
-                file="src/devops_cli/tools_lock/tools.lock",
-                line=3,
+                file="external",
+                line=0,
             )
         ),
     ) == ("pkg:pypi/pyyaml@6.0.3", "", "")

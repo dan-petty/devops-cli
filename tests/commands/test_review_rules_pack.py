@@ -14,7 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
-from devops_cli.config.defaults import DEFAULT_LOCAL_BIN_DIR, DEFAULT_SEMGREP_CONFIG
+from devops_cli.config.defaults import DEFAULT_SEMGREP_CONFIG
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.exceptions.tools import DependencyError
 from devops_cli.exceptions.validation import ValidationError
@@ -234,11 +234,11 @@ def _stand_in(folder: Path) -> Path:
 
 @pytest.fixture
 def installer_semgrep() -> Iterator[Path]:
-    """A `semgrep` stand-in in `~/.local/bin` of the isolated home, the folder of
-    `devops install-tools`. The folders that the fixture makes go after the test."""
-    folders = (DEFAULT_LOCAL_BIN_DIR, *DEFAULT_LOCAL_BIN_DIR.parents)
-    made = [folder for folder in folders if not folder.exists()]
-    stand_in = _stand_in(DEFAULT_LOCAL_BIN_DIR)
+    """A `semgrep` stand-in in `~/.local/bin` of the isolated home, a folder that PATH does not
+    name. The folders that the fixture makes go after the test."""
+    local_bin = Path.home() / ".local" / "bin"
+    made = [folder for folder in (local_bin, *local_bin.parents) if not folder.exists()]
+    stand_in = _stand_in(local_bin)
     try:
         yield stand_in
     finally:

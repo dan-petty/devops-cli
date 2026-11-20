@@ -1,7 +1,7 @@
 # ci-dependency-audit Specification
 
 ## Purpose
-What the `audit` row of `devops ci` and `devops ci audit` pass and fail: the findings of `uv audit` and of `npm audit` on the lockfile of each Node tool, and the time-limited entries of `.npm-audit-ignore.yaml` for an advisory that no released version fixes.
+What the `audit` row of `devops ci` and `devops ci audit` pass and fail: the findings of `uv audit` and of `npm audit` on the root `package-lock.json`, and the time-limited entries of `.npm-audit-ignore.yaml` for an advisory that no released version fixes.
 
 ## Requirements
 

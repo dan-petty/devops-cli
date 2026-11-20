@@ -113,23 +113,40 @@ def test_loader_matches_tool_versions_inventory_floor_and_kubernetes() -> None:
         assert len(sha) == CONST_KB_SHA_DIGEST_LENGTH
 
 
-def test_a_tool_manual_matches_only_the_version_of_a_tool_that_ran(tmp_path: Path) -> None:
+def test_a_tool_manual_drifts_only_from_the_version_of_a_tool_that_ran(tmp_path: Path) -> None:
     """The version of a tool comes from the environment, which the runs of the tools record. A
-    tool that did not run has no version, and no pin stands in for it (#4388)."""
+    tool with no known version matches by its name, and no pin stands in for it. Only a recorded
+    version outside the range of the manual is drift (#4363)."""
     tools_dir = tmp_path / "kb" / "it_domains" / "tools"
     tools_dir.mkdir(parents=True)
     (tools_dir / "kubectl.md").write_text(
         '---\napplies_to:\n  - "tool:kubectl@1.*"\nsources:\n  - "https://example.com"\nreviewed: "2026-10-15"\n---\n\n# Kubectl\n',
         encoding="utf-8",
     )
-    ran = EnvironmentFacts(tool_versions={"kubectl": "1.2.3"})
+    kb_dir = tmp_path / "kb"
 
-    matched, _ = load_matched_kb_manuals(kb_dir=tmp_path / "kb", environment=ran)
-    _, drift = load_matched_kb_manuals(kb_dir=tmp_path / "kb", environment=EnvironmentFacts())
+    def paths(env: EnvironmentFacts) -> tuple[list[str], list[tuple[str, str]]]:
+        matched, drift = load_matched_kb_manuals(kb_dir=kb_dir, environment=env)
+        return [m.path for m in matched], [(d.path, d.reason) for d in drift]
 
-    assert ([m.path for m in matched], [(d.path, d.reason) for d in drift]) == (
-        ["it_domains/tools/kubectl.md"],
-        [("it_domains/tools/kubectl.md", "tool:kubectl not found in the environment")],
+    assert (
+        paths(EnvironmentFacts()),
+        paths(EnvironmentFacts(tool_versions={"kubectl": "unknown"})),
+        paths(EnvironmentFacts(tool_versions={"kubectl": "1.2.3"})),
+        paths(EnvironmentFacts(tool_versions={"kubectl": "2.0.0"})),
+    ) == (
+        (["it_domains/tools/kubectl.md"], []),
+        (["it_domains/tools/kubectl.md"], []),
+        (["it_domains/tools/kubectl.md"], []),
+        (
+            [],
+            [
+                (
+                    "it_domains/tools/kubectl.md",
+                    "mismatched tool kubectl: requires 1.*, found 2.0.0",
+                )
+            ],
+        ),
     )
 
 
@@ -302,7 +319,7 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     drift = [
         DriftManual(
             path="it_domains/tools/grafana.md",
-            reason="tool:grafana not found in the environment",
+            reason="mismatched tool grafana: requires 11.5.*, found 12.0.0",
         ),
         DriftManual(
             path="devops_cli/libraries/example.md",
@@ -328,7 +345,10 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     assert "### Reference coverage: injected" in md
     assert "- `kb:it_domains/tools/bandit.md@1234`" in md
     assert "### Reference coverage: drift" in md
-    assert "- `it_domains/tools/grafana.md`: tool:grafana not found in the environment" in md
+    assert (
+        "- `it_domains/tools/grafana.md`: mismatched tool grafana: requires 11.5.*, found 12.0.0"
+        in md
+    )
     assert (
         "- `devops_cli/libraries/example.md`: mismatched python: requires python>=3.16, found 3.14"
         in md
@@ -336,23 +356,27 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
 
 
 def test_run_group_analysis_populates_kb_drift_and_injected() -> None:
-    """run_group_analysis loads matched KB manuals, injects them into jobs and logs drift (#1149)."""
-    f = _make_dummy_finding(tool="bandit", rule_id="B101")
+    """run_group_analysis loads matched KB manuals, injects them into jobs and logs drift (#1149).
+    A manual drifts only from the version that a tool run recorded: the Bandit that ran is outside
+    the range of the Bandit manual, and the manuals of the tools that did not run stay (#4363)."""
+    f = _make_dummy_finding(tool="bandit", tool_version="2.0.0", rule_id="B101")
     report = run_group_analysis([f], llm_client=None)
 
-    assert len(report.drift_manuals) > 0
     drift_paths = {d.path for d in report.drift_manuals}
-    assert "it_domains/tools/grafana.md" in drift_paths
     md = "\n".join(render_model_analysis_markdown(report))
-    assert "Reference coverage: drift" in md
+    assert (drift_paths, "Reference coverage: drift" in md) == (
+        {"it_domains/tools/bandit.md"},
+        True,
+    )
 
 
 def test_floor_only_environment_matches_and_drifts_manuals_and_filtering_keeps_some() -> None:
-    """A floor-only environment matches some manuals and drifts others, and filtering keeps some for a group (#1149)."""
+    """A floor-only environment matches some manuals and drifts none: no tool ran, so no version
+    is out of range. Filtering keeps some for a group (#1149, #4363)."""
     env = EnvironmentFacts(language_floor="py314", python_pin="3.14", kubernetes_version="v1.31.0")
     matched, drift = load_matched_kb_manuals(environment=env)
     assert len(matched) > 0
-    assert len(drift) > 0
+    assert drift == []
 
     f = _make_dummy_finding(tool="bandit", rule_id="B101")
     g = FindingGroup(group_id="g-1", kind="region", key=("src/app.py", "f"), findings=(f,))

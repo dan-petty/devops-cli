@@ -160,7 +160,8 @@ class K8sErrorMessages:
         "'devops config set k8s.tunnel_host k8s.example.com'."
     )
     tunnel_cloudflared_missing: str = (
-        "cloudflared is not on PATH. Install it with 'devops install-tools --tool cloudflared'."
+        "cloudflared is not on PATH. Install it "
+        "(https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)."
     )
     tunnel_login_failed: str = (
         "The Cloudflare Access login for {host} failed with exit code {code}."

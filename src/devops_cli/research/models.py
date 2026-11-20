@@ -137,8 +137,7 @@ class AdvisorySummary(BaseModel):
     `unpinned` counts the components of a checked kind that pin no exact release: a range, a
     branch, a commit or a tag such as `v7`. `exploited` counts the findings that the CISA KEV list
     flags. `not_covered` counts the components of each ecosystem that no source matches (an image,
-    chart or release binary that the watch list does not map), and the `tool-lock-entry`
-    components, whose packages the Python and Node lists hold under their own name.
+    chart or release binary that the watch list does not map).
     """
 
     model_config = ConfigDict(frozen=True)

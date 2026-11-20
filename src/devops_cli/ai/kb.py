@@ -28,6 +28,7 @@ from devops_cli.config.constants import (
     CONST_KB_METADATA_TARGET_SUBDIRS,
     CONST_KB_REFERENCE_PREFIX,
     CONST_KB_SHA_DIGEST_LENGTH,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 
 logger = logging.getLogger(__name__)
@@ -329,6 +330,9 @@ def _match_python_spec(spec: str, python_pin: str, language_floor: str) -> tuple
 
 
 def _match_tool_spec(spec: str, tool_versions: Mapping[str, str]) -> tuple[bool, str]:
+    """Whether the manual applies to the tool: it drifts only when the version of the installed
+    tool, as the record of its run names it, is outside its range. A tool with no known version,
+    such as one that did not run or a native binary, matches by its name (#4363)."""
     body = spec[5:]
     if "@" not in body:
         return False, f"malformed tool specifier: {spec}"
@@ -341,8 +345,8 @@ def _match_tool_spec(spec: str, tool_versions: Mapping[str, str]) -> tuple[bool,
             if k.replace("-", "") == compact:
                 tv = v
                 break
-    if not tv:
-        return False, f"tool:{name} not found in the environment"
+    if not tv or tv == CONST_TOOL_VERSION_UNKNOWN:
+        return True, ""
     if _version_matches_pattern(tv, pattern):
         return True, ""
     return False, f"mismatched tool {name}: requires {pattern}, found {tv}"

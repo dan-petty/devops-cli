@@ -1,18 +1,19 @@
 name: Third-Party Image Scan
 
-# Scans the third-party image that Deployment `crawl4ai` pins, when a pull request changes the
-# manifest, this workflow or the image scan action, and only reports (#3884). The image is not ours
-# to rebuild: a finding in it is fixed by the upstream release that a Renovate pull request brings,
-# so the scan never fails the job. The person who merges the bump reads the findings in the table
-# of the log or in code scanning, category `trivy-image-crawl4ai` (#6405). The native `paths` filter
-# stops the run before a runner starts, so a pull request that changes none of the files starts no
-# job and shows no check (#4653). The check is not required.
+# Scans the third-party images that Deployment `crawl4ai` and Deployment `cloudflared` pin, when a
+# pull request changes a manifest, this workflow or the image scan action, and only reports (#3884,
+# #4363). An image is not ours to rebuild: a finding in it is fixed by the upstream release that a
+# Renovate pull request brings, so the scan never fails the job. The person who merges the bump
+# reads the findings in the table of the log or in code scanning, category `trivy-image-<name>`
+# (#6405). The native `paths` filter stops the run before a runner starts, so a pull request that
+# changes none of the files starts no job and shows no check (#4653). The check is not required.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
     paths:
       - "k8s/devops/crawl4ai/deployment.yaml"
+      - "k8s/cloudflared/deployment.yaml"
       - ".github/workflows/third-party-image-scan.yml"
       - ".github/actions/image-scan/**"
 
@@ -29,12 +30,22 @@ env:
 
 jobs:
   third-party-image-scan:
-    name: Third-Party Image Scan
+    name: Third-Party Image Scan (${{ matrix.name }})
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
       security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: crawl4ai
+            manifest: k8s/devops/crawl4ai/deployment.yaml
+            repository: unclecode/crawl4ai
+          - name: cloudflared
+            manifest: k8s/cloudflared/deployment.yaml
+            repository: cloudflare/cloudflared
 
     steps:
       - name: Check out repository
@@ -44,15 +55,18 @@ jobs:
 
       - name: Read the Pinned Image
         id: image
+        env:
+          MANIFEST: ${{ matrix.manifest }}
+          REPOSITORY: ${{ matrix.repository }}
         run: |
-          image=$(sed -n 's/^ *image: *\(unclecode\/crawl4ai:[^ ]*\) *$/\1/p' k8s/devops/crawl4ai/deployment.yaml)
+          image=$(awk -v repo="$REPOSITORY" '$1 == "image:" && index($2, repo ":") == 1 { print $2 }' "$MANIFEST")
           test "$(printf '%s\n' "$image" | wc -l)" = 1 && test -n "$image"
           echo "ref=$image" >> "$GITHUB_OUTPUT"
 
-      - name: Scan the Crawl4AI Image for Vulnerabilities
+      - name: Scan the Image for Vulnerabilities
         timeout-minutes: 4
         uses: ./.github/actions/image-scan
         with:
           image-ref: ${{ steps.image.outputs.ref }}
-          category: trivy-image-crawl4ai
+          category: trivy-image-${{ matrix.name }}
           exit-code: "0"

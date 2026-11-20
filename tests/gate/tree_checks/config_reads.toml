@@ -23,7 +23,7 @@
 "tests/commands/test_zero_plaintext_invariants.py" = 1
 "tests/config/test_config_save_round_trip.py" = 1
 "tests/config/test_tuicr_config.py" = 2
-"tests/core/test_gh_dash_config.py" = 4
+"tests/core/test_gh_dash_config.py" = 2
 "tests/core/test_third_party_telemetry.py" = 12
 "tests/docs/test_docs.py" = 1
 "tests/git/test_branch_form.py" = 2
@@ -66,5 +66,3 @@
 "tests/server/test_service_log_trace_ids.py" = 1
 "tests/survey/test_survey_capabilities.py" = 1
 "tests/telemetry/test_telemetry_instruments.py" = 5
-"tests/tools_lock/test_k8s_argo_workflows.py" = 8
-"tests/tools_lock/test_k8s_cloudflared.py" = 1

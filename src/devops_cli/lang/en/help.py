@@ -2611,19 +2611,6 @@ class ConfigCommandHelp:
 
 
 @dataclass(frozen=True)
-class InstallCommandHelp:
-    app: str = "Install and manage DevOps tool binaries."
-    all_cmd: str = "Install all required DevOps CLI binaries."
-    status: str = "Check installed DevOps toolchain versions."
-    tool: str = "Install a specific tool."
-    only_missing: str = "Only install tools that are not linked at their locked version."
-    check: str = (
-        "Install nothing: report each tool not linked at its locked version, and exit 1 if any "
-        "differs."
-    )
-
-
-@dataclass(frozen=True)
 class OpenSpecCommandHelp:
     app: str = (
         "Check the OpenSpec change folders, regenerate the agent skills and archive a change."
@@ -2951,7 +2938,6 @@ class HelpCatalog:
     telemetry: TelemetryCommandHelp = field(default_factory=TelemetryCommandHelp)
     tls: TLSCommandHelp = field(default_factory=TLSCommandHelp)
     config: ConfigCommandHelp = field(default_factory=ConfigCommandHelp)
-    install: InstallCommandHelp = field(default_factory=InstallCommandHelp)
     openspec: OpenSpecCommandHelp = field(default_factory=OpenSpecCommandHelp)
     new: NewCommandHelp = field(default_factory=NewCommandHelp)
     benchmark: BenchmarkCommandHelp = field(default_factory=BenchmarkCommandHelp)

@@ -233,14 +233,10 @@ CONST_AGENTS_MD_MANIFESTS: Final[tuple[tuple[str, str], ...]] = (
     ("go.mod", "Go"),
 )
 CONST_UV_LOCK_FILENAME = "uv.lock"
-# The two files `npm ci` installs a Node tool from: the manifest naming its one dependency at an
-# exact version, and the lockfile that records the sha512 of every package that version needs.
+# The lockfile of npm, which records the sha512 of every package of a `package.json`.
 CONST_NPM_LOCKFILE: Final[str] = "package-lock.json"
-CONST_NPM_PROJECT_FILES: Final[tuple[str, ...]] = ("package.json", CONST_NPM_LOCKFILE)
 # Where `npm ci` links the commands of the packages of a lockfile, from the directory of the lockfile.
 CONST_NPM_BIN_DIR: Final[str] = "node_modules/.bin"
-# Where the tools lock and its Node tools' directories sit in a checkout, from its root.
-CONST_TOOLS_LOCK_REPO_DIR: Final[str] = "src/devops_cli/tools_lock"
 CONST_PRE_COMMIT_CONFIG_FILENAME = ".pre-commit-config.yaml"
 # The pre-commit stage of the hooks that run on `git push`.
 CONST_PRE_COMMIT_PRE_PUSH_STAGE: Final[str] = "pre-push"
@@ -1424,7 +1420,6 @@ CONST_PERM_PRIVATE_KEY = 0o600
 # A file that holds a token: only its owner can read and write it (#4897).
 CONST_PERM_TOKEN_FILE = 0o600
 CONST_PERM_PUBLIC_KEY = 0o644
-CONST_PERM_EXEC = 0o755
 # A file the repository commits, such as a generated table under src/.
 CONST_PERM_REPO_FILE = 0o644
 
@@ -2035,7 +2030,7 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # npm reads `npm_config_script-shell` as `npm_config_script_shell`, so `[_-]` matches both.
     # npm_config_userconfig, npm_config_globalconfig and UV_CONFIG_FILE stay accepted: callers set
     # them, and a caller names a file that it controls. npm_config_cache stays accepted for the
-    # same reason (#2747): `devops install-tools` sets it, and npm writes its log below it.
+    # same reason (#2747): a caller sets it, and npm writes its log below it.
     "UV_PYTHON",
     "UV_PYTHON_INSTALL_DIR",
     "UV_PROJECT_ENVIRONMENT",
@@ -2070,8 +2065,8 @@ CONST_CODE_LOADING_ENV_PATTERNS: Final[tuple[str, ...]] = (
     # PYTHONSTARTUP, which this tuple refuses from a caller. Exact entries: a pattern such as
     # YARN_* would refuse YARN_ENABLE_TELEMETRY, and no probe made that key dangerous.
     # npm_config_cache stays accepted: the probe showed that `npx` starts the bin script of a
-    # package from a cache that the caller prepared, but `devops install-tools` sets the key for
-    # `npm ci`, and devops-cli runs no `npx`.
+    # package from a cache that the caller prepared, but a caller sets the key for `npm ci`, and
+    # devops-cli runs no `npx`.
     "GOFLAGS",
     "YARN_YARN_PATH",
     "UV_TOOL_DIR",
@@ -5313,9 +5308,6 @@ CONST_TRIVY_CONFIG_IGNORE_FILE: Final[str] = ".trivyignore.yaml"
 # released version fixes, in the form of `.trivyignore.yaml` (SECURITY.md, A Finding with No Fix;
 # #6204).
 CONST_NPM_AUDIT_IGNORE_FILE: Final[str] = ".npm-audit-ignore.yaml"
-# The ignore file of `osv-scanner` for tools-lock requirement files (SECURITY.md, A Finding with No
-# Fix; #3988).
-CONST_OSV_SCANNER_IGNORE_FILE: Final[str] = ".osv-scanner-ignore.yaml"
 # The tool name that GitHub code scanning shows for the `trivy config` results of the SARIF upload.
 CONST_TRIVY_CONFIG_ALERT_TOOL: Final[str] = "Trivy-config"
 # The most issues that one run of `devops scan alerts` files, so a first run over a long list of

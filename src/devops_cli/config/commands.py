@@ -216,24 +216,6 @@ def build_uv_audit_cmd() -> list[str]:
     return [BIN_UV, "audit", "--frozen", "--quiet", "--output-format", "json"]
 
 
-def build_npm_ci_cmd() -> list[str]:
-    """Build the npm command that installs exactly what a `package-lock.json` records.
-
-    `npm ci` refuses a manifest and lockfile that disagree and checks the sha512 of every package.
-    No package script runs, the engine range of every package is enforced, a configured registry
-    does not rewrite the lockfile's URLs, and neither the audit nor the funding request is sent.
-    """
-    return [
-        BIN_NPM,
-        "ci",
-        "--ignore-scripts",
-        "--no-audit",
-        "--no-fund",
-        "--engine-strict",
-        "--replace-registry-host=never",
-    ]
-
-
 def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
     """Build the npm command that audits the `package-lock.json` in `project_dir` for known
     vulnerabilities without installing anything, and checks for no newer npm.
@@ -258,21 +240,6 @@ def npm_audit_lockfile(cmd: Sequence[str]) -> str | None:
     if not cmd or cmd[0] != BIN_NPM or "--prefix" not in cmd:
         return None
     return (PurePosixPath(cmd[cmd.index("--prefix") + 1]) / "package-lock.json").as_posix()
-
-
-def build_osv_scanner_audit_cmd(requirement_file: Path | str) -> list[str]:
-    """Build an `osv-scanner` audit command for a requirement file."""
-    return [BIN_OSV_SCANNER, "--lockfile", f"requirements.txt:{requirement_file}"]
-
-
-def osv_scanner_lockfile(cmd: Sequence[str]) -> str | None:
-    """The requirement file that an `osv-scanner` audit command reads; None for any other command."""
-    if not cmd or cmd[0] != BIN_OSV_SCANNER or "--lockfile" not in cmd:
-        return None
-    target = cmd[cmd.index("--lockfile") + 1]
-    if target.startswith("requirements.txt:"):
-        return target.removeprefix("requirements.txt:")
-    return target
 
 
 def build_openspec_cmd(*args: str) -> list[str]:

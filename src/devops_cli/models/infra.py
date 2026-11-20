@@ -226,9 +226,10 @@ class PlanStatus(StrEnum):
 
 class PlanContent(BaseModel):
     """The facts of a plan that its id covers: what ran, at which commit, and what it shows on
-    each host."""
+    each host. A record with a field that the model does not name does not read: a record from
+    before #4363, which named the ansible-core version of the pinned install, is planned again."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
     ref: str = Field(description="The ref at origin that the plan read")

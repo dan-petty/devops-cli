@@ -142,21 +142,17 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
     hosts = [request.url.split("/")[2] for request in web.recorded]
     assert (sorted(asked), hosts, report.findings, report.summary.model_dump()) == (
         [
-            ("PyPI", "bandit", "1.9.4"),
             ("PyPI", "certifi", "2026.9.1"),
-            ("PyPI", "colorama", "0.4.6"),
             ("PyPI", "httpx2", "2.13.1"),
             ("PyPI", "pytest", "9.1.1"),
             ("PyPI", "pyyaml", "6.0.3"),
-            ("npm", "@example/helper", "0.4.2"),
             ("npm", "example-dev-tool", "2.1.0"),
-            ("npm", "example-npm", "1.14.3"),
         ],
         ["api.github.com", "api.osv.dev", "api.github.com"],
         [],
         {
-            "components": 28,
-            "queried": 12,
+            "components": 20,
+            "queried": 8,
             "with_findings": 0,
             "findings": 0,
             "unpinned": 2,
@@ -165,11 +161,8 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
             "not_covered": {
                 "devcontainer-feature": 1,
                 "docker": 7,
-                "github-release": 1,
                 "helm": 1,
                 "terraform": 1,
-                "tool-lock-entry": 2,
-                "unknown": 1,
             },
         },
     )
@@ -190,27 +183,37 @@ def test_a_pin_that_is_a_range_is_not_asked(web: WebFake, tmp_path: Path) -> Non
     assert (asked, report.summary.unpinned) == (["idna"], 2)
 
 
-def test_the_same_pin_in_two_files_is_asked_once_and_has_two_locations(
-    web: WebFake, tmp_path: Path
-) -> None:
+def _pyyaml(version: str, file: str, line: int) -> Component:
+    """A pin of the PyPI package pyyaml at `version`, at `file:line`."""
+    return Component(
+        kind=ComponentKind.PYTHON_PACKAGE,
+        ecosystem=Ecosystem.PYPI,
+        name="pyyaml",
+        version=version,
+        file=file,
+        line=line,
+    )
+
+
+def _inventory(*components: Component) -> Inventory:
+    return Inventory(components=list(components), summary=summarize(list(components)))
+
+
+def test_the_same_pin_in_two_files_is_asked_once_and_has_two_locations(web: WebFake) -> None:
     serve_recorded_osv(web)
     web.respond(
         "POST", OSVClient.BATCH_URL, 200, {"results": [{"vulns": [{"id": "GHSA-8q59-q68h-6hv4"}]}]}
     )
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "x"\nversion = "1"\ndependencies = ["pyyaml==5.3"]\n', encoding="utf-8"
-    )
-    tools = tmp_path / "src" / "devops_cli" / "tools_lock"
-    tools.mkdir(parents=True)
-    (tools / "other.txt").write_text("pyyaml==5.3 \\\n    --hash=sha256:00\n", encoding="utf-8")
 
-    report = find_advisories(read_inventory(tmp_path))
+    report = find_advisories(
+        _inventory(_pyyaml("5.3", "pyproject.toml", 4), _pyyaml("5.3", "docs/requirements.txt", 1))
+    )
 
     pyyaml = [f for f in report.findings if f.advisory_id == "GHSA-8q59-q68h-6hv4"]
     assert (
         len(web.recorded[0].json["queries"]),
         [f.locations for f in pyyaml],
-    ) == (1, [["pyproject.toml:4", "src/devops_cli/tools_lock/other.txt:1"]])
+    ) == (1, [["pyproject.toml:4", "docs/requirements.txt:1"]])
 
 
 def test_a_failed_batch_is_reported_and_is_no_clean_answer(web: WebFake) -> None:
@@ -245,7 +248,7 @@ def test_a_record_that_cannot_be_read_is_reported_and_the_rest_stay(web: WebFake
     ) == (7, [("pyyaml", "GHSA-8q59-q68h-6hv4", "OSV returned status 500")])
 
 
-def test_a_record_is_read_once_for_two_versions_of_a_package(web: WebFake, tmp_path: Path) -> None:
+def test_a_record_is_read_once_for_two_versions_of_a_package(web: WebFake) -> None:
     serve_recorded_osv(web)
     web.respond(
         "POST",
@@ -253,14 +256,10 @@ def test_a_record_is_read_once_for_two_versions_of_a_package(web: WebFake, tmp_p
         200,
         {"results": [{"vulns": [{"id": "GHSA-8q59-q68h-6hv4"}]}] * 2},
     )
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "x"\nversion = "1"\ndependencies = ["pyyaml==5.3"]\n', encoding="utf-8"
-    )
-    tools = tmp_path / "src" / "devops_cli" / "tools_lock"
-    tools.mkdir(parents=True)
-    (tools / "other.txt").write_text("pyyaml==5.2 \\\n    --hash=sha256:00\n", encoding="utf-8")
 
-    report = find_advisories(read_inventory(tmp_path))
+    report = find_advisories(
+        _inventory(_pyyaml("5.3", "pyproject.toml", 4), _pyyaml("5.2", "docs/requirements.txt", 1))
+    )
 
     reads = [r.url for r in web.recorded if r.method == "GET"]
     assert (len(report.findings), reads) == (
@@ -714,17 +713,17 @@ def test_the_package_of_a_watch_entry_selects_the_vulnerabilities_that_name_it(
     }
     web.serve(lambda request: httpx2.Response(200, json=[advisory]))
     component = Component(
-        kind=ComponentKind.TOOL,
-        ecosystem=Ecosystem.GITHUB_RELEASE,
+        kind=ComponentKind.CONTAINER_IMAGE,
+        ecosystem=Ecosystem.DOCKER,
         name="app",
         version="3.5.4",
-        file="tools.lock",
+        file="Dockerfile",
         line=1,
     )
     watch = WatchList(
         watch=[
             WatchEntry(
-                ecosystem=Ecosystem.GITHUB_RELEASE,
+                ecosystem=Ecosystem.DOCKER,
                 name="app",
                 repo="example/app",
                 package=package,

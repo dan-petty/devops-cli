@@ -429,7 +429,7 @@ def test_a_tree_with_no_k8s_argocd_passes(tmp_path: Path) -> None:
     assert built == []
 
 
-def test_a_missing_kubectl_fails_naming_devops_install_tools(tmp_path: Path) -> None:
+def test_a_missing_kubectl_fails_naming_its_install_page(tmp_path: Path) -> None:
     _write_app(tmp_path, "clean-app", path="k8s/clean-app")
     app_dir = tmp_path / "k8s" / "clean-app"
     app_dir.mkdir(parents=True)
@@ -443,7 +443,7 @@ def test_a_missing_kubectl_fails_naming_devops_install_tools(tmp_path: Path) -> 
             check_argocd_gate(_env(tmp_path))
 
     err = str(exc_info.value)
-    assert "devops install-tools --tool kubectl" in err
+    assert "kubernetes.io/docs/tasks/tools" in err
 
 
 def test_a_file_in_working_tree_but_not_in_commit_does_not_reach_the_build(

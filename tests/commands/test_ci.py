@@ -86,23 +86,15 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["audit"])
     called = _started(process_fake)
     assert result.exit_code == 0
-    assert [cmd[0] for cmd in called] == [
-        "uv",
-        "npm",
-        "npm",
-        "osv-scanner",
-        "osv-scanner",
-        "osv-scanner",
-    ]
+    assert [cmd[0] for cmd in called] == ["uv", "npm"]
     assert any("uv" in c and "audit" in c for c in called)
 
 
 def test_the_audit_check_audits_uv_and_each_npm_lockfile_without_a_shell() -> None:
     """One check carries both audits as argument lists, each started on its own: `uv audit` of
-    `uv.lock`, `npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
-    Dictionary (#6409), and of the lockfile of each Node tool in the repository's copy of the lock
-    directory, and `osv-scanner` of the requirements file of each Python tool, which need no
-    install."""
+    `uv.lock`, and `npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
+    Dictionary (#6409) and needs no install. The devtools image audits the locks of its tools
+    (#4363)."""
     assert get_check_spec("audit").commands == [
         ["uv", "audit"],
         [
@@ -114,34 +106,10 @@ def test_the_audit_check_audits_uv_and_each_npm_lockfile_without_a_shell() -> No
             "--prefix",
             ".",
         ],
-        [
-            "npm",
-            "audit",
-            "--package-lock-only",
-            "--json",
-            "--no-update-notifier",
-            "--prefix",
-            "src/devops_cli/tools_lock/devcontainers-cli",
-        ],
-        [
-            "osv-scanner",
-            "--lockfile",
-            "requirements.txt:src/devops_cli/tools_lock/semgrep.txt",
-        ],
-        [
-            "osv-scanner",
-            "--lockfile",
-            "requirements.txt:src/devops_cli/tools_lock/bandit.txt",
-        ],
-        [
-            "osv-scanner",
-            "--lockfile",
-            "requirements.txt:src/devops_cli/tools_lock/ansible-core.txt",
-        ],
     ]
 
 
-@pytest.mark.parametrize("failing", ["uv", "npm", "osv-scanner"])
+@pytest.mark.parametrize("failing", ["uv", "npm"])
 def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_other(
     process_fake: ProcessFake, failing: str
 ) -> None:
@@ -152,7 +120,7 @@ def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_othe
 
     assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
         1,
-        ["uv", "npm", "npm", "osv-scanner", "osv-scanner", "osv-scanner"],
+        ["uv", "npm"],
     )
 
 
@@ -207,11 +175,9 @@ def test_the_audit_command_plans_both_audits_in_a_dry_run(process_fake: ProcessF
         result.exit_code,
         "1. UV_MALWARE_CHECK=0 uv --preview-features" in result.output,
         "2. UV_MALWARE_CHECK=0 npm audit" in result.output,
-        "5. UV_MALWARE_CHECK=0 osv-scanner --lockfile" in result.output,
         process_fake.calls,
     ) == (
         0,
-        True,
         True,
         True,
         [],

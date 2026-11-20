@@ -1,7 +1,7 @@
 # ai-review-profile Specification
 
 ## Purpose
-The review profile records what a review ran with: its prompt digest, the tools lock and its own source state. The prompt digest moves only with a prompt that a review loads.
+The review profile records what a review ran with: its prompt digest, the versions of the tools that ran and its own source state. The prompt digest moves only with a prompt that a review loads.
 
 ## Requirements
 

@@ -439,27 +439,6 @@ class ConfigMessages:
 
 
 @dataclass(frozen=True)
-class InstallMessages:
-    status_title: str = "DevOps Tool Status"
-    checking_tools: str = "Checking DevOps toolchain versions..."
-    installing_tool: str = "Installing [cyan]{name}[/cyan] {version}..."
-    tool_installed: str = "✓ {name} {version} installed to {path}"
-    tool_already_installed: str = "✓ {name} is already installed ({version})"
-    download_failed: str = "Error downloading {name} from {url}: {exc}"
-    at_pin: str = "at pin"
-    not_installed: str = "not installed"
-    check_off_pin: str = "{name} {version}: {installed}"
-    check_all_pinned: str = "All {count} tools are linked at their locked versions in {path}."
-    npm_missing_hint: str = (
-        "A Node tool installs with npm, and the installer provisions no runtime: install Node.js at "
-        "the version in .node-version, which brings npm."
-    )
-    path_hint: str = (
-        'Note: {path} is not in your PATH.\nAdd to your shell config:  export PATH="{path}:$PATH"'
-    )
-
-
-@dataclass(frozen=True)
 class NewMessages:
     bad_name: str = (
         "'{group}' or '{name}' is not a name: use a group module name, and a command name in "
@@ -1573,7 +1552,7 @@ class TfMessages:
     fmt_success: str = "✓ OpenTofu files formatted."
     binary_not_found: str = (
         "Neither 'tofu' nor 'terraform' was found in PATH. "
-        "Install OpenTofu or run 'devops install-tools'."
+        "Install OpenTofu (https://opentofu.org/docs/intro/install/)."
     )
     dir_not_found: str = "OpenTofu directory '{path}' does not exist."
     deploy_cloud_header: str = (
@@ -7238,7 +7217,6 @@ class LanguageCatalog:
     research: ResearchMessages = field(default_factory=ResearchMessages)
     benchmark: BenchmarkMessages = field(default_factory=BenchmarkMessages)
     config: ConfigMessages = field(default_factory=ConfigMessages)
-    install: InstallMessages = field(default_factory=InstallMessages)
     openspec: OpenSpecMessages = field(default_factory=OpenSpecMessages)
     new: NewMessages = field(default_factory=NewMessages)
     branches: BranchMessages = field(default_factory=BranchMessages)

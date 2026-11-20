@@ -528,7 +528,7 @@ def test_without_the_tool_environment_the_ansible_rows_are_not_readable(
     person_caller: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No install of `devops install-tools`, and no `ansible-runner` on PATH."""
+    """No `ansible-runner` on PATH."""
     found = shutil.which
     monkeypatch.setattr(
         shutil, "which", lambda cmd, *a, **k: None if cmd == "ansible-runner" else found(cmd)
@@ -574,8 +574,8 @@ def test_the_ansible_runner_on_path_names_the_tool_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """With no install of `devops install-tools`, the commands come from the folder of the
-    `ansible-runner` on PATH, as the devcontainer image links it."""
+    """The commands come from the folder of the `ansible-runner` on PATH, as the devtools image
+    links it."""
     image_bin = tmp_path / "devops-tools" / "ansible-core" / "bin"
     image_bin.mkdir(parents=True)
     (image_bin / "ansible-runner").write_text("#!/bin/sh\n", encoding="utf-8")

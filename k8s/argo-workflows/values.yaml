@@ -6,8 +6,7 @@
 # or argo-server. Every pod in the namespace is admitted by Pod Security `restricted`: chart 2.0.18
 # leaves the controller pod's and the executor's securityContext empty, so both are set here.
 
-# One tag for the controller and the executor. It equals the argo CLI pin in
-# src/devops_cli/tools_lock/tools.lock.
+# One tag for the controller and the executor.
 images:
   tag: v4.1.6
   pullPolicy: IfNotPresent

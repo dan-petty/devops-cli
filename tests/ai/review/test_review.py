@@ -517,11 +517,11 @@ def test_finding_location_and_title_sanitizes_criteria_leakage() -> None:
 
     raw_finding = {
         "title": "Syntax error in foo: line where defined. Provide verification criteria: None.",
-        "location": "src/devops_cli/commands/install_tools.py: line where _current_version defined. Provide fix: change to except. Provide verification criteria: Running CLI should not crash. Invalidation criteria: CLI runs cleanly.",
+        "location": "src/devops_cli/commands/ci.py: line where _current_version defined. Provide fix: change to except. Provide verification criteria: Running CLI should not crash. Invalidation criteria: CLI runs cleanly.",
         "description": "Defect details",
     }
     f = Finding(**raw_finding)
-    assert f.location == "src/devops_cli/commands/install_tools.py:1"
+    assert f.location == "src/devops_cli/commands/ci.py:1"
     assert "Provide verification criteria" not in f.title
     assert "Invalidation criteria" not in f.location
 

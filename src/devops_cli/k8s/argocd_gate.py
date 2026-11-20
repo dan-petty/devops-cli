@@ -233,7 +233,7 @@ def _check_tree(env: EnvironmentTree, *, origin_url: str) -> list[str]:
     if shutil.which("kubectl") is None:
         raise ArgoCDGateError(
             "kubectl is required to build Argo CD applications. "
-            "Run 'devops install-tools --tool kubectl'."
+            "Install kubectl (https://kubernetes.io/docs/tasks/tools/)."
         )
 
     failures: dict[str, list[str]] = {}
