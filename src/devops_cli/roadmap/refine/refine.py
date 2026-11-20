@@ -137,11 +137,12 @@ import json
 import logging
 import re
 import subprocess
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, partial
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import urlsplit
@@ -1284,6 +1285,84 @@ def title_dependencies(body: str, items: Sequence[Item]) -> TitleDependencies:
         else:
             unmatched.append(title)
     return TitleDependencies(tuple(dict.fromkeys(numbers)), tuple(dict.fromkeys(unmatched)))
+
+
+@dataclass(frozen=True)
+class DependencyGraph:
+    """The declared dependencies of the open items as one graph, and the cycle of each item that a
+    dependency leads back to (#6449).
+
+    A node is an open item of the sequence the graph was built from. The edges of an item are the
+    issues that its job record, its Dependencies section and its quoted titles name, less each
+    issue that the sequence does not hold as an open item, so a closed dependency holds nothing
+    back. `cycles` gives, for each item that a dependency leads back to, the path from the item
+    through its dependencies back to it.
+    """
+
+    edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    cycles: dict[int, tuple[int, ...]] = field(default_factory=dict)
+
+    @classmethod
+    def of(cls, items: Sequence[Item]) -> DependencyGraph:
+        """The graph of the open items of `items`, built from that sequence alone: it reads no
+        store and sends no request."""
+        open_items = [item for item in items if item.state is GitHubState.OPEN]
+        numbers = {item.number for item in open_items}
+        edges = {item.number: _edges_of(item, items, numbers) for item in open_items}
+        if not _holds_a_cycle(edges):
+            return cls(edges=edges)
+        cycles = {
+            item.number: path
+            for item in open_items
+            if (path := _path_back(edges, item.number)) is not None
+        }
+        return cls(edges=edges, cycles=cycles)
+
+    def cycle_of(self, number: int) -> tuple[int, ...] | None:
+        """The path from `number` through its dependencies back to it, or None when no dependency
+        of it leads back."""
+        return self.cycles.get(number)
+
+
+def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tuple[int, ...]:
+    """The items of `numbers` that `item` declares as its dependencies, in order: the ones its job
+    record, its Dependencies section and its quoted titles name."""
+    named = (
+        *recorded_blockers(item),
+        *body_dependencies(item.body),
+        *title_dependencies(item.body, items).numbers,
+    )
+    return tuple(dict.fromkeys(number for number in named if number in numbers))
+
+
+def _holds_a_cycle(edges: Mapping[int, Sequence[int]]) -> bool:
+    """Whether a dependency leads back to its item, which the one sort of the graph finds."""
+    try:
+        TopologicalSorter({number: set(names) for number, names in edges.items()}).prepare()
+    except CycleError:
+        return True
+    return False
+
+
+def _path_back(edges: Mapping[int, Sequence[int]], start: int) -> tuple[int, ...] | None:
+    """The first path from `start` through the edges that ends at `start`, or None when no
+    dependency of `start` leads back to it."""
+    seen = {start}
+    stack: list[tuple[int, ...]] = [(start,)]
+    while stack:
+        path = stack.pop()
+        for next_number in edges.get(path[-1], ()):
+            if next_number == start:
+                return (*path, start)
+            if next_number not in seen:
+                seen.add(next_number)
+                stack.append((*path, next_number))
+    return None
+
+
+def cycle_text(path: Sequence[int]) -> str:
+    """The path of a cycle as a person reads it, such as `#1 → #2 → #1`."""
+    return " → ".join(f"#{number}" for number in path)
 
 
 def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str]:
