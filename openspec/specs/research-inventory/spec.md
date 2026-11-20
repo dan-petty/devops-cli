@@ -6,7 +6,7 @@ How `devops research inventory` reads the pins of a repository from its files in
 ## Requirements
 
 ### Requirement: The inventory lists each pin as a typed component
-`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the tools lock and its requirement and Node lock files, the Dockerfiles, the devcontainer lock, the workflows and composite actions of `.github/`, the YAML files under `k8s/` and the Terraform files under `tf/`. It SHALL list one component for each pin, with a kind, an ecosystem, a name, a version, the file from the repository root and the line, ordered by file, then line, then name.
+`devops research inventory` SHALL read the pins in `pyproject.toml`, `uv.lock`, the tools lock, the Node lock files, the Dockfiles, the devcontainer lock, the workflows and composite actions of `.github/`, the YAML files under `k8s/` and the Teraform files under `tf/`. It SHALL list one component for each pin, with its kind, ecosystem, name, version, file and line and, for an Action pin whose ref is a commit, that commit, ordered by file, then line, then name.
 
 #### Scenario: Each kind of pin gives a component
 - **WHEN** the repository holds one pin of each kind in the formats above
@@ -18,7 +18,7 @@ How `devops research inventory` reads the pins of a repository from its files in
 
 #### Scenario: A pinned action shows its release
 - **WHEN** a step reads `uses: actions/checkout@<commit> # v7`
-- **THEN** the version of the component is `v7`
+- **THEN** the version of the component is `v7` and the component holds the commit
 
 ### Requirement: A pin with no ecosystem is listed and counted
 A component that the reader cannot map to a registry SHALL have the ecosystem `unknown`. The summary SHALL count it in `unknown`, and the total SHALL include it.
