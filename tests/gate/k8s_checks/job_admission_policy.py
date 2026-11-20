@@ -102,6 +102,7 @@ def _policy_refusals(
     job: dict[str, Any] | None,
     old: dict[str, Any] | None = None,
     user: str | None = None,
+    operation: str = "CREATE",
 ) -> list[str]:
     """The messages of the validations of policy `name` that refuse the request, or none when the
     policy does not apply to the user. Each variable of the policy is computed first, in order,
@@ -110,7 +111,7 @@ def _policy_refusals(
     data: dict[str, Any] = {
         "object": job,
         "oldObject": old,
-        "request": {"userInfo": {"username": user or _service_user()}},
+        "request": {"operation": operation, "userInfo": {"username": user or _service_user()}},
     }
     if not all(_holds(condition["expression"], data) for condition in spec["matchConditions"]):
         return []
@@ -123,15 +124,18 @@ def _policy_refusals(
     return [rule["message"] for rule in spec["validations"] if not _holds(rule["expression"], data)]
 
 
-def _refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
-    """The messages of the validations that refuse the create of the Job, or none when the policy
-    does not apply to the user."""
+def _refusals(job: dict[str, Any], user: str | None = None, *, update: bool = False) -> list[str]:
+    """The messages of the validations that refuse the create of the Job, or its update when
+    `update` is true, or none when the policy does not apply to the user. A Job keeps its pod
+    template for its life, so the old Job of an update has the same template."""
+    if update:
+        return _policy_refusals(POLICY_NAME, job=job, old=job, user=user, operation="UPDATE")
     return _policy_refusals(POLICY_NAME, job=job, user=user)
 
 
 def _delete_refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
     """The messages of the validations that refuse the delete of the Job."""
-    return _policy_refusals(DELETE_POLICY_NAME, job=None, old=job, user=user)
+    return _policy_refusals(DELETE_POLICY_NAME, job=None, old=job, user=user, operation="DELETE")
 
 
 def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str, Any]:
@@ -680,11 +684,9 @@ def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
     assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
 
 
-def check_a_runner_job_may_read_the_keys_of_the_constant_or_take_the_secret_with_env_from() -> None:
+def check_a_runner_job_may_read_exactly_the_keys_of_the_constant() -> None:
     """A runner Job reads the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` (#6518), and the
-    policy refuses another key of the Secret, such as the password of the cache or an MCP token. A
-    runner Job that the Service made from the template before #6518 takes the whole Secret with
-    `envFrom`, and the Service still patches it, so the policy admits it."""
+    policy refuses another key of the Secret, such as the password of the cache or an MCP token."""
     keys = (
         *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
         "DEVOPS_CLI_VALKEY_PASSWORD",
@@ -695,9 +697,23 @@ def check_a_runner_job_may_read_the_keys_of_the_constant_or_take_the_secret_with
         for key in keys
         if not _refusals(_changed(_drop_secret_keys, _add_secret_key("devops-cli", key)))
     ]
-    made_before = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "devops-cli"}}))
 
-    assert (admitted, _refusals(made_before)) == (list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS), [])
+    assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+
+
+def check_a_runner_job_with_env_from_is_refused_on_create_and_admitted_only_on_update() -> None:
+    """A runner Job that the Service made from the template before #6518 takes the whole Secret
+    with `envFrom`. The Service still patches such a Job (its deadline, its resume), so the policy
+    admits `envFrom` of Secret devops-cli on an UPDATE. A Job keeps its pod template, so an UPDATE
+    cannot add `envFrom`, and the policy refuses it on a CREATE."""
+    made_before = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "devops-cli"}}))
+    other_secret = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "x"}}))
+
+    assert (
+        ["envFrom" in message for message in _refusals(made_before)],
+        _refusals(made_before, update=True),
+        ["envFrom" in message for message in _refusals(other_secret, update=True)],
+    ) == ([True], [], [True])
 
 
 def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:
@@ -905,3 +921,13 @@ def check_a_planner_job_with_a_secret_env_from_is_refused() -> None:
     _container(job)["envFrom"] = [{"secretRef": {"name": "devops-cli"}}]
 
     assert any("envFrom" in message for message in _refusals(job))
+
+
+@pytest.mark.parametrize("key", CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
+    """A runner Job and a stage Job may read these keys with `valueFrom` (#6518), but a planner
+    run Job reads no key of the Secret (ADR 0018)."""
+    job = _planner_job()
+    _add_secret_key("devops-cli", key)(job)
+
+    assert any("valueFrom" in message for message in _refusals(job))

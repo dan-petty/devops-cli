@@ -8,7 +8,8 @@ The runner Job template loads the whole Secret `devops-cli` with `envFrom` (#651
 
 - CronJob `devops-cli-runner` takes 2 keys of Secret `devops-cli` through `secretKeyRef`, each in the variable of its name, and no `envFrom`: `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` and `DEVOPS_CLI_AI_API_KEY`, the keys of a stage Job (`CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`). No Secret and no key name is new, so nothing goes to the cluster before the merge.
 - The admission policy `roadmap-service-jobs` admits the same 2 keys in `valueFrom` for a runner Job. Without this, the policy refuses every runner Job that the Service makes from the new template: a server dry run of such a Job as the Service on 2026-11-20 got `An env entry must not use valueFrom`.
-- The gate checks of the k8s row read the new template: the runner check reads the 2 keys, and one check runs the policy against a runner Job with a third key, an MCP token and the `envFrom` of a Job made before this change.
+- The policy refuses `envFrom` in the `CREATE` of a Job. It admits `envFrom` of Secret `devops-cli` only in the `UPDATE` of a runner Job, which the Service sends to a Job that it made before this change.
+- The gate checks of the k8s row read the new template: the runner check reads the 2 keys, one check runs the policy against a runner Job with a third key and an MCP token, one runs the `CREATE` and the `UPDATE` of a runner Job with the `envFrom` of a Job made before this change, and one runs a planner run Job with each of the 2 keys.
 - `docs/CLUSTER.md` and the comment of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` name the keys of a runner Job.
 - The change carries a spec delta in `roadmap-implement-runner`, because a manifest and the admission of a Job are observable.
 - The change fits one pull request: about 100 changed lines.
@@ -21,14 +22,14 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-implement-runner`: the runner Job takes 2 keys of the Secret, and the admission policy admits them.
+- `roadmap-implement-runner`: the runner Job takes 2 keys of the Secret, the admission policy admits them, and the policy admits `envFrom` only in the `UPDATE` of a runner Job.
 
 ## Impact
 
 - Manifests: `k8s/devops/cronjob-runner.yaml`, `k8s/devops/roadmap-service/admissionpolicy.yaml`.
 - Code: a comment in `src/devops_cli/config/constants.py`. Gate checks: `tests/gate/k8s_checks/runner.py`, `tests/gate/k8s_checks/job_admission_policy.py`. Test: `tests/roadmap/implement/test_roadmap_implement_submit.py` reads an env entry with no `value`.
 - Documents: `docs/CLUSTER.md`.
-- Live Jobs: a runner Job that the Service made before the sync keeps `envFrom`. The policy still admits `envFrom` of Secret `devops-cli` for a runner Job, so the Service can patch the deadline of that Job and resume a waiting fix-checks Job.
+- Live Jobs: a runner Job that the Service made before the sync keeps `envFrom`. The policy admits `envFrom` of Secret `devops-cli` in the `UPDATE` of a runner Job, so the Service can patch the deadline of that Job and resume a waiting fix-checks Job.
 - Relation: #5498 adds a table of keys and token permissions for each roadmap Job and a template test. This change applies the row of the runner Job by hand and builds no table. #2695 and #5506 move the agent away from the keys.
 
 ## Feasibility
