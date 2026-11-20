@@ -60,8 +60,8 @@ BRANCH = "fix/1-the-job-drops-a-comment"
 CLOSED_AT = datetime(2026, 11, 2, 20, 22, 45, tzinfo=UTC)
 SERVICE = f"{STAGE_NAME}"
 EVIDENCE = (
-    "The premise does not hold: `src/devops_cli/roadmap/runner_tools.py` names `bwrap` in "
-    "`NOT_IN_RUNNER`, so the runner can run no review. I ran the command and it failed closed."
+    "The premise does not hold: `CONTEXT.md` says that the job reads the comments, so the runner "
+    "can run no review. I ran the command and it failed closed."
 )
 OTHER_EVIDENCE = "The plan repeats the check that `docs/roadmap/stage.md` already states."
 
@@ -223,8 +223,26 @@ def test_a_rejected_plan_returns_the_item_to_new_and_records_the_rejection(
         pull=pull,
         text_hash=body_hashes(item.body)[0],
         closed_at=CLOSED_AT,
-        paths=("src/devops_cli/roadmap/runner_tools.py",),
+        paths=("CONTEXT.md",),
     )
+
+
+def test_a_rejected_plan_keeps_only_the_paths_of_the_tree(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    number, pull = _staged(store, github_api)
+    _comment(
+        store,
+        pull,
+        "The premise does not hold: 0.202 and v1.37.2 came before `CONTEXT.md` in the run.",
+    )
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+
+    _applied(store, stage_repo)
+
+    recorded = recorded_rejection(_item(store, number))
+    assert recorded is not None
+    assert recorded.paths == ("CONTEXT.md",)
 
 
 def test_an_item_that_a_person_already_returned_stays_new_and_gets_the_comment(
@@ -519,10 +537,10 @@ def test_a_commit_that_changed_a_file_the_reason_names_ends_the_hold(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
 ) -> None:
     number = _rejected_item(store, stage_repo, github_api)
-    store.seed_commit("src/devops_cli/roadmap/runner_tools.py", at=CLOSED_AT - timedelta(days=1))
+    store.seed_commit("CONTEXT.md", at=CLOSED_AT - timedelta(days=1))
     held = _selection(store, stage_repo)
 
-    store.seed_commit("src/devops_cli/roadmap/runner_tools.py", at=CLOSED_AT + timedelta(hours=1))
+    store.seed_commit("CONTEXT.md", at=CLOSED_AT + timedelta(hours=1))
     freed = _selection(store, stage_repo)
 
     assert held.selected == ()

@@ -3,7 +3,7 @@ on a clone with an `origin`, and GitHub is faked."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -12,6 +12,8 @@ from devops_cli.config import settings
 from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_REFINE_COMMENT_MARKER,
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
     CONST_ROADMAP_STAGE_COMMENT_MARKER,
 )
 from devops_cli.exceptions.roadmap import RoadmapImplementError
@@ -490,6 +492,43 @@ def test_an_item_that_waits_on_a_person_names_the_wait_and_what_ends_it(
         False,
         "The item waits on a person. " + TEXTS.refine_left_person_hint,
     )
+
+
+def test_the_refine_verdict_reads_the_tree_of_the_default_branch(job_world: JobWorld) -> None:
+    """A round of the Service reads the tree of the default branch, so explain reads it too: a file
+    that `origin/main` holds and the `HEAD` of the clone does not is a path of the wait (#6444)."""
+    watched = "src/watched.py"
+    job_world.repo.track({watched: "VALUE = 1\n"})
+    job_world.repo.git("reset", "-q", "--hard", "HEAD~1")
+    number = _seed(job_world, status="New")
+    held = job_world.store.item(number)
+    assert held is not None
+    section = (
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\n\n"
+        f"### Open questions\n- Does `{watched}` give the value?\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}"
+    )
+    job_world.store.write_issue_body(number, f"{held.body}\n\n{section}")
+    held = job_world.store.item(number)
+    assert held is not None
+    body_hash, section_hash = body_hashes(held.body)
+    job_world.store.set_marks(
+        held,
+        {
+            RefineRecordKey.BODY_HASH: body_hash,
+            RefineRecordKey.SECTION_HASH: section_hash,
+            RefineRecordKey.NEXT_STEP: "person",
+        },
+    )
+    job_world.store.seed_comment(
+        number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nSee Open questions."
+    )
+    commented = job_world.store.comments_on(number)[-1].created_at
+    job_world.store.seed_commit(watched, at=commented + timedelta(minutes=5))
+
+    explained = _explain(job_world, number)
+
+    assert explained.refine == JobVerdict(True)
 
 
 def test_an_item_that_the_stage_job_returned_twice_names_the_cause(job_world: JobWorld) -> None:

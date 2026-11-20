@@ -278,3 +278,10 @@ Every return writer in the stage subsystem SHALL call `apply_return` to return a
 #### Scenario: Stage returns an item at the plan defect limit through apply_return
 - **WHEN** an item reaches the plan defect limit
 - **THEN** the stage job calls `apply_return` with a `ReturnPlan` that contains the defect problems comment and the failure marks
+
+### Requirement: A rejected plan's hold keeps only the paths that the tree holds
+The record of a rejected plan MUST hold only the paths that the default branch holds, so a decimal, a version, a dotted setting or a domain ends no hold.
+
+#### Scenario: A decimal and a version in the reason of a rejected plan
+- **WHEN** the reason of a rejected plan names a decimal and a version before a file that the default branch holds, and `text_paths` reads the reason with the tree of the default branch
+- **THEN** the record of `stage.rejected` holds that file and neither value

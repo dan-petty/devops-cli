@@ -185,6 +185,7 @@ from devops_cli.roadmap.plan_read import (
     ReadBackDifference,
     read_back_differences,
     read_change,
+    tree_files,
 )
 from devops_cli.roadmap.planned import (
     PlannedChanges,
@@ -3165,10 +3166,15 @@ def _rejections(
     pushed = set(remote_branches(heads))
     staged = staged_plans(store.items(), planned, item_number)
     read = closed_plans(store, repo, staged, stop=(*_STOP_THE_RUN, GitHubRateLimitError))
+    tracked_paths: frozenset[str] | None = None
     found: list[Rejection] = []
     kept: list[KeptBranch] = []
     for closed in read.closed:
-        plan, comment = closed.rejection()
+        if tracked_paths is None:
+            tracked_paths = frozenset(
+                tree_files(source, f"origin/{planned.default}", operation=_GIT_OPERATION)
+            )
+        plan, comment = closed.rejection(tracked_paths)
         branch = closed.item.job_record.get(StageRecordKey.BRANCH) or ""
         delete, tip = None, ""
         if branch in pushed:

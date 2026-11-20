@@ -146,6 +146,9 @@ def _answer_refine_git(repo: Path, argv: list[str]) -> ProcessAnswer:
     if "show" in argv:
         return _answer_show(repo, argv[-1])
     if "ls-tree" in argv:
+        # `ls-tree -r --name-only -z <rev>` lists the whole tree of the commit, which is the clone.
+        if argv[argv.index("ls-tree") + 1 :] == ["-r", "--name-only", "-z", argv[-1]]:
+            return _answer_ls_tree(repo, repo)
         target_dir = repo / argv[-1] if len(argv) > 6 else repo
         return _answer_ls_tree(repo, target_dir)
     if "grep" in argv and "-l" in argv:
