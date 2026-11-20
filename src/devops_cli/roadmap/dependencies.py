@@ -1,7 +1,7 @@
 """The open issue that an item's Dependencies section names (#4009).
 
-The stage job and the implement job read the same declaration: a `#N` in the Dependencies section
-of the body (#2654), or a quoted title of another item (#4803). A dependency that is still open
+The stage job and the implement job read the same declaration: a blocker `#N` in the Dependencies
+section of the body (#2654, #6451), or a quoted title of another item (#4803). A dependency that is still open
 holds both jobs back, and the message is the same in both. An item that a dependency leads back to
 gets the reason of its cycle, so the jobs name the cycle and not only the next open issue (#6449).
 """

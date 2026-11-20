@@ -1227,25 +1227,44 @@ def body_dependencies(body: str) -> list[int]:
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
     text under the heading, up to the next heading of the same or a higher level. Only a blocker
-    line names a dependency (`_blocker_inlines`); the body is parsed as CommonMark, so a heading
-    in a code block is not a heading.
+    line names a dependency (`_blocker_inlines`), and a reference after `of` on it names a parent
+    (`_blocker_issues`); the body is parsed as CommonMark, so a heading in a code block is not a
+    heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    return [number for token in _blocker_inlines(section) for number in _issues(token)]
+    return [number for token in _blocker_inlines(section) for number in _blocker_issues(token)]
 
 
-# The words that open a blocker line that is no list item, such as `Merge first: #12` (#6451).
-_MERGE_FIRST: Final[str] = "merge first"
+# The words that open a blocker line, in any case, such as `Merge first: #12` or `Depends on #12`
+# (#6451).
+_BLOCKER_OPENERS: Final[tuple[str, ...]] = (
+    "merge first",
+    "depends on",
+    "blocked by",
+    "waits for",
+    "wait for",
+)
+# The phrases, in any case, of a line that names an issue that waits for this item, such as
+# `#12 needs this item`: the line names no blocker (#6451).
+_REVERSE_PHRASES: Final[tuple[str, ...]] = (
+    "needs this item",
+    "waits for this item",
+    "depends on this item",
+    "blocked by this item",
+)
+# The word before an issue reference that names a parent, such as `child 8 of #4833` (#6451).
+_PARENT_WORD: Final[str] = "of"
 
 
 def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
     """The inline tokens of a Dependencies section that name a blocker, in section order (#6451).
 
-    A blocker line is a line that starts with `Merge first` in any case, the first text of a list
-    item when its first word is an issue reference, or a line outside a list whose words are
-    issue references only, with at least one word. A parent, a child, a related issue, a reverse
-    link and the source line of intake carry other words, so they name no blocker. The text of a
-    nested list item counts for that item and not for the item that holds it.
+    A blocker line is a line that starts with a blocker opener (`_BLOCKER_OPENERS`) in any case,
+    or a line whose first word is an issue reference when it is the first text of a list item or
+    a paragraph outside a list. A line that holds a reverse phrase (`_REVERSE_PHRASES`) names no
+    blocker. A parent, a child, a related issue and the source line of intake open with other
+    words, so they name no blocker. The text of a nested list item counts for that item and not
+    for the item that holds it.
     """
     kept: list[Token] = []
     seen_first: list[bool] = []
@@ -1260,21 +1279,33 @@ def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
             first_of_item = in_item and not seen_first[-1]
             if in_item:
                 seen_first[-1] = True
-            if _names_a_blocker(token, first_of_item=first_of_item, in_list=in_item):
+            if _names_a_blocker(token, first_text=first_of_item or not in_item):
                 kept.append(token)
     return kept
 
 
-def _names_a_blocker(token: Token, *, first_of_item: bool, in_list: bool) -> bool:
-    """Whether an inline token names a blocker: a `Merge first` line, the first text of a list
-    item that opens with an issue reference, or a line outside a list of issue references only."""
-    text = " ".join(token.content.split())
-    if text.casefold().startswith(_MERGE_FIRST):
+def _names_a_blocker(token: Token, *, first_text: bool) -> bool:
+    """Whether an inline token names a blocker: it holds no reverse phrase, and it starts with a
+    blocker opener, or it is the first text of a list item or a paragraph outside a list
+    (`first_text`) and its first word is an issue reference."""
+    text = " ".join(token.content.split()).casefold()
+    if any(phrase in text for phrase in _REVERSE_PHRASES):
+        return False
+    if text.startswith(_BLOCKER_OPENERS):
         return True
-    words = [word.strip(_REFERENCE_PUNCTUATION) for word in text.split()]
-    if first_of_item:
-        return bool(words) and _is_reference(words[0])
-    return not in_list and bool(words) and all(_is_reference(word) for word in words)
+    words = text.split()
+    return first_text and bool(words) and _is_reference(words[0].strip(_REFERENCE_PUNCTUATION))
+
+
+def _blocker_issues(token: Token) -> list[int]:
+    """The issues that a blocker line names: each issue reference, less a reference that directly
+    follows `of`, which names a parent, such as `child 8 of #4833` (#6451)."""
+    words = [word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split()]
+    return [
+        int(word[1:])
+        for before, word in itertools.pairwise(["", *words])
+        if _is_reference(word) and before.casefold() != _PARENT_WORD
+    ]
 
 
 def _is_reference(word: str) -> bool:
