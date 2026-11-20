@@ -248,7 +248,7 @@ def _run_time(run: dict[str, Any]) -> datetime | None:
     return datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
 
 
-def _latest_run_of_each_check(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def latest_run_of_each_check(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Keep the latest run of each check, whatever its conclusion (#5383).
 
     Each event of a pull request starts its workflows in a new check suite. The REST API lists
@@ -355,7 +355,7 @@ def _fetch_check_runs_from_rest(
     except GitHubOperationError as err:
         return [], f"GitHub check-runs API error: {str(err)[:CONST_MAX_ERROR_DETAIL_LENGTH]}"
     readable = [run for run in runs if isinstance(run, dict)]
-    return [_check_run_dict_to_item(cr) for cr in _latest_run_of_each_check(readable)], ""
+    return [_check_run_dict_to_item(cr) for cr in latest_run_of_each_check(readable)], ""
 
 
 def _fetch_commit_statuses_from_rest(

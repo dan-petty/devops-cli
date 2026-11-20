@@ -62,6 +62,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.claim import claim_labels
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
+from devops_cli.roadmap.fix_checks_row import OUTCOME_NONE, unit_records
 from devops_cli.roadmap.implement.implement_fix_scope import repair_scope
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
@@ -88,6 +89,7 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ImplementResult,
     Item,
+    JobRecord,
     RoadmapStore,
 )
 
@@ -208,7 +210,7 @@ def is_bot_author(author: str) -> bool:
     return bool(bot and author == bot)
 
 
-def _has_owner_label(labels: Sequence[str]) -> bool:
+def has_owner_label(labels: Sequence[str]) -> bool:
     """Whether `labels` hold an owner/* label that claims against the Service: `owner/agent`,
     `owner/human` or another of the family, but not `owner/service` (#5027)."""
     return bool(claim_labels(labels))
@@ -347,7 +349,7 @@ def _check_preconditions(
             head=status.head_sha,
             reason=f"A runner Job works on it: `{item.job_record.get(ImplementRecordKey.JOB)}`",
         )
-    if _has_owner_label(status.labels) or (item is not None and _has_owner_label(item.labels)):
+    if has_owner_label(status.labels) or (item is not None and has_owner_label(item.labels)):
         return FixChecksReport(
             repo=repo,
             pull=pull,
@@ -362,6 +364,25 @@ def _check_preconditions(
 _ENDED: Final[frozenset[str]] = frozenset(
     {FixChecksResult.FAILED, FixChecksResult.STOPPED, FixChecksResult.WAIT}
 )
+
+
+def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) -> bool:
+    """Whether the fix unit of `check` on head `head` of pull request `pull` ended with no repair
+    (#6559): the last round of the step on that head and check ended (`_ENDED`), or the unit
+    record holds an outcome that is no repair, or its attempts are spent (more than `extra` more
+    attempts, as `fix_checks_row` counts them). No unit then repairs the check, so the watch row
+    stops the item of a delivery draft."""
+    if (
+        record.get(FixChecksRecordKey.KEY) == f"{head}:{check}"
+        and record.get(FixChecksRecordKey.RESULT) in _ENDED
+    ):
+        return True
+    unit = unit_records(record.get(FixChecksRecordKey.UNITS)).get(f"{pull}:{head}:{check}")
+    if unit is None:
+        return False
+    if unit.outcome == OUTCOME_NONE:
+        return unit.attempt > extra
+    return unit.outcome != FixChecksResult.REPAIRED
 
 
 def _check_failed_head(facts: _Round, check: str) -> FixChecksReport | None:
@@ -532,9 +553,12 @@ def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> 
 
 def takes_ready_path(item: Item) -> bool:
     """Whether the ready path of the step takes the delivery draft of `item`: a fix Job repaired
-    it (#5971), or its implement Job ended at the draft (`drafted`, #6559). A draft whose implement
-    Job stopped stays a draft."""
+    it (#5971), or its implement Job ended at the draft (`drafted`, #6559). A draft whose item
+    holds a stop stays a draft: the implement Job or the watch row stopped it, and only a clear of
+    the stop lets the path take it again."""
     record = item.job_record
+    if record.get(ImplementRecordKey.STOPPED):
+        return False
     return (
         record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
         or record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED

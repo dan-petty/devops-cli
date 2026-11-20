@@ -8,8 +8,8 @@ The owner decided on 2026-11-20 that the implement Job ends at "draft pull reque
 
 - The implement Job ends when the draft holds the final title and body. It asks `draft_readiness` with no check runs first, as its step `ready` did, and a refusal stops the item. Then it records `implement.result` as `drafted`, sets Status In Review and comments the spend. It runs no watch, no repair after the push, no evidence comment and no `gh pr ready`.
 - A step makes no `wip:` commit, and a stopped step resets to the commit where it started. `implement_wip.py`, `_keep`, `_move_wip`, the records `implement.wip` and `implement.continued`, and the counter `devops_cli_service_kept_work_total` go.
-- The ready path of the step `fix-checks`, which the watch row runs, takes a delivery draft with `implement.result` equal to `drafted`. The watch row stops the item of such a draft when no actor takes it: a failed check that no fix-checks unit repairs, a cancelled check, or a conflict.
-- The implement line `drafted` is the record of the hand-off. `devops roadmap eval grades` scores each `drafted` attempt by the forge state of its delivery (merged or ready: success; closed: failure; draft: pending).
+- The ready path of the step `fix-checks`, which the watch row runs, takes a delivery draft with `implement.result` equal to `drafted`. A failed or cancelled check, or a conflict, has a repair owner only in mode `on`, for a class in `FIX_CHECK_CLASSES`, while the fix-checks unit of the head and the check has not ended with no repair. In each other case the watch row stops the item.
+- The implement line `drafted` is the record of the hand-off. The line names its draft (`pull`), and `devops roadmap eval grades` scores the `drafted` lines of each pull request once by its forge state (merged or ready: 1 success and the other lines failures; closed: failures; draft: pending).
 - The setting `roadmap.implement.monitor_timeout_seconds` goes with the watch.
 
 ## Capabilities

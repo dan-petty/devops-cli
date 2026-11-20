@@ -11,10 +11,12 @@ only that round: the row logs and counts it and gives its result (#6018). A deli
 fix Job repaired, or whose implement Job ended at the draft (#6559), and whose checks pass gets
 the ready path of the step `fix-checks` once for each head, and only the ready path: a check that
 fails between the two reads gives `skipped`. The row leaves a delivery draft whose implement Job
-stopped. A delivery draft that the ready path takes and that no actor takes on (a failed check that
-no fix-checks unit repairs, a cancelled check, or a conflict with the base) stops its item, once,
-through the stop flow of the implement Job: Status Blocked, `implement.stopped` and the class, and
-one stop comment that names the check or the conflict (#6559). A green plan draft is marked ready only
+stopped. A delivery draft (`_delivery_draft`) whose failed or cancelled check, or conflict, has no
+repair owner stops its item, once, through the stop flow of the implement Job: Status Blocked,
+`implement.stopped`, the class, `implement.result` stopped, and one stop comment that names the
+check or the conflict (#6559). A unit owns a failed check only in mode `on`, for a class in
+FIX_CHECK_CLASSES, while the unit of the head and the check has not ended with no repair. The row
+judges the latest run of each check name (#5383). A green plan draft is marked ready only
 when `draft_readiness` answers ready for the draft that `read_ready_draft` reads. The record can
 hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
 as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
@@ -50,9 +52,11 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.k8s import KubernetesError
 from devops_cli.github.check_verdict import (
+    CheckBucket,
     CheckVerdictSummary,
     PRCheckItem,
     _resolve_bucket,
+    latest_run_of_each_check,
     no_checks_reported,
     read_check_runs,
 )
@@ -60,7 +64,13 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.failure import FailureClass, failure_lines, left_action
+from devops_cli.roadmap.failure import (
+    FailureClass,
+    FailureEvidence,
+    classify_failure,
+    failure_lines,
+    left_action,
+)
 from devops_cli.roadmap.fix_checks_row import (
     FixChecksRound,
     FixDue,
@@ -85,8 +95,10 @@ from devops_cli.roadmap.status_sync import (
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import (
     FixChecksResult,
+    has_owner_label,
     run_fix_checks,
     takes_ready_path,
+    unit_ended,
 )
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready, read_ready_draft
 from devops_cli.roadmap.steps.watch import (
@@ -103,6 +115,7 @@ from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
     GitHubState,
     ImplementRecordKey,
+    ImplementResult,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -147,6 +160,8 @@ query OpenRoadmapPulls($owner: String!, $name: String!, $cursor: String) {
                       name
                       status
                       conclusion
+                      startedAt
+                      completedAt
                     }
                     ... on StatusContext {
                       context
@@ -218,10 +233,35 @@ class WatchRoundResult:
     fix_checks: FixChecksRound = field(default_factory=FixChecksRound)
 
 
+def _latest_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The nodes of the rollup with only the latest run of each check name. Each event of a pull
+    request starts its checks in a new suite, so the rollup can hold an old cancelled run beside
+    the newer run that replaced it; the REST read keeps the latest run alone, by the same rule
+    (`latest_run_of_each_check`, #5383). A StatusContext node stays: the rollup holds the latest
+    status of each context."""
+    runs = [
+        {
+            "name": node.get("name"),
+            "started_at": node.get("startedAt"),
+            "completed_at": node.get("completedAt"),
+            "index": index,
+        }
+        for index, node in enumerate(contexts_nodes)
+        if node.get("__typename") == "CheckRun"
+    ]
+    kept = {run["index"] for run in latest_run_of_each_check(runs)}
+    return [
+        node
+        for index, node in enumerate(contexts_nodes)
+        if node.get("__typename") != "CheckRun" or index in kept
+    ]
+
+
 def _parse_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[PRCheckItem]:
-    """Parse GraphQL CheckRun and StatusContext nodes into PRCheckItems."""
+    """Parse GraphQL CheckRun and StatusContext nodes into PRCheckItems, the latest run of each
+    check name only (`_latest_contexts`)."""
     items: list[PRCheckItem] = []
-    for node in contexts_nodes:
+    for node in _latest_contexts(contexts_nodes):
         name = node.get("name") or node.get("context") or ""
         status = str(node.get("status") or "").lower()
         conclusion = str(node.get("conclusion") or "").lower()
@@ -374,6 +414,8 @@ def _evaluate_pull(
         ctx.total_conflicted += 1
 
     is_bot = is_plan or (author.endswith("[bot]") if author else False)
+    delivery = is_draft and _delivery_draft(item, pr_number, labels)
+    settings = load_settings().roadmap
 
     state = WatchState(
         pull=pr_number,
@@ -389,6 +431,13 @@ def _evaluate_pull(
         is_plan=is_plan,
         has_live_unit=has_live_unit,
         labels=labels,
+        delivery=delivery,
+        repairs=settings.fix_checks.mode == "on",
+        ended_checks=_ended_checks(
+            item, pr_number, head_sha, checks, settings.implement.continuations_per_item
+        )
+        if delivery
+        else frozenset(),
     )
 
     v = verdict(state)
@@ -429,27 +478,51 @@ def _evaluate_pull(
     )
 
 
+def _delivery_draft(item: Item, pull: int, labels: Sequence[str]) -> bool:
+    """Whether the draft `pull` is the delivery draft of `item` that the row hands off (#6559):
+    the record names it as `implement.pr`, the ready path takes it (`takes_ready_path`: its
+    implement Job ended at the draft or a fix Job repaired it, and no stop holds the item), and no
+    owner label on the pull request or the item claims it, as the step `fix-checks` reads a claim.
+    The record decides, not the kind of the pull request: a Staged item can deliver on its plan
+    pull request."""
+    return (
+        item.job_record.get(ImplementRecordKey.PR) == str(pull)
+        and takes_ready_path(item)
+        and not has_owner_label(labels)
+        and not has_owner_label(item.labels)
+    )
+
+
+def _ended_checks(
+    item: Item, pull: int, head: str, checks: CheckVerdictSummary, extra: int
+) -> frozenset[str]:
+    """The checks of head `head` whose fix-checks unit ended with no repair (`unit_ended`)."""
+    return frozenset(
+        check.name
+        for check in checks.items
+        if unit_ended(item.job_record, pull, head, check.name, extra)
+    )
+
+
 def _stop_unowned_draft(
     ctx: _WatchContext, item: Item, state: WatchState, found: WatchVerdict
 ) -> None:
-    """Stop the item of a bot delivery draft that no actor takes (#6559): a failed check that no
-    fix-checks unit repairs, a cancelled check, or a conflict with the base. The implement Job
-    ended at the draft, so the item takes the stop flow that the Job gave it before: one stop
-    comment that names the check or the conflict, Status Blocked, `implement.stopped` and the
-    class. Only a draft that the ready path takes gets the stop (`takes_ready_path`), once: an item
-    that holds a stop is left as it is."""
-    if not state.draft or not takes_ready_path(item):
-        return
-    if item.job_record.get(ImplementRecordKey.STOPPED):
-        return
+    """Stop the item of a delivery draft that no actor takes (#6559). A failed or cancelled check
+    or a conflict has a repair owner only when mode `on` lets a fix-checks unit repair, the class
+    of the check is one of FIX_CHECK_CLASSES, and the unit of the head and the check has not ended
+    with no repair; `due_steps` gives `stop` in each other case. The implement Job ended at the
+    draft, so the item takes the stop flow that the Job gave it before: one stop comment that
+    names the check or the conflict, Status Blocked, `implement.stopped`, the class and
+    `implement.result` stopped. The stop holds the item, so the ready path no longer takes the
+    draft (`takes_ready_path`) and the row stops it once."""
     texts = MESSAGES.roadmap
     check: str | None = None
     if found.verdict is PRVerdict.CONFLICT:
         klass = FailureClass.CONFLICT
         reason = texts.watch_stop_conflict.format(pull=state.pull, base=state.base_ref)
     else:
-        klass = FailureClass.CI_INFRA
         check = unrepaired_check(state)
+        klass = _stop_class(state, check)
         reason = texts.watch_stop_check.format(pull=state.pull, check=check)
     left = left_action(klass, None)
     step = texts.implement_step_names["pull_request"]
@@ -472,8 +545,21 @@ def _stop_unowned_draft(
             ImplementRecordKey.FAILURE: klass.value,
             ImplementRecordKey.LEFT_ACTION: left.value,
             ImplementRecordKey.CHECK: check,
+            ImplementRecordKey.RESULT: ImplementResult.STOPPED.value,
         },
     )
+
+
+def _stop_class(state: WatchState, check: str | None) -> FailureClass:
+    """The class of the stop for `check`: `ci_infra` for a cancelled check, which is no failure of
+    the code, else the class of its name, as the verdict reads it."""
+    cancelled = any(
+        item.name == check and item.bucket is CheckBucket.CANCEL
+        for item in (state.checks.items if isinstance(state.checks, CheckVerdictSummary) else ())
+    )
+    if cancelled or check is None:
+        return FailureClass.CI_INFRA
+    return classify_failure(FailureEvidence(check=check))
 
 
 def _ready_plan(
@@ -489,8 +575,13 @@ def _ready_plan(
     `read_ready_draft` reads (#6123): the record can hold one pull request as the plan and as the
     delivery of its item, and `read_draft` takes the kind from the record, so a delivery with a
     task that is not ticked stays a draft. The ledger keeps a refused head in `ready_head`, so the
-    row judges that head once. Last, the Jev completeness check can hold the draft."""
+    row judges that head once. Last, the Jev completeness check can hold the draft. A plan draft
+    that is also the delivery of a stopped item stays a draft, as a stopped delivery does (#6559)."""
     if item.job_record.get(StageRecordKey.NEEDS_FIX) == str(pull):
+        return False
+    if item.job_record.get(ImplementRecordKey.STOPPED) and item.job_record.get(
+        ImplementRecordKey.PR
+    ) == str(pull):
         return False
     entry = ctx.recorded_pulls.get(pull)
     if entry is not None and entry.ready_head == head:

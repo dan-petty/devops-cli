@@ -61,18 +61,19 @@ def test_due_steps_ready(is_bot: bool, is_plan: bool, expected_steps: tuple[DueS
 
 
 @pytest.mark.parametrize(
-    ("is_bot", "is_plan", "expected_steps"),
+    ("is_bot", "delivery", "expected_steps"),
     [
-        (True, False, (DueStep.STOP,)),
-        (True, True, ()),
+        (True, True, (DueStep.STOP,)),
+        (True, False, ()),
         (False, False, (DueStep.COMMENT_CONFLICT,)),
     ],
+    ids=["delivery-draft", "bot", "person"],
 )
 def test_due_steps_conflict(
-    is_bot: bool, is_plan: bool, expected_steps: tuple[DueStep, ...]
+    is_bot: bool, delivery: bool, expected_steps: tuple[DueStep, ...]
 ) -> None:
     """A CONFLICT verdict gives one comment per head for person PRs, the stop of the item for a
-    bot delivery (#6559) and nothing for a bot plan."""
+    delivery draft, which no actor repairs (#6559), and nothing for another bot PR."""
     state = WatchState(
         pull=102,
         head_sha="b" * 40,
@@ -80,7 +81,7 @@ def test_due_steps_conflict(
         mergeable_state="dirty",
         checks=_passing_checks(),
         is_bot=is_bot,
-        is_plan=is_plan,
+        delivery=delivery,
     )
     assert verdict(state) == WatchVerdict(
         verdict=PRVerdict.CONFLICT,
@@ -94,8 +95,8 @@ def test_due_steps_conflict(
     [
         (True, "Tests & Coverage", (DueStep.FIX_CHECKS,)),
         (True, "Static Analysis", (DueStep.FIX_CHECKS,)),
-        (True, "ci-infra-check", (DueStep.STOP,)),
-        (True, "Semantic PR title", (DueStep.STOP,)),
+        (True, "ci-infra-check", ()),
+        (True, "Semantic PR title", ()),
         (False, "Tests & Coverage", ()),
         (False, "ci-infra-check", ()),
     ],
@@ -103,9 +104,8 @@ def test_due_steps_conflict(
 def test_due_steps_failed(
     is_bot: bool, check_name: str, expected_steps: tuple[DueStep, ...]
 ) -> None:
-    """FAILED verdict gives the stop of the item for a bot delivery with a CI_INFRA failure
-    (#6559), fix_checks for a bot PR whose check failed with the class test, lint, types or plan
-    check (#5027), and nothing for a person's PR."""
+    """FAILED verdict gives fix_checks for a bot PR whose check failed with the class test, lint,
+    types or plan check (#5027), and nothing for a CI_INFRA failure or a person's PR."""
     state = WatchState(
         pull=103,
         head_sha="c" * 40,
@@ -119,18 +119,50 @@ def test_due_steps_failed(
 
 
 @pytest.mark.parametrize(
-    ("is_plan", "expected_steps"), [(False, (DueStep.STOP,)), (True, ())], ids=["delivery", "plan"]
+    ("check_name", "repairs", "ended", "expected_steps"),
+    [
+        ("Tests & Coverage", True, (), (DueStep.FIX_CHECKS,)),
+        ("Tests & Coverage", False, (), (DueStep.STOP,)),
+        ("Tests & Coverage", True, ("Tests & Coverage",), (DueStep.STOP,)),
+        ("Tests & Coverage", True, ("Static Analysis",), (DueStep.FIX_CHECKS,)),
+        ("Semantic PR title", True, (), (DueStep.STOP,)),
+    ],
+    ids=["owner", "mode-not-on", "unit-ended", "other-unit-ended", "ci-infra"],
 )
-def test_due_steps_a_cancelled_check_of_a_bot_delivery_stops_the_item(
-    is_plan: bool, expected_steps: tuple[DueStep, ...]
+def test_a_failed_check_of_a_delivery_draft_has_a_repair_owner_or_stops_the_item(
+    check_name: str, repairs: bool, ended: tuple[str, ...], expected_steps: tuple[DueStep, ...]
 ) -> None:
-    """A cancelled check gets no fix-checks unit, so the item of a bot delivery stops (#6559)."""
+    """A delivery draft has a repair owner only when mode `on` lets a unit repair, the class of
+    the check is one of FIX_CHECK_CLASSES, and the unit of the head and the check has not ended
+    with no repair. In each other case the item stops (#6559)."""
+    state = WatchState(
+        pull=108,
+        head_sha="a" * 40,
+        checks=_failing_checks(check_name),
+        is_bot=True,
+        delivery=True,
+        repairs=repairs,
+        ended_checks=frozenset(ended),
+    )
+    assert due_steps(state) == expected_steps
+
+
+@pytest.mark.parametrize(
+    ("delivery", "expected_steps"),
+    [(True, (DueStep.STOP,)), (False, ())],
+    ids=["delivery-draft", "bot"],
+)
+def test_due_steps_a_cancelled_check_of_a_delivery_draft_stops_the_item(
+    delivery: bool, expected_steps: tuple[DueStep, ...]
+) -> None:
+    """A cancelled check gets no fix-checks unit, so the item of a delivery draft stops (#6559)."""
     state = WatchState(
         pull=106,
         head_sha="f" * 40,
         checks=[PRCheckItem(name="Tests & Coverage", bucket=CheckBucket.CANCEL, state="cancelled")],
         is_bot=True,
-        is_plan=is_plan,
+        delivery=delivery,
+        repairs=True,
     )
     assert due_steps(state) == expected_steps
 
@@ -257,7 +289,7 @@ def test_due_steps_skips_live_unit() -> None:
 def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
     """The check of the unit is the failed check whose log holds the cause: a shard of
     `Tests & Coverage` before the join check, and never a cancelled check (#5027). A cancelled
-    check of a bot delivery stops its item instead (#6559)."""
+    check of a delivery draft stops its item instead (#6559)."""
     shard = "Tests & Coverage (shard 2)"
     failed = WatchState(
         pull=104,
@@ -273,6 +305,7 @@ def test_the_fix_unit_takes_the_failed_shard_and_no_cancelled_check() -> None:
         head_sha="e" * 40,
         checks=[PRCheckItem(name="Tests & Coverage", bucket=CheckBucket.CANCEL, state="cancelled")],
         is_bot=True,
+        delivery=True,
     )
 
     assert (fix_checks_check(failed), fix_checks_check(cancelled), due_steps(cancelled)) == (

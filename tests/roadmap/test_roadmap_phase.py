@@ -9,6 +9,7 @@ import pytest
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
+    FixChecksRecordKey,
     GitHubState,
     ImplementRecordKey,
     Item,
@@ -110,6 +111,20 @@ def _item(
             _item(17, status="In Review", job_record={ImplementRecordKey.RESULT: "drafted"}),
             None,
             "in-review",
+        ),
+        # The ready path of the watch row marked the draft ready (`fix_checks.result` ready), so
+        # the delivery is out of draft and ready for review (#6559)
+        (
+            _item(
+                18,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.RESULT: "drafted",
+                    FixChecksRecordKey.RESULT: "ready",
+                },
+            ),
+            None,
+            "ready-for-review",
         ),
         # Ready-for-review item with ready delivery PR
         (

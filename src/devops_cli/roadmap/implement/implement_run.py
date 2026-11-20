@@ -1980,8 +1980,9 @@ class _ItemRun:
     def _end_drafted(self, pull: int) -> None:
         """End the run at the draft pull request `pull` (#6559): record the result `drafted`, set
         Status In Review and comment the spend on the item. The job watches no check and marks
-        nothing ready: the watch row marks the draft ready when its checks pass, and the fix-checks
-        Jobs repair a failed check."""
+        nothing ready. In mode `on` of `roadmap.fix_checks.mode`, the watch row marks the draft
+        ready when its checks pass, and a fix-checks Job repairs a failed check of a class in
+        FIX_CHECK_CLASSES; in each other case the row stops the item."""
         marks: dict[Any, str | int | None] = {
             ImplementRecordKey.SHA: self._head(),
             ImplementRecordKey.PR: str(pull),

@@ -145,12 +145,28 @@ The success set of refine (`SUCCESS_RESULTS[RoadmapJob.REFINE]`) SHALL hold each
 - **THEN** the test of the success set fails
 
 ### Requirement: The implement row scores each drafted attempt by the forge state of its delivery
-The report SHALL score each `implement` line with the result `drafted` by the delivery of its item, from the head branch: a delivery that merged, or that is open and out of draft, SHALL be a success, and one that closed with no merge a failure. A draft SHALL keep the line out of the attempts and in `drafts_pending`. The verdicts SHALL count only the pull requests opened in the window. With no bot a `drafted` line SHALL count as the line says.
+The report SHALL score the `drafted` lines of `implement` that name one pull request (`pull`) once, by that pull request: with n lines, a merge or an open pull request out of draft SHALL give 1 success and n - 1 failures, a close with no merge n failures, and a draft n lines in `drafts_pending`. A line with no `pull` SHALL take the newest delivery of its item. The verdicts and the rows SHALL count only the pull requests opened in the window. With no bot a `drafted` line SHALL count as written.
 
 #### Scenario: Four drafted attempts
-- **WHEN** the window holds `drafted` lines of items 7, 8, 9 and 10 and a `stopped` line of item 11, and the deliveries of 7 to 10 merged, are ready, closed with no merge, and are a draft
+- **WHEN** the window holds `drafted` lines with no `pull` of items 7, 8, 9 and 10 and a `stopped` line of item 11, and the deliveries of 7 to 10 merged, are ready, closed with no merge, and are a draft
 - **THEN** the implement row has 4 attempts, 2 successes and 1 draft pending
 
 #### Scenario: No bot
 - **WHEN** `service.github_app.slug` is not set and the window holds those lines
 - **THEN** the implement row has 5 attempts and 4 successes
+
+#### Scenario: Two Jobs on one pull request
+- **WHEN** the window holds two `drafted` lines of item 7 that name one pull request, and it merged
+- **THEN** the lines count 1 success and 1 failure
+
+#### Scenario: Two pull requests of one item
+- **WHEN** item 8 has a `drafted` line of a pull request that closed and one of a pull request that merged
+- **THEN** the lines count 1 failure and 1 success
+
+#### Scenario: A merged pull request, then a new draft
+- **WHEN** item 9 has a `drafted` line of a pull request that merged and one of a new draft
+- **THEN** the lines count 1 success and 1 draft pending
+
+#### Scenario: A pull request opened before the window
+- **WHEN** the only bot pull request of a repository was opened before the window
+- **THEN** the report gives that repository no row

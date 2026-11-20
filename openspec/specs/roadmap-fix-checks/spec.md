@@ -354,7 +354,7 @@ With `--confirm` in a runner Job, `devops roadmap step fix-checks` SHALL clear t
 - **THEN** it calls the runner check, then `deny_environment_reads`, then `adopt_orphans`, and only then the step
 
 ### Requirement: The step marks an implement draft ready only by the readiness rule
-When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
+When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), whose item holds no stop, with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
 
 #### Scenario: A repaired draft whose checks pass is marked ready
 - **WHEN** the step runs with `--confirm` on a repaired implement draft whose checks pass and that `draft_readiness` calls ready

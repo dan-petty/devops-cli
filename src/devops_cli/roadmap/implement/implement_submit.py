@@ -401,18 +401,16 @@ def _report(
         tokens=new_tokens,
         digest=digest,
     )
-    log_job_result(
-        RoadmapJob.IMPLEMENT,
-        repo,
-        item.number,
-        result,
-        failure=failure,
-        counts={
-            "repair_rounds": _repair_rounds(item),
-            "tokens": new_tokens,
-            "seconds": _seconds(ended),
-        },
-    )
+    counts = {
+        "repair_rounds": _repair_rounds(item),
+        "tokens": new_tokens,
+        "seconds": _seconds(ended),
+    }
+    # The draft of the Job, so the job grade scores the lines of one pull request by it (#6559).
+    pull = _record(item, ImplementRecordKey.PR) or ""
+    if pull.isdecimal():
+        counts["pull"] = int(pull)
+    log_job_result(RoadmapJob.IMPLEMENT, repo, item.number, result, failure=failure, counts=counts)
 
 
 def _attempt_result(item: Item) -> str:

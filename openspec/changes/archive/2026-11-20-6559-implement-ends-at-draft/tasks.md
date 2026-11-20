@@ -20,7 +20,7 @@ Kind: other.
 
 Kind: behavior.
 
-- [x] 3.1 Write failing tests: the report scores each drafted line by the forge state of its delivery; the read gives the item, the state and the draft flag; the row stops a drafted draft with a check that no unit repairs, a cancelled check or a conflict; a refused draft stops at `ready`; a ready path that raises runs again; a drafted item is in review
+- [x] 3.1 Write failing tests: the report scores the drafted lines of each pull request once by its forge state; the read gives the item, the state and the draft flag; the row stops a delivery draft whose check or conflict has no repair owner (mode, class, ended unit, Staged, claim, latest run); a stop gives no ready mark; a refused draft stops at `ready`; a ready path that raises runs again; a drafted item is in review until it is marked ready
   - Verification: `$ uv run devops ci test tests/roadmap/test_job_grade_report.py tests/roadmap/test_pr_verdict.py tests/roadmap/test_roadmap_watch_row.py tests/roadmap/steps/test_roadmap_due_steps.py tests/roadmap/test_roadmap_phase.py tests/roadmap/implement/test_roadmap_implement_job.py`
 - [x] 3.2 Score the drafted lines in `job_grade_report.py`, read the forge state in `pr_verdict.py`, add the due step `stop` and its stop in `watch_row.py`, add `_require_complete`, move the judged head after the report, and map a drafted item to `in-review`
   - Verification: `$ uv run devops ci test tests/roadmap/test_job_grade_report.py tests/roadmap/test_pr_verdict.py tests/roadmap/test_roadmap_watch_row.py tests/roadmap/steps/test_roadmap_due_steps.py tests/roadmap/test_roadmap_phase.py tests/roadmap/implement/test_roadmap_implement_job.py`

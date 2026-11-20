@@ -109,6 +109,8 @@ def test_a_job_whose_runner_ended_at_the_draft_logs_a_success(
     kube: FakeCluster,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """The line of a Job that ended at the draft names the draft (`pull`), so the job grade scores
+    the lines of one pull request by that pull request (#6559)."""
     number, _ = _ended_job(store, staged_repo, kube, "Complete")
     store.set_field(
         _held(store, number),
@@ -116,6 +118,7 @@ def test_a_job_whose_runner_ended_at_the_draft_logs_a_success(
         "In Review",
         marks={
             ImplementRecordKey.RESULT: "drafted",
+            ImplementRecordKey.PR: "42",
             ImplementRecordKey.REPAIR_ROUNDS: "2",
             ImplementRecordKey.SPEND: json.dumps({"input_tokens": 800, "output_tokens": 200}),
         },
@@ -138,6 +141,7 @@ def test_a_job_whose_runner_ended_at_the_draft_logs_a_success(
             "repair_rounds": "2",
             "tokens": "1000",
             "seconds": "1200",
+            "pull": "42",
         }
     ]
 

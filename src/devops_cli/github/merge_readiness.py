@@ -38,7 +38,6 @@ from devops_cli.exceptions.git import GitHubOperationError, GitHubUnreadError
 from devops_cli.github.check_verdict import (
     CheckBucket,
     CheckVerdictSummary,
-    read_check_runs,
     read_commit_checks,
 )
 from devops_cli.github.client import PullRequestFile
@@ -283,9 +282,7 @@ def _judge_checks(
 ) -> None:
     """Failing or unread checks block; running ones block unless excused.
 
-    With `commit_statuses` off, the checks are the check runs only: a token without the `statuses`
-    permission reads them, and no request goes to the commit status endpoint (#2877). A head
-    commit that reports no check is no blocker where no workflow can start one (#5144). A payload
+    A head commit that reports no check is no blocker where no workflow can start one (#5144). A payload
     that names no head commit is no read of the checks: it fails closed, as a failed check read
     does (#4927)."""
     if not head_sha:
@@ -295,12 +292,9 @@ def _judge_checks(
             "commit.",
         )
         return
-    if reads.commit_statuses:
-        checks = read_commit_checks(
-            owner, repo_name, head_sha, runner=reads.runner, session=reads.session
-        )
-    else:
-        checks = read_check_runs(owner, repo_name, head_sha, session=reads.session)
+    checks = read_commit_checks(
+        owner, repo_name, head_sha, runner=reads.runner, session=reads.session
+    )
     verdict.checks = checks
     if checks.unread_reason:
         verdict.block(
@@ -682,7 +676,6 @@ class _Reads:
     options: ReadinessOptions
     runner: GhRun
     session: GitHubSession | None
-    commit_statuses: bool = True
 
 
 def assess_merge_readiness(
@@ -695,7 +688,6 @@ def assess_merge_readiness(
     runner: GhRun = run_gh,
     session: GitHubSession | None = None,
     review_root: Path | None = None,
-    commit_statuses: bool = True,
 ) -> MergeReadiness:
     """Judge pull request `pr_num`, whose REST payload is `pr_data`, for merge readiness.
 
@@ -704,12 +696,11 @@ def assess_merge_readiness(
     `review_root` is the checkout whose review.toml suppressions the perimeter advisory reads;
     without it, the repository of the working directory, found only when the PR changes a file.
     The advisory does not judge a file list that holds GitHub's limit of files (#2530).
-    With `commit_statuses` off, the checks are the check runs only, for a token that holds no
-    `statuses` permission. A merged PR is ready and nothing is read.
+    A merged PR is ready and nothing is read.
     """
     if pr_data.get("merged") is True:
         return MergeReadiness()
-    reads = _Reads(options or ReadinessOptions(), runner, session, commit_statuses)
+    reads = _Reads(options or ReadinessOptions(), runner, session)
     verdict = _Verdict()
     _judge_mergeable(verdict, pr_data, pr_num, reads.options.allow_blocked_state)
     _judge_draft(verdict, pr_data, pr_num, reads.options.allow_draft)

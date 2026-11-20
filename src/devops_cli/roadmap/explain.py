@@ -358,9 +358,9 @@ def _totals_lines(explained: Explanation) -> list[str]:
 
 
 def _stop_lines(explained: Explanation) -> list[str]:
-    """The lines of the stop of the item (#3648): the step, the class, the attempts, the work that
-    the stop kept and the action that is left. A record with no class and no action left says that
-    it holds none, and a record with no attempt event states no count."""
+    """The lines of the stop of the item (#3648): the step, the class, the attempts and the action
+    that is left. A record with no class and no action left says that it holds none, and a record
+    with no attempt event states no count."""
     stop = explained.stop
     if stop is None:
         return []

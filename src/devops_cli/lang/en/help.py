@@ -1760,9 +1760,13 @@ class RoadmapCommandHelp:
         "6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the "
         "instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass "
         "counts that only the stage, implement and fix_plan lines hold today. For stage and "
-        "implement it also reads the pull requests that the bot of service.github_app.slug "
-        "opened in the window, with one GraphQL search to GitHub for each 100, and gives the "
-        "share of each first verdict label and the verdict score beside p."
+        "implement it also reads the pull requests of the bot of service.github_app.slug that "
+        "changed in the window (updated:>=), with one GraphQL search to GitHub for each 100, and "
+        "gives the share of each first verdict label and the verdict score beside p, for the "
+        "pull requests opened in the window. It scores the drafted lines of implement by the "
+        "forge state of the pull request that each line names: merged or out of draft is a "
+        "success, closed is a failure, and a draft stays out of the attempts and counts in "
+        "drafts_pending."
     )
     eval_grades_repo: str = "Report only this repository (owner/name). Default: all repositories."
     eval_grades_window: str = (

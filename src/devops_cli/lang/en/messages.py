@@ -4019,8 +4019,9 @@ class RoadmapMessages:
         "{marker}\nThe draft pull request #{pull} holds the final title and body. In mode "
         "`on` of `roadmap.fix_checks.mode`, the watch row marks it ready when its checks pass, "
         "and a fix-checks Job repairs a failed check whose name gives the class test, lint or "
-        "types. The watch row stops the item for another failed check, a cancelled check or a "
-        "conflict.\n\n"
+        "types. In each other case the watch row stops the item: another failed check, a "
+        "cancelled check, a conflict, a fix-checks Job that ended with no repair, or another "
+        "mode.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens.{extensions}"
     )
