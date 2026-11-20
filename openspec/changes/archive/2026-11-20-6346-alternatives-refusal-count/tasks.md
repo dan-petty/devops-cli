@@ -6,10 +6,14 @@
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_job_result.py`
 - [x] 1.2 Add `searches` to `CheckFailure`, set it on each failure of an agent run, write it on the result line, and log each refused URL in `validate_reply`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_job_result.py`
+- [x] 1.3 Write failing tests: a refusal after a return logs `returns=1`, and a failed model call, an unpaired marker and a failed read of the tools in use each log `searches=1`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_job_result.py`
+- [x] 1.4 Add `returns` to `CheckFailure`, set it on each failure of an agent run, and write it on the result line
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_job_result.py`
 
 ## 2. Documents
 
-- [x] 2.1 Say in `docs/roadmap/alternatives.md` and `docs/roadmap/job-success.md` that the result line of a failed check gives its answered searches and that a `url` refusal logs each refused URL
+- [x] 2.1 Say in `docs/roadmap/alternatives.md` and `docs/roadmap/job-success.md` that the result line of a failed check gives its answered searches and its returns, and that a `url` refusal logs each refused URL
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up

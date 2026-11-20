@@ -2,22 +2,23 @@
 
 ## Why
 
-A refused alternatives check does not show its cause (#6346). The result line of a refused check gives `searches=0`, but `_refusal_reason` returns `url` or `no_facts` only after an answered search, so the count is wrong. No log line names the URL that a `url` refusal cites: the job record keeps only `alternatives.failed_reason`. Closes #6346.
+A refused alternatives check does not show its cause (#6346). The result line of a refused check gives `searches=0 returns=0`, but `_refusal_reason` returns `url` or `no_facts` only after an answered search, so the count of searches is wrong. The count of returns is a constant 0 too. No log line names the URL that a `url` refusal cites: the job record keeps only `alternatives.failed_reason`. Closes #6346.
 
 ## What Changes
 
 - `CheckFailure` gets the field `searches`: the searches that a provider answered before the failure. Each failure of an agent run sets it from `AlternativesTools.searches`: a refused reply, a body marker problem, a stopped run, a failed model call and a failed read of the tools in use.
-- The result line of a failure gives `searches` from that field, in place of 0.
+- `CheckFailure` also gets the field `returns`: the times that the run sent a refused reply back to the model (`_OutputChecker.returns`). Each failure of an agent run sets it.
+- The result line of a failure gives `searches` and `returns` from these fields, in place of 0.
 - When the job refuses a reply for reason `url`, it logs one WARNING for each source URL that no tool of the run returned, with the item number and the reason code. A refusal for another reason logs no URL.
 - The result line and the log are observable, so the change carries a delta of `roadmap-alternatives`.
 
 ## Capabilities
 
-- `roadmap-alternatives`: ADDED requirements 'A failed check logs its answered searches' and 'A url refusal logs each refused URL'.
+- `roadmap-alternatives`: ADDED requirements 'A failed check logs its answered searches and its returns' and 'A url refusal logs each refused URL'.
 
 ## Impact
 
-The result line of a refused or failed alternatives check gives the true count of answered searches. The service log holds the URL of each `url` refusal, so #6394 can measure the cause. No new step, gate, cap, retry or setting.
+The result line of a refused or failed alternatives check gives the true count of answered searches and of returns. The service log holds the URL of each `url` refusal, so #6394 can measure the cause. No new step, gate, cap, retry or setting.
 
 ## Feasibility
 

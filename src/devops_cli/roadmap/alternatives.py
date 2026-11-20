@@ -569,8 +569,9 @@ class CheckFailure:
     `failure_class` is the class of a failed model call, which the result line logs (#4845).
     `reason_code` is the stable code of a refused reply or stopped run (#4864).
     `band` is the decision band from alternatives.reply_fixable (#4864).
-    `searches` is the number of searches that a provider answered before the failure, which the
-    result line logs (#6346)."""
+    `searches` is the number of searches that a provider answered before the failure, and
+    `returns` the number of times that the run sent a refused reply back to the model. The result
+    line logs both (#6346)."""
 
     item: Item
     reason: str
@@ -580,6 +581,7 @@ class CheckFailure:
     reason_code: str | None = None
     band: Band | None = None
     searches: int = 0
+    returns: int = 0
 
 
 @dataclass(frozen=True)
@@ -1209,6 +1211,7 @@ def validate_reply(
             reason_code=code,
             band=band,
             searches=searches,
+            returns=returns,
         )
     problem = _marker_problem(item.body)
     if problem is not None:
@@ -1219,6 +1222,7 @@ def validate_reply(
             now,
             reason_code="marker",
             searches=searches,
+            returns=returns,
         )
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
@@ -1322,7 +1326,9 @@ def _stopped_failure(
     now: datetime,
     chain: ResolverChain[Mapping[str, Any]] | None,
     earlier_code: str | None,
+    *,
     searches: int,
+    returns: int,
 ) -> CheckFailure:
     logger.warning(
         "The alternatives check of #%d was skipped: its run stopped (%s).",
@@ -1344,6 +1350,7 @@ def _stopped_failure(
         reason_code=code,
         band=band,
         searches=searches,
+        returns=returns,
     )
 
 
@@ -1399,10 +1406,24 @@ def _check_one(
         error = type(exc).__name__
         reason = texts.alternatives_reason_error.format(error=error)
         return CheckFailure(
-            item, reason, error, now, failure_class_of(exc), searches=len(tools.searches)
+            item,
+            reason,
+            error,
+            now,
+            failure_class_of(exc),
+            searches=len(tools.searches),
+            returns=checker.returns,
         )
     if isinstance(reply, InvestigationStopped):
-        return _stopped_failure(item, reply, now, chain, earlier_code, len(tools.searches))
+        return _stopped_failure(
+            item,
+            reply,
+            now,
+            chain,
+            earlier_code,
+            searches=len(tools.searches),
+            returns=checker.returns,
+        )
     try:
         return validate_reply(
             item,
@@ -1428,6 +1449,7 @@ def _check_one(
             error,
             now,
             searches=len(tools.searches),
+            returns=checker.returns,
         )
 
 
@@ -1614,7 +1636,8 @@ class AlternativesWriter:
         """Log the result line of one item: the verdict of a check, or `refused` for a reply that
         the job refused and `failed` for another failure, with the code of the error as the
         reason. The reason of a check is its skip class, or `none`. `searches` counts the searches
-        that a provider answered, for a failure too (#6346)."""
+        that a provider answered and `returns` the replies sent back to the model, for a failure
+        too (#6346)."""
         names: dict[str, str] = {}
         if isinstance(outcome, CheckFailure):
             refused = (
@@ -1626,7 +1649,7 @@ class AlternativesWriter:
                 outcome.failure_class,
                 outcome.searches,
                 outcome.reason_code or outcome.error_class,
-                0,
+                outcome.returns,
             )
             if outcome.band is not None:
                 names["band"] = outcome.band.value
