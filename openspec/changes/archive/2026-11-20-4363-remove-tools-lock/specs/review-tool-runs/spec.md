@@ -1,5 +1,17 @@
 ## MODIFIED Requirements
 
+### Requirement: The record of a program run names the distribution of the tool beside the program
+The `version` and the `binary_sha256` of a run that starts from a `program` SHALL name the distribution of the tool in the environment whose scripts directory holds the program. With no such distribution, the `binary_sha256` SHALL be the SHA-256 of the program file, and the `version` SHALL be `unknown`; no pin gives it.
+
+#### Scenario: The interpreter of an environment that holds the tool
+- **WHEN** the program is the `python` of a `.venv` that holds mypy 2.3.1, and that `python` is a link to an interpreter outside the `.venv`
+- **THEN** the `version` is 2.3.1, and the `binary_sha256` is the one that the mypy launcher of that `.venv` gives
+- **AND** it is not the SHA-256 of the interpreter file
+
+#### Scenario: The interpreter of an environment without the tool
+- **WHEN** the program is the `python` of a `.venv` that holds no mypy
+- **THEN** the `binary_sha256` is the SHA-256 of the interpreter file, and the `version` is `unknown`
+
 ### Requirement: The binary digest of a native review tool is the digest of its file
 When no distribution in those directories has a console script that wrote the program of a review tool, the `binary_sha256` of a run SHALL be the SHA-256 of the program file. Its `version` SHALL be the version of the installed distribution of that name, else `unknown`. No pin SHALL give the version.
 

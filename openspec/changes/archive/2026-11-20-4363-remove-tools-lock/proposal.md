@@ -12,6 +12,7 @@
 - **Infra**: the Ansible environment has no pinned version. A plan record with `ansible_core`, from before this change, does not read: plan again.
 - **Alternatives**: the inventory reads `src/devops_cli/config/commands.py`, which names the CLIs that devops-cli starts, in place of `tools.lock`.
 - **Image scan**: the third-party image scan also scans the cluster cloudflared image, in place of the tag floor test.
+- **Workflows**: the Service Image Tests workflow drops the `src/devops_cli/tools_lock/**` path filter. #6543 moved every other workflow from `devops install-tools` to the commands of the devtools image.
 
 ## Capabilities
 
@@ -22,7 +23,7 @@ None.
 ### Modified Capabilities
 
 - Removed: `tools-lock-install`, `tflint-release-pin`, `release-download-retries`.
-- Modified: `infra-onboard`, `infra-plan`, `k8s-doctor`, `k8s-helm-deploy`, `review-tool-runs`, `ai-review-profile`, `ai-retrieval-gold-set`, `scanner-adapters`, `research-advisories`, `research-inventory`, `review-tool-databases`, `ci-dependency-audit`, `ci-fail-to-pass`, `command-dry-run-class`, `docs-ste-style`, `github-session-timeouts`, `cloudflared-release-pin`, `release-concurrency-and-renovate`.
+- Modified: `infra-onboard`, `infra-plan`, `k8s-doctor`, `k8s-helm-deploy`, `review-tool-runs`, `ai-review-profile`, `ai-retrieval-gold-set`, `scanner-adapters`, `research-advisories`, `research-inventory`, `review-tool-databases`, `ci-dependency-audit`, `ci-fail-to-pass`, `command-dry-run-class`, `docs-ste-style`, `github-session-timeouts`, `cloudflared-release-pin`, `release-concurrency-and-renovate`, `ci-service-image-tests`, `devcontainer-image-tools`, `ci-devcontainer-image`, `container-image-layers`, `subprocess-environment`.
 
 ## Impact
 

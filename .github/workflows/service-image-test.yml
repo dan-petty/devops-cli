@@ -2,8 +2,8 @@ name: Service Image Tests
 
 # The suite runs inside the Service image on the daily schedule, on a manual run and on a pull
 # request that changes an image input other than src/: the build recipe, the build context filter,
-# the project and lock files, the tool locks, the stage and the action that give the test tools of
-# the devtools image, or this workflow. A pull request that changes only src/ starts no job here;
+# the project and lock files, the stage and the action that give the test tools of the devtools
+# image, or this workflow. A pull request that changes only src/ starts no job here;
 # Tests & Coverage tests it on the runner, and the next daily run tests it in the image (#4644). The
 # native paths filter stops the run before a runner starts, so a plan-only pull request starts no
 # job either.
@@ -18,7 +18,6 @@ on:
       - uv.lock
       - package.json
       - package-lock.json
-      - src/devops_cli/tools_lock/**
       - .devcontainer/Dockerfile
       - .github/actions/devtools-commands/**
       - .github/workflows/service-image-test.yml

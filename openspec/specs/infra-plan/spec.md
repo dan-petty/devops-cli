@@ -90,14 +90,6 @@ The command SHALL save `plan.json` with the repo, the ref, the commit, the playb
 - **WHEN** two plans differ only in the commit or in the limit
 - **THEN** their ids differ
 
-
-### Requirement: A plan record with an unknown field is planned again
-A plan record with a field that the model does not name SHALL NOT read, and `devops infra apply` SHALL refuse it and say to plan again. A record from before #4363 names the field `ansible_core` of the pinned install.
-
-#### Scenario: A record from before #4363
-- **WHEN** `devops infra apply` names a plan whose record holds the field `ansible_core`, as a plan of the pinned install did
-- **THEN** the apply refuses the record, says to plan again, and runs no host
-
 ### Requirement: A failed run is a failed plan
 A failed task, an unreachable host, a run that passed its time limit or a run that ended with another status than `successful` SHALL mark the plan `failed`, and the command SHALL keep its record and exit 1.
 
@@ -133,3 +125,10 @@ Every `ansible-runner` run of a playbook, the plan, the fresh check and the run 
 #### Scenario: A skip result in color
 - **WHEN** the recorded run in a color terminal skips a task of node-1 and a task of node-3 by a false `when`, with the color codes around the text of each skip
 - **THEN** each of the two tasks is unchecked, and the rest of the plan of each host equals the plan of the run with no terminal
+
+### Requirement: A plan record with an unknown field is planned again
+A plan record with a field that the model does not name SHALL NOT read, and `devops infra apply` SHALL refuse it and say to plan again. A record from before #4363 names the field `ansible_core` of the pinned install.
+
+#### Scenario: A record from before #4363
+- **WHEN** `devops infra apply` names a plan whose record holds the field `ansible_core`, as a plan of the pinned install did
+- **THEN** the apply refuses the record, says to plan again, and runs no host
