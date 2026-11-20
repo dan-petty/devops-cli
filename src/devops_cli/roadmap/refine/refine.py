@@ -347,6 +347,8 @@ _MAX_DEFERRED_PARTS: Final[int] = 3
 _REPLY_RETURNS: Final[int] = 1
 # The version of the rules of this round, as the job record holds it (#4795).
 _RULES_VERSION: Final[str] = CONST_ROADMAP_REFINE_RULES_SINCE.isoformat()
+# The operation of the one read of the paths that the commit of a round tracks (#6444).
+_TREE_OPERATION: Final[str] = "roadmap.refine.tree"
 
 
 class DeferredPart(BaseModel):
@@ -779,7 +781,7 @@ def inspect_checkout(source: Path | str, expected_repo: str) -> str:
 # ── Context Minimization ──────────────────────────────────────────────────────
 
 _CITED_PATH_RE = re.compile(
-    r"(?:[\s\(\[`]|^)([a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)(?::(\d+)(?:-(\d+))?)?(?:[\s\)\]`:]|$)"
+    r"(?:[\s\(\[`]|^)([a-zA-Z0-9_\-\./]+\.[a-zA-Z0-9_]+)(?::(\d+)(?:-(\d+))?)?(?:[\s\)\]`:.,]|$)"
 )
 _BACKTICK_IDENT_RE = re.compile(r"`([a-zA-Z_][a-zA-Z0-9_]{2,})`")
 
@@ -2535,13 +2537,29 @@ def _cited_code_changed(store: RoadmapStore, item: Item, since: datetime) -> boo
     return changed_since(store, _recorded_block_paths(item), since)
 
 
-def text_paths(text: str) -> list[str]:
+def _tree_holds(path: str, tree: Collection[str] | None) -> bool:
+    """Whether `tree`, the paths that the commit of the round tracks, holds `path` as a file or as
+    a directory that holds a tracked path. A call with no tree holds every path (#6444)."""
+    if tree is None:
+        return True
+    under = f"{path.rstrip('/')}/"
+    return path in tree or any(held.startswith(under) for held in tree)
+
+
+def text_paths(text: str, *, tree: Collection[str] | None = None) -> list[str]:
     """The repository paths that `text` names, each once, without its line, the first
-    `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
+    `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them that `tree` holds: a decimal, a version, a dotted
+    setting or a domain uses the characters of a file name, so only the tree tells them apart
+    (#6444). A call with no tree keeps every candidate."""
     paths: list[str] = []
     for match in _CITED_PATH_RE.finditer(text):
         path = match.group(1)
-        if ".." not in path and not path.startswith("/") and path not in paths:
+        if (
+            ".." not in path
+            and not path.startswith("/")
+            and path not in paths
+            and _tree_holds(path, tree)
+        ):
             paths.append(path)
     return paths[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
 
@@ -2608,10 +2626,13 @@ def _wait_text(body: str, comments: Sequence[IssueComment]) -> str:
     return "\n".join([_wait_parts(body), *(comment.body for comment in replies)])
 
 
-def _wait_refs(text: str, own: int) -> str:
+def _wait_refs(text: str, own: int, *, tree: Collection[str] | None = None) -> str:
     """The issues and then the paths that `text`, the wait text of issue `own`, names, comma
-    separated as the job record holds them: `#12,src/a.py`."""
-    return ",".join([*(f"#{number}" for number in _text_issues(text, own)), *text_paths(text)])
+    separated as the job record holds them: `#12,src/a.py`. A path that `tree` does not hold is no
+    path (#6444)."""
+    return ",".join(
+        [*(f"#{number}" for number in _text_issues(text, own)), *text_paths(text, tree=tree)]
+    )
 
 
 def _named_cause_ended(store: RoadmapStore, refs: str, since: datetime) -> bool:
@@ -2769,6 +2790,7 @@ def _wait_state(
     comments_on: Callable[[int], list[IssueComment]],
     *,
     questions: _Questions,
+    tree: Collection[str] | None = None,
 ) -> tuple[datetime, str, JobRecord | None] | None:
     """What the exits of a wait need: the time of refine's last comment, the references of the
     wait text, and the marks that record them when the record does not hold them, or None when a
@@ -2778,7 +2800,8 @@ def _wait_state(
     them already (#3667). An item whose record holds an owner question waits on its frame, so the
     wait is over when a trusted person answered the frame and not when another comment came
     (#3077), and only a comment of a person ends the wait of such an item: a comment of a bot or of
-    the account that the job acts as ends none."""
+    the account that the job acts as ends none. `tree` is the set of paths that the commit of the
+    round tracks, which keeps a value that is no path out of the references (#6444)."""
     if _question_ends_wait(item, comments_on, questions):
         return None
     recorded = _recorded_reads(item) if comments is None else None
@@ -2794,7 +2817,7 @@ def _wait_state(
     if replies:
         return None
     commented_at = marked[-1].created_at
-    refs = _wait_refs(_wait_text(item.body, comments), item.number)
+    refs = _wait_refs(_wait_text(item.body, comments), item.number, tree=tree)
     return commented_at, refs, _read_marks(item, commented_at, refs)
 
 
@@ -2839,6 +2862,7 @@ def _still_waiting(
     questions: _Questions,
     *,
     graph: DependencyGraph | None = None,
+    tree: Collection[str] | None = None,
 ) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
@@ -2862,7 +2886,9 @@ def _still_waiting(
     built from the open items it read; without it, the graph is read here for the one item, and
     only when a recorded blocker is still open. The open blockers of a blocked wait come from the
     rule of the jobs, with the sub-issue links of all Items, so a recorded parent tracker ends the
-    wait and another tracker names its open sub-issues (#6450)."""
+    wait and another tracker names its open sub-issues (#6450). `tree` is the set of paths that
+    the commit of the round tracks, which keeps a value that is no path out of the references of
+    the wait (#6444)."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
@@ -2899,7 +2925,7 @@ def _still_waiting(
         step,
         details,
         names_cause,
-        _wait_state(item, comments, comments_on, questions=questions),
+        _wait_state(item, comments, comments_on, questions=questions, tree=tree),
         store,
     )
 
@@ -3035,6 +3061,9 @@ class _Selection:
     graph: DependencyGraph | None = None
     """The declared dependencies of the open items of the round (#6449); None when the selection
     reads them for the one item whose blocked wait it judges."""
+    tree: Collection[str] | None = None
+    """The paths that the commit of the round tracks (#6444); None when the caller holds no tree, and
+    every candidate of a wait text counts as a path."""
     actor: str | None = None
     """The account that the run acts as: its own comments answer no owner question (#3077)."""
 
@@ -3079,7 +3108,12 @@ class _Selection:
             return
         if is_unchanged(item, item.body) and not _needs_second_look(item):
             waits = _still_waiting(
-                self.store, item, self.comments_on, self.questions(), graph=self.graph
+                self.store,
+                item,
+                self.comments_on,
+                self.questions(),
+                graph=self.graph,
+                tree=self.tree,
             )
             if waits is not None:
                 self.waiting.append(waits)
@@ -3095,16 +3129,19 @@ class _Selection:
         self.selected.append(item)
 
 
-def refine_left_out(store: RoadmapStore, item: Item) -> str | None:
+def refine_left_out(
+    store: RoadmapStore, item: Item, *, tree: Collection[str] | None = None
+) -> str | None:
     """Why a round of the Service leaves the open `item` alone, or None when it takes the item. It
     judges the item with the rules of `select_candidates`, so `devops roadmap explain` and a round
-    cannot differ (#3483). The limit of a round is no rule of the item."""
+    cannot differ (#3483). The limit of a round is no rule of the item. `tree` is the set of paths
+    that the clone tracks, which `devops roadmap explain` reads (#6444)."""
     texts = MESSAGES.roadmap
     if not _refinable([item], unrefined_ready=True):
         if item.status == CONST_ROADMAP_STATUS_READY:
             return texts.refine_left_ready
         return texts.refine_held_status.format(status=item.status)
-    selection = _Selection(store)
+    selection = _Selection(store, tree=tree)
     selection.consider(item)
     if not selection.waiting:
         return None
@@ -3149,12 +3186,17 @@ def select_candidates(
     item_number: int | None = None,
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
     actor: str | None = None,
+    tree: Collection[str] | None = None,
 ) -> tuple[list[Item], list[WaitingItem]]:
     """Selects up to `limit` items to refine, nearest place first as the module's docstring
     orders them, returning (selected, waiting): each item it leaves out waits on its next step.
     The number of Ready items does not stop it (#2004). `actor` is the account that the run acts
-    as, whose own comments answer no owner question (#3077)."""
-    selected, waiting, _ = _select_round(store, item_number=item_number, limit=limit, actor=actor)
+    as, whose own comments answer no owner question (#3077). `tree` is the set of paths that the
+    commit of the round tracks, which keeps a value that is no path out of the references of a wait
+    (#6444)."""
+    selected, waiting, _ = _select_round(
+        store, item_number=item_number, limit=limit, actor=actor, tree=tree
+    )
     return selected, waiting
 
 
@@ -3166,13 +3208,14 @@ def _select_round(
     actor: str | None = None,
     frames: dict[str, Item] | None = None,
     graph: DependencyGraph | None = None,
+    tree: Collection[str] | None = None,
 ) -> tuple[list[Item], list[WaitingItem], int]:
     """The selection of `select_candidates`, and the count of the items that it ordered before
     the rules of each item and the limit: the queue of the refine row (#5470). The selection of a
     named item counts none. `frames` maps a question hash to the open item that holds its frame,
     which the selection reads itself when the caller gives none (#3077). `graph` is the declared
     dependencies of the open items of the round, which the selection reads itself when the caller
-    gives none (#6449)."""
+    gives none (#6449). `tree` is the set of paths that the commit of the round tracks (#6444)."""
     if item_number is not None:
         selected, waiting = _select_single_candidate(store, item_number)
         return selected, waiting, 0
@@ -3197,7 +3240,7 @@ def _select_round(
         ),
     ]
 
-    selection = _Selection(store, frames=frames, actor=actor, graph=graph)
+    selection = _Selection(store, frames=frames, actor=actor, graph=graph, tree=tree)
     for it in ordered:
         if len(selection.selected) >= limit:
             break
@@ -3891,15 +3934,26 @@ def plan_refine(
     that reviews the proposal for an item that a bot opened; it defaults to the client of the
     `refine_review` task, and is built only when such a review runs (#3502). `actor` is the account
     that the run acts as, whose own comments answer no owner question (#3077)."""
+    # `plan_read` imports `stage_change`, which imports this module, so the read of the tree of the
+    # commit comes in here (#6444).
+    from devops_cli.roadmap.plan_read import tree_files
+
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
+    tree = frozenset(tree_files(source_path, sha, operation=_TREE_OPERATION))
     open_items = store.open_items()
     frames = frames_of(open_items)
     # The tree reads every Item, closed parents too, and only when an item names an open tracker.
     graph = DependencyGraph.of(open_items, tree=ItemTree(store.items))
 
     candidates, waiting, queue = _select_round(
-        store, item_number=item_number, limit=limit, actor=actor, frames=frames, graph=graph
+        store,
+        item_number=item_number,
+        limit=limit,
+        actor=actor,
+        frames=frames,
+        graph=graph,
+        tree=tree,
     )
     if writer is not None:
         writer.begin(len(candidates))
