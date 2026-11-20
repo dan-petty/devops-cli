@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.182.1](https://github.com/dan-petty/devops-cli/compare/v0.182.0...v0.182.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **devcontainer:** build the devcontainer image FROM devtools ([#6472](https://github.com/dan-petty/devops-cli/issues/6472)) ([58e7b0d](https://github.com/dan-petty/devops-cli/commit/58e7b0deef178ea62ba93507d3aaa7848f23dc36))
+* **security:** scan each image with one Trivy action and SARIF ([#6488](https://github.com/dan-petty/devops-cli/issues/6488)) ([26e2a99](https://github.com/dan-petty/devops-cli/commit/26e2a998c4607fd0f99fc8da761fc740c18e0033))
+
 ## [0.182.0](https://github.com/dan-petty/devops-cli/compare/v0.181.1...v0.182.0) (2026-11-19)
 
 
