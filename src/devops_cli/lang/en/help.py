@@ -657,12 +657,9 @@ class ReposCommandHelp:
     worktrees_status: str = (
         "List every worktree with commits ahead of main, dirty-path count, and flags."
     )
-    worktrees_prune: str = (
-        "Remove the worktrees whose tip heads a merged pull request. Without --confirm it reads "
-        "GitHub and removes nothing; --dry-run makes no request."
-    )
     worktrees_force: str = (
-        "Remove every worktree but the main one, whatever its state. Needs --confirm."
+        "Remove every worktree but the main worktree and the worktree that holds the current "
+        "directory, whatever its state or folder. Needs --confirm."
     )
     worktrees_confirm: str = (
         "Remove the worktrees. Without it, prune only lists what it would remove."
