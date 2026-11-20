@@ -116,7 +116,9 @@ class WorktreeRepoState:
                 tokens.append(f"?? {item.name}")
         return tokens
 
-    def _handle_status(self, repo_dir: Path) -> ProcessAnswer:
+    def _refusal(self, repo_dir: Path) -> ProcessAnswer | None:
+        """The failure of a git command in `repo_dir`, as real git exits: 128 for a directory that
+        is no worktree and for a `.git` file that is no gitdir pointer, else None."""
         if repo_dir != self.repo_dir and repo_dir not in self.worktrees:
             return ProcessAnswer(returncode=128, stderr="fatal: not a git repository")
         git_marker = repo_dir / ".git"
@@ -124,6 +126,11 @@ class WorktreeRepoState:
             content = git_marker.read_text(encoding="utf-8", errors="replace")
             if not content.startswith("gitdir:"):
                 return ProcessAnswer(returncode=128, stderr="fatal: invalid gitdir pointer")
+        return None
+
+    def _handle_status(self, repo_dir: Path) -> ProcessAnswer:
+        if (refusal := self._refusal(repo_dir)) is not None:
+            return refusal
         tokens = self._collect_status_tokens(repo_dir)
         if tokens:
             return ProcessAnswer(stdout="".join(f"{t}\0" for t in tokens))
@@ -235,6 +242,9 @@ class WorktreeRepoState:
             return self._handle_rev_list(sub_argv)
         if cmd == "status":
             return self._handle_status(repo_dir)
+        if cmd == "ls-files":
+            # The worktrees of this fake hold no ignored file, so each listing is empty.
+            return self._refusal(repo_dir) or ProcessAnswer(stdout="")
         if cmd == "worktree":
             return self._handle_worktree(sub_argv)
         if cmd == "commit":
@@ -484,8 +494,9 @@ def test_prune_keeps_commit_that_github_does_not_know(
 def test_prune_reads_no_pull_request_for_locked_dirty_or_unreadable_worktrees(
     git_repo: Path, managed: Path, git: Git, cli: Cli, github_api: GitHubApiFake
 ) -> None:
-    """Local state decides first: lock, uncommitted paths and a failed `git status` each keep the
-    worktree, and none of them costs a request."""
+    """Local state decides first: a lock, uncommitted paths and a broken `.git` file each keep the
+    worktree, and none of them costs a request. Git cannot list the ignored files of the broken
+    worktree, so the scope rule keeps it before its dirty state is read."""
     locked = managed / "wt_locked"
     _add_worktree(git, git_repo, "branch-locked", locked, commit=True)
     git(git_repo, "worktree", "lock", "--reason", "agent-42", str(locked))
@@ -503,7 +514,7 @@ def test_prune_reads_no_pull_request_for_locked_dirty_or_unreadable_worktrees(
         "repo": ("refused", "main worktree"),
         "wt_locked": ("refused", "locked (agent-42)"),
         "wt_dirty": ("refused", "dirty (1 uncommitted path)"),
-        "wt_broken": ("refused", "dirty state unknown (git status failed)"),
+        "wt_broken": ("refused", "ignored data files are unknown (git ls-files failed)"),
     }
     assert [p.exists() for p in (locked, dirty, broken)] == [True, True, True]
 
