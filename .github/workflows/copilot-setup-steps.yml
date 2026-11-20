@@ -14,9 +14,13 @@ on:
     branches: ["**"]
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/devtools-commands/**
+      - .devcontainer/Dockerfile
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/devtools-commands/**
+      - .devcontainer/Dockerfile
 
 env:
   # No tool the job runs reports usage; OpenSpec's own opt-outs are named so that a runner without
@@ -52,15 +56,18 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: Install OpenSpec and agent tools
+      - name: Install OpenSpec
         run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$PWD/node_modules/.bin" >> "$GITHUB_PATH"
           npm ci --ignore-scripts
-          uv run devops install-tools --tool gitleaks --only-missing
-          uv run devops install-tools --tool osv-scanner --only-missing
-          uv run devops install-tools --tool semgrep --only-missing
-          uv run devops install-tools --tool tuicr --only-missing
+
+      # GitHub runs this job on the runner host and ignores a `container` key of it, so the job puts
+      # the agent tools of the devtools image on PATH (#6416). Semgrep is a Python tool of the image
+      # that runs only with the Python of the image, so the agent gets no Semgrep.
+      - name: Put the agent tools of the devtools image on PATH
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: gitleaks osv-scanner tuicr
 
       # The commits and pushes of the agent run the hooks of `.pre-commit-config.yaml` only when this
       # step installs them. The firewall of the agent does not govern a setup step, so the step also

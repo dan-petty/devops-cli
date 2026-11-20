@@ -2359,7 +2359,7 @@ class ReviewCommandHelp:
     rules_dir: str = (
         "Rule pack directory containing `<rule>.yaml`, `<rule>.test.yaml`, and `rules.lock`."
     )
-    rules_check: str = "Verify `rules.lock` matches the tested rules and pinned Semgrep version without writing it."
+    rules_check: str = "Verify that `rules.lock` matches the tested rules, without writing it."
     rules_fetch_ruleset: str = (
         "Registry id of the ruleset: `p/<pack>`, `r/<rule id>` or `s/<snippet>`."
     )

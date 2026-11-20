@@ -17,6 +17,8 @@ on:
       - "src/devops_cli/k8s/environment.py"
       - "src/devops_cli/docker/registry.py"
       - ".devops/project.toml"
+      - ".devcontainer/Dockerfile"
+      - ".github/actions/devtools-commands/**"
       - ".github/workflows/image-pins.yml"
 
 permissions: {}
@@ -33,10 +35,10 @@ env:
   UV_MANAGED_PYTHON: "1"
 
 jobs:
-  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with the
-  # runner's kubectl, as the Argo CD gate of the test row does, and a chart source with the pinned
-  # helm and the repository's value files. It resolves each image once with a HEAD request of its
-  # manifest (`tag_digest`), which Docker Hub does not count as a pull.
+  # `devops k8s image-pins` renders each Application as Argo CD does: a path source with kubectl,
+  # as the Argo CD gate of the test row does, and a chart source with helm and the repository's
+  # value files. It resolves each image once with a HEAD request of its manifest (`tag_digest`),
+  # which Docker Hub does not count as a pull.
   image-pins:
     name: Image Pins
     runs-on: ubuntu-26.04
@@ -56,10 +58,12 @@ jobs:
           cache-suffix: image-pins
           save-uv-cache: "false"
 
-      - name: Install Helm
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool helm --only-missing
+      # The kubectl and helm of the devtools image, from the cache of the action (#6416). The job
+      # stays on the runner host: a container job pulls the whole image on each run.
+      - name: Put kubectl and helm on PATH
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: kubectl helm
 
       - name: Resolve the Image Pins
         run: uv run devops k8s image-pins

@@ -1,9 +1,10 @@
 name: Rule Pack Tests
 
-# Runs `semgrep --test` with the pinned Semgrep and checks `rules.lock` when a pull request changes
-# a file of the review rule pack, kept outside `devops ci` and the pre-push hook (#1145). The
-# native `paths` filter stops the run before a runner starts, so a pull request that changes no
-# rule file starts no job and shows no check (#4653). The check is not required.
+# Runs `semgrep --test` with the Semgrep of the devtools image and checks `rules.lock` when a pull
+# request changes a file of the review rule pack or this workflow, kept outside `devops ci` and the
+# pre-push hook (#1145). The native `paths` filter stops the run before a runner starts, so a pull
+# request that changes no rule file starts no job and shows no check (#4653). The check is not
+# required.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -26,9 +27,16 @@ env:
   UV_MANAGED_PYTHON: "1"
 
 jobs:
+  # The job runs in the devtools image, which holds Semgrep (#6416). The Semgrep of the image is a
+  # venv that runs only with the Python of the image, so the job cannot take it to the runner host
+  # with .github/actions/devtools-commands. Renovate moves the tag and the digest of the image in the
+  # devtools group, with those of the Dockerfiles, so the pull request of a new image changes this
+  # file and runs the job.
   rule-pack:
     name: Rule Pack Tests
     runs-on: ubuntu-26.04
+    container:
+      image: ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51
     timeout-minutes: 5
     permissions:
       contents: read
@@ -49,7 +57,5 @@ jobs:
         env:
           SEMGREP_ENABLE_VERSION_CHECK: "0"
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
-          uv run devops install-tools --tool semgrep --only-missing
           semgrep --test --metrics off src/devops_cli/review/rules
           uv run devops review rules test --check

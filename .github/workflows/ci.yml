@@ -75,21 +75,17 @@ jobs:
           node-version-file: .node-version
 
       - name: Install OpenSpec
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          npm ci --ignore-scripts
-          uv run devops install-tools --tool tofu --only-missing
-          uv run devops install-tools --tool osv-scanner --only-missing
+        run: npm ci --ignore-scripts
 
-      # The pinned Trivy runs `trivy-config`, the IaC scan of the Security Scan step, which took the
-      # place of Checkov (#2214).
-      - name: Install Trivy
-        run: uv run devops install-tools --tool trivy --only-missing
-
-      # The pinned kube-linter runs the `kube-linter` row of the gate: the checks of
-      # `.kube-linter.yaml` on the build of each path source of the Argo CD Applications (#6068).
-      - name: Install kube-linter
-        run: uv run devops install-tools --tool kube-linter --only-missing
+      # The tools of the devtools image for the gate and the scan: tofu (#5862) and osv-scanner;
+      # kube-linter, which runs the `kube-linter` row on the build of each path source of the Argo CD
+      # Applications (#6068); and Trivy, which runs `trivy-config`, the IaC scan of the Security Scan
+      # step, in the place of Checkov (#2214). The job stays on the runner host, because the `bwrap`
+      # row needs the sandbox of the host, which a container job cannot make (#6416).
+      - name: Put the tools of the devtools image on PATH
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: tofu osv-scanner trivy kube-linter
 
       # The pinned actionlint image validates the workflows, and the gate below skips its actionlint
       # row, so actionlint runs once (#1119). The devcontainer and the runner image get actionlint
@@ -183,12 +179,14 @@ jobs:
           tooling-cache-paths: |
             .pytest_cache
 
-      # The pinned promtool runs the rule checks and rule unit tests of
+      # The promtool of the devtools image runs the rule checks and rule unit tests of
       # tests/test_k8s_monitoring_alerting.py, which skip where promtool is not installed (#2472).
-      - name: Install promtool
-        run: |
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          uv run devops install-tools --tool promtool --only-missing
+      # The shards stay on the runner host: the coverage data of each names the paths of its
+      # checkout, and the job `Tests & Coverage` joins the data on the host (#6416).
+      - name: Put promtool on PATH
+        uses: ./.github/actions/devtools-commands
+        with:
+          commands: promtool
 
       - name: Tests & Coverage Quality Gate
         if: steps.changes.outputs.outside_plan != 'false'

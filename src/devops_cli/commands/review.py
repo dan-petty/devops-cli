@@ -2861,7 +2861,7 @@ def rules_test(
     target_rules_dir = rules_dir or RULE_PACK_DIR
     lock_path = target_rules_dir / RULES_LOCK_FILENAME
     try:
-        lock = run_rule_pack_tests(target_rules_dir, check_only=check)
+        lock, version = run_rule_pack_tests(target_rules_dir, check_only=check)
     except ValidationError as exc:
         print_error(exc.message)
         raise typer.Exit(1) from exc
@@ -2869,12 +2869,11 @@ def rules_test(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(lock.model_dump(mode="json"), resolved)
         return
-    versions = sorted({entry.semgrep_version for entry in lock.rules.values()})
     template = MESSAGES.review.rules_test_checked if check else MESSAGES.review.rules_test_passed
     print_success(
         template.format(
             count=len(lock.rules),
-            version=versions[0] if versions else "unknown",
+            version=version or "unknown",
             path=lock_path,
         )
     )

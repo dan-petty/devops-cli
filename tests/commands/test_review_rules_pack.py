@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
 from devops_cli.commands.review import app as review_app
@@ -18,9 +19,9 @@ from devops_cli.main import app as root_app
 from devops_cli.review.rules_pack import (
     RULE_PACK_DIR,
     RULES_LOCK_FILENAME,
+    RulesLock,
     discover_pack_rules,
     normalize_pack_check_id,
-    pinned_semgrep_version,
     read_rules_lock,
     run_rule_pack_tests,
     validate_rule_pair,
@@ -32,6 +33,8 @@ from tests.support.paths import FIXTURES
 
 RECALL_SET_PATH = FIXTURES / "review_recall" / "recall_set.json"
 RULE_ID = "k8s-networkpolicy-ingress-any"
+# The version that the stand-in Semgrep states; no pin names it (#4388).
+_SEMGREP_VERSION = "1.99.0"
 runner = CliRunner()
 
 
@@ -105,16 +108,9 @@ def test_offline_gate_every_pack_rule_matches_rules_lock() -> None:
     assert (
         verify_rules_lock(),
         set(lock.rules),
-        entry.semgrep_version,
         len(entry.rule_sha256),
         len(entry.test_sha256),
-    ) == (
-        [],
-        set(discover_pack_rules()),
-        pinned_semgrep_version(),
-        64,
-        64,
-    )
+    ) == ([], set(discover_pack_rules()), 64, 64)
 
 
 def test_rules_test_writes_and_checks_manifest_with_fake_semgrep(
@@ -127,7 +123,7 @@ def test_rules_test_writes_and_checks_manifest_with_fake_semgrep(
     (pack_copy / RULES_LOCK_FILENAME).unlink()
     process_fake.answer(
         lambda call: "--version" in call.argv,
-        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+        ProcessAnswer(stdout=f"{_SEMGREP_VERSION}\n"),
     )
     process_fake.answer(
         lambda call: "--test" in call.argv, ProcessAnswer(stdout="1/1: ✓ All tests passed\n")
@@ -164,7 +160,7 @@ def test_rules_test_fails_when_semgrep_test_fails_and_dry_run_is_pure(
     shutil.copytree(RULE_PACK_DIR, pack_copy)
     process_fake.answer(
         lambda call: "--version" in call.argv,
-        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+        ProcessAnswer(stdout=f"{_SEMGREP_VERSION}\n"),
     )
     process_fake.answer(
         lambda call: "--test" in call.argv,
@@ -213,7 +209,7 @@ def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person
     monkeypatch.setenv("GITHUB_TOKEN", "example-token")
     process_fake.answer(
         lambda call: "--version" in call.argv,
-        ProcessAnswer(stdout=f"{pinned_semgrep_version()}\n"),
+        ProcessAnswer(stdout=f"{_SEMGREP_VERSION}\n"),
     )
 
     run_rule_pack_tests(pack_copy)
@@ -222,3 +218,33 @@ def test_semgrep_gets_only_its_own_setting_and_not_the_environment_of_the_person
         ("--version", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
         ("--test", {"SEMGREP_ENABLE_VERSION_CHECK": "0"}),
     ]
+
+
+def test_a_lock_entry_with_a_semgrep_version_does_not_load() -> None:
+    """The installed Semgrep states its version, so `rules.lock` holds none: the model refuses the
+    field (#4388)."""
+    entry = {
+        "rule_file": "a.yaml",
+        "rule_sha256": "0" * 64,
+        "test_file": "a.test.yaml",
+        "test_sha256": "0" * 64,
+        "semgrep_version": "1.0.0",
+    }
+
+    with pytest.raises(PydanticValidationError, match="semgrep_version"):
+        RulesLock.model_validate({"rules": {"a": entry}})
+
+
+def test_rules_test_prints_the_version_of_the_semgrep_that_ran(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """The message names the version that `semgrep --version` prints, and no pin (#4388)."""
+    pack_copy = tmp_path / "rules"
+    shutil.copytree(RULE_PACK_DIR, pack_copy)
+    process_fake.answer(
+        lambda call: "--version" in call.argv, ProcessAnswer(stdout=f"{_SEMGREP_VERSION}\n")
+    )
+
+    result = runner.invoke(review_app, ["rules", "test", "--rules-dir", str(pack_copy), "--check"])
+
+    assert (result.exit_code, f"with Semgrep {_SEMGREP_VERSION};" in result.stdout) == (0, True)
