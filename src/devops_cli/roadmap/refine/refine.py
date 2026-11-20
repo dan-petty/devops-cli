@@ -2654,8 +2654,9 @@ def _named_cause_ended(
 
 
 def _ref_paths(names: Sequence[str]) -> list[str]:
-    """The paths among `names`, the references of a wait text: each one that is no issue."""
-    return [name for name in names if not name.startswith("#")]
+    """The paths among `names`, the references of a wait text: each one that is no issue. An
+    empty name, as an empty record splits into, is no path (#6444)."""
+    return [name for name in names if name and not name.startswith("#")]
 
 
 def _recorded_reads(

@@ -196,6 +196,33 @@ def test_a_comment_of_another_job_costs_one_read_and_then_the_wait_is_recorded_a
 # ── A record written before the tree filter is read again (#6444) ──────────────────────────
 
 
+def test_a_wait_that_names_nothing_reads_no_comment_after_its_record(
+    git_repo: Path,
+    store: InMemoryRoadmapStore,
+    comment_reads: list[int],
+) -> None:
+    """A person wait whose text names no issue and no path records no references. The rounds
+    after its record read no comment, as for any other recorded wait (#3667): an empty record
+    holds no path that the tree lacks (#6444)."""
+    store.seed_visibility(is_private=True)
+    number = seed_person_wait(store, "Which owner decides the merge order?")
+    store.set_marks(
+        require_item(store, number),
+        {
+            RefineRecordKey.COMMENTS_SEEN: str(require_item(store, number).comments),
+            RefineRecordKey.COMMENTED_AT: refine_comment_at(store, number).isoformat(),
+        },
+    )
+    comment_reads.clear()
+
+    refine_round(store, git_repo)
+    first = list(comment_reads)
+    comment_reads.clear()
+    refine_round(store, git_repo)
+
+    assert (first, comment_reads) == ([], [])
+
+
 def test_a_record_written_before_the_tree_filter_gets_the_paths_of_the_tree(
     git_repo: Path,
     store: InMemoryRoadmapStore,
