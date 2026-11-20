@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.185.1](https://github.com/dan-petty/devops-cli/compare/v0.185.0...v0.185.1) (2026-11-20)
+
+
+### Bug Fixes
+
+* **ci:** take the CI job tools from the devtools image ([#6543](https://github.com/dan-petty/devops-cli/issues/6543)) ([2e4188f](https://github.com/dan-petty/devops-cli/commit/2e4188fe8cb520e07a2238ab126f05c0b10a6369))
+* **roadmap:** a Job leaves a stale lock for the agent ([#6558](https://github.com/dan-petty/devops-cli/issues/6558)) ([be35253](https://github.com/dan-petty/devops-cli/commit/be35253630855776369ab40b97b1d61f5788b79b)), closes [#6557](https://github.com/dan-petty/devops-cli/issues/6557)
+* **roadmap:** a wait keeps only real repository paths ([#6546](https://github.com/dan-petty/devops-cli/issues/6546)) ([165463c](https://github.com/dan-petty/devops-cli/commit/165463c4eede2c39059d5558ad6b387ea1d3dcce))
+
 ## [0.185.0](https://github.com/dan-petty/devops-cli/compare/v0.184.0...v0.185.0) (2026-11-20)
 
 
