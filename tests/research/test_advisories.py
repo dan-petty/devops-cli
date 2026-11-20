@@ -34,6 +34,21 @@ from tests.support.fakes.http import WebFake
 from tests.support.paths import FIXTURES
 
 MINI_REPO = FIXTURES / "research" / "repo"
+CHECKOUT = "actions/checkout"
+CHECKOUT_TAGS_URL = "https://api.github.com/repos/actions/checkout/tags?per_page=100"
+NO_RELEASE_COMMIT = "0000000000000000000000000000000000000003"
+CHECKOUT_ADVISORY = {
+    "ghsa_id": "GHSA-test-0000-0001",
+    "severity": "high",
+    "summary": "An advisory of the 4.2 line of actions/checkout",
+    "vulnerabilities": [
+        {
+            "package": {"ecosystem": "actions", "name": CHECKOUT},
+            "vulnerable_version_range": ">= 4.2.0, < 4.3.0",
+            "patched_versions": "4.3.0",
+        }
+    ],
+}
 
 
 def test_a_pinned_version_in_an_affected_range_gives_a_finding(web: WebFake) -> None:
@@ -117,7 +132,7 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
 
     asked = [
         (query["package"]["ecosystem"], query["package"]["name"], query["version"])
-        for query in web.recorded[0].json["queries"]
+        for query in web.recorded[1].json["queries"]
     ]
     hosts = [request.url.split("/")[2] for request in web.recorded]
     assert (sorted(asked), hosts, report.findings, report.summary.model_dump()) == (
@@ -131,7 +146,7 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
             ("npm", "@example/helper", "0.4.2"),
             ("npm", "example-npm", "1.14.3"),
         ],
-        ["api.osv.dev", "api.github.com"],
+        ["api.github.com", "api.osv.dev", "api.github.com"],
         [],
         {
             "components": 27,
@@ -304,15 +319,110 @@ def test_a_github_advisory_of_an_action_gives_a_finding_where_osv_gives_none(
     )
     assert report["summary"] == {
         "components": 4,
-        "queried": 3,
+        "queried": 4,
         "with_findings": 2,
         "findings": 3,
-        "unpinned": 1,
+        "unpinned": 0,
         "failed": 0,
         "exploited": 1,
         "not_covered": {},
     }
     assert not [r for r in web.recorded if "osv.dev" in r.url]
+
+
+def test_a_pinned_commit_resolves_to_its_full_release(web: WebFake) -> None:
+    """The tags of `actions/checkout` name `v4.2.2` at the pinned commit of the major tag `v4`, so
+    the pin is checked as `v4.2.2` and an advisory of the 4.2 line matches it."""
+    actions = recorded("advisories_actions.json")
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=actions + [CHECKOUT_ADVISORY])
+            if request.url.path == "/advisories"
+            else None
+        )
+    )
+    serve_recorded_github(web)
+    serve_recorded_kev(web)
+
+    report = find_advisories(
+        read_inventory(GITHUB_REPO),
+        watch=read_watch_list(GITHUB_REPO),
+        github=GitHubAdvisoryClient(),
+    )
+
+    [finding] = [f for f in report.findings if f.component.name == CHECKOUT]
+    assert (
+        finding.component.version,
+        finding.advisory_id,
+        finding.locations,
+        finding.source,
+        CHECKOUT_TAGS_URL in web.requested,
+        report.summary.queried,
+        report.summary.unpinned,
+        report.failures,
+    ) == (
+        "v4.2.2",
+        "GHSA-test-0000-0001",
+        [".github/workflows/ci.yml:7"],
+        "GitHub",
+        True,
+        4,
+        0,
+        [],
+    )
+
+
+def test_a_pinned_commit_with_no_full_release_tag_stays_unpinned(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """The recorded tags name only the prerelease `v4.2.0-rc1` at the commit, so the pin is counted
+    in `unpinned` and no advisory is matched to it."""
+    serve_recorded_github(web)
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: ci\n"
+        "on: push\n"
+        "jobs:\n"
+        "  test:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: {CHECKOUT}@{NO_RELEASE_COMMIT} # v4\n",
+        encoding="utf-8",
+    )
+
+    report = find_advisories(read_inventory(tmp_path), github=GitHubAdvisoryClient())
+
+    assert (
+        CHECKOUT_TAGS_URL in web.requested,
+        report.summary.unpinned,
+        report.findings,
+        report.failures,
+    ) == (True, 1, [], [])
+
+
+def test_a_failed_tags_read_is_a_failure_and_not_a_clean_pin(web: WebFake) -> None:
+    """A tags read that answers 500 leaves the release of the pin unknown: the report names the
+    repository and the reason, and the pin has no finding."""
+    web.serve(
+        lambda request: (
+            httpx2.Response(500, json={}) if request.url.path.endswith("/tags") else None
+        )
+    )
+    serve_recorded_github(web)
+    serve_recorded_kev(web)
+
+    report = find_advisories(
+        read_inventory(GITHUB_REPO),
+        watch=read_watch_list(GITHUB_REPO),
+        github=GitHubAdvisoryClient(),
+    )
+
+    assert (
+        [(f.name, f.version, f.reason) for f in report.failures],
+        [f for f in report.findings if f.component.name == CHECKOUT],
+        (report.summary.unpinned, report.summary.failed),
+    ) == ([("actions/checkout", "v4", "GitHub returned status 500")], [], (1, 1))
 
 
 def test_a_cve_in_the_kev_list_sets_the_exploited_flag(web: WebFake) -> None:
@@ -394,7 +504,15 @@ def test_a_github_read_that_fails_is_reported_for_its_component_and_is_not_clean
 ) -> None:
     serve_recorded_kev(web)
     web.respond("GET", QDRANT_URL + "?per_page=100", 500, {})
-    web.serve(lambda request: httpx2.Response(503) if request.url.path == "/advisories" else None)
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=[])
+            if request.url.path.endswith("/tags")
+            else httpx2.Response(503)
+            if request.url.path == "/advisories"
+            else None
+        )
+    )
 
     report = find_advisories(
         read_inventory(GITHUB_REPO),
@@ -422,7 +540,9 @@ def test_an_advisory_with_a_range_that_cannot_be_read_is_a_failure_that_names_it
     broken[0]["vulnerabilities"][0]["vulnerable_version_range"] = "since the start"
     web.serve(
         lambda request: (
-            httpx2.Response(200, json=broken)
+            httpx2.Response(200, json=[])
+            if request.url.path.endswith("/tags")
+            else httpx2.Response(200, json=broken)
             if request.url.path.startswith("/repos/")
             else httpx2.Response(200, json=[])
         )
@@ -449,6 +569,11 @@ def test_the_requests_of_a_run_with_actions_and_a_watch_list_name_each_repositor
     assert [(r.method, r.target, r.repeat) for r in planned] == [
         (
             "GET",
+            "https://api.github.com/repos/<owner>/<repo>/tags",
+            "for each action repository with a commit pin",
+        ),
+        (
+            "GET",
             "https://api.github.com/advisories?ecosystem=actions&affects=<names>",
             "for each 50 action names",
         ),
@@ -467,7 +592,7 @@ def test_a_component_that_the_watch_list_does_not_map_is_counted_as_not_covered(
 
     assert (report.summary.not_covered, report.summary.queried, len(report.findings)) == (
         {"helm": 1},
-        2,
+        3,
         1,
     )
 

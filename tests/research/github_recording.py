@@ -28,10 +28,11 @@ def recorded(name: str) -> Any:
 
 
 def serve_recorded_github(web: WebFake) -> None:
-    """Serve the advisories of `tj-actions/changed-files` and of `qdrant/qdrant`, and an empty list
-    for any other package or repository."""
+    """Serve the advisories of `tj-actions/changed-files` and of `qdrant/qdrant`, the tags of
+    `actions/checkout`, and an empty list for any other package or repository."""
     actions = recorded("advisories_actions.json")
     qdrant = recorded("qdrant_security_advisories.json")
+    checkout_tags = recorded("tags_actions_checkout.json")
 
     def server(request: httpx2.Request) -> httpx2.Response | None:
         if request.url.host != "api.github.com":
@@ -39,6 +40,8 @@ def serve_recorded_github(web: WebFake) -> None:
         if request.url.path == "/advisories":
             named = "tj-actions/changed-files" in request.url.params["affects"]
             return httpx2.Response(200, json=actions if named else [])
+        if request.url.path == "/repos/actions/checkout/tags":
+            return httpx2.Response(200, json=checkout_tags)
         if request.url.path == "/repos/qdrant/qdrant/security-advisories":
             return httpx2.Response(200, json=qdrant)
         return httpx2.Response(200, json=[])
