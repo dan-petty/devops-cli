@@ -23,7 +23,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/intake/intake.py`, `src/devops_cl
 
 Kind: other. Reads: `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`, `src/devops_cli/roadmap/intake/intake.py`. Changes: `tests/roadmap/intake/test_roadmap_intake_sub_issues.py`.
 
-- [ ] 3.1 Change the assertion at line 187 of `tests/roadmap/intake/test_roadmap_intake_sub_issues.py` in the test function `test_a_part_is_never_a_duplicate_of_the_issue_its_source_names` from `body.endswith(f"Source: {source}")` to the form that `NewCandidate.filed_body` now writes: the body ends with the `## Source` heading and then the source. The test keeps its check that the part is filed and that its parent folds nothing
+- [x] 3.1 Change the assertion at line 187 of `tests/roadmap/intake/test_roadmap_intake_sub_issues.py` in the test function `test_a_part_is_never_a_duplicate_of_the_issue_its_source_names` from `body.endswith(f"Source: {source}")` to the form that `NewCandidate.filed_body` now writes: the body ends with the `## Source` heading and then the source. The test keeps its check that the part is filed and that its parent folds nothing
   - Verification: `$ uv run devops ci test tests/roadmap/intake/test_roadmap_intake_sub_issues.py` passes
 
 ## 4. State the blocker rule in the roadmap pages

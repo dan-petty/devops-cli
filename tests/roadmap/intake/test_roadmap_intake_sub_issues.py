@@ -184,7 +184,7 @@ def test_a_part_is_never_a_duplicate_of_the_issue_its_source_names(
     answer = FOLD_INTO_PARENT | {"duplicate_of": parent}
     outcome, _, filed, sent = _split(roadmap, model_fake, answer, source=source)
     bodies = [issue.body for issue in roadmap.store.issues() if issue.number == filed]
-    assert (outcome, sent, [body.endswith(f"Source: {source}") for body in bodies]) == (
+    assert (outcome, sent, [body.endswith(f"## Source\n\n{source}") for body in bodies]) == (
         Outcome.PLACE,
         [[]],
         [True],
