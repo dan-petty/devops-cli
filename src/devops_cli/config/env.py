@@ -89,8 +89,8 @@ CREDENTIALS: tuple[Credential, ...] = (
     Credential("qdrant.api_key", "Qdrant API key (stored in OS keyring)", in_file=True),
     Credential(
         "qdrant.read_only_api_key",
-        "Qdrant read-only API key, which `devops k8s push-secrets` writes to the runner and the "
-        "roadmap Service (stored in OS keyring)",
+        "Qdrant read-only API key, which `devops k8s push-secrets` writes to Secret "
+        "devops/devops-cli for the pods that load that Secret with envFrom (stored in OS keyring)",
     ),
     Credential(
         "valkey.password", "Valkey authentication password (stored in OS keyring)", in_file=True

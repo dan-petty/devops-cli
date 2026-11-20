@@ -701,19 +701,30 @@ def check_a_runner_job_may_read_exactly_the_keys_of_the_constant() -> None:
     assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
 
 
+ENV_FROM_SECRET = {"secretRef": {"name": "devops-cli"}}
+
+
+def _env_from_refused(refusals: list[str]) -> bool:
+    """True when the envFrom rule alone refuses, with its whole message: YAML ends a plain scalar
+    at ` #`, so a message cut there does not end with the name of the Secret."""
+    return (
+        len(refusals) == 1
+        and refusals[0].startswith("A Job must not use envFrom")
+        and refusals[0].endswith("envFrom of Secret devops-cli.")
+    )
+
+
 def check_a_runner_job_with_env_from_is_refused_on_create_and_admitted_only_on_update() -> None:
     """A runner Job that the Service made from the template before #6518 takes the whole Secret
     with `envFrom`. The Service still patches such a Job (its deadline, its resume), so the policy
     admits `envFrom` of Secret devops-cli on an UPDATE. A Job keeps its pod template, so an UPDATE
     cannot add `envFrom`, and the policy refuses it on a CREATE."""
-    made_before = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "devops-cli"}}))
-    other_secret = _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "x"}}))
+    made_before = _changed(_drop_secret_keys, _set_env_from(ENV_FROM_SECRET))
 
-    assert (
-        ["envFrom" in message for message in _refusals(made_before)],
-        _refusals(made_before, update=True),
-        ["envFrom" in message for message in _refusals(other_secret, update=True)],
-    ) == ([True], [], [True])
+    assert (_env_from_refused(_refusals(made_before)), _refusals(made_before, update=True)) == (
+        True,
+        [],
+    )
 
 
 def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:
@@ -931,3 +942,32 @@ def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
     _add_secret_key("devops-cli", key)(job)
 
     assert any("valueFrom" in message for message in _refusals(job))
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        pytest.param(
+            lambda: _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "x"}})),
+            id="runner-other-secret",
+        ),
+        pytest.param(
+            lambda: _changed(_drop_secret_keys, _set_env_from({"configMapRef": {"name": "x"}})),
+            id="runner-config-map",
+        ),
+        pytest.param(lambda: _stage_changed(_set_env_from(ENV_FROM_SECRET)), id="stage"),
+        pytest.param(lambda: _with_env_from(_planner_job(), ENV_FROM_SECRET), id="planner"),
+    ],
+)
+def check_an_update_with_env_from_is_refused_but_of_a_runner_job_with_the_secret(
+    job: Callable[[], dict[str, Any]],
+) -> None:
+    """Only a runner Job made before #6518 has `envFrom`, and only of Secret devops-cli. So the
+    policy refuses `envFrom` in the UPDATE of a stage Job or a planner run Job, and `envFrom` of a
+    ConfigMap or of another Secret in the UPDATE of a runner Job."""
+    assert _env_from_refused(_refusals(job(), update=True))
+
+
+def _with_env_from(job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    _set_env_from(source)(job)
+    return job

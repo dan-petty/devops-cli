@@ -220,7 +220,7 @@ def test_sync_k8s_credentials_reads_no_llm_secret(process_fake: ProcessFake) -> 
 
 def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets() -> None:
     """Secret llm/qdrant-api-key holds the read-only key, and Secret devops/devops-cli takes the
-    same keyring value for the runner and the roadmap Service (#3823)."""
+    same keyring value for the pods that load that Secret with envFrom (#3823)."""
     rows = {
         (secret.ref, entry.key): entry for secret in CLUSTER_SECRETS for entry in secret.entries
     }

@@ -95,7 +95,7 @@ spec:
         (request.operation == "UPDATE" && !variables.stage && !variables.planner &&
         c.envFrom.all(e, has(e.secretRef) && !has(e.configMapRef) &&
         e.secretRef.name == "devops-cli")))
-      message: A Job must not use envFrom, but an UPDATE of a runner Job made before #6518 may keep envFrom of Secret devops-cli.
+      message: A Job must not use envFrom, but an UPDATE of a runner Job that has the old template (before issue 6518) may keep envFrom of Secret devops-cli.
       reason: Forbidden
     # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job and a
     # runner Job (#6518) read the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the

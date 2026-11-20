@@ -23,12 +23,13 @@ None.
 ### Modified Capabilities
 
 - `roadmap-implement-runner`: the runner Job takes 2 keys of the Secret, the admission policy admits them, and the policy admits `envFrom` only in the `UPDATE` of a runner Job.
+- `qdrant-read-only-key`: the runner pod holds no Qdrant key, and a pod that loads Secret `devops-cli` with `envFrom` holds the read-only key.
 
 ## Impact
 
 - Manifests: `k8s/devops/cronjob-runner.yaml`, `k8s/devops/roadmap-service/admissionpolicy.yaml`.
 - Code: a comment in `src/devops_cli/config/constants.py`. Gate checks: `tests/gate/k8s_checks/runner.py`, `tests/gate/k8s_checks/job_admission_policy.py`. Test: `tests/roadmap/implement/test_roadmap_implement_submit.py` reads an env entry with no `value`.
-- Documents: `docs/CLUSTER.md`.
+- Documents: `docs/CLUSTER.md`, `SECURITY.md`, `k8s/README.md` and `docs/ENV_VARS.md`, and the comments of the NetworkPolicies, the Qdrant values and `cluster_secrets.py` that named the runner as a holder of a key.
 - Live Jobs: a runner Job that the Service made before the sync keeps `envFrom`. The policy admits `envFrom` of Secret `devops-cli` in the `UPDATE` of a runner Job, so the Service can patch the deadline of that Job and resume a waiting fix-checks Job.
 - Relation: #5498 adds a table of keys and token permissions for each roadmap Job and a template test. This change applies the row of the runner Job by hand and builds no table. #2695 and #5506 move the agent away from the keys.
 
