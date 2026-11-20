@@ -15,7 +15,7 @@ Kind: behavior.
 
 - [x] 2.1 Assert in `tests/commands/test_devcontainer.py` that `init --image python:3.14` writes no `features` key, and replace the kubectl Feature tests of `tests/core/test_template_rendering.py` with a test that `minikube` adds only `forwardPorts` and no path adds `features`
   - Verification: `$ uv run devops ci test tests/commands/test_devcontainer.py tests/core/test_template_rendering.py`
-- [ ] 2.2 Delete the `features` block and the unreachable Python image branch of `src/devops_cli/templates/devcontainer.json.j2`, change the help of `--minikube`, and regenerate the command reference
+- [x] 2.2 Delete the `features` block and the unreachable Python image branch of `src/devops_cli/templates/devcontainer.json.j2`, change the help of `--minikube`, and regenerate the command reference
   - Verification: `$ uv run devops docs generate --check`
 
 ## 3. Copied values
