@@ -20,7 +20,7 @@ def devcontainer(**overrides: object) -> str:
     variables: dict[str, object] = {
         "project_name": "demo",
         "python_version": "3.14",
-        "image": None,
+        "image": "python:3.14",
         "published": False,
         "home_volume": None,
         "minikube": True,
@@ -86,8 +86,8 @@ def test_a_missing_variable_is_an_error_rather_than_an_empty_string() -> None:
     """The default renders an undefined variable as empty, producing a file that is
     structurally valid and quietly wrong.
 
-    This caught a real one: the template gates the kubectl feature behind `minikube`, which
-    no caller passed, so every scaffolded devcontainer silently omitted kubectl.
+    This caught a real one: the template reads `minikube`, which no caller passed, so every
+    scaffolded devcontainer silently omitted what the flag adds.
     """
     with pytest.raises(TemplateRenderError, match="minikube"):
         render_json_template(
@@ -100,21 +100,23 @@ def test_a_missing_variable_is_an_error_rather_than_an_empty_string() -> None:
         )
 
 
-def test_the_kubectl_feature_is_included_when_requested() -> None:
-    """The flag the template always expected, now reachable."""
-    features = json.loads(devcontainer(minikube=True))["features"]
-    assert any("minikube" in name for name in features)
+@pytest.mark.parametrize("minikube", [True, False], ids=["minikube", "no-minikube"])
+@pytest.mark.parametrize("published", [True, False], ids=["published", "other-image"])
+def test_no_path_declares_a_feature(published: bool, minikube: bool) -> None:
+    """The image owns the user vscode and the tools, so the scaffold declares no Feature."""
+    assert "features" not in json.loads(devcontainer(published=published, minikube=minikube))
 
 
-def test_the_kubectl_feature_is_omitted_when_declined() -> None:
-    """The flag has to work in both directions to be worth having."""
-    features = json.loads(devcontainer(minikube=False))["features"]
-    assert not any("minikube" in name for name in features)
-
-
-def test_the_published_image_carries_no_feature_block() -> None:
-    """The published image bundles its tooling, so features are not re-declared."""
-    assert "features" not in json.loads(devcontainer(published=True))
+def test_minikube_adds_only_the_forwarded_ports() -> None:
+    """The flag forwards the ports of the stack and changes nothing else."""
+    with_stack = json.loads(devcontainer(minikube=True))
+    without_stack = json.loads(devcontainer(minikube=False))
+    port_keys = {"forwardPorts", "portsAttributes"}
+    assert (
+        bool(with_stack["forwardPorts"]),
+        port_keys & without_stack.keys(),
+        {key: value for key, value in with_stack.items() if key not in port_keys},
+    ) == (True, set(), without_stack)
 
 
 # =============================================================================
