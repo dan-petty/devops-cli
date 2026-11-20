@@ -179,9 +179,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     CONST_ROADMAP_REFINE_DEFINITIONS_PER_SYMBOL,
     CONST_ROADMAP_REFINE_END_MARKER,
-    CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS,
     CONST_ROADMAP_REFINE_HELD_STATUSES,
-    CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS,
     CONST_ROADMAP_REFINE_MAX_BLOCK_PATHS,
     CONST_ROADMAP_REFINE_MAX_BODY_CHARS,
     CONST_ROADMAP_REFINE_MAX_COMMENTS_PER_ITEM,
@@ -428,8 +426,8 @@ class JobCheck(StrEnum):
 class JobFailure:
     """A round whose job failed, with no person to ask (#3632): the checks that failed and the
     last error, which names the calls of the read tools when they found no source. It is one line
-    of text, cut to `CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS`. A refusal of the review also holds
-    its open `findings`, one line each, which the next round gives to the model (#4798)."""
+    of text, whole. A refusal of the review also holds its open `findings`, one line each, which
+    the next round gives to the model (#4798)."""
 
     checks: tuple[JobCheck, ...]
     error: str
@@ -1661,6 +1659,31 @@ def _suspected_block(proposal: RefinementProposal) -> str | None:
 def _complete(criterion: AcceptanceCriterion) -> bool:
     """Whether each part of a criterion's requirement block has text."""
     return all(part.strip() for part in criterion.model_dump().values())
+
+
+def form_check_details(proposal: RefinementProposal) -> tuple[str, ...]:
+    """The parts of `proposal` that fail a form check (`form_checks`), named for the model and a
+    person (#6327): the field of the proposal that holds no text, `acceptance_criteria` when a
+    proposal that fits one pull request holds no criterion, or the index and the part of each
+    criterion whose requirement block holds an empty part, such as `acceptance_criteria[0].then`.
+    """
+    details: list[str] = []
+    if not proposal.problem_statement.strip():
+        details.append(JobCheck.PROBLEM_STATEMENT.value)
+    if not proposal.existing_tool.strip():
+        details.append(JobCheck.EXISTING_TOOL.value)
+    if not proposal.fits_one_pr:
+        return tuple(details)
+    if not proposal.acceptance_criteria:
+        details.append(JobCheck.ACCEPTANCE_CRITERIA.value)
+        return tuple(details)
+    for index, criterion in enumerate(proposal.acceptance_criteria):
+        details.extend(
+            f"{JobCheck.ACCEPTANCE_CRITERIA.value}[{index}].{part}"
+            for part, text in criterion.model_dump().items()
+            if not str(text).strip()
+        )
+    return tuple(details)
 
 
 def form_checks(proposal: RefinementProposal) -> list[JobCheck]:
@@ -3197,11 +3220,15 @@ def _job_failure(
     (`DEPENDENCIES`, `unmatched`, #4803), or when another open question stays open after the
     investigation: the tools found no source (`MISSING_SOURCE`), the proposal left a question of
     the body without an answer (`UNANSWERED_QUESTION`), or the investigation ended with no
-    proposal (`INVESTIGATION_STOPPED`). The error names the title and asks for its `#N`, or names
-    the open question, the stop and the calls of the tools, so a person sees what they searched."""
+    proposal (`INVESTIGATION_STOPPED`). The error names the empty part of a form check
+    (`form_check_details`), the title and its `#N`, or the open question, the stop and the calls of
+    the tools, so a person sees what they searched."""
     texts = MESSAGES.roadmap
     checks = form_checks(proposal)
     parts: list[str] = []
+    details = form_check_details(proposal)
+    if details:
+        parts.append(texts.refine_failure_form_parts.format(parts=", ".join(details)))
     if unmatched:
         checks.append(JobCheck.DEPENDENCIES)
         parts.append(texts.refine_failure_dependency.format(title=unmatched[0]))
@@ -3225,14 +3252,7 @@ def _job_failure(
         )
     if not checks:
         return None
-    if not parts:
-        return JobFailure(tuple(checks), texts.refine_failure_form)
-    # The searched calls are what the issue asks for: they keep half of the room at most, and the
-    # stop and the open question give way to them, so a long question cannot cut them off.
-    room = CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS
-    searched_text = searched_text[: room // 2]
-    head = _printable_line(" ".join(parts))[: room - len(searched_text) - 1]
-    return JobFailure(tuple(checks), f"{head.rstrip()} {searched_text}".strip())
+    return JobFailure(tuple(checks), f"{_printable_line(' '.join(parts))} {searched_text}".strip())
 
 
 def _refusal(findings: Sequence[str]) -> JobFailure:
@@ -3240,9 +3260,7 @@ def _refusal(findings: Sequence[str]) -> JobFailure:
     the first open finding is the last error, and the record keeps each finding for the next
     round."""
     lines = tuple(_printable_line(finding) for finding in findings)
-    return JobFailure(
-        (JobCheck.JUDGE_REFUSED,), lines[0][:CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS], lines
-    )
+    return JobFailure((JobCheck.JUDGE_REFUSED,), lines[0], lines)
 
 
 def _tries_on(item: Item, body_hash: str) -> tuple[int, NextStep]:
@@ -3267,10 +3285,16 @@ def _failure_line(failure: JobFailure, tries: int) -> str:
 
 
 def _judge_findings(item: Item) -> list[str]:
-    """The open findings of the review that last refused the proposal for `item`, which the next
-    request gives to the model, or none (#4798)."""
+    """The failure of the earlier try and the open findings of the review that last refused the
+    proposal for `item`, which the next request gives to the model, or none (#4798, #6327). The
+    whole failure text stays, with no character cap, so the model reads the criterion and the part
+    that failed. A finding that the failure repeats joins the list once."""
     recorded = item.job_record.get(RefineRecordKey.JUDGE_FINDINGS) or ""
-    return [line for line in recorded.splitlines() if line.strip()]
+    findings = [line for line in recorded.splitlines() if line.strip()]
+    failure = (item.job_record.get(RefineRecordKey.FAILURE) or "").strip()
+    if failure and failure not in findings:
+        findings.append(failure)
+    return findings
 
 
 def _failed_round(
@@ -4094,13 +4118,7 @@ def _failure_marks(item: Item, failure: JobFailure | None, tries: int) -> JobRec
         )
         return {**{key: None for key in keys if key in item.job_record}, **cleared}
     findings: JobRecord = (
-        {
-            RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)[
-                :CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS
-            ]
-        }
-        if failure.findings
-        else {}
+        {RefineRecordKey.JUDGE_FINDINGS: "\n".join(failure.findings)} if failure.findings else {}
     )
     return {
         **cleared,
@@ -4320,19 +4338,40 @@ def apply_refine(store: RoadmapStore, plan: RefinePlan) -> RefineApplied:
 
 # The result of a refine attempt whose model call or write failed (#4845).
 _ATTEMPT_ERROR: Final = "error"
+# The form checks of a round: a failure that holds one writes the class `form_check` (#6327).
+_FORM_CHECKS: Final[frozenset[JobCheck]] = frozenset(
+    {JobCheck.ACCEPTANCE_CRITERIA, JobCheck.PROBLEM_STATEMENT, JobCheck.EXISTING_TOOL}
+)
+
+
+def _form_check_line(result: RefinedItem) -> tuple[FailureClass | None, dict[str, str] | None]:
+    """The class of a round whose job failure holds a form check, and the name of each failed
+    part, such as `failed_1=acceptance_criteria.0.then`, or the class None and no name (#6327).
+    A result line holds names only, so the brackets of a path are written as dots."""
+    if result.failure is None or not _FORM_CHECKS.intersection(result.failure.checks):
+        return None, None
+    names = {
+        f"failed_{index}": part.replace("[", ".").replace("]", "")
+        for index, part in enumerate(form_check_details(result.proposal), start=1)
+    }
+    return FailureClass.FORM_CHECK, names
 
 
 def _log_attempt(
     repo: str, result: RefinedItem | RefineFailure, write_failure: FailureClass | None = None
 ) -> None:
     """Log the result line of one item of a round: the next step that the item waits on, or
-    `error` with the class of the failed model call or of the failed write (#4845)."""
+    `error` with the class of the failed model call or of the failed write (#4845). A round whose
+    job failure holds a form check writes the class `form_check` and its failed parts (#6327)."""
+    failure: FailureClass | None
+    names: dict[str, str] | None
     if isinstance(result, RefineFailure):
-        outcome, failure = _ATTEMPT_ERROR, result.failure_class
+        outcome, failure, names = _ATTEMPT_ERROR, result.failure_class, None
     elif write_failure is not None:
-        outcome, failure = _ATTEMPT_ERROR, write_failure
+        outcome, failure, names = _ATTEMPT_ERROR, write_failure, None
     else:
-        outcome, failure = result.next_step.value, None
+        outcome = result.next_step.value
+        failure, names = _form_check_line(result)
     prior = result.item.job_record.get(RefineRecordKey.TRIES) or ""
     tries = (
         result.tries
@@ -4350,6 +4389,7 @@ def _log_attempt(
         outcome,
         failure=failure,
         counts=counts,
+        names=names,
     )
 
 
@@ -4533,6 +4573,7 @@ __all__ = [
     "collect_context",
     "comments_without_jobs",
     "dry_run_refine",
+    "form_check_details",
     "form_checks",
     "inspect_checkout",
     "needs_investigation",

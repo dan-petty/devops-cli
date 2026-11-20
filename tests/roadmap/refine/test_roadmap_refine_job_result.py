@@ -11,10 +11,11 @@ import pytest
 
 from devops_cli.ai.client.models import AIClientError
 from devops_cli.exceptions import RoadmapRefineError
+from devops_cli.roadmap.refine.refine import QuestionAnswer, RefinementProposal
 from devops_cli.roadmap.run import MODEL_LANE_ROWS
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_verify import Finding, Locator, PlanPart, Verification
-from devops_cli.roadmap.stores.store import ItemField
+from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey
 from tests.support.roadmap_job_result import result_fields
 from tests.support.roadmap_refine import READY, REPO, seed_item, seed_new_items
 from tests.support.roadmap_stage import STAGE_NAME
@@ -68,6 +69,69 @@ def _seed_of_a_bot(store: InMemoryRoadmapStore) -> int:
     )
 
 
+def _form_check_failure(*, open_question: bool = False) -> RefinementProposal:
+    """A proposal whose first criterion has an empty `then`, and, with `open_question`, a fact
+    that no source answers, so its job failure holds a form check beside an open question
+    (#6327)."""
+    (criterion,) = READY.acceptance_criteria
+    proposal = READY.model_copy(
+        update={"acceptance_criteria": [criterion.model_copy(update={"then": ""})]}
+    )
+    if not open_question:
+        return proposal
+    question = QuestionAnswer(question="Where is the sample function?", answer="?", kind="fact")
+    return proposal.model_copy(update={"key_questions": [question]})
+
+
+def test_a_form_check_failure_writes_its_class_and_its_parts_on_the_result_line(
+    store: InMemoryRoadmapStore,
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A refine attempt whose job failure holds a form check writes the class `form_check` and
+    each failed part of the criterion as a name of its result line (#6327)."""
+    seed_item(store, "New", "P1-High")
+    model_fake.answer(_form_check_failure())
+
+    with caplog.at_level(logging.INFO):
+        REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
+
+    (line,) = result_fields(caplog)
+    assert (line["result"], line["class"], line["failed_1"]) == (
+        "retry",
+        "form_check",
+        "acceptance_criteria.0.then",
+    )
+
+
+def test_a_form_check_beside_an_open_question_writes_the_class_form_check(
+    store: InMemoryRoadmapStore,
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failure that holds a form check beside an open question is still a form check failure,
+    so its line writes no `class=none` (#6327)."""
+    number = seed_item(store, "New", "P1-High")
+    model_fake.answer(_form_check_failure(open_question=True))
+
+    with caplog.at_level(logging.INFO):
+        REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
+
+    (line,) = result_fields(caplog)
+    item = store.item(number)
+    assert item is not None
+    assert item.job_record.get(RefineRecordKey.FAILED_CHECK) == (
+        "acceptance_criteria,missing_source"
+    )
+    assert (line["result"], line["class"], line["failed_1"]) == (
+        "retry",
+        "form_check",
+        "acceptance_criteria.0.then",
+    )
+
+
 def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model_call(
     store: InMemoryRoadmapStore,
     git_repo: Path,
@@ -108,6 +172,26 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
             (second, "error", "false", "provider", "true", "false", {}),
         )
     ]
+
+
+def test_a_write_that_fails_logs_the_error_and_the_class_of_the_write(
+    store: InMemoryRoadmapStore,
+    git_repo: Path,
+    model_fake: ModelFake,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A write that fails logs `error` with the class of the failure, not the next step of the
+    item that the round planned (#4845)."""
+    number = seed_item(store, "New", "P1-High")
+    store.fail_write(write="set_marks", item=number)
+    model_fake.answer(READY)
+
+    with caplog.at_level(logging.INFO), pytest.raises(RoadmapRefineError) as raised:
+        REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
+
+    (line,) = result_fields(caplog)
+    assert list(raised.value.failed_items) == [number]
+    assert (line["result"], line["success"], line["class"]) == ("error", "false", "ci_infra")
 
 
 def test_a_ready_proposal_that_waits_on_the_alternatives_verdict_logs_a_success(

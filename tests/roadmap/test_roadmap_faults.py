@@ -547,9 +547,11 @@ def test_roadmap_fault_matrix(
 
 
 def test_every_failure_class_has_a_fault_case() -> None:
-    """The fault cases cover every failure class in FailureClass."""
+    """The fault cases cover every failure class in FailureClass. The class `form_check` is the
+    one class that the suite cannot drive: the suite runs the implement job, and only the refine
+    round records a form-check failure (#6327)."""
     classes = {case.klass for case in FAULT_CASES}
-    all_classes = set(FailureClass)
+    all_classes = set(FailureClass) - {FailureClass.FORM_CHECK}
     missing = all_classes - classes
     assert not missing, f"Missing fault cases for classes: {sorted(c.value for c in missing)}"
 

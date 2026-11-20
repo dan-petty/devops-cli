@@ -52,7 +52,7 @@ The Service App and the workflows of the repository open items. Examples are the
 
 Nobody wrote the text of a bot item, so a Ready proposal for it goes through a review first. The review is the verification pass of the stage job, with the model of the task `ai.tasks.refine_review`. It reads the issue and the proposal. With no open finding, refine sets the item Ready and records `refine.judge` `approved`. Only a `blocker` or a `major` finding is open, as in the stage job ([stage page](stage.md)), so a `minor` or a `nit` finding refuses no item (#5411).
 
-With an open finding, the item stays New and refine records `refine.judge` `refused`. A refusal is a job failure with the check `judge_refused` (see below), so no person edits the body. The job record keeps each open finding with its evidence in `refine.judge_findings`. The next round refines the item again, and its request gives the findings to the model as `judge_findings`. The model fixes each finding or takes out the claim. At the third try on the same body, the step is `failed` and the inbox lists the item. Refine writes no comment for a refusal. An item of a person gets no review, so a refusal never stops it.
+With an open finding, the item stays New and refine records `refine.judge` `refused`. A refusal is a job failure with the check `judge_refused` (see below), so no person edits the body. The job record keeps each open finding with its evidence in `refine.judge_findings`. The next round refines the item again, and its request gives the findings to the model as `judge_findings`, beside the whole failure of the earlier try. The model fixes each finding or takes out the claim. At the third try on the same body, the step is `failed` and the inbox lists the item. Refine writes no comment for a refusal. An item of a person gets no review, so a refusal never stops it.
 
 The approval covers the body that the review read, and the hashes in the job record show it. A body edit ends the approval, and the next round reviews the item again. A Ready bot item that the review refuses after a body edit goes back to New with the step `retry`. The stage job, the implement job and the alternatives job take a bot item only with an approval that holds.
 
@@ -118,7 +118,7 @@ An item that is too big for one pull request still waits for a person to split i
 
 A person has nothing to do for a failed job. These cases are job failures, not person waits:
 
-- The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. A proposal that needs a split has no criterion to check.
+- The proposal fails a form check. The checks are `problem_statement`, `existing_tool` and `acceptance_criteria`. The failure names each failed check and, for each failed acceptance criterion, the index of the criterion and the part that failed, such as `acceptance_criteria[0].then`. A proposal that needs a split has no criterion to check.
 - A quoted title in the Dependencies section names no item, or two items (`dependencies`). The error names the title and asks for the issue as `#<number>`.
 - A question has no verified source after the investigation (`missing_source`), or a question of the body has no answer (`unanswered_question`).
 - The investigation ended with no proposal while such a question is open (`investigation_stopped`).
@@ -131,8 +131,10 @@ A job failure writes no body and no comment. A refusal of the review is the one 
 | `refine.next_step` | `retry` below the limit of tries, then `failed` |
 | `refine.tries` | The count of rounds that failed on this body. A body edit starts it at 1 again |
 | `refine.failed_check` | The names of the failed checks, comma separated |
-| `refine.failure` | The last error, with the calls of the read tools when they found no source. For `judge_refused`, the first open finding |
-| `refine.judge_findings` | Each open finding of the last refusal of the review, one on each line, at most 2,000 characters (`CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS`). A round that does not fail clears it |
+| `refine.failure` | The last error, with the calls of the read tools when they found no source. For a form check, each failed criterion with its index and part, such as `acceptance_criteria[0].then`. For `judge_refused`, the first open finding |
+| `refine.judge_findings` | Each open finding of the last refusal of the review, one on each line. The next request gives the model the whole failure of the earlier try beside them, with no character cap. A round that does not fail clears it |
+
+The result line of a round that fails a form check names the class `form_check` and each failed part, such as `failed_1=acceptance_criteria.0.then`.
 
 With the step `retry`, the next round refines the item again. At 3 tries (`CONST_ROADMAP_REFINE_MAX_TRIES`) the step is `failed`: refine sends no model request for the item until a person edits its body, and [the inbox](inbox.md) lists it in the class `failed` with the checks, the count and the last error. A proposal that passes clears the keys. A job failure comes before a question for a person: a proposal that is not valid asks nobody.
 

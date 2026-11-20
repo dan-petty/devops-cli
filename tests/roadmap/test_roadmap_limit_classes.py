@@ -195,14 +195,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "stops a refine job that fails on the same body, so the item waits on a body edit",
     ),
-    "CONST_ROADMAP_REFINE_FAILURE_MAX_CHARS": (
-        "kept",
-        "protects the job record of the issue and the inbox from a long error",
-    ),
-    "CONST_ROADMAP_REFINE_JUDGE_FINDINGS_MAX_CHARS": (
-        "kept",
-        "protects the job record of the issue from a long list of findings of the review",
-    ),
     # ── Stage ─────────────────────────────────────────────────────────────────────────────
     "DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS": (
         "setting",

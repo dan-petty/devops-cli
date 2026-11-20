@@ -3053,6 +3053,7 @@ class RoadmapMessages:
     # A job failure (#3632): the line of the report and of `explain`, and the parts of its error.
     refine_failure_line: str = "{checks}: {tries} of {limit} tries. Last error: {error}"
     refine_failure_form: str = "The reply of the model failed the form check."
+    refine_failure_form_parts: str = "The reply of the model failed the form check: {parts}."
     refine_failure_open: str = "Open: {question}"
     refine_failure_dependency: str = (
         'The Dependencies section names "{title}", and no single issue has this title. '
