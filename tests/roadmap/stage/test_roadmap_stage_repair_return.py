@@ -199,7 +199,7 @@ def test_the_return_of_a_revision_schema_failure_names_the_violations(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
 ) -> None:
     """The planner reads the schema violations of the failed revision in the problem of the
-    return (#6357)."""
+    return, and still reads the findings of the review that the revision must fix (#6357)."""
     model_fake.answer(
         make_stage_proposal(),
         _schema_failure(
@@ -217,6 +217,8 @@ def test_the_return_of_a_revision_schema_failure_names_the_violations(
 
     asked = [json.loads(call.prompt) for call in model_fake.calls]
     assert "dependences (extra_forbidden)" in asked[2]["problem"]
+    assert "The premise is wrong." in asked[2]["problem"]
+    assert asked[2]["previous"] == asked[1]["previous"]
 
 
 def test_a_first_reply_with_no_earlier_plan_ends_as_parser(

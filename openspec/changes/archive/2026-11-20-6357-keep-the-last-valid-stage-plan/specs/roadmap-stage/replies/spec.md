@@ -1,19 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: A revision schema failure keeps the last valid plan
-A revision reply that fails the schema after its output retry SHALL keep the last schema-valid plan and go back to the planner as one gate return, with that plan as `previous` and the schema violations as the problem. The return SHALL count against `roadmap.stage.gate_returns`. When those returns are spent, the stage MUST end the item with the failure class `parser` and open no pull request.
+### Requirement: A schema failure after an earlier plan keeps that plan
+A reply to a gate return or to a repair round that fails the schema after its output retry SHALL go back to the planner as one gate return, with the earlier schema-valid plan of that request as `previous` and, as the problem, the problem of that request and the schema violations.
 
 #### Scenario: A revision schema failure returns the last valid plan
 - **WHEN** a fake planner gives a valid first reply, a revision that breaks the schema twice, and then a valid reply
 - **THEN** the stage stages the item, the request after the failure holds the earlier plan as `previous`, and the attempt reports one gate return
 
+#### Scenario: A gate return schema failure returns the refused plan
+- **WHEN** the checks refuse the first reply for a missing path, and the reply to the return breaks the schema
+- **THEN** the next request holds the refused plan as `previous` and a problem that names the missing path and the violations, and the attempt reports two gate returns
+
+#### Scenario: The planner sees the revision schema violations
+- **WHEN** the revision error holds the violation `dependences (extra_forbidden)`
+- **THEN** the next planner request holds `dependences (extra_forbidden)` and the findings of the review in its problem
+
+### Requirement: Schema returns share the gate returns
+A schema return SHALL count against `roadmap.stage.gate_returns`, in the same count as the returns of the checks. When those returns are spent, a reply that fails the schema MUST end the item with the failure class `parser`, and the job MUST open no pull request.
+
 #### Scenario: The last gate return leaves the parser class
 - **WHEN** a fake planner gives a valid first reply and revisions that break the schema until the gate returns of the item are used up
 - **THEN** the item fails with `StructuredOutputValidationError`, the attempt reports three gate returns, and the job opens no pull request
 
-#### Scenario: The planner sees the revision schema violations
-- **WHEN** the revision error holds the violation `dependences (extra_forbidden)`
-- **THEN** the next planner request holds `dependences (extra_forbidden)` in its problem
+#### Scenario: The last return of the checks leaves the parser class
+- **WHEN** the checks refuse the first reply, and each reply after it breaks the schema
+- **THEN** the item fails with the class `parser` after 4 planner requests, and the attempt reports three gate returns
 
 ## MODIFIED Requirements
 

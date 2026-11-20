@@ -2,17 +2,17 @@
 
 ## Why
 
-A stage revision run that breaks the reply schema ends the item with the class `parser` and loses the last schema-valid plan, which caused 8 of 11 stage failures over 24 h (#6357). The stage must keep that plan, send the violations back to the planner as one gate return, and count that return against `roadmap.stage.gate_returns`.
+A stage reply to a gate return or to a repair round that breaks the reply schema ends the item with the class `parser` and loses the last schema-valid plan, which caused 8 of 11 stage failures over 24 h (#6357). In the stage log of 2026-11-18 to 2026-11-20, 15 of 21 parser failures had an earlier plan: 9 were replies to a gate return and 6 came after a review round. The stage must keep that plan, send the violations back to the planner as one gate return, and count that return against `roadmap.stage.gate_returns`.
 
 ## What Changes
 
-- The repair round of `src/devops_cli/roadmap/stage/stage.py` catches the schema error of its revision ask and asks again with the last schema-valid plan as `previous`, up to `roadmap.stage.gate_returns` times.
-- The problem of that request is `violation_summary` of the error, so the planner reads the violation count and, when the error holds them, up to three violation lines with their location and error type.
-- Each schema return adds 1 to `self._returns`, so the attempt record reports one more gate return, and `_returned` starts its count at the returns that the schema failure used, through the keyword argument `used`.
+- The new method `_ask_return` of `src/devops_cli/roadmap/stage/stage.py` asks for the reply to a return of a schema-valid plan. It catches the schema error of that ask and asks again with the same plan as `previous`, up to `roadmap.stage.gate_returns` returns. `_returned` uses it for the reply to each gate return, and `_repaired` for the revision of each repair round.
+- The problem of that request is the message `stage_schema_return`: the problem of the request (the findings of the checks or of the review), then `violation_summary` of the error, so the planner reads the violation count and up to three violation lines with their location and error type.
+- Each schema return adds 1 to `self._returns`, so the attempt record reports one more gate return, and `_returned` starts its count at the returns that the revision used, through the keyword argument `used`. `_returned` compares the findings of a reply only with a reply that the checks refused in the same call.
 - When the returns are spent, the error re-raises, so the item ends with the failure class `parser` and the job opens no pull request.
-- A first plan ask and its check returns keep today's behavior, because no earlier plan exists to return.
-- Four tests in `tests/roadmap/stage/test_roadmap_stage_repair_return.py`: the output retry through `checking_replies()`, the exhausted budget, the violation text of a queued schema error, and a first reply with no earlier plan.
-- `docs/CLUSTER.md` states the schema return of a revision, its place in the gate return budget, and the class `parser` of the exhausted case.
+- A first plan ask, and the new first reply after a refused kept plan, keep today's behavior: a first ask has no earlier plan, and a kept plan stays in its file.
+- Four tests in `tests/roadmap/stage/test_roadmap_stage_repair_return.py`: the output retry through `checking_replies()`, the exhausted budget, the violation text and the review findings of a queued schema error, and a first reply with no earlier plan. Two tests in `tests/roadmap/stage/test_roadmap_stage_refused_reply.py`: the schema return of a reply to a gate return, and its exhausted budget.
+- `docs/CLUSTER.md` and `docs/roadmap/stage.md` state the schema return, its place in the gate return budget, and the class `parser` of the exhausted case.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,13 +23,13 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage/replies`: A revision schema failure keeps the last valid plan, A reply that breaks the schema returns once, A toolbox run keeps the return rules of a broken reply
+- `roadmap-stage/replies`: A schema failure after an earlier plan keeps that plan, Schema returns share the gate returns, A reply that breaks the schema returns once, A toolbox run keeps the return rules of a broken reply
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stage/stage.py`
-- Documents: `docs/CLUSTER.md`
-- Tests: `tests/roadmap/stage/test_roadmap_stage_repair_return.py`
+- Code: `src/devops_cli/roadmap/stage/stage.py`, `src/devops_cli/lang/en/messages.py`
+- Documents: `docs/CLUSTER.md`, `docs/roadmap/stage.md`
+- Tests: `tests/roadmap/stage/test_roadmap_stage_repair_return.py`, `tests/roadmap/stage/test_roadmap_stage_refused_reply.py`
 
 ## Feasibility
 
