@@ -33,7 +33,7 @@ import typer
 from devops_cli.config.commands import BIN_NPM, BIN_OPENSPEC, build_npm_ci_cmd
 from devops_cli.config.constants import CONST_NPM_PROJECT_FILES, CONST_PERM_EXEC
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS, DEFAULT_LOCAL_BIN_DIR
-from devops_cli.core.binaries import require_binary
+from devops_cli.core.binaries import path_version, require_binary
 from devops_cli.core.cli import new_typer
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import is_dry_run
@@ -62,7 +62,6 @@ from devops_cli.tools_lock import (
     load_tools_lock,
     tool_install_dir,
 )
-from devops_cli.tools_lock.versions import path_version
 
 app = new_typer(help=HELP.install.app, no_args_is_help=True)
 

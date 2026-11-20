@@ -5284,6 +5284,9 @@ CONST_KUBE_API_SANDBOX_SCRIPT: Final[str] = (
 # The digest of a binary or of a group of files that a record could not read. It stands in the record
 # of a run that must not fail for the record. The digest of no files is not this value.
 CONST_TOOL_DIGEST_UNAVAILABLE: Final[str] = "unavailable"
+# The version of a tool in the record of its run when no installed distribution names one, such as
+# a native binary. The digest of its file names the binary (#4388).
+CONST_TOOL_VERSION_UNKNOWN: Final[str] = "unknown"
 # The names under which a tool finds its own config file. Ruff looks in the directory of each file
 # it checks and in each directory above it (docs.astral.sh/ruff/configuration). It also read the
 # nearest `pyproject.toml` when a nearer `.ruff.toml` held the settings. osv-scanner looks in the

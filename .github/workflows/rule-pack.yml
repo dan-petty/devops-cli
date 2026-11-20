@@ -1,15 +1,18 @@
 name: Rule Pack Tests
 
 # Runs `semgrep --test` with the pinned Semgrep and checks `rules.lock` when a pull request changes
-# a file of the review rule pack, kept outside `devops ci` and the pre-push hook (#1145). The
-# native `paths` filter stops the run before a runner starts, so a pull request that changes no
-# rule file starts no job and shows no check (#4653). The check is not required.
+# a file of the review rule pack or the pin of Semgrep, kept outside `devops ci` and the pre-push
+# hook (#1145). A bump of Semgrep thus runs the rule tests (#4388). The native `paths` filter stops
+# the run before a runner starts, so a pull request that changes no such file starts no job and
+# shows no check (#4653). The check is not required.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
     paths:
       - "src/devops_cli/review/rules/**"
+      - "src/devops_cli/tools_lock/tools.lock"
+      - "src/devops_cli/tools_lock/semgrep.txt"
       - ".github/workflows/rule-pack.yml"
 
 permissions: {}

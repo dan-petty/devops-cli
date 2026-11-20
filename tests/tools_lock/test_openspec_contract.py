@@ -1,6 +1,6 @@
-"""The recorded OpenSpec the fake replays is the pinned tool's, and is the record of the commands
-the gate and `devops openspec archive` run and no others (#1844, ADR 0007). The listing of the
-capabilities that the fake makes from a tree is the listing of the real tool (#4622)."""
+"""The recorded OpenSpec the fake replays is the installed tool's, and is the record of the
+commands the gate and `devops openspec archive` run and no others (#1844, ADR 0007). The listing
+of the capabilities that the fake makes from a tree is the listing of the real tool (#4622)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.openspec.tool import isolated_openspec
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.openspec import LIST_SPECS, OpenSpecFake, spec_listing
-from tests.support.openspec_recording import run_scenario
+from tests.support.openspec_recording import (
+    BASE_SCENARIO,
+    load_recorded_runs,
+    replay_scenario,
+    run_scenario,
+)
 from tests.support.openspec_scenarios import SCENARIOS
 
 if TYPE_CHECKING:
@@ -31,10 +35,23 @@ _TREE = {
 }
 
 
-def test_the_record_is_of_the_openspec_the_tools_lock_pins(openspec_fake: OpenSpecFake) -> None:
-    """A bump of the pin fails here until the real tool is recorded again
-    (tests/support/openspec_recording.py)."""
-    assert openspec_fake.version == load_tools_lock().npm["openspec"].version
+@pytest.mark.live("openspec")
+@pytest.mark.parametrize("scenario", list(SCENARIOS))
+def test_the_installed_openspec_answers_each_run_as_recorded(scenario: str) -> None:
+    """Each run of the scenario with the installed `openspec` is a run of the record, and ends
+    with the exit code of the record. So a release that changes a command or its result fails here
+    until the real tool is recorded again (tests/support/openspec_recording.py). The text of a run
+    holds the time of the run, so the test does not compare it. No pin is compared (#4388)."""
+    _version, recorded = load_recorded_runs()
+    expected = {**recorded[BASE_SCENARIO], **recorded[scenario]}
+
+    runs = replay_scenario(scenario)
+
+    assert [
+        (run.argv, run.returncode)
+        for run in runs
+        if run.argv not in expected or expected[run.argv].returncode != run.returncode
+    ] == []
 
 
 def test_every_scenario_is_recorded_and_no_other(openspec_fake: OpenSpecFake) -> None:

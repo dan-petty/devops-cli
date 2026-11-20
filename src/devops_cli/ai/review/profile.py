@@ -41,7 +41,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import own_source_state
 from devops_cli.security.tool_executor import ToolRun
-from devops_cli.tools_lock import tools_lock_digest
 
 BENCHMARKS_DIRNAME = "benchmarks"
 
@@ -124,9 +123,9 @@ class ReviewProfile(BaseModel):
     # The target's conventions (`AGENTS.md` or a peer file) its prompts carried, which
     # the prompt digest does not cover; empty when they carried none.
     conventions_digest: str = ""
-    # The digest of the tools lock the review started with: the versions its tools are pinned
-    # to, not proof that the tools on PATH were at those pins.
-    tools_lock_digest: str = ""
+    # The digest of the version and the binary digest of each tool that ran: the installed tools
+    # whose versions the analysis reads (#4388). Empty when no tool ran.
+    tool_versions_digest: str = ""
     # The SHA-256 digest of the OSV offline vulnerability database snapshot used (#1146).
     osv_snapshot_digest: str = ""
     # The SHA-256 digest of the cached Semgrep registry ruleset the review scanned with; empty
@@ -190,6 +189,15 @@ class ReviewProfile(BaseModel):
             return None
 
 
+def tool_versions_digest(runs: Iterable[ToolRun]) -> str:
+    """The digest of the tool, the version and the binary digest of each run in `runs`: the
+    installed tools that the analysis reads, and no pin (#4388). Empty when no tool ran."""
+    from devops_cli.ai.run_store import digest
+
+    tools = sorted({(run.tool, run.version, run.binary_sha256) for run in runs})
+    return digest(tools) if tools else ""
+
+
 class ReviewProfiler:
     """Collects stage timings and the LLM calls made during each stage."""
 
@@ -197,7 +205,6 @@ class ReviewProfiler:
         self._lock = threading.Lock()
         self._started = time.monotonic()
         self._prompt_digest = review_prompt_digest()
-        self._tools_lock_digest = tools_lock_digest()
         self._own_source_state = own_source_state()
         self._stages: dict[str, StageProfile] = {}
         # Each served call's (start, end) on the monotonic clock, by stage and backend.
@@ -351,7 +358,7 @@ class ReviewProfiler:
             target=target,
             prompt_digest=self._prompt_digest,
             conventions_digest=digest(self._conventions) if self._conventions else "",
-            tools_lock_digest=self._tools_lock_digest,
+            tool_versions_digest=tool_versions_digest(tool_runs),
             osv_snapshot_digest=osv_digest,
             semgrep_registry_digest=semgrep_registry_digest,
             code_changed_during_run=self._own_source_changed(),
@@ -558,4 +565,5 @@ __all__ = [
     "report_profile",
     "review_stage",
     "summarize_profiles",
+    "tool_versions_digest",
 ]

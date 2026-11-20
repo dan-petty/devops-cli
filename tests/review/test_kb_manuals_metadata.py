@@ -87,8 +87,8 @@ def test_every_target_manual_has_valid_front_matter() -> None:
         assert len(body.strip()) > 0, f"{rel} body is empty"
 
 
-def test_loader_matches_tools_lock_inventory_floor_and_kubernetes() -> None:
-    """Loader matches applies_to against tools lock, inventory, floor and kubernetes (#1149)."""
+def test_loader_matches_tool_versions_inventory_floor_and_kubernetes() -> None:
+    """Loader matches applies_to against tool versions, inventory, floor and kubernetes (#1149)."""
     env = EnvironmentFacts(
         language_floor="py314",
         python_pin="3.14",
@@ -98,7 +98,6 @@ def test_loader_matches_tools_lock_inventory_floor_and_kubernetes() -> None:
     )
     matched, _drift = load_matched_kb_manuals(environment=env, kubernetes_version="v1.31.0")
 
-    assert len(matched) >= 40
     matched_paths = {m.path for m in matched}
     assert "it_domains/tools/bandit.md" in matched_paths
     assert "devops_cli/libraries/bandit_actionlint.md" in matched_paths
@@ -112,6 +111,26 @@ def test_loader_matches_tools_lock_inventory_floor_and_kubernetes() -> None:
         assert "@" in m.key
         _prefix, sha = m.key.rsplit("@", 1)
         assert len(sha) == CONST_KB_SHA_DIGEST_LENGTH
+
+
+def test_a_tool_manual_matches_only_the_version_of_a_tool_that_ran(tmp_path: Path) -> None:
+    """The version of a tool comes from the environment, which the runs of the tools record. A
+    tool that did not run has no version, and no pin stands in for it (#4388)."""
+    tools_dir = tmp_path / "kb" / "it_domains" / "tools"
+    tools_dir.mkdir(parents=True)
+    (tools_dir / "kubectl.md").write_text(
+        '---\napplies_to:\n  - "tool:kubectl@1.*"\nsources:\n  - "https://example.com"\nreviewed: "2026-10-15"\n---\n\n# Kubectl\n',
+        encoding="utf-8",
+    )
+    ran = EnvironmentFacts(tool_versions={"kubectl": "1.2.3"})
+
+    matched, _ = load_matched_kb_manuals(kb_dir=tmp_path / "kb", environment=ran)
+    _, drift = load_matched_kb_manuals(kb_dir=tmp_path / "kb", environment=EnvironmentFacts())
+
+    assert ([m.path for m in matched], [(d.path, d.reason) for d in drift]) == (
+        ["it_domains/tools/kubectl.md"],
+        [("it_domains/tools/kubectl.md", "tool:kubectl not found in the environment")],
+    )
 
 
 def test_loader_excludes_mismatched_and_undated_manuals(tmp_path: Path) -> None:
@@ -283,7 +302,7 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     drift = [
         DriftManual(
             path="it_domains/tools/grafana.md",
-            reason="tool:grafana not found in tools.lock or environment",
+            reason="tool:grafana not found in the environment",
         ),
         DriftManual(
             path="devops_cli/libraries/example.md",
@@ -309,9 +328,7 @@ def test_review_markdown_includes_reference_coverage_drift() -> None:
     assert "### Reference coverage: injected" in md
     assert "- `kb:it_domains/tools/bandit.md@1234`" in md
     assert "### Reference coverage: drift" in md
-    assert (
-        "- `it_domains/tools/grafana.md`: tool:grafana not found in tools.lock or environment" in md
-    )
+    assert "- `it_domains/tools/grafana.md`: tool:grafana not found in the environment" in md
     assert (
         "- `devops_cli/libraries/example.md`: mismatched python: requires python>=3.16, found 3.14"
         in md

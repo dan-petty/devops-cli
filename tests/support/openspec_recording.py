@@ -7,13 +7,13 @@ standard error. A run's text names the directory it ran in, which differs on eve
 the record holds `{cwd}` in its place. A scenario's runs that equal the `empty` scenario's, such as
 `config set` and `update --force`, are kept once, in `empty`, and the fake falls back to them.
 
-Record again when the pin in `tools.lock` changes, or a command the gate or the archive runs, with
-the pinned `openspec` on PATH (`uv run devops install-tools --tool openspec --only-missing`). Record
-inside pytest, so that the isolation of the suite applies: a helper of `tests/support/` runs only
-through pytest. Add a scratch test marked `live("openspec")` that calls `record_scenarios()`, run
-it with `uv run pytest <file> -m live`, and delete it.
+Record again when the installed `openspec` changes, or a command the gate or the archive runs.
+Record inside pytest, so that the isolation of the suite applies: a helper of `tests/support/` runs
+only through pytest. Add a scratch test marked `live("openspec")` that calls `record_scenarios()`,
+run it with `uv run pytest <file> -m live`, and delete it.
 
-`tests/tools_lock/test_openspec_contract.py` fails until the record is of the locked version.
+The live test of `tests/tools_lock/test_openspec_contract.py` replays each scenario with the
+installed `openspec` (`replay_scenario`), and fails until the record is of that tool (#4388).
 """
 
 from __future__ import annotations
@@ -112,6 +112,21 @@ def _record_runs(scenario: OpenSpecScenario, tree: Path) -> list[dict[str, Any]]
     with patch.object(subprocess, "run", recording_run):
         run_scenario(scenario, tree)
     return runs
+
+
+def replay_scenario(name: str) -> list[RecordedRun]:
+    """Every `openspec` run of the scenario `name`, built in a scratch directory and run with the
+    real `openspec` on PATH, as the record holds a run."""
+    committed_skills = Path(str(files("tests"))).parent
+    with tempfile.TemporaryDirectory(prefix="openspec-scenario-") as scratch:
+        tree = Path(scratch) / "tree"
+        tree.mkdir()
+        build_scenario(name, tree, committed_skills)
+        runs = _record_runs(SCENARIOS[name], tree)
+    return [
+        RecordedRun(tuple(run["argv"]), run["returncode"], run["stdout"], run["stderr"])
+        for run in runs
+    ]
 
 
 def record_scenarios(destination: Path | None = None) -> None:

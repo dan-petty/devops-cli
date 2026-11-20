@@ -20,7 +20,7 @@ Your role is to produce a single, unified review-level remediation plan covering
 4. **DaemonSet Family Grouping**:
    - When multiple Kubernetes DaemonSets share the same manifest source and rule check (e.g. read-only root filesystem across ollama DaemonSets), group them together under one unified remediation step.
 5. **Environment & Lock Fidelity**:
-   - Every package name or version string mentioned MUST exist in the environment facts, locked inventory, or `tools.lock`.
+   - Every package name or version string mentioned MUST exist in the environment facts or the locked inventory.
    - Every fenced Python code block (` ```python `) MUST be valid syntax at the target language floor and pass Ruff checks.
 
 Respond with a single JSON object conforming strictly to the `ReviewPlanOutput` schema:

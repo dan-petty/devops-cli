@@ -7,7 +7,7 @@ import hashlib
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -19,7 +19,6 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import is_dry_run
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.output.file_writer import write_text_file
-from devops_cli.tools_lock import load_tools_lock
 
 RULE_PACK_DIR = Path(__file__).resolve().parent / "rules"
 RULES_LOCK_FILENAME = "rules.lock"
@@ -29,7 +28,8 @@ _SPDX_MIT_HEADER = "# SPDX-License-Identifier: MIT"
 
 
 class RuleLockEntry(BaseModel):
-    """Manifest entry in `rules.lock` recording a tested pack rule's digests and Semgrep version."""
+    """Manifest entry in `rules.lock` recording a tested pack rule's digests. It holds no Semgrep
+    version: the installed Semgrep states its own (#4388)."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -37,7 +37,6 @@ class RuleLockEntry(BaseModel):
     rule_sha256: str
     test_file: str
     test_sha256: str
-    semgrep_version: str
 
 
 class RulesLock(BaseModel):
@@ -46,6 +45,14 @@ class RulesLock(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     rules: dict[str, RuleLockEntry]
+
+
+class RulePackTest(NamedTuple):
+    """The `rules.lock` of a rule pack test, and the version that the Semgrep that ran states;
+    none in a dry run, which runs no Semgrep."""
+
+    lock: RulesLock
+    semgrep_version: str | None
 
 
 def _sha256_file(path: Path) -> str:
@@ -124,17 +131,8 @@ def validate_rule_pair(rule_id: str, rule_path: Path, test_path: Path) -> list[s
     return problems
 
 
-def pinned_semgrep_version() -> str:
-    """Return the pinned Semgrep version from `tools.lock`."""
-    return load_tools_lock().python["semgrep"].version
-
-
-def build_rules_lock(
-    rules_dir: Path = RULE_PACK_DIR,
-    semgrep_version: str | None = None,
-) -> RulesLock:
+def build_rules_lock(rules_dir: Path = RULE_PACK_DIR) -> RulesLock:
     """Build a `RulesLock` snapshot from the rule and test files in `rules_dir`."""
-    version = semgrep_version or pinned_semgrep_version()
     entries: dict[str, RuleLockEntry] = {}
     for rule_id, (rule_path, test_path) in discover_pack_rules(rules_dir).items():
         if problems := validate_rule_pair(rule_id, rule_path, test_path):
@@ -144,7 +142,6 @@ def build_rules_lock(
             rule_sha256=_sha256_file(rule_path),
             test_file=test_path.name,
             test_sha256=_sha256_file(test_path),
-            semgrep_version=version,
         )
     return RulesLock(rules=entries)
 
@@ -171,18 +168,11 @@ def _compare_lock_entry(
         mismatches.append(f"{rule_id}: rule_sha256 drift in {RULES_LOCK_FILENAME}")
     if actual.test_sha256 != expected.test_sha256:
         mismatches.append(f"{rule_id}: test_sha256 drift in {RULES_LOCK_FILENAME}")
-    if actual.semgrep_version != expected.semgrep_version:
-        mismatches.append(
-            f"{rule_id}: semgrep_version '{actual.semgrep_version}' != pinned '{expected.semgrep_version}'"
-        )
     return mismatches
 
 
-def verify_rules_lock(
-    rules_dir: Path = RULE_PACK_DIR,
-    expected_version: str | None = None,
-) -> list[str]:
-    """Return any structural, digest, or version mismatches between `rules_dir` and `rules.lock`."""
+def verify_rules_lock(rules_dir: Path = RULE_PACK_DIR) -> list[str]:
+    """Return any structural or digest mismatches between `rules_dir` and `rules.lock`."""
     discovered = discover_pack_rules(rules_dir)
     if not discovered:
         return [f"No rules found in {rules_dir}"]
@@ -195,7 +185,7 @@ def verify_rules_lock(
         recorded = read_rules_lock(rules_dir)
     except ValidationError as exc:
         return [exc.message]
-    expected = build_rules_lock(rules_dir, semgrep_version=expected_version)
+    expected = build_rules_lock(rules_dir)
     for rule_id, exp_entry in expected.rules.items():
         problems.extend(_compare_lock_entry(rule_id, exp_entry, recorded.rules.get(rule_id)))
     stale = sorted(set(recorded.rules) - set(expected.rules))
@@ -229,10 +219,11 @@ def run_rule_pack_tests(
     rules_dir: Path = RULE_PACK_DIR,
     *,
     check_only: bool = False,
-) -> RulesLock:
-    """Run `semgrep --test` on `rules_dir` and write (or `--check` verify) `rules.lock`."""
+) -> RulePackTest:
+    """Run `semgrep --test` on `rules_dir` and write (or `--check` verify) `rules.lock`, with the
+    version that the installed Semgrep states (#4388)."""
     if is_dry_run():
-        return build_rules_lock(rules_dir)
+        return RulePackTest(build_rules_lock(rules_dir), None)
     env = {"SEMGREP_ENABLE_VERSION_CHECK": "0"}
     binary = _resolve_semgrep_binary()
     version = _detect_semgrep_version(binary, env)
@@ -246,9 +237,9 @@ def run_rule_pack_tests(
         detail = (res.stdout or res.stderr).strip()[:240]
         raise ValidationError(f"semgrep --test failed on {rules_dir}: {detail}", field="rules")
     if check_only:
-        if problems := verify_rules_lock(rules_dir, expected_version=version):
+        if problems := verify_rules_lock(rules_dir):
             raise ValidationError("; ".join(problems), field="rules_lock")
-        return read_rules_lock(rules_dir)
-    lock = build_rules_lock(rules_dir, semgrep_version=version)
+        return RulePackTest(read_rules_lock(rules_dir), version)
+    lock = build_rules_lock(rules_dir)
     write_text_file(rules_dir / RULES_LOCK_FILENAME, lock.model_dump_json(indent=2) + "\n")
-    return lock
+    return RulePackTest(lock, version)

@@ -179,13 +179,6 @@ The tflint adapter SHALL keep no built-in patterns. When no directory of PATH ho
 - **WHEN** no directory of PATH holds tflint, and the adapter scans a directory with a security group open to `0.0.0.0/0`
 - **THEN** the outcome status is `unavailable`, the reason is `Binary 'tflint' not found on PATH`, and the outcome has no finding
 
-### Requirement: Every scanner of the registry has a pinned program
-The program of each scanner of the default registry SHALL be a command of a tool in `tools.lock`, or a pinned dev dependency of `pyproject.toml`. The registry SHALL hold no scanner for another program.
-
-#### Scenario: A scanner names a program that nothing pins
-- **WHEN** a test reads the program of each scanner of the default registry
-- **THEN** each program is a command of `tools.lock` or the dev dependency zizmor
-
 ### Requirement: No scanner or command runs dive
 The scanner registry SHALL hold no scanner named `dive`. The `devops docker` commands SHALL include no `analyze-layers` command.
 

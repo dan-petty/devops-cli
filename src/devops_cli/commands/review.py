@@ -27,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_REVIEW_CANDIDATES_FILENAME,
     CONST_REVIEW_FINDINGS_FILENAME,
     CONST_STATUS_INVALIDATED,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 from devops_cli.config.defaults import (
     DEFAULT_CURRENT_PATH,
@@ -1838,7 +1839,7 @@ def _materialise_golden(
 
 
 def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
-    """What could change the scored reviews: their prompts, conventions, pinned tools and the
+    """What could change the scored reviews: their prompts, conventions, the tools that ran and the
     registry rules Semgrep scanned with."""
     profiles = [p for p in (ReviewProfile.load(d) for d in sessions) if p is not None]
     return {
@@ -1846,7 +1847,7 @@ def _score_setup(sessions: Sequence[Path]) -> dict[str, Any]:
         for name in (
             "prompt_digest",
             "conventions_digest",
-            "tools_lock_digest",
+            "tool_versions_digest",
             "semgrep_registry_digest",
         )
     }
@@ -2861,7 +2862,7 @@ def rules_test(
     target_rules_dir = rules_dir or RULE_PACK_DIR
     lock_path = target_rules_dir / RULES_LOCK_FILENAME
     try:
-        lock = run_rule_pack_tests(target_rules_dir, check_only=check)
+        lock, version = run_rule_pack_tests(target_rules_dir, check_only=check)
     except ValidationError as exc:
         print_error(exc.message)
         raise typer.Exit(1) from exc
@@ -2869,12 +2870,11 @@ def rules_test(
     if resolved != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(lock.model_dump(mode="json"), resolved)
         return
-    versions = sorted({entry.semgrep_version for entry in lock.rules.values()})
     template = MESSAGES.review.rules_test_checked if check else MESSAGES.review.rules_test_passed
     print_success(
         template.format(
             count=len(lock.rules),
-            version=versions[0] if versions else "unknown",
+            version=version or CONST_TOOL_VERSION_UNKNOWN,
             path=lock_path,
         )
     )

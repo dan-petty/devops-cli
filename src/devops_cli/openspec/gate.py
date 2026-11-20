@@ -40,6 +40,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_PROBE_CHANGE,
     CONST_OPENSPEC_SCAFFOLD_MARKER,
 )
+from devops_cli.core.binaries import version_line
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
@@ -55,7 +56,6 @@ from devops_cli.openspec.tool import (
     settings_args,
 )
 from devops_cli.tools_lock import load_tools_lock
-from devops_cli.tools_lock.versions import version_line
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
 # The directories a dry run names in place of the real ones: the scratch configuration, the

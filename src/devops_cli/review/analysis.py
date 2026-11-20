@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final, Literal
 
@@ -69,7 +70,6 @@ from devops_cli.review.fingerprint import extract_enclosing_symbol
 from devops_cli.review.rules_pack import discover_pack_rules
 from devops_cli.review.state import FindingState
 from devops_cli.security.sanitizer import mask_secrets
-from devops_cli.tools_lock import load_tools_lock
 
 GroupKind = Literal["region", "kubernetes", "advisory"]
 RelationKind = Literal["caller", "callee", "same-symbol", "same-rule", "same-root-cause"]
@@ -626,14 +626,11 @@ def default_environment_facts(
     cyclonedx_inventory: dict[str, Any] | None = None,
     kubernetes_version: str | None = None,
 ) -> EnvironmentFacts:
-    """Build default EnvironmentFacts from `tools.lock`, findings metadata, and CycloneDX inventory (#1146)."""
-    try:
-        lock = load_tools_lock()
-        python_pin = lock.python_version
-        tool_versions = {name.lower(): tool.version for name, tool in lock.tools().items()}
-    except OSError, ValueError:
-        python_pin = "3.14"
-        tool_versions = {}
+    """Build default EnvironmentFacts from the findings metadata, the running interpreter and the
+    CycloneDX inventory (#1146). The version of each tool is the version that the record of its run
+    names, the installed tool's, and no pin (#4388)."""
+    python_pin = f"{sys.version_info.major}.{sys.version_info.minor}"
+    tool_versions: dict[str, str] = {}
 
     locked_packages: dict[str, list[str]] = {}
     advisory_fixed: dict[str, list[str]] = {}

@@ -1080,13 +1080,13 @@ def _warn_about_gpu_placement(env: EnvironmentTree, context: str | None) -> None
 
 def _warn_about_version_skew(context: str | None) -> None:
     """Warn when kubectl version skew exceeds the Kubernetes version skew policy."""
-    from devops_cli.k8s.doctor import check_kubectl_version_skew
+    from devops_cli.k8s.doctor import check_kubectl_version_skew, kubectl_client_version
     from devops_cli.k8s.service import KubernetesService
 
     server_ver = KubernetesService.get_instance().server_version(context=context)
     if not server_ver:
         return
-    warning = check_kubectl_version_skew(server_ver)
+    warning = check_kubectl_version_skew(server_ver, kubectl_client_version())
     if warning:
         print_warning(warning)
 

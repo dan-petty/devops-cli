@@ -15,7 +15,7 @@ tags:
 ## 1. Overview & Operational Mandate
 Kubeconform is a high-speed Kubernetes manifest validator based on OpenAPI JSON schemas. It checks whether Kubernetes resource YAML files strictly conform to declared Kubernetes API specifications without requiring a live cluster connection.
 
-In `devops-cli`, Kubeconform is integrated via `devops k8s validate` and `run_kubeconform_validation()` under `src/devops_cli/security/kubeconform.py`. `tools.lock` pins kubeconform 0.8.0, and `devops install-tools --tool kubeconform` installs it.
+In `devops-cli`, Kubeconform is integrated via `devops k8s validate` and `run_kubeconform_validation()` under `src/devops_cli/security/kubeconform.py`. The devtools image installs `kubeconform`, and devops-cli finds it on PATH.
 
 `kubeconform -output json` writes one JSON object, `{"resources": [...]}`. Each resource has `filename`, `kind`, `name`, `version`, `status` and `msg`, and an invalid resource also has `validationErrors`. The adapter gives one HIGH finding at `<manifest>:<Kind>/<name>` for each resource with `statusInvalid` or `statusError`. A resource with `statusValid` or `statusSkipped`, which only `-verbose` lists, is no finding. When kubeconform is not on PATH, the scan is `unavailable` and `devops k8s validate` exits 1: no hand-written check replaces the tool.
 

@@ -342,7 +342,7 @@ def _match_tool_spec(spec: str, tool_versions: Mapping[str, str]) -> tuple[bool,
                 tv = v
                 break
     if not tv:
-        return False, f"tool:{name} not found in tools.lock or environment"
+        return False, f"tool:{name} not found in the environment"
     if _version_matches_pattern(tv, pattern):
         return True, ""
     return False, f"mismatched tool {name}: requires {pattern}, found {tv}"
@@ -525,26 +525,7 @@ def _apply_environment_facts(
     return lang_floor, python_pin, k8s
 
 
-def _apply_tools_lock(tools_lock: Any | None, tool_versions: dict[str, str]) -> str | None:
-    """Load tools.lock facts and populate tool versions."""
-    if tools_lock is None:
-        try:
-            from devops_cli.tools_lock import load_tools_lock
-
-            tools_lock = load_tools_lock()
-        except (OSError, tomllib.TOMLDecodeError, ValueError) as exc:
-            logger.debug("Failed loading tools.lock: %s", exc)
-            tools_lock = None
-    if tools_lock is None:
-        return None
-    if hasattr(tools_lock, "tools"):
-        for name, tool in tools_lock.tools().items():
-            tool_versions.setdefault(name.lower(), tool.version)
-    return getattr(tools_lock, "python_version", None)
-
-
 def _resolve_matching_context(
-    tools_lock: Any | None,
     environment: Any | None,
     kubernetes_version: str | None,
     cyclonedx_inventory: dict[str, Any] | None,
@@ -570,8 +551,6 @@ def _resolve_matching_context(
         eff_python_pin = env_pin or eff_python_pin
         eff_k8s = eff_k8s or env_k8s
 
-    lock_pin = _apply_tools_lock(tools_lock, eff_tool_versions)
-    eff_python_pin = eff_python_pin or lock_pin or "3.14"
     eff_k8s = eff_k8s or "v1.31.0"
 
     return _MatchContext(
@@ -629,7 +608,6 @@ def _process_manual_file(
 def load_matched_kb_manuals(
     *,
     kb_dir: Path | None = None,
-    tools_lock: Any | None = None,
     environment: Any | None = None,
     kubernetes_version: str | None = None,
     cyclonedx_inventory: dict[str, Any] | None = None,
@@ -638,10 +616,11 @@ def load_matched_kb_manuals(
     python_pin: str | None = None,
     tool_versions: Mapping[str, str] | None = None,
 ) -> tuple[list[MatchedManual], list[DriftManual]]:
-    """Match KB manuals against tools.lock, locked inventory, language floor and kubernetes_version (#1149)."""
+    """Match KB manuals against the tool versions of the environment, the locked inventory, the
+    language floor and kubernetes_version (#1149). A tool version is the installed tool's, from
+    the record of its run, and no pin (#4388)."""
     base_dir = (kb_dir or get_knowledge_base_dir()).resolve()
     ctx = _resolve_matching_context(
-        tools_lock,
         environment,
         kubernetes_version,
         cyclonedx_inventory,

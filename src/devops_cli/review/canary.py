@@ -44,6 +44,7 @@ from devops_cli.config.constants import (
     CONST_MYPY_CANARY_CACHE_DIR_NAME,
     CONST_REVIEW_CONFIG_FILE,
     CONST_TOOL_DIGEST_UNAVAILABLE,
+    CONST_TOOL_VERSION_UNKNOWN,
 )
 
 if TYPE_CHECKING:
@@ -86,7 +87,6 @@ _CANARY_CACHE: dict[CanaryCacheKey, CanaryResult] = {}
 def clear_canary_cache() -> None:
     """Clear all cached canary results."""
     _CANARY_CACHE.clear()
-    _load_locked_tool_versions.cache_clear()
     _hash_binary_path.cache_clear()
     _python_tool_identity.cache_clear()
     _program_identity.cache_clear()
@@ -369,26 +369,6 @@ _TOOL_BINARIES: dict[str, str] = {
 }
 
 
-@functools.lru_cache(maxsize=1)
-def _load_locked_tool_versions() -> dict[str, str]:
-    """Load pinned tool versions from `src/devops_cli/tools_lock/tools.lock`."""
-    lock_path = Path(__file__).resolve().parents[1] / "tools_lock" / "tools.lock"
-    if not lock_path.is_file():
-        return {}
-    try:
-        data = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    except OSError, tomllib.TOMLDecodeError:
-        return {}
-    versions: dict[str, str] = {}
-    for section in ("binary", "python"):
-        tbl = data.get(section)
-        if isinstance(tbl, Mapping):
-            for name, meta in tbl.items():
-                if isinstance(meta, Mapping) and isinstance(meta.get("version"), str):
-                    versions[name] = meta["version"]
-    return versions
-
-
 @functools.lru_cache(maxsize=32)
 def _hash_binary_path(resolved_path: str) -> str:
     """Compute SHA-256 hex digest of a binary on disk."""
@@ -464,15 +444,14 @@ def _program_identity(program: str, tool: str) -> tuple[str, str]:
     the program, by the path of the program and not by the file that a link of it leads to. The
     `python` of a `.venv` is a link to the interpreter it was made from, and only the path of the
     link finds the `.venv`. With no such distribution, the program itself runs: its digest is the
-    digest of its file, at the version that `tools.lock` pins, else `unknown`.
+    digest of its file, and its version is `unknown` (#4388).
     """
     scripts = Path(program).parent
     found = importlib.metadata.distributions(name=tool, path=_site_directories(scripts))
     dist = next(iter(found), None)
     if dist is not None:
         return dist.version, _distribution_digest(dist, scripts.resolve())
-    version = _load_locked_tool_versions().get(tool, "unknown")
-    return version, _hash_binary_path(os.path.realpath(program))
+    return CONST_TOOL_VERSION_UNKNOWN, _hash_binary_path(os.path.realpath(program))
 
 
 def resolve_tool_binary(tool: str) -> Path | None:
@@ -493,8 +472,8 @@ def resolve_tool_version_and_sha(tool: str, program: Path | None = None) -> tupl
     A Python tool, such as Bandit or Semgrep, starts from a launcher script that its installer
     wrote from a console script. Its version and digest name the installed distribution that wrote
     the launcher (`_distribution_digest`). Any other program is named by the digest of its file,
-    at the version that `tools.lock` pins, else the version of the distribution of that name in
-    this environment. The digest is `unavailable` when the host has no such program.
+    at the version of the distribution of that name in this environment, else `unknown`: no pin
+    names a version (#4388). The digest is `unavailable` when the host has no such program.
 
     A tool that starts from a `program` the PATH does not name, as mypy starts from the
     interpreter of a `.venv`, is named by the distribution of the tool in the environment of the
@@ -506,13 +485,10 @@ def resolve_tool_version_and_sha(tool: str, program: Path | None = None) -> tupl
     binary = resolve_tool_binary(norm)
     if binary is not None and (identity := _python_tool_identity(str(binary))) is not None:
         return identity
-    locked = _load_locked_tool_versions()
-    version = locked.get(norm, "")
-    if not version:
-        try:
-            version = importlib.metadata.version(norm)
-        except importlib.metadata.PackageNotFoundError:
-            version = "unknown"
+    try:
+        version = importlib.metadata.version(norm)
+    except importlib.metadata.PackageNotFoundError:
+        version = CONST_TOOL_VERSION_UNKNOWN
     return version, _hash_binary_path(str(binary)) if binary else CONST_TOOL_DIGEST_UNAVAILABLE
 
 

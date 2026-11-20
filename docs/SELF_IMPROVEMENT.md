@@ -606,9 +606,9 @@ verified and reported finding counts. The profile's session ID is an attribute o
 `review.session` span, so a slow stage can be followed into its trace. It also records how each
 static analyzer took part (`static_analyzers`), why each that failed did, as review.md's Static
 Analyzers table says, such as `timed out after 300 s` (`static_analyzer_reasons`), and how many
-seconds each analyzer's scans ran (`static_analyzer_seconds`). `tools_lock_digest` is the digest of
-the tools lock the review started with, so two runs used the same tool versions only when theirs
-match. `semgrep_registry_digest` is the digest of the cached registry ruleset that Semgrep read. It
+seconds each analyzer's scans ran (`static_analyzer_seconds`). `tool_versions_digest` is the digest
+of the version and the binary digest of each tool that ran, so two runs used the same tools only
+when theirs match. It is empty when no tool ran. `semgrep_registry_digest` is the digest of the cached registry ruleset that Semgrep read. It
 is empty when Semgrep ran on the rule pack of devops-cli alone. The Static Analyzers table then
 shows a coverage gap that names `devops review rules fetch`. `devops review score` lists the digests
 of the sessions it scores. `prompt_digest` is the digest computed when the review started.

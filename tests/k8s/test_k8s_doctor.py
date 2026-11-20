@@ -25,7 +25,6 @@ from devops_cli.config.defaults import DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS
 from devops_cli.k8s.doctor import Snapshot, collect, diagnose
 from devops_cli.k8s.service import KubernetesService
 from devops_cli.models.k8s import Finding
-from devops_cli.tools_lock import load_tools_lock
 from tests.support.fakes.kubernetes import (
     NOW,
     FakeCluster,
@@ -41,6 +40,7 @@ from tests.support.fakes.kubernetes import (
     terminated,
     waiting,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 
 def test_doctor_is_registered_with_its_options(cli: Callable[..., Any]) -> None:
@@ -346,7 +346,7 @@ def test_doctor_ranks_cluster_findings_first() -> None:
     )
 
 
-def test_doctor_reads_logs_only_for_flagged_pods() -> None:
+def test_doctor_reads_logs_only_for_flagged_pods(process_fake: ProcessFake) -> None:
     """Collect reads logs only for pods flagged by rules, passing the requested tail lines."""
     healthy = healthy_pod("app-ok", "default")
     crashed = crashlooping_pod("app-fail", "default")
@@ -361,7 +361,9 @@ def test_doctor_reads_logs_only_for_flagged_pods() -> None:
     assert log_calls == {("default", "app-fail", 35)}
 
 
-def test_doctor_logs_are_decoded_text_with_one_entry_for_each_line() -> None:
+def test_doctor_logs_are_decoded_text_with_one_entry_for_each_line(
+    process_fake: ProcessFake,
+) -> None:
     """The log of a flagged pod is UTF-8 text: its lines are separate and its secrets are masked."""
     token = "ghs_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"  # a fake token for the masking test
     written = f"start\n\N{CHECK MARK} ready\nauthorization: {token}\n".encode()
@@ -377,7 +379,7 @@ def test_doctor_logs_are_decoded_text_with_one_entry_for_each_line() -> None:
     )
 
 
-def test_doctor_calls_carry_a_timeout() -> None:
+def test_doctor_calls_carry_a_timeout(process_fake: ProcessFake) -> None:
     """Every Kubernetes API invocation carries a bounded client-side request timeout."""
     crashed = crashlooping_pod("app-crash", "default")
     core = FakeCoreV1(pods=[crashed], nodes=[node("worker-1")])
@@ -388,7 +390,7 @@ def test_doctor_calls_carry_a_timeout() -> None:
     assert all(t == DEFAULT_K8S_CONNECT_TIMEOUT_SECONDS for t in timeouts)
 
 
-def test_doctor_uses_the_kubernetes_api_only() -> None:
+def test_doctor_uses_the_kubernetes_api_only(process_fake: ProcessFake) -> None:
     """Doctor relies exclusively on the Kubernetes API, never importing Prometheus or LogQL."""
     import inspect
 
@@ -413,7 +415,7 @@ def test_doctor_uses_the_kubernetes_api_only() -> None:
     assert "devops_cli.k8s.logql" not in src
 
 
-def test_doctor_namespace_narrows_the_calls() -> None:
+def test_doctor_namespace_narrows_the_calls(process_fake: ProcessFake) -> None:
     """Specifying --namespace scopes pod and event listing to the selected namespace."""
     core = FakeCoreV1()
     collect(core, namespace="production")
@@ -427,7 +429,9 @@ def test_doctor_namespace_narrows_the_calls() -> None:
     )
 
 
-def test_doctor_json_output_round_trips(cluster: FakeCluster, cli: Callable[..., Any]) -> None:
+def test_doctor_json_output_round_trips(
+    cluster: FakeCluster, cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """JSON and YAML output formats serialize the DoctorReport correctly."""
     cluster.context_names.append("test-cluster")
     cluster.core = FakeCoreV1(nodes=[node("worker-broken", ready="False")])
@@ -458,7 +462,9 @@ def test_doctor_json_output_round_trips(cluster: FakeCluster, cli: Callable[...,
     )
 
 
-def test_doctor_exit_codes(cluster: FakeCluster, cli: Callable[..., Any]) -> None:
+def test_doctor_exit_codes(
+    cluster: FakeCluster, cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """Exit codes are 0 (clean), 2 (findings), and 1 (unreachable/error with secret masking)."""
     clean_core = FakeCoreV1(nodes=[node("worker-1", ready="True")], pods=[healthy_pod("app-1")])
     findings_core = FakeCoreV1(nodes=[node("worker-1", ready="False")], pods=[])
@@ -515,26 +521,56 @@ def test_doctor_dry_run_includes_get_code() -> None:
 
 
 def test_doctor_warns_on_kubectl_version_skew() -> None:
-    """A snapshot whose server minor is more than one away from locked kubectl minor yields one warning finding."""
-    snap = Snapshot(nodes=[node("worker-1")])
-    setattr(snap, "server_version", "v1.31.4+k3s1")
+    """A snapshot whose server minor is more than one away from the kubectl minor yields one warning finding."""
+    snap = Snapshot(
+        nodes=[node("worker-1")], server_version="v1.31.4+k3s1", kubectl_version="1.37.1"
+    )
     report = diagnose(snap)
     findings = [f for f in report.findings if f.rule == "version-skew"]
     assert len(findings) == 1
     f = findings[0]
     assert (f.severity, f.class_, f.resource) == ("warning", "cluster", "kubectl")
-    assert load_tools_lock().tools()["kubectl"].version in f.cause
-    assert "v1.31.4+k3s1" in f.cause or "1.31.4" in f.cause or "1.31" in f.cause
-    assert any("1.36" in ev or "1.38" in ev for ev in f.evidence) or "1.36" in f.cause
+    assert "kubectl version 1.37.1" in f.cause
+    assert "v1.31.4+k3s1" in f.cause
+    assert "supported server range: 1.36 to 1.38" in f.evidence
 
 
 def test_doctor_accepts_kubectl_within_supported_skew() -> None:
-    """A snapshot whose server minor is within one minor of locked kubectl yields no kubectl skew finding."""
-    snap = Snapshot(nodes=[node("worker-1")])
-    setattr(snap, "server_version", "v1.37.0")
+    """A snapshot whose server minor is within one minor of the kubectl minor yields no kubectl skew finding."""
+    snap = Snapshot(nodes=[node("worker-1")], server_version="v1.37.0", kubectl_version="1.36.2")
     report = diagnose(snap)
     findings = [f for f in report.findings if f.rule == "version-skew" and f.resource == "kubectl"]
     assert findings == []
+
+
+def test_doctor_reads_the_version_of_the_kubectl_on_path(process_fake: ProcessFake) -> None:
+    """The skew rule takes the version that `kubectl version --client -o json` prints, and no
+    pin (#4388)."""
+    process_fake.answer(
+        ["kubectl", "version", "--client", "-o", "json"],
+        ProcessAnswer(stdout='{"clientVersion":{"gitVersion":"v1.31.2"}}'),
+    )
+    core = FakeCoreV1(nodes=[node("worker-1")])
+
+    snapshot = collect(core, version_api=FakeVersion("v1.37.0"))
+    [finding] = [f for f in diagnose(snapshot).findings if f.resource == "kubectl"]
+
+    assert (snapshot.kubectl_version, finding.evidence[0]) == ("1.31.2", "kubectl version: 1.31.2")
+
+
+def test_doctor_has_no_kubectl_skew_when_no_kubectl_states_its_version(
+    process_fake: ProcessFake,
+) -> None:
+    """With no kubectl on PATH, the skew rule of kubectl gives no finding."""
+    process_fake.answer(["kubectl", "version"], ProcessAnswer(returncode=127))
+    core = FakeCoreV1(nodes=[node("worker-1")])
+
+    snapshot = collect(core, version_api=FakeVersion("v1.20.0"))
+
+    assert (snapshot.kubectl_version, [f.resource for f in diagnose(snapshot).findings]) == (
+        "",
+        [],
+    )
 
 
 def test_doctor_warns_on_kubelet_older_than_skew_policy() -> None:

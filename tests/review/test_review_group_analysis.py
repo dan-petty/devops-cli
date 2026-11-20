@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any, Final
 
@@ -1613,6 +1614,21 @@ def _plan_payload(finding_id: str = "fp-a") -> str:
             ],
             "deferred": [],
         }
+    )
+
+
+def test_the_environment_names_the_version_that_the_tool_run_recorded() -> None:
+    """The analysis takes the version of a tool from the record of its run, which names the
+    installed tool, and no version from a pin (#4388)."""
+    from devops_cli.review.analysis import default_environment_facts
+
+    finding = _make_region_finding(tool="semgrep", tool_version="1.2.3", fingerprint="fp-s")
+
+    env = default_environment_facts([finding])
+
+    assert (env.tool_versions, env.python_pin) == (
+        {"semgrep": "1.2.3"},
+        f"{sys.version_info.major}.{sys.version_info.minor}",
     )
 
 
