@@ -4,18 +4,21 @@ The runner Job runs the checks of the gate and the hooks of the repository. A to
 lacks gives a different result there than in the devcontainer or in CI: a check fails for a missing
 program, or a test that needs the program skips. `RUNNER_TOOLS` lists every program the image must
 hold, where the image gets it, and the command that proves it runs. `NOT_IN_RUNNER` names each
-program that the image does not hold, with the reason, so a person sees that a decision was made.
+program that a step of the Job does not count on, with the reason: the image does not hold it, or
+no source of the gate runs it in a Job. So a person sees that a decision was made.
 
-The image build runs `python -m devops_cli.roadmap.runner_tools` as its last step, so an image
-that lacks a tool, or holds a tool whose version command fails, does not build. A test in
+The smoke test of the runner image in `ci.yml` and `release.yml` runs
+`python -m devops_cli.roadmap.runner_tools` on the built image, so an image that lacks a tool, or
+holds a tool whose version command fails, fails the check. A test in
 `tests/roadmap/test_roadmap_runner_tools.py` fails when a program that a `devops ci` row, a hook of
 `.pre-commit-config.yaml`, a live-marked test or a required job of `ci.yml` needs is in neither
 table.
 
-The module holds no tool version (#5585). The Dockerfile pins a tool by image digest or release,
-and `tools.lock` pins the tools of the lock; the build installs what they name. A copy here would be
-a second pin for each update to change. Only a dev dependency and the project must print a version:
-the version of their installed distribution, so the program on PATH is the one of the venv.
+The module holds no tool version (#5585). The runner image builds FROM the devtools image, which
+names the source of each tool, and the `Dockerfile` pins that image by digest (#4361). `uv.lock`
+gives the version of each dev dependency. A copy here would be a second pin for each update to
+change. Only a dev dependency and the project must print a
+version: the version of their installed distribution, so the program on PATH is the one of the venv.
 """
 
 from __future__ import annotations
@@ -36,10 +39,8 @@ class ToolSource(StrEnum):
     """Where the image gets a tool."""
 
     BASE = "base"
-    APT = "apt"
+    DEVTOOLS = "devtools"
     DEV_GROUP = "dev-group"
-    TOOLS_LOCK = "tools-lock"
-    IMAGE_PIN = "image-pin"
     PROJECT = "project"
 
 
@@ -63,12 +64,8 @@ def _dev(name: str, *needed_by: str, package: str = "") -> RunnerTool:
     )
 
 
-def _locked(name: str, *needed_by: str) -> RunnerTool:
-    return RunnerTool(name, ToolSource.TOOLS_LOCK, needed_by, (name, "--version"))
-
-
-def _apt(name: str, *needed_by: str, check: tuple[str, ...] = ()) -> RunnerTool:
-    return RunnerTool(name, ToolSource.APT, needed_by, check or (name, "--version"))
+def _devtools(name: str, *needed_by: str, check: tuple[str, ...] = ()) -> RunnerTool:
+    return RunnerTool(name, ToolSource.DEVTOOLS, needed_by, check or (name, "--version"))
 
 
 def _base(name: str, *needed_by: str) -> RunnerTool:
@@ -76,38 +73,29 @@ def _base(name: str, *needed_by: str) -> RunnerTool:
 
 
 RUNNER_TOOLS: tuple[RunnerTool, ...] = (
-    RunnerTool(
-        "uv",
-        ToolSource.IMAGE_PIN,
-        ("ci:lockfile", "ci:build", "ci:uv-check", "hook:ast-grep-scan"),
-        ("uv", "--version"),
-    ),
-    RunnerTool(
+    _devtools("uv", "ci:lockfile", "ci:build", "ci:uv-check", "hook:ast-grep-scan"),
+    _devtools(
         "python",
-        ToolSource.IMAGE_PIN,
-        (
-            "ci:git",
-            "ci:test-settings",
-            "ci:k8s",
-            "ci:startup-imports",
-            "ci:swallowed-failures",
-            "ci:test-tree",
-            "ci:domain",
-        ),
-        ("python", "--version"),
+        "ci:git",
+        "ci:test-settings",
+        "ci:k8s",
+        "ci:startup-imports",
+        "ci:swallowed-failures",
+        "ci:test-tree",
+        "ci:domain",
     ),
-    RunnerTool("python3", ToolSource.BASE, ("test:live",), ("python3", "--version")),
+    _devtools("python3", "test:live"),
     RunnerTool(
         "devops",
         ToolSource.PROJECT,
         ("ci:docs", "ci:openspec", "ci:zizmor", "hook:openspec-gate"),
         ("devops", "--version"),
     ),
-    _apt("git", "ci:git", "ci:lint", "ci:constructs", "ci:domain", "job"),
-    RunnerTool("gh", ToolSource.IMAGE_PIN, ("job",), ("gh", "--version")),
-    RunnerTool("node", ToolSource.IMAGE_PIN, ("ci:openspec",), ("node", "--version")),
-    _locked("openspec", "ci:openspec", "hook:openspec-gate"),
-    _locked("tofu", "gate:static"),
+    _devtools("git", "ci:git", "ci:lint", "ci:constructs", "ci:domain", "job"),
+    _devtools("gh", "job"),
+    _devtools("node", "ci:openspec"),
+    _devtools("openspec", "ci:openspec", "hook:openspec-gate"),
+    _devtools("tofu", "gate:static"),
     _dev("pytest", "ci:test", "ci:bwrap", package="pytest"),
     _dev("ruff", "ci:lint", "ci:format", "hook:ruff-check", "hook:ruff-format"),
     _dev("mypy", "ci:typecheck"),
@@ -116,17 +104,18 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _dev("ast-grep", "ci:constructs", "hook:ast-grep-scan", package="ast-grep-cli"),
     _dev("zizmor", "ci:zizmor"),
     _dev("pre-commit", "job"),
-    _apt("curl", "test:live"),
-    _apt("jq", "test:live"),
-    _locked("promtool", "gate:test"),
-    RunnerTool(
-        "actionlint",
-        ToolSource.IMAGE_PIN,
-        ("ci:actionlint", "gate:static", "hook:devops-ci-workflows-pre-push"),
-        ("actionlint", "--version"),
-    ),
-    _apt("shellcheck", "ci:actionlint"),
-    _locked("trivy", "gate:static"),
+    _devtools("curl", "test:live"),
+    _devtools("jq", "test:live"),
+    _devtools("promtool", "gate:test"),
+    _devtools("actionlint", "ci:actionlint", "gate:static", "hook:devops-ci-workflows-pre-push"),
+    _devtools("shellcheck", "ci:actionlint"),
+    _devtools("trivy", "gate:static"),
+    _devtools("kubectl", "test:live", check=("kubectl", "version", "--client")),
+    _devtools("kube-linter", "gate:static", check=("kube-linter", "version")),
+    _devtools("osv-scanner", "ci:audit", "gate:static"),
+    _devtools("npm", "ci:audit"),
+    _devtools("zsh", "test:live"),
+    _devtools("ps", "test:live"),
     _base("nice", "ci:security"),
     _base(
         "env",
@@ -152,16 +141,16 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _base("false", "test:live"),
 )
 
-# Why the image does not hold a program. The key is the program. A test fails when a program that
-# a source of the gate names is in neither table.
+# Why a step of the Job does not count on a program. The key is the program. The devtools image
+# holds most of these programs, but no source of the gate runs them in a Job. A test fails when a
+# program that a source of the gate names is in neither table.
 _NO_CLUSTER = (
-    "No check, hook, test or job of the gate runs it. The Job has no cluster token and no "
-    "container engine."
+    "No check, hook, test or job of the gate runs it. The Job has no cluster token, and its pod "
+    "cannot run a container engine: it has no capability and a read-only root."
 )
 _SCANNER = (
     "A scanner of `devops scan report`. The Static Analysis job of `ci.yml` installs none of "
-    "them, so the gate reports it as not run. A scanner on PATH also fails tests that pass in the "
-    "gate (#2165). The runner does the same as the gate."
+    "them, so the gate reports it as not run, and no step of a Job counts on it."
 )
 _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
 # A hook of `.pre-commit-config.yaml` that runs a program that the image does not hold, with the
@@ -184,10 +173,6 @@ def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
 
 NOT_IN_RUNNER: dict[str, str] = {
     "vale": "Only the live docs test runs it; no step of a required job of `ci.yml` runs it.",
-    "kubectl": (
-        "Only the `k8s` row runs it, to render the manifests of `k8s/`. A Job cannot run the "
-        "`k8s` row, so the pull request checks it."
-    ),
     "kustomize": _NO_CLUSTER,
     "helm": _NO_CLUSTER,
     "argo": _NO_CLUSTER,
@@ -196,18 +181,12 @@ NOT_IN_RUNNER: dict[str, str] = {
     "kubectl-argo-rollouts": _NO_CLUSTER,
     "k9s": _NO_CLUSTER,
     "minikube": _NO_CLUSTER,
-    "docker": _NO_CLUSTER,
-    "kube-linter": (
-        "Only the `kube-linter` row runs it, on the builds of the Argo CD Applications (#6068). The "
-        "Static Analysis job of `ci.yml` installs it. A Job runs no `kube-linter` row, so the pull "
-        "request checks it."
-    ),
+    "docker": "The image holds no Docker engine and no `docker` program. " + _NO_CLUSTER,
     "popeye": _SCANNER,
     "pluto": _SCANNER,
     "kubeconform": _SCANNER,
     "tflint": _SCANNER,
     "gitleaks": _SCANNER,
-    "osv-scanner": _SCANNER,
     "golangci-lint": _SCANNER,
     "semgrep": (
         "Only the workflow `rule-pack.yml` installs it, and only when a rule file changes."
@@ -222,18 +201,10 @@ NOT_IN_RUNNER: dict[str, str] = {
         "Only the Design Tokens job runs it, to build the tokens of `design/`. A Job runs no "
         "design token build, so the pull request checks it."
     ),
-    "npm": (
-        "The audit row runs `npm audit`. The image deletes npm, because the scan of the image "
-        "reports the packages that npm bundles, and a Job installs no tool."
-    ),
-    "zsh": (
-        "The image of the GitHub runner has no zsh, so the tests that need it skip in the gate too."
-    ),
     "bwrap": (
         "Only the `bwrap` row runs the tests marked `bwrap`, and it skips with the cause on a host "
         "that cannot make the sandbox."
     ),
-    "ps": "Only the tests marked `bwrap` start it, and the image holds no bubblewrap for them.",
 }
 
 
@@ -245,7 +216,7 @@ def tool_names() -> tuple[str, ...]:
 def expected_text(tool: RunnerTool) -> str:
     """The version of the installed distribution that the output of the check of `tool` must hold:
     for a dev dependency and for the project. The empty string for every other tool, because the
-    Dockerfile or `tools.lock` holds its pin."""
+    devtools image gives its version."""
     match tool.source:
         case ToolSource.DEV_GROUP:
             return importlib.metadata.version(tool.package)

@@ -17,7 +17,6 @@ import yaml
 
 from devops_cli.git.branch_form import branch_name
 from devops_cli.roadmap.runner_tools import tool_names
-from tests.support.dockerfile import stages
 from tests.support.paths import REPO_ROOT as ROOT
 
 CONFIG = ROOT / ".pre-commit-config.yaml"
@@ -80,24 +79,6 @@ def test_every_local_hook_runs_a_tool_that_the_runner_image_holds() -> None:
         if not held:
             unsupported.append((hook["id"], tool))
     assert unsupported == []
-
-
-def test_the_runner_image_installs_the_dev_group_and_holds_openspec() -> None:
-    """`pre-commit` and `ast-grep` come with the dev group, which `runner-deps` installs from the
-    dev requirements of the `lock` stage. The OpenSpec gate needs the pinned `openspec` that the
-    builder stage installs: `runner-tools` builds on the builder, and `runner-deps` copies its
-    tool directory."""
-    dockerfile = stages((ROOT / "Dockerfile").read_text(encoding="utf-8"))
-    runner_deps = [" ".join(words) for words in dockerfile["runner-deps"]]
-    builder = [" ".join(words) for words in dockerfile["builder"]]
-    lock = " ".join(" ".join(words) for words in dockerfile["lock"])
-    assert dockerfile["runner"][0][1] == "runner-deps"
-    assert any("uv pip install" in line and "/lock/dev.txt" in line for line in runner_deps)
-    assert "--only-dev" in lock.split()
-    assert any("install-tools" in line and "--tool openspec" in line for line in builder)
-    assert dockerfile["runner-tools"][0][1] == "builder"
-    assert "COPY --from=runner-tools /opt/devops-tools /opt/devops-tools" in runner_deps
-    assert {"pre-commit", "ast-grep-cli"} <= _dev_dependencies()
 
 
 def test_the_branch_name_hook_accepts_a_branch_of_every_type_that_the_job_makes() -> None:

@@ -127,10 +127,10 @@ def test_the_floor_refuses_kubectl_and_its_offline_renderers(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A test starts no kubectl, `kubectl kustomize` and `kubectl patch --local` included (ADR
-    0007). A test that started the real renderer passed where kubectl is installed and failed in
-    the runner image of the roadmap jobs, which holds no kubectl (#5132). The floor refuses the
-    start before the program runs, so the case is the same on a host with kubectl and on one
-    without it."""
+    0007). A test that started the real renderer passed where kubectl was installed and failed in
+    the runner image of that time, which held no kubectl (#5132). The floor refuses the start
+    before the program runs, so the case is the same on a host with kubectl and on one without
+    it."""
     result = _run_with_floor(
         pytester,
         monkeypatch,

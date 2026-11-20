@@ -565,9 +565,8 @@ def _is_allowed_process(words: list[str]) -> bool:
     program that bubblewrap confines, where a refusal by its name does not see it. Bubblewrap
     therefore starts only in a test with the `bwrap` mark, which runs the real sandbox. kubectl
     has no allowance, also not for its offline renderers `kubectl kustomize` and `kubectl patch
-    --local` (ADR 0007): the runner image of the roadmap jobs holds no kubectl, so a test that
-    needs the real binary fails there (#5132). The `k8s` row of `devops ci` renders the
-    committed manifests.
+    --local`: a test doubles the process edge and starts no real tool (ADR 0007), and a runner Job
+    has no cluster token (#5132). The `k8s` row of `devops ci` renders the committed manifests.
     """
     if not words:
         return True
