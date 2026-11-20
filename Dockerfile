@@ -8,8 +8,9 @@ FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3
 # The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
 # Its README names the source of each tool. The runner image builds FROM it, and the Service and MCP
 # server images copy single tools from it. This file names no tool version: Renovate moves the tag
-# and the digest of this line each week, in the devtools group with the devcontainer image and the
-# OpenSpec pin of `tools.lock`, so the OpenSpec of the image is the one that the gate expects (#4361).
+# and the digest of this line, in the devtools group with the devcontainer image (#4361). The runner
+# uses the OpenSpec of this image. The OpenSpec pin of the project reaches a runner Job through the
+# coder bootstrap (#6517) after #6409.
 FROM ghcr.io/dan-petty/devtools:20261119@sha256:a7b2f111941beaf5d36efb19f6ed2a50f8bed3062003498b97523da926143c51 AS devtools
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release

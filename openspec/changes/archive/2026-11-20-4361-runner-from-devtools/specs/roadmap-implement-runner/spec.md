@@ -83,15 +83,11 @@ The smoke test of the runner image SHALL run `python -m devops_cli.roadmap.runne
 - **THEN** the check prints the number of tools and exits 0
 
 ### Requirement: The smoke test of the runner image runs the tool check and bounds the size
-The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the same text, SHALL run `python -m devops_cli.roadmap.runner_tools` on the loaded image, and SHALL fail when the image is larger than 7000000000 bytes. It SHALL run `uv run --locked devops ci --check --only openspec` in a copy of the checkout in the image. It SHALL hold no version command of its own for a tool of the table.
+The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the same text, SHALL run `python -m devops_cli.roadmap.runner_tools` on the loaded image, and SHALL fail when the image is larger than 7000000000 bytes. It SHALL hold no version command of its own for a tool of the table.
 
 #### Scenario: The smoke test runs on the loaded image
 - **WHEN** the Runner Image job of `ci.yml` runs its smoke test on the loaded image
 - **THEN** the check module prints that every runner tool is on PATH and runs, and the step fails when `docker image inspect` reports more than 7000000000 bytes
-
-#### Scenario: The OpenSpec of the image is not the version of the tools lock
-- **WHEN** the devtools image holds an OpenSpec version that `tools.lock` does not pin, and the smoke test runs the OpenSpec gate in the image
-- **THEN** the gate names the two versions and the step fails, so the split fails CI and not a live Job
 
 ### Requirement: The scan of the runner image reports and stops no build
 The Runner Image jobs of `ci.yml` and `release.yml` SHALL scan the built `runner` target with `.github/actions/image-scan` (Trivy, `HIGH,CRITICAL`, fixed findings only) with exit code 0, and SHALL upload the SARIF under the category `trivy-image-runner`. SECURITY.md SHALL record the exception in its table, with the scope, the compensating control, the evidence, the approval and the review.

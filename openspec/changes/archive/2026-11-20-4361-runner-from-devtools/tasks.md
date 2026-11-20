@@ -22,8 +22,8 @@ Kind: other. Reads: `.github/actions/image-scan/action.yml`. Changes: `.github/w
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
 - [x] 2.3 Drop `/opt/devops-tools/bin` from the PATH of `service-image-test.yml`, and set the prefix of the devtools group and the rule descriptions in `.github/renovate.json`
   - Verification: `renovate-config-validator --strict` of Renovate 44.239.2 passes on `.github/renovate.json`
-- [x] 2.4 Run `uv run --locked devops ci --check --only openspec` in the copy of the checkout of the runner smoke test, and put the OpenSpec pin of `tools.lock` in the Renovate group `devtools`
-  - Verification: a person runs the smoke command on the runner image: it exits 0 with the OpenSpec of the image, and 1 with OpenSpec 2.1.1 first on PATH
+- [x] 2.4 Keep the OpenSpec of the runner to the version command of `RUNNER_TOOLS`, with no comparison to `tools.lock`, and keep the OpenSpec rule of `.github/renovate.json` as on `main` (owner, 2026-11-20: no cycle with the devtools image)
+  - Verification: `git diff origin/main -- .github/renovate.json` shows no line of the OpenSpec rule, and `$ uv run devops ci --check --only actionlint,zizmor`
 
 ## 3. Name the devtools image in the runner tool table
 
@@ -47,8 +47,7 @@ Kind: other. Changes: `SECURITY.md`, `docs/CLUSTER.md`, `docs/SDLC.md`, `docs/RO
 
 - #4363 removes `devops install-tools` and `tools.lock` from `src/`.
 - #6518 gives the runner Job only the keys of the Secret `devops-cli` that it needs.
-- #6517 takes the dev dependencies out of the runner image and bootstraps them with uv.
-- A follow-up moves `tools.lock` and the devtools image to OpenSpec 2.1.1 and shortens the three MODIFIED requirements that 2.1.1 refuses.
+- #6517 takes the dev dependencies out of the runner image and bootstraps them with uv. After #6409, the OpenSpec pin of the project reaches a runner Job the same way.
 - #1858, #6407 and #6408 rebase onto this change.
 - Pending a person: close #6263, #5394 and #3562 after the merge, because the runner holds the review scanners, kube-linter and kubectl.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

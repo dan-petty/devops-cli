@@ -6,8 +6,8 @@ No rule SHALL turn off a manager. Each pinned file SHALL match a file pattern of
 #### Scenario: The managers are read against the tracked files
 - **WHEN** a test applies the file patterns and the match strings of the configuration to the tracked files
 - **THEN** each pinned file matches its manager, and the custom managers find exactly the expected pins
-- **AND** the coupled groups `trivy`, `argo`, `cloudflared`, `uv`, `node`, `python runtime`, `ruff`, `bandit`, `actionlint`, `dcgm-exporter` and `devtools` set no update type
-- **AND** the group `devtools` holds the devtools image of both Dockerfiles and the OpenSpec pin of `tools.lock`, because the runner image takes OpenSpec from the devtools image
+- **AND** the coupled groups `trivy`, `argo`, `cloudflared`, `uv`, `node`, `python runtime`, `ruff`, `bandit`, `actionlint`, `openspec`, `dcgm-exporter` and `devtools` set no update type
+- **AND** the group `devtools` holds the devtools image of both Dockerfiles
 
 #### Scenario: A uv or Node update changes no runtime code
 - **WHEN** Renovate opens a pull request in the group `uv` or `node`

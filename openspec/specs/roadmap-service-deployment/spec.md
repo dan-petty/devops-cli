@@ -15,9 +15,9 @@ The ConfigMap template `k8s/devops/configmap.example.yaml` SHALL set `ai.max_ret
 ### Requirement: The Service image runs the pinned OpenSpec
 The Service image of `Dockerfile` SHALL carry the `node` binary of a digest-pinned `node` image whose major version is the one in `.node-version`, and the OpenSpec of the devtools image that the `Dockerfile` pins by digest. The `openspec` stage SHALL keep OpenSpec and only the packages that it needs, and `/usr/local/bin/openspec` SHALL link to it. The stage SHALL set `OPENSPEC_TELEMETRY=0`, `OPENSPEC_NO_UPDATE_CHECK=1` and `DO_NOT_TRACK=1`.
 
-#### Scenario: OpenSpec comes from the lockfile
+#### Scenario: OpenSpec comes from the devtools image
 - **WHEN** the smoke test of the Service Image job runs `docker run --rm --entrypoint openspec "$IMAGE" --version`
-- **THEN** the command prints the OpenSpec version of the devtools image, which is the version of `tools.lock`, and exits 0
+- **THEN** the command prints the OpenSpec version of the devtools image and exits 0
 
 #### Scenario: The telemetry is off
 - **WHEN** the environment of the service stage is read

@@ -266,7 +266,7 @@
       "groupName": "actionlint"
     },
     {
-      "description": "The devtools image of .devcontainer/Dockerfile, of the root Dockerfile and of each workflow that names it, for each manager: one pull request moves every reference each week. The OpenSpec rule below adds the OpenSpec pin of the tools lock to this group. The runner image builds FROM the image, so the update is a fix. A group takes the prefix of its first update, so the group sets the prefix itself.",
+      "description": "The devtools image of .devcontainer/Dockerfile, of the root Dockerfile and of each workflow that names it, for each manager: one pull request moves every reference. The runner image builds FROM the image, so the update is a fix. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["ghcr.io/dan-petty/devtools"],
       "groupName": "devtools",
       "commitMessagePrefix": "fix(deps):"
@@ -278,9 +278,10 @@
       "commitMessagePrefix": "fix(deps):"
     },
     {
-      "description": "The OpenSpec package, its lockfile and the tools lock. The runner image takes OpenSpec from the devtools image, and the OpenSpec gate needs the version of the tools lock. So the pin moves in the devtools group, in one pull request with the image that holds that version, on the schedule of that group (#4361). The smoke test of the runner image runs the OpenSpec gate in the image, so a pull request that splits the two versions fails. The skills that OpenSpec generates change with its version, so the branch writes them again.",
+      "description": "The OpenSpec package, its lockfile and the tools lock. Each release comes on the day it is published, not on the schedule of the preset, so the project uses the newest skills and planning standard (#5078). The skills that OpenSpec generates change with its version, so the branch writes them again.",
       "matchPackageNames": ["@fission-ai/openspec"],
-      "groupName": "devtools",
+      "groupName": "openspec",
+      "schedule": ["at any time"],
       "prBodyNotes": [
         "Before the merge, run `uv run --frozen devops install-tools --tool openspec` and `uv run --frozen devops openspec regenerate` on this branch and push the generated skills; Renovate runs no upgrade task until #6020. The regeneration needs Git and access to github.com, because OpenSpec installs its skills from the release tag of its repository.",
         "Before the merge, record OpenSpec again for the tests that replay it (`tests/support/openspec_recording.py` says how), and run `uv run devops openspec check`."
