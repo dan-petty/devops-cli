@@ -40,16 +40,17 @@ from tests.support.paths import FIXTURES
 MINI_REPO = FIXTURES / "research" / "repo"
 CHECKOUT = "actions/checkout"
 CHECKOUT_TAGS_URL = "https://api.github.com/repos/actions/checkout/tags?per_page=100"
-NO_RELEASE_COMMIT = "0000000000000000000000000000000000000003"
+# The commit of the tag `v6-beta` of `actions/checkout`, which no full release tag names.
+NO_RELEASE_COMMIT = "71cf2267d89c5cb81562390fa70a37fa40b1305e"
 CHECKOUT_ADVISORY = {
     "ghsa_id": "GHSA-test-0000-0001",
     "severity": "high",
-    "summary": "An advisory of the 4.2 line of actions/checkout",
+    "summary": "An advisory of the 4.4 line of actions/checkout",
     "vulnerabilities": [
         {
             "package": {"ecosystem": "actions", "name": CHECKOUT},
-            "vulnerable_version_range": ">= 4.2.0, < 4.3.0",
-            "patched_versions": "4.3.0",
+            "vulnerable_version_range": ">= 4.4.0, < 4.4.1",
+            "patched_versions": "4.4.1",
         }
     ],
 }
@@ -335,8 +336,8 @@ def test_a_github_advisory_of_an_action_gives_a_finding_where_osv_gives_none(
 
 
 def test_a_pinned_commit_resolves_to_its_full_release(web: WebFake) -> None:
-    """The tags of `actions/checkout` name `v4.2.2` at the pinned commit of the major tag `v4`, so
-    the pin is checked as `v4.2.2` and an advisory of the 4.2 line matches it."""
+    """The recorded tags of `actions/checkout` name `v4.4.0` at the pinned commit of the major tag
+    `v4`, so the pin is checked as `v4.4.0` and an advisory of the 4.4 line matches it."""
     actions = recorded("advisories_actions.json")
     web.serve(
         lambda request: (
@@ -365,7 +366,7 @@ def test_a_pinned_commit_resolves_to_its_full_release(web: WebFake) -> None:
         report.summary.unpinned,
         report.failures,
     ) == (
-        "v4.2.2",
+        "v4.4.0",
         "GHSA-test-0000-0001",
         [".github/workflows/ci.yml:7"],
         "GitHub",
@@ -379,7 +380,7 @@ def test_a_pinned_commit_resolves_to_its_full_release(web: WebFake) -> None:
 def test_a_pinned_commit_with_no_full_release_tag_stays_unpinned(
     web: WebFake, tmp_path: Path
 ) -> None:
-    """The recorded tags name only the prerelease `v4.2.0-rc1` at the commit, so the pin is counted
+    """The recorded tags name only `v6-beta` at the commit, no full release, so the pin is counted
     in `unpinned` and no advisory is matched to it."""
     serve_recorded_github(web)
     workflow = tmp_path / ".github" / "workflows" / "ci.yml"
@@ -391,7 +392,7 @@ def test_a_pinned_commit_with_no_full_release_tag_stays_unpinned(
         "  test:\n"
         "    runs-on: ubuntu-latest\n"
         "    steps:\n"
-        f"      - uses: {CHECKOUT}@{NO_RELEASE_COMMIT} # v4\n",
+        f"      - uses: {CHECKOUT}@{NO_RELEASE_COMMIT} # v6\n",
         encoding="utf-8",
     )
 
@@ -476,14 +477,14 @@ def test_a_sub_path_action_pin_reads_the_tags_of_its_repository(
 def test_a_failed_tags_read_gives_one_failure_for_each_repository_and_version(
     web: WebFake, tmp_path: Path
 ) -> None:
-    """Two pins of `actions/checkout` at `v4` and two paths of `github/codeql-action` at `v4` share
+    """Two pins of `actions/checkout` at `v6` and two paths of `github/codeql-action` at `v4` share
     one tags read for each repository. A read that answers 500 gives one failure for each
     repository and version, not one for each pin (#4012)."""
     web.serve(lambda request: httpx2.Response(500, json={}))
     repo = _workflow_repo(
         tmp_path,
-        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v4",
-        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v4",
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v6",
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v6",
         f"github/codeql-action/init@{CODEQL_COMMIT} # v4",
         f"github/codeql-action/analyze@{CODEQL_COMMIT} # v4",
     )
@@ -495,7 +496,7 @@ def test_a_failed_tags_read_gives_one_failure_for_each_repository_and_version(
         sorted(web.requested),
     ) == (
         [
-            ("actions/checkout", "v4", "GitHub returned status 500"),
+            ("actions/checkout", "v6", "GitHub returned status 500"),
             ("github/codeql-action", "v4", "GitHub returned status 500"),
         ],
         [CHECKOUT_TAGS_URL, CODEQL_TAGS_URL],
