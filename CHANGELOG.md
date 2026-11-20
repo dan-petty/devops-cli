@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.185.0](https://github.com/dan-petty/devops-cli/compare/v0.184.0...v0.185.0) (2026-11-20)
+
+
+### Features
+
+* **roadmap:** bootstrap the dev env with uv in each Job ([#6537](https://github.com/dan-petty/devops-cli/issues/6537)) ([a0c0e4e](https://github.com/dan-petty/devops-cli/commit/a0c0e4e977108737bcd75531c43764858a396fd9)), closes [#6517](https://github.com/dan-petty/devops-cli/issues/6517)
+
+
+### Bug Fixes
+
+* **roadmap:** an open tracker holds back no item ([#6548](https://github.com/dan-petty/devops-cli/issues/6548)) ([016b681](https://github.com/dan-petty/devops-cli/commit/016b681123a450571d6fb48c5e8c63ee0733d91f))
+
 ## [0.184.0](https://github.com/dan-petty/devops-cli/compare/v0.183.2...v0.184.0) (2026-11-20)
 
 
