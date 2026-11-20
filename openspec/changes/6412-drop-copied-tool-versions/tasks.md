@@ -24,7 +24,7 @@ Kind: other.
 
 - [x] 3.1 Seed the empty-database digest with a string that has no version, and remove the version from the docstring of `src/devops_cli/security/osv_scanner.py`
   - Verification: `$ ! git grep -nE '[0-9]+\.[0-9]+\.[0-9]+' -- src/devops_cli/security/osv_scanner.py`
-- [ ] 3.2 Remove `DOCKER_CLI_HINTS` from the scaffold, because the published image has no Docker CLI
+- [x] 3.2 Remove `DOCKER_CLI_HINTS` from the scaffold, because the published image has no Docker CLI
   - Verification: `$ ! git grep -n DOCKER_CLI_HINTS -- src/devops_cli/templates`
 - [ ] 3.3 Make the extension lists of the scaffold the same as the lists of `.devcontainer/devcontainer.json`
   - Verification: `$ d=$(mktemp -d) && uv run devops devcontainer init "$d" > /dev/null && jq -se '[.[].customizations | map_values(.extensions)] | .[0] == .[1]' .devcontainer/devcontainer.json "$d/.devcontainer/devcontainer.json"`
