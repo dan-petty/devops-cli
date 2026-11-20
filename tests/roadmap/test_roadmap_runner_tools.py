@@ -336,7 +336,7 @@ def _seed(root: Path, record: dict[str, str]) -> Path:
 def _record(checkout: Path, **changed: str) -> dict[str, str]:
     lock = hashlib.sha256((checkout / "uv.lock").read_bytes()).hexdigest()
     minor = f"{sys.version_info.major}.{sys.version_info.minor}"
-    return {"uv": "0.13.9", "python": minor, "uv_lock_sha256": lock, **changed}
+    return {"uv": "job-uv", "python": minor, "uv_lock_sha256": lock, **changed}
 
 
 @pytest.fixture
@@ -369,7 +369,7 @@ def test_the_bootstrap_copies_a_seed_that_fits_and_syncs_offline(
     malware check (#4814)."""
     process_fake.answer(
         lambda call: _argv(call) == ("uv", "--version"),
-        ProcessAnswer(stdout="uv 0.13.9 (x86_64-unknown-linux)\n"),
+        ProcessAnswer(stdout="uv job-uv (x86_64-unknown-linux)\n"),
     )
     checkout = _checkout(tmp_path, "uv.lock")
     seed = _seed(tmp_path, _record(checkout))
@@ -381,12 +381,12 @@ def test_the_bootstrap_copies_a_seed_that_fits_and_syncs_offline(
     assert (uv_cache / "wheels-v5" / "entry").read_text(encoding="utf-8") == "wheel"
 
 
-@pytest.mark.parametrize("changed", [{"uv_lock_sha256": "0" * 64}, {"uv": "0.13.8"}])
+@pytest.mark.parametrize("changed", [{"uv_lock_sha256": "other-lock"}, {"uv": "other-uv"}])
 def test_a_seed_that_does_not_fit_the_checkout_leaves_the_sync_online(
     tmp_path: Path, process_fake: ProcessFake, uv_cache: Path, changed: dict[str, str]
 ) -> None:
     process_fake.answer(
-        lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(stdout="uv 0.13.9\n")
+        lambda call: _argv(call) == ("uv", "--version"), ProcessAnswer(stdout="uv job-uv\n")
     )
     checkout = _checkout(tmp_path, "uv.lock")
     seed = _seed(tmp_path, _record(checkout, **changed))
