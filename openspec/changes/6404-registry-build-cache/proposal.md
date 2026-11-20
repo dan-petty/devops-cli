@@ -30,7 +30,7 @@ The change fits one pull request.
 
 - The devcontainer release already reads and writes `ghcr.io/${{ github.repository }}/devcontainer:buildcache` with `type=registry` and `mode=max` (`.github/workflows/release.yml`, job `devcontainer-image`), and #4816 counted the `buildcache` tag in that package on 2026-11-19.
 - The packages are public: the runner Jobs pull `ghcr.io/dan-petty/devops-cli/runner` with no `imagePullSecrets`, and the admission policy `roadmap-service-jobs` refuses a Job that sets one (`docs/CLUSTER.md`). So a pull request job reads the cache with no login.
-- BuildKit reports a cache import that fails as a warning and builds on (the `docker/build-push-action` log of a cold cache shows `failed to configure registry cache importer`), so the first run with no tag does not fail.
+- BuildKit builds on when a cache import fails, so a run with no tag does not fail. The four image builds of the pull request of this change ran before any `buildcache` tag of the three packages existed. Each log shows `ERROR: failed to configure registry cache importer: ghcr.io/dan-petty/devops-cli/<target>:buildcache: not found`, and each build passed in 118 to 185 s. The answer is `not found` and not `denied`, so the read with no login reaches the package.
 
 ## Existing Tool Considered
 

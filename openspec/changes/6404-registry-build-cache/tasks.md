@@ -14,7 +14,7 @@ Kind: other (workflows). Changes: `.github/workflows/release.yml`, `.github/work
 - [x] 2.1 Set `cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache` in the six image builds of `release.yml`, the three image builds of `ci.yml` and the build of `service-image-test.yml`, and set `cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache,mode=max` in the three builds of `release.yml` that push an image. Keep each `no-cache-filters` entry and each job permission
   - Verification: `$ ! git grep -n 'type=gha' -- .github/workflows`
 - [x] 2.2 Add `buildcache` to the tags that `cleanup-devcontainer.yml` keeps
-  - Verification: `$ git grep -n 'BASE_EXCLUDE=.*buildcache' -- .github/workflows/cleanup-devcontainer.yml`
+  - Verification: a run with `dry_run: true` prints `buildcache` in the line `Protected tags:` of the step 'Resolve Target Cleanup and Exclusion Tags'
 - [x] 2.3 Validate the changed workflows
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor,test-tree`
 
