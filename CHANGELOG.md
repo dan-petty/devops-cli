@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.185.2](https://github.com/dan-petty/devops-cli/compare/v0.185.1...v0.185.2) (2026-11-20)
+
+
+### Bug Fixes
+
+* **deps:** update Helm release pyroscope to v2.4.4 ([#6565](https://github.com/dan-petty/devops-cli/issues/6565)) ([0f75e18](https://github.com/dan-petty/devops-cli/commit/0f75e187cd449fc66cc7455d6b7056d7b27e00e6))
+* **roadmap:** log the searches and URL of a refused check ([#6567](https://github.com/dan-petty/devops-cli/issues/6567)) ([eec4677](https://github.com/dan-petty/devops-cli/commit/eec4677239135c404d1b80765f6b0761cb1af97a))
+
+
+### Code Refactoring
+
+* **deps:** delete install-tools and the tools lock ([#6555](https://github.com/dan-petty/devops-cli/issues/6555)) ([ebec015](https://github.com/dan-petty/devops-cli/commit/ebec01581ee3b6cf03afa0788181d7f0012d7081)), closes [#4363](https://github.com/dan-petty/devops-cli/issues/4363)
+
 ## [0.185.1](https://github.com/dan-petty/devops-cli/compare/v0.185.0...v0.185.1) (2026-11-20)
 
 
