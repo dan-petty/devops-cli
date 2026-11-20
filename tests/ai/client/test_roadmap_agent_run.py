@@ -351,7 +351,7 @@ def test_a_trace_keeps_no_retried_return_as_a_tool_answer() -> None:
 
 
 def test_a_retried_search_gives_no_match_lines() -> None:
-    """pydantic-ai sends a retried return to the model as one `{"error": ...}` object, so a retry
+    """`model_response_str()` wraps a retried return in one `{"error": ...}` object, so a retry
     text that names a `path:line` adds no match line of the run."""
     messages: list[ModelMessage] = [
         _tool_reply(1, 1, ToolCallPart("search_code", {"pattern": "x"}, tool_call_id="c1")),

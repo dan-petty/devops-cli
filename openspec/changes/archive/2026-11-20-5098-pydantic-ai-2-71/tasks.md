@@ -17,7 +17,7 @@
   - Verification: `$ uv run ruff check --select TID251 src tests`
 - [x] 2.4 Note the call that `Coder` answers with a failed result in the tool log, so its repeat gets the refusal of a repeated failed call; keep an HTTP error with the class of its status category a failure of the provider
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_step_trace.py tests/roadmap/implement/test_roadmap_implement_step.py tests/roadmap/test_roadmap_failure.py`
-- [x] 2.5 Test each `is_retry` check of the run trace and the stop cause, and drop the check of the match lines, which an error object of pydantic-ai makes no-op
+- [x] 2.5 Test each `is_retry` check of the run trace and the stop cause, and drop the check of the match lines, which the `{"error": ...}` wrap of `model_response_str()` makes no-op
   - Verification: `$ uv run devops ci test tests/ai/client/test_roadmap_agent_run.py`
 
 ## 3. Documents

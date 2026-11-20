@@ -7,7 +7,7 @@
 - Record the retry parts from a run of an agent on the installed pydantic-ai, and replace only the content of the part when a test needs given errors. A part that the framework no longer builds then fails the test.
 - Read an error frame of the stream before the class of its error: pydantic-ai 2.71 gives the 408 frame the category `ModelTimeoutError`, and the frame is not a timeout of the client.
 - Catch `ToolFailed` in `ToolCallLog._execute`: pydantic-ai 2.71 turns it into `ToolFailedError` only after the hooks that wrap the tool return, so the log saw neither error for the call that `Coder` answers.
-- Match `Model\w*Error: HTTP <status>` in the provider rule: the reason of a failed model call names the class and the status, and every class of an HTTP error of pydantic-ai is a `ModelHTTPError`. A transport timeout, which has no status, keeps its class.
+- Match `Model\w*Error: HTTP <status>` in the provider rule, but not `ModelContextWindowExceededError` or `ModelQuotaExceededError`: the reason of a failed model call names the class and the status, every class of an HTTP error of pydantic-ai is a `ModelHTTPError`, and 2.59 already gave those two their names, so their stops keep the class `ci_infra`. A transport timeout, which has no status, keeps its class.
 - Test the last-retries line of `ToolCallLog` on an agent with no `Coder`, where a tool still ends the run when it spends its retries.
 
 ## Rejected alternatives

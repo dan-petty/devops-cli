@@ -1633,22 +1633,40 @@ def test_a_model_call_that_fails_gives_the_status_of_the_reply_and_the_model_in_
     assert outcome.reason == "ModelHTTPError: HTTP 503, model example-model"
 
 
-@pytest.mark.parametrize("status", [400, 404, 408, 413, 422])
-def test_a_status_that_pydantic_ai_names_by_its_category_is_a_failure_of_the_provider(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, status: int
+# The HTTP errors that pydantic-ai 2.71 names by a category that 2.59 did not have, and the two
+# categories that 2.59 had already: a stop with one of those two stays where it was (#5098).
+STATUS_CATEGORIES = [
+    *(
+        pytest.param(status, http_status_category(status), FailureClass.PROVIDER, id=str(status))
+        for status in (400, 404, 408, 413, 422)
+    ),
+    pytest.param(
+        400, ModelContextWindowExceededError, FailureClass.CI_INFRA, id="400-context-window"
+    ),
+    pytest.param(402, http_status_category(402), FailureClass.CI_INFRA, id="402-quota"),
+]
+
+
+@pytest.mark.parametrize(("status", "category", "klass"), STATUS_CATEGORIES)
+def test_a_status_that_pydantic_ai_names_by_its_category_keeps_the_class_of_its_stop(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    programs: ProcessFake,
+    status: int,
+    category: Any,
+    klass: FailureClass,
 ) -> None:
     """pydantic-ai 2.71 names the class of an HTTP error by the category of its status, as its
     adapters build it: `ModelRequestRejectedError`, `ModelNotFoundError` or `ModelTimeoutError`
-    (#5098). The stop stays a failure of the provider, as a `ModelHTTPError` was."""
-    failure = ModelHTTPError.for_category(
-        http_status_category(status), status_code=status, model_name="example-model"
-    )
+    (#5098). Such a stop stays a failure of the provider, as a `ModelHTTPError` was. A context
+    window error and a spent quota had their names in 2.59 already, and keep their class."""
+    failure = ModelHTTPError.for_category(category, status_code=status, model_name="example-model")
 
     outcome = _step(store, checkout, ModelScript(failure))
 
     assert (outcome.reason, outcome.failure_class) == (
         f"{type(failure).__name__}: HTTP {status}, model example-model",
-        FailureClass.PROVIDER,
+        klass,
     )
 
 

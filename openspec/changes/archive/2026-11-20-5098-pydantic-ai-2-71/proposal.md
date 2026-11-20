@@ -14,7 +14,7 @@ Closes #5098.
 - The gateway call model sends a stream again when an error frame with code 408 comes before the first event. pydantic-ai 2.71 raises that frame as a `ModelTimeoutError`, which the model read as a timeout of the client.
 - The step imports `FileSystem` from `pydantic_ai_harness.file_system`, its name since 0.69.
 - `ToolCallLog` notes the call that `Coder` answers with a failed result (a `ToolFailed` after the retries of the tool) as failed, with its reason. So its Job log line and trace event stay, and the same call again gets the refusal of a repeated failed call (#3570).
-- The provider rule of the failure classes takes an HTTP error of pydantic-ai by the class of its status category, such as `ModelRequestRejectedError: HTTP 400`, as it took `ModelHTTPError`.
+- The provider rule of the failure classes takes an HTTP error of pydantic-ai by the class of a status category that 2.71 adds, such as `ModelRequestRejectedError: HTTP 400`, as it took `ModelHTTPError`. `ModelContextWindowExceededError` and `ModelQuotaExceededError`, which 2.59 named already, keep their class.
 - The description of `roadmap.implement.tool_retries` says that a spent retry comes back to the model as a failed result.
 - `.github/renovate.json` holds google-genai below 3 no more: pydantic-ai 2.71 caps it below 3 itself.
 - The ruff rule TID251 bans `RetryPromptPart` and `pydantic_ai_harness.filesystem`, so neither comes back.

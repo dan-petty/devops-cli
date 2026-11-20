@@ -277,9 +277,11 @@ def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[s
 
 
 # Rules for the causes outside the code of the item. The parser comes before the provider: an
-# Ollama that cannot parse a tool call answers an HTTP 400 (#2747). pydantic-ai names the class of
-# an HTTP error by the category of its status, such as `ModelRequestRejectedError` for a 400 or
-# `ModelNotFoundError` for a 404, so the provider rule takes any such class with its status (#5098).
+# Ollama that cannot parse a tool call answers an HTTP 400 (#2747). pydantic-ai 2.71 names the class
+# of an HTTP error by the category of its status, such as `ModelRequestRejectedError` for a 400 or
+# `ModelNotFoundError` for a 404, so the provider rule takes such a class with its status (#5098).
+# `ModelContextWindowExceededError` and `ModelQuotaExceededError` had their names before, and keep
+# the class they had.
 _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     _rule(
         FailureClass.OOM,
@@ -305,7 +307,8 @@ _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
     ),
     _rule(
         FailureClass.PROVIDER,
-        r"ModelHTTPError|Model\w*Error: HTTP \d{3}|HTTP (429|5\d\d)|rate.?limit|ConnectionError"
+        r"ModelHTTPError|Model(?!ContextWindowExceeded|QuotaExceeded)\w*Error: HTTP \d{3}"
+        r"|HTTP (429|5\d\d)|rate.?limit|ConnectionError"
         r"|Connection (refused|reset|aborted)|APIConnectionError|ServiceUnavailable|overloaded"
         r"|Bad Gateway|temporarily unavailable|AIClientError|ModelAPIError",
     ),
