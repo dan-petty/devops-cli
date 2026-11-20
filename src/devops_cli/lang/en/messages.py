@@ -4562,6 +4562,13 @@ class RoadmapMessages:
         "A model review of the plan found these defects. Fix each one, or show with a quote "
         "from the inputs that it is no defect:\n{findings}"
     )
+    # The problem of a return whose reply broke the reply schema (#6357): the problem of the plan
+    # in `previous` again, then the violations of the reply that the job did not use.
+    stage_schema_return: str = (
+        "{problem}\n\nYour last reply did not agree with the reply schema, so the job did not use "
+        "it and sends the plan in `previous` again. Fix the problem above in a reply that agrees "
+        "with the schema. {violations}"
+    )
     stage_comment_findings: str = (
         "\n\nA model review of the plan found these points. They stop no draft, and a person "
         "judges them:\n\n{findings}"
