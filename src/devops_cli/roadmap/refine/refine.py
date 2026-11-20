@@ -1244,8 +1244,9 @@ _BLOCKER_OPENERS: Final[tuple[str, ...]] = (
     "waits for",
     "wait for",
 )
-# The phrases, in any case, of a line that names an issue that waits for this item, such as
-# `#12 needs this item`: the line names no blocker (#6451).
+# The phrases, in any case, of a clause that names an issue that waits for this item, such as
+# `#12 needs this item`: the clause names no blocker, and the other clauses of its line still
+# can (#6451).
 _REVERSE_PHRASES: Final[tuple[str, ...]] = (
     "needs this item",
     "waits for this item",
@@ -1254,6 +1255,9 @@ _REVERSE_PHRASES: Final[tuple[str, ...]] = (
 )
 # The word before an issue reference that names a parent, such as `child 8 of #4833` (#6451).
 _PARENT_WORD: Final[str] = "of"
+# The end of a clause of a blocker line: a full stop, a semicolon, an exclamation or a question
+# mark with space after it. A reverse phrase holds back only the references of its own clause.
+_CLAUSE_END_RE: Final[re.Pattern[str]] = re.compile(r"(?<=[.;!?])\s+")
 
 
 def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
@@ -1261,8 +1265,9 @@ def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
 
     A blocker line is a line that starts with a blocker opener (`_BLOCKER_OPENERS`) in any case,
     or a line whose first word is an issue reference when it is the first text of a list item or
-    a paragraph outside a list. A line that holds a reverse phrase (`_REVERSE_PHRASES`) names no
-    blocker. A parent, a child, a related issue and the source line of intake open with other
+    a paragraph outside a list. On a blocker line, a clause that holds a reverse phrase
+    (`_REVERSE_PHRASES`) names no blocker (`_blocker_issues`). A parent, a child, a related issue
+    and the source line of intake open with other
     words, so they name no blocker. The text of a nested list item counts for that item and not
     for the item that holds it.
     """
@@ -1285,12 +1290,10 @@ def _blocker_inlines(section: Sequence[Token]) -> list[Token]:
 
 
 def _names_a_blocker(token: Token, *, first_text: bool) -> bool:
-    """Whether an inline token names a blocker: it holds no reverse phrase, and it starts with a
-    blocker opener, or it is the first text of a list item or a paragraph outside a list
-    (`first_text`) and its first word is an issue reference."""
+    """Whether an inline token is a blocker line: it starts with a blocker opener, or it is the
+    first text of a list item or a paragraph outside a list (`first_text`) and its first word is
+    an issue reference. `_blocker_issues` then leaves out the clauses with a reverse phrase."""
     text = " ".join(token.content.split()).casefold()
-    if any(phrase in text for phrase in _REVERSE_PHRASES):
-        return False
     if text.startswith(_BLOCKER_OPENERS):
         return True
     words = text.split()
@@ -1298,14 +1301,20 @@ def _names_a_blocker(token: Token, *, first_text: bool) -> bool:
 
 
 def _blocker_issues(token: Token) -> list[int]:
-    """The issues that a blocker line names: each issue reference, less a reference that directly
-    follows `of`, which names a parent, such as `child 8 of #4833` (#6451)."""
-    words = [word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split()]
-    return [
-        int(word[1:])
-        for before, word in itertools.pairwise(["", *words])
-        if _is_reference(word) and before.casefold() != _PARENT_WORD
-    ]
+    """The issues that a blocker line names: each issue reference, less the references of a
+    clause that holds a reverse phrase, such as `#4691 needs this item`, and less a reference that
+    directly follows `of`, which names a parent, such as `child 8 of #4833` (#6451)."""
+    issues: list[int] = []
+    for clause in _CLAUSE_END_RE.split(" ".join(token.content.split())):
+        if any(phrase in clause.casefold() for phrase in _REVERSE_PHRASES):
+            continue
+        words = [word.strip(_REFERENCE_PUNCTUATION) for word in clause.split()]
+        issues.extend(
+            int(word[1:])
+            for before, word in itertools.pairwise(["", *words])
+            if _is_reference(word) and before.casefold() != _PARENT_WORD
+        )
+    return issues
 
 
 def _is_reference(word: str) -> bool:

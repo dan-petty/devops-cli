@@ -64,6 +64,16 @@ def test_body_dependencies_names_only_a_blocker_line() -> None:
             id="4765-reverse-list-item",
         ),
         pytest.param("Merge first: #4835, child 8 of #4833.", [4835], id="4848-child-of-parent"),
+        pytest.param(
+            "#4550 puts the dependencies of the catalog first. #4691 needs this item.",
+            [4550],
+            id="4814-blocker-then-reverse-sentence",
+        ),
+        pytest.param(
+            "- #4612 must merge first; #4598 waits for this item.",
+            [4612],
+            id="blocker-and-reverse-clause-in-one-item",
+        ),
         pytest.param("None.\n\nSource: #4989", [], id="5001-source-after-none"),
         pytest.param("- Part of #5014 (track the Service step jobs).", [], id="5026-part-of"),
     ],

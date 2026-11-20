@@ -206,11 +206,15 @@ Refine SHALL read as a dependency only a line under the Dependencies heading tha
 - **THEN** `body_dependencies` returns `[5356]`
 
 ### Requirement: A reverse phrase or a parent names no blocker
-A line under the Dependencies heading that holds a reverse phrase in any case (`needs this item`, `waits for this item`, `depends on this item`, `blocked by this item`) SHALL name no blocker. On a line that names blockers, refine SHALL read each issue reference except a reference that directly follows `of`, which names a parent.
+On a blocker line, a clause that holds a reverse phrase in any case (`needs this item`, `waits for this item`, `depends on this item`, `blocked by this item`) SHALL name no blocker; a clause ends at `.`, `;`, `!` or `?`. Refine SHALL read each other issue reference except one that directly follows `of`, which names a parent.
 
 #### Scenario: A reverse phrase
 - **WHEN** `body_dependencies` reads a body whose Dependencies section holds the list items `- #3741 (the backup sets the pattern).` and `- #3803 (move the database) waits for this item.`
 - **THEN** `body_dependencies` returns `[3741]`
+
+#### Scenario: A blocker and a reverse clause in one paragraph
+- **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `#4550 puts the dependencies of the catalog first. #4691 needs this item.`
+- **THEN** `body_dependencies` returns `[4550]`
 
 #### Scenario: A parent after of on a blocker line
 - **WHEN** `body_dependencies` reads a body whose Dependencies section holds the paragraph `Merge first: #4835, child 8 of #4833.`

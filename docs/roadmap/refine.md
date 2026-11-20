@@ -24,7 +24,7 @@ The Dependencies section of the body names an issue as `#N` or by its quoted tit
 - The first text of a list item, when its first word is `#N`, such as `- #N` or `- #4989: the prerequisite`.
 - A paragraph outside a list, when its first word is `#N`. The paragraph can go on in prose, such as `#4847; #4798 with its scope comment, merged first.` or `#5134, #5135`.
 
-A line that holds a reverse phrase names no blocker, in any case: `needs this item`, `waits for this item`, `depends on this item` or `blocked by this item`. On a blocker line, each `#N` is a dependency, except a `#N` that directly follows `of`, which names a parent: `Merge first: #4835, child 8 of #4833.` names only #4835.
+A clause that holds a reverse phrase names no blocker, in any case: `needs this item`, `waits for this item`, `depends on this item` or `blocked by this item`. A clause ends at a full stop, a semicolon, an exclamation or a question mark, so `#4550 puts the catalog first. #4691 needs this item.` names only #4550. On a blocker line, each `#N` is a dependency, except a `#N` that directly follows `of`, which names a parent: `Merge first: #4835, child 8 of #4833.` names only #4835.
 
 No other mention of the section names a dependency. A parent link (`Part of #N`), a child link (`Child 2 of #N`), a related issue (`Related: #N`), a tracker (`- Tracker: #N`), the source line of intake (`Source: #N`) and a sentence that opens with other words, such as `It does not wait for #N.`, name no dependency.
 
