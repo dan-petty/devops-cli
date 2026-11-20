@@ -19,7 +19,7 @@ git. `stage.py` finds the rejections of a round and writes them.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, NamedTuple
@@ -165,11 +165,15 @@ class ClosedPlan:
     closed_at: datetime
     reason: IssueComment | None
 
-    def rejection(self) -> tuple[RejectedPlan, str]:
+    def rejection(self, tree: Collection[str] | None = None) -> tuple[RejectedPlan, str]:
         """The record and the comment of the rejection. The hash is the one of the text that the
         plan came from (`stage.text_hash`), so an edit made before the job looks at the closed
-        pull request ends the hold. A record that holds none has the hash of the text now."""
-        paths = text_paths(_reason_text(self.reason)) if self.reason is not None else []
+        pull request ends the hold. A record that holds none has the hash of the text now. Only
+        the paths that `tree`, the files of the default branch, holds reach the record, so a
+        decimal, a version, a dotted setting or a domain takes no slot (#6444)."""
+        paths = (
+            text_paths(_reason_text(self.reason), tree=tree) if self.reason is not None else []
+        )
         planned = self.item.job_record.get(StageRecordKey.TEXT_HASH)
         plan = RejectedPlan(
             pull=self.pull,
