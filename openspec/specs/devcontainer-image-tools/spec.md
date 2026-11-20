@@ -93,3 +93,18 @@ The `GIT_CONFIG_*` entries that route `github.com` and `gist.github.com` credent
 #### Scenario: The helper order in a started image
 - **WHEN** the smoke action runs `git config --get-all credential.https://github.com.helper` through `devcontainer exec` in the started image
 - **THEN** the command prints the empty value and then `!gh auth git-credential`
+
+### Requirement: The scaffolded devcontainer adds no Feature
+The `devcontainer.json` that `devops devcontainer init` writes SHALL have no `features` key, with the published image and with an image that `--image` names. The image SHALL supply the user `vscode` and the tools. `--minikube` SHALL add only the forwarded ports of the Minikube stack.
+
+#### Scenario: An image that --image names gets no Feature
+- **WHEN** a test runs `devops devcontainer init --image python:3.14` in an empty directory
+- **THEN** the written `devcontainer.json` has the image `python:3.14` and no `features` key
+
+#### Scenario: The published image gets no Feature
+- **WHEN** a test runs `devops devcontainer init --published` in an empty directory
+- **THEN** the written `devcontainer.json` has the published image and no `features` key
+
+#### Scenario: --minikube adds only the forwarded ports
+- **WHEN** a test renders `devcontainer.json.j2` with `minikube` true and then with `minikube` false
+- **THEN** the first output has `forwardPorts`, the second has no `forwardPorts`, and neither output has a `features` key

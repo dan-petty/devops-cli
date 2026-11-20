@@ -222,3 +222,10 @@ The osv-scanner adapter SHALL verify the presence of the `osv-scanner` binary be
 #### Scenario: osv-scanner binary is missing from PATH
 - **WHEN** the osv-scanner adapter scans a tree with lockfiles and no directory of PATH holds `osv-scanner`
 - **THEN** the scan does not start, and the outcome is `unavailable` with no findings
+
+### Requirement: The osv-scanner inventory names no tool version
+The CycloneDX inventory of the osv-scanner adapter SHALL name the tool with `vendor` and `name` only. It SHALL NOT have the optional `version` field, because the adapter reads no version of the scanner that ran.
+
+#### Scenario: The tool entry has no version
+- **WHEN** a test parses an osv-scanner report with `parse_osv_scanner_output`
+- **THEN** `metadata.tools` of the inventory is one entry with `vendor` `Google` and `name` `osv-scanner`, and the entry has no `version` key
