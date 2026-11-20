@@ -4,7 +4,7 @@
 
 Kind: behavior.
 
-- [ ] 1.1 Assert in `tests/security/test_osv_scanner.py` that the CycloneDX inventory names osv-scanner with `vendor` and `name` and no `version`
+- [x] 1.1 Assert in `tests/security/test_osv_scanner.py` that the CycloneDX inventory names osv-scanner with `vendor` and `name` and no `version`
   - Verification: `$ uv run devops ci test tests/security/test_osv_scanner.py`
 - [ ] 1.2 Remove `version` from the tool entry that `parse_osv_scanner_output` writes
   - Verification: `$ uv run devops ci test tests/security/test_osv_scanner.py`
