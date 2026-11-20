@@ -9,7 +9,11 @@ from pathlib import Path
 import httpx2
 import pytest
 
-from devops_cli.research.advisories import advisory_requests, find_advisories
+from devops_cli.research.advisories import (
+    advisory_requests,
+    find_advisories,
+    resolve_action_commits,
+)
 from devops_cli.research.github_advisories import GitHubAdvisoryClient
 from devops_cli.research.inventory import read_inventory, summarize
 from devops_cli.research.kev import KevClient
@@ -34,6 +38,22 @@ from tests.support.fakes.http import WebFake
 from tests.support.paths import FIXTURES
 
 MINI_REPO = FIXTURES / "research" / "repo"
+CHECKOUT = "actions/checkout"
+CHECKOUT_TAGS_URL = "https://api.github.com/repos/actions/checkout/tags?per_page=100"
+# The commit of the tag `v6-beta` of `actions/checkout`, which no full release tag names.
+NO_RELEASE_COMMIT = "71cf2267d89c5cb81562390fa70a37fa40b1305e"
+CHECKOUT_ADVISORY = {
+    "ghsa_id": "GHSA-test-0000-0001",
+    "severity": "high",
+    "summary": "An advisory of the 4.4 line of actions/checkout",
+    "vulnerabilities": [
+        {
+            "package": {"ecosystem": "actions", "name": CHECKOUT},
+            "vulnerable_version_range": ">= 4.4.0, < 4.4.1",
+            "patched_versions": "4.4.1",
+        }
+    ],
+}
 
 
 def test_a_pinned_version_in_an_affected_range_gives_a_finding(web: WebFake) -> None:
@@ -117,7 +137,7 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
 
     asked = [
         (query["package"]["ecosystem"], query["package"]["name"], query["version"])
-        for query in web.recorded[0].json["queries"]
+        for query in web.recorded[1].json["queries"]
     ]
     hosts = [request.url.split("/")[2] for request in web.recorded]
     assert (sorted(asked), hosts, report.findings, report.summary.model_dump()) == (
@@ -131,7 +151,7 @@ def test_only_registry_packages_are_asked_and_the_rest_is_counted(web: WebFake) 
             ("npm", "@example/helper", "0.4.2"),
             ("npm", "example-npm", "1.14.3"),
         ],
-        ["api.osv.dev", "api.github.com"],
+        ["api.github.com", "api.osv.dev", "api.github.com"],
         [],
         {
             "components": 27,
@@ -304,15 +324,183 @@ def test_a_github_advisory_of_an_action_gives_a_finding_where_osv_gives_none(
     )
     assert report["summary"] == {
         "components": 4,
-        "queried": 3,
+        "queried": 4,
         "with_findings": 2,
         "findings": 3,
-        "unpinned": 1,
+        "unpinned": 0,
         "failed": 0,
         "exploited": 1,
         "not_covered": {},
     }
     assert not [r for r in web.recorded if "osv.dev" in r.url]
+
+
+def test_a_pinned_commit_resolves_to_its_full_release(web: WebFake) -> None:
+    """The recorded tags of `actions/checkout` name `v4.4.0` at the pinned commit of the major tag
+    `v4`, so the pin is checked as `v4.4.0` and an advisory of the 4.4 line matches it."""
+    actions = recorded("advisories_actions.json")
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=actions + [CHECKOUT_ADVISORY])
+            if request.url.path == "/advisories"
+            else None
+        )
+    )
+    serve_recorded_github(web)
+    serve_recorded_kev(web)
+
+    report = find_advisories(
+        read_inventory(GITHUB_REPO),
+        watch=read_watch_list(GITHUB_REPO),
+        github=GitHubAdvisoryClient(),
+    )
+
+    [finding] = [f for f in report.findings if f.component.name == CHECKOUT]
+    assert (
+        finding.component.version,
+        finding.advisory_id,
+        finding.locations,
+        finding.source,
+        CHECKOUT_TAGS_URL in web.requested,
+        report.summary.queried,
+        report.summary.unpinned,
+        report.failures,
+    ) == (
+        "v4.4.0",
+        "GHSA-test-0000-0001",
+        [".github/workflows/ci.yml:7"],
+        "GitHub",
+        True,
+        4,
+        0,
+        [],
+    )
+
+
+def test_a_pinned_commit_with_no_full_release_tag_stays_unpinned(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """The recorded tags name only `v6-beta` at the commit, no full release, so the pin is counted
+    in `unpinned` and no advisory is matched to it."""
+    serve_recorded_github(web)
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "name: ci\n"
+        "on: push\n"
+        "jobs:\n"
+        "  test:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        f"      - uses: {CHECKOUT}@{NO_RELEASE_COMMIT} # v6\n",
+        encoding="utf-8",
+    )
+
+    report = find_advisories(read_inventory(tmp_path), github=GitHubAdvisoryClient())
+
+    assert (
+        CHECKOUT_TAGS_URL in web.requested,
+        report.summary.unpinned,
+        report.findings,
+        report.failures,
+    ) == (True, 1, [], [])
+
+
+def test_a_failed_tags_read_is_a_failure_and_not_a_clean_pin(web: WebFake) -> None:
+    """A tags read that answers 500 leaves the release of the pin unknown: the report names the
+    repository and the reason, and the pin has no finding."""
+    web.serve(
+        lambda request: (
+            httpx2.Response(500, json={}) if request.url.path.endswith("/tags") else None
+        )
+    )
+    serve_recorded_github(web)
+    serve_recorded_kev(web)
+
+    report = find_advisories(
+        read_inventory(GITHUB_REPO),
+        watch=read_watch_list(GITHUB_REPO),
+        github=GitHubAdvisoryClient(),
+    )
+
+    assert (
+        [(f.name, f.version, f.reason) for f in report.failures],
+        [f for f in report.findings if f.component.name == CHECKOUT],
+        (report.summary.unpinned, report.summary.failed),
+    ) == ([("actions/checkout", "v4", "GitHub returned status 500")], [], (1, 1))
+
+
+CODEQL_COMMIT = "1111111111111111111111111111111111111111"
+CODEQL_TAGS_URL = "https://api.github.com/repos/github/codeql-action/tags?per_page=100"
+
+
+def _workflow_repo(tmp_path: Path, *uses: str) -> Path:
+    """A repository whose one workflow has a step for each `uses` value, one line each."""
+    workflow = tmp_path / ".github" / "workflows" / "ci.yml"
+    workflow.parent.mkdir(parents=True)
+    steps = "".join(f"      - uses: {value}\n" for value in uses)
+    workflow.write_text(
+        f"name: ci\non: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n{steps}",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_a_sub_path_action_pin_reads_the_tags_of_its_repository(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """`github/codeql-action/init` is a path in the repository `github/codeql-action`. The tags read
+    goes to that repository, and the pin keeps its full name with the release of its commit. The
+    tags answer is synthetic, in the shape of `GET /repos/{owner}/{repo}/tags` (#4012)."""
+    tags = [
+        {"name": "v4.31.2", "commit": {"sha": CODEQL_COMMIT}},
+        {"name": "v4", "commit": {"sha": CODEQL_COMMIT}},
+    ]
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=tags)
+            if request.url.path == "/repos/github/codeql-action/tags"
+            else httpx2.Response(404, json={})
+        )
+    )
+    repo = _workflow_repo(tmp_path, f"github/codeql-action/init@{CODEQL_COMMIT} # v4")
+
+    resolved, failures = resolve_action_commits(read_inventory(repo), GitHubAdvisoryClient())
+
+    assert (
+        [(c.name, c.version) for c in resolved.components],
+        failures,
+        web.requested,
+    ) == ([("github/codeql-action/init", "v4.31.2")], [], [CODEQL_TAGS_URL])
+
+
+def test_a_failed_tags_read_gives_one_failure_for_each_repository_and_version(
+    web: WebFake, tmp_path: Path
+) -> None:
+    """Two pins of `actions/checkout` at `v6` and two paths of `github/codeql-action` at `v4` share
+    one tags read for each repository. A read that answers 500 gives one failure for each
+    repository and version, not one for each pin (#4012)."""
+    web.serve(lambda request: httpx2.Response(500, json={}))
+    repo = _workflow_repo(
+        tmp_path,
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v6",
+        f"{CHECKOUT}@{NO_RELEASE_COMMIT} # v6",
+        f"github/codeql-action/init@{CODEQL_COMMIT} # v4",
+        f"github/codeql-action/analyze@{CODEQL_COMMIT} # v4",
+    )
+
+    _, failures = resolve_action_commits(read_inventory(repo), GitHubAdvisoryClient())
+
+    assert (
+        [(f.name, f.version, f.reason) for f in failures],
+        sorted(web.requested),
+    ) == (
+        [
+            ("actions/checkout", "v6", "GitHub returned status 500"),
+            ("github/codeql-action", "v4", "GitHub returned status 500"),
+        ],
+        [CHECKOUT_TAGS_URL, CODEQL_TAGS_URL],
+    )
 
 
 def test_a_cve_in_the_kev_list_sets_the_exploited_flag(web: WebFake) -> None:
@@ -394,7 +582,15 @@ def test_a_github_read_that_fails_is_reported_for_its_component_and_is_not_clean
 ) -> None:
     serve_recorded_kev(web)
     web.respond("GET", QDRANT_URL + "?per_page=100", 500, {})
-    web.serve(lambda request: httpx2.Response(503) if request.url.path == "/advisories" else None)
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, json=[])
+            if request.url.path.endswith("/tags")
+            else httpx2.Response(503)
+            if request.url.path == "/advisories"
+            else None
+        )
+    )
 
     report = find_advisories(
         read_inventory(GITHUB_REPO),
@@ -422,7 +618,9 @@ def test_an_advisory_with_a_range_that_cannot_be_read_is_a_failure_that_names_it
     broken[0]["vulnerabilities"][0]["vulnerable_version_range"] = "since the start"
     web.serve(
         lambda request: (
-            httpx2.Response(200, json=broken)
+            httpx2.Response(200, json=[])
+            if request.url.path.endswith("/tags")
+            else httpx2.Response(200, json=broken)
             if request.url.path.startswith("/repos/")
             else httpx2.Response(200, json=[])
         )
@@ -449,6 +647,11 @@ def test_the_requests_of_a_run_with_actions_and_a_watch_list_name_each_repositor
     assert [(r.method, r.target, r.repeat) for r in planned] == [
         (
             "GET",
+            "https://api.github.com/repos/<owner>/<repo>/tags",
+            "for each action repository with a commit pin",
+        ),
+        (
+            "GET",
             "https://api.github.com/advisories?ecosystem=actions&affects=<names>",
             "for each 50 action names",
         ),
@@ -467,7 +670,7 @@ def test_a_component_that_the_watch_list_does_not_map_is_counted_as_not_covered(
 
     assert (report.summary.not_covered, report.summary.queried, len(report.findings)) == (
         {"helm": 1},
-        2,
+        3,
         1,
     )
 

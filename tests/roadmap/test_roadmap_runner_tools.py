@@ -2,9 +2,9 @@
 
 The first tests read the sources of the gate offline: the rows of `devops ci`, the hooks of
 `.pre-commit-config.yaml`, the required jobs of `ci.yml` and the live-marked tests. They fail when a
-program that one of them needs is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`. The next tests read
-the stages of the Dockerfile. The last tests run the check of a tool over the process fake. No test
-compares a tool version with the Dockerfile or `tools.lock`: they hold the only pins (#5585).
+program that one of them needs is in neither `RUNNER_TOOLS` nor `NOT_IN_RUNNER`. The last tests run
+the check of a tool over the process fake. No test compares a tool version with the `Dockerfile`:
+the devtools image gives the version of each tool (#5585, #4361).
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from devops_cli.roadmap.runner_tools import (
     tool_failure,
     tool_names,
 )
-from tests.support.dockerfile import stages
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.paths import REPO_ROOT, TESTS_ROOT
 from tests.support.trees import parse_python_file
@@ -209,46 +208,6 @@ def test_the_version_of_each_dev_dependency_is_the_version_of_the_lockfile() -> 
     assert {t.package: expected_text(t) for t in dev} == {t.package: locked[t.package] for t in dev}
 
 
-# ── The table agrees with the stages of the Dockerfile ───────────────────────────────────────
-
-
-def _runner() -> list[list[str]]:
-    return stages(_text("Dockerfile"))["runner"]
-
-
-def _stage(name: str) -> list[list[str]]:
-    return stages(_text("Dockerfile"))[name]
-
-
-def _runs(stage: list[list[str]]) -> list[str]:
-    return [" ".join(words[1:]) for words in stage if words[0].upper() == "RUN"]
-
-
-def test_the_apt_packages_of_the_runner_are_the_apt_tools_of_the_table() -> None:
-    (install,) = (run for run in _runs(_stage("runner-deps")) if "apt-get install" in run)
-    words = shlex.split(install.split("apt-get install")[1].split("&&")[0])
-    packages = {word for word in words if not word.startswith("-")} - {"ca-certificates"}
-
-    assert packages == {t.name for t in RUNNER_TOOLS if t.source is ToolSource.APT}
-
-
-def test_the_last_step_of_the_runner_runs_the_check_of_every_tool_as_the_job_user() -> None:
-    runner = _runner()
-    check = next(
-        index
-        for index, words in enumerate(runner)
-        if words[0] == "RUN" and "devops_cli.roadmap.runner_tools" in " ".join(words)
-    )
-    user = next(index for index, words in enumerate(runner) if words[0] == "USER")
-    run = " ".join(runner[check])
-
-    assert (user < check, check == max(i for i, w in enumerate(runner) if w[0] == "RUN")) == (
-        True,
-        True,
-    )
-    assert "DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools" in run
-
-
 # ── The check of one tool ───────────────────────────────────────────────────────────────────
 
 RUFF = importlib.metadata.version("ruff")
@@ -293,23 +252,13 @@ def test_a_tool_with_no_command_fails_when_it_is_not_on_path(
     )
 
 
-def test_an_apt_tool_passes_on_any_output(process_fake: ProcessFake) -> None:
-    process_fake.answer("git --version", ProcessAnswer(stdout="git version 2.47.3\n"))
-
-    assert tool_failure(RunnerTool("git", ToolSource.APT, ("job",), ("git", "--version"))) is None
-
-
-def test_a_tool_that_the_image_pins_passes_on_any_version_and_runs_only_its_version_command(
+def test_a_tool_of_the_devtools_image_passes_on_any_version_and_runs_only_its_version_command(
     process_fake: ProcessFake,
 ) -> None:
-    """The Dockerfile and `tools.lock` hold the pins of these tools, so the check compares no
-    version: the tool runs, and the build installed the version that the pin names (#5585)."""
+    """The devtools image gives the version of these tools, and the `Dockerfile` pins that image
+    by digest, so the check compares no version: the tool runs (#5585, #4361)."""
     process_fake.answer(lambda call: True, ProcessAnswer(stdout="tool 0.0.0\n"))
-    pinned = [
-        tool
-        for tool in RUNNER_TOOLS
-        if tool.source in {ToolSource.IMAGE_PIN, ToolSource.TOOLS_LOCK}
-    ]
+    pinned = [tool for tool in RUNNER_TOOLS if tool.source is ToolSource.DEVTOOLS]
 
     assert {tool.name: tool_failure(tool) for tool in pinned} == {
         tool.name: None for tool in pinned

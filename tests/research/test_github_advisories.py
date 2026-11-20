@@ -15,6 +15,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.http.client import user_agent
 from devops_cli.research.github_advisories import GhsaLookup, GitHubAdvisoryClient
+from devops_cli.research.version_match import release_for_commit
 from tests.research.github_recording import (
     ACTIONS_URL,
     QDRANT_URL,
@@ -221,6 +222,94 @@ def test_a_rate_limited_read_is_a_failed_read_and_no_clean_package(web: WebFake)
         "failed",
         "GitHub returned status 403",
         [],
+    )
+
+
+CHECKOUT_TAGS_URL = "https://api.github.com/repos/actions/checkout/tags?per_page=100"
+PINNED_COMMIT = "a" * 40
+
+
+def test_the_tags_of_a_repository_are_read_page_by_page_until_the_commit(web: WebFake) -> None:
+    second = f"{CHECKOUT_TAGS_URL}&page=2"
+
+    def server(request: httpx2.Request) -> httpx2.Response:
+        if request.url.params.get("page") == "2":
+            return httpx2.Response(200, json=[{"name": "v7.2.1", "commit": {"sha": PINNED_COMMIT}}])
+        return httpx2.Response(
+            200,
+            json=[{"name": "v7.3.0", "commit": {"sha": "b" * 40}}],
+            headers={"link": f'<{second}>; rel="next"'},
+        )
+
+    web.serve(server)
+
+    found = GitHubAdvisoryClient().tags_of("actions/checkout", [PINNED_COMMIT])
+
+    assert (found.status, web.requested) == ("ok", [CHECKOUT_TAGS_URL, second])
+    tags = [(tag.name, tag.commit.sha) for tag in found.tags]
+    assert release_for_commit(tags, PINNED_COMMIT) == "v7.2.1"
+
+
+def test_a_tag_that_names_no_full_release_is_read_as_it_is(web: WebFake) -> None:
+    web.serve(
+        lambda request: httpx2.Response(
+            200,
+            json=[
+                {"name": "v7", "commit": {"sha": PINNED_COMMIT}},
+                {"name": "v7.2.0-rc1", "commit": {"sha": PINNED_COMMIT}},
+            ],
+        )
+    )
+
+    found = GitHubAdvisoryClient().tags_of("actions/checkout", [PINNED_COMMIT])
+
+    tags = [(tag.name, tag.commit.sha) for tag in found.tags]
+    assert (found.status, tags) == ("ok", [("v7", PINNED_COMMIT), ("v7.2.0-rc1", PINNED_COMMIT)])
+    assert release_for_commit(tags, PINNED_COMMIT) is None
+
+
+def test_a_failed_tags_read_is_a_failed_lookup(web: WebFake) -> None:
+    web.serve(lambda request: httpx2.Response(500, json={"message": "boom"}))
+
+    found = GitHubAdvisoryClient().tags_of("actions/checkout", [PINNED_COMMIT])
+
+    assert (found.status, found.reason, found.tags) == (
+        "failed",
+        "GitHub returned status 500",
+        [],
+    )
+
+
+def test_a_next_page_of_tags_on_another_host_is_a_failed_read_and_gets_no_request(
+    web: WebFake,
+) -> None:
+    other = "https://evil.example.net/repos/actions/checkout/tags"
+    web.serve(
+        lambda request: httpx2.Response(200, json=[], headers={"link": f'<{other}>; rel="next"'})
+    )
+
+    found = GitHubAdvisoryClient(token="token-value").tags_of("actions/checkout", [PINNED_COMMIT])
+
+    assert (found.status, found.reason, web.requested) == (
+        "failed",
+        "GitHub named a next page on another host",
+        [CHECKOUT_TAGS_URL],
+    )
+
+
+def test_a_tag_list_over_the_page_limit_is_a_failed_read(web: WebFake) -> None:
+    web.serve(
+        lambda request: httpx2.Response(
+            200, json=[], headers={"link": f'<{CHECKOUT_TAGS_URL}&page=next>; rel="next"'}
+        )
+    )
+
+    found = GitHubAdvisoryClient().tags_of("actions/checkout", [PINNED_COMMIT])
+
+    assert (found.status, found.reason, len(web.recorded)) == (
+        "failed",
+        f"GitHub listed more than {DEFAULT_GITHUB_ADVISORIES_MAX_PAGES} pages of tags",
+        DEFAULT_GITHUB_ADVISORIES_MAX_PAGES,
     )
 
 

@@ -10,7 +10,8 @@ binaries. GitHub gives their advisories: the reviewed advisories that name an Ac
 (`GET /advisories`), and the advisories that a repository published, for a component that the
 watch list maps to that repository (`GET /repos/{owner}/{repo}/security-advisories`). GitHub does
 not match versions, so `version_match` does, from the ranges of the advisory. A pin that names no
-one release (`v7`, a commit, a range) is counted in `unpinned`.
+one release (`v7`, a range, a commit with no full release tag) is counted in `unpinned`; a pin to
+a commit takes the highest full release tag that points at it (#4012).
 
 A CVE of a finding that the CISA KEV list names sets `exploited`. No model reads any of it.
 
@@ -49,7 +50,12 @@ from devops_cli.research.models import (
     Inventory,
     LookupFailure,
 )
-from devops_cli.research.version_match import in_range, pinned_version
+from devops_cli.research.version_match import (
+    full_release,
+    in_range,
+    pinned_version,
+    release_for_commit,
+)
 from devops_cli.research.watch import WatchList
 from devops_cli.security.vulnerability_lookup import OSVClient
 
@@ -151,6 +157,93 @@ def _plan(inventory: Inventory, watch: WatchList) -> _Plan:
     return plan
 
 
+def _is_commit_pin(component: Component) -> bool:
+    """Whether the pin names a commit and a version that is no full release, so the tags of its
+    repository give the release of the commit. A name with no `/` names no repository to read."""
+    return (
+        component.kind is ComponentKind.ACTION
+        and bool(component.commit)
+        and full_release(component.version) is None
+        and "/" in component.name
+    )
+
+
+def _repository_of(component: Component) -> str:
+    """The `owner/repo` of an Action. The name of an Action in a sub-path of its repository, such
+    as `github/codeql-action/init`, holds the path after the repository."""
+    return "/".join(component.name.split("/")[:2])
+
+
+def action_commit_repositories(inventory: Inventory) -> dict[str, set[str]]:
+    """The Action repository of each pin that names a commit and no full release, with its commits.
+
+    The tags of a repository give the release of each of its commits, so one read serves every pin
+    of that repository, also the pins of its sub-path Actions.
+    """
+    repositories: dict[str, set[str]] = {}
+    for component in inventory.components:
+        if _is_commit_pin(component):
+            repositories.setdefault(_repository_of(component), set()).add(component.commit)
+    return repositories
+
+
+def _tags_failures(inventory: Inventory, repository: str, reason: str) -> list[LookupFailure]:
+    """One failure for each version that the commit pins of `repository` name, as `_failure` gives
+    one for each pin group: the pins of one repository and version share the failed read."""
+    versions = dict.fromkeys(
+        (component.ecosystem, component.version)
+        for component in inventory.components
+        if _is_commit_pin(component) and _repository_of(component) == repository
+    )
+    return [
+        LookupFailure(
+            ecosystem=ecosystem, name=repository, version=version, advisory_id="", reason=reason
+        )
+        for ecosystem, version in versions
+    ]
+
+
+def resolve_action_commits(
+    inventory: Inventory, github: GitHubAdvisoryClient
+) -> tuple[Inventory, list[LookupFailure]]:
+    """The inventory with each Action commit pin at the highest full release of its tags, and one
+    failure for each repository and version whose tags read failed. The tags of a sub-path Action,
+    such as `github/codeql-action/init`, come from its repository `github/codeql-action`.
+
+    A pin whose commit has no full release tag keeps its version, so the plan counts it in
+    `unpinned`.
+    """
+    repositories = action_commit_repositories(inventory)
+    if not repositories:
+        return inventory, []
+    releases: dict[tuple[str, str], str] = {}
+    failures: list[LookupFailure] = []
+    for repository, commits in sorted(repositories.items()):
+        lookup = github.tags_of(repository, commits)
+        if lookup.status != "ok":
+            failures += _tags_failures(inventory, repository, lookup.reason)
+            continue
+        tags = [(tag.name, tag.commit.sha) for tag in lookup.tags]
+        for commit in commits:
+            release = release_for_commit(tags, commit)
+            if release is not None:
+                releases[(repository, commit)] = release
+    if not releases:
+        return inventory, failures
+    components = [
+        component.model_copy(update={"version": releases[_commit_key(component)]})
+        if _is_commit_pin(component) and _commit_key(component) in releases
+        else component
+        for component in inventory.components
+    ]
+    return inventory.model_copy(update={"components": components}), failures
+
+
+def _commit_key(component: Component) -> tuple[str, str]:
+    """The repository and the commit of a commit pin, the key of its resolved release."""
+    return _repository_of(component), component.commit
+
+
 def advisory_requests(inventory: Inventory, watch: WatchList | None = None) -> list[PlannedRequest]:
     """The requests of a run, as a dry run lists them. It makes none.
 
@@ -159,6 +252,14 @@ def advisory_requests(inventory: Inventory, watch: WatchList | None = None) -> l
     """
     plan = _plan(inventory, watch or WatchList())
     requests: list[PlannedRequest] = []
+    if action_commit_repositories(inventory):
+        requests.append(
+            PlannedRequest(
+                "GET",
+                f"{GitHubAdvisoryClient.REPOSITORY_URL}/<owner>/<repo>/tags",
+                repeat="for each action repository with a commit pin",
+            )
+        )
     if plan.osv:
         requests += [
             PlannedRequest(
@@ -355,12 +456,23 @@ def find_advisories(
     """The advisories that affect the pins of `inventory`, most severe first.
 
     A lookup that fails is in `failures`, and a KEV list that cannot be read is `kev_failure`: the
-    component and the flag have no verdict, and are not clean.
+    component and the flag have no verdict, and are not clean. An Action pin to a commit takes the
+    highest full release tag that points at it, and a tags read that fails is in `failures` too.
     """
-    plan = _plan(inventory, watch or WatchList())
-    findings, failures = _osv_findings(plan, client or OSVClient()) if plan.osv else ([], [])
+    repositories = action_commit_repositories(inventory)
+    github_client = github
+    resolved = inventory
+    failures: list[LookupFailure] = []
+    if repositories:
+        github_client = github_client or GitHubAdvisoryClient()
+        resolved, failures = resolve_action_commits(inventory, github_client)
+    plan = _plan(resolved, watch or WatchList())
+    findings, osv_failures = _osv_findings(plan, client or OSVClient()) if plan.osv else ([], [])
+    failures = [*failures, *osv_failures]
     if plan.actions or plan.repositories:
-        github_found, github_failed = _github_findings(plan, github or GitHubAdvisoryClient())
+        github_found, github_failed = _github_findings(
+            plan, github_client or GitHubAdvisoryClient()
+        )
         findings += github_found
         failures += github_failed
     findings, kev_failure = _flag_exploited(findings, kev or KevClient())

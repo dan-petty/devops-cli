@@ -37,7 +37,7 @@ The `runArgs` of `.devcontainer/devcontainer.json` SHALL hold `--sysctl=net.ipv4
 - **THEN** `ping` exits with code 0
 
 ### Requirement: OpenTofu is a pinned tool
-`tools.lock` SHALL hold OpenTofu with the sha256 of the linux-amd64 and linux-arm64 builds. The runner image and the CI test job SHALL install it with `devops install-tools --tool tofu`. The devcontainer image SHALL have the `tofu` of the devtools image.
+`tools.lock` SHALL hold OpenTofu with the sha256 of the linux-amd64 and linux-arm64 builds. The CI test job SHALL install it with `devops install-tools --tool tofu`. The devcontainer image and the runner image SHALL have the `tofu` of the devtools image.
 
 #### Scenario: The lock
 - **WHEN** `devops install-tools --tool tofu --target-dir <dir>` runs

@@ -126,6 +126,26 @@ def test_a_retried_new_candidate_finds_the_issue_its_stopped_run_filed(roadmap: 
     ) == (Outcome.PLACE, filed, filed, 1, "New")
 
 
+def test_a_retried_candidate_finds_the_issue_a_run_filed_with_the_old_source_line(
+    roadmap: Roadmap,
+) -> None:
+    """A run before #6451 filed the body with a bare `Source:` line at its end, and stopped before
+    Priority. The retry after the release finds that issue and files no second one (#6451)."""
+    candidate = _new("feat: retry the old form", source="https://example.test/review/2")
+    filed = roadmap.issue(
+        candidate.title,
+        f"{candidate.body}\n\nSource: {candidate.source}",
+        labels=("source/agent",),
+        author="NONE",
+    )
+    outcome = intake_candidate(roadmap.store, candidate, repo=REPO, model=FakeModel(), confirm=True)
+    assert (
+        outcome.decision.subject.number,
+        outcome.number,
+        len(roadmap.store.issues()),
+    ) == (filed, filed, 1)
+
+
 def test_a_person_files_through_the_command_without_the_agent_label(
     opened: Roadmap, fake_model: FakeModel, tmp_path: Path, run_intake: Callable[..., str]
 ) -> None:

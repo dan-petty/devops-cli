@@ -29,6 +29,8 @@ For each candidate, intake sets these fields on GitHub:
 
 A label that a person set stays. Intake sets no milestone, because a person plans the milestones. A milestone that an issue has stays.
 
+A new candidate has a source, which is the link that its caller gives. Intake writes the line `Source: <source>` under a `## Source` heading after the body (#6451). The heading ends a Dependencies section of level 2 or lower, and the line opens with a word, so the source names no dependency, also when it names an issue as `#N` under a level-1 Dependencies heading. A retry of a run that stopped after it filed the issue also finds an issue of the form from before #6451, which ends with the `Source:` line and no heading.
+
 ### Priority criteria
 
 The triage model and Jev choose one of four priority values: `P0-Critical`, `P1-High`, `P2-Medium` and `P3-Low`. The triage model is the model of the task `ai.tasks.intake` (variable `DEVOPS_CLI_AI_TASK_INTAKE_MODEL`), a task of intake alone (#5903). The old task `ai.tasks.triage` does not move it.

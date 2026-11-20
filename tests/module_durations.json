@@ -655,7 +655,6 @@
   "tests/invariants/test_guidelines.py": 0.2,
   "tests/invariants/test_hermetic_floor.py": 26.6,
   "tests/invariants/test_host_path_roots.py": 0.1,
-  "tests/invariants/test_image_layers.py": 0.0,
   "tests/invariants/test_k8s_manifests.py": 0.1,
   "tests/invariants/test_k8s_renovate.py": 0.0,
   "tests/invariants/test_k8s_searxng.py": 0.0,
