@@ -26,29 +26,6 @@ The `service` and `mcp-server` stages SHALL run `apt-get upgrade` and then copy 
 - **WHEN** a person runs `docker history` on a `runner`, `mcp-server` or `service` image
 - **THEN** the layers over those of `runner-deps`, `mcp-server-deps` or `service-deps` are the `apt-get upgrade` layer of the Service and MCP server images and the one `COPY` layer of `devops_cli`, its dist-info and `devops`
 
-### Requirement: Each image build keeps its own gha cache scope
-
-The image builds of `ci.yml`, `release.yml` and `service-image-test.yml` SHALL set
-`cache-from: type=gha,scope=<target>` and, where they write the cache,
-`cache-to: type=gha,scope=<target>,mode=max`. A build with no target SHALL use `service`. The
-`test-tree` row SHALL fail when an image build cache entry of `./Dockerfile` lacks its target scope,
-and when a `cache-to` entry does not set `mode=max`.
-
-#### Scenario: The release builds three scopes
-
-- **WHEN** the `test-tree` check reads the Service, runner and MCP server builds of `release.yml`
-- **THEN** it finds `scope=service`, `scope=runner` and `scope=mcp-server`, and each `cache-to` entry sets `mode=max`
-
-#### Scenario: A cache entry without a scope
-
-- **WHEN** a workflow has `cache-to: type=gha` with no scope
-- **THEN** the `test-tree` row fails and names the workflow file and the line
-
-#### Scenario: The Service image test reads the service scope
-
-- **WHEN** the check reads `service-image-test.yml`
-- **THEN** it finds `cache-from: type=gha,scope=service` for the Service image build
-
 ### Requirement: The Dockerfile takes its tools from the devtools image
 The `Dockerfile` SHALL name `ghcr.io/dan-petty/devtools` in one `FROM` line, with a tag and a digest, as the stage `devtools`, and Renovate SHALL move the tag and the digest in the `devtools` group. The `runner-deps` stage SHALL build FROM `devtools`. The Service and MCP server images SHALL copy from `devtools` only gh, kubectl, helm and the OpenSpec package tree. The `Dockerfile` SHALL hold no tool version, download URL or checksum, and SHALL not run `devops install-tools`.
 
@@ -62,3 +39,35 @@ The `openspec` stage SHALL keep only OpenSpec in the `package.json` of the npm t
 #### Scenario: OpenSpec runs in the Service image
 - **WHEN** a person runs `docker run --rm --entrypoint openspec <service image> --version`
 - **THEN** the command prints the OpenSpec version of the devtools image and exits 0
+
+### Requirement: Each image build keeps its own registry cache
+
+The image builds of `./Dockerfile` in `ci.yml`, `release.yml` and `service-image-test.yml` SHALL set
+`cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache`. A build with
+no target SHALL use `service`. No cache entry of the three workflows SHALL use `type=gha`.
+
+#### Scenario: The release reads three registry caches
+
+- **WHEN** the release builds the Service, runner and MCP server images after an earlier release wrote their caches
+- **THEN** the log of each build step shows the import of the `:buildcache` ref of its target
+
+#### Scenario: The Service image test reads the service ref
+
+- **WHEN** `service-image-test.yml` builds the Service image
+- **THEN** the log of its build step shows the import of `ghcr.io/dan-petty/devops-cli/service:buildcache`
+
+### Requirement: Only the release writes the image build cache
+
+Only the `release.yml` build that pushes an image SHALL write its cache, with
+`cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache,mode=max`. A pull
+request job SHALL read the cache with no registry login and no `packages` permission.
+
+#### Scenario: The release writes the full cache
+
+- **WHEN** the release builds and pushes the Service, runner and MCP server images
+- **THEN** the log of each build step shows the export of the cache to the `:buildcache` ref of its target
+
+#### Scenario: A pull request reads the cache with no login
+
+- **WHEN** the Service image job of `ci.yml` builds the image on a pull request
+- **THEN** the log of its build step shows the import of `ghcr.io/dan-petty/devops-cli/service:buildcache`, and the job has no login step and no `packages` permission
