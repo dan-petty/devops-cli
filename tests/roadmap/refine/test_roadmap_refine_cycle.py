@@ -19,6 +19,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.refine.refine import plan_refine, refine_left_out
 from devops_cli.roadmap.stores.store import (
+    CloseReason,
     Item,
     RefineRecordKey,
     install_roadmap_store,
@@ -179,6 +180,25 @@ def test_explain_ends_the_wait_that_the_round_ends(
     assert refine_left_out(store, require_item(store, a)) is None
 
 
+def test_explain_reads_no_graph_for_a_blocked_wait_whose_blocker_closed(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """The record of A holds the step `blocked` on B, and B closed. `refine_left_out` ends the wait
+    from the record and reads the open items once, for the frames: it builds no graph, because no
+    blocker is open (#6450)."""
+    store.seed_visibility(is_private=True)
+    a = seed_item(store, "New", "P1-High")
+    b = seed_item(store, "New", "P1-High")
+    model_fake.answer(blocked_by_issue(b), READY)
+    refine_round(store, git_repo, limit=1)
+    store.as_actor("alice").close_by_hand(b, CloseReason.COMPLETED)
+    before = store.open_item_reads
+
+    explained = refine_left_out(store, require_item(store, a))
+
+    assert (explained, store.open_item_reads - before) == (None, 1)
+
+
 def test_an_open_dependency_outside_a_cycle_keeps_the_blocked_step(
     store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
 ) -> None:
@@ -231,3 +251,26 @@ def test_a_round_with_no_candidate_reads_no_listing_for_the_graph(
         store.open_item_reads,
         store.whole_listing_reads,
     ) == ([], 1, 1)
+
+
+def test_an_edge_to_the_parent_tracker_closes_no_cycle(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """The Dependencies section of the item names its open parent tracker, and the Dependencies
+    section of the tracker names the item. The parent tracker is no blocker of its sub-issue, so no
+    cycle holds the item, and refine sets it Ready (#6450)."""
+    store.seed_visibility(is_private=True)
+    tracker = seed_item(store, "In Progress", "P1-High")
+    number = seed_item(
+        store, "New", "P1-High", body=f"Body P1-High\n\n## Dependencies\n\n- #{tracker}\n"
+    )
+    store.write_issue_body(tracker, f"Body P1-High\n\n## Dependencies\n\n- #{number}\n")
+    store.add_sub_issue(tracker, number)
+    model_fake.answer(blocked_by_issue(tracker))
+
+    plan = refine_round(store, git_repo)
+
+    assert (
+        [(r.item.number, r.next_step) for r in plan.refined_items],
+        require_item(store, number).status,
+    ) == ([(number, "ready")], "Ready")

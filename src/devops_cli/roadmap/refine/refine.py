@@ -138,7 +138,7 @@ import logging
 import re
 import subprocess
 from collections import deque
-from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -263,6 +263,7 @@ from devops_cli.roadmap.stores.store import (
     GitHubState,
     IssueComment,
     Item,
+    ItemTree,
     JobRecord,
     JudgeVerdict,
     OwnerQuestionRecordKey,
@@ -1421,22 +1422,34 @@ class DependencyGraph:
     dependency leads back to (#6449).
 
     A node is an open item of the sequence the graph was built from. The edges of an item are the
-    issues that its job record, its Dependencies section and its quoted titles name, less each
-    issue that the sequence does not hold as an open item, so a closed dependency holds nothing
-    back. `cycle_of` gives, for an item that a dependency leads back to, a shortest path from the
-    item through its dependencies back to it. It searches only for the item that the caller asks
-    for (#6516).
+    blockers among the issues that its job record, its Dependencies section and its quoted titles
+    name, by the rule that the jobs share (`dependencies.open_blockers`, #6450): an issue that the
+    sequence does not hold as an open item gives no edge, so a closed dependency holds nothing
+    back, the item and its parent trackers give no edge, and another tracker gives an edge to each
+    of its open sub-issues. `tree` holds the sub-issue links, from the sequence unless the caller
+    gives a tree, and the jobs read it for the same rule. Refine gives a tree of all Items, so a
+    closed parent breaks no chain of ancestors. `cycle_of` gives, for an item that a dependency leads back to, a shortest
+    path from the item through its dependencies back to it. It searches only for the item that the
+    caller asks for (#6516).
     """
 
     edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    tree: ItemTree = field(default_factory=ItemTree, compare=False, repr=False)
 
     @classmethod
-    def of(cls, items: Sequence[Item]) -> DependencyGraph:
+    def of(cls, items: Sequence[Item], *, tree: ItemTree | None = None) -> DependencyGraph:
         """The graph of the open items of `items`, built from that sequence alone: it reads no
-        store and sends no request."""
-        open_items = [item for item in items if item.state is GitHubState.OPEN]
-        numbers = {item.number for item in open_items}
-        return cls(edges={item.number: _edges_of(item, items, numbers) for item in open_items})
+        store and sends no request. `tree` gives the sub-issue links, the links of `items` when
+        None; a lazy tree reads its Items only when an open item names an open tracker."""
+        open_items = {item.number: item for item in items if item.state is GitHubState.OPEN}
+        tree = tree if tree is not None else ItemTree.of(items)
+        return cls(
+            edges={
+                number: _edges_of(item, items, open_items, tree)
+                for number, item in open_items.items()
+            },
+            tree=tree,
+        )
 
     def cycle_of(self, number: int) -> tuple[int, ...] | None:
         """A shortest path from `number` through its dependencies back to it, or None when no
@@ -1444,15 +1457,29 @@ class DependencyGraph:
         return _path_back(self.edges, number)
 
 
-def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tuple[int, ...]:
-    """The items of `numbers` that `item` declares as its dependencies, in order: the ones its job
-    record, its Dependencies section and its quoted titles name."""
+def _edges_of(
+    item: Item, items: Sequence[Item], open_items: Mapping[int, Item], tree: ItemTree
+) -> tuple[int, ...]:
+    """The open blockers of `item` among the issues that its job record, its Dependencies section
+    and its quoted titles name, in order, by the rule that the jobs share (#6450). Only the open
+    items of `open_items` count."""
     named = (
         *recorded_blockers(item),
         *body_dependencies(item.body),
         *title_dependencies(item.body, items).numbers,
     )
-    return tuple(dict.fromkeys(number for number in named if number in numbers))
+    return _blockers(item, named, open_items.get, tree)
+
+
+def _blockers(
+    item: Item, numbers: Iterable[int], found: Callable[[int], Item | None], tree: ItemTree
+) -> tuple[int, ...]:
+    """The open blockers of `item` among `numbers`, by the one rule of refine, stage and implement
+    (`dependencies.open_blockers`, #6450)."""
+    # The shared rule reads `body_dependencies` and `DependencyGraph` of this module.
+    from devops_cli.roadmap.dependencies import open_blockers
+
+    return open_blockers(item, numbers, found, tree)
 
 
 def _path_back(edges: Mapping[int, Sequence[int]], start: int) -> tuple[int, ...] | None:
@@ -1716,16 +1743,14 @@ def alternatives_gate(check: RecordedCheck | None, *, on: bool) -> bool:
     return check is not None or not on
 
 
-def _is_open(store: RoadmapStore, number: int) -> bool:
-    """Whether issue `number` is an open Item."""
-    found = store.item(number)
-    return found is not None and found.state is GitHubState.OPEN
-
-
-def _open_dependencies(store: RoadmapStore, proposal: RefinementProposal) -> tuple[int, ...]:
-    """The open items that the validated proposal names as its dependencies, in its order. A
-    closed issue holds nothing back (#3500)."""
-    return tuple(dep for dep in proposal.dependencies if _is_open(store, dep))
+def _open_dependencies(
+    store: RoadmapStore, proposal: RefinementProposal, item: Item, tree: ItemTree
+) -> tuple[int, ...]:
+    """The open blockers among the dependencies that the validated proposal of `item` names, in
+    its order. A closed issue holds nothing back (#3500), the parent tracker of the item is no
+    blocker, and another tracker gives its open sub-issues (#6450). `tree` holds the sub-issue
+    links of all Items."""
+    return _blockers(item, proposal.dependencies, store.item, tree)
 
 
 def next_step_of(
@@ -2773,9 +2798,11 @@ def _wait_state(
     return commented_at, refs, _read_marks(item, commented_at, refs)
 
 
-def _open_blockers(store: RoadmapStore, item: Item) -> list[int]:
-    """The issues that the record of `item` names as its blockers and that are still open."""
-    return [number for number in recorded_blockers(item) if _is_open(store, number)]
+def _open_blockers(store: RoadmapStore, item: Item, tree: ItemTree) -> tuple[int, ...]:
+    """The open blockers among the issues that the record of `item` names, by the rule of the
+    jobs (#6450): a parent tracker that a round recorded holds the item no longer, and another
+    tracker gives its open sub-issues. `tree` holds the sub-issue links of all Items."""
+    return _blockers(item, recorded_blockers(item), store.item, tree)
 
 
 def _question_ends_wait(
@@ -2832,7 +2859,10 @@ def _still_waiting(
 
     A dependency cycle ends a blocked wait (#6449): no issue closes a cycle, so a person removes
     one edge, and the round refines the item. `graph` is the graph of the round, which the caller
-    built from the open items it read; without it, the graph is read here for the one item."""
+    built from the open items it read; without it, the graph is read here for the one item, and
+    only when a recorded blocker is still open. The open blockers of a blocked wait come from the
+    rule of the jobs, with the sub-issue links of all Items, so a recorded parent tracker ends the
+    wait and another tracker names its open sub-issues (#6450)."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
@@ -2843,10 +2873,11 @@ def _still_waiting(
         case NextStep.EDIT | NextStep.FAILED:
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
-            blockers = _open_blockers(store, item)
+            tree = graph.tree if graph is not None else ItemTree(store.items)
+            blockers = _open_blockers(store, item, tree)
             if not blockers:
                 return None
-            held = graph if graph is not None else DependencyGraph.of(store.open_items())
+            held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
             if held.cycle_of(item.number) is not None:
                 return None
             details = tuple(f"#{number}" for number in blockers)
@@ -3526,8 +3557,9 @@ def refine_one_item(
     failure = _job_failure(proposal, open_questions, stopped, tools.searched, unmatched)
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
-    blockers = _open_dependencies(store, proposal)
-    held = graph if graph is not None else DependencyGraph.of(store.open_items())
+    tree = graph.tree if graph is not None else ItemTree(store.items)
+    blockers = _open_dependencies(store, proposal, item, tree)
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
     cycle = held.cycle_of(item.number)
     proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
     # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
@@ -3863,7 +3895,8 @@ def plan_refine(
     sha = inspect_checkout(source_path, repo)
     open_items = store.open_items()
     frames = frames_of(open_items)
-    graph = DependencyGraph.of(open_items)
+    # The tree reads every Item, closed parents too, and only when an item names an open tracker.
+    graph = DependencyGraph.of(open_items, tree=ItemTree(store.items))
 
     candidates, waiting, queue = _select_round(
         store, item_number=item_number, limit=limit, actor=actor, frames=frames, graph=graph

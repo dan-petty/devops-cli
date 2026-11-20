@@ -66,7 +66,7 @@ Without `--item`, `devops roadmap refine` SHALL look again at an unchanged item 
 - **THEN** the next round refines the item again
 
 ### Requirement: An open dependency outside a cycle blocks the item
-`devops roadmap refine` SHALL give an item the next step `blocked` when its validated proposal names an open issue as a dependency and no dependency of the item leads back to the item. This applies when the proposal has no open question and fits one pull request. It SHALL record the open issues as the blockers of the item and SHALL NOT set the Status to Ready. A Ready item SHALL go back to New. A closed dependency SHALL NOT hold the item back.
+`devops roadmap refine` SHALL give an item the next step `blocked` when its validated proposal has no open question, fits one pull request and names a dependency that gives an open blocker (the rule of `roadmap-dependency-cycle`), and no dependency leads back to the item. It SHALL record the open blockers and SHALL NOT set the Status to Ready. A Ready item SHALL go back to New. A closed dependency and the parent tracker SHALL NOT hold the item back.
 
 #### Scenario: A complete proposal with one open dependency
 - **WHEN** a New item has a complete proposal with one open dependency (no open question, no split, no suspected block)
@@ -80,12 +80,28 @@ Without `--item`, `devops roadmap refine` SHALL look again at an unchanged item 
 - **WHEN** a New item has a complete proposal with one closed dependency (no open question, no split, no suspected block)
 - **THEN** the next step is `ready`, the refine record holds no blocker, and the item is Ready
 
+#### Scenario: The parent tracker as the one dependency
+- **WHEN** a New item has a complete proposal whose one dependency is the open parent tracker of the item
+- **THEN** the next step is `ready`, the refine record holds no blocker, and the item is Ready
+
+#### Scenario: Another tracker as the one dependency
+- **WHEN** a New item has a complete proposal whose one dependency is another open tracker with the open sub-issues B and C
+- **THEN** the next step is `blocked` with `#B` and `#C`, and the refine record holds `B,C`
+
 ### Requirement: The last blocker to close ends the block
-A blocked item SHALL wait while one of its recorded blockers is open, with no model call. The round after the last blocker closes SHALL refine the item again.
+A blocked item SHALL wait while the issues that its record names give an open blocker (the rule of `roadmap-dependency-cycle`), with no model call. The round after the last blocker closes, or after the last recorded issue stops being a blocker, SHALL refine the item again. A recorded issue that is now the parent tracker of the item SHALL end the wait, and a recorded issue that is now another tracker SHALL give the wait its open sub-issues. `devops roadmap explain` SHALL give the same wait.
 
 #### Scenario: The last blocker closes
 - **WHEN** an item waits on two open dependencies, one of them closes, and then the other closes
 - **THEN** the round after the first close leaves the item waiting on the second, with no model call. The round after the second close refines the item with one model call and sets it Ready
+
+#### Scenario: The recorded blocker is now the parent tracker
+- **WHEN** a round recorded the item as blocked on an open issue, and that issue is now the parent tracker of the item
+- **THEN** `refine_left_out` gives no wait, and the next round refines the item and sets it Ready
+
+#### Scenario: The recorded blocker is now another tracker
+- **WHEN** a round recorded the item as blocked on an open issue, and that issue is now a tracker with the open sub-issues B and C
+- **THEN** the next round leaves the item waiting on `#B` and `#C` with no model call, and `refine_left_out` names `#B, #C`
 
 ### Requirement: A read of the comments of a waiting item is recorded
 When a round reads the comments of an item that waits and finds no reply, `--confirm` SHALL record `refine.comments_seen` (the count of the listing), `refine.commented_at` (the time of refine's last comment) and `refine.wait_refs` (the issues, then the paths, that the wait text names). A round that finds the same values in the record SHALL write nothing for the item.

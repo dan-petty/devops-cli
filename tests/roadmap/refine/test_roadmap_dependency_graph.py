@@ -19,8 +19,11 @@ def _item(
     record: int | None = None,
     body: str = "",
     state: GitHubState = GitHubState.OPEN,
+    parent: int | None = None,
+    sub_issues: int = 0,
 ) -> Item:
-    """An item that its job record names as blocked by `record`, with `body`."""
+    """An item that its job record names as blocked by `record`, with `body`, a sub-issue of
+    `parent`, and with `sub_issues` sub-issues of its own."""
     record_block: JobRecord = {} if record is None else {RefineRecordKey.BLOCKED_BY: str(record)}
     return Item(
         number=number,
@@ -29,6 +32,8 @@ def _item(
         body=body,
         state=state,
         job_record=record_block,
+        parent=parent,
+        sub_issues=sub_issues,
     )
 
 
@@ -138,10 +143,10 @@ def test_the_path_of_an_item_is_a_shortest_cycle() -> None:
     ]
 
 
-def test_a_self_loop_a_lead_in_and_a_closed_link_keep_their_paths() -> None:
-    """An item that names itself gets the path back to itself. An item that only leads into the
-    cycle of two others gets no path, and each of the two gets its own. A closed item between two
-    open items breaks their chain, so neither gets a path (#6516)."""
+def test_a_self_loop_a_lead_in_and_a_closed_link_give_their_paths() -> None:
+    """An item that names itself gets no path: an item is no blocker of itself (#6450). An item
+    that only leads into the cycle of two others gets no path, and each of the two gets its own. A
+    closed item between two open items breaks their chain, so neither gets a path (#6516)."""
     from devops_cli.roadmap.refine.refine import DependencyGraph
 
     graph = DependencyGraph.of(
@@ -156,7 +161,7 @@ def test_a_self_loop_a_lead_in_and_a_closed_link_keep_their_paths() -> None:
     )
 
     assert [graph.cycle_of(number) for number in (5, 6, 7, 8, 9)] == [
-        (5, 5),
+        None,
         None,
         (7, 8, 7),
         (8, 7, 8),
@@ -174,3 +179,35 @@ def test_a_long_ring_gives_its_item_the_whole_ring() -> None:
     ring = {number: (number % size + 1,) for number in range(1, size + 1)}
 
     assert DependencyGraph(edges=ring).cycle_of(1) == (*range(1, size + 1), 1)
+
+
+def test_an_edge_to_the_parent_tracker_closes_no_cycle() -> None:
+    """The record of item 2 names its open parent tracker 1, and the Dependencies section of the
+    tracker names item 2: the parent tracker is no blocker of its sub-issue, so neither item gets a
+    path (#6450)."""
+    from devops_cli.roadmap.refine.refine import DependencyGraph
+
+    graph = DependencyGraph.of(
+        [
+            _item(1, body=_depends_on(2), sub_issues=1),
+            _item(2, record=1, parent=1),
+        ]
+    )
+
+    assert [graph.cycle_of(number) for number in (1, 2)] == [None, None]
+
+
+def test_an_edge_to_another_tracker_leads_through_its_open_sub_issues() -> None:
+    """The record of item 1 names the open tracker 2, whose open sub-issue 3 names item 1: the
+    edge of item 1 goes to the sub-issue, so the graph gives item 1 the path through it (#6450)."""
+    from devops_cli.roadmap.refine.refine import DependencyGraph
+
+    graph = DependencyGraph.of(
+        [
+            _item(1, record=2),
+            _item(2, sub_issues=1),
+            _item(3, record=1, parent=2),
+        ]
+    )
+
+    assert graph.cycle_of(1) == (1, 3, 1)

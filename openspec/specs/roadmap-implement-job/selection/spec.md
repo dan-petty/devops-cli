@@ -349,7 +349,7 @@ The implement job SHALL give the reason "Its plan pull request #<number> is read
 - **THEN** the reason keeps "is not an open draft"
 
 ### Requirement: The implement judge leaves out an open dependency
-The implement judge SHALL leave out an item when a blocker that the Dependencies section of its body or of its plan proposal names is an open issue (the rule of `roadmap-refine/waits`), and the reason SHALL name each open issue.
+The implement judge SHALL leave out an item when a blocker that the Dependencies section of its body or of its plan proposal names (the rule of `roadmap-refine/waits`) gives an open blocker (the rule of `roadmap-dependency-cycle`), and the reason SHALL name each open blocker. The open parent tracker of the item SHALL NOT leave it out.
 
 #### Scenario: An open dependency in the issue body
 - **WHEN** the issue body names dependency `#123` and issue #123 is open
@@ -361,6 +361,14 @@ The implement judge SHALL leave out an item when a blocker that the Dependencies
 
 #### Scenario: A closed dependency
 - **WHEN** every dependency of the body and of the plan is closed
+- **THEN** the judge selects the item
+
+#### Scenario: The parent tracker in the issue body
+- **WHEN** the issue body names the open parent tracker of the item as its one dependency
+- **THEN** the judge selects the item
+
+#### Scenario: The parent tracker in the plan proposal
+- **WHEN** the plan proposal lists the open parent tracker of the item as its one dependency
 - **THEN** the judge selects the item
 
 ### Requirement: The selection reads the checks of the plan pull request
