@@ -137,11 +137,12 @@ import json
 import logging
 import re
 import subprocess
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import cache, partial
+from graphlib import CycleError, TopologicalSorter
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal, Self
 from urllib.parse import urlsplit
@@ -1222,21 +1223,151 @@ def body_questions(body: str) -> list[str]:
 
 
 def body_dependencies(body: str) -> list[int]:
-    """The issues the body names under a "Dependencies" heading, in order (#2654).
+    """The issues the body names as a blocker under a "Dependencies" heading, in order (#2654).
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
-    text under the heading, up to the next heading of the same or a higher level. A word that is
-    `#` and digits, with the punctuation of a list around it, is an issue; the body is parsed as
-    CommonMark, so a heading in a code block is not a heading.
+    text under the heading, up to the next heading of the same or a higher level. Each block of
+    the section, a paragraph or the text of a list item, names its blockers (`_block_blockers`);
+    the body is parsed as CommonMark, so a heading in a code block is not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
-    return [number for token in section if token.type == "inline" for number in _issues(token)]
+    return [
+        number
+        for token in section
+        if token.type == "inline"
+        for number in _block_blockers(token.content)
+    ]
+
+
+# The first words of a block that says that the item waits for no issue, such as `None.` (#6451).
+_NO_BLOCKER_WORDS: Final[frozenset[str]] = frozenset({"none", "no"})
+# The phrases of a block whose issue changes the same code and merges in either order (#6451).
+_ORDER_FREE: Final[tuple[str, ...]] = ("no merge order", "rebase before the second")
+# The words after which the next issue references name a link and no blocker: a parent, a child,
+# a tracker, a related issue, the source of the item, or the issue of an owner decision (#6451).
+_LINK_WORDS: Final[frozenset[str]] = frozenset(
+    {"child", "children", "parent", "tracker", "related", "source", "decision", "decisions"}
+)
+# `Part of #N` names the parent of the item (#6451).
+_PART_OF: Final[tuple[str, str]] = ("part", "of")
+# The words that join the issue references of one link, such as `Related: #1, #2 and #3`.
+_JOIN_WORDS: Final[frozenset[str]] = frozenset({"", "and", "or", "&"})
+# A sentence that names an issue that waits for this item, the parent of the item, or an issue
+# that the item does not wait for (#6451).
+_NOT_A_BLOCKER_RE = re.compile(
+    r"\b(?:needs|waits for|depends on|comes after|blocked by) this item\b"
+    r"|\bthis item blocks\b|\bis the (?:parent|tracker)\b"
+    r"|\bdoes not (?:wait for|depend on)\b|\bis not a dependency\b"
+)
+# The marks that end a sentence, and the marks that can close a sentence after its last word.
+_SENTENCE_ENDS: Final[tuple[str, ...]] = (".", ";", "!", "?")
+_CLOSING_MARKS: Final[str] = ")]\"'*_`"
+
+
+def _block_blockers(text: str) -> list[int]:
+    """The issues that one block of a Dependencies section names as blockers, in order (#6451).
+
+    Each issue reference names a blocker, also in prose such as `#5421 (merged first).` or
+    `Depends on #5380.`, because a missed blocker lets a job take an item too early. A reference
+    names no blocker in these cases: the block starts with `None` or `No`, the block names an issue
+    that merges in either order, its sentence names a reverse link or a parent
+    (`_NOT_A_BLOCKER_RE`), a link word such as `Part of`, `Child`, `Related` or `Source` comes
+    before it in its sentence (`_sentence_blockers`), or it is in parentheses with other words.
+    """
+    words = text.split()
+    if not words or _bare_word(words[0]) in _NO_BLOCKER_WORDS:
+        return []
+    if any(phrase in " ".join(words).casefold() for phrase in _ORDER_FREE):
+        return []
+    return [
+        number
+        for sentence in _sentences(text)
+        if not _NOT_A_BLOCKER_RE.search(" ".join(sentence).casefold())
+        for number in _sentence_blockers(_units(sentence))
+    ]
+
+
+def _bare_word(word: str) -> str:
+    """A word in lower case, stripped of the punctuation of a list and of emphasis."""
+    return word.strip(_REFERENCE_PUNCTUATION + _EMPHASIS_CHARS + '"').casefold()
+
+
+def _sentences(text: str) -> list[list[str]]:
+    """The words of each sentence of a block. A sentence ends at a word that ends with `.`, `;`,
+    `!` or `?`, and at the end of a line, outside parentheses."""
+    sentences: list[list[str]] = [[]]
+    depth = 0
+    for line in text.splitlines():
+        for word in line.split():
+            sentences[-1].append(word)
+            depth = max(0, depth + word.count("(") - word.count(")"))
+            if depth == 0 and word.rstrip(_CLOSING_MARKS).endswith(_SENTENCE_ENDS):
+                sentences.append([])
+        if depth == 0:
+            sentences.append([])
+    return [sentence for sentence in sentences if sentence]
+
+
+def _units(words: Sequence[str]) -> list[tuple[str, ...]]:
+    """The words of a sentence, with the words of each group in parentheses as one unit."""
+    units: list[tuple[str, ...]] = []
+    group: list[str] = []
+    depth = 0
+    for word in words:
+        inside = depth > 0
+        depth = max(0, depth + word.count("(") - word.count(")"))
+        if not inside and "(" not in word:
+            units.append((word,))
+            continue
+        group.append(word)
+        if depth == 0:
+            units.append(tuple(group))
+            group = []
+    if group:
+        units.append(tuple(group))
+    return units
+
+
+def _sentence_blockers(units: Sequence[tuple[str, ...]]) -> list[int]:
+    """The issues that one sentence names as blockers, in order (#6451).
+
+    The references that follow a link word, up to the first other word after them, name a link:
+    `Merge first: #4835, child 8 of #4833` names #4835 and not its parent #4833. A group in
+    parentheses names a blocker only when it holds issue references only, such as `(#123)`; a
+    note such as `(hold: ... of #6519)` names none.
+    """
+    found: list[int] = []
+    linked = named = False
+    for index, unit in enumerate(units):
+        if "(" in unit[0]:
+            inner = [word.strip(_REFERENCE_PUNCTUATION) for word in unit]
+            inner = [word for word in inner if word.casefold() not in _JOIN_WORDS]
+            if not linked and inner and all(_is_reference(word) for word in inner):
+                found.extend(int(word[1:]) for word in inner)
+            continue
+        word = unit[0].strip(_REFERENCE_PUNCTUATION)
+        bare = _bare_word(word)
+        after = _bare_word(units[index + 1][0]) if index + 1 < len(units) else ""
+        if bare in _LINK_WORDS or (bare, after) == _PART_OF:
+            linked, named = True, False
+        elif _is_reference(word):
+            named = linked
+            if not linked:
+                found.append(int(word[1:]))
+        elif linked and named and bare not in _JOIN_WORDS:
+            linked = False
+    return found
+
+
+def _is_reference(word: str) -> bool:
+    """Whether a word stripped of the punctuation of a list is `#` and digits, such as `#12`."""
+    return word.startswith("#") and word[1:].isdigit()
 
 
 def _issues(token: Token) -> list[int]:
     """The issues that an inline token names as `#` and digits, with list punctuation around."""
     words = (word.strip(_REFERENCE_PUNCTUATION) for word in token.content.split())
-    return [int(word[1:]) for word in words if word.startswith("#") and word[1:].isdigit()]
+    return [int(word[1:]) for word in words if _is_reference(word)]
 
 
 @dataclass(frozen=True)
@@ -1284,6 +1415,84 @@ def title_dependencies(body: str, items: Sequence[Item]) -> TitleDependencies:
         else:
             unmatched.append(title)
     return TitleDependencies(tuple(dict.fromkeys(numbers)), tuple(dict.fromkeys(unmatched)))
+
+
+@dataclass(frozen=True)
+class DependencyGraph:
+    """The declared dependencies of the open items as one graph, and the cycle of each item that a
+    dependency leads back to (#6449).
+
+    A node is an open item of the sequence the graph was built from. The edges of an item are the
+    issues that its job record, its Dependencies section and its quoted titles name, less each
+    issue that the sequence does not hold as an open item, so a closed dependency holds nothing
+    back. `cycles` gives, for each item that a dependency leads back to, the path from the item
+    through its dependencies back to it.
+    """
+
+    edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
+    cycles: dict[int, tuple[int, ...]] = field(default_factory=dict)
+
+    @classmethod
+    def of(cls, items: Sequence[Item]) -> DependencyGraph:
+        """The graph of the open items of `items`, built from that sequence alone: it reads no
+        store and sends no request."""
+        open_items = [item for item in items if item.state is GitHubState.OPEN]
+        numbers = {item.number for item in open_items}
+        edges = {item.number: _edges_of(item, items, numbers) for item in open_items}
+        if not _holds_a_cycle(edges):
+            return cls(edges=edges)
+        cycles = {
+            item.number: path
+            for item in open_items
+            if (path := _path_back(edges, item.number)) is not None
+        }
+        return cls(edges=edges, cycles=cycles)
+
+    def cycle_of(self, number: int) -> tuple[int, ...] | None:
+        """The path from `number` through its dependencies back to it, or None when no dependency
+        of it leads back."""
+        return self.cycles.get(number)
+
+
+def _edges_of(item: Item, items: Sequence[Item], numbers: Collection[int]) -> tuple[int, ...]:
+    """The items of `numbers` that `item` declares as its dependencies, in order: the ones its job
+    record, its Dependencies section and its quoted titles name."""
+    named = (
+        *recorded_blockers(item),
+        *body_dependencies(item.body),
+        *title_dependencies(item.body, items).numbers,
+    )
+    return tuple(dict.fromkeys(number for number in named if number in numbers))
+
+
+def _holds_a_cycle(edges: Mapping[int, Sequence[int]]) -> bool:
+    """Whether a dependency leads back to its item, which the one sort of the graph finds."""
+    try:
+        TopologicalSorter({number: set(names) for number, names in edges.items()}).prepare()
+    except CycleError:
+        return True
+    return False
+
+
+def _path_back(edges: Mapping[int, Sequence[int]], start: int) -> tuple[int, ...] | None:
+    """The first path from `start` through the edges that ends at `start`, or None when no
+    dependency of `start` leads back to it."""
+    seen = {start}
+    stack: list[tuple[int, ...]] = [(start,)]
+    while stack:
+        path = stack.pop()
+        for next_number in edges.get(path[-1], ()):
+            if next_number == start:
+                return (*path, start)
+            if next_number not in seen:
+                seen.add(next_number)
+                stack.append((*path, next_number))
+    return None
+
+
+def cycle_text(path: Sequence[int]) -> str:
+    """The path of a cycle as a person reads it, such as `#1 → #2 → #1`."""
+    return " → ".join(f"#{number}" for number in path)
 
 
 def _extract_heading_bullets(body: str, heading_re: re.Pattern[str]) -> list[str]:
@@ -1471,11 +1680,18 @@ def form_checks(proposal: RefinementProposal) -> list[JobCheck]:
 
 
 def check_ready(
-    proposal: RefinementProposal, open_questions: Sequence[str], blockers: Sequence[int]
+    proposal: RefinementProposal,
+    open_questions: Sequence[str],
+    blockers: Sequence[int],
+    *,
+    cycle: Sequence[int] | None,
 ) -> bool:
     """Deterministic check: no failed form check (`form_checks`), no open questions, fits one PR,
-    no open dependency (`blockers`, #3500) and no suspected block.
+    no open dependency (`blockers`, #3500), no dependency cycle (`cycle`, #6449) and no suspected
+    block.
     """
+    if cycle is not None:
+        return False
     if form_checks(proposal) or open_questions:
         return False
     if not proposal.fits_one_pr or blockers:
@@ -1508,13 +1724,21 @@ def next_step_of(
     *,
     is_ready: bool,
     waiting_for_alternatives: bool = False,
+    cycle: Sequence[int] | None = None,
 ) -> tuple[NextStep, tuple[str, ...], tuple[int, ...]]:
     """The next step a validated proposal gives its item, with its details and the open items
-    that block it, which are `blockers` (#1758): an item whose proposal is ready waits on the
-    alternatives check when it holds no verdict (#2951), else the open questions go to a person
-    first, then the split, then the open dependencies, then a suspected block, and last a
-    proposal that fails a form check, which is a job failure that a later round tries again
-    (#3632)."""
+    that block it, which are `blockers` (#1758): an item that a dependency leads back to waits on
+    a person, who removes one edge of the cycle (`cycle`, #6449), else an item whose proposal is
+    ready waits on the alternatives check when it holds no verdict (#2951), else the open
+    questions go to a person first, then the split, then the open dependencies, then a suspected
+    block, and last a proposal that fails a form check, which is a job failure that a later round
+    tries again (#3632)."""
+    if cycle is not None:
+        return (
+            NextStep.PERSON,
+            (MESSAGES.roadmap.dependency_cycle.format(cycle=cycle_text(cycle)),),
+            (),
+        )
     if waiting_for_alternatives:
         return NextStep.ALTERNATIVES, (), ()
     if is_ready:
@@ -1551,16 +1775,23 @@ def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> Own
     )
 
 
-def recorded_frames(store: RoadmapStore) -> dict[str, Item]:
-    """The open item that holds the frame of each question hash, the oldest first: what the job
-    records of the open items say, so an item that asks a question another open item asks links
-    that frame instead of posting a second one (#3077)."""
+def frames_of(items: Sequence[Item]) -> dict[str, Item]:
+    """The open item of `items` that holds the frame of each question hash, the oldest first: what
+    the job records of the open items say, so an item that asks a question another open item asks
+    links that frame instead of posting a second one (#3077). The round builds it from the open
+    items it reads once, and gives the same sequence to the dependency graph (#6449)."""
     frames: dict[str, Item] = {}
-    for item in sorted(store.open_items(), key=lambda open_item: open_item.number):
+    for item in sorted(items, key=lambda open_item: open_item.number):
         question_hash = item.job_record.get(OwnerQuestionRecordKey.HASH)
         if question_hash is not None:
             frames.setdefault(question_hash, item)
     return frames
+
+
+def recorded_frames(store: RoadmapStore) -> dict[str, Item]:
+    """The open item that holds the frame of each question hash, the oldest first, from the open
+    items of `store` (#3077)."""
+    return frames_of(store.open_items())
 
 
 def frame_holder(
@@ -2039,6 +2270,14 @@ def _moved_part(numbers: Sequence[int]) -> str:
     return f"\n\n### {_PART_MOVED}\n" + ", ".join(f"#{number}" for number in numbers)
 
 
+def _cycle_line(cycle: Sequence[int] | None) -> list[str]:
+    """The line of refine's section that names the dependency cycle that holds the item back, or
+    nothing when no dependency leads back to it (#6449)."""
+    if cycle is None:
+        return []
+    return [MESSAGES.roadmap.dependency_cycle.format(cycle=cycle_text(cycle))]
+
+
 def render_proposal_section(
     proposal: RefinementProposal,
     open_questions: list[str],
@@ -2047,6 +2286,7 @@ def render_proposal_section(
     *,
     block_paths: Sequence[str] = (),
     deferred: Sequence[int] = (),
+    cycle: Sequence[int] | None = None,
 ) -> str:
     """Builds the sanitized plain text markdown section between markers.
 
@@ -2055,7 +2295,8 @@ def render_proposal_section(
     the section's own (#1470, #2478). The section holds the whole result of the round (#6196):
     after the design, the open questions, Fit, the suspected block and the dependencies come the
     files whose change ends a wait (`block_paths`, sorted, so their order changes no section), and
-    last the new issues of the deferred parts (`deferred`).
+    last the new issues of the deferred parts (`deferred`). A dependency cycle (`cycle`) is the
+    cause of the wait, so it goes under the suspected block (#6449).
     """
     lines: list[str] = [
         "## Proposed design",
@@ -2100,6 +2341,7 @@ def render_proposal_section(
     lines.append("")
     lines.append(f"### {_PART_SUSPECTED_BLOCK}")
     lines.append(proposal.suspected_block.strip() if proposal.suspected_block else "None.")
+    lines.extend(_cycle_line(cycle))
 
     lines.append("")
     lines.append(f"### {_PART_DEPENDENCIES}")
@@ -2557,6 +2799,8 @@ def _still_waiting(
     item: Item,
     comments_on: Callable[[int], list[IssueComment]],
     questions: _Questions,
+    *,
+    graph: DependencyGraph | None = None,
 ) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
@@ -2573,7 +2817,11 @@ def _still_waiting(
     An item that asks an owner question waits on its frame (#3077): a trusted person's answer to
     the frame ends the wait of every item that the frame covers, and the frame of an item that
     another open item holds is read there, so an item that holds only a link to it resumes too.
-    When no open item holds the frame, no answer can come, and refine looks at the item again."""
+    When no open item holds the frame, no answer can come, and refine looks at the item again.
+
+    A dependency cycle ends a blocked wait (#6449): no issue closes a cycle, so a person removes
+    one edge, and the round refines the item. `graph` is the graph of the round, which the caller
+    built from the open items it read; without it, the graph is read here for the one item."""
     step = _recorded_step(item)
     details: tuple[str, ...] = ()
     names_cause = step is NextStep.PERSON
@@ -2586,6 +2834,9 @@ def _still_waiting(
         case NextStep.BLOCKED:
             blockers = _open_blockers(store, item)
             if not blockers:
+                return None
+            held = graph if graph is not None else DependencyGraph.of(store.open_items())
+            if held.cycle_of(item.number) is not None:
                 return None
             details = tuple(f"#{number}" for number in blockers)
         case NextStep.ALTERNATIVES:
@@ -2739,6 +2990,9 @@ class _Selection:
     frames: dict[str, Item] | None = None
     """The open item that holds the frame of each owner question hash, read once when an item
     asks a question (#3077); None until the selection needs it."""
+    graph: DependencyGraph | None = None
+    """The declared dependencies of the open items of the round (#6449); None when the selection
+    reads them for the one item whose blocked wait it judges."""
     actor: str | None = None
     """The account that the run acts as: its own comments answer no owner question (#3077)."""
 
@@ -2782,7 +3036,9 @@ class _Selection:
             self.waiting.append(failed_lately)
             return
         if is_unchanged(item, item.body) and not _needs_second_look(item):
-            waits = _still_waiting(self.store, item, self.comments_on, self.questions())
+            waits = _still_waiting(
+                self.store, item, self.comments_on, self.questions(), graph=self.graph
+            )
             if waits is not None:
                 self.waiting.append(waits)
                 return
@@ -2867,11 +3123,14 @@ def _select_round(
     limit: int,
     actor: str | None = None,
     frames: dict[str, Item] | None = None,
+    graph: DependencyGraph | None = None,
 ) -> tuple[list[Item], list[WaitingItem], int]:
     """The selection of `select_candidates`, and the count of the items that it ordered before
     the rules of each item and the limit: the queue of the refine row (#5470). The selection of a
     named item counts none. `frames` maps a question hash to the open item that holds its frame,
-    which the selection reads itself when the caller gives none (#3077)."""
+    which the selection reads itself when the caller gives none (#3077). `graph` is the declared
+    dependencies of the open items of the round, which the selection reads itself when the caller
+    gives none (#6449)."""
     if item_number is not None:
         selected, waiting = _select_single_candidate(store, item_number)
         return selected, waiting, 0
@@ -2896,7 +3155,7 @@ def _select_round(
         ),
     ]
 
-    selection = _Selection(store, frames=frames, actor=actor)
+    selection = _Selection(store, frames=frames, actor=actor, graph=graph)
     for it in ordered:
         if len(selection.selected) >= limit:
             break
@@ -3163,6 +3422,7 @@ def refine_one_item(
     max_context_tokens: int = CONST_ROADMAP_REFINE_CONTEXT_MAX_TOKENS,
     intake_model: IntakeModel | None = None,
     frames: Mapping[str, Item] | None = None,
+    graph: DependencyGraph | None = None,
     actor: str | None = None,
 ) -> RefinedItem:
     """Refines one item through context collection, proposal, validation and, when a question
@@ -3172,7 +3432,9 @@ def refine_one_item(
     client that `verifier` makes (#3502). `frames` maps a question hash to the open item that
     holds its frame, so an item that asks one question links that frame (#3077). `actor` is the
     account that the run acts as, whose own comments answer no owner question, and the answer that
-    a trusted person gave to the frame reaches the request of the item (#3077)."""
+    a trusted person gave to the frame reaches the request of the item (#3077). `graph` is the
+    declared dependencies of the open items of the round, which decides whether a cycle holds the
+    item back, and which is read here when the caller gives none (#6449)."""
     web = web or WebSearch()
     current_body = store.read_issue_body(item.number)
 
@@ -3253,7 +3515,9 @@ def refine_one_item(
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
     blockers = _open_dependencies(store, proposal)
-    proposal_ready = check_ready(proposal, open_questions, blockers)
+    held = graph if graph is not None else DependencyGraph.of(store.open_items())
+    cycle = held.cycle_of(item.number)
+    proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
     # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
     # New and waits for the row, unless the check is off for the repository.
     gate = alternatives_gate(check, on=web.on)
@@ -3282,6 +3546,7 @@ def refine_one_item(
         blockers,
         is_ready=is_ready,
         waiting_for_alternatives=waiting_for_alternatives,
+        cycle=cycle,
     )
     refusal: JobFailure | None = None
     tries = 0
@@ -3314,7 +3579,7 @@ def refine_one_item(
     shown = [*open_questions, refused] if refused is not None else open_questions
     moved = _recorded_numbers(item)
     rendered_section = render_proposal_section(
-        proposal, shown, sha, allowed_urls, block_paths=block_paths, deferred=moved
+        proposal, shown, sha, allowed_urls, block_paths=block_paths, deferred=moved, cycle=cycle
     )
     outside, _ = extract_section_and_outside(current_body)
     new_body = outside.rstrip() + "\n\n" + rendered_section
@@ -3584,10 +3849,12 @@ def plan_refine(
     that the run acts as, whose own comments answer no owner question (#3077)."""
     source_path = Path(source)
     sha = inspect_checkout(source_path, repo)
-    frames = recorded_frames(store)
+    open_items = store.open_items()
+    frames = frames_of(open_items)
+    graph = DependencyGraph.of(open_items)
 
     candidates, waiting, queue = _select_round(
-        store, item_number=item_number, limit=limit, actor=actor, frames=frames
+        store, item_number=item_number, limit=limit, actor=actor, frames=frames, graph=graph
     )
     if writer is not None:
         writer.begin(len(candidates))
@@ -3627,6 +3894,7 @@ def plan_refine(
                 max_context_tokens=max_tokens,
                 intake_model=intake_model,
                 frames=frames,
+                graph=graph,
                 actor=actor,
             )
         except AICredentialsError:

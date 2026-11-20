@@ -4,6 +4,6 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@0000000000000000000000000000000000000001 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: tj-actions/changed-files@0000000000000000000000000000000000000002 # v45.0.0
       - uses: tj-actions/changed-files@0000000000000000000000000000000000000003 # v46.0.1

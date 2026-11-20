@@ -7,6 +7,9 @@ from packaging.version import Version
 
 from devops_cli.research.version_match import in_range, pinned_version
 
+_COMMIT = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+_OTHER_COMMIT = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
 
 @pytest.mark.parametrize(
     ("text", "expected"),
@@ -26,6 +29,58 @@ def test_a_pin_names_one_release_only_with_three_numbers(text: str, expected: st
     found = pinned_version(text)
 
     assert (None if found is None else str(found)) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("v7.2.1", "7.2.1"),
+        ("2026.10.4", "2026.10.4"),
+        ("v7", None),
+        ("3.14", None),
+        ("v7.2.1-rc1", None),
+        ("v7.2.1.dev1", None),
+        ("v7.2.1+local", None),
+        ("v7.2.1.post1", None),
+        ("latest", None),
+    ],
+)
+def test_a_tag_is_a_full_release_only_with_three_numbers_and_no_variant(
+    text: str, expected: str | None
+) -> None:
+    from devops_cli.research.version_match import full_release
+
+    found = full_release(text)
+
+    assert (None if found is None else str(found)) == expected
+
+
+def test_the_highest_full_release_tag_of_the_commit_is_the_release() -> None:
+    from devops_cli.research.version_match import release_for_commit
+
+    tags = [("v7.2.0", _COMMIT), ("v7.2.1", _COMMIT), ("v7.3.0", _OTHER_COMMIT)]
+
+    assert release_for_commit(tags, _COMMIT) == "v7.2.1"
+
+
+@pytest.mark.parametrize(
+    ("tags", "expected"),
+    [
+        ([("v7", _COMMIT)], None),
+        ([("v7.2.1-rc1", _COMMIT)], None),
+        ([("v7.2.1", _OTHER_COMMIT)], None),
+        ([("v7.2.0", _COMMIT), ("v7.2.1", _COMMIT)], "v7.2.1"),
+        ([("v7.2.1", _COMMIT), ("v7.2.0", _COMMIT)], "v7.2.1"),
+        ([("v7", _COMMIT), ("v7.2.1-rc1", _COMMIT), ("v7.3.0", _OTHER_COMMIT)], None),
+        ([], None),
+    ],
+)
+def test_the_release_of_a_commit_is_a_full_release_tag_at_it(
+    tags: list[tuple[str, str]], expected: str | None
+) -> None:
+    from devops_cli.research.version_match import release_for_commit
+
+    assert release_for_commit(tags, _COMMIT) == expected
 
 
 @pytest.mark.parametrize(

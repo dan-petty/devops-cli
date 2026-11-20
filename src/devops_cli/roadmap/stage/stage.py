@@ -769,8 +769,8 @@ class _Judge:
         return self._store.items()
 
     def _dependency(self, item: Item) -> str | None:
-        """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
-        quoted title (#4803), from the shared check (#4009)."""
+        """An open issue that the Dependencies section of the body names as a blocker `#N` (#2654,
+        #6451) or by its quoted title (#4803), from the shared check (#4009)."""
         return open_dependency(item, self._store, self._items)
 
     def _recorded_blocker(self, item: Item) -> str | None:
@@ -2429,9 +2429,9 @@ class _Planner:
         return [self._specs[name].request_entry(name) for name in names]
 
     def _declared_dependencies(self, body: str) -> list[dict[str, Any]] | None:
-        """The issues that the body declares as dependencies, each with its number and, when the
-        lookup holds the issue, its title (#4008). A dependency outside the lookup keeps its
-        number with no title."""
+        """The blockers that the Dependencies section of the body names (#6451), each with its
+        number and, when the lookup holds the issue, its title (#4008). A dependency outside the
+        lookup keeps its number with no title."""
         entries = []
         for number in body_dependencies(body):
             entry: dict[str, Any] = {"number": number}

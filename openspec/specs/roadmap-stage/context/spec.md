@@ -118,10 +118,10 @@ The planner prompt SHALL tell the planner to state each needed failure class and
 - **THEN** The prompt contains the instruction to state those facts in `## Feasibility`.
 
 ### Requirement: The request lists the declared issue dependencies
-The stage request SHALL hold `issue_dependencies` with one entry for each issue that the Dependencies section of the item body names, in the order of the body. An entry SHALL hold `number` and, when the store holds the issue, `title`. The request SHALL omit the key when the body declares no dependency.
+The stage request SHALL hold `issue_dependencies` with one entry for each blocker that the Dependencies section of the item body names (the rule of `roadmap-refine/waits`), in the order of the body. An entry SHALL hold `number` and, when the store holds the issue, `title`. The request SHALL omit the key when the body declares no dependency.
 
 #### Scenario: Two declared dependencies
-- **WHEN** the body names `#2` and `#3` in its Dependencies section, and the store holds both as items with a title
+- **WHEN** the body names `#2` and `#3` as blockers in its Dependencies section, and the store holds both as items with a title
 - **THEN** the request holds `[{"number": 2, "title": "..."}, {"number": 3, "title": "..."}]`
 
 #### Scenario: An issue that the store lacks
@@ -133,7 +133,7 @@ The stage request SHALL hold `issue_dependencies` with one entry for each issue 
 - **THEN** the request holds no `issue_dependencies` key
 
 ### Requirement: The prompt names the declared dependencies
-The prompt `roadmap_stage_change.md` SHALL state that `issue_dependencies` holds each issue of the Dependencies section and that the model writes one `dependencies` entry for each as `#<number>: <reason>`.
+The prompt `roadmap_stage_change.md` SHALL state that `issue_dependencies` holds the issues of the Dependencies section and that the model writes one `dependencies` entry for each as `#<number>: <reason>`. The request holds in that key only each blocker that the Dependencies section names (the rule of `roadmap-refine/waits`), so the prompt states no blocker rule of its own.
 
 #### Scenario: The stage prompt
 - **WHEN** a test loads the prompt of the task `stage`

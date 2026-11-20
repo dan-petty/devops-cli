@@ -4243,6 +4243,10 @@ class RoadmapMessages:
         "refine round reviews the item again."
     )
     stage_left_dependency: str = "The item depends on the open issue {issues}."
+    dependency_cycle: str = (
+        "The item is in a dependency cycle: {cycle}. A person removes one edge of the cycle, so "
+        "that its items no longer wait on each other."
+    )
     stage_left_blocked: str = (
         "The item waits for the open issue {issues}, which a refine round or the stage job "
         "recorded as its blocker."

@@ -21,7 +21,7 @@ from devops_cli.roadmap.implement.implement import (
     plan_implement,
     render_implement_plan,
 )
-from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey
+from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey, RefineRecordKey
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -108,6 +108,28 @@ def test_an_item_with_an_open_body_dependency_is_left_out(
         issues=f"#{blocker}"
     )
     assert number not in [target.item.number for target in plan.selected]
+
+
+def test_a_dependency_cycle_names_the_cycle_in_the_reason(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, api: GitHubApiFake
+) -> None:
+    """The Dependencies section of A names the open B, and the record of B names A, so the reason
+    for A names the path back to A and not only the open issue B (#6449)."""
+    blocker = store.seed_issue(
+        "A prerequisite",
+        labels=("priority/p2-medium", "status/ready"),
+    )
+    number = seed_staged(store, body=f"## Dependencies\n\n#{blocker}\n")
+    push_staged_branch(stage_repo, number=number)
+    blocker_item = store.item(blocker)
+    assert blocker_item is not None
+    store.set_marks(blocker_item, {RefineRecordKey.BLOCKED_BY: str(number)})
+
+    plan = _plan(store, stage_repo)
+
+    reason = _reasons(plan)[number]
+    assert f"#{number} → #{blocker} → #{number}" in reason
+    assert reason != MESSAGES.roadmap.stage_left_dependency.format(issues=f"#{blocker}")
 
 
 def test_an_item_with_an_open_plan_dependency_is_left_out(

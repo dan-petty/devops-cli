@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload Security Scan SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: .data/scan.sarif
           category: "/devops-scan"
@@ -495,14 +495,14 @@ jobs:
         env:
           IMAGE: devops-cli-service:local
         run: |
-          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
+          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
           curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
           docker stop svc && docker rm svc
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm --entrypoint gh "$IMAGE" --version
           docker run --rm --entrypoint git "$IMAGE" --version
           docker run --rm --entrypoint openspec "$IMAGE" --version
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
@@ -603,10 +603,10 @@ jobs:
           docker run --rm -e DEVOPS_CLI_USER_DATA_ROOT=/opt/devops-tools --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The runner image is $size bytes, over the bound of 3000000000."; exit 1; fi
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:uid=1000,gid=1000 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
+          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
           if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           # The job and its steps run `uv run` in a worktree: the checkout's .python-version names a patch release that the base image can lack.
-          docker run --rm --read-only --tmpfs /home/devops:uid=1000,gid=1000,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && uv run --locked ruff --version'
+          docker run --rm --read-only --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && uv run --locked ruff --version'
 
       - name: Scan Runner Image for Vulnerabilities
         if: steps.image_changes.outputs.changed == 'true'

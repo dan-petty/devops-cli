@@ -20,6 +20,13 @@ How `devops research inventory` reads the pins of a repository from its files in
 - **WHEN** a step reads `uses: actions/checkout@<commit> # v7`
 - **THEN** the version of the component is `v7`
 
+### Requirement: An Action pin to a commit keeps its commit
+The inventory SHALL keep, beside the version, the commit of an Action pin whose ref is a full commit sha, and SHALL keep no commit for any other pin.
+
+#### Scenario: A pin to a commit and a major tag
+- **WHEN** a step reads `uses: actions/checkout@<commit> # v7`
+- **THEN** the version of the component is `v7` and the component holds the commit
+
 ### Requirement: A pin with no ecosystem is listed and counted
 A component that the reader cannot map to a registry SHALL have the ecosystem `unknown`. The summary SHALL count it in `unknown`, and the total SHALL include it.
 

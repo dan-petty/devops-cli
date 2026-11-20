@@ -73,6 +73,13 @@ The owner approved, on 2026-11-07, the egress of the research agent to `api.gith
 - **WHEN** `devops research advisories` runs on a repository with a GitHub Action, a mapped chart and a finding with a CVE, and no Python or Node package
 - **THEN** the requests go to `api.github.com` and `www.cisa.gov` only
 
+### Requirement: The tags read of a pinned Action goes to api.github.com only
+`devops research advisories` SHALL send the tags read of a pinned Action, `GET /repos/{owner}/{repo}/tags` (#4012), to `api.github.com` only, through the GitHub advisories client, at the public egress level and with the byte cap of that client. The approval of 2026-11-07 names the advisories API and not this path.
+
+#### Scenario: The tags read of a commit pin
+- **WHEN** `devops research advisories` resolves the pin `actions/checkout@<commit> # v4`
+- **THEN** the tags read goes to `https://api.github.com/repos/actions/checkout/tags` and to no other host
+
 ### Requirement: The GitHub advisories client and the KEV client refuse an answer they cannot trust
 The GitHub advisories client SHALL read each reply as a stream, and SHALL treat a reply over `DEFAULT_GITHUB_ADVISORIES_MAX_RESPONSE_BYTES` as a failed read. The KEV client SHALL do the same for `DEFAULT_KEV_MAX_RESPONSE_BYTES`. Neither client SHALL follow a redirect: a redirect is a failed read, and the client SHALL send no request to its target, whatever the target is. A read that fails SHALL NOT be a clean package.
 

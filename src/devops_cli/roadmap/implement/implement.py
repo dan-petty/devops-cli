@@ -377,8 +377,8 @@ class _Judge:
         return registry_table(self._source)
 
     def _dependency(self, item: Item) -> str | None:
-        """An open issue that the Dependencies section of the body names as `#N` (#2654) or by its
-        quoted title (#4803), from the shared check (#4009)."""
+        """An open issue that the Dependencies section of the body names as a blocker `#N` (#2654,
+        #6451) or by its quoted title (#4803), from the shared check (#4009)."""
         return open_dependency(item, self._store, self._items)
 
     def _route(self, item: Item) -> RecordedBranch | _Planned | None:
