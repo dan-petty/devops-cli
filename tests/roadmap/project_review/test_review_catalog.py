@@ -416,3 +416,19 @@ def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> Non
     assert (bool(grouped), unscoped) == (True, [])
     filled = [render_query(fact.query, values) for fact in catalog.facts]
     assert [query for query in filled if "{namespaces}" in query] == []
+
+
+def test_a_first_time_that_is_not_utc_names_the_fact_and_the_field(tmp_path: Path) -> None:
+    text = _refusal(
+        tmp_path, lambda doc: doc["facts"][0].update(not_before="2026-11-14T22:29:00+01:00")
+    )
+
+    assert (
+        "prometheus.example" in text,
+        "`not_before`" in text,
+        "YYYY-MM-DDTHH:MM:SSZ" in text,
+    ) == (
+        True,
+        True,
+        True,
+    )

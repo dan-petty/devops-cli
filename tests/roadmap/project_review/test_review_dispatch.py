@@ -15,9 +15,9 @@ import pytest
 import yaml
 
 from devops_cli.config.settings import load_settings
-from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog
+from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, window_placeholders
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
-from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
+from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
@@ -418,6 +418,88 @@ def test_an_end_instant_fact_whose_base_has_no_series_at_the_end_is_skipped(
         "sum by (state) (x_total)",
         f'group(x_total{{repo="{REPO}"}})',
     ]
+
+
+RENAMED = "2026-11-14T22:29:00Z"
+RENAME_END = datetime(2026, 11, 16, tzinfo=UTC)
+
+
+def _renamed_pair(tmp_path: Path) -> Catalog:
+    """`prometheus.left` and `prometheus.right`, whose series starts at RENAMED, and their pair."""
+    right = {**_prometheus_fact("prometheus.right", "sum(right_total)"), "not_before": RENAMED}
+    pair = {
+        "id": "jobs",
+        "left": "prometheus.left",
+        "right": "prometheus.right",
+        "tolerance": 0.1,
+        "definition": "Two counts of the same Jobs.",
+    }
+    return _catalog(
+        tmp_path, [_prometheus_fact("prometheus.left", "sum(left_total)"), right], [pair]
+    )
+
+
+def _days_to(end: datetime, days: int, tmp_path: Path) -> ReadContext:
+    window = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=end - timedelta(days=days),
+        end=end,
+        previous_id=None,
+    )
+    return ReadContext(
+        checkout=tmp_path,
+        repo=REPO,
+        window=window,
+        settings=load_settings(),
+        now=end + timedelta(hours=1),
+    )
+
+
+def test_a_window_that_starts_before_the_first_time_of_a_series_skips_the_fact_and_its_pair(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """The Jobs had other names before #5739, so a window across the rename counts only the later
+    Jobs: a false disagreement of about 69 % (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(lambda request: _vector(({}, 48.43)))
+
+    result = read_catalog(_renamed_pair(tmp_path), _days_to(RENAME_END, 7, tmp_path))
+
+    left, right = result.facts
+    assert (left.status, left.value) == (FactStatus.OK, 48.43)
+    assert (right.status, right.value, RENAMED in right.reason) == (FactStatus.SKIPPED, None, True)
+    assert [request.url.params["query"] for request in web.sent] == ["sum(left_total)"]
+    assert result.disagreements == []
+
+
+def test_a_window_after_the_first_time_of_a_series_reads_the_fact_and_its_pair(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": PROMETHEUS})
+    answers = {"sum(left_total)": 48.43, "sum(right_total)": 15}
+    web.serve(_by_query(lambda query: _vector(({}, answers[query]))))
+
+    result = read_catalog(_renamed_pair(tmp_path), _days_to(RENAME_END, 1, tmp_path))
+
+    assert [(fact.status, fact.value) for fact in result.facts] == [
+        (FactStatus.OK, 48.43),
+        (FactStatus.OK, 15.0),
+    ]
+    assert [(row.id, row.left_value, row.right_value) for row in result.disagreements] == [
+        ("jobs", 48.43, 15.0)
+    ]
+
+
+def test_the_plan_of_a_fact_with_a_first_time_names_that_time(tmp_path: Path) -> None:
+    values = window_placeholders(_window(RENAME_END), REPO, ("devops",))
+
+    plan = plan_catalog(_renamed_pair(tmp_path), values, tmp_path)
+
+    [right] = [read for read in plan if read.target.startswith("prometheus.right: ")]
+    assert RENAMED in right.condition
 
 
 def test_a_workload_query_reads_only_the_namespaces_of_the_setting(
