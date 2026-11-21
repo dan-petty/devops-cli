@@ -1203,7 +1203,6 @@ DEFAULT_ROADMAP_OPEN_MODE: RowMode = "plan"
 # The cadence, modes and caps of the step fix-conflict (#5019).
 DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES: int = 37
 DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE: RowMode = "on"
-DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE: RowMode = "plan"
 DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP: int = 2
 DEFAULT_ROADMAP_FIX_CONFLICT_HARD_CAP: int = 4
 # The most new tokens of the model fix of one run of the step fix-checks (#5971), by the owner
