@@ -358,9 +358,9 @@ def _config_before_subcommand(cmd: list[str], subcommand: str) -> list[str]:
 def test_only_the_fetch_gets_git_options_and_every_command_gets_only_the_prompt_switch(
     tmp_path: Path,
 ) -> None:
-    """The SSH option and the credential helpers of github.com are arguments of `git fetch`, the
-    one command that reaches a remote, and the environment of each command holds
-    `GIT_TERMINAL_PROMPT=0` and no other key (#2483, #5294)."""
+    """The SSH option is the one `-c` value, an argument of `git fetch`, the one command that
+    reaches a remote, and the environment of each command holds `GIT_TERMINAL_PROMPT=0` and no
+    other key (#2483, #6653)."""
     source = ApplicationSource("ssh://git@example.com/repository.git", "main", "k8s/app")
     started = _started_commands(source, tmp_path / "work")
 
@@ -371,12 +371,8 @@ def test_only_the_fetch_gets_git_options_and_every_command_gets_only_the_prompt_
         [cmd for cmd, _ in started if "-c" in cmd] == [fetch],
         [env for _, env in started],
     ) == (
-        [
-            "core.sshCommand=ssh -o BatchMode=yes",
-            "credential.https://github.com.helper=",
-            "credential.https://github.com.helper=!gh auth git-credential",
-        ],
-        3,
+        ["core.sshCommand=ssh -o BatchMode=yes"],
+        1,
         True,
         [{"GIT_TERMINAL_PROMPT": "0"}] * len(started),
     )
@@ -385,24 +381,19 @@ def test_only_the_fetch_gets_git_options_and_every_command_gets_only_the_prompt_
 def test_a_private_github_repository_is_fetched_with_the_credential_of_the_github_session(
     tmp_path: Path,
 ) -> None:
-    """An Application can name a private repository on github.com (#5294). The fetch names gh as
-    the only credential helper of github.com: the empty value first clears the helpers of the
-    config files. The fetch reaches a remote, so the process runner gives it the session's token
-    as GH_TOKEN, which `gh auth git-credential` reads."""
+    """An Application can name a private repository on github.com (#5294). The fetch names no
+    credential helper: git reads the helper that the devcontainer or the image configures,
+    `gh auth git-credential`. The fetch reaches a remote, so the process runner gives it the
+    session's token as GH_TOKEN, which that helper reads (#6653)."""
     source = ApplicationSource("https://github.com/example/private-repository", "main", "k8s/app")
     started = _started_commands(source, tmp_path / "work")
 
     fetch = next(cmd for cmd, _ in started if "fetch" in cmd)
-    helper = "credential.https://github.com.helper="
     assert (
-        [
-            value.removeprefix(helper)
-            for value in _config_before_subcommand(fetch, "fetch")
-            if value.startswith(helper)
-        ],
+        [value for value in _config_before_subcommand(fetch, "fetch") if "credential" in value],
         git_reaches_remote(fetch[1:]),
         fetch[-2:],
-    ) == (["", "!gh auth git-credential"], True, [source.repo_url, source.revision])
+    ) == ([], True, [source.repo_url, source.revision])
 
 
 @pytest.mark.parametrize(

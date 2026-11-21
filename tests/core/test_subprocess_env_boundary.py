@@ -14,8 +14,8 @@ import pytest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_GH_CLI,
-    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
     CONST_GIT_NONINTERACTIVE_ENV,
+    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
@@ -27,7 +27,6 @@ from devops_cli.core.process import (
     DEFAULT_ALLOWED_ENV_VARS,
     DEFAULT_DENIED_ENV_PATTERNS,
     build_subprocess_env,
-    git_credential_args,
     run_json_subprocess,
     run_subprocess,
     run_subprocess_async,
@@ -312,14 +311,22 @@ def test_an_isolated_child_gets_no_refused_key_from_the_environment(
 ) -> None:
     """With isolation on, no key that the guard refuses from a caller reaches the child from the
     environment of the person, in upper or in lower case, for example `PYTHONPATH`,
-    `PYTHONHOME`, `GIT_CONFIG_GLOBAL` and `SHELL` (#2429, #2483, #2633)."""
+    `PYTHONHOME`, `GIT_CONFIG_GLOBAL` and `SHELL` (#2429, #2483, #2633). The one exception is the
+    upper-case `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, which a shell
+    gives each child too (#6653)."""
     environment_keys = [*REFUSED_OVERRIDE_KEYS, *(key.lower() for key in REFUSED_OVERRIDE_KEYS)]
     for key in environment_keys:
         monkeypatch.setenv(key, "example")
 
     env = build_subprocess_env(env={"EXAMPLE_FLAG": "on"})
 
-    assert sorted(set(environment_keys) & set(env)) == []
+    assert sorted(set(environment_keys) & set(env)) == [
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_KEY_0",
+        "GIT_CONFIG_KEY_12",
+        "GIT_CONFIG_VALUE_0",
+        "GIT_CONFIG_VALUE_12",
+    ]
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
@@ -707,11 +714,55 @@ def _child_envs(children: _Children) -> list[tuple[list[str], str | None, str | 
     return children.seen
 
 
-# The words that the process runner puts after `git` for a git child that reaches a remote, so that
-# `gh auth git-credential` reads the GH_TOKEN that the same call pins on the child (#6340).
-_CREDENTIAL_WORDS: tuple[str, ...] = tuple(
-    word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)
-)
+# The keys with which the devcontainer gives git the credential helper of github.com (#6653).
+_GIT_CONFIG_ENV: dict[str, str] = {
+    "GIT_CONFIG_COUNT": "2",
+    "GIT_CONFIG_KEY_0": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_0": "",
+    "GIT_CONFIG_KEY_1": "credential.https://github.com.helper",
+    "GIT_CONFIG_VALUE_1": "!gh auth git-credential",
+}
+
+
+@pytest.mark.parametrize("acts_as_app", [False, True], ids=["person", "app"])
+def test_a_git_child_gets_the_git_configuration_keys_of_the_environment_only_for_a_person(
+    acts_as_app: bool, monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
+    """A shell gives each child the keys with which the devcontainer sets the credential helper, so
+    the process runner gives them to a child of a person too, and adds no `-c` value: git reads
+    the helper that the person configured (#6653). A process that acts as the GitHub App gives a
+    child none of them: the runner and Service images set the helper in `/etc/gitconfig`, and
+    until #3700 a process that the shell of the agent starts could set them."""
+    for key, value in _GIT_CONFIG_ENV.items():
+        monkeypatch.setenv(key, value)
+    if acts_as_app:
+        monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "example-private-key")
+    argv = ["git", "-C", "clone", "ls-remote", "--heads", "origin"]
+
+    with faked_children(return_value=subprocess.CompletedProcess(argv, 0, "", "")) as run:
+        run_subprocess(argv)
+
+    child_env = run.call_args.kwargs["env"]
+    assert (
+        run.call_args.args[0],
+        {key: child_env[key] for key in _GIT_CONFIG_ENV if key in child_env},
+        token_seen(child_env),
+    ) == (argv, {} if acts_as_app else _GIT_CONFIG_ENV, pin_github_session)
+
+
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_a_process_that_acts_as_the_app_gives_no_git_configuration_key_to_a_child(
+    isolate_env: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With isolation on or off, a process that acts as the GitHub App keeps the git configuration
+    keys of its environment out of each child (#6653)."""
+    for key, value in _GIT_CONFIG_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "example-private-key")
+
+    env = build_subprocess_env(isolate_env=isolate_env)
+
+    assert sorted(set(_GIT_CONFIG_ENV) & set(env)) == []
 
 
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
@@ -877,7 +928,7 @@ def test_a_lookup_that_cannot_run_leaves_git_working_and_says_why(
     ) == (
         DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
         0,
-        (["git", *_CREDENTIAL_WORDS, "fetch"], None, None),
+        (["git", "fetch"], None, None),
         True,
     )
 
@@ -907,11 +958,7 @@ def test_gh_and_git_children_get_only_the_pinned_token(
         run_subprocess(["git", "push", "origin", "feat/184-example"])
     assert _child_envs(children) == [
         ([CONST_GH_CLI, "pr", "view", "184"], pin_github_session, None),
-        (
-            ["git", *_CREDENTIAL_WORDS, "push", "origin", "feat/184-example"],
-            pin_github_session,
-            None,
-        ),
+        (["git", "push", "origin", "feat/184-example"], pin_github_session, None),
     ]
 
 
@@ -923,7 +970,7 @@ def test_git_runs_without_a_token_when_gh_has_no_login(unresolved_identity: None
         proc = run_subprocess(["git", "fetch"])
     assert (proc.returncode, _child_envs(children)[1:]) == (
         0,
-        [(["git", *_CREDENTIAL_WORDS, "fetch"], None, None)],
+        [(["git", "fetch"], None, None)],
     )
 
 
@@ -941,43 +988,32 @@ def test_a_local_git_command_starts_no_lookup_when_gh_has_no_login(
     [["-C", "clone", "ls-remote", "--heads", "origin", "main"], ["fetch", "--prune", "origin"]],
     ids=["ls-remote", "fetch"],
 )
-def test_a_network_git_child_gets_the_credential_helper(
+def test_a_network_git_child_gets_the_token_and_no_credential_value(
     tail: list[str], pin_github_session: str
 ) -> None:
-    """A git child that reaches a remote gets the two `-c` values of
-    `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` after `git` and before its subcommand, so that
-    `gh auth git-credential` reads the `GH_TOKEN` that the same call pins on the child (#6340)."""
+    """A git child that reaches a remote gets the session's token as `GH_TOKEN` and its own
+    arguments, with no `-c` value: git reads the credential helper that is configured for it, such
+    as `gh auth git-credential`, which reads that token (#6653)."""
     with faked_children(side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(["git", *tail])
 
     assert (proc.returncode, _child_envs(children)) == (
         0,
-        [(["git", *_CREDENTIAL_WORDS, *tail], pin_github_session, None)],
+        [(["git", *tail], pin_github_session, None)],
     )
 
 
 def test_a_local_git_child_gets_no_credential_helper(
     monkeypatch: pytest.MonkeyPatch, pin_github_session: str
 ) -> None:
-    """A git child that reaches no remote gets neither the credential helper nor a token, so no
-    helper runs and no lookup starts (#6340)."""
+    """A git child that reaches no remote gets no `-c` value and no token, so no lookup starts
+    (#6340)."""
     monkeypatch.setenv("GH_TOKEN", "ambient")
 
     with faked_children(side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(["git", "status"])
 
     assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
-
-
-def test_a_git_child_that_has_the_credential_values_gets_them_once() -> None:
-    """A caller that passed the `-c` values itself, as `devops infra` does, does not get them
-    twice (#6340)."""
-    own = ["git", *_CREDENTIAL_WORDS, "fetch", "origin"]
-
-    assert (git_credential_args(own), git_credential_args(["git", "fetch", "origin"])) == (
-        [],
-        list(_CREDENTIAL_WORDS),
-    )
 
 
 @pytest.mark.parametrize("argv", [[CONST_GH_CLI, "--version"], [CONST_GH_CLI, "help"]])

@@ -4,7 +4,7 @@
   Plan for the status of example-org/infra at <tmp>/repo
     1. kubernetes.client.CoreV1Api list_node in the kube context homelab-example
     2. EXEC the fetch of origin into <tmp>/repo
-         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+         git -C <tmp>/repo fetch --quiet origin
     3. EXEC the default branch of origin and its commit
          git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
     4. EXEC the branch and the commit of the checkout

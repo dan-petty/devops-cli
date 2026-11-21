@@ -29,10 +29,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from devops_cli.config.constants import (
-    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
-    CONST_GIT_NONINTERACTIVE_ENV,
-)
+from devops_cli.config.constants import CONST_GIT_NONINTERACTIVE_ENV
 from devops_cli.config.defaults import DEFAULT_INFRA_GIT_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
@@ -51,19 +48,9 @@ _TREE: Final[str] = "tree"
 _PRIVATE: Final[int] = 0o700
 _EXPORT_PREFIX: Final[str] = "devops-infra-"
 
-_FETCH: Final[tuple[str, ...]] = ("fetch", "--quiet", _REMOTE)
-
-
-def _credential(args: tuple[str, ...]) -> tuple[str, ...]:
-    """`args` with the `-c` values that give git the credential of the GitHub session."""
-    return (
-        *(word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)),
-        *args,
-    )
-
-
-# The fetch, with the credential of the GitHub session and no prompt: git fails instead of asking.
-FETCH_ARGS: Final[tuple[str, ...]] = _credential(_FETCH)
+# The fetch, with no prompt: git fails instead of asking. git gets the credential from the helper
+# that it is configured with (#6653).
+FETCH_ARGS: Final[tuple[str, ...]] = ("fetch", "--quiet", _REMOTE)
 # The commit of the default branch at origin, then its name (`origin/<branch>`).
 DEFAULT_BRANCH_ARGS: Final[tuple[str, ...]] = (
     "rev-parse",
@@ -101,12 +88,11 @@ def _verify(rev: str) -> tuple[str, ...]:
 def ref_steps(ref: str) -> list[tuple[str, tuple[str, ...]]]:
     """The git commands, after the fetch of `origin`, that give the commit of `ref`, each with
     what it does: the fetch of the head of a pull request and its commit, or the check of a branch
-    name and the commit of that branch at `origin`. Each fetch takes the credential of the GitHub
-    session."""
+    name and the commit of that branch at `origin`."""
     number = pull_number(ref)
     if number is not None:
         return [
-            (f"the fetch of {ref} from {_REMOTE}", _credential(_pull_fetch(number))),
+            (f"the fetch of {ref} from {_REMOTE}", _pull_fetch(number)),
             (f"the commit of {ref}", _verify(_FETCH_HEAD)),
         ]
     return [
@@ -155,7 +141,7 @@ def export_commit(checkout: Path, root: Path, *, ref: str | None = None) -> Read
         InfraReadError: a git command fails, the checkout records no default branch of
             `origin`, `origin` holds no such ref, or the export does not unpack.
     """
-    _git(checkout, FETCH_ARGS, shown=_FETCH)
+    _git(checkout, FETCH_ARGS)
     if ref is None:
         commit, name = _two_lines(checkout, DEFAULT_BRANCH_ARGS, _no_default_branch(checkout))
     else:
@@ -203,7 +189,7 @@ def origin_holds(checkout: Path, commit: str, ref: str) -> OriginHold | None:
         InfraReadError: the fetch fails, or a git command fails for another reason than an
             answer of no.
     """
-    _git(checkout, FETCH_ARGS, shown=_FETCH)
+    _git(checkout, FETCH_ARGS)
     if _holds(checkout, commit, _REMOTE_HEAD):
         return OriginHold.DEFAULT_BRANCH
     number = pull_number(ref)
@@ -271,9 +257,9 @@ def _ref_commit(checkout: Path, ref: str) -> str:
         ) from exc
 
 
-def _git(checkout: Path, args: tuple[str, ...], *, shown: tuple[str, ...] = ()) -> str:
+def _git(checkout: Path, args: tuple[str, ...]) -> str:
     """The standard output of `git -C <checkout> <args>`, run with no prompt. An error names the
-    command as `git <shown>`, by default `git <args>`.
+    command as `git <args>`.
 
     Raises:
         InfraReadError: git exits with a status other than 0; the message holds git's reason with
@@ -288,7 +274,7 @@ def _git(checkout: Path, args: tuple[str, ...], *, shown: tuple[str, ...] = ()) 
     if result.returncode != 0:
         raise InfraReadError(
             ERRORS.infra.read_failed.format(
-                command=" ".join(("git", *(shown or args))),
+                command=" ".join(("git", *args)),
                 code=result.returncode,
                 detail=mask_secrets(git_message(result)),
             )
