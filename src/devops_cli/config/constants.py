@@ -1249,9 +1249,10 @@ CONST_GIT_GITHUB_CREDENTIAL_CONFIG: Final[tuple[str, ...]] = (
 )
 """The `git -c` values that make git get a github.com credential from `gh auth git-credential`,
 which reads the GH_TOKEN that the process runner pins on a git child (#5162). The empty value
-first clears the helpers of the config files. Only the network git calls of the implement job
-use them (`CONST_GIT_TOKEN_CALL_CONFIG`): they read no config file. Each other git child reads
-the helper that the devcontainer or the image configures (#6653)."""
+first clears the helpers of the config files. Only the git calls that read no config file use
+them: the network calls of the implement job (`CONST_GIT_TOKEN_CALL_CONFIG`) and `git_call` of
+`publish`. Each other git child reads the helper that the devcontainer or the image configures
+(#6653)."""
 CONST_GIT_CONFIG_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_KEY_*",

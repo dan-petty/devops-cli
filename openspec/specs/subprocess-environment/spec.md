@@ -523,7 +523,7 @@ The process runner SHALL start each child that gets the session's token in a ses
 - **WHEN** a git child that reaches a remote starts a helper and runs past its timeout
 - **THEN** the call raises `subprocess.TimeoutExpired`, and neither the child nor the helper is alive
 
-### Requirement: A git child that reaches no remote gets no credential helper
+### Requirement: A git child gets no -c value, and a git child that reaches no remote gets no token
 The process runner MUST NOT add a `-c` value to the arguments of a git child, and MUST NOT give a GitHub token to a git child that reaches no remote.
 
 #### Scenario: A local status

@@ -8,12 +8,13 @@
 - A process that acts as the GitHub App gives these keys to no child, with isolation on or off. A caller override of them stays refused.
 - Delete `git_credential_args` and its two inserts in the process runner, `_command_words` in `worktree_add.py`, and the per-call credential values in `infra/repo_tree.py` (`_credential`, `_FETCH`, the `shown` option of `_git`) and `k8s/argocd_overrides.py`.
 - Keep `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` inside `CONST_GIT_TOKEN_CALL_CONFIG`: the network calls of the implement job set `GIT_CONFIG_NOSYSTEM=1` and need the values until #3700. Keep `PreReadOrigin`.
-- The change is observable (the arguments and the environment of a git child), so the specs `subprocess-environment`, `gitops-host-overrides` and `repos-worktrees-add` get deltas.
+- The change is observable (the arguments and the environment of a git child), so the specs `subprocess-environment`, `gitops-host-overrides`, `repos-worktrees-add` and `infra-onboard` get deltas.
 
 ## Capabilities
 - `subprocess-environment`: add the requirement of the git configuration keys, change the requirements of the isolated child and of the local git child, and remove the requirement of the inserted `-c` values.
 - `gitops-host-overrides`: the fetch of `render_at_revision` holds no credential `-c` value.
 - `repos-worktrees-add`: the read of `origin` uses the helper that git is configured with.
+- `infra-onboard`: the fetch of `origin` holds no credential `-c` value.
 
 ## Impact
 - In the devcontainer, each git child of a `devops` command uses the helper `gh auth git-credential` of the devcontainer, which reads the session's token.

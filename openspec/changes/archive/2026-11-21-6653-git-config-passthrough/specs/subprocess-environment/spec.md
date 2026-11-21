@@ -15,6 +15,11 @@
 - **WHEN** the environment holds the same keys and the private key of the GitHub App, and a caller builds a child environment with isolation off
 - **THEN** the child environment holds none of these keys
 
+## RENAMED Requirements
+
+- FROM: `### Requirement: A git child that reaches no remote gets no credential helper`
+- TO: `### Requirement: A git child gets no -c value, and a git child that reaches no remote gets no token`
+
 ## MODIFIED Requirements
 
 ### Requirement: An isolated child gets no refused key from the environment
@@ -24,7 +29,7 @@ With environment isolation on, `build_subprocess_env` SHALL keep each key that t
 - **WHEN** the environment holds `PYTHONPATH`, `PYTHONHOME`, `ZDOTDIR`, `NODE_OPTIONS`, `PERL5LIB`, `LD_PRELOAD`, `BASH_ENV` and each other refused key but the two uv keys, in upper and in lower case, and a caller builds a child environment with isolation on
 - **THEN** the child environment holds none of these keys but the upper-case `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_KEY_12`, `GIT_CONFIG_VALUE_0` and `GIT_CONFIG_VALUE_12`
 
-### Requirement: A git child that reaches no remote gets no credential helper
+### Requirement: A git child gets no -c value, and a git child that reaches no remote gets no token
 The process runner MUST NOT add a `-c` value to the arguments of a git child, and MUST NOT give a GitHub token to a git child that reaches no remote.
 
 #### Scenario: A local status

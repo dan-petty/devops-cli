@@ -16,7 +16,7 @@
 
 ## 3. Documents
 
-- [x] 3.1 Describe the keys in `SECURITY.md`, `ARCHITECTURE.md` and `docs/DEVCONTAINER_USAGE.md`, and change the specs `subprocess-environment`, `gitops-host-overrides` and `repos-worktrees-add`.
+- [x] 3.1 Describe the keys in `SECURITY.md`, `ARCHITECTURE.md` and `docs/DEVCONTAINER_USAGE.md`, and `k8s/README.md`, and change the specs `subprocess-environment`, `gitops-host-overrides`, `repos-worktrees-add` and `infra-onboard`.
   - Verification: `$ uv run devops ci --check --only docs,openspec`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

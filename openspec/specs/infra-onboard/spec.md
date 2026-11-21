@@ -97,7 +97,7 @@ With `--dry-run`, the command SHALL start no process and write no file, and SHAL
 - **THEN** no process starts, the config file keeps every byte, and the output lists the fetch of `origin`, the reads of the default branch and of the checkout, the export, the config dump, the inventory listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
 
 ### Requirement: The report reads the default branch at origin
-The command SHALL read the infra repo at the head of its default branch at `origin`, never in the working tree of the checkout. It SHALL fetch `origin` with the credential of the GitHub session and no prompt, export the tracked files of the commit that `refs/remotes/origin/HEAD` names into a new private folder, run every read of the repo there, and remove the folder after. It MUST NOT change a file or a branch of the checkout.
+The command SHALL read the infra repo at the head of its default branch at `origin`, never in its working tree. It SHALL fetch `origin` with no prompt and no credential `-c` value: git gets the credential from its configured helper, `gh auth git-credential` in the devcontainer and the images. It SHALL export the tracked files of the commit that `refs/remotes/origin/HEAD` names into a new private folder, read the repo there, and remove it. It MUST NOT change a file or a branch of the checkout.
 
 #### Scenario: The checkout is on an old branch
 - **WHEN** the checkout is on the branch `feat/old`, which has no collections file and no CI workflow, and `origin/main` holds both
