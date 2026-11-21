@@ -1,7 +1,7 @@
 # roadmap-fix-conflict Specification
 
 ## Purpose
-How the roadmap step `fix-conflict` settles merge conflicts on topic branches of bot pull requests: admission bounds, tier 1 deterministic resolution, tier 2 model resolution, verification, and runner job integration.
+How the roadmap step `fix-conflict` settles merge conflicts on topic branches of bot pull requests: admission bounds, tier 1 deterministic resolution, verification, and runner job integration.
 
 ## Requirements
 
@@ -104,3 +104,39 @@ The step SHALL continue a rebase with `git -c core.editor=true rebase --continue
 #### Scenario: A failed generation stops the implement job with class conflict
 - **WHEN** `devops docs generate` fails after tier 1 took the default branch for the conflicted document in the rebase of the implement job
 - **THEN** `fix_rebase_conflict` returns false and records `stopped`, and the job stops the item with the class `conflict`
+
+### Requirement: A round pushes only a result that holds the default branch and the pull request
+A rebase that fails with no conflicted file SHALL stop the round with a reason that names its cause, and SHALL push nothing. Before a push, the step SHALL check that HEAD is the head branch, holds the tip of the default branch and differs from it, and holds each change of the pull request on a path that the default branch did not change and that tier 1 does not generate. The step SHALL never push the tip of the default branch.
+
+#### Scenario: A rebase that stops for another cause
+- **WHEN** a confirmed round rebases a branch whose first commit applies with no conflict, and git refuses the commit of that pick
+- **THEN** the round stops with a reason that starts `The rebase failed with no conflicted file`, records the stop, and the head branch does not change
+
+#### Scenario: A result that is no head to push
+- **WHEN** HEAD is not the head branch, is the tip of the default branch, does not hold it, or lacks a change of the pull request
+- **THEN** the check gives a reason that names it, and the step pushes nothing
+
+### Requirement: The clone of the step commits as the bot
+Right after its clone, the step SHALL write the identity of the bot (`commit_author`) into the configuration of the clone, as `ensure_checkout` does for the clone of the implement and fix-checks Jobs. The rebase and the commits of tier 1 SHALL not depend on an identity of the host.
+
+#### Scenario: A host with no git identity
+- **WHEN** git of the host has no identity and refuses to guess one (`user.useConfigOnly`), and a confirmed round settles a conflict of a generated document and `uv.lock`
+- **THEN** the round ends `resolved`, and the committer of the pushed head is the bot
+
+### Requirement: The step fetches the history to the merge base
+The step SHALL deepen its shallow clone through `OriginGit`, twice as far each time, until the clone holds the merge base of the head branch and the default branch, holds the whole history, or a deepening adds no commit. When the history holds no merge base then, the step SHALL fail with a reason that names both branches, before the check of the authors.
+
+#### Scenario: A merge base 60 commits behind the default branch
+- **WHEN** the head branch forked from a commit of a person, 61 commits below the tip of the default branch, and the clone holds the newest 50 commits
+- **THEN** the plan names the conflicted files, and a confirmed round in a runner Job ends `resolved`
+
+#### Scenario: No merge base
+- **WHEN** the head branch has a root of its own
+- **THEN** the step fails with the reason `The history holds no merge base of origin/main and origin/<head>.`
+
+### Requirement: The plan says what a confirmed round does
+Without `--confirm`, the reason of the plan SHALL sort the conflicted paths by the rules of tier 1. It SHALL name a stop when `roadmap.fix_conflict.tier1_mode` is not `on`, when a path is a release path, or when a path is no archive, generated document or lockfile path.
+
+#### Scenario: The plan of a conflict that tier 1 does not settle
+- **WHEN** the step runs without `--confirm` on a conflict of a source file
+- **THEN** the reason starts `Plan: stop, because tier 1 settles only`
