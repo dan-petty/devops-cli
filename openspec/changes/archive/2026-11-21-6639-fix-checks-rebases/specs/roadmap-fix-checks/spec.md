@@ -53,6 +53,17 @@ When the step finds an implement draft that it repaired (`fix_checks.result` equ
 - **WHEN** `outcome.json` names the result `ready`, names `repaired` with no tier, or holds a key outside the model
 - **THEN** `publish` raises `PhaseOutputError` and pushes nothing
 
+### Requirement: Tier 2 repairs failures within plan scope using a model
+When Tier 1 does not resolve the failure, the step SHALL inspect the failed log against the repair scope of the item: the plan paths and the failed files that the change of the branch causes. When the log names no path in the scope, a branch that holds the tip of main SHALL stop with zero model calls and a reason that names each failed file, and a rebased branch SHALL be pushed alone (`rebased`). Else the step SHALL invoke `run_fix_step`, which MAY change the caused files.
+
+#### Scenario: A log outside the plan scope stops with 0 model requests
+- **WHEN** the branch holds the tip of main, and the failed check log names only files outside the plan scope that the change of the branch does not cause
+- **THEN** the step stops with 0 model requests, and the reason names each file
+
+#### Scenario: A log within plan scope runs a fix step
+- **WHEN** the failed check log names a path within the plan scope
+- **THEN** the step invokes `run_fix_step`
+
 ## REMOVED Requirements
 
 ### Requirement: The repair scope takes the failed files that the change causes

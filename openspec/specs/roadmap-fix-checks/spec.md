@@ -56,10 +56,10 @@ When a check failure is classified as `lint`, the step SHALL run `ruff check --f
 - **THEN** tier 1 runs `uv run pytest -n 0 --snapshot-update tests/ai/mcp/test_mcp_tool_listing.py` and `uv run devops docs generate`, then `uv run devops ci test tests/ai/mcp/test_mcp_tool_listing.py` and `uv run devops ci docs`, commits the snapshot and the document, and makes no model request
 
 ### Requirement: Tier 2 repairs failures within plan scope using a model
-When Tier 1 does not resolve the failure, the step SHALL inspect the failed log against the repair scope of the item: the paths of the plan, and the failed files that the change of the branch causes. When the log names no path within the scope, the step SHALL stop with zero model calls, with a reason that names each failed file and why. When the log names a path in scope, the step SHALL invoke `run_fix_step`, which MAY change the failed files that the change causes.
+When Tier 1 does not resolve the failure, the step SHALL inspect the failed log against the repair scope of the item: the plan paths and the failed files that the change of the branch causes. When the log names no path in the scope, a branch that holds the tip of main SHALL stop with zero model calls and a reason that names each failed file, and a rebased branch SHALL be pushed alone (`rebased`). Else the step SHALL invoke `run_fix_step`, which MAY change the caused files.
 
 #### Scenario: A log outside the plan scope stops with 0 model requests
-- **WHEN** the failed check log names only files outside the plan scope that the change of the branch does not cause
+- **WHEN** the branch holds the tip of main, and the failed check log names only files outside the plan scope that the change of the branch does not cause
 - **THEN** the step stops with 0 model requests, and the reason names each file
 
 #### Scenario: A log within plan scope runs a fix step
