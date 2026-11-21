@@ -18,6 +18,6 @@ Kind: other. Changes: `CONTEXT.md`, `SECURITY.md`, `docs/HOMELAB_REPO_SWITCH.md`
 
 ## Workflow follow-up
 
-- Live runs of the acceptance criteria, after the merge: `devops infra node reboot dan-petty/homelab <host>` at the level `full` by an agent, after the crash-capture apply of dan-petty/homelab#20, with the kernel before and after, 1 GPU allocatable, the node cordoned after, and `/sys/kernel/kexec_crash_size` above 0; and `devops infra node restart dan-petty/homelab <host>`, Ready and cordoned after. Record the audit records in a comment of the pull request.
+- Live runs of the acceptance criteria, when the host of the acceptance criteria is back in service. The runs do not need the merge, because the command reads the inventory at the default branch of dan-petty/homelab. Since 2026-11-13 the host is in the group `offline` of that inventory, and the command refuses a host of that group. The runs: `devops infra node reboot dan-petty/homelab <host>` at the level `full` by an agent, after the crash-capture apply of dan-petty/homelab#20, with the kernel before and after, 1 GPU allocatable, the node cordoned after, and `/sys/kernel/kexec_crash_size` above 0; and `devops infra node restart dan-petty/homelab <host>`, Ready and cordoned after. Record the audit records in a comment of the pull request.
 - dan-petty/homelab#22 removes the per-host Makefile targets and `rolling-restart`.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
