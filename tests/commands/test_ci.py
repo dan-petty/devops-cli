@@ -768,9 +768,9 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
 
 def test_service_image_ci_job_invariants() -> None:
     """The CI service-image job runs for every pull request or a dispatch, pushes nothing, and
-    avoids ${{ in scripts. The release pull request skips the job: release.yml builds, starts and
-    scans the image before it publishes it, only when release-please creates a release (#1486,
-    #4637)."""
+    avoids ${{ in scripts. The release pull request skips the job: only when release-please creates
+    a release, release.yml builds the image one time, pushes it by digest, and starts and scans
+    that digest before it tags it (#1486, #4637, #6407)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}

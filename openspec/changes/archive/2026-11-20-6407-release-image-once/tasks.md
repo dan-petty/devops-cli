@@ -4,7 +4,7 @@
 
 Kind: other. Reads: `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `.github/actions/image-scan/action.yml`, `Dockerfile`. Changes: `.github/workflows/release-image.yml`, `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `tests/commands/test_ci.py`, `tests/invariants/test_workflow_contracts.py`, `tests/invariants/test_runner_image.py`, `tests/gate/tree_checks/config_reads.toml`.
 
-- [x] 1.1 Add the called workflow `.github/workflows/release-image.yml` with the jobs `Build` (one build that pushes by digest, with an SBOM, provenance `mode=max`, the metadata of `context: git` and the cache filters of the image), `Verify` (pull, the smoke test of `ci.yml`, the image scan action) and `Attest & Tag` (`actions/attest`, `imagetools create`, a check of each tag)
+- [x] 1.1 Add the called workflow `.github/workflows/release-image.yml` with the jobs `Build` (one build that pushes by digest, with an SBOM, provenance `mode=max`, the revision label of the release commit and the cache filters of the image), `Verify` (pull, the smoke test of `ci.yml`, the image scan action) and `Attest & Tag` (`actions/attest`, `imagetools create`, a check of each tag)
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
 - [x] 1.2 Replace the jobs `service-image`, `runner-image` and `mcp-server-image` of `release.yml` with the job `image`, which calls the workflow with a matrix over the three images and `fail-fast: false`, and make the runner smoke comment of `ci.yml` name the image, not the loaded image
   - Verification: `$ uv run devops ci --check --only actionlint,zizmor`
