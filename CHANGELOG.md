@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.187.0](https://github.com/dan-petty/devops-cli/compare/v0.186.0...v0.187.0) (2026-11-21)
+
+
+### Features
+
+* **roadmap:** read project review facts through a catalog ([#6586](https://github.com/dan-petty/devops-cli/issues/6586)) ([752c6ed](https://github.com/dan-petty/devops-cli/commit/752c6edb9081b3c47fff5bef3e7d01fb2b319a03))
+
+
+### Bug Fixes
+
+* **ci:** the fail-to-pass replay clears the addopts ([#6593](https://github.com/dan-petty/devops-cli/issues/6593)) ([8bc7afc](https://github.com/dan-petty/devops-cli/commit/8bc7afcbcb48503f2085f780e154e41971744e83)), closes [#5599](https://github.com/dan-petty/devops-cli/issues/5599)
+
+
+### Performance Improvements
+
+* **roadmap:** share the listing snapshot and facts in Valkey ([#6583](https://github.com/dan-petty/devops-cli/issues/6583)) ([b2a277b](https://github.com/dan-petty/devops-cli/commit/b2a277b1e1563e3056f478c69f88e33b922ef3e7))
+
 ## [0.186.0](https://github.com/dan-petty/devops-cli/compare/v0.185.3...v0.186.0) (2026-11-21)
 
 
