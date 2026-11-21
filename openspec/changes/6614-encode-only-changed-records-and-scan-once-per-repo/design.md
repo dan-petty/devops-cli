@@ -33,7 +33,7 @@ The order of OVERSIZE and OLDER changes: a write that is older and past the boun
 3. takes the lock of the repository;
 4. reads the `_seen` entry again, and gives its records when their digest is the digest of `held.meta`: the scan of the lane that held the lock gave them;
 5. stops when the budget passed (decision 4);
-6. else scans, inflates, digests and validates, stores the entry, and gives the records.
+6. else scans, inflates, digests and validates, and gives the records. A record under a field that is not its issue number makes the copy a miss, so the digests, the lengths and the records of an entry have the same numbers. The load stores its entry only when the `_seen` entry is still the one of step 4: a save or a load of the process during the scan keeps its newer entry, and the next save of the process stays a delta.
 
 Loads of other repositories take other locks and do not wait. A save takes no lock of a repository: the digest check of a load already stops a copy that a write changed during the scan. The dictionary holds one lock for each repository that the process loads, which is the bound of the repositories of the Service.
 

@@ -17,12 +17,13 @@ and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after it
   is the one of `meta`, so a copy that another writer changed during the scan is not used, and a
   new `meta` of the same records does not spoil the scan. Two lanes that load one repository at
   the same time share one scan: a load takes a lock for its repository, and a load that waited
-  takes the records of the scan of the other load. The budget of a load,
-  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`, starts when it misses the known records, and covers
-  the wait for the scan of another lane, the `HSCAN`, and the inflate and validation of the
-  records. A value that does not parse, a time with
-  no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
-  miss: the values are untrusted. So does a sum of expanded records past
+  takes the records of the scan of the other load. A load keeps its records as the known records
+  only when no save or load of the process replaced the known records during its scan. The budget
+  of a load, `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`, starts when it misses the known records,
+  and covers the wait for the scan of another lane, the `HSCAN`, and the inflate and validation of
+  the records. A value that does not parse, a time with no UTC offset, a record under a field that
+  is not its issue number, and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the
+  copy a miss: the values are untrusted. So does a sum of expanded records past
   `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB), the total bound of one load.
 - A write of records whose JSON passes the total bound of one load writes nothing and counts
   `oversize`, so no writer of the store stores a copy that no load accepts.
@@ -307,19 +308,26 @@ class ValkeySnapshotStore:
         with self._lock:
             load = self._loads.setdefault(RepoRef(repo).key, threading.Lock())
         with load:
-            known = self._known(repo, meta)
+            before = self._entry(repo)
+            known = _matching(before, meta)
             if known is not None:
                 return _listing(repo, meta, known.issues)
             if budget.passed("the wait for the load of another lane"):
                 return None
-            return self._load(repo, held, meta, budget)
+            return self._load(repo, held, meta, budget, before)
 
     def _load(
-        self, repo: str, held: HeldMeta, meta: SharedMeta, budget: _Budget
+        self,
+        repo: str,
+        held: HeldMeta,
+        meta: SharedMeta,
+        budget: _Budget,
+        before: _Seen | None,
     ) -> ListingSnapshot | None:
         """Scan, inflate, digest and validate the records of the shared snapshot whose `meta` is
-        `held`, and keep them as the known records of `repo`. Each step stops when the load
-        passes `budget`."""
+        `held`. Each step stops when the load passes `budget`. The records become the known
+        records of `repo` only when the known records are still `before`, the ones that the load
+        missed: a save or a load of the process during the scan keeps its newer records."""
         values = self._scan(repo, budget)
         if values is None:
             return None
@@ -332,19 +340,28 @@ class ValkeySnapshotStore:
             logger.info("The shared snapshot of %s changed during its load.", repo)
             return None
         issues: list[IssueRecord] = []
-        for text in texts.values():
+        for number, text in texts.items():
             try:
                 issue = IssueRecord.model_validate_json(text)
                 _RecordTimes.model_validate(issue)
             except ValidationError as exc:
                 logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
                 return None
+            if number != str(issue.number):
+                logger.info(
+                    "A record of the shared snapshot of %s is not under the field of its number.",
+                    repo,
+                )
+                return None
             issues.append(issue)
             if budget.passed("the validation of the records"):
                 return None
         newest_first = _newest_first(issues)
+        seen = _Seen(held.raw, digests, _lengths(texts), newest_first)
+        key = RepoRef(repo).key
         with self._lock:
-            self._seen[RepoRef(repo).key] = _Seen(held.raw, digests, _lengths(texts), newest_first)
+            if self._seen.get(key) is before:
+                self._seen[key] = seen
         return _listing(repo, meta, newest_first)
 
     def _scan(self, repo: str, budget: _Budget) -> dict[str, bytes] | None:
@@ -428,14 +445,15 @@ class ValkeySnapshotStore:
                 return self._kept(snapshot.repo, seen)
         return self._replace(snapshot, texts if known is None else _encoded(snapshot.issues)[0])
 
+    def _entry(self, repo: str) -> _Seen | None:
+        """The records of the shared copy of `repo` that this process last wrote or read."""
+        with self._lock:
+            return self._seen.get(RepoRef(repo).key)
+
     def _known(self, repo: str, stored: SharedMeta | None) -> _Seen | None:
         """The records of the stored copy whose `meta` is `stored`, when this process last wrote
         or read them."""
-        if stored is None:
-            return None
-        with self._lock:
-            before = self._seen.get(RepoRef(repo).key)
-        return before if before is not None and before.digest == stored.digest else None
+        return _matching(self._entry(repo), stored)
 
     def _compressed(self, texts: Mapping[str, bytes]) -> dict[str, bytes] | None:
         """The value of each record JSON of `texts`; None when a value passes
@@ -537,6 +555,13 @@ class ValkeySnapshotStore:
             with self._lock:
                 self._seen.pop(RepoRef(repo).key, None)
         return removed
+
+
+def _matching(seen: _Seen | None, stored: SharedMeta | None) -> _Seen | None:
+    """`seen` when it holds the records that `stored` names."""
+    if seen is None or stored is None or seen.digest != stored.digest:
+        return None
+    return seen
 
 
 def _holds(stored: SharedMeta, mine: SharedMeta) -> bool:
