@@ -2,8 +2,9 @@
 with no id or section, an unknown section, placeholder or fact, two facts with one id, a Service
 metric query with no `{repo}`, a query by node, a rows fact by namespace or pod outside the
 project namespaces (#6615), a base metric that the query does not read, a `not_before` that is not
-UTC and a `no_series_reason` with a base (#6612); fills the placeholders of a window; and gives the
-stage SLI by the outcomes of the stage items (#6612)."""
+UTC and a `no_series_reason` with a base (#6612); fills the placeholders of a window; gives the
+stage SLI by the outcomes of the stage items; and counts the runner Jobs that start in the window
+(#6612)."""
 
 from __future__ import annotations
 
@@ -510,6 +511,64 @@ def test_the_stage_sli_is_the_share_of_good_stage_item_outcomes_of_the_repositor
         for index, (series, samples) in enumerate(groups)
     ]
     unit_tests = tmp_path / "stage_sli.yaml"
+    unit_tests.write_text(yaml.safe_dump({"tests": tests}, sort_keys=False), encoding="utf-8")
+
+    result = promtool("test", "rules", unit_tests)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _job_start(name: str, started: int, first_minute: int) -> dict[str, str]:
+    """The start time gauge of the Job `name` that started at `started` (Unix seconds), as
+    kube-state-metrics gives it from `first_minute` to the minute 120: the series stays after the
+    Job ends, for the `ttlSecondsAfterFinished` of the Job."""
+    return {
+        "series": f'kube_job_status_start_time{{namespace="devops", job_name="{name}"}}',
+        "values": " ".join(["_"] * first_minute + [str(started)] * (121 - first_minute)),
+    }
+
+
+@pytest.mark.live("promtool")
+def test_the_runner_jobs_started_are_the_implement_jobs_that_start_in_the_window(
+    tmp_path: Path,
+) -> None:
+    """`prometheus.runner_jobs_started` counts the implement Jobs of the repository that start in
+    the window. A Job that started before the window still has a series in it for the
+    `ttlSecondsAfterFinished` of the Job (24 h), so a count of the series in the window would
+    count it too (#6612)."""
+    hour = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(1970, 1, 1, 1, tzinfo=UTC),
+        end=datetime(1970, 1, 1, 2, tzinfo=UTC),
+        previous_id=None,
+    )
+    [fact] = [fact for fact in load_catalog().facts if fact.id == "prometheus.runner_jobs_started"]
+    query = render_query(fact.query, window_placeholders(hour, "example/project", NAMESPACES))
+    before = _job_start("devops-cli-implement-project-11-aaaaaa", 1800, 0)
+    groups = [
+        (
+            [
+                before,
+                _job_start("devops-cli-implement-project-12-bbbbbb", 5400, 90),
+                _job_start("devops-cli-implement-other-13-cccccc", 5400, 90),
+            ],
+            [{"labels": "{}", "value": 1}],
+        ),
+        ([before], []),
+    ]
+    tests = [
+        {
+            "name": f"runner jobs {index}",
+            "interval": "1m",
+            "input_series": series,
+            "promql_expr_test": [{"expr": query, "eval_time": "120m", "exp_samples": samples}],
+        }
+        for index, (series, samples) in enumerate(groups)
+    ]
+    unit_tests = tmp_path / "runner_jobs.yaml"
     unit_tests.write_text(yaml.safe_dump({"tests": tests}, sort_keys=False), encoding="utf-8")
 
     result = promtool("test", "rules", unit_tests)
