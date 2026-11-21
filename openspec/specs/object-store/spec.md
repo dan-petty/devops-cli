@@ -122,15 +122,27 @@ Each component of the `Seaweed` CR that has a claim SHALL set the required node 
 - **THEN** the rule reports a problem that names `Seaweed/seaweedfs` and the component `volume`
 
 ### Requirement: Only the worker reaches the admin gRPC port
-The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods of the namespace.
+The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods of the namespace, and SHALL let only the worker pods send to the admin pod on TCP 33646. No egress rule of a pod other than the worker SHALL cover TCP 33646 of the admin pod, also through a rule with no `ports`, because the network policy controller of the cluster does not apply the ingress rules of the destination pod when an egress rule of the source pod allows the traffic.
 
 #### Scenario: The committed perimeter
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
-- **THEN** the row passes, and a filer pod, the operator pod and a pod of another namespace get no rule to 33646 of the admin pod
+- **THEN** the row passes, a filer pod, the operator pod and a pod of another namespace get no ingress rule to 33646 of the admin pod, no pod of the namespace other than the worker gets an egress rule to it, and the worker gets both
 
 #### Scenario: A perimeter that admits a filer
 - **WHEN** `uv run devops ci --check --only k8s` runs the perimeter rule on a fixture policy that admits the filer pods on 33646
 - **THEN** the rule reports a problem that names the policy and port 33646
+
+#### Scenario: A perimeter whose in-namespace egress has no ports
+- **WHEN** `uv run devops ci --check --only k8s` runs the perimeter rule on the committed policies with no `ports` in the in-namespace egress rule of `object-store-perimeter`
+- **THEN** the rule reports a problem that names `object-store-perimeter` and port 33646
+
+#### Scenario: A policy that lets a filer send to the admin port
+- **WHEN** `uv run devops ci --check --only k8s` runs the perimeter rule on a fixture policy that lets the filer pods send to the admin pod on 33646
+- **THEN** the rule reports a problem that names the policy and port 33646
+
+#### Scenario: A worker with no egress to the admin port
+- **WHEN** `uv run devops ci --check --only k8s` runs the perimeter rule on the committed policies without `object-store-worker`
+- **THEN** the rule reports that no policy lets the worker send to the admin pod on 33646
 
 #### Scenario: The live port
 - **WHEN** a person runs `nc -z -w 3 seaweedfs-admin 33646` in a filer pod and in the worker pod
