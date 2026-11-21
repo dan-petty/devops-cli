@@ -8,8 +8,8 @@ The spec delta gate of the stage job and `devops openspec check` compare require
 
 - Add `ActiveRequirement` and `read_active_requirements` to `src/devops_cli/roadmap/stage/stage_specs.py`, which read the added and the modified requirements of each active change for one capability.
 - List the scenario of each requirement and the requirements of the active changes in the `read_spec` answer of `src/devops_cli/roadmap/stage/stage_tools.py`.
-- State the rule in `src/devops_cli/ai/tasks/roadmap_stage_change.md` and `docs/roadmap/stage.md`: read the requirements of a capability before adding one, modify the requirement that holds the behavior, and name the active change as a blocker.
-- Add the two requirements to `roadmap-stage/toolbox` and `roadmap-stage/spec-delta`.
+- State the rule in `src/devops_cli/ai/tasks/roadmap_stage_change.md` and `docs/roadmap/stage.md`: read the requirements of a capability with `read_spec` before adding one, and name the active change as a blocker. The rule to modify the requirement that holds the behavior belongs to #3246.
+- Modify the requirement `The map and the spec tools give short answers` of `roadmap-stage/toolbox`, which states the `read_spec` answer today, and add one requirement to `roadmap-stage/spec-delta`. The change adds no second requirement for the `read_spec` answer, because that is the defect of #4133.
 - Keep the plan review as the judge of a paraphrase and add no gate that compares requirement text, because ADR 0005 keeps a finding from a model out of a gate and the measurement of 2026-11-13 shows that each text rule either misses the incident or refuses merged plans.
 - The change fits one pull request.
 
@@ -21,8 +21,8 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-stage/toolbox`: The tool read_spec lists the scenario of each requirement
-- `roadmap-stage/spec-delta`: The stage prompt names the active change as a blocker
+- `roadmap-stage/toolbox`: The map and the spec tools give short answers (modified: the `read_spec` answer lists the scenarios and the requirements of the active changes)
+- `roadmap-stage/spec-delta`: The stage prompt names the active change as a blocker (added)
 
 ## Impact
 
