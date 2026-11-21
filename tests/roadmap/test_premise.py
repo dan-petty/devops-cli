@@ -18,31 +18,31 @@ if TYPE_CHECKING:
 
 
 def test_the_definition_lines_of_an_identifier_come_from_the_commit() -> None:
-    lines = definition_lines(REPO_ROOT, "HEAD", "_delivery_title") or ()
+    lines = definition_lines(REPO_ROOT, "HEAD", "_finish_change") or ()
 
     assert any(
         line.startswith("HEAD:src/devops_cli/roadmap/implement/implement_run.py:")
-        and "_delivery_title" in line
+        and "_finish_change" in line
         for line in lines
     )
 
 
 def _group(adds: str) -> TaskGroup:
     """A behavior group whose `Adds:` line is `adds`, and whose task names the defined guard
-    `_delivery_title` as the place of the change."""
+    `_finish_change` as the place of the change."""
     [group] = parse_task_groups(
         "## 1. A group\n\n"
         "Kind: behavior. Reads: `a.py`. Changes: `b.py`.\n"
         f"{adds}\n\n"
-        "- [ ] 1.1 Add a check beside the guard `_delivery_title` in `b.py`\n"
+        "- [ ] 1.1 Add a check beside the guard `_finish_change` in `b.py`\n"
     )
     return group
 
 
 def test_a_name_of_the_adds_line_that_the_commit_defines_is_a_false_premise() -> None:
-    (line,) = false_premises(REPO_ROOT, "HEAD", _group("Adds: `_delivery_title`"))
+    (line,) = false_premises(REPO_ROOT, "HEAD", _group("Adds: `_finish_change`"))
 
-    assert line.startswith("- The `Adds:` line of group 1 names `_delivery_title`.")
+    assert line.startswith("- The `Adds:` line of group 1 names `_finish_change`.")
     assert "HEAD:src/devops_cli/roadmap/implement/implement_run.py:" in line
 
 
@@ -51,7 +51,7 @@ def test_a_group_with_no_adds_line_has_no_false_premise() -> None:
 
 
 def test_a_code_span_that_is_no_identifier_gets_no_check() -> None:
-    assert false_premises(REPO_ROOT, "HEAD", _group("Adds: `Job._delivery_title`")) == ()
+    assert false_premises(REPO_ROOT, "HEAD", _group("Adds: `Job._finish_change`")) == ()
 
 
 SCOUT = "src/scout.rs"

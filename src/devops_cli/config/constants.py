@@ -3828,6 +3828,11 @@ CONST_ROADMAP_PHASE_OUT_DIR: Final[str] = "out"
 CONST_ROADMAP_PHASE_STATE_FILE: Final[str] = "state.json"
 CONST_ROADMAP_PHASE_INPUT_FILE: Final[str] = "input.json"
 CONST_ROADMAP_PHASE_PATCH_FILE: Final[str] = "agent.patch"
+# The patches of the implement agent phase (#3702): the work of the run, the archive commit alone,
+# so that a later rebase can skip it, and the commits that follow the archive.
+CONST_ROADMAP_PHASE_WORK_PATCH_FILE: Final[str] = "work.patch"
+CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE: Final[str] = "archive.patch"
+CONST_ROADMAP_PHASE_AFTER_PATCH_FILE: Final[str] = "after.patch"
 CONST_ROADMAP_PHASE_SUMMARY_FILE: Final[str] = "summary.json"
 CONST_ROADMAP_PHASE_OUTCOME_FILE: Final[str] = "outcome.json"
 # The most bytes that `publish` reads of the patch and of each JSON output of the agent phase.
@@ -3836,6 +3841,8 @@ CONST_ROADMAP_PHASE_PATCH_MAX_BYTES: Final[int] = 16 * 1024 * 1024
 # volume of the Job (#6601). Measured on 2026-11-21: 176 MB for a clone of devops-cli and 23 MB for
 # the fetch of publish, beside the checks that write to the 1 GiB of `/tmp`.
 CONST_ROADMAP_FIX_CHECKS_RUNS_DIR: Final[str] = "roadmap/fix-checks-runs"
+# The folder of the data folder that holds the run folders of `implement --phase all` (#3702).
+CONST_ROADMAP_IMPLEMENT_RUNS_DIR: Final[str] = "roadmap/implement-runs"
 # The variables that the agent phase of a runner Job refuses to start with: the private key of the
 # App and each GitHub token that gh and git read (#2695, #6601).
 CONST_GITHUB_AGENT_REFUSED_ENV: Final[tuple[str, ...]] = (

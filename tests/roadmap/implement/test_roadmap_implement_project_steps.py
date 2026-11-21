@@ -23,11 +23,13 @@ from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
+    ARCHIVE_COMMIT,
     CHANGE,
     PULL,
     SHOUT,
     STEPS_DECLARATION,
     STEPS_FILE,
+    WORK_COMMIT,
     JobWorld,
     group_one_calls,
     group_two_calls,
@@ -127,10 +129,7 @@ def test_a_target_that_declares_the_steps_runs_them(job_world: JobWorld) -> None
     applied = job_world.run(two_groups())
 
     assert (applied.drafted, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 1)
-    assert job_world.origin_log()[-2:] == [
-        "docs: regenerate the documentation (#1)",
-        "docs(openspec): archive the change (#1)",
-    ]
+    assert job_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
 
 
 def test_a_neutral_target_runs_archive_and_no_docs_step(job_world: JobWorld) -> None:

@@ -147,6 +147,17 @@ def test_the_prompt_lists_the_work_that_the_job_does_in_place_of_the_agent() -> 
     ] == []
 
 
+def test_the_prompt_gives_the_contract_of_the_agent_phase() -> None:
+    """The agent phase holds no GitHub credential, and `publish` makes the GitHub writes from the
+    commits of the agent (#3702)."""
+    prompt = load_task_prompt(PROMPT)
+
+    assert (
+        "you make no push, open no pull request and make no `devops gh` call. Your shell has no "
+        "GitHub credential."
+    ) in " ".join(prompt.split())
+
+
 def test_the_prompt_names_the_plan_request_block_and_five_kinds() -> None:
     prompt = load_task_prompt(PROMPT)
 

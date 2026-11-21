@@ -253,20 +253,51 @@ def publish_patch(
         shutil.rmtree(parent, ignore_errors=True)
 
 
-def delete_branch(target: PublishTarget) -> None:
-    """Delete the branch of `target` on `origin`, with a lease on its tip `target.lease`: a branch
-    that `publish` made, whose draft pull request GitHub refused."""
+def _move_branch(target: PublishTarget, tip: str) -> None:
+    """Push `tip`, or a delete when `tip` is empty, to the branch of `target` on `origin`, with a
+    lease on its tip `target.lease`. The fetch of `tip` takes its full history: after a rebase no
+    branch of `origin` holds `tip`, and `origin` refuses a shallow commit that no branch holds."""
     parent = Path(tempfile.mkdtemp(prefix="devops-publish-"))
     try:
         repo = parent / "repo"
         git_call(parent, "init", "--quiet", str(repo), home=parent)
         git_call(repo, "remote", "add", "origin", target.url, home=parent)
+        if tip:
+            git_call(repo, "fetch", "--quiet", "--no-tags", "origin", tip, home=parent)
         lease = f"--force-with-lease=refs/heads/{target.branch}:{target.lease}"
         git_call(
-            repo, "push", "--quiet", lease, "origin", f":refs/heads/{target.branch}", home=parent
+            repo,
+            "push",
+            "--quiet",
+            lease,
+            "origin",
+            f"{tip}:refs/heads/{target.branch}",
+            home=parent,
         )
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
 
-__all__ = ["NewTree", "PublishTarget", "Published", "delete_branch", "git_call", "publish_patch"]
+def delete_branch(target: PublishTarget) -> None:
+    """Delete the branch of `target` on `origin`, with a lease on its tip `target.lease`: a branch
+    that `publish` made, whose draft pull request GitHub refused, or a branch that an earlier Job
+    made, at a return to New (#3677)."""
+    _move_branch(target, "")
+
+
+def reset_branch(target: PublishTarget) -> None:
+    """Move the branch of `target` on `origin` back to `target.base`, with a lease on its tip
+    `target.lease`: at a return to New, the withdraw of the commits that earlier Jobs pushed
+    (#3677)."""
+    _move_branch(target, target.base)
+
+
+__all__ = [
+    "NewTree",
+    "PublishTarget",
+    "Published",
+    "delete_branch",
+    "git_call",
+    "publish_patch",
+    "reset_branch",
+]

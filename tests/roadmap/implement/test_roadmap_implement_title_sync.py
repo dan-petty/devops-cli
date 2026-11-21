@@ -78,13 +78,14 @@ def test_proposal_summary_from_summary_section(tmp_path: Path) -> None:
         "# Proposal\n\n## Summary\n\npin a single registry read\n\n## What Changes\n\n- Add two regression tests\n",
         encoding="utf-8",
     )
-    assert proposal_summary(proposal) == "pin a single registry read"
-    assert proposal_summary(proposal, section="changes") == "Add two regression tests"
+    text = proposal.read_text(encoding="utf-8")
+    assert proposal_summary(text) == "pin a single registry read"
+    assert proposal_summary(text, section="changes") == "Add two regression tests"
 
 
 def test_proposal_summary_nonexistent_file() -> None:
-    """Non-existent file returns None."""
-    assert proposal_summary(Path("nonexistent_proposal.md")) is None
+    """A tree with no `proposal.md` gives no text and no summary."""
+    assert proposal_summary(None) is None
 
 
 def test_proposal_summary_fallback_to_what_changes(tmp_path: Path) -> None:
@@ -94,14 +95,14 @@ def test_proposal_summary_fallback_to_what_changes(tmp_path: Path) -> None:
         "# Proposal\n\n## Why\n\nSome reason\n\n## What Changes\n\n- Add two regression tests\n- Second change\n",
         encoding="utf-8",
     )
-    assert proposal_summary(proposal) == "Add two regression tests"
+    assert proposal_summary(proposal.read_text(encoding="utf-8")) == "Add two regression tests"
 
 
 def test_proposal_summary_none_when_both_missing(tmp_path: Path) -> None:
     """None is returned when neither ## Summary nor ## What Changes has usable text."""
     proposal = tmp_path / "proposal.md"
     proposal.write_text("# Proposal\n\n## Why\n\nSome reason\n", encoding="utf-8")
-    assert proposal_summary(proposal) is None
+    assert proposal_summary(proposal.read_text(encoding="utf-8")) is None
 
 
 def test_delivery_title_with_derived_type_and_summary() -> None:

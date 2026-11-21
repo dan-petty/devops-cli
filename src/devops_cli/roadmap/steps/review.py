@@ -178,6 +178,7 @@ _DELIVERY_KEYS: Final[tuple[ImplementRecordKey, ...]] = (
     ImplementRecordKey.BRANCH,
     ImplementRecordKey.PR,
     ImplementRecordKey.BASE,
+    ImplementRecordKey.PLAN_SUMMARY,
     ImplementRecordKey.CHECKED_SHA,
     ImplementRecordKey.PUBLISHED_SHA,
     ImplementRecordKey.RESULT,

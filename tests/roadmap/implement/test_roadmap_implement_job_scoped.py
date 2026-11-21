@@ -15,15 +15,18 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text, git_for_real
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
+    ARCHIVE_COMMIT,
     BRANCH,
     PULL,
     SHOUT,
     STALE_LOCK_COMMANDS,
+    WORK_COMMIT,
     JobWorld,
     group_one_calls,
     group_two_calls,
@@ -107,13 +110,9 @@ def _fails_until(world: JobWorld, command: str, report: str, *, times: int) -> N
     )
 
 
-FINISHED = [
-    "fix(roadmap): plan",
-    "fix(roadmap): The first group (#1)",
-    "fix(roadmap): The second group (#1)",
-    "docs: regenerate the documentation (#1)",
-    "docs(openspec): archive the change (#1)",
-]
+# The two commits of the bot that `publish` pushes: the work of both groups and the documents, and
+# the archive with what follows it (#3702).
+FINISHED = [WORK_COMMIT, ARCHIVE_COMMIT]
 
 
 def _assert_kept(world: JobWorld) -> str:
@@ -307,15 +306,12 @@ def test_the_scoped_checks_run_in_the_worktree_after_the_last_commit_and_before_
     job_world.run(two_groups())
 
     commands = _commands(job_world)
-    # The checkpoint of group 1 comes before the scoped checks (#3677). The last push is the final one.
-    push = max(i for i, text in enumerate(commands) if " push " in f" {text} ")
+    # The agent phase rebases once, before the first step, and `publish` pushes once (#3702).
+    (push,) = [i for i, text in enumerate(commands) if " push " in f" {text} "]
     order = [_position(job_world, PRE_PUSH), _position(job_world, STATIC)]
     order.append(max(i for i, text in enumerate(commands) if text.startswith(TESTS)))
-    initial_rebase = max(
-        i for i, text in enumerate(commands[: order[0]]) if " rebase " in f" {text} "
-    )
-    final_rebase = max(i for i, text in enumerate(commands) if " rebase " in f" {text} ")
-    assert initial_rebase < order[0] < order[1] < order[2] < final_rebase < push
+    (rebase,) = [i for i, text in enumerate(commands) if " rebase " in f" {text} "]
+    assert rebase < order[0] < order[1] < order[2] < push
     scoped = [job_world.programs.calls[i] for i in order]
     assert {call.cwd for call in scoped} == {job_world.programs.calls[order[0]].cwd}
     assert scoped[0].cwd not in (None, job_world.repo.clone)
@@ -338,13 +334,13 @@ def test_an_ast_grep_violation_is_repaired_before_the_final_push(job_world: JobW
     applied = job_world.run(script)
 
     assert (applied.drafted, applied.stopped) == ((1,), ())
-    assert job_world.origin_log()[-2:] == [
-        "docs(openspec): archive the change (#1)",
-        "fix(roadmap): Make check static pass (#1)",
-    ]
-    assert (
-        len(_git_push(job_world)) == 2
-    )  # the checkpoint of group 1, then the push of the end or the stop
+    # The fix follows the archive: the archive commit holds only the archive, and the fix goes in a
+    # third commit, so a later rebase can skip the archive commit (#6670).
+    assert job_world.origin_log() == [*FINISHED, WORK_COMMIT]
+    assert len(_git_push(job_world)) == 1
+    archive = job_world.repo.origin_git("rev-parse", f"{BRANCH}^")
+    listed = job_world.repo.origin_git("show", "--name-status", "-z", "--format=", archive)
+    assert skips_archive_commit(listed + "\0", 1)
     assert _count(job_world, STATIC) == 2
     fix_prompt = next(str(getattr(p, "content", "")) for p in script.seen[4][-1].parts)
     assert "ast-grep scan....Failed" in fix_prompt
@@ -376,9 +372,7 @@ def test_a_check_that_no_fix_repairs_stops_the_item_and_keeps_the_work_of_both_g
         "scoped checks",
     )
     _assert_kept(job_world)
-    assert (
-        len(_git_push(job_world)) == 2
-    )  # the checkpoint of group 1, then the push of the end or the stop
+    assert len(_git_push(job_world)) == 1  # the push of the stop, from `publish` (#3702)
     assert _count(job_world, PRE_PUSH) == 4
     assert any("ruff-check....Failed" in c for c in job_world.issue_comments())
     assert job_world.pull.ready_calls == []
@@ -424,9 +418,7 @@ def test_a_fix_step_that_stops_in_the_scoped_checks_keeps_the_work_of_both_group
         "fix",
     )
     _assert_kept(job_world)
-    assert (
-        len(_git_push(job_world)) == 2
-    )  # the checkpoint of group 1, then the push of the end or the stop
+    assert len(_git_push(job_world)) == 1  # the push of the stop, from `publish` (#3702)
 
 
 def test_a_fix_step_that_spends_a_budget_keeps_the_work_and_names_the_action_left(
@@ -619,7 +611,8 @@ def test_an_error_in_the_scoped_checks_keeps_the_work_of_both_groups(job_world: 
         archived = any(
             text.startswith("uv run devops openspec archive") for text in _commands(job_world)
         )
-        if archived and "ls-tree" in call.argv:
+        # A read of the clone of the agent: `publish` reads its own repository with the helper.
+        if archived and "ls-tree" in call.argv and "credential.helper=" not in call.argv:
             calls.append(1)
             return len(calls) >= 2
         return False

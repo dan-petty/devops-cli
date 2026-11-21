@@ -16,7 +16,9 @@ from devops_cli.config.constants import CONST_PRE_COMMIT_COMMIT_STAGE
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.roadmap_implement import (
+    ARCHIVE_COMMIT,
     BRANCH,
+    WORK_COMMIT,
     JobWorld,
     docs_effect,
     two_groups,
@@ -84,7 +86,7 @@ def test_docs_commit_runs_commit_stage_and_commits_fixer_rewrite(job_world: JobW
     applied = job_world.run(two_groups())
 
     assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
-    assert "docs: regenerate the documentation (#1)" in job_world.origin_log()
+    assert job_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
     committed_content = job_world.repo.origin_git("show", f"{BRANCH}:docs/GENERATED.md")
     assert "   " not in committed_content
     assert committed_content.strip() == "Generated."
@@ -155,8 +157,9 @@ def test_hook_failure_on_archive_commit_stops_the_item(job_world: JobWorld) -> N
     applied = job_world.run(two_groups())
 
     assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
-    assert "docs: regenerate the documentation (#1)" in job_world.origin_log()
-    assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
+    # The work commit of the bot holds the documents, and no archive commit follows (#3702).
+    assert job_world.origin_log() == [WORK_COMMIT]
+    assert job_world.repo.origin_git("show", f"{BRANCH}:docs/GENERATED.md").strip()
 
     item = job_world.store.item(1)
     assert item is not None

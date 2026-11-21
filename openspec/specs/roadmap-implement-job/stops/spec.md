@@ -13,8 +13,8 @@ When a step, the rebase, the documentation, the archive, a push or the checks st
 - **THEN** Status is Blocked, `implement.stopped` is `group 2`, the comment holds the reason, `origin` holds the commit of group 1, and the pull request is still a draft
 
 #### Scenario: A conflict on the rebase before a push
-- **WHEN** the default branch gains a change that conflicts with the branch after the last group, or after the fix step
-- **THEN** the job aborts the rebase, `origin` holds only the commits that a checkpoint pushed, Status is Blocked, and `implement.stopped` is `push`
+- **WHEN** the default branch holds a change that conflicts with a commit of the branch, and no rule settles it
+- **THEN** the agent phase aborts the rebase, `publish` pushes nothing, `origin` keeps the branch as it was, Status is Blocked, and `implement.stopped` is `rebase`
 
 ### Requirement: The stop comment cuts a long reason
 The job SHALL cut the reason of a stop to `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters after it masks secrets in it, so that the stop comment stays below the limit of GitHub.
@@ -208,40 +208,6 @@ The comment of the job on the pull request SHALL show one line for each applied 
 - **WHEN** the job applied an amendment and a later step stops the item, and the pull request exists
 - **THEN** the pull request gets a comment with the line of the amendment
 
-### Requirement: A false premise returns the item to New
-When a step stops with a `premise` request whose evidence is not empty, the job SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. Before it returns the item, it SHALL withdraw the checkpoints that it pushed, as the requirement on the withdraw says. A return SHALL remove the worktree and SHALL clear `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` and `implement.base`. It SHALL NOT set `implement.stopped`.
-
-#### Scenario: A false premise on a Planned item
-- **WHEN** the first step of a Planned item ends with a `premise` request and evidence
-- **THEN** the Status is New, the comment holds the evidence, `origin` has no branch for the item, no worktree is left, and the record has no `implement.stopped`
-
-#### Scenario: A false premise on a Planned item after a checkpoint
-- **WHEN** groups 1 and 2 of a Planned item passed, the checkpoints opened one draft pull request, and the step of group 3 ends with a `premise` request and evidence
-- **THEN** the Status is New, `origin` has no branch for the item, the draft pull request is closed, and the record holds no `implement.base`
-
-#### Scenario: A false premise on a Staged item
-- **WHEN** the step of group 2 of a Staged item ends with a `premise` request, and group 1 passed in this run
-- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` and `implement.base` are cleared
-
-#### Scenario: A premise request with no evidence
-- **WHEN** the `premise` request has an empty `evidence`
-- **THEN** the item is stopped as a question and its Status is Blocked
-
-### Requirement: A return withdraws the checkpoints first
-Before the job returns an item to New, it SHALL withdraw the checkpoints that it pushed. For a Staged item, the withdraw SHALL push the sha of `implement.base` back to the item branch with a lease on the last tip that the job pushed. For a Planned item, the withdraw SHALL delete the item branch with the same lease and close the recorded draft pull request, and SHALL do nothing when `origin` holds no item branch. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
-
-#### Scenario: A person pushed after the last checkpoint
-- **WHEN** a person pushes to the item branch after a checkpoint, and a `premise` request with evidence follows
-- **THEN** the lease of the withdraw fails, the item is Blocked and is not returned, and the push of the person stays on the branch
-
-#### Scenario: A withdraw that fails
-- **WHEN** the push of the withdraw fails with an error that is not a failed lease
-- **THEN** the item is Blocked and is not returned, and `origin` keeps the checkpoints
-
-#### Scenario: A withdraw after a refused draft
-- **WHEN** GitHub refused the draft of a Planned item at its first checkpoint, and a `premise` request with evidence follows
-- **THEN** the withdraw finds no branch on `origin` and does nothing, and the Status is New
-
 ### Requirement: A group over the limit of the step is split once for each item
 When the inputs of a group measure more than the limit of the step, the job SHALL ask the split step of the stage job for the groups that replace it, once for each item. It SHALL write them in place of the group, number the later groups after them, give the lines of `## Criteria` the new numbers with the same criterion text, add an amendment bullet, commit, and run the new groups. A new group over the limit, or a second group over the limit in the same item, SHALL stop the item.
 
@@ -283,29 +249,6 @@ Each stop of the job whose cause has a class SHALL pass that class, and the stop
 - **WHEN** a turn ends with an error whose text the classifier reads as `parser`, and a second turn ends with the output cap and a message that holds the words of a parser failure
 - **THEN** the step moves to the next tier after the first turn only, and the outcome of the step holds the class `parser` for the first and `output_cap` for the second, the class that the decision read
 
-### Requirement: The job checks the premise of a behavior group at the branch tip
-Before the job runs a behavior group, the job SHALL read the identifiers of the `Adds:` line of the group through `TaskGroup.added_names` of `src/devops_cli/roadmap/step_files.py`, and SHALL return the item to New with the definition line when the branch tip defines one of them. The job SHALL use no rule of a task text. The job SHALL read the kind of the group from `TaskGroup.is_behavior` of `src/devops_cli/roadmap/step_files.py`, and a group of another kind SHALL run with no check.
-
-#### Scenario: A task adds a guard that the base already runs
-- **WHEN** A behavior group holds an `Adds:` line with `_delivery_title`, and the branch tip defines `_delivery_title`
-- **THEN** The job runs no group step, writes no group file, makes no group commit, and comments the definition line with the return to New.
-
-#### Scenario: A task adds a guard that the base lacks
-- **WHEN** A behavior group holds an `Adds:` line with `_missing_guard`, and the branch tip defines no `_missing_guard`
-- **THEN** The job runs the group and commits the file that the group writes.
-
-#### Scenario: A task names a defined guard and the group has no Adds line
-- **WHEN** A behavior group task says to add a check beside the guard `_delivery_title`, which the branch tip defines, and the group holds no `Adds:` line
-- **THEN** The job returns no item to New and runs the group.
-
-#### Scenario: A group that is not behavior adds a defined name
-- **WHEN** A group whose kind is not behavior names the guard `_delivery_title`, which the branch tip defines, and holds no `Adds:` line
-- **THEN** The job returns no item to New and runs the group.
-
-#### Scenario: The guard premise fails after a checkpoint
-- **WHEN** groups 1 and 2 passed and were pushed as checkpoints, and the `Adds:` line of a behavior group 3 names a guard that the branch tip defines
-- **THEN** the job runs no step for group 3, withdraws the checkpoints as for a `premise` request, and returns the item to New
-
 ### Requirement: One shared definition lookup reports a definition at a commit
 The stage job, the refine context and the implement job SHALL use `definition_lines` of `src/devops_cli/roadmap/premise.py`. A Python file defines a name with a `def`, a `class` or an assignment line. If no Python file defines it, a file of another language defines it when its tree-sitter grammar finds a symbol of that name. A Markdown file defines nothing. A lookup that reads only some files that name it and finds no definition SHALL be undecided. `defines` reports a list that is not empty.
 
@@ -337,35 +280,8 @@ The stage job, the refine context and the implement job SHALL use `definition_li
 - **WHEN** 21 Rust files call `shared_helper`, and only `src/z_util.rs`, which is after them in path order, defines it
 - **THEN** `definition_lines` gives None, not an empty list
 
-### Requirement: A conflict stop names the conflicted files
-When a rebase stops the item on a conflict, the job SHALL read the unmerged files with `git diff --name-only --diff-filter=U` before it aborts the rebase. The stop comment SHALL name each file, the job record SHALL hold the files as `implement.conflict`, and the next Job SHALL clear the record in its first record write. The job SHALL mask each path, list at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and state the number of paths that the cut left out.
-
-#### Scenario: A conflict at the start of a run
-- **WHEN** the staged branch conflicts with the default branch in a real git repository when the job rebases at the start of the run
-- **THEN** the item stops with the class `conflict`, and the comment names each conflicted file
-
-#### Scenario: A conflict before the push
-- **WHEN** the default branch gains a change that conflicts with the branch when the job rebases before the push
-- **THEN** the item stops with the class `conflict`, and the comment names each conflicted file
-
-#### Scenario: The record holds the files until a retry
-- **WHEN** a conflict stops the item, and a person then comments `implement: retry`
-- **THEN** `implement.conflict` holds each file after the stop, and holds none after the first record write of the next Job
-
-#### Scenario: A clear rule keeps the files
-- **WHEN** a conflict stops the item and a clear rule of the Service removes the stop
-- **THEN** `implement.conflict` still holds each file
-
-#### Scenario: A list above the limit
-- **WHEN** the conflict holds more files than `CONST_ROADMAP_IMPLEMENT_REASON_PATHS`
-- **THEN** the comment names the files up to the limit and states the number of files left out
-
-#### Scenario: A secret in a path
-- **WHEN** a conflicted file path holds a token that `mask_secrets` knows
-- **THEN** the comment and the record hold the masked path and not the token
-
 ### Requirement: The job writes how its run ended
-The job SHALL write `implement.result` as the last mark of the write that ends each run of an item. The value SHALL be `drafted` for a run that ended at the draft pull request, `stopped` for a stop, `yielded` for a claim, and `returned` for a return to New. The job SHALL clear the key in its first record write of a run.
+`publish` SHALL write `implement.result` as the last mark of the write that ends each run of an item. The value SHALL be `drafted` for a run that ended at the draft pull request, `stopped` for a stop, `yielded` for a claim, and `returned` for a return to New. `prepare` SHALL clear the key. A `publish` that finds a result in the record SHALL write nothing and give that result, because an earlier `publish` of the same run wrote it.
 
 #### Scenario: A run that a claim ended
 - **WHEN** a person claims the item while group 1 runs
@@ -378,6 +294,10 @@ The job SHALL write `implement.result` as the last mark of the write that ends e
 #### Scenario: A stale result
 - **WHEN** a new Job starts on an item whose record holds `implement.result` equal to `drafted`, and the Job is killed in its first group
 - **THEN** the record holds no `implement.result`
+
+#### Scenario: A second publish of a stopped run
+- **WHEN** `publish` of a Planned item opened the draft and stopped, and `publish` runs again on the same run folder
+- **THEN** the second `publish` gives `stopped`, pushes nothing, opens no draft and posts no comment
 
 ### Requirement: The first step of a run gets the stop of the earlier Job
 The job SHALL read `implement.check_log` and `implement.conflict` before its first record write of a run. It SHALL give both to the first step of the run in a section `# The stop of the earlier Job` of the step message, and to no later step. The section SHALL be left out when both are empty. The prompt `roadmap_implement_step.md` SHALL state what the section holds.
@@ -451,11 +371,11 @@ When a run stops and `self.pull` is set after the push, the run SHALL write the 
 - **THEN** the run updates that comment and posts no second one
 
 ### Requirement: The job checks the premise of every open behavior group before the first step
-The job SHALL check the premise of each open behavior group once in a run, at the first group boundary, after the claim check and before the first step. An open group has a task that is not ticked. The check SHALL read the head of the checkout at that boundary. A later group boundary of the run SHALL make no premise check. The comment of the return SHALL say that the run made no model request and wrote no code.
+The job SHALL check the premise of each open behavior group once in a run, at the first group boundary, before the first step. An open group has a task that is not ticked. The check SHALL read the head of the checkout at that boundary. A later group boundary of the run SHALL make no premise check. The comment of the return SHALL say that the run made no model request and wrote no code.
 
 #### Scenario: A false premise of a late group
 - **WHEN** a plan has 3 groups, behavior group 3 adds a guard that the branch defines, and groups 1 and 2 are open
-- **THEN** the job returns the item to New before the step of group 1: it makes no model request, pushes no checkpoint, closes no pull request, and the comment names the guard and says that the run made no model request
+- **THEN** the job returns the item to New before the step of group 1: it makes no model request, pushes nothing, closes no pull request, and the comment names the guard and says that the run made no model request
 
 #### Scenario: A guard of a group that passed in an earlier Job
 - **WHEN** an earlier Job passed behavior group 1, which added `_delivery_title`, and group 2 is open
@@ -524,3 +444,87 @@ A comment `implement: retry` of a trusted person SHALL clear one stop. The comme
 #### Scenario: A second stop after a retry
 - **WHEN** the runner stops an item, the owner comments `implement: retry`, the round clears the stop and creates a Job, and the runner of that Job stops the item again
 - **THEN** the item stays Blocked, the round created two Jobs in all, and one comment names the retry rule
+
+### Requirement: A false premise returns the item to New after the withdraw
+When a step stops with a `premise` request whose evidence is not empty, the agent phase SHALL end the run with the outcome `returned`. `publish` SHALL push no work of the run, withdraw what earlier Jobs pushed, and return the item to New through `apply_return`, with the evidence masked, cut and in a code fence. A return SHALL clear `implement.group`, `implement.sha`, `implement.branch`, `implement.pr`, `implement.base` and `implement.plan_summary`, and SHALL NOT set `implement.stopped`.
+
+#### Scenario: A false premise on a Planned item
+- **WHEN** the first step of a Planned item ends with a `premise` request and evidence
+- **THEN** the Status is New, the comment holds the evidence in a code fence, `origin` has no branch for the item, and the record has no `implement.stopped`
+
+#### Scenario: A false premise on a Planned item after an earlier Job
+- **WHEN** the first Job of a Planned item stopped after group 1, pushed the new branch and opened a draft, and the step of group 2 of the next Job ends with a `premise` request and evidence
+- **THEN** the Status is New, `origin` has no branch for the item, the draft pull request is closed, and the record holds no `implement.base`
+
+#### Scenario: A false premise on a Staged item after an earlier Job
+- **WHEN** the first Job of a Staged item stopped after group 1 and pushed it, and the step of group 2 of the next Job ends with a `premise` request and evidence
+- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the first Job, and `implement.group` and `implement.base` are cleared
+
+#### Scenario: A premise request with no evidence
+- **WHEN** the `premise` request has an empty `evidence`
+- **THEN** the item is stopped as a question and its Status is Blocked
+
+#### Scenario: Evidence that holds Markdown
+- **WHEN** the evidence holds a line that starts with `#`
+- **THEN** the comment holds the line inside the code fence, as text
+
+### Requirement: A return withdraws the pushes of earlier Jobs first
+`prepare` SHALL write `implement.base` once: the tip of the branch on `origin`, or `new`. Before a return to New, `publish` SHALL withdraw what earlier Jobs pushed, with a lease on the tip that `prepare` found: it SHALL push a sha base back when the tip differs, and for `new` SHALL delete the branch that `prepare` found and close the recorded draft. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
+
+#### Scenario: A person pushed after prepare
+- **WHEN** a person pushes to the item branch after `prepare`, and a `premise` request with evidence follows
+- **THEN** the lease of the withdraw fails, the item is Blocked and is not returned, and the push of the person stays on the branch
+
+#### Scenario: A branch at its base
+- **WHEN** no earlier Job pushed to the item branch, and a `premise` request with evidence follows
+- **THEN** the withdraw pushes nothing, and the Status is New
+
+### Requirement: A behavior group whose Adds line the branch tip defines returns the item
+Before the job runs a behavior group, the job SHALL read the identifiers of the `Adds:` line of the group through `TaskGroup.added_names` of `src/devops_cli/roadmap/step_files.py`, and SHALL return the item to New with the definition line when the branch tip defines one of them. The job SHALL use no rule of a task text. The job SHALL read the kind of the group from `TaskGroup.is_behavior` of `src/devops_cli/roadmap/step_files.py`, and a group of another kind SHALL run with no check.
+
+#### Scenario: A task adds a guard that the base already runs
+- **WHEN** A behavior group holds an `Adds:` line with `_delivery_title`, and the branch tip defines `_delivery_title`
+- **THEN** The job runs no group step, writes no group file, makes no group commit, and comments the definition line with the return to New.
+
+#### Scenario: A task adds a guard that the base lacks
+- **WHEN** A behavior group holds an `Adds:` line with `_missing_guard`, and the branch tip defines no `_missing_guard`
+- **THEN** The job runs the group and commits the file that the group writes.
+
+#### Scenario: A task names a defined guard and the group has no Adds line
+- **WHEN** A behavior group task says to add a check beside the guard `_delivery_title`, which the branch tip defines, and the group holds no `Adds:` line
+- **THEN** The job returns no item to New and runs the group.
+
+#### Scenario: A group that is not behavior adds a defined name
+- **WHEN** A group whose kind is not behavior names the guard `_delivery_title`, which the branch tip defines, and holds no `Adds:` line
+- **THEN** The job returns no item to New and runs the group.
+
+#### Scenario: The guard premise fails after an earlier Job
+- **WHEN** an earlier Job passed groups 1 and 2 and pushed them at its stop, and the `Adds:` line of a behavior group 3 names a guard that the branch tip defines
+- **THEN** the job runs no step for group 3, `publish` withdraws the pushes of the earlier Job as for a `premise` request, and returns the item to New
+
+### Requirement: A conflict stop of the rebase names the conflicted files
+When the rebase of the agent phase stops the item on a conflict, the job SHALL read the unmerged files with `git diff --name-only --diff-filter=U` before it aborts the rebase. The action left SHALL be `wait`, with no fix round, until #6640. The stop comment SHALL name each file, `implement.conflict` SHALL hold them, and the next Job SHALL clear it in its first record write. The job SHALL mask each path, list at most `CONST_ROADMAP_IMPLEMENT_REASON_PATHS` paths, and state the number left out.
+
+#### Scenario: A conflict at the start of a run
+- **WHEN** the staged branch conflicts with the default branch in a real git repository when the job rebases at the start of the run
+- **THEN** the item stops with the class `conflict` and the action left `wait`, and the comment names each conflicted file
+
+#### Scenario: A settle that fails
+- **WHEN** a git command of the settle of a generated document fails
+- **THEN** the agent phase aborts the rebase, the item stops with the class `conflict`, and `publish` pushes no tree of a half-done rebase
+
+#### Scenario: The record holds the files until a retry
+- **WHEN** a conflict stops the item, and a person then comments `implement: retry`
+- **THEN** `implement.conflict` holds each file after the stop, and holds none after the first record write of the next Job
+
+#### Scenario: A clear rule keeps the files
+- **WHEN** a conflict stops the item and a clear rule of the Service removes the stop
+- **THEN** `implement.conflict` still holds each file
+
+#### Scenario: A list above the limit
+- **WHEN** the conflict holds more files than `CONST_ROADMAP_IMPLEMENT_REASON_PATHS`
+- **THEN** the comment names the files up to the limit and states the number of files left out
+
+#### Scenario: A secret in a path
+- **WHEN** a conflicted file path holds a token that `mask_secrets` knows
+- **THEN** the comment and the record hold the masked path and not the token

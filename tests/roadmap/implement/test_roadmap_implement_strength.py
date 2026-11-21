@@ -400,39 +400,30 @@ def test_a_failed_strength_report_is_a_failed_scoped_result() -> None:
 
 
 def test_the_comment_shows_the_strength_report_and_the_skip_reason(
-    implement_checkout: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """`publish` writes the comment of the run from the data of the agent phase (#3702)."""
     from unittest.mock import MagicMock
 
-    from devops_cli.roadmap.implement.implement_run import _ItemRun
+    from devops_cli.roadmap.implement import implement_report
+    from devops_cli.roadmap.implement.implement_report import RunReport
     from devops_cli.roadmap.implement.implement_strength import StrengthReport
 
     client = MagicMock()
     client.list_issue_comments.return_value = []
     session = MagicMock(client=client)
-    monkeypatch.setattr(
-        "devops_cli.roadmap.implement.implement_run.get_github_session", lambda: session
-    )
+    monkeypatch.setattr(implement_report, "get_github_session", lambda: session)
 
     target = MagicMock()
     target.item.job_record = {}
     target.pull = 123
 
-    run = _ItemRun(
-        store=MagicMock(),
-        repo="org/repo",
-        path=implement_checkout,
-        target=target,
-        model=None,
-        window=1000,
-        default="main",
-        origin=MagicMock(),
-    )
-    run.strength = StrengthReport(
+    report = RunReport(MagicMock(), "org/repo", target, 123)
+    report.strength = StrengthReport(
         passed=True,
         skipped_groups=((1, "kind other"),),
     )
-    run._comment(123)
+    report.comment(123)
 
     assert client.comment_on_pull.called
     _repo, _pull, comment_body = client.comment_on_pull.call_args[0]

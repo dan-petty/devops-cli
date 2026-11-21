@@ -18,7 +18,6 @@ from pydantic_ai.exceptions import ModelHTTPError, UnexpectedModelBehavior
 
 from devops_cli.exceptions.ai_pydantic import LimitReached, OutputCapReached
 from devops_cli.exceptions.roadmap import RoadmapPlanReadBackError
-from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.failure import (
     ACTION_BY_CLASS,
     FailureAction,
@@ -34,7 +33,7 @@ from tests.support.roadmap_implement import (
     JobWorld,
     archive_effect,
     group_one_calls,
-    link_shallow,
+    run_clone,
     two_groups,
 )
 
@@ -209,7 +208,7 @@ def _setup_tests_lost(world: JobWorld, config: Callable[..., Path]) -> ModelScri
 
 def _setup_moved_head(world: JobWorld, _config: Callable[..., Path]) -> ModelScript:
     def agent_commits() -> None:
-        wt = worktree_directory(world.number, world.repo.clone)
+        wt = run_clone()
         (wt / "src" / "other.py").parent.mkdir(parents=True, exist_ok=True)
         (wt / "src" / "other.py").write_text("OTHER = 1\n", encoding="utf-8")
         subprocess.run(["git", "add", "-A"], cwd=wt, check=True)
@@ -284,16 +283,6 @@ def _setup_refused_reply(world: JobWorld, _config: Callable[..., Path]) -> Model
     issue = world.store._roadmap.issues[1]
     world.store._roadmap.issues[1] = issue.model_copy(update={"title": "fix(roadmap): x"})
     return two_groups()
-
-
-def _setup_git_config(world: JobWorld, config: Callable[..., Path]) -> ModelScript:
-    config(roadmap={"implement": {"in_runner": True}})
-
-    return ModelScript(
-        tool_calls(*group_one_calls()),
-        say("Group 1 is done."),
-        effects={1: lambda: link_shallow(world.repo)},
-    )
 
 
 def _setup_plan_unreadable(world: JobWorld, config: Callable[..., Path]) -> ModelScript:
@@ -476,14 +465,6 @@ FAULT_CASES: tuple[FaultCase, ...] = (
         setup=_setup_refused_reply,
     ),
     FaultCase(
-        name="git_config",
-        klass=FailureClass.GIT_CONFIG,
-        action=FailureAction.WAIT,
-        status_label="status/blocked",
-        expected_comment="Failure class: `git_config`.",
-        setup=_setup_git_config,
-    ),
-    FaultCase(
         name="plan_unreadable",
         klass=FailureClass.PLAN_UNREADABLE,
         action=FailureAction.WAIT,
@@ -532,11 +513,12 @@ def test_roadmap_fault_matrix(
 
 
 def test_every_failure_class_has_a_fault_case() -> None:
-    """The fault cases cover every failure class in FailureClass. The class `form_check` is the
-    one class that the suite cannot drive: the suite runs the implement job, and only the refine
-    round records a form-check failure (#6327)."""
+    """The fault cases cover every failure class in FailureClass. The suite runs the implement job,
+    so it cannot drive two classes: only the refine round records a form-check failure (#6327),
+    and only an `OriginGit` call in a clone that an agent wrote meets a `shallow` link
+    (`git_config`), which the implement job no longer makes (#3702)."""
     classes = {case.klass for case in FAULT_CASES}
-    all_classes = set(FailureClass) - {FailureClass.FORM_CHECK}
+    all_classes = set(FailureClass) - {FailureClass.FORM_CHECK, FailureClass.GIT_CONFIG}
     missing = all_classes - classes
     assert not missing, f"Missing fault cases for classes: {sorted(c.value for c in missing)}"
 

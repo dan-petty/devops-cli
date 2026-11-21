@@ -25,8 +25,7 @@ from devops_cli.roadmap.implement import git_isolation
 from devops_cli.roadmap.implement.git_isolation import OriginGit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import git_for_real
-from tests.support.model_script import ModelScript, say, tool_calls
-from tests.support.roadmap_implement import JobWorld, group_one_calls, link_shallow
+from tests.support.roadmap_implement import link_shallow
 from tests.support.roadmap_stage import StageRepo, run_git
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -349,33 +348,6 @@ def test_a_push_gives_the_token_only_to_the_call_in_the_new_folder(
 
 
 # ── The shallow file ──────────────────────────────────────────────────────────────────────
-
-
-def test_a_link_that_an_exit_check_writes_at_the_shallow_file_stops_the_push_of_the_stop(
-    job_world: JobWorld, config: Callable[..., Path]
-) -> None:
-    """An exit check of the step runs code of the checkout. It makes the `shallow` file of the
-    clone a link and fails, and no repair round is left. The push of the stop meets the link: the
-    item stops with the class `git_config`, and the comment names `shallow`."""
-    config(roadmap={"implement": {"in_runner": True, "repair_rounds": 0}})
-
-    def lint(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        link_shallow(job_world.repo)
-        return subprocess.CompletedProcess(list(call.argv), 1, "E999 example\n", "")
-
-    job_world.programs.answer(
-        lambda call: "ruff" in call.argv and "check" in call.argv,
-        ProcessAnswer(side_effect=lint),
-    )
-    script = ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."))
-
-    applied = job_world.run(script)
-
-    held = job_world.store.item(1)
-    assert held is not None
-    comment = job_world.issue_comments()[-1]
-    assert (applied.stopped, held.job_record.get("implement.failure")) == ((1,), "git_config")
-    assert "`shallow`" in comment
 
 
 def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(

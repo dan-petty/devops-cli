@@ -9,9 +9,10 @@ message of the agent, which is a claim that no check verified (#3476). `ACTION_B
 table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
-`tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and
-`git_config` from a `shallow` file of the clone that is a link; no rule below makes them,
-except the rule of an evicted pod, which gives `limit_reached` (#5960). A command of the implement
+`tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step;
+no rule below makes them, except the rule of an evicted pod, which gives `limit_reached` (#5960).
+No stop site gives `git_config` since #3702: the implement job makes its git calls that reach
+`origin` in a clone or a repository that no agent wrote. A record of an earlier Job can hold it. A command of the implement
 job that the process runner refuses (`SecurityError`) gives `refused_tool`, which a rule below also
 reads from the text. A pull request title or body that breaks a form rule two times gives
 `refused_reply` (#3599). The refine round passes `form_check` for a proposal that fails a form
