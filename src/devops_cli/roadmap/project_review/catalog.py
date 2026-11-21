@@ -13,8 +13,15 @@ list and a disagreement that names an unknown fact. Each refusal raises `Roadmap
 a message that names the fact, or its index when it has no id, and the field. The message does
 not quote the refused value.
 
-The dispatcher replaces only the six placeholders, with a regular expression: PromQL and LogQL
-hold braces, so `str.format` cannot fill them.
+The schema refuses a query of a Service metric (`devops_cli_service_`) with no `{repo}`, and the
+loader also refuses each selector of a Service metric, in `query` or `base`, whose own braces hold
+no matcher `repo="{repo}"`: a ratio whose numerator has no such matcher adds the repositories
+together.
+
+The dispatcher replaces only the seven placeholders, with a regular expression: PromQL and LogQL
+hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
+in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
+label.
 """
 
 from __future__ import annotations
@@ -36,12 +43,15 @@ from devops_cli.roadmap.project_review.data import ReviewWindow
 
 CATALOG_FILE: Final[Path] = Path(__file__).with_name("catalog.yaml")
 SCHEMA_FILE: Final[Path] = Path(__file__).with_name("catalog.schema.json")
-PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo")
+PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo", "name_slug")
 # The names that a jq program of a fact reads: the window times in Unix seconds and the repository.
 PROGRAM_ARGUMENTS: Final = ("start", "end", "repo")
 _PLACEHOLDER: Final = re.compile(r"\{(" + "|".join(PLACEHOLDERS) + r")\}")
 _TIME: Final = "%Y-%m-%dT%H:%M:%SZ"
 _FACTS: Final = "facts"
+# A metric of the Service: its value is the value of one repository only with `repo="{repo}"`.
+_SERVICE_METRIC: Final = re.compile(r"\bdevops_cli_service_[a-z_]+")
+_REPO_MATCHER: Final = re.compile(r'(?:^|,)\s*repo\s*=\s*"\{repo\}"\s*(?:,|$)')
 
 
 class ReaderKind(StrEnum):
@@ -193,6 +203,35 @@ def _check_programs(source: Path, fact: CatalogFact) -> None:
             ) from error
 
 
+def _matchers(query: str, at: int) -> str | None:
+    """The label matchers in the braces at `at` (after spaces), or None when no braces are there.
+    A brace in a quoted label value does not end the selector."""
+    at = len(query) - len(query[at:].lstrip())
+    if not query.startswith("{", at):
+        return None
+    quoted = escaped = False
+    for index in range(at + 1, len(query)):
+        char = query[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = quoted
+        elif char == '"':
+            quoted = not quoted
+        elif char == "}" and not quoted:
+            return query[at + 1 : index]
+    return None
+
+
+def unscoped_service_metric(query: str) -> str | None:
+    """The first Service metric of `query` whose own selector holds no `repo="{repo}"`, or None."""
+    for found in _SERVICE_METRIC.finditer(query):
+        matchers = _matchers(query, found.end())
+        if matchers is None or not _REPO_MATCHER.search(matchers):
+            return found.group()
+    return None
+
+
 def _fact(entry: Mapping[str, Any]) -> CatalogFact:
     shape = entry.get("shape")
     return CatalogFact(
@@ -238,6 +277,14 @@ def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
                 )
     for fact in catalog.facts:
         _check_programs(source, fact)
+        for field, text in (("query", fact.query), ("base", fact.base)):
+            if text is not None and (metric := unscoped_service_metric(text)) is not None:
+                reason = texts.review_catalog_unscoped_metric.format(
+                    subject=texts.review_catalog_fact.format(id=fact.id), field=field, metric=metric
+                )
+                raise RoadmapReviewError(
+                    texts.review_catalog_refused.format(path=source, reason=reason)
+                )
     return catalog
 
 
@@ -270,7 +317,10 @@ def utc_text(moment: datetime) -> str:
 
 def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
     """The value of each placeholder for `window` of `repo`: the UTC times, the length of the
-    window in whole seconds, the two commits and the repository as `owner/name`."""
+    window in whole seconds, the two commits, the repository as `owner/name` and the slug of its
+    name in the Job names of the Service."""
+    from devops_cli.github.repo_ref import RepoRef
+
     seconds = int((window.end - window.start).total_seconds())
     return {
         "start": utc_text(window.start),
@@ -279,10 +329,11 @@ def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
         "base": window.base_sha,
         "head": window.head_sha,
         "repo": repo,
+        "name_slug": RepoRef(repo).name_slug,
     }
 
 
 def render_query(template: str, values: Mapping[str, str]) -> str:
-    """`template` with each of the six placeholders replaced by its value in `values`; every
+    """`template` with each of the seven placeholders replaced by its value in `values`; every
     other brace stays."""
     return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)

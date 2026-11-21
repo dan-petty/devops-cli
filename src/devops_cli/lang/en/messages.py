@@ -6923,6 +6923,7 @@ class RoadmapMessages:
             "end": "<end time>",
             "range": "<window length>",
             "repo": "<owner/name>",
+            "name_slug": "<slug of the name>",
             "watermark": "<watermark of the snapshot>",
             "change": "<archived change>",
         }
@@ -6990,6 +6991,10 @@ class RoadmapMessages:
     )
     review_plan_probe: str = "the answer of {fact} has no series"
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
+    review_catalog_unscoped_metric: str = (
+        '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '
+        "own braces, so its value adds the repositories together."
+    )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"
     review_catalog_root: str = "the catalog"
