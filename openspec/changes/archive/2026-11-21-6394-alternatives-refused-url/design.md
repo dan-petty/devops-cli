@@ -33,7 +33,7 @@ The prompt of 0.187.0 said "Do not write a URL that no tool gave you" and "Each 
 ## Decisions
 
 - The answer of `fetch_page` says "A link in the text is not a source." next to the line that says to cite the source URL. The model reads it at the point where it reads the link. The sentence is true for refine too: refine drops each source that `allowed_urls` does not hold.
-- The prompt of the alternatives check names the three kinds of URL that are sources. It also names the URLs that are not sources: a link in a page or a search result, a URL from memory, and a URL that the issue or a comment names, until `fetch_page` reads it. This covers the 3 URLs of the item body and the URL from training.
+- The prompt of the alternatives check names the three kinds of URL that are sources. It says that a URL that the issue, a comment, the text of a page, a search snippet or the memory of the model holds is a source only when a tool also gave it in one of these ways. This covers the 3 URLs of the item body and the URL from training.
 - The check stays as it is. A reply that cites a link of a page, or a URL that the item names and that no tool read, stays refused for reason `url`.
 
 ## Rejected alternatives

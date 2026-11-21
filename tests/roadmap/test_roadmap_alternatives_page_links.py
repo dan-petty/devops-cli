@@ -139,7 +139,7 @@ def test_a_reply_that_cites_the_page_that_fetch_page_read_is_written(
     assert (len(plan.checks), plan.failures, _url_warnings(caplog)) == (1, [], [])
 
 
-def test_a_url_that_the_item_names_is_not_a_source_until_fetch_page_reads_it(
+def test_a_url_that_the_item_names_and_that_no_tool_returned_is_refused_for_url(
     services: WebFake,
 ) -> None:
     plan, _ = _round(SEARCH, _citing(REPOSITORY_PAGE, NOTES_PAGE))

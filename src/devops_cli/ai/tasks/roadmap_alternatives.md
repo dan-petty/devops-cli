@@ -22,7 +22,7 @@ A source is one of these URLs:
 - the `Source` URL of a page that `fetch_page` read
 - the URL on the first line of the answer of `github_repository` or `pypi_package`
 
-No other URL is a source. A link in the text of a page or of a search result is not a source. A URL that the issue or a comment names is not a source until `fetch_page` reads it. A URL that you know but that no tool gave you is not a source. The job refuses a reply that cites a URL that is not a source.
+A URL is a source only when a tool gave it in one of these ways. The issue, a comment, the text of a page, a search snippet and your memory can hold a URL. Such a URL is a source only when a tool also gave it in one of these ways. The job refuses a reply that cites any other URL.
 
 Reply with these keys:
 

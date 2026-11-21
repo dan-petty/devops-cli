@@ -10,7 +10,7 @@ In 10 of the 14 refused URLs, the model cites a link from the text of a page tha
 
 - The answer of `fetch_page` says that a link in the text is not a source. The investigation of refine and the alternatives check get the same answer.
 - The prompt of the alternatives check names the URLs that are sources. These are the URL of a `search_web` result, the `Source` URL of a page that `fetch_page` read, and the first URL of the answer of a fact tool.
-- The prompt also names the URLs that are not sources. These are a link in the text of a page or of a search result, a URL from memory, and a URL that the issue or a comment names, until `fetch_page` reads it.
+- The prompt says that a URL is a source only when a tool gave it in one of these ways. A URL that the issue, a comment, the text of a page, a search snippet or the memory of the model holds is a source only in that case.
 - The check does not change: a source that no tool returned stays refused.
 - The answer of a tool is observable, so the change carries a delta of `roadmap-page-fetch` and of `roadmap-alternatives`.
 

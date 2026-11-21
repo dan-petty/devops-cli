@@ -8,7 +8,7 @@ For each item, one agent run searches the web through the providers of `search.p
 
 The verdict is `covers`, `partly` or `none`. For every item except those named below, the check accepts a verdict only after the run made an answered search. A search that no provider answered, and a refused query, do not count. A reply with no answered search gets one more turn to search. Every call of `search_web` counts toward the limit of searches.
 
-The prompt names the URLs that a source can cite: the URL of a search result, the source URL of a page that `fetch_page` read, and the URL on the first line of a fact read. A link in the text of a page or of a search result, a URL that the item or a comment names and that no fetch read, and a URL from the model's memory are not sources. The job refuses a reply that cites one of them (#6394).
+The prompt names the URLs that a source can cite. These are the URL of a search result, the source URL of a page that `fetch_page` read, and the URL on the first line of a fact read. The job refuses a reply that cites any other URL (#6394). A link in the text of a page, or a URL that the item names, is a source only when a tool also gave it in one of these ways.
 
 The model can propose two more verdicts: `rejected` and `in-use`. The job gives each one only when the text confirms it. If the text does not confirm a proposal, the job drops it and keeps the verdict of the reply. The model cannot give either verdict as its own. A reply with one gets one more turn. Refine asks a person nothing about a `rejected` or `in-use` check.
 
