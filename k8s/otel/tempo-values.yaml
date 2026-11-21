@@ -50,6 +50,11 @@ tempo:
       target_bytes_per_second: 25000000
   querier:
     max_concurrent_queries: 4
+  # Tempo discards the spans of a trace beyond 1000000 bytes as it receives the trace, so a trace
+  # that the store receives after this change is at most 1000000 bytes. A trace that the store
+  # already holds can be larger, and it leaves the store within the retention of 168h (#6616).
+  global_overrides:
+    max_bytes_per_trace: 1000000
 
 persistence:
   enabled: true

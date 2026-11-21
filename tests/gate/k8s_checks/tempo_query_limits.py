@@ -5,7 +5,8 @@ Two reads of the Tempo search API held the memory of pod `tempo-0` at the limit 
 chart values cap the bytes of a trace that a search reads, the result count, the search duration,
 the byte rate, the outstanding queries per tenant and the concurrent queries of the querier, so a
 search cannot hold the memory of the pod. The chart renders the `queryFrontend` and `querier`
-blocks of the values into the Tempo configuration (#1813).
+blocks of the values into the Tempo configuration (#1813). The `global_overrides` block cuts the
+spans of a trace beyond 1000000 bytes as Tempo receives the trace.
 """
 
 from __future__ import annotations
@@ -44,8 +45,9 @@ def _tempo() -> dict[str, Any]:
 
 def check_the_tempo_query_limits_stay_under_the_memory_limit() -> None:
     """The values set the search byte, result, duration and byte-rate limits, the outstanding
-    queries per tenant and the concurrent queries of the querier under the `2048Mi` memory limit of
-    the pod, so an oversized search or trace read is refused or cut and the pod stays up (#6616)."""
+    queries per tenant, the concurrent queries of the querier and the trace size limit under the
+    `2048Mi` memory limit of the pod, so an oversized search or trace read is refused or cut and the
+    pod stays up (#6616)."""
     tempo = _tempo()
     frontend = tempo.get("queryFrontend", {})
     querier = tempo.get("querier", {})
@@ -92,4 +94,19 @@ def check_the_tempo_query_limits_stay_under_the_memory_limit() -> None:
         f"{TEMPO_VALUES}: querier.max_concurrent_queries "
         f"{querier['max_concurrent_queries']} is more than queryFrontend."
         f"max_outstanding_per_tenant {frontend['max_outstanding_per_tenant']}"
+    )
+
+    received = tempo.get("global_overrides", {}).get("max_bytes_per_trace")
+
+    assert received == MAX_BYTES_PER_TRACE, (
+        f"{TEMPO_VALUES}: global_overrides.max_bytes_per_trace is {received}, not "
+        f"{MAX_BYTES_PER_TRACE} bytes, so Tempo keeps the spans of a larger trace"
+    )
+
+    held = querier["max_concurrent_queries"] * received
+
+    assert held <= memory / 2, (
+        f"{TEMPO_VALUES}: querier.max_concurrent_queries "
+        f"{querier['max_concurrent_queries']} times global_overrides.max_bytes_per_trace "
+        f"{received} is {held} bytes, more than half of resources.limits.memory {memory}"
     )
