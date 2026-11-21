@@ -1,0 +1,120 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: object-store-perimeter
+  namespace: object-store
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # Every pod of the namespace: the SeaweedFS pods and the operator (#4750).
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. The pods of the namespace reach the HTTP and gRPC ports of the master (9333, 19333), the
+    #    volume servers (8444, 18444), the filers (8888, 18888), the S3 gateway (8333, 18333) and
+    #    the admin HTTP port (23646). The admin gRPC port 33646 is not in this list.
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9333
+        - protocol: TCP
+          port: 19333
+        - protocol: TCP
+          port: 8444
+        - protocol: TCP
+          port: 18444
+        - protocol: TCP
+          port: 8888
+        - protocol: TCP
+          port: 18888
+        - protocol: TCP
+          port: 8333
+        - protocol: TCP
+          port: 18333
+        - protocol: TCP
+          port: 23646
+    # 2. Only the worker reaches the admin gRPC port, which has no authentication
+    #    (GHSA-3qr2-qw48-cj6q, no fixed release).
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seaweedfs
+              app.kubernetes.io/component: worker
+      ports:
+        - protocol: TCP
+          port: 33646
+    # 3. A client of the store reaches the S3 port when its namespace has the label
+    #    `backup-client: "true"`. No rule names a client namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              backup-client: "true"
+      ports:
+        - protocol: TCP
+          port: 8333
+    # 4. Alloy scrapes the metrics port of each component through the ServiceMonitors that the
+    #    operator makes.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9327
+  egress:
+    # 1. CoreDNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # 2. The pods of the namespace. Telemetry is off, and no SeaweedFS pod has internet egress.
+    - to:
+        - podSelector: {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: object-store-operator
+  namespace: object-store
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs-operator
+      app.kubernetes.io/instance: seaweedfs-operator
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. The API server calls the admission webhooks on 9443 from the host network of the
+    #    control-plane node. No selector names that address, and kube-router admits host traffic
+    #    only to pods on the same node, so the rule names no peer, as cert-manager-webhook does.
+    - ports:
+        - protocol: TCP
+          port: 9443
+  egress:
+    # 1. The Kubernetes API server, which the operator watches and writes. Its address is a node
+    #    address, which no pod selector names, so the rule has the form of the CloudNativePG
+    #    database perimeter and excludes the metadata address.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

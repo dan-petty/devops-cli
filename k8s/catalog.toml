@@ -176,3 +176,10 @@ name = "mattermost"
 applications = ["mattermost", "mattermost-operator"]
 tier = 3
 data_class = "owned"
+
+[[service]]
+name = "object-store"
+applications = ["object-store", "seaweedfs-operator"]
+description = "Serves the S3 API of the cluster, with a second copy of each object on another node, for the off-node backups of the other services."
+tier = 2
+data_class = "owned"
