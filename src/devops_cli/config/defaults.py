@@ -746,7 +746,9 @@ DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
 # The shared listing snapshot of a repository lives 7 days after its last write (#4668).
 DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
 # A load of a shared snapshot stops after this time and the reader takes the local copy or reads
-# GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
+# GitHub (#4668). The time starts when the load misses the records that its process knows, and
+# covers the wait for the scan of another lane, the `HSCAN`, and the inflate and validation of
+# the records (#6614). Each command keeps the shorter bound of `valkey.timeout`.
 DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
 # A load of a shared snapshot expands at most this sum of record JSON, and is a miss past it
 # (#6611). The bound limits the expanded bytes, not the zlib bytes. The local devops-cli snapshot

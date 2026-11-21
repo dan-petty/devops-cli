@@ -23,7 +23,11 @@ from devops_cli.core import clock as clock_seam
 
 
 class ClockFake:
-    """In-memory fake for the clock seam: shifts `time-machine` and records every wait."""
+    """In-memory fake for the clock seam: shifts `time-machine` and records every wait.
+
+    `after_each_sleep` and `after_each_reading` set a test action that runs after each wait or
+    each read of the monotonic clock, so a test acts when the code under test reaches that point.
+    """
 
     def __init__(self, traveller: time_machine.Traveller) -> None:
         self._traveller = traveller
@@ -31,6 +35,7 @@ class ClockFake:
         self._lock = threading.Lock()
         self._sleep_barrier: threading.Barrier | None = None
         self._after_sleep: Callable[[], None] | None = None
+        self._after_reading: Callable[[], None] | None = None
         self.waits: list[float] = []
 
     def sleep(self, seconds: float) -> None:
@@ -51,9 +56,18 @@ class ClockFake:
         code under test waits. An exception from `action` leaves the wait, as an interrupt does."""
         self._after_sleep = action
 
+    def after_each_reading(self, action: Callable[[], None]) -> None:
+        """Run `action` after each read of the monotonic clock, once the reading is taken, so a
+        test sees that a thread of the code under test reached a read, such as the start of a
+        budget. `action` runs in the thread that reads the clock."""
+        self._after_reading = action
+
     def monotonic(self) -> float:
         """The monotonic reading the clock seam reads."""
-        return self._monotonic
+        reading = self._monotonic
+        if self._after_reading is not None:
+            self._after_reading()
+        return reading
 
     def move_to(self, destination: time_machine.DestinationType) -> None:
         """Move the wall clock to `destination` without ticking or recording a wait."""

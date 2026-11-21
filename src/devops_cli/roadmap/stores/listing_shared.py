@@ -13,12 +13,17 @@ records) and one zlib JSON `IssueRecord` for each issue number. One field for ea
 each value far under the bound of 1 MiB; the whole snapshot of devops-cli is about 38 MB of JSON
 and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last save.
 
-- A load reads `meta`, then the records with `HSCAN`, and stops when it passes
-  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`. It uses the records only when their digest is the
-  one of `meta`, so a copy that another writer changed during the scan is not used, and a new
-  `meta` of the same records does not spoil the scan. A value that does not parse, a time with
-  no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
-  miss: the values are untrusted. So does a sum of expanded records past
+- A load reads `meta`, then the records with `HSCAN`. It uses the records only when their digest
+  is the one of `meta`, so a copy that another writer changed during the scan is not used, and a
+  new `meta` of the same records does not spoil the scan. Two lanes that load one repository at
+  the same time share one scan: a load takes a lock for its repository, and a load that waited
+  takes the records of the scan of the other load. A load keeps its records as the known records
+  only when no save or load of the process replaced the known records during its scan. The budget
+  of a load, `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`, starts when it misses the known records,
+  and covers the wait for the scan of another lane, the `HSCAN`, and the inflate and validation of
+  the records. A value that does not parse, a time with no UTC offset, a record under a field that
+  is not its issue number, and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the
+  copy a miss: the values are untrusted. So does a sum of expanded records past
   `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB), the total bound of one load.
 - A write of records whose JSON passes the total bound of one load writes nothing and counts
   `oversize`, so no writer of the store stores a copy that no load accepts.
@@ -31,7 +36,10 @@ and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after it
   the stored records (they have the digest of the snapshot, or of the copy that this process
   last wrote or read), a write sends only the changed and removed records and the new `meta`.
   Else it writes all records to a temporary key with a TTL and RENAMEs it onto the snapshot key.
-  Either way an issue that left the repository leaves the shared copy.
+  Either way an issue that left the repository leaves the shared copy. A save compresses only
+  the records that it sends: a store that knows the stored records compares each record with the
+  known record of its number before it encodes, so an older or unchanged save compresses no
+  record.
 
 `TieredSnapshotStore` is the `SnapshotStore` that intake and the lanes read through. It loads the
 local and the shared copy, drops a copy with another schema key or a full read older than
@@ -60,7 +68,7 @@ import math
 import threading
 import uuid
 import zlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -152,18 +160,24 @@ class HeldMeta:
 
 @dataclass(frozen=True)
 class _Seen:
-    """The records of a shared copy that a store knows: the bytes of its `meta`, a digest of the
-    JSON of each record by number, and the records, the highest number first, when the store
-    wrote or read them."""
+    """The records of a shared copy that a store wrote or read: the bytes of its `meta`, a digest
+    and the length of the JSON of each record by number, and the records, the highest number
+    first."""
 
     raw: bytes
     digests: Mapping[str, bytes]
-    issues: tuple[IssueRecord, ...] | None = None
+    lengths: Mapping[str, int]
+    issues: tuple[IssueRecord, ...]
 
     @cached_property
     def digest(self) -> str:
         """The digest of the records, as `meta` names it."""
         return _records_digest(self.digests)
+
+    @cached_property
+    def by_number(self) -> Mapping[int, IssueRecord]:
+        """The records by issue number."""
+        return {issue.number: issue for issue in self.issues}
 
 
 def snapshot_key(repo: str) -> str:
@@ -208,20 +222,38 @@ def _parsed(raw: bytes) -> SharedMeta | None:
         return None
 
 
-def may_replace(stored: SharedMeta | None, mine: SharedMeta) -> bool:
-    """Whether a write of `mine` may replace the stored copy: there is none, it has another schema
-    key, or its watermark is not newer than that of `mine`."""
-    return (
-        stored is None or stored.schema_key != mine.schema_key or mine.watermark >= stored.watermark
-    )
+def may_replace(stored: SharedMeta | None, schema_key: str, watermark: datetime) -> bool:
+    """Whether a write of a snapshot with `schema_key` and `watermark` may replace the stored
+    copy: there is none, it has another schema key, or its watermark is not newer."""
+    return stored is None or stored.schema_key != schema_key or watermark >= stored.watermark
 
 
-def _count_budget() -> None:
-    emit(
-        VALKEY_CACHE_ERRORS_TOTAL,
-        1,
-        {"op": "hscan", "error": ValkeyCacheError.BUDGET.value},
-    )
+@dataclass(frozen=True)
+class _Budget:
+    """The budget of one load of the shared snapshot of `repo`, which started at the monotonic
+    reading `started`: `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`."""
+
+    repo: str
+    started: float
+
+    def passed(self, step: str) -> bool:
+        """Whether the load passed its budget. A load that passed it logs `step` and counts
+        `devops_cli_valkey_cache_errors_total{op="hscan",error="budget"}`: `HSCAN` is the command
+        of the load."""
+        if clock.monotonic() - self.started <= DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
+            return False
+        logger.info(
+            "The load of the shared snapshot of %s passed its budget of %s s in %s.",
+            self.repo,
+            DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
+            step,
+        )
+        emit(
+            VALKEY_CACHE_ERRORS_TOTAL,
+            1,
+            {"op": "hscan", "error": ValkeyCacheError.BUDGET.value},
+        )
+        return True
 
 
 @dataclass
@@ -229,18 +261,23 @@ class ValkeySnapshotStore:
     """The snapshots of the repositories in the cache Valkey, one hash for each repository.
 
     The store keeps the records of the shared copy of each repository that it last wrote or
-    read, so a later write sends only the changed records, and a later load of the same records,
-    such as by another lane of the process, sends no `HSCAN`. It keeps them by the casefolded
+    read, so a later write encodes and sends only the changed records, and a later load of the
+    same records, such as by another lane of the process, sends no `HSCAN`. It keeps one lock for
+    each repository that it loads, so the loads of one repository at the same time send one
+    scan. It keeps them by the casefolded
     name of `RepoRef.key`, as `snapshot_key` does, so each spelling of a name uses the one set of
     known records of its one key. One store lives for a process (`shared_snapshot_store`).
     `load_max_bytes` is the total bound of the expanded records of one load, and of the record
-    JSON of one write.
+    JSON of one write. `compress` gives the value of a record from its JSON; a write calls it only
+    for the records that it sends.
     """
 
     tier: ValkeyCacheTier
     load_max_bytes: int = DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES
+    compress: Callable[[bytes], bytes] = zlib.compress
     _seen: dict[str, _Seen] = field(default_factory=dict, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _loads: dict[str, threading.Lock] = field(default_factory=dict, init=False, repr=False)
 
     def meta(self, repo: str) -> HeldMeta | None:
         """The `meta` of the shared snapshot of `repo` and the TTL of its key, in one round trip;
@@ -253,41 +290,85 @@ class ValkeySnapshotStore:
     def records(self, repo: str, held: HeldMeta) -> ListingSnapshot | None:
         """The shared snapshot whose `meta` is `held`; None when the read fails, passes its
         budget, finds a record that does not parse, or finds records that are not the ones that
-        `held` names, because another writer changed them."""
-        if held.meta is None:
+        `held` names, because another writer changed them.
+
+        A load whose records the store knows takes them and sends no command. Else it takes the
+        lock of the repository before it scans, and a load that waited for the scan of another
+        load takes the records of that scan, so the loads of one repository at the same time
+        send one scan. The budget of a load starts when it misses the known records, and covers
+        the wait for the lock, the `HSCAN`, and the inflate and validation of the records, so a
+        load that waits stops after one budget, even when the scan of the other load failed."""
+        meta = held.meta
+        if meta is None:
             return None
+        known = self._known(repo, meta)
+        if known is not None:
+            return _listing(repo, meta, known.issues)
+        budget = _Budget(repo, clock.monotonic())
         with self._lock:
-            before = self._seen.get(RepoRef(repo).key)
-        if before is not None and before.issues is not None and before.digest == held.meta.digest:
-            return _listing(repo, held.meta, before.issues)
-        values = self._scan(repo)
+            load = self._loads.setdefault(RepoRef(repo).key, threading.Lock())
+        with load:
+            before = self._entry(repo)
+            known = _matching(before, meta)
+            if known is not None:
+                return _listing(repo, meta, known.issues)
+            if budget.passed("the wait for the load of another lane"):
+                return None
+            return self._load(repo, held, meta, budget, before)
+
+    def _load(
+        self,
+        repo: str,
+        held: HeldMeta,
+        meta: SharedMeta,
+        budget: _Budget,
+        before: _Seen | None,
+    ) -> ListingSnapshot | None:
+        """Scan, inflate, digest and validate the records of the shared snapshot whose `meta` is
+        `held`. Each step stops when the load passes `budget`. The records become the known
+        records of `repo` only when the known records are still `before`, the ones that the load
+        missed: a save or a load of the process during the scan keeps its newer records."""
+        values = self._scan(repo, budget)
         if values is None:
             return None
         values.pop(META_FIELD, None)
-        texts = _decompressed(repo, values, self.load_max_bytes)
+        texts = _decompressed(repo, values, self.load_max_bytes, budget)
         if texts is None:
             return None
         digests = _digests(texts)
-        if _records_digest(digests) != held.meta.digest:
+        if _records_digest(digests) != meta.digest:
             logger.info("The shared snapshot of %s changed during its load.", repo)
             return None
-        try:
-            issues = [IssueRecord.model_validate_json(text) for text in texts.values()]
-            for issue in issues:
+        issues: list[IssueRecord] = []
+        for number, text in texts.items():
+            try:
+                issue = IssueRecord.model_validate_json(text)
                 _RecordTimes.model_validate(issue)
-        except ValidationError as exc:
-            logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
-            return None
+            except ValidationError as exc:
+                logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
+                return None
+            if number != str(issue.number):
+                logger.info(
+                    "A record of the shared snapshot of %s is not under the field of its number.",
+                    repo,
+                )
+                return None
+            issues.append(issue)
+            if budget.passed("the validation of the records"):
+                return None
         newest_first = _newest_first(issues)
+        seen = _Seen(held.raw, digests, _lengths(texts), newest_first)
+        key = RepoRef(repo).key
         with self._lock:
-            self._seen[RepoRef(repo).key] = _Seen(held.raw, digests, newest_first)
-        return _listing(repo, held.meta, newest_first)
+            if self._seen.get(key) is before:
+                self._seen[key] = seen
+        return _listing(repo, meta, newest_first)
 
-    def _scan(self, repo: str) -> dict[str, bytes] | None:
+    def _scan(self, repo: str, budget: _Budget) -> dict[str, bytes] | None:
         """Every field of the shared snapshot of `repo` by `HSCAN`; None when a step fails or the
-        scan passes its budget."""
+        load passes `budget` before its last step. The inflate checks the budget after the last
+        step."""
         key = snapshot_key(repo)
-        started = clock.monotonic()
         values: dict[str, bytes] = {}
         cursor = 0
         while True:
@@ -298,13 +379,7 @@ class ValkeySnapshotStore:
             values |= fields
             if cursor == 0:
                 return values
-            if clock.monotonic() - started > DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
-                logger.info(
-                    "The load of the shared snapshot of %s passed its budget of %s s.",
-                    repo,
-                    DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
-                )
-                _count_budget()
+            if budget.passed("the HSCAN"):
                 return None
 
     def load(self, repo: str) -> ListingSnapshot | None:
@@ -317,10 +392,19 @@ class ValkeySnapshotStore:
 
     def write(self, snapshot: ListingSnapshot, held: HeldMeta | None) -> BrainWrite:
         """Write `snapshot` over the shared copy whose `meta` was `held`, and return the result.
-        Records whose JSON passes `load_max_bytes` in total give `oversize` and write nothing,
-        because no load would accept them."""
-        texts = {str(issue.number): issue.model_dump_json().encode() for issue in snapshot.issues}
-        if sum(map(len, texts.values())) > self.load_max_bytes:
+
+        Each check comes before a record is compressed. An older snapshot gives `older` before a
+        record is encoded. Records whose JSON passes `load_max_bytes` in total give `oversize`
+        and write nothing, because no load would accept them. A store that knows the stored
+        records encodes only the records that are not equal to them, and takes the digest and
+        the length of each equal record from them. Records that the stored copy holds, with no
+        newer full read or watermark, give `unchanged`."""
+        stored = None if held is None else held.meta
+        if stored is not None and not may_replace(stored, snapshot.schema_key, snapshot.watermark):
+            return BrainWrite.OLDER
+        known = self._known(snapshot.repo, stored)
+        texts, digests, lengths = _encoded(snapshot.issues, known)
+        if sum(lengths.values()) > self.load_max_bytes:
             logger.info(
                 "The records of %s pass the bound of %s bytes of one shared load, so the shared "
                 "tier gets no copy.",
@@ -328,59 +412,74 @@ class ValkeySnapshotStore:
                 self.load_max_bytes,
             )
             return BrainWrite.OVERSIZE
-        records = {number: zlib.compress(text) for number, text in texts.items()}
-        if any(
-            len(value) > DEFAULT_BRAIN_VALUE_MAX_BYTES
-            for value in (*texts.values(), *records.values())
-        ):
+        if any(len(text) > DEFAULT_BRAIN_VALUE_MAX_BYTES for text in texts.values()):
             return BrainWrite.OVERSIZE
-        digests = _digests(texts)
         meta = SharedMeta(
             schema_key=snapshot.schema_key,
             full_at=snapshot.full_at,
             watermark=snapshot.watermark,
             digest=_records_digest(digests),
         )
-        stored = None if held is None else held.meta
-        if held is not None and not may_replace(stored, meta):
-            return BrainWrite.OLDER
         issues = _newest_first(snapshot.issues)
-        if held is not None and stored is not None and _holds(stored, meta):
-            self.tier.expire(snapshot_key(snapshot.repo), DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS)
-            return self._kept(snapshot.repo, _Seen(held.raw, digests, issues), BrainWrite.UNCHANGED)
-        seen = _Seen(meta.model_dump_json().encode(), digests, issues)
-        known = self._known(snapshot.repo, held, seen)
-        if known is not None and self._update(snapshot.repo, known, seen, records):
-            return self._kept(snapshot.repo, seen)
-        return self._replace(snapshot.repo, meta, seen, records)
-
-    def _known(self, repo: str, held: HeldMeta | None, mine: _Seen) -> _Seen | None:
-        """The records of the stored copy whose `meta` is `held`, when the store knows them: they
-        are the records of `mine`, or the records that this process last wrote or read."""
-        stored = None if held is None else held.meta
         if held is None or stored is None:
-            return None
-        with self._lock:
-            before = self._seen.get(RepoRef(repo).key)
-        for known in (mine, before):
-            if known is not None and stored.digest == known.digest:
-                return _Seen(held.raw, known.digests)
-        return None
+            return self._replace(snapshot, texts)
+        if _holds(stored, meta):
+            self.tier.expire(snapshot_key(snapshot.repo), DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS)
+            seen = _Seen(held.raw, digests, lengths, issues)
+            return self._kept(snapshot.repo, seen, BrainWrite.UNCHANGED)
+        before = known.digests if known is not None else None
+        if before is None and stored.digest == meta.digest:
+            before = digests
+        if before is not None:
+            records = self._compressed(
+                {
+                    number: text
+                    for number, text in texts.items()
+                    if before.get(number) != digests[number]
+                }
+            )
+            if records is None:
+                return BrainWrite.OVERSIZE
+            seen = _Seen(meta.model_dump_json().encode(), digests, lengths, issues)
+            if self._update(snapshot.repo, held.raw, before, seen, records):
+                return self._kept(snapshot.repo, seen)
+        return self._replace(snapshot, texts if known is None else _encoded(snapshot.issues)[0])
 
-    def _update(self, repo: str, before: _Seen, seen: _Seen, records: dict[str, bytes]) -> bool:
-        """Send the changed and removed records and the new `meta` in one transaction, when the
-        stored `meta` is still the one of `before`."""
+    def _entry(self, repo: str) -> _Seen | None:
+        """The records of the shared copy of `repo` that this process last wrote or read."""
+        with self._lock:
+            return self._seen.get(RepoRef(repo).key)
+
+    def _known(self, repo: str, stored: SharedMeta | None) -> _Seen | None:
+        """The records of the stored copy whose `meta` is `stored`, when this process last wrote
+        or read them."""
+        return _matching(self._entry(repo), stored)
+
+    def _compressed(self, texts: Mapping[str, bytes]) -> dict[str, bytes] | None:
+        """The value of each record JSON of `texts`; None when a value passes
+        `DEFAULT_BRAIN_VALUE_MAX_BYTES`."""
+        records = {number: self.compress(text) for number, text in texts.items()}
+        if any(len(value) > DEFAULT_BRAIN_VALUE_MAX_BYTES for value in records.values()):
+            return None
+        return records
+
+    def _update(
+        self,
+        repo: str,
+        raw: bytes,
+        before: Mapping[str, bytes],
+        seen: _Seen,
+        records: Mapping[str, bytes],
+    ) -> bool:
+        """Send the records `records`, remove the records of `before` that `seen` does not hold,
+        and write the `meta` of `seen`, in one transaction, when the stored `meta` is still
+        `raw`."""
         key = snapshot_key(repo)
-        changed = [
-            word
-            for number, value in records.items()
-            if before.digests.get(number) != seen.digests[number]
-            for word in (number, value)
-        ]
-        removed = [number for number in before.digests if number not in records]
+        changed = [word for number, value in records.items() for word in (number, value)]
+        removed = [number for number in before if number not in seen.digests]
 
         def decide(current: bytes | None) -> list[tuple[Any, ...]]:
-            if current != before.raw:
+            if current != raw:
                 return []
             return [
                 *([("HSET", key, *changed)] if changed else []),
@@ -391,12 +490,27 @@ class ValkeySnapshotStore:
 
         return bool(self.tier.watch_and_write(key, META_FIELD, decide))
 
-    def _replace(
-        self, repo: str, meta: SharedMeta, seen: _Seen, records: dict[str, bytes]
-    ) -> BrainWrite:
-        """Write every record to a temporary key, then RENAME it onto the snapshot key when the
-        stored copy may still be replaced."""
-        key = snapshot_key(repo)
+    def _replace(self, snapshot: ListingSnapshot, texts: Mapping[str, bytes]) -> BrainWrite:
+        """Write every record of `snapshot`, whose JSON by number is `texts`, to a temporary key,
+        then RENAME it onto the snapshot key when the stored copy may still be replaced. The
+        `meta` names the digest of `texts`."""
+        records = self._compressed(texts)
+        if records is None:
+            return BrainWrite.OVERSIZE
+        digests = _digests(texts)
+        meta = SharedMeta(
+            schema_key=snapshot.schema_key,
+            full_at=snapshot.full_at,
+            watermark=snapshot.watermark,
+            digest=_records_digest(digests),
+        )
+        seen = _Seen(
+            meta.model_dump_json().encode(),
+            digests,
+            _lengths(texts),
+            _newest_first(snapshot.issues),
+        )
+        key = snapshot_key(snapshot.repo)
         temporary = f"{key}:next:{uuid.uuid4().hex}"
         written = self.tier.hset(temporary, {META_FIELD: seen.raw}) is not None and (
             self.tier.expire(temporary, DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS)
@@ -405,7 +519,9 @@ class ValkeySnapshotStore:
             written = written and self.tier.hset(temporary, dict(batch)) is not None
 
         def decide(current: bytes | None) -> list[tuple[Any, ...]]:
-            if current is not None and not may_replace(_parsed(current), meta):
+            if current is not None and not may_replace(
+                _parsed(current), meta.schema_key, meta.watermark
+            ):
                 return []
             return [
                 ("RENAME", temporary, key),
@@ -414,7 +530,7 @@ class ValkeySnapshotStore:
 
         renamed = self.tier.watch_and_write(key, META_FIELD, decide) if written else None
         if renamed:
-            return self._kept(repo, seen)
+            return self._kept(snapshot.repo, seen)
         self.tier.unlink(temporary)
         return BrainWrite.SKIPPED if renamed is None else BrainWrite.OLDER
 
@@ -441,6 +557,13 @@ class ValkeySnapshotStore:
         return removed
 
 
+def _matching(seen: _Seen | None, stored: SharedMeta | None) -> _Seen | None:
+    """`seen` when it holds the records that `stored` names."""
+    if seen is None or stored is None or seen.digest != stored.digest:
+        return None
+    return seen
+
+
 def _holds(stored: SharedMeta, mine: SharedMeta) -> bool:
     """Whether the stored copy already holds what `mine` would write: the same schema key and
     records, and a full read and a watermark that are not older."""
@@ -456,13 +579,40 @@ def _digests(texts: Mapping[str, bytes]) -> dict[str, bytes]:
     return {number: _digest(text) for number, text in texts.items()}
 
 
+def _lengths(texts: Mapping[str, bytes]) -> dict[str, int]:
+    return {number: len(text) for number, text in texts.items()}
+
+
+def _encoded(
+    issues: Iterable[IssueRecord], known: _Seen | None = None
+) -> tuple[dict[str, bytes], dict[str, bytes], dict[str, int]]:
+    """The JSON of each record of `issues` that `known` does not hold, and the digest and the
+    length of the JSON of each record, by number. A record that is equal to the known record of
+    its number keeps the digest and the length of that record and is not encoded: the records are
+    frozen, and equal records give equal JSON."""
+    texts: dict[str, bytes] = {}
+    digests: dict[str, bytes] = {}
+    lengths: dict[str, int] = {}
+    for issue in issues:
+        number = str(issue.number)
+        if known is not None and known.by_number.get(issue.number) == issue:
+            digests[number] = known.digests[number]
+            lengths[number] = known.lengths[number]
+            continue
+        text = issue.model_dump_json().encode()
+        texts[number] = text
+        digests[number] = _digest(text)
+        lengths[number] = len(text)
+    return texts, digests, lengths
+
+
 def _decompressed(
-    repo: str, values: Mapping[str, bytes], max_bytes: int
+    repo: str, values: Mapping[str, bytes], max_bytes: int, budget: _Budget
 ) -> dict[str, bytes] | None:
     """The JSON of each record; None when a value is not whole zlib data or expands past
-    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, or when the sum of the
-    expanded records passes `max_bytes`. The sum is checked after each record, so a load expands
-    at most the total bound and one record."""
+    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, when the sum of the
+    expanded records passes `max_bytes`, or when the load passes `budget`. The sum and the budget
+    are checked after each record, so a load expands at most the total bound and one record."""
     texts: dict[str, bytes] = {}
     total = 0
     for number, value in values.items():
@@ -488,6 +638,8 @@ def _decompressed(
             )
             return None
         texts[number] = text
+        if budget.passed("the inflate of the records"):
+            return None
     return texts
 
 
