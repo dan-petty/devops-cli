@@ -1550,6 +1550,10 @@ class _Cluster:
 
     def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         cmd, input = list(call.argv), call.stdin if isinstance(call.stdin, str) else None
+        if call.local_read:
+            # A read of the checkout, such as its `origin`, reads no cluster: the empty answer of
+            # a checkout outside any repository.
+            return subprocess.CompletedProcess(cmd, 1, "", "")
         self.calls.append((cmd, input))
         if cmd[0] == "git":
             if "fetch" in cmd:
@@ -2114,14 +2118,15 @@ def test_k8s_teardown_stack_when_argo_not_managed_allows_teardown(
 def test_k8s_deploy_and_teardown_dry_run_makes_no_cluster_calls(
     cluster: FakeCluster, process_fake: ProcessFake
 ) -> None:
-    """deploy-stack and teardown-stack under --dry-run invoke no kubectl or helm commands."""
+    """deploy-stack and teardown-stack under --dry-run invoke no kubectl or helm commands. A
+    local read of the checkout, such as its `origin`, is no cluster call."""
     res_deploy = runner.invoke(app, ["deploy-stack", "--stack", "infra", "--dry-run"])
     res_teardown = runner.invoke(app, ["teardown-stack", "--stack", "infra", "--dry-run"])
 
     assert (
         res_deploy.exit_code,
         res_teardown.exit_code,
-        process_fake.calls,
+        [call for call in process_fake.calls if not call.local_read],
         cluster.core.calls,
         cluster.custom_objects.calls,
         cluster.version.calls,
@@ -2317,7 +2322,7 @@ def test_llm_stack_applies_gateway_servicemonitor_after_helm_and_deletes_before_
         teardown_dry.exit_code,
         _dry_run_details(deploy_dry.output).get("post_helm"),
         _dry_run_details(teardown_dry.output).get("post_helm_deletes"),
-        process_fake.calls,
+        [call for call in process_fake.calls if not call.local_read],
         cluster.core.calls,
         cluster.custom_objects.calls,
     ) == (0, 0, [database, monitor], [monitor, database], [], [], [])

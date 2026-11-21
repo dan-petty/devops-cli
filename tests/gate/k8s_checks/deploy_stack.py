@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -86,15 +87,16 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
     )
 
     crds = HELM_RELEASES_BY_STACK["infra"][0]
-    monitor_releases = [
-        (stack, release["name"])
-        for stack, releases in HELM_RELEASES_BY_STACK.items()
-        for release in releases
-        if any(
-            _renders_service_monitor(yaml.safe_load(value.read_text("utf-8")))
-            for value in release_values(release)
-        )
-    ]
+    with tempfile.TemporaryDirectory(prefix="deploy-stack-values-") as workdir:
+        monitor_releases = [
+            (stack, release["name"])
+            for stack, releases in HELM_RELEASES_BY_STACK.items()
+            for release in releases
+            if any(
+                _renders_service_monitor(yaml.safe_load(value.read_text("utf-8")))
+                for value in release_values(release, Path(workdir))
+            )
+        ]
     pre_helm_paths = [
         *(
             (stack, TREE.path(path))

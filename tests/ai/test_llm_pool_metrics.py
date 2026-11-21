@@ -21,11 +21,14 @@ from devops_cli.ai.pool_load import pool_load, window_seconds
 from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, HELM_REPOS_BY_STACK
 from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.http import WebFake
+from tests.support.k8s_tree import release_values
 
 K8S = Path("k8s")
 
 
-def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> None:
+def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges(
+    tmp_path: Path,
+) -> None:
     """Verify the exporter is installed with the monitoring stack, scheduled onto GPU nodes with
     the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs. Its own
     ServiceMonitor stays off: k8s-monitoring's dcgm-exporter integration scrapes it (#1130)."""
@@ -41,7 +44,7 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         values["serviceMonitor"]["enabled"],
         (
             release["namespace"],
-            [Path(value).name for value in release["values"]],
+            [value.name for value in release_values(release, tmp_path)],
             repo in HELM_REPOS_BY_STACK["infra"],
         ),
     ) == (

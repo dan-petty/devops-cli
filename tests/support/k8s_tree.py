@@ -15,13 +15,17 @@ K8S = REPO_ROOT / "k8s"
 TREE = EnvironmentTree(K8S, REPO_ROOT)
 
 
-def release_values(release: Mapping[str, Any]) -> list[Path]:
-    """The values files of a release of `HELM_RELEASES_BY_STACK`, in their order: the files of the
-    environment tree, then the files of the product base `k8s/devops` (#5131)."""
-    return [
-        *(TREE.path(value) for value in release["values"]),
-        *(TREE.path("devops") / value for value in release.get("product_values", [])),
-    ]
+def release_values(release: Mapping[str, Any], workdir: Path) -> list[Path]:
+    """The values files of a release of `HELM_RELEASES_BY_STACK`, in their order: the `valueFiles`
+    of the chart source of its Application in the tree, as deploy-stack reads them (#6680). A
+    source of devops-cli is this checkout, whatever its `origin`, and a source of another
+    repository is fetched into `workdir`."""
+    from devops_cli.config.constants import CONST_CANONICAL_OCI_SOURCE
+    from devops_cli.k8s.app_sources import SourceTrees, chart_sources, normalize_git_url
+
+    source = chart_sources(TREE.application_dirs)[str(release["name"])]
+    trees = SourceTrees(TREE.repo, normalize_git_url(CONST_CANONICAL_OCI_SOURCE), workdir)
+    return [trees.value_file(value_file, source.refs) for value_file in source.value_files]
 
 
 def deploy_stack_manifests(stacks: Iterable[str] | None = None) -> list[Path]:

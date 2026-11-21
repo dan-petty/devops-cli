@@ -41,6 +41,7 @@ from devops_cli.k8s.gpu_matrix import (
     get_service_aliases,
     list_gpu_profiles,
 )
+from tests.support.k8s_tree import TREE, release_values
 from tests.support.markdown_examples import (
     tables,
 )
@@ -525,7 +526,7 @@ class TestK8sLLMGatewayManifests:
             ["llm-gateway", "portkey", "valkey", "valkey-devops", "valkey-runs"],
         )
 
-    def test_llm_manifests_have_a_deploy_path(self) -> None:
+    def test_llm_manifests_have_a_deploy_path(self, tmp_path: Path) -> None:
         """Verify every manifest under k8s/llm is applied by something (#953).
 
         A file counts when a k8s/llm kustomization lists it (a listed directory lists its
@@ -545,9 +546,9 @@ class TestK8sLLMGatewayManifests:
             }
             | {Path("k8s") / path for path in MANIFESTS_BY_STACK["llm"]}
             | {
-                Path("k8s", value)
+                value.relative_to(TREE.repo)
                 for release in HELM_RELEASES_BY_STACK["llm"]
-                for value in release["values"]
+                for value in release_values(release, tmp_path)
             }
             | {
                 Path("k8s/llm/profiles/gpu-thresholds.yaml"),
