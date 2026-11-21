@@ -29,6 +29,8 @@
 - `prometheus.runner_jobs_started` takes `not_before: "2026-11-14T22:29:00Z"`, the "Live since 2026-11-14 22:29 UTC" comment of the release v0.144.0 on #4558, the issue of PR #5739. Before that time, the Service named the Jobs of all repositories `devops-cli-runner-<time>-<hex>`.
 - `disagreements` already skips a pair when a side is not an `ok` number, so the pair `runner_jobs` is not listed for a window that starts before that time. No code of the pair changes. A test proves it.
 - The dry run shows the condition "the window starts at or after <time>" for such a fact.
+- `prometheus.runner_jobs_started` counts only the Jobs whose start time is at or after the window start: `count(max_over_time(kube_job_status_start_time{...}[{range}]) >= time() - {range})`. A Job of the Service keeps `ttlSecondsAfterFinished: 86400` (`k8s/devops/cronjob-runner.yaml`), so kube-state-metrics keeps its series for 24 h after it ends, and a count of the series in the window also counts the Jobs that started up to 1 day before the window. The review of the build found this live: the day to 2026-11-17T12:00Z gave 36 Jobs against 17.12 of the Service, and 18 of the 36 started in the window.
+- Prometheus 3.16 (live, and the promtool of the devtools image) takes the duration `{range}` as a number of seconds, so the fact needs no new placeholder. The fact takes the base `kube_job_status_start_time{namespace="devops"}`: a window in which kube-state-metrics saw Jobs of the namespace, but no implement Job of the repository start, gives 0, not `skipped`.
 
 ### 4. A path condition at the commits of the window
 
@@ -60,8 +62,8 @@
 
 ### Tests
 
-- Each point has a test that fails on the base commit, with fixtures: fixture catalogs and the web fake for the dispatcher, a recorded git scenario for the path condition (ADR 0007: tests double only the process edge), and promtool over fixture series for the query of the stage SLI.
-- No test asserts a value of the shipped catalog. The shipped catalog test loads it, so the base rule checks each shipped fact. The promtool test evaluates the shipped query of the stage SLI, which is the behavior of the fact.
+- Each point has a test that fails on the base commit, with fixtures: fixture catalogs and the web fake for the dispatcher, a recorded git scenario for the path condition (ADR 0007: tests double only the process edge), and promtool over fixture series for the queries of the stage SLI and the runner Jobs.
+- No test asserts a value of the shipped catalog. The shipped catalog test loads it, so the base rule checks each shipped fact. The promtool tests evaluate the shipped queries of the stage SLI and the runner Jobs, which are the behavior of the facts.
 
 ### Verification before the pull request
 

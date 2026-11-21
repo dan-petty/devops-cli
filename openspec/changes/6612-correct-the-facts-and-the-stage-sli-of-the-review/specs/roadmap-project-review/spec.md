@@ -77,6 +77,17 @@ A fact MAY give `not_before`, a UTC time `YYYY-MM-DDTHH:MM:SSZ`. When the window
 - **WHEN** a fixture fact gives `not_before` `2026-11-14T22:29:00+01:00`
 - **THEN** the loader raises `RoadmapReviewError`, and the message names the fact and `not_before`
 
+### Requirement: The runner Job count reads the Jobs that start in the window
+The shipped fact `prometheus.runner_jobs_started` SHALL count the implement Jobs of the repository of the review whose start time is at or after the window start. It SHALL NOT count a Job that started before the window, also when kube-state-metrics keeps the series of that Job in the window.
+
+#### Scenario: A Job that started before the window and a Job that started in it
+- **WHEN** promtool evaluates the query of the shipped `prometheus.runner_jobs_started`, filled for `example/project` and the window from `1970-01-01T01:00:00Z` to `1970-01-01T02:00:00Z`, over fixture series of `kube_job_status_start_time` of an implement Job of `example/project` that started before the window and has a series in it, an implement Job of `example/project` that started in the window, and an implement Job of another repository that started in the window
+- **THEN** the value is 1
+
+#### Scenario: Only a Job that started before the window
+- **WHEN** the fixture series hold only the implement Job of `example/project` that started before the window
+- **THEN** the query gives no series
+
 ### Requirement: A path condition holds at the commits of the window
 A `path:<path>` condition SHALL hold when the base and the head commits of the window hold the path, as `git ls-tree --name-only <commit> -- <path>` gives it, not the working tree. Else the fact SHALL be `skipped` with a reason that names the path and the commit. The dispatcher SHALL check each path once for each review. A git failure SHALL stop the review. The dry run SHALL list the two git commands.
 
