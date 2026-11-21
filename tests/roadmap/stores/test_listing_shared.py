@@ -704,3 +704,28 @@ def test_a_load_counts_the_tier_that_gave_the_snapshot(tmp_path: Path, otlp: Fak
         snapshot,
         {("snapshot", "source"): 1.0, ("snapshot", "local"): 1.0},
     )
+
+
+def test_the_lanes_of_one_process_scan_the_records_of_a_shared_copy_once(
+    tmp_path: Path, valkey_server: FakeServer
+) -> None:
+    """Lane A of a process saves a newer watermark. Lane B, whose local copy is older, takes the
+    shared copy that the store of the process holds: it reads `meta` and sends no `HSCAN`."""
+    sent: list[str] = []
+    store = _valkey_store(
+        ValkeyCacheTier(
+            valkey_client_on(valkey_server, after_command=lambda command: sent.append(command[0]))
+        )
+    )
+    lane_a = _tiered(tmp_path / "a", shared=lambda: store)
+    lane_b = _tiered(tmp_path / "b", shared=lambda: store)
+    lane_b.save(_snapshot(STARTED - timedelta(hours=1), 2, 1))
+    lane_a.save(_snapshot(STARTED, 3, 2, 1))
+    sent.clear()
+
+    loaded = lane_b.load(REPO)
+
+    assert (
+        None if loaded is None else ([issue.number for issue in loaded.issues], loaded.watermark),
+        sent,
+    ) == (([3, 2, 1], STARTED), ["HGET"])
