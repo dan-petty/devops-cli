@@ -13,6 +13,10 @@ import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from devops_cli.config.constants import (
+    CONST_CANONICAL_OCI_SOURCE,
+    CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
+)
 from devops_cli.dry_run import set_dry_run
 from tests.support.config_writes import written_keys
 from tests.support.fakes.clock import ClockFake
@@ -392,57 +396,122 @@ def test_build_helm_upgrade_cmd_carries_take_ownership() -> None:
     assert "--force-conflicts" in cmd_v4
 
 
+# The `values` source of an Application of a tree outside any repository: the checkout of such a
+# tree has no `origin`, so the source of devops-cli stands for it.
+_VALUES_SOURCE = {"repoURL": CONST_CANONICAL_OCI_SOURCE, "targetRevision": "main", "ref": "values"}
+
+
+def _write_chart_application(
+    apps: Path, name: str, value_files: list[str], *ref_sources: dict[str, str]
+) -> None:
+    """Write the Argo CD Application `name` into the folder `apps`: a chart source that pins 1.0.0
+    and gives Helm `value_files`, and the sources `ref_sources` that the files name."""
+    source: dict[str, Any] = {
+        "repoURL": "https://charts.example.com",
+        "chart": "c",
+        "targetRevision": "1.0.0",
+    }
+    if value_files:
+        source["helm"] = {"valueFiles": value_files}
+    application = {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {"name": name, "namespace": "argocd"},
+        "spec": {"sources": [source, *ref_sources]},
+    }
+    apps.mkdir(parents=True, exist_ok=True)
+    (apps / f"{name}.yaml").write_text(yaml.safe_dump(application), "utf-8")
+
+
 def _pinned_tree(root: Path, unpinned: str | None = None) -> Path:
     """An environment tree whose Argo CD Applications pin each chart of stack `infra` at 1.0.0,
     except the release `unpinned`: the shape that deploy-stack reads, not the committed tree."""
     from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK
 
-    apps = root / "argocd" / "apps"
-    apps.mkdir(parents=True)
     for release in HELM_RELEASES_BY_STACK["infra"]:
-        if release["name"] == unpinned:
-            continue
-        source = {"repoURL": "https://charts.example.com", "chart": "c", "targetRevision": "1.0.0"}
-        application = {
-            "apiVersion": "argoproj.io/v1alpha1",
-            "kind": "Application",
-            "metadata": {"name": release["name"], "namespace": "argocd"},
-            "spec": {"sources": [source]},
-        }
-        (apps / f"{release['name']}.yaml").write_text(yaml.safe_dump(application), "utf-8")
+        if release["name"] != unpinned:
+            _write_chart_application(root / "argocd" / "apps", release["name"], [])
     return root
 
 
-def test_deploy_stack_gives_a_chart_the_environment_values_then_the_product_values(
+def _values_options(upgrade: list[str]) -> list[str]:
+    """The value of each `--values` option of the helm command `upgrade`, in their order."""
+    return [upgrade[i + 1] for i, arg in enumerate(upgrade) if arg == "--values"]
+
+
+def test_deploy_stack_gives_the_prometheus_chart_the_values_files_of_its_application(
     cli: Callable[..., Any], tmp_path: Path
 ) -> None:
-    """The helm command of the prometheus release names the values file of the environment
-    tree, then the alert rules of the product base (#5292, #5131), at the version that its
-    Application pins (#6060)."""
-    env, product = _pinned_tree(tmp_path / "env"), tmp_path / "product"
-    product.mkdir()
+    """The helm command of the prometheus release names the environment values, then the alert
+    rules of the product base (#5292), in the order of its Application (#6680), at the version
+    that the Application pins (#6060)."""
+    env = _pinned_tree(tmp_path / "env")
+    _write_chart_application(
+        env / "argocd" / "apps",
+        "prometheus",
+        [
+            "$values/env/monitoring/prometheus-values.yaml",
+            "$values/env/devops/monitoring/prometheus-rules-values.yaml",
+        ],
+        _VALUES_SOURCE,
+    )
 
-    res = cli(
-        "k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", str(env),
-        "--product-dir", str(product), "--dry-run",
-    )  # fmt: skip
+    res = cli("k8s", "deploy-stack", "--stack", "infra", "--k8s-dir", str(env), "--dry-run")
     (upgrade,) = [
         cmd
         for cmd in _dry_run_details(res.output)["helm_commands"]
         if cmd[:3] == ["helm", "upgrade", "--install"] and cmd[4] == "prometheus"
     ]
 
-    assert (
-        res.exit_code,
-        [upgrade[i + 1] for i, arg in enumerate(upgrade) if arg in ("--values", "--version")],
-    ) == (
+    assert (res.exit_code, upgrade[upgrade.index("--version") + 1], _values_options(upgrade)) == (
         0,
+        "1.0.0",
         [
-            "1.0.0",
             str(env / "monitoring" / "prometheus-values.yaml"),
-            str(product / "monitoring" / "prometheus-rules-values.yaml"),
+            str(env / "devops" / "monitoring" / "prometheus-rules-values.yaml"),
         ],
     )
+
+
+def test_deploy_stack_gives_a_chart_the_values_files_of_its_application_in_their_order(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A values template of another repository comes before the environment values, as Argo CD
+    gives them to the chart (#6680). The dry run fetches nothing: it lists the fetch of the
+    repository of the template at the revision of its source."""
+    env = tmp_path / "env"
+    infra = {"repoURL": "https://example.com/infra.git", "targetRevision": "v1.0.0", "ref": "infra"}
+    _write_chart_application(
+        env / "argocd" / "apps",
+        "loki",
+        ["$infra/helm/loki/values.yaml", "$values/env/logging/loki-values.yaml"],
+        infra,
+        _VALUES_SOURCE,
+    )
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+    details = _dry_run_details(res.output)
+    (upgrade,) = [cmd for cmd in details["helm_commands"] if cmd[:2] == ["helm", "upgrade"]]
+    fetched = Path(details["source_fetches"][0][-1])
+
+    assert (
+        res.exit_code,
+        _values_options(upgrade),
+        details["source_fetches"],
+        calls_starting(process_fake, "git", "init"),
+    ) == (
+        0,
+        [str(fetched / "helm" / "loki" / "values.yaml"), str(env / "logging" / "loki-values.yaml")],
+        [
+            ["git", "init", "--quiet", str(fetched)],
+            [
+                "git", "-C", str(fetched), "-c", CONST_GIT_NONINTERACTIVE_SSH_CONFIG, "fetch",
+                "--quiet", "--depth", "1", "--end-of-options", "https://example.com/infra", "v1.0.0",
+            ],
+            ["git", "-C", str(fetched), "checkout", "--quiet", "FETCH_HEAD"],
+        ],
+        [],
+    )  # fmt: skip
 
 
 def test_deploy_stack_stops_on_a_release_that_no_application_pins(
