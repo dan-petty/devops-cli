@@ -39,7 +39,7 @@ from pathlib import Path
 from typing import Final
 
 from devops_cli.ai.client.factory import get_task_model
-from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_RUFF, BIN_UV
+from devops_cli.config.commands import BIN_DEVOPS, BIN_RUFF, BIN_UV
 from devops_cli.config.constants import (
     CONST_GITHUB_CLONE_URL,
     CONST_GITHUB_WORKFLOWS_DIR,
@@ -305,7 +305,7 @@ def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
 
     def abort() -> list[str]:
         files = unmerged(path, operation=_OPERATION)
-        run_subprocess([BIN_GIT, "-C", str(path), "rebase", "--abort"], check=False, quiet=True)
+        git(path, "rebase", "--abort", operation=_OPERATION)
         return files
 
     try:

@@ -27,6 +27,7 @@ from devops_cli.roadmap.steps.fix_checks import Fixed, ModelFixer, run_fix_check
 from devops_cli.roadmap.steps.fix_checks_repair import (
     job_repair,
     open_checkout,
+    rebase_branch,
     tier1_fix,
 )
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
@@ -973,3 +974,138 @@ def test_a_fixer_that_rewrites_the_origin_of_the_clone_changes_no_push(
     )
     assert run_git(other, "rev-parse", BRANCH) == head
     assert not any(str(other) in arg for call in programs.calls for arg in call.argv)
+
+
+# ── The rebase of the agent phase (#6639) ──
+
+SPEC = "openspec/specs/sample/spec.md"
+CHANGE = "openspec/changes/1-sample"
+ARCHIVED = "openspec/changes/archive/2026-11-21-1-sample"
+DOCS_FILE = "docs/CLI_REFERENCE.md"
+
+
+def _commit_on(repo: StageRepo, files: dict[str, str], subject: str) -> None:
+    """Write `files` in the clone of `repo` and commit them with `subject`."""
+    for name, text in files.items():
+        (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / name).write_text(text, encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", subject)
+
+
+def _main_moves(repo: StageRepo, files: dict[str, str]) -> str:
+    """Commit `files` on `main` of the clone after the branch point, go back to the branch, and
+    give the tip of `main`."""
+    repo.git("switch", "-q", "main")
+    _commit_on(repo, files, "chore: main moves")
+    onto = repo.git("rev-parse", "HEAD")
+    repo.git("switch", "-q", "fix/1-sample")
+    return onto
+
+
+def _rebase_world(
+    stage_repo: StageRepo, process_fake: ProcessFake, base: dict[str, str]
+) -> StageRepo:
+    """The clone on the branch of item 1 from `main` with `base`: git runs for real, and each `uv`
+    program succeeds and changes nothing."""
+    stage_repo.track({STEPS_FILE: STEPS_DECLARATION, **base})
+    stage_repo.git("switch", "-q", "-c", "fix/1-sample")
+    process_fake.answer("git", ProcessAnswer(side_effect=git_for_real))
+    process_fake.answer(lambda call: command_text(call).startswith("uv "), ProcessAnswer())
+    return stage_repo
+
+
+def _archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+    """What `openspec archive` does: it moves the change folder into the archive."""
+    assert call.cwd is not None
+    (call.cwd / ARCHIVED).parent.mkdir(parents=True, exist_ok=True)
+    (call.cwd / CHANGE).rename(call.cwd / ARCHIVED)
+    return subprocess.CompletedProcess(call.argv, 0, stdout="", stderr="")
+
+
+def _archived_branch(repo: StageRepo) -> str:
+    """The work of item 1 and its archive commit, which changes the spec that main changes too.
+    Gives the tip of main."""
+    _commit_on(repo, {f"{CHANGE}/tasks.md": "- [x] done\n", SAMPLE: "VALUE = 1\n"}, "fix: the work")
+    (repo.clone / ARCHIVED).parent.mkdir(parents=True, exist_ok=True)
+    repo.git("mv", CHANGE, ARCHIVED)
+    _commit_on(repo, {SPEC: "# Sample\n\nbase\nitem\n"}, ARCHIVE_MESSAGE.format(number=1))
+    return _main_moves(repo, {SPEC: "# Sample\n\nbase\nmain\n"})
+
+
+@pytest.mark.parametrize("archives", [True, False], ids=["archived-again", "archive-fails"])
+def test_a_rebase_that_skips_the_archive_commit_archives_the_change_again(
+    stage_repo: StageRepo, process_fake: ProcessFake, archives: bool
+) -> None:
+    """Main changed the spec that the archive commit of the item changes, so the rebase skips the
+    archive commit, as implement does. The step archives the change again in a commit of its own,
+    or stops when the archive fails."""
+    repo = _rebase_world(stage_repo, process_fake, {SPEC: "# Sample\n\nbase\n"})
+    onto = _archived_branch(repo)
+    archive = ProcessAnswer(side_effect=_archive) if archives else ProcessAnswer(returncode=1)
+    process_fake.answer(lambda call: "openspec archive" in command_text(call), archive)
+
+    fixed = rebase_branch(repo.clone, onto, 1)
+
+    if archives:
+        assert fixed == Fixed(done=True)
+        assert repo.git("log", "--format=%s", f"{onto}..HEAD").splitlines() == [
+            ARCHIVE_MESSAGE.format(number=1),
+            "fix: the work",
+        ]
+        assert (repo.clone / ARCHIVED / "tasks.md").is_file()
+    else:
+        assert not fixed.done
+        assert fixed.reason.startswith("The change was not archived again: ")
+
+
+def test_a_lock_that_uv_cannot_make_again_aborts_the_rebase(
+    stage_repo: StageRepo, process_fake: ProcessFake
+) -> None:
+    """A conflict only in `uv.lock` takes the lock of main and runs `uv lock`. When `uv lock` fails,
+    the rebase is aborted, and the branch keeps its commits."""
+    repo = _rebase_world(stage_repo, process_fake, {"uv.lock": "version = 1\n"})
+    _commit_on(repo, {"uv.lock": "version = 1\nbranch\n", SAMPLE: "VALUE = 1\n"}, "fix: the work")
+    tip = repo.git("rev-parse", "HEAD")
+    onto = _main_moves(repo, {"uv.lock": "version = 1\nmain\n"})
+    process_fake.answer(lambda call: command_text(call) == "uv lock", ProcessAnswer(returncode=1))
+
+    fixed = rebase_branch(repo.clone, onto, 1)
+
+    assert not fixed.done
+    assert fixed.reason.startswith(
+        "The rebase onto main stopped: `uv lock` failed after the rebase"
+    )
+    assert (repo.git("rev-parse", "HEAD"), repo.git("status", "--porcelain")) == (tip, "")
+
+
+def test_two_stops_on_a_generated_document_are_each_settled(
+    stage_repo: StageRepo, process_fake: ProcessFake
+) -> None:
+    """Two commits of the branch change a generated document that main changes too. Each stop takes
+    the document of main and generates it again, and the rebase ends on the tip of main."""
+    repo = _rebase_world(stage_repo, process_fake, {DOCS_FILE: "# v1\n"})
+    _commit_on(repo, {DOCS_FILE: "# v1\none\n", SAMPLE: "VALUE = 1\n"}, "fix: one")
+    _commit_on(repo, {DOCS_FILE: "# v1\ntwo\n", "src/devops_cli/other.py": "B = 2\n"}, "fix: two")
+    onto = _main_moves(repo, {DOCS_FILE: "# v1\nmain\n"})
+
+    fixed = rebase_branch(repo.clone, onto, 1)
+
+    assert fixed == Fixed(done=True)
+    assert repo.git("merge-base", onto, "HEAD") == onto
+    assert _uv_commands(process_fake).count("uv run devops docs generate") == 2
+
+
+def test_a_rebase_that_git_refuses_to_start_stops_the_round(
+    stage_repo: StageRepo, process_fake: ProcessFake
+) -> None:
+    """A checkout that holds a change that no commit holds is no conflict: git refuses to start the
+    rebase, and the round stops with nothing to abort."""
+    repo = _rebase_world(stage_repo, process_fake, {SAMPLE: "VALUE = 0\n"})
+    _commit_on(repo, {SAMPLE: "VALUE = 1\n"}, "fix: the work")
+    onto = _main_moves(repo, {"NEWS.md": "main moved\n"})
+    (repo.clone / SAMPLE).write_text("VALUE = 2\n", encoding="utf-8")
+
+    fixed = rebase_branch(repo.clone, onto, 1)
+
+    assert fixed == Fixed(done=False, reason="git refused to start the rebase onto main")
