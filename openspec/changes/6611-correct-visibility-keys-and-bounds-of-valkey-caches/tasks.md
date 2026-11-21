@@ -43,7 +43,7 @@ Adds: `ValkeyCacheTier.get_with_ttl`.
 
 Kind: documents. Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`. Changes: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`.
 
-- [ ] 5.1 Add `unknown` (a repository whose visibility read failed) to the descriptions of `BRAIN_READS_TOTAL` and `BRAIN_WRITES_TOTAL` in `src/devops_cli/telemetry/instruments.py`, and write `docs/TELEMETRY.md` again with `uv run devops docs generate`. In `docs/roadmap/intake.md`, say that a failed read of the visibility leaves the shared copy and is read again after 60 s, and that only a private answer removes the shared copy
+- [x] 5.1 Add `unknown` (a repository whose visibility read failed) to the descriptions of `BRAIN_READS_TOTAL` and `BRAIN_WRITES_TOTAL` in `src/devops_cli/telemetry/instruments.py`, and write `docs/TELEMETRY.md` again with `uv run devops docs generate`. In `docs/roadmap/intake.md`, say that a failed read of the visibility leaves the shared copy and is read again after 60 s, and that only a private answer removes the shared copy
   - Verification: `$ uv run devops ci --check --only docs` passes, and `$ ! git grep -n "counts as private" -- docs src` exits 0
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
