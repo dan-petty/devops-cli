@@ -99,7 +99,9 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `OutputCapReached` | `OUTPUT_CAP_REACHED` | `15` | Ai | A model reply ended with the finish reason `length`: the model did not stop, and the output |
 | `OverWindowError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the inputs of an implement step measure more than the window allows (#3057). |
 | `PageTextError` | `PAGE_TEXT_ERROR` | `1` | Ai | Raised when the Crawl4AI service returns no usable text for a page. |
+| `PhaseOutputError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` cannot read an output of the agent phase as data: a link in its path, a |
 | `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
+| `PublishRefusedError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` refuses the patch of the agent phase before the push: git cannot apply |
 | `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
 | `RagIngestError` | `RAG_INGEST_FAILED` | `1` | Ai | Raised when one or more repositories fail during RAG ingestion. |
 | `RefusedPullReply` | `REFUSED_PULL_REPLY` | `1` | Roadmap | The pull request text broke form rules after one retry (#3599). |

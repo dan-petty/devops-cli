@@ -76,6 +76,18 @@ class GitSettingsError(RoadmapImplementError):
         super().__init__(message, details={"settings": ", ".join(settings)[:256]})
 
 
+class PhaseOutputError(RoadmapImplementError):
+    """Raised when `publish` cannot read an output of the agent phase as data: a link in its path, a
+    file that is not a regular file, a file over its size limit, or text that is not the model of
+    the file (#6601)."""
+
+
+class PublishRefusedError(RoadmapImplementError):
+    """Raised when `publish` refuses the patch of the agent phase before the push: git cannot apply
+    it, or it adds or changes a link, a gitlink, `.gitmodules` or a workflow file that the plan does
+    not name (#6601). The message names the reason and each path, masked."""
+
+
 class OverWindowError(RoadmapImplementError):
     """Raised when the inputs of an implement step measure more than the window allows (#3057)."""
 

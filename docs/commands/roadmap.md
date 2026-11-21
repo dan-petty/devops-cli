@@ -714,6 +714,8 @@ devops roadmap step fix-checks [OPTIONS]
 | `--check` | `string` | - | Name of the failed check to repair (default: the first failed check). A check that does not fail on the head gives skipped. |
 | `--source` | `path` | - | Clone of the repository that the repair works in (default: the clone model-clone of the data folder). |
 | `--confirm` | `boolean` | - | Repair and push in a runner Job. Without it, the step prints its plan and writes nothing. |
+| `--phase` | `choice (prepare|agent|publish|all)` | `all` | The phase of the repair, with --confirm: prepare (the GitHub reads, the claim and the clone, with no agent code), agent (the fixers, with no GitHub call), publish (the patch as one commit, the push with a lease and the GitHub writes), or all, the three in one process. |
+| `--work` | `path` | - | The run folder of a phase other than all: state/ for prepare and publish, work/ for the clone and the inputs of the agent, and out/ for its outputs. |
 | `--dry-run` | `boolean` | - | Make no network request and change nothing. |
 
 ### `devops roadmap step fix-conflict`

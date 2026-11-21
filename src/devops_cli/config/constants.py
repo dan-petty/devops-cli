@@ -3867,6 +3867,27 @@ CONST_ROADMAP_FIX_CHECKS_JOB_MIN_MARGIN_SECONDS: Final[int] = 300
 # first value at each attempt, up to the second (#5027).
 CONST_ROADMAP_FIX_CHECKS_RETRY_SECONDS: Final[int] = 1800
 CONST_ROADMAP_FIX_CHECKS_RETRY_CAP_SECONDS: Final[int] = 7200
+# The run folder of a phased roadmap step (#6601): `prepare` writes the state file in `state/`,
+# which the agent phase does not read, and the clone and the inputs of the agent in `work/`. The
+# agent phase writes its outputs in `out/`, and `publish` reads them as data.
+CONST_ROADMAP_PHASE_STATE_DIR: Final[str] = "state"
+CONST_ROADMAP_PHASE_WORK_DIR: Final[str] = "work"
+CONST_ROADMAP_PHASE_OUT_DIR: Final[str] = "out"
+CONST_ROADMAP_PHASE_STATE_FILE: Final[str] = "state.json"
+CONST_ROADMAP_PHASE_INPUT_FILE: Final[str] = "input.json"
+CONST_ROADMAP_PHASE_PATCH_FILE: Final[str] = "agent.patch"
+CONST_ROADMAP_PHASE_SUMMARY_FILE: Final[str] = "summary.json"
+CONST_ROADMAP_PHASE_OUTCOME_FILE: Final[str] = "outcome.json"
+# The most bytes that `publish` reads of the patch and of each JSON output of the agent phase.
+CONST_ROADMAP_PHASE_PATCH_MAX_BYTES: Final[int] = 16 * 1024 * 1024
+CONST_ROADMAP_PHASE_JSON_MAX_BYTES: Final[int] = 1024 * 1024
+# The git modes of a symbolic link and of a gitlink, which `publish` refuses in a new or changed
+# entry, and the file that names the submodules (#3702).
+CONST_GIT_LINK_MODES: Final[frozenset[str]] = frozenset({"120000", "160000"})
+CONST_GIT_MODULES_FILE: Final[str] = ".gitmodules"
+# The folder of the GitHub Actions workflows: a patch writes a file in it only when the merged plan
+# of the item names that file (#2695).
+CONST_GITHUB_WORKFLOWS_DIR: Final[str] = ".github/workflows/"
 CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES: Final[int] = 20
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS: Final[str] = "roadmap.devops-cli/progress"
 CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: Final[str] = "roadmap.devops-cli/progress-at"

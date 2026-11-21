@@ -1621,6 +1621,16 @@ class RoadmapCommandHelp:
     step_fix_checks_confirm: str = (
         "Repair and push in a runner Job. Without it, the step prints its plan and writes nothing."
     )
+    step_fix_checks_phase: str = (
+        "The phase of the repair, with --confirm: prepare (the GitHub reads, the claim and the "
+        "clone, with no agent code), agent (the fixers, with no GitHub call), publish (the patch "
+        "as one commit, the push with a lease and the GitHub writes), or all, the three in one "
+        "process."
+    )
+    step_fix_checks_work: str = (
+        "The run folder of a phase other than all: state/ for prepare and publish, work/ for the "
+        "clone and the inputs of the agent, and out/ for its outputs."
+    )
     step_fix_checks_dry_run: str = "Make no network request and change nothing."
     step_review: str = (
         "Give a bot pull request one verdict: mergeable, needs fix, discard or issue changed "
