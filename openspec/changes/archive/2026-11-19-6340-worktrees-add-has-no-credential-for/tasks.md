@@ -2,13 +2,16 @@
 
 ## 1. Give a git child that reaches a remote the credential helper
 
-Kind: behavior. Reads: `src/devops_cli/core/process.py`, `src/devops_cli/config/constants.py`, `tests/core/test_subprocess_env_boundary.py`, `tests/core/test_process.py`, `tests/support/github_identity.py`. Changes: `src/devops_cli/core/process.py`, `tests/core/test_subprocess_env_boundary.py`.
+Kind: behavior. Reads: `src/devops_cli/core/process.py`, `src/devops_cli/config/constants.py`, `tests/core/test_subprocess_env_boundary.py`, `tests/core/test_process.py`, `tests/support/github_identity.py`. Changes: `src/devops_cli/core/process.py`, `src/devops_cli/infra/repo_tree.py`, `src/devops_cli/k8s/argocd_overrides.py`, `tests/core/test_subprocess_env_boundary.py`.
 Adds: `git_credential_args`
 
 - [x] 1.1 Write `test_a_network_git_child_gets_the_credential_helper` in `tests/core/test_subprocess_env_boundary.py` for the scenarios `The reproduction form with a token` and `A fetch with prune`: it runs `git -C <clone> ls-remote --heads origin main` and `git fetch --prune origin` through `run_subprocess`, and asserts that each recorded argv holds the two `-c` values of `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` after `git` and before the subcommand, with the session's token in the environment of the child. Write `test_a_local_git_child_gets_no_credential_helper` in the same module for the scenario `A local status`, and assert that `git status` records no `-c` value and no `GH_TOKEN`. Update the three assertions that compare the recorded argv of a network git child in `test_a_lookup_that_cannot_run_leaves_git_working_and_says_why`, `test_gh_and_git_children_get_only_the_pinned_token` and `test_git_runs_without_a_token_when_gh_has_no_login`
   - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py` fails on the base
 - [x] 1.2 Add `git_credential_args` to `src/devops_cli/core/process.py`: it returns `["-c", value, "-c", value]` from `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` when `_github_client_name` names git and `git_reaches_remote(cmd[1:])` is true, and an empty list otherwise. In `DefaultProcessRunner.run`, insert the result at index 1 of `full_cmd` right after `pin = _github_pin(full_cmd, env)`, and do the same in `run_async` after its `asyncio.to_thread` call, so the pin reads the caller's own words. Extend the docstring of `_github_pin`: a git child that reaches a remote gets the token and the helper together
   - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py` passes
+
+- [x] 1.3 Remove the `-c` values that `src/devops_cli/infra/repo_tree.py` (`_credential`) and `src/devops_cli/k8s/argocd_overrides.py` pass to their own fetch, because the runner of 1.2 gives them
+  - Verification: `$ uv run devops ci test tests/infra tests/commands/k8s` passes
 
 ## 2. Read origin before worktrees add reclaims
 
