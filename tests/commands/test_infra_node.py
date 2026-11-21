@@ -496,3 +496,13 @@ def test_dry_run_starts_no_process(
     assert len(lab.process_fake.calls) == calls
     shown = result.output.replace(str(tmp_path), "<tmp>")
     assert shown == snapshot
+
+
+def test_infra_help_gives_the_node_group_its_help(cli: Callable[..., Any]) -> None:
+    """`devops infra --help` lists the node group with the first words of its help (#5128)."""
+    result = cli("infra", "--help")
+
+    assert result.exit_code == 0, result.output
+    rows = [line for line in result.output.splitlines() if line.lstrip("│ ").startswith("node ")]
+    assert rows, result.output
+    assert "Drain, uncordon" in rows[0], rows[0]

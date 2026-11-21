@@ -115,6 +115,8 @@ devops infra apply [OPTIONS] <repo> <playbook>
 
 ## `devops infra node`
 
+**Drain, uncordon, restart or reboot the Kubernetes nodes of the hosts of an infra repo, one host at a time in the given order. The hosts come from the inventory at the head of the default branch at origin. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. Each run writes an audit record.**
+
 ```bash
 devops infra node COMMAND [ARGS]...
 ```

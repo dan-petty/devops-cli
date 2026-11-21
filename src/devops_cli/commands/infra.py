@@ -353,7 +353,7 @@ def _render_apply_plan(
 
 
 node_app = new_typer(help=HELP.infra.node, no_args_is_help=True)
-app.add_typer(node_app, name="node")
+app.add_typer(node_app, name="node", help=HELP.infra.node)
 
 
 @node_app.command("drain", help=HELP.infra.node_drain)
