@@ -8,6 +8,18 @@ declares its profile. `ansible_config.json` and
 as `{root}`. To record them again, copy the repo to a scratch folder, run the two commands there
 with only `HOME`, `PATH` and `LANG` set, and put `{root}` in place of the folder.
 
+`collections/example/infra/` is a collection whose role `nvidia` has an argument spec (#6678).
+`answer_infra_reads` answers `ansible-galaxy collection install -r <file> -p <folder>` with a copy
+of each collection of the file that `collections/<namespace>/<name>/` holds, into
+`<folder>/ansible_collections/`, as an install puts it. `ansible_roles.json` is the output of
+`ansible-doc -t role -l -j` in a copy of the repo after an install of `example.infra`. To record it
+again, run `ansible-galaxy collection build` of the collection folder, install the built file with
+`ansible-galaxy collection install -r <file> -p <scratch>/collections` (a requirements file that
+names the built file with `type: file`), and run `ansible-doc -t role -l -j` in the copy of the
+repo with only `HOME`, `PATH` and `LANG` set, `ANSIBLE_COLLECTIONS_PATH=<scratch>/collections` and
+`ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False`. With no collection in the folder, the listing is `{}`,
+because the roles of the repo have no argument spec.
+
 The CI workflow of the complete repo is written into the copy, not kept under `tests/fixtures/`,
 so no workflow check reads it as a workflow of this repository.
 
@@ -59,6 +71,7 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
+import yaml
 
 from devops_cli.core.process import build_subprocess_env
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -78,6 +91,12 @@ COLOR_TERM: Final[str] = "xterm-256color"
 _NOCOLOR: Final[str] = "ANSIBLE_NOCOLOR"
 _PROJECT_MARK: Final[str] = "{project}"
 INFRA_REPO_SHAPE: Final[Path] = INFRA_FIXTURES / "homelab_shape"
+FIXTURE_COLLECTIONS: Final[Path] = INFRA_FIXTURES / "collections"
+# The fixture collection whose role the recorded listing `ansible_roles.json` holds.
+EXAMPLE_COLLECTION: Final[tuple[str, str]] = ("example", "infra")
+ROLE_LIST_WORDS: Final[tuple[str, ...]] = ("-t", "role", "-l", "-j")
+COLLECTIONS_PATH_ENV: Final[str] = "ANSIBLE_COLLECTIONS_PATH"
+_COLLECTIONS_ROOT: Final[str] = "ansible_collections"
 KUBE_CONTEXT: Final[str] = "homelab-example"
 IN_SERVICE_HOSTS: Final[tuple[str, ...]] = tuple(f"192.0.2.{n}" for n in range(1, 5))
 SSH_KEY_NAME: Final[str] = "ansible-id_ed25519-20261101"
@@ -214,13 +233,16 @@ def answer_infra_reads(
 ) -> None:
     """Answer the reads of an onboarding of the repo at `root`: the read of its default branch,
     whose export holds the files of the checkout, the config dump and the inventory in the export
-    (recorded unless given, with each path of `root` in the export), the kubeconfig contexts, and
+    (recorded unless given, with each path of `root` in the export), the install of the pinned
+    collections (`install_fixtures`) and their roles (`role_listing`), the kubeconfig contexts, and
     `ssh-keygen -F`, which finds each host of `known_hosts`."""
     answer_default_branch(fake, root)
     dump = recorded_read("config", root) if config is None else config
     listing = recorded_read("inventory", root) if inventory is None else inventory
     fake.answer(ansible_command("ansible-config", "dump"), in_export(json.dumps(dump), root))
     fake.answer(ansible_command("ansible-inventory"), in_export(json.dumps(listing), root))
+    fake.answer(ansible_command("ansible-galaxy", "collection", "install"), install_fixtures)
+    fake.answer(ansible_command("ansible-doc", *ROLE_LIST_WORDS), role_listing)
     fake.answer(
         ["kubectl", "config", "get-contexts"],
         ProcessAnswer(stdout="".join(f"{name}\n" for name in contexts)),
@@ -233,6 +255,35 @@ def answer_infra_reads(
         return ProcessAnswer(returncode=1)
 
     fake.answer(["ssh-keygen", "-F"], keygen)
+
+
+def _word_after(call: ProcessCall, option: str) -> str:
+    return call.argv[call.argv.index(option) + 1]
+
+
+def install_fixtures(call: ProcessCall) -> ProcessAnswer:
+    """The answer of `ansible-galaxy collection install -r <file> -p <folder>`: a copy of each
+    collection that the file names and that `collections/<namespace>/<name>/` of the infra
+    fixtures holds, into `<folder>/ansible_collections/<namespace>/<name>`. A collection with no
+    fixture is not copied: the pinned collections of the homelab shape hold no role."""
+    requirements = yaml.safe_load(Path(_word_after(call, "-r")).read_text(encoding="utf-8"))
+    target = Path(_word_after(call, "-p")) / _COLLECTIONS_ROOT
+    for entry in requirements["collections"]:
+        namespace, name = entry["name"].split(".", 1)
+        source = FIXTURE_COLLECTIONS / namespace / name
+        if source.is_dir():
+            shutil.copytree(source, target / namespace / name)
+    return ProcessAnswer()
+
+
+def role_listing(call: ProcessCall) -> ProcessAnswer:
+    """The answer of `ansible-doc -t role -l -j`: the recorded listing `ansible_roles.json` when the
+    `ANSIBLE_COLLECTIONS_PATH` of the call holds the fixture collection `example.infra`, else `{}`,
+    the listing of the homelab shape, whose roles have no argument spec."""
+    folder = (call.env or {}).get(COLLECTIONS_PATH_ENV)
+    held = folder is not None and Path(folder, _COLLECTIONS_ROOT, *EXAMPLE_COLLECTION).is_dir()
+    listing = recorded_read("roles", INFRA_REPO_SHAPE) if held else {}
+    return ProcessAnswer(stdout=json.dumps(listing))
 
 
 @pytest.fixture

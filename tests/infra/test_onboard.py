@@ -1,5 +1,6 @@
 """The onboarding report of an Ansible infra repo: one row for each check, read from the export of
-the default branch at origin and local tool output only (#5121, #5162).
+the default branch at origin, local tool output and the roles of the pinned collections (#5121,
+#5162, #6678).
 
 The repo is a copy of `tests/fixtures/infra/homelab_shape/`, in the shape of dan-petty/homelab.
 Its export holds the files of the checkout unless a case gives another tree for `origin/main`.
@@ -24,12 +25,14 @@ from devops_cli.infra.onboard import check_onboarding, resolve_target
 from devops_cli.models.infra import OnboardReport, OnboardState
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.infra import (
+    COLLECTIONS_PATH_ENV,
     DEFAULT_BRANCH,
     IN_SERVICE_HOSTS,
     KUBE_CONTEXT,
     OLD_COMMIT,
     ORIGIN_COMMIT,
     SSH_KEY_NAME,
+    ansible_command,
     answer_default_branch,
     answer_infra_reads,
     git_command,
@@ -43,6 +46,7 @@ PRESENT = OnboardState.PRESENT
 MISSING = OnboardState.MISSING
 LISTED = OnboardState.LISTED
 NOT_READABLE = OnboardState.NOT_READABLE
+FOLDER_ROLES = ("common", "k3s_agent", "k3s_server", "k8s_gpu", "nvidia")
 
 
 @dataclass
@@ -143,7 +147,7 @@ def test_a_complete_repo_has_every_row_present(onboarding: Onboarding) -> None:
             "ansible/playbooks/health_check.yaml",
             "ansible/playbooks/site.yaml",
         ),
-        ("common", "k3s_agent", "k3s_server", "k8s_gpu", "nvidia"),
+        FOLDER_ROLES,
     ]
     assert (report.rows[10].items, report.rows[11].items) == ((SSH_KEY_NAME,), (KUBE_CONTEXT,))
     assert report.rows[1].items == (
@@ -166,10 +170,13 @@ def _ansible_folders(process: ProcessFake) -> set[Path | None]:
     return {call.cwd for call in process.calls if call.argv[0].rsplit("/", 1)[-1] != "git"} - {None}
 
 
-def test_the_report_fetches_origin_and_reads_only_local_tools(onboarding: Onboarding) -> None:
-    """The reads are the fetch of origin and the export of its default branch, the config dump and
-    the inventory in the export, one `ssh-keygen -F` for each host in service, and the kubeconfig
-    contexts: no SSH connection and no other request."""
+def test_the_report_fetches_origin_and_installs_the_pinned_collections(
+    onboarding: Onboarding,
+) -> None:
+    """The reads are the fetch of origin and the export of its default branch, the config dump,
+    the inventory, the install of the pinned collections and their roles in the export, one
+    `ssh-keygen -F` for each host in service, and the kubeconfig contexts. The fetch and the
+    install are the only requests, and no SSH connection starts."""
     onboarding.report()
 
     assert [_program(call) for call in onboarding.process.calls] == [
@@ -179,6 +186,8 @@ def test_the_report_fetches_origin_and_reads_only_local_tools(onboarding: Onboar
         ("git", "archive", "--format=tar"),
         ("ansible-config", "dump", "--format"),
         ("ansible-inventory", "-i", "ansible/inventory/hosts.yaml"),
+        ("ansible-galaxy", "collection", "install"),
+        ("ansible-doc", "-t", "role"),
         *(("ssh-keygen", "-F", host) for host in IN_SERVICE_HOSTS),
         ("kubectl", "config", "get-contexts"),
     ]
@@ -483,6 +492,86 @@ def test_a_repo_that_lacks_an_item_has_its_row_changed(
     row = report.rows[number - 1]
     assert (row.number, row.state, row.items) == (number, state, items)
     assert row.step if state is MISSING else True
+
+
+def _with_the_example_collection(o: Onboarding) -> None:
+    """The requirements file also pins the fixture collection `example.infra`."""
+    path = o.repo / "collections" / "requirements.yml"
+    pin = "  - name: example.infra\n    version: 1.0.0\n"
+    path.write_text(path.read_text(encoding="utf-8") + pin, encoding="utf-8")
+
+
+def _call_of(process: ProcessFake, program: str) -> ProcessCall:
+    return next(call for call in process.calls if _program(call)[0] == program)
+
+
+def _programs(process: ProcessFake) -> set[str]:
+    return {_program(call)[0] for call in process.calls}
+
+
+def test_the_roles_row_lists_the_roles_of_the_pinned_collections(onboarding: Onboarding) -> None:
+    """The role `nvidia` of the pinned collection `example.infra` has an argument spec. The install
+    puts the collection in a temporary folder, and `ansible-doc` lists its role from there."""
+    _with_the_example_collection(onboarding)
+
+    row = onboarding.report().rows[6]
+
+    assert (row.state, row.reason, row.items) == (
+        PRESENT,
+        "6 roles",
+        (*FOLDER_ROLES, "example.infra.nvidia"),
+    )
+    install = _call_of(onboarding.process, "ansible-galaxy")
+    listing = _call_of(onboarding.process, "ansible-doc")
+    folder = install.argv[install.argv.index("-p") + 1]
+    env = listing.env or {}
+    assert (env[COLLECTIONS_PATH_ENV], env["ANSIBLE_COLLECTIONS_SCAN_SYS_PATH"]) == (
+        folder,
+        "False",
+    )
+    assert not Path(folder).exists()
+
+
+def test_without_ansible_doc_the_roles_row_keeps_the_role_folders(
+    onboarding: Onboarding, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The folder of the `ansible-runner` on PATH holds no `ansible-doc`."""
+    _with_the_example_collection(onboarding)
+    found = shutil.which
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda cmd, *a, **k: None if Path(cmd).name == "ansible-doc" else found(cmd, *a, **k),
+    )
+
+    row = onboarding.report().rows[6]
+
+    assert (row.state, row.reason, row.items) == (
+        PRESENT,
+        "5 roles. No ansible-doc is in the Ansible tool environment, so the row does not list "
+        "the roles of the pinned collections.",
+        FOLDER_ROLES,
+    )
+    assert not {"ansible-galaxy", "ansible-doc"} & _programs(onboarding.process)
+
+
+def test_a_failed_install_keeps_the_roles_of_the_role_folders(onboarding: Onboarding) -> None:
+    _with_the_example_collection(onboarding)
+    failure = ProcessAnswer(
+        returncode=1, stderr="ERROR! Failed to resolve the requested dependencies map.\n"
+    )
+    onboarding.answers.append((ansible_command("ansible-galaxy", "collection", "install"), failure))
+
+    row = onboarding.report().rows[6]
+
+    assert (row.state, row.reason, row.items) == (
+        PRESENT,
+        "5 roles. The row does not list the roles of the pinned collections: ansible-galaxy "
+        "collection install stopped with exit code 1: ERROR! Failed to resolve the requested "
+        "dependencies map.",
+        FOLDER_ROLES,
+    )
+    assert "ansible-doc" not in _programs(onboarding.process)
 
 
 def test_collections_row_names_the_collections_that_the_plays_use(onboarding: Onboarding) -> None:

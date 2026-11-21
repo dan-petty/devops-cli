@@ -1,0 +1,9 @@
+{
+    "example.infra.nvidia": {
+        "collection": "example.infra",
+        "description": "UNDOCUMENTED",
+        "entry_points": {
+            "main": "Install the NVIDIA driver on a GPU node."
+        }
+    }
+}

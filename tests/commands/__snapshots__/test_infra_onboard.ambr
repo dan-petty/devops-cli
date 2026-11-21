@@ -14,11 +14,15 @@
          <tmp>/ansible/bin/ansible-config dump --format json --only-changed  [only if an Ansible tool environment is installed]
     6. EXEC the Ansible inventory of the export
          <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list  [only if an Ansible tool environment is installed and the project profile names an inventory]
-    7. EXEC the host key of <host> in known_hosts
+    7. EXEC the install of the pinned collections into a temporary folder
+         <tmp>/ansible/bin/ansible-galaxy collection install -r '<export>/collections/requirements.yml' -p '<temporary folder>'  [only if the Ansible tool environment holds ansible-doc and the export holds collections/requirements.yml]
+    8. EXEC the roles of the pinned collections in the temporary folder
+         <tmp>/ansible/bin/ansible-doc -t role -l -j  [only if the Ansible tool environment holds ansible-doc and the export holds collections/requirements.yml]
+    9. EXEC the host key of <host> in known_hosts
          ssh-keygen -F '<host>' -f <tmp>/home/.ssh/known_hosts  [only if <tmp>/home/.ssh/known_hosts exists]  [repeated for each host in service]
-    8. EXEC the kubeconfig contexts
+   10. EXEC the kubeconfig contexts
          kubectl config get-contexts -o name
-    9. WRITE infra.repos in <tmp>/.test_config/config.yaml
+   11. WRITE infra.repos in <tmp>/.test_config/config.yaml
   The command also reads the files of the export of the default branch and the devops ssh key folder.
   
   '''

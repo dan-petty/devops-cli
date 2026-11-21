@@ -1,0 +1,4 @@
+---
+- name: Install the NVIDIA driver
+  ansible.builtin.debug:
+    msg: "nvidia-driver-{{ nvidia_driver_version }}"
