@@ -46,10 +46,12 @@ from devops_cli.git.operations import (
     pull_tracking,
 )
 from devops_cli.git.worktree_add import (
+    PreReadOrigin,
     ReclaimResult,
     WorktreeAddReport,
     add_worktree,
     managed_folder,
+    read_remote_heads,
     reclaim_merged_worktrees,
 )
 from devops_cli.git.worktree_inventory import inventory_worktrees, plan_prune, prune_worktrees
@@ -884,10 +886,12 @@ def worktrees_add(
 ) -> None:
     """Create the worktree of an issue on <type>/<issue>-<slug> at the fetched origin/main.
 
-    The command first removes the worktrees of merged pull requests under the agent worktrees
-    folder, as prune --confirm does, because a merged worktree still holds its issue. It keeps
-    a worktree outside that folder and a worktree that holds ignored data files, and names each;
-    regenerable caches, such as .venv, are no data. Then it refuses an issue that a worktree,
+    The command reads the branches of origin before it removes the worktrees of merged pull
+    requests under the agent worktrees folder, as prune --confirm does, because a merged worktree
+    still holds its issue: a read that fails removes no worktree and leaves the HEAD of the clone as
+    it was. It keeps a worktree outside that folder and a worktree that holds ignored data files,
+    and names each; regenerable caches, such as .venv, are no data. Then it refuses an issue that a
+    worktree,
     the standard directory or a pushed branch of origin already holds. A pushed branch whose
     commits past origin/main all have the App as author is a staged branch: the command adds the
     worktree on it and takes --type and --slug from it. After the worktree exists, the command
@@ -913,6 +917,7 @@ def worktrees_add(
         )
     root = (repo_dir or find_repo_root()).resolve()
     resolved = resolve_format(output_format, json_output=json_output)
+    origin = PreReadOrigin(root, read_remote_heads(root)) if reclaim and not is_plan else None
     reclaimed = reclaim_merged_worktrees(root, dry_run=is_plan) if reclaim else ReclaimResult()
     if resolved == CONST_OUTPUT_FORMAT_TABLE:
         # Each removal is shown before a later refusal can hide it.
@@ -920,7 +925,13 @@ def worktrees_add(
             _render_prune_item(item)
     report = _claimed(
         add_worktree(
-            root, issue=issue, type_=branch_type, slug=slug, dry_run=is_plan, reclaim=reclaimed
+            root,
+            issue=issue,
+            type_=branch_type,
+            slug=slug,
+            dry_run=is_plan,
+            reclaim=reclaimed,
+            origin=origin,
         ),
         origin=get_repo_origin_name(root),
         dry_run=is_plan,

@@ -14,6 +14,7 @@ import pytest
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_GH_CLI,
+    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
     CONST_GIT_NONINTERACTIVE_ENV,
 )
 from devops_cli.config.defaults import (
@@ -26,6 +27,7 @@ from devops_cli.core.process import (
     DEFAULT_ALLOWED_ENV_VARS,
     DEFAULT_DENIED_ENV_PATTERNS,
     build_subprocess_env,
+    git_credential_args,
     run_json_subprocess,
     run_subprocess,
     run_subprocess_async,
@@ -705,6 +707,13 @@ def _child_envs(children: _Children) -> list[tuple[list[str], str | None, str | 
     return children.seen
 
 
+# The words that the process runner puts after `git` for a git child that reaches a remote, so that
+# `gh auth git-credential` reads the GH_TOKEN that the same call pins on the child (#6340).
+_CREDENTIAL_WORDS: tuple[str, ...] = tuple(
+    word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)
+)
+
+
 @pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
 def test_the_git_keys_that_turn_a_configuration_file_off_reach_the_child(
     isolate_env: bool,
@@ -859,13 +868,18 @@ def test_a_lookup_that_cannot_run_leaves_git_working_and_says_why(
         proc = run_subprocess(["git", "fetch"])
         with pytest.raises(GitHubUnauthenticatedError) as raised:
             run_subprocess([CONST_GH_CLI, "issue", "list"])
-    git_child = next(env for env in _child_envs(children) if env[0] == ["git", "fetch"])
+    git_child = next(env for env in _child_envs(children) if env[0][0] == "git")
     assert (
         run.call_args_list[0].kwargs["timeout"],
         proc.returncode,
         git_child,
         reason in raised.value.message,
-    ) == (DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS, 0, (["git", "fetch"], None, None), True)
+    ) == (
+        DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
+        0,
+        (["git", *_CREDENTIAL_WORDS, "fetch"], None, None),
+        True,
+    )
 
 
 @pytest.mark.parametrize(
@@ -893,7 +907,11 @@ def test_gh_and_git_children_get_only_the_pinned_token(
         run_subprocess(["git", "push", "origin", "feat/184-example"])
     assert _child_envs(children) == [
         ([CONST_GH_CLI, "pr", "view", "184"], pin_github_session, None),
-        (["git", "push", "origin", "feat/184-example"], pin_github_session, None),
+        (
+            ["git", *_CREDENTIAL_WORDS, "push", "origin", "feat/184-example"],
+            pin_github_session,
+            None,
+        ),
     ]
 
 
@@ -903,7 +921,10 @@ def test_git_runs_without_a_token_when_gh_has_no_login(unresolved_identity: None
         side_effect=(children := _Children(_gh_answers(returncode=1), _gh_answers())),
     ):
         proc = run_subprocess(["git", "fetch"])
-    assert (proc.returncode, _child_envs(children)[1:]) == (0, [(["git", "fetch"], None, None)])
+    assert (proc.returncode, _child_envs(children)[1:]) == (
+        0,
+        [(["git", *_CREDENTIAL_WORDS, "fetch"], None, None)],
+    )
 
 
 def test_a_local_git_command_starts_no_lookup_when_gh_has_no_login(
@@ -913,6 +934,50 @@ def test_a_local_git_command_starts_no_lookup_when_gh_has_no_login(
     with faked_children(side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(["git", "status"])
     assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [["-C", "clone", "ls-remote", "--heads", "origin", "main"], ["fetch", "--prune", "origin"]],
+    ids=["ls-remote", "fetch"],
+)
+def test_a_network_git_child_gets_the_credential_helper(
+    tail: list[str], pin_github_session: str
+) -> None:
+    """A git child that reaches a remote gets the two `-c` values of
+    `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` after `git` and before its subcommand, so that
+    `gh auth git-credential` reads the `GH_TOKEN` that the same call pins on the child (#6340)."""
+    with faked_children(side_effect=(children := _Children(_gh_answers()))):
+        proc = run_subprocess(["git", *tail])
+
+    assert (proc.returncode, _child_envs(children)) == (
+        0,
+        [(["git", *_CREDENTIAL_WORDS, *tail], pin_github_session, None)],
+    )
+
+
+def test_a_local_git_child_gets_no_credential_helper(
+    monkeypatch: pytest.MonkeyPatch, pin_github_session: str
+) -> None:
+    """A git child that reaches no remote gets neither the credential helper nor a token, so no
+    helper runs and no lookup starts (#6340)."""
+    monkeypatch.setenv("GH_TOKEN", "ambient")
+
+    with faked_children(side_effect=(children := _Children(_gh_answers()))):
+        proc = run_subprocess(["git", "status"])
+
+    assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
+
+
+def test_a_git_child_that_has_the_credential_values_gets_them_once() -> None:
+    """A caller that passed the `-c` values itself, as `devops infra` does, does not get them
+    twice (#6340)."""
+    own = ["git", *_CREDENTIAL_WORDS, "fetch", "origin"]
+
+    assert (git_credential_args(own), git_credential_args(["git", "fetch", "origin"])) == (
+        [],
+        list(_CREDENTIAL_WORDS),
+    )
 
 
 @pytest.mark.parametrize("argv", [[CONST_GH_CLI, "--version"], [CONST_GH_CLI, "help"]])

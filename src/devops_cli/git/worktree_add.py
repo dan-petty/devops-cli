@@ -237,13 +237,39 @@ class _CloneOrigin:
         _run([*self._git, "fetch", CONST_GIT_REMOTE_ORIGIN, *specs])
 
 
+class PreReadOrigin:
+    """The reads of `origin` from one read of the branches that the caller made first, so a run that
+    cannot read `origin` changes nothing: the reclaim of merged worktrees comes after that read
+    (#6340). `heads` answers the earlier read, and `fetch` runs in the clone at `repo_root`."""
+
+    def __init__(self, repo_root: Path, remote_heads: str) -> None:
+        self._repo_root = repo_root
+        self._remote_heads = remote_heads
+
+    def heads(self, *branches: str) -> str:
+        """The branches of the one read that the caller made; it lists every branch, so it also
+        answers a filtered read."""
+        return self._remote_heads
+
+    def fetch(self, *branches: str) -> None:
+        _CloneOrigin(self._repo_root).fetch(*branches)
+
+
+def _command_words(argv: list[str]) -> list[str]:
+    """The words that name the git command: everything after the clone prefix `-C <path>`, so the
+    `-c` values that the process runner inserts for a git child that reaches a remote stay out of
+    the message (#6340)."""
+    prefix = argv.index("-C") + 2 if "-C" in argv else 0
+    return argv[prefix:]
+
+
 def _run(argv: list[str]) -> str:
     """Run one git command; its output, or the error that names the command and what git said."""
     proc = run_subprocess(argv, check=False, quiet=True)
     if proc.returncode != 0:
         raise _failure(
             MESSAGES.repos.worktrees_add_git_failed.format(
-                command=" ".join(argv[3:]), reason=mask_secrets(git_message(proc))
+                command=" ".join(_command_words(argv)), reason=mask_secrets(git_message(proc))
             )
         )
     return proc.stdout
@@ -489,7 +515,9 @@ def add_worktree(
     the worktree, so a refused run leaves no worktree and no local branch. A dry run reads the
     local worktrees only and lists the four commands. `reclaim` is the result of
     `reclaim_merged_worktrees`, which the caller ran first; it goes into the report. `origin`
-    makes the reads of `origin`; by default they are git commands in the clone.
+    makes the reads of `origin`; by default they are git commands in the clone. A caller that
+    reads the branches before it reclaims passes a `PreReadOrigin`, so a failed read changes
+    nothing (#6340).
     """
     if title is not None:
         derived_type = commit_type(title)
