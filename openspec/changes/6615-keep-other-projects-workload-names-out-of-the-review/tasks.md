@@ -16,7 +16,7 @@
 
 ## 3. Documents
 
-- [ ] 3.1 In `docs/ROADMAP_WORKFLOW.md`, at the line on `devops roadmap review run`, say that a fact that names workloads reads only the namespaces of `roadmap.project_review.namespaces`
+- [x] 3.1 In `docs/ROADMAP_WORKFLOW.md`, at the line on `devops roadmap review run`, say that a fact that names workloads reads only the namespaces of `roadmap.project_review.namespaces`
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: after the release, run `devops roadmap review run --last 7d` read-only, and check that no row of the seven facts names a namespace outside `roadmap.project_review.namespaces`.
