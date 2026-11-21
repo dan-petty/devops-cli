@@ -23,6 +23,7 @@ from devops_cli.roadmap.project_review.catalog import (
     window_placeholders,
 )
 from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
+from tests.support.promtool import promtool
 
 NAMESPACES = ("devops", "llm")
 WINDOW = ReviewWindow(
@@ -175,12 +176,15 @@ def test_each_service_metric_selector_of_a_query_must_name_the_repository(
     tmp_path: Path, query: str
 ) -> None:
     """A ratio whose numerator has no repository matcher adds the repositories together, the error
-    that gave the stage SLI 0.927 for 0.372 (#4692)."""
+    that gave the SLO 1 of the Service 0.927 for 0.372 (#4692)."""
     text = _refusal(
-        tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.stage_sli", query=query)
+        tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.service_slo1", query=query)
     )
 
-    assert ("prometheus.stage_sli" in text, "devops_cli_service_jobs_total" in text) == (True, True)
+    assert ("prometheus.service_slo1" in text, "devops_cli_service_jobs_total" in text) == (
+        True,
+        True,
+    )
 
 
 def test_a_base_metric_of_the_service_must_name_the_repository(tmp_path: Path) -> None:
@@ -449,3 +453,63 @@ def test_a_reason_of_a_missing_series_with_a_base_names_the_fact(tmp_path: Path)
         True,
         True,
     )
+
+
+def _stage_items(repo: str, result: str, count: int) -> dict[str, str]:
+    """A counter of stage items that adds `count` in the hour to 60m: its first sample in the
+    range is 0 and its last is at the end, so `increase` gives `count` with no extrapolation."""
+    return {
+        "series": f'devops_cli_roadmap_stage_total{{repo="{repo}", result="{result}"}}',
+        "values": f"0 0 {count}x59",
+    }
+
+
+@pytest.mark.live("promtool")
+def test_the_stage_sli_is_the_share_of_good_stage_item_outcomes_of_the_repository(
+    tmp_path: Path,
+) -> None:
+    """SLO 1 of the stage row counts the outcomes of the stage items (owner decision of
+    2026-11-21 on #4692): `staged` and `needs_split` are good, `failed` and `degenerate` are bad,
+    and a `skipped` item is not an outcome. 0 is a measured value; no outcome gives no value."""
+    hour = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 21, tzinfo=UTC),
+        end=datetime(2026, 11, 21, 1, tzinfo=UTC),
+        previous_id=None,
+    )
+    [fact] = [fact for fact in load_catalog().facts if fact.id == "prometheus.stage_sli"]
+    query = render_query(fact.query, window_placeholders(hour, "example/project", NAMESPACES))
+    project = "example/project"
+    groups = [
+        (
+            [
+                _stage_items(project, "staged", 6),
+                _stage_items(project, "needs_split", 2),
+                _stage_items(project, "failed", 1),
+                _stage_items(project, "degenerate", 1),
+                _stage_items(project, "skipped", 5),
+                _stage_items("example/other", "failed", 10),
+            ],
+            [{"labels": "{}", "value": 0.8}],
+        ),
+        ([_stage_items(project, "failed", 3)], [{"labels": "{}", "value": 0}]),
+        ([_stage_items(project, "skipped", 5)], []),
+    ]
+    tests = [
+        {
+            "name": f"stage items {index}",
+            "interval": "1m",
+            "input_series": series,
+            "promql_expr_test": [{"expr": query, "eval_time": "60m", "exp_samples": samples}],
+        }
+        for index, (series, samples) in enumerate(groups)
+    ]
+    unit_tests = tmp_path / "stage_sli.yaml"
+    unit_tests.write_text(yaml.safe_dump({"tests": tests}, sort_keys=False), encoding="utf-8")
+
+    result = promtool("test", "rules", unit_tests)
+
+    assert result.returncode == 0, result.stdout + result.stderr

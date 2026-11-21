@@ -170,7 +170,7 @@ def test_a_failed_loki_read_marks_its_fact_and_the_review_reads_the_others(
     assert (facts["prometheus.up"].status, facts["prometheus.up"].value) == (FactStatus.OK, 3.0)
 
 
-def test_the_stage_sli_is_the_value_of_the_repository_of_the_review(
+def test_the_slo1_of_the_service_is_the_value_of_the_repository_of_the_review(
     tmp_path: Path, web: WebFake, config: Callable[..., Path]
 ) -> None:
     config(prometheus={"url": PROMETHEUS})
@@ -186,7 +186,7 @@ def test_the_stage_sli_is_the_value_of_the_repository_of_the_review(
         'result="success"}[{range}])) / sum(increase(devops_cli_service_jobs_total{row="stage", '
         'repo="{repo}"}[{range}]))'
     )
-    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.stage_sli", query)])
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.service_slo1", query)])
 
     [fact] = read_catalog(catalog, _context(tmp_path)).facts
 
