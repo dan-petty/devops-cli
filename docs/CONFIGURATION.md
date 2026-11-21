@@ -321,7 +321,7 @@ roadmap configuration settings.
 | `intake` | `RoadmapIntakeConfig` | `interval_minutes=29 backlog_interval_minutes=None backlog_threshold=None jev='off'` | - | - |
 | `metrics` | `RoadmapMetricsConfig` | `interval_minutes=13` | - | - |
 | `fix_plan` | `RoadmapFixPlanConfig` | `interval_minutes=53 backlog_interval_minutes=None backlog_threshold=None mode='plan' time_budget_seconds=3600 head_attempts=2 revisions=3` | - | - |
-| `fix_conflict` | `RoadmapFixConflictConfig` | `interval_minutes=37 backlog_interval_minutes=None backlog_threshold=None tier1_mode='on' tier2_mode='plan' soft_cap_rounds=2 hard_cap_rounds=4` | - | - |
+| `fix_conflict` | `RoadmapFixConflictConfig` | `interval_minutes=37 backlog_interval_minutes=None backlog_threshold=None tier1_mode='on' soft_cap_rounds=2 hard_cap_rounds=4` | - | - |
 | `fix_checks` | `RoadmapFixChecksConfig` | `mode='plan' token_budget=16000000 max_wait_minutes=360` | - | - |
 | `open` | `RoadmapOpenConfig` | `interval_minutes=7 backlog_interval_minutes=None backlog_threshold=None mode='plan'` | - | - |
 | `review` | `RoadmapReviewConfig` | `mode='plan' rounds=3 token_budget=16000000 infra_wait_hours=6` | - | - |

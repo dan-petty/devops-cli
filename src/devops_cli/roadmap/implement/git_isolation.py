@@ -20,8 +20,8 @@ with the token
 (`CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`): git reads no global, system or
 clone configuration, no hook and no attribute file, and gets the credential from the trusted helper
 alone. The remote is the URL of `origin` that the job read before its first step. The job writes
-the remote-tracking ref that the call changed into the clone, and removes the folder. Every call
-but the one with the token runs with no token.
+the remote-tracking ref that the call changed into the clone, with the hooks of the clone off, and
+removes the folder. Every call but the one with the token runs with no token.
 
 **The check of the settings** (`check_settings`) reads the keys of the scopes `local` and
 `worktree`, the attributes `filter`, `diff` and `merge` of each path that git would stage, and the
@@ -53,6 +53,7 @@ from devops_cli.config.constants import (
     CONST_GIT_ATTRIBUTE_DRIVERS,
     CONST_GIT_ATTRIBUTE_STATES,
     CONST_GIT_BUILTIN_DRIVERS,
+    CONST_GIT_HOOKS_OFF_CONFIG,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_NONINTERACTIVE_ENV,
     CONST_GIT_SHALLOW_FILE,
@@ -72,6 +73,8 @@ _OPERATION = "roadmap.implement"
 # The scopes of `git config --list --show-scope` that the clone and its worktree hold.
 _CHECKED_SCOPES = frozenset({"local", "worktree"})
 _ORIGIN_REFS = "refs/remotes/origin/"
+# A ref update in the clone runs its `reference-transaction` hook, which the agent can write.
+_HOOKS_OFF = ("-c", CONST_GIT_HOOKS_OFF_CONFIG)
 
 
 def _git(where: Sequence[str], *args: str, stdin: str | None = None, isolated: bool = True) -> str:
@@ -234,9 +237,12 @@ class _Folder:
         """Write the `shallow` file of the new git folder into the clone when the call changed it.
         The text goes into a new file with a random name (`tempfile.mkstemp`, which makes the file
         with `O_EXCL` and so follows no link), and `os.replace` then puts that file in the place of
-        `shallow`: a link there is replaced, not followed. The clone's file is not read again."""
+        `shallow`: a link there is replaced, not followed. The clone's file is not read again. A
+        call that fetched the whole history removed the file, so the clone's file goes too."""
         made = self.git_dir / CONST_GIT_SHALLOW_FILE
         if not made.exists():
+            if self.shallow is not None:
+                (self.common / CONST_GIT_SHALLOW_FILE).unlink(missing_ok=True)
             return
         text = made.read_bytes()
         if text == self.shallow:
@@ -315,11 +321,12 @@ class OriginGit:
 
     @staticmethod
     def _copy_refs(source: Sequence[str], target: Sequence[str], *names: str) -> None:
-        """Write the remote-tracking refs of `source` (only `names` when given) into `target`."""
+        """Write the remote-tracking refs of `source` (only `names` when given) into `target`, with
+        the hooks of `target` off."""
         patterns = [f"{_ORIGIN_REFS}{name}" for name in names] or [_ORIGIN_REFS]
         listed = _git(source, "for-each-ref", "--format=update %(refname) %(objectname)", *patterns)
         if listed.strip():
-            _git(target, "update-ref", "--stdin", stdin=listed)
+            _git([*target, *_HOOKS_OFF], "update-ref", "--stdin", stdin=listed)
 
     def heads(self, *branches: str) -> str:
         """The lines of `git ls-remote --heads` for `branches`, or for every branch."""
@@ -328,14 +335,23 @@ class OriginGit:
                 "ls-remote", "--heads", self.url, *(f"refs/heads/{name}" for name in branches)
             ).strip()
 
-    def fetch(self, *branches: str, depth: int | None = None) -> None:
+    def fetch(self, *branches: str, depth: int | None = None, deepen: int | None = None) -> None:
         """Fetch `branches` of `origin` into `refs/remotes/origin/<branch>` of the clone, with
-        only the last `depth` commits of each when `depth` is given (#6601)."""
+        only the last `depth` commits of each when `depth` is given (#6601). `deepen` takes that
+        many more commits below the boundary of a shallow clone (`--deepen`)."""
         specs = [f"+refs/heads/{name}:{_ORIGIN_REFS}{name}" for name in branches]
         shallow = [f"--depth={depth}"] if depth is not None else []
+        deeper = [f"--deepen={deepen}"] if deepen is not None else []
         with self._folder(refs=True) as folder:
             folder.call(
-                "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *shallow, self.url, *specs
+                "fetch",
+                "--quiet",
+                "--no-tags",
+                "--no-write-fetch-head",
+                *shallow,
+                *deeper,
+                self.url,
+                *specs,
             )
             folder.keep_shallow()
             self._copy_refs(
@@ -352,7 +368,7 @@ class OriginGit:
             folder.call("push", "--quiet", "--no-verify", *leased, self.url, f"{tip or ''}:{ref}")
         tracking = f"{_ORIGIN_REFS}{branch}"
         change = f"update {tracking} {tip}\n" if tip else f"delete {tracking}\n"
-        _git(["-C", str(self.repository)], "update-ref", "--stdin", stdin=change)
+        _git(["-C", str(self.repository), *_HOOKS_OFF], "update-ref", "--stdin", stdin=change)
 
 
 __all__ = ["OriginGit", "check_settings", "origin_url", "refused_settings"]

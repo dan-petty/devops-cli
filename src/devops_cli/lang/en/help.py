@@ -1576,16 +1576,20 @@ class RoadmapCommandHelp:
         "release gets one more attempt. The Service never uses it."
     )
     step_fix_conflict: str = (
-        "Settle merge conflicts on a pull request with the default branch (#5019). "
-        "Runs deterministic tier 1 resolutions (archive, generated docs, lockfile) and tier 2 model "
-        "resolution. Without --confirm, tier 2 logs the plan."
+        "Settle merge conflicts on a bot pull request with the default branch (#5019). Tier 1 "
+        "settles archive, generated document and lockfile conflicts with no model: it runs "
+        "devops docs generate or uv lock, which run code of the pull request. So tier 1 and the "
+        "push run only with --confirm in a runner Job. Without --confirm, the step prints its "
+        "plan, runs no code of the pull request and writes nothing."
     )
     step_fix_conflict_pull: str = "The pull request number to settle merge conflicts for."
     step_fix_conflict_head: str = (
         "Expected head SHA of the pull request. Refuses to run if remote head moved."
     )
     step_fix_conflict_dry_run: str = "Make no external requests: display planned actions."
-    step_fix_conflict_confirm: str = "Allow tier 2 model resolution and push changes."
+    step_fix_conflict_confirm: str = (
+        "Settle and push in a runner Job. Without it, the step prints its plan and writes nothing."
+    )
     step_scaffold: str = (
         "Make, resume, adopt or hold the item branch for a roadmap stage run (#5499)."
     )

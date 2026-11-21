@@ -720,7 +720,7 @@ devops roadmap step fix-checks [OPTIONS]
 
 ### `devops roadmap step fix-conflict`
 
-**Settle merge conflicts on a pull request with the default branch (#5019). Runs deterministic tier 1 resolutions (archive, generated docs, lockfile) and tier 2 model resolution. Without --confirm, tier 2 logs the plan.**
+**Settle merge conflicts on a bot pull request with the default branch (#5019). Tier 1 settles archive, generated document and lockfile conflicts with no model: it runs devops docs generate or uv lock, which run code of the pull request. So tier 1 and the push run only with --confirm in a runner Job. Without --confirm, the step prints its plan, runs no code of the pull request and writes nothing.**
 
 ```bash
 devops roadmap step fix-conflict [OPTIONS]
@@ -733,7 +733,7 @@ devops roadmap step fix-conflict [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--pull`, `-p` | `integer` | - | The pull request number to settle merge conflicts for. |
 | `--head` | `string` | - | Expected head SHA of the pull request. Refuses to run if remote head moved. |
-| `--confirm` | `boolean` | - | Allow tier 2 model resolution and push changes. |
+| `--confirm` | `boolean` | - | Settle and push in a runner Job. Without it, the step prints its plan and writes nothing. |
 | `--dry-run` | `boolean` | - | Make no external requests: display planned actions. |
 
 ### `devops roadmap step fix-plan`

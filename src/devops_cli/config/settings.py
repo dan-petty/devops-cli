@@ -129,7 +129,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_FIX_CONFLICT_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP,
     DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE,
-    DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE,
     DEFAULT_ROADMAP_FIX_PLAN_HEAD_ATTEMPTS,
     DEFAULT_ROADMAP_FIX_PLAN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_FIX_PLAN_MODE,
@@ -2066,10 +2065,6 @@ class RoadmapFixConflictConfig(RowCadenceConfig):
     tier1_mode: Annotated[RowMode, Variable()] = Field(
         default=DEFAULT_ROADMAP_FIX_CONFLICT_TIER1_MODE,
         description="Mode for tier 1 (deterministic, no model call) conflict fixes: 'off', 'plan', or 'on'.",
-    )
-    tier2_mode: Annotated[RowMode, Variable()] = Field(
-        default=DEFAULT_ROADMAP_FIX_CONFLICT_TIER2_MODE,
-        description="Mode for tier 2 (model) conflict fixes: 'off', 'plan', or 'on'.",
     )
     soft_cap_rounds: Annotated[int, Variable()] = Field(
         default=DEFAULT_ROADMAP_FIX_CONFLICT_SOFT_CAP,

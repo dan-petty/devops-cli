@@ -1270,10 +1270,17 @@ CONST_GIT_VALUE_OPTIONS: Final[frozenset[str]] = frozenset(
     {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
 )
 """The global options of git that take the next word as their value (git.c `handle_options`)."""
+CONST_GIT_HOOKS_OFF_CONFIG: Final[str] = "core.hooksPath=/dev/null"
+"""The `git -c` value that turns off every hook of the repository: git finds no hook in
+`/dev/null`."""
+CONST_GIT_NO_EDITOR_CONFIG: Final[str] = "core.editor=true"
+"""The `git -c` value that makes git keep each commit message as it is, as `git rebase --continue`
+needs with no terminal. It is an argument, because the guard of `build_subprocess_env` refuses
+`GIT_EDITOR`."""
 CONST_GIT_TOKEN_CALL_CONFIG: Final[tuple[str, ...]] = (
     "credential.helper=",
     *CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
-    "core.hooksPath=/dev/null",
+    CONST_GIT_HOOKS_OFF_CONFIG,
     "gc.auto=0",
     "maintenance.auto=false",
 )

@@ -423,6 +423,44 @@ def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
     ) == (moved, "true")
 
 
+def test_a_deepening_that_reaches_the_root_makes_the_clone_whole(
+    stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    """`fetch(deepen=...)` takes more commits below the boundary of a shallow clone. A deepening
+    that reaches the first commit removes the `shallow` file of the new git folder, so the clone
+    loses its own `shallow` file too, and holds the whole history."""
+    url = f"file://{stage_repo.origin}"
+    for name in ("one", "two"):
+        run_git(stage_repo.clone, "commit", "-q", "--allow-empty", "-m", name)
+    run_git(stage_repo.clone, "push", "-q", "origin", "HEAD:main")
+    shallow = tmp_path / "shallow"
+    run_git(tmp_path, "clone", "-q", "--depth", "1", url, str(shallow))
+
+    OriginGit(shallow, url).fetch("main", deepen=50)
+
+    assert (
+        run_git(shallow, "rev-parse", "--is-shallow-repository"),
+        run_git(shallow, "rev-list", "--count", "refs/remotes/origin/main"),
+    ) == ("false", run_git(stage_repo.clone, "rev-list", "--count", "HEAD"))
+
+
+def test_a_reference_transaction_hook_of_the_clone_does_not_run(
+    stage_repo: StageRepo, work: str, capture: Path
+) -> None:
+    """A fetch and a push write the remote-tracking refs into the clone with the hooks of the clone
+    off, so a `reference-transaction` hook that the agent wrote into the clone does not run."""
+    hooks = Path(
+        run_git(stage_repo.clone, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
+    )
+    _recorder(hooks / "reference-transaction", capture, "reference-transaction")
+    origin = OriginGit(stage_repo.clone, str(stage_repo.origin))
+
+    origin.fetch("main")
+    origin.push(BRANCH, work)
+
+    assert (_seen(capture), origin.heads(BRANCH).split()[0]) == ("", work)
+
+
 def test_a_link_at_the_shallow_file_of_the_clone_stops_the_fetch(
     stage_repo: StageRepo, tmp_path: Path
 ) -> None:
