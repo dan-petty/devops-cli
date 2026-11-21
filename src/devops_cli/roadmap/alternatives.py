@@ -76,7 +76,9 @@ from typing import Any, Final, cast
 from urllib.parse import quote
 
 import httpx2
-from pydantic import BaseModel, Field, ValidationError
+from cachetools import cached
+from packaging.utils import canonicalize_name
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from pydantic_ai import Tool
 from pydantic_ai.messages import ToolReturn
 
@@ -105,8 +107,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_TOOL_MAX_CHARS,
     CONST_ROADMAP_STATUS_NEW,
     CONST_ROADMAP_STATUS_READY,
+    CONST_VALKEY_BRAIN_PREFIX,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_BRAIN_FACT_TTL_SECONDS,
     DEFAULT_PYPI_PACKAGE_URL,
     DEFAULT_PYPI_TIMEOUT_SECONDS,
 )
@@ -170,6 +174,7 @@ from devops_cli.telemetry.instruments import (
     ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS,
     emit,
 )
+from devops_cli.valkey.tiered import TieredMapping
 
 logger = logging.getLogger(__name__)
 
@@ -295,9 +300,21 @@ class _PyPIPackage(BaseModel):
         return max((file.upload_time_iso_8601 for file in self.urls), default=None)
 
 
+# The PyPI facts of the process and of the cache Valkey, by the canonical name of the package
+# (#4668). PyPI answers each client the same, so the facts are shared for 24 hours.
+_PYPI_FACTS: TieredMapping[_PyPIPackage | None] = TieredMapping(
+    f"{CONST_VALKEY_BRAIN_PREFIX}:fact:pypi",
+    TypeAdapter(_PyPIPackage | None),
+    ttl=DEFAULT_BRAIN_FACT_TTL_SECONDS,
+)
+
+
+@cached(_PYPI_FACTS, key=canonicalize_name)
 def _read_pypi(name: str) -> _PyPIPackage | None:
     """The PyPI record of package `name`, or None when PyPI has no such package. Raises on any
-    other failed read."""
+    other failed read. The read goes through the fact cache of the project brain (#4668): a
+    package that a process or another pod read in the last 24 hours, in any spelling of its name,
+    sends no request, and a failed read keeps nothing."""
     url = DEFAULT_PYPI_PACKAGE_URL.format(name=quote(name, safe=""))
     with http_client(EgressLevel.PUBLIC) as client:
         response = client.get(url, timeout=DEFAULT_PYPI_TIMEOUT_SECONDS)
