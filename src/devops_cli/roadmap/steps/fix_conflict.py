@@ -56,7 +56,6 @@ from devops_cli.roadmap.stores.store import (
     Item,
     RoadmapStore,
 )
-from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -416,10 +415,10 @@ def admit_round(
 
 def run_program(cwd: Path, argv: Sequence[str]) -> bool:
     """Run a program of tier 1 in the checkout `cwd`, which runs code of the pull request: whether
-    it exited 0."""
+    it exited 0. The log names the program and its exit status, and no output of it."""
     proc = run_subprocess(list(argv), cwd=cwd, check=False, quiet=True)
     if proc.returncode != 0:
-        logger.warning("%s failed: %s", " ".join(argv[:5]), mask_secrets(proc.stderr or ""))
+        logger.warning("%s exited %d", " ".join(argv[:5]), proc.returncode)
     return proc.returncode == 0
 
 
