@@ -9,8 +9,10 @@ not hold. Both runs must show what each case writes out; where they differ, the 
 Covered: `SET NX EX`; `SET EXAT`, `KEEPTTL` and an expiry in the past; `HINCRBY` and its refusal
 of a field that holds no integer; `ZADD` with a trim by score and by rank; a valkey-py `Lock`
 acquired, refused to a second holder, extended, owned and released, and a `Lock` that another
-holder took; a script from `register_script`, which meets `NOSCRIPT` and loads itself; and `EVAL`
-through the project's `ValkeyClient`.
+holder took; a script from `register_script`, which meets `NOSCRIPT` and loads itself; `EVAL`
+through the project's `ValkeyClient`; a `WATCH` transaction that another client made fail; `HSCAN`
+and `HGET` of binary values with `NEVER_DECODE`; `RENAME` of a temporary hash with a TTL onto a
+hash that exists; and `EXPIRE`, `HDEL` and `UNLINK` (#4668).
 
 Not recorded: the moving window of `limits`, which #4563 adds with the `limits` dependency; RESP3;
 a server that fails or stops in the middle of a session.
@@ -26,6 +28,7 @@ from fakeredis import FakeServer, FakeValkey
 
 from tests.support.valkey_replay import RecordedValkey, load_record, scenario_exchanges
 from tests.support.valkey_scenarios import (
+    BINARY_VALUE,
     FAR_EXPIRY,
     INTRUDER_TOKEN,
     SCENARIOS,
@@ -56,6 +59,10 @@ EXPECTED: dict[str, tuple[Any, ...]] = {
         ("ValkeyCommandError", "devops contract refusal"),
         1,
     ),
+    "watch_lost": ("first", "WatchError", "other", 1),
+    "hscan_bytes": (2, 0, [(b"1", BINARY_VALUE), (b"2", BINARY_VALUE)], BINARY_VALUE, 1),
+    "rename_hash_ttl": (True, True, {"1": "new"}, 0, 1),
+    "expire_hdel_unlink": (True, True, 1, ["1", "meta"], 2, 0),
 }
 
 

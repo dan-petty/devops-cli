@@ -7,7 +7,9 @@ gets an error reply and stays in `unexpected`, and `remaining` counts the replie
 took, so a test sees a client that sends other commands than the record holds.
 
 An exchange holds the command, as the words of its RESP array, and the reply, as the RESP2 text
-that the server sent. valkey-py speaks RESP2 unless a client asks for RESP3. The port is bound on
+that the server sent. A byte that is not UTF-8, as in a zlib value, is kept as a lone surrogate
+(`surrogateescape`), which JSON writes as a `\\udcXX` escape, so the replay sends the same bytes
+(#4668). valkey-py speaks RESP2 unless a client asks for RESP3. The port is bound on
 127.0.0.1 in the test's process, which the hermetic floor allows.
 
 The RESP framing is the project's own, in about 30 lines. valkey-py and fakeredis keep their
@@ -30,6 +32,8 @@ LOOPBACK = "127.0.0.1"
 # How often a server's loop looks for its shutdown; `serve_forever` waits half a second by default.
 SHUTDOWN_POLL_SECONDS = 0.01
 _CRLF = b"\r\n"
+# How a byte that is not UTF-8 is kept in the text of a word or a reply.
+TEXT_ERRORS = "surrogateescape"
 
 
 def load_record() -> dict[str, Any]:
@@ -64,7 +68,8 @@ def read_command(stream: BinaryIO) -> list[str] | None:
         size = _line(stream)
         if not size.startswith(b"$"):
             raise ValueError(f"a command word is not a bulk string: {size!r}")
-        words.append(stream.read(int(size[1:]) + len(_CRLF))[: -len(_CRLF)].decode())
+        word = stream.read(int(size[1:]) + len(_CRLF))[: -len(_CRLF)]
+        words.append(word.decode(errors=TEXT_ERRORS))
     return words
 
 
@@ -87,7 +92,7 @@ def pack_command(words: Sequence[str]) -> bytes:
     """A command as valkey-py sends it: an array of bulk strings."""
     parts = [b"*%d\r\n" % len(words)]
     for word in words:
-        data = word.encode()
+        data = word.encode(errors=TEXT_ERRORS)
         parts.append(b"$%d\r\n%s\r\n" % (len(data), data))
     return b"".join(parts)
 
@@ -142,7 +147,7 @@ class RecordedValkey:
             if expected and expected["command"] == command:
                 self._next += 1
                 reply: str = expected["reply"]
-                return reply.encode()
+                return reply.encode(errors=TEXT_ERRORS)
             self.unexpected.append(" ".join(command))
         # The error names only the command, since a word of its arguments can hold a CRLF.
         return b"-ERR no recorded reply for %s\r\n" % " ".join(command[:1]).encode()
