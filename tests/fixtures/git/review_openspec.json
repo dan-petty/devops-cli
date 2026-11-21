@@ -1,0 +1,124 @@
+{
+ "scenario": "review_openspec",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "diff",
+    "--name-only",
+    "-z",
+    "--diff-filter=A",
+    "v1.0.0",
+    "v1.1.0",
+    "--",
+    "openspec/changes/archive/"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "openspec/changes/archive/2026-10-03-add-two/proposal.md\u0000openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u0000openspec/changes/archive/2026-10-03-plan-only/proposal.md\u0000",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "cat-file",
+    "--batch"
+   ],
+   "cwd": null,
+   "stdin": "v1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\n",
+   "env": null,
+   "returncode": 0,
+   "stdout": "a25320d46aafc39f653df6907e9971f9107de4ec blob 16\n# Two\n\nWhy two.\n\nddefa9c20fb4f4ab83fd2df0246363686c1f1dc3 blob 256\n## ADDED Requirements\n\n### Requirement: Two\nThe tool SHALL do two.\n\n#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n\n## MODIFIED Requirements\n\n### Requirement: One\nThe tool SHALL do one, now with a café.\n\n#### Scenario: One\n- **WHEN** one\n- **THEN** one\n\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v1.0.0",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.0.0:openspec/specs/cap/spec.md:1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v1.1.0",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.1.0:openspec/specs/cap/spec.md:2\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v9.9.9",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: unable to resolve revision: v9.9.9\n"
+  }
+ ],
+ "result": {
+  "changes": [
+   [
+    "2026-10-03-add-two",
+    [
+     "proposal.md",
+     "specs/cap/spec.md"
+    ]
+   ]
+  ],
+  "totals": [
+   1,
+   2
+  ],
+  "unknown_rev": [
+   "error",
+   "RoadmapReviewError",
+   "`git grep -c -E -e ^### Requirement: v9.9.9 -- openspec/specs` failed: fatal: unable to resolve revision: v9.9.9"
+  ]
+ }
+}

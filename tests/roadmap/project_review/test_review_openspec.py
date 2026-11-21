@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 
 import pytest
-from devops_cli.roadmap.project_review.openspec_read import read_openspec, show_args
 
+from devops_cli.roadmap.project_review.openspec_read import read_openspec, show_args
 from devops_cli.roadmap.project_review.readers import Reads
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.openspec import OpenSpecFake
@@ -61,7 +61,7 @@ def test_one_archived_change_gives_its_deltas_and_the_totals_at_both_ends(
         ],
         "requirements": {"base": 1, "head": 2},
     }
-    shown = [call for call in openspec_fake.calls if call.arguments[:1] == ("show",)]
-    assert [call.arguments for call in shown] == [show_args(CHANGE)]
+    shown = [call for call in openspec_fake.calls if call.argv[:1] == ("show",)]
+    assert [call.argv for call in shown] == [show_args(CHANGE)]
     assert ["## ADDED Requirements" in text for text in seen] == [True]
     assert (_files(checkout), reads.counts["openspec"]) == (before, 1)

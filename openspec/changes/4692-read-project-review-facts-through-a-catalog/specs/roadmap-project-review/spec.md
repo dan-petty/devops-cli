@@ -115,7 +115,7 @@ The dispatcher SHALL send each distinct rendered query once, and SHALL give the 
 - **THEN** the fake GitHub records one request for each page, and each fact has the value of its own program
 
 ### Requirement: The OpenSpec reader counts the deltas of the window
-The `openspec` reader SHALL copy the head tree with `git archive` into a temporary root, SHALL read each change that the window archived with `openspec show --json --deltas-only`, and SHALL count the requirements at the base and at the head with `git grep -c`. It SHALL change no file of the checkout.
+The `openspec` reader SHALL copy the files of each change that the window archived, at the head, into a temporary root, SHALL read each change that the window archived with `openspec show --json --deltas-only`, and SHALL count the requirements at the base and at the head with `git grep -c`. It SHALL change no file of the checkout.
 
 #### Scenario: One archived change
 - **WHEN** a fixture repository archives one change with one ADDED and one MODIFIED requirement in the window, and its specs hold 1 requirement at the base and 2 at the head
