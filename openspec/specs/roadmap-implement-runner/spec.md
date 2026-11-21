@@ -229,16 +229,24 @@ The implement job SHALL run each git call that reaches `origin`, also the calls 
 - **WHEN** the configuration of the clone sets `core.hooksPath` to a folder with a `pre-push` hook, and the job pushes to a bare repository on disk
 - **THEN** the branch is on the bare repository, and the hook did not run
 
+#### Scenario: A pre-push hook in the hooks folder of the clone
+- **WHEN** the hooks folder of the clone holds a `pre-push` hook, no `core.hooksPath` is set, and the job pushes to a bare repository on disk
+- **THEN** the branch is on the bare repository, and the hook did not run
+
+#### Scenario: A URL that the home folder or the clone names
+- **WHEN** the home folder and the configuration of the clone hold an `insteadOf`, a `pushInsteadOf` or a `pushurl` that names a loopback server that asks for credentials, and the job pushes to a bare repository on disk
+- **THEN** the branch is on the bare repository, and the server receives no request
+
 ### Requirement: The leftover processes end before each part of a network git call
-`OriginGit` SHALL end every leftover process before the check of the settings, again before it makes the new folder, and again just before the call with the token. A refused setting SHALL stop the call after the first sweep and before the folder exists.
+`OriginGit` SHALL end every leftover process before it makes the new folder, and again just before the call with the token.
 
 #### Scenario: The order of the calls
 - **WHEN** the job fetches a branch
-- **THEN** the leftover processes end before the check of the settings, again after the check and before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
+- **THEN** the leftover processes end before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
 
 #### Scenario: A refused setting before the call
-- **WHEN** the configuration of the clone holds `credential.helper`, and the job fetches a branch in a runner
-- **THEN** the leftover processes end before the check, the call raises `GitSettingsError` that names `credential.helper`, and no new folder is made
+- **WHEN** the `shallow` file of the clone is a link, and the job fetches a branch in a runner
+- **THEN** the leftover processes end first, the call raises `GitSettingsError` that names `shallow`, and the fetch with the token does not run
 
 ### Requirement: The new git folder of a shallow clone gets its shallow file
 The new git folder of a network call SHALL get a copy of the `shallow` file of a shallow clone, which the job SHALL open with `O_NOFOLLOW`. A link, or anything but a regular file, at that place SHALL raise `GitSettingsError` that names `shallow`. A fetch that changes the file SHALL write it back into the clone through a new file with a random name, which then replaces the old file (`os.replace`), so the write follows no link.
@@ -254,29 +262,6 @@ The new git folder of a network call SHALL get a copy of the `shallow` file of a
 #### Scenario: A link at a temporary name
 - **WHEN** a link waits at `shallow.devops-cli` in the git folder of the clone, and a fetch changes the `shallow` file
 - **THEN** the target of the link does not change, `shallow` is a regular file with the new text, and no temporary file stays
-
-### Requirement: A git setting that the job does not allow stops the item
-In a runner, the implement job SHALL check the git settings of the checkout when each turn of the agent ends and before each network git call (`check_settings`). A setting that the job does not allow SHALL stop the item with the failure class `git_config` and push nothing. The reason and the log line SHALL name each key, or each attribute with its path, and SHALL hold no value.
-
-#### Scenario: What the job does not allow
-- **WHEN** the checkout holds a key of the scope `local` or `worktree` outside `CONST_GIT_ALLOWED_SETTINGS` and its patterns, an attribute `filter` with a value, an attribute `diff` that is no built-in pattern of git, an attribute `merge` other than `text`, `binary` and `union`, or the file `objects/info/alternates` of the clone
-- **THEN** `refused_settings` names it
-
-#### Scenario: A filter
-- **WHEN** a turn of the agent writes `filter.x.clean` into the configuration of the clone and `* filter=x` into `.gitattributes`
-- **THEN** the item stops with the class `git_config`, the job runs no `git add`, `git commit`, `git push` or `git fetch` after the turn, and the comment names `filter.x.clean` and the attribute `filter` of `.gitattributes`, and holds no value of either
-
-#### Scenario: A GPG program
-- **WHEN** a turn of the agent writes `gpg.program` and `commit.gpgsign` into the configuration of the clone
-- **THEN** the item stops with the class `git_config`, and the comment names `gpg.program` and holds no value
-
-#### Scenario: A credential helper
-- **WHEN** a turn of the agent adds `credential.helper` to the configuration of the clone
-- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value
-
-#### Scenario: The settings of a new clone
-- **WHEN** the job runs an item in a clone that `git clone` made, with the identity that `ensure_checkout` sets
-- **THEN** the check refuses no key
 
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.
@@ -462,15 +447,15 @@ The shell of the agent of a step, the `pre-commit` runs, the scoped checks, the 
 - **THEN** the PATH of the shell starts with `node_modules/.bin` and `.venv/bin` of that checkout
 
 ### Requirement: A refused setting at a checkpoint or stop push stops the item at once
-A refused setting at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
+A `shallow` file of the clone that is a link, or is not a regular file, at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. Such a file at the push of a stop SHALL give the stop the class `git_config`.
 
 #### Scenario: A setting before a checkpoint push
-- **WHEN** the agent writes `credential.helper` into the configuration of the clone in group 1 of a change of four groups, and group 1 passes
+- **WHEN** the agent makes the `shallow` file of the clone a link in group 1 of a change of four groups, and group 1 passes
 - **THEN** the checkpoint before group 2 stops the item with the class `git_config`, and the job asks the model for nothing more
 
 #### Scenario: A setting that an exit check writes
-- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
-- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value
+- **WHEN** an exit check of the step makes the `shallow` file of the clone a link and fails, and no repair round is left
+- **THEN** the item stops with the class `git_config`, and the comment names `shallow`
 
 ### Requirement: The runner image holds the scanners of a review
 The runner image SHALL hold Gitleaks, Pluto, osv-scanner, golangci-lint and Semgrep from the devtools image, at the versions of the installed tools. Each of the five SHALL be an entry of `RUNNER_TOOLS` with the source `ToolSource.DEVTOOLS` and SHALL NOT be an entry of `NOT_IN_RUNNER`. Each binary of the analyzer table of the review SHALL be an entry of `RUNNER_TOOLS`.
