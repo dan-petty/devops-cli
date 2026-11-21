@@ -266,6 +266,17 @@ TYPE_ERROR = (
 SHOUT_FILES = {"src/devops_cli/shout.py": "def shout(text):\n"}
 
 
+@pytest.fixture(autouse=True)
+def _canonical_origin(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The local `origin` of the test world stands for the repository on GitHub, whose URL is the
+    only origin that `prepare` and a separate `publish` take (#6601)."""
+    if "stage_repo" in request.fixturenames:
+        from devops_cli.roadmap.steps import fix_checks_phases
+
+        origin = request.getfixturevalue("stage_repo").origin
+        monkeypatch.setattr(fix_checks_phases, "CONST_GITHUB_CLONE_URL", str(origin))
+
+
 def _route_bot(api: GitHubApiFake) -> None:
     """The reads of the bot identity: `prepare` records the bot as the author of the commit that
     `publish` writes (#6601)."""
@@ -821,7 +832,6 @@ def test_publish_reads_the_workflow_files_of_the_merged_plan_from_github(
 def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
     failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     phases: str,
 ) -> None:
@@ -831,7 +841,6 @@ def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
     token (#6601)."""
     from devops_cli.github.session import get_github_session
     from devops_cli.roadmap.phases.files import RunFolders
-    from devops_cli.roadmap.steps import fix_checks_phases
     from devops_cli.roadmap.steps.fix_checks_phases import (
         agent_phase,
         prepare_phase,
@@ -856,8 +865,6 @@ def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
     if phases == "all":
         report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=repair)
     else:
-        # The canonical URL of the repository is the local `origin` of the test world.
-        monkeypatch.setattr(fix_checks_phases, "CONST_GITHUB_CLONE_URL", str(repo.origin))
         folders = RunFolders(tmp_path / "run")
         client = get_github_session().client
         prepare_phase(

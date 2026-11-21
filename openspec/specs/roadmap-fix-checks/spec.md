@@ -373,7 +373,15 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 
 #### Scenario: A round that prepare ends
 - **WHEN** the item holds an owner label
-- **THEN** `prepare` writes the report and no inputs, the agent phase writes nothing, and `publish` returns `stopped`
+- **THEN** `prepare` gives the report `stopped` and writes no inputs, the agent phase writes nothing, and `publish` gives no second report
+
+#### Scenario: A wait or a ready mark that prepare ends
+- **WHEN** `prepare` waits on a CI infrastructure failure, or marks a green draft ready, in separate phases
+- **THEN** `prepare` gives the report `wait` or `ready`, and `publish` gives no second report, posts no second comment and marks nothing again
+
+#### Scenario: A state that says ended while a step is due
+- **WHEN** the state file says that the round ended, and the round has a repair or a ready mark due
+- **THEN** `publish` raises `PhaseOutputError` and pushes nothing
 
 #### Scenario: Prepare on a hostile branch
 - **WHEN** `prepare` runs on a head branch with a build hook
@@ -408,6 +416,10 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 #### Scenario: A fixer that rewrites the origin of the clone
 - **WHEN** a fixer sets `remote.origin.url` of the clone to another repository, with `--phase all` or with separate phases
 - **THEN** `publish` fetches from and pushes to the URL that `prepare` read, and no git call names the other repository
+
+#### Scenario: A clone with another origin
+- **WHEN** the `origin` of the clone of `prepare`, a `--source` clone too, is not the URL of the repository on GitHub
+- **THEN** `prepare` raises an error, removes the worktree, and no phase pushes
 
 #### Scenario: A separate publish with another origin
 - **WHEN** the state file names a URL other than the URL of the repository on GitHub

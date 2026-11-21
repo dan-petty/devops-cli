@@ -4,7 +4,8 @@ The fix-checks Job is the first step on the phases (`roadmap/phases`). Each phas
 the run folder:
 
 - `prepare` (App key, no agent code) judges the round (`judge_round`): the bounds, the claim, the
-  checks, the caps and the failed log. A round that ends there writes its report to the state file.
+  checks, the caps and the failed log. A round that ends there gives its report for the Job, and
+  writes a state file that says so.
   A round that needs a repair clones the repository into `work/` and takes over the head branch in
   a worktree (`Repair.checkout`), and writes the state file (`state/`) and the inputs of the agent
   (`work/input.json`). It runs git and GitHub calls only: no `uv`, no hook and no fixer.
@@ -52,7 +53,11 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core import process_hardening
 from devops_cli.exceptions import GitOperationError
-from devops_cli.exceptions.roadmap import PhaseOutputError, PublishRefusedError
+from devops_cli.exceptions.roadmap import (
+    PhaseOutputError,
+    PublishRefusedError,
+    RoadmapImplementError,
+)
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.check_verdict import CheckBucket, read_check_runs
 from devops_cli.github.client import PullStatus
@@ -205,9 +210,17 @@ def prepare_round(
     facts: FixRound, repair: Repair, folders: RunFolders
 ) -> tuple[PullCheckout, JudgedRound]:
     """The part of `prepare` after the judgment: the checkout, the state file and the inputs of
-    the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory."""
+    the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory. A
+    clone whose `origin` is not the repository on GitHub gets no round, so no run pushes to
+    another URL."""
     folders.make()
     checkout = repair.checkout(facts.status, facts.item_num, folders.work)
+    if checkout.url != CONST_GITHUB_CLONE_URL.format(repo=facts.repo):
+        repair.release(checkout)
+        raise RoadmapImplementError(
+            f"The origin of the clone is not the repository {facts.repo} on GitHub, so the "
+            "round pushes nothing"
+        )
     is_plan = _is_plan(facts.item, facts.pull, facts.status)
     state = FixState(
         repo=facts.repo,
@@ -249,9 +262,10 @@ def prepare_phase(
     check: str | None,
     repair: Repair,
     folders: RunFolders,
-) -> None:
-    """`--phase prepare`: judge the round, and write its report, or its state and the inputs of
-    the agent, to the run folder."""
+) -> FixChecksReport | None:
+    """`--phase prepare`: judge the round, and write its state and the inputs of the agent to the
+    run folder. A round that ends here gives its report, which the command prints for the Job,
+    and a state that says so."""
     judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=True)
     if isinstance(judged, FixChecksReport):
         folders.make()
@@ -259,8 +273,9 @@ def prepare_phase(
             folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
             FixState(repo=repo, pull=pull, ended=True),
         )
-        return
+        return judged
     prepare_round(judged, repair, folders)
+    return None
 
 
 def _fix(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -> AgentOutcome:
@@ -520,18 +535,21 @@ def publish_phase(
     pull: int,
     head: str | None = None,
     check: str | None = None,
-) -> FixChecksReport:
+) -> FixChecksReport | None:
     """`--phase publish` on the pull request `pull` of `repo`: the state file, read as data, must
-    name that pull request. A round that `prepare` ended gets the report of a judgment with no
-    write, so `publish` gives its own report; a round with an outcome goes to `publish_round`."""
+    name that pull request. A round that `prepare` ended gives no report here, as `prepare`
+    printed it; a judgment with no write refuses a state that says so while a repair or a ready
+    mark is due. A round with an outcome goes to `publish_round`."""
     state = _read_state(folders)
     if (state.repo, state.pull) != (repo, pull):
         raise PhaseOutputError("The state file of the run names another pull request")
     if state.ended:
         judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=False)
-        if isinstance(judged, FixRound):
-            raise PhaseOutputError("The round that prepare ended needs a repair now")
-        return judged
+        if isinstance(judged, FixRound) or judged.result is FixChecksResult.PLANNED:
+            raise PhaseOutputError(
+                "The state file says that the round ended, and the round has a step due"
+            )
+        return None
     from_state = _judged_from_state(client, state, repo, pull)
     if isinstance(from_state, FixChecksReport):
         return from_state

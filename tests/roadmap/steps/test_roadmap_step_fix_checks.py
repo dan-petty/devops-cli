@@ -906,23 +906,19 @@ def test_the_three_phases_on_a_run_folder_repair_as_one_round_does(
     assert not (folders.work / "state.json").exists()
 
 
-def test_a_round_that_prepare_ends_reaches_publish_as_its_report(
-    world: PullWorld, tmp_path: Path
-) -> None:
-    """A round that ends in `prepare`, here on an owner label, writes no inputs: the agent phase
-    does nothing, and `publish` gives the report of `prepare`."""
+def test_a_round_that_prepare_ends_is_reported_by_prepare(world: PullWorld, tmp_path: Path) -> None:
+    """A round that ends in `prepare`, here on an owner label, writes no inputs: `prepare` gives
+    its report, the agent phase does nothing, and `publish` gives no second report (#6601)."""
     pull = world.item("owner/human")
     world.pull(pull)
-    repair = FakeRepair(tmp_path / "checkout")
     folders = RunFolders(tmp_path / "run")
 
-    report, _ = _phases(world, pull, repair.build(), folders)
+    prepared, published = _separate_round(world, pull, folders)
 
-    assert (report.result, report.reason, repair.calls, repair.pushes) == (
+    assert (prepared.result, prepared.reason, published) == (
         FixChecksResult.STOPPED,
         "Item holds an owner label",
-        [],
-        0,
+        None,
     )
     assert list(folders.out.iterdir()) == []
 
@@ -1177,9 +1173,7 @@ def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github
     file names (#6601)."""
     pull = world.item()
     world.pull(pull)
-    repair = FakeRepair(
-        tmp_path / "checkout", tier1=DONE, url="https://example.com/another-repository.git"
-    )
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
     built = repair.build()
     folders = RunFolders(tmp_path / "run")
     client = get_github_session().client
@@ -1187,8 +1181,101 @@ def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github
         world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
     )
     agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["url"] = "https://example.com/another-repository.git"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
 
     with pytest.raises(PhaseOutputError, match="another origin"):
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert repair.pushes == 0
+
+
+def test_a_clone_whose_origin_is_not_the_repository_on_github_gets_no_round(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """`prepare` refuses a clone whose `origin` is not the repository on GitHub, also with
+    `--phase all`: a `--source` clone with another `remote.origin.url` sets no push URL, and its
+    worktree goes (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    released: list[str] = []
+    repair = FakeRepair(tmp_path, tier1=DONE, url="https://example.com/another-repository.git")
+    built = replace(repair.build(), release=lambda checkout: released.append(checkout.branch))
+
+    with pytest.raises(RoadmapImplementError, match="not the repository"):
+        world.run(pull, confirm=True, repair=built)
+
+    assert (repair.calls, repair.pushes, released) == (
+        [f"checkout feat/{pull}-sample {pull}"],
+        0,
+        ["b"],
+    )
+
+
+def _separate_round(world: PullWorld, pull: int, folders: RunFolders) -> tuple[Any, Any]:
+    """`prepare`, `agent` and `publish` of one round in separate calls: the report that each of
+    `prepare` and `publish` gives."""
+    repair = FakeRepair(folders.root / "checkout").build()
+    client = get_github_session().client
+    prepared = prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=repair, folders=folders
+    )
+    agent_phase(folders, repair)
+    return prepared, publish_phase(world.store, client, folders, repair, repo=REPO, pull=pull)
+
+
+def test_a_wait_that_prepare_ends_is_reported_once_by_prepare(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A round that `prepare` ends on a CI infrastructure failure gives `wait` from `prepare`, as
+    the item record holds it, and `publish` gives no second report and no second comment (#6601)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run("Test Job Duration")], log="Job duration exceeded runner limit")
+
+    prepared, published = _separate_round(world, pull, RunFolders(tmp_path / "run"))
+
+    assert (prepared.result, published, len(world.comments())) == (FixChecksResult.WAIT, None, 1)
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "wait"
+
+
+def test_a_ready_mark_that_prepare_ends_is_reported_once_by_prepare(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A round that `prepare` ends on the ready mark gives `ready` from `prepare`, and `publish`
+    marks nothing again and gives no second report (#6601)."""
+    pull = _repaired_draft(world, TICKED)
+    calls = _ready_calls(world)
+
+    prepared, published = _separate_round(world, pull, RunFolders(tmp_path / "run"))
+
+    assert (prepared.result, published, calls) == (
+        FixChecksResult.READY,
+        None,
+        [("pr", "ready", str(pull), "--repo", REPO)],
+    )
+
+
+def test_a_state_file_that_says_ended_while_a_repair_is_due_is_refused(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A state file that says the round ended, for a round that has a repair due, stops a separate
+    `publish` with an error, so the round counts as an error and not as an end (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    (folders.state / "state.json").write_text(
+        json.dumps({"repo": REPO, "pull": pull, "ended": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(PhaseOutputError, match="step due"):
         publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
 
     assert repair.pushes == 0

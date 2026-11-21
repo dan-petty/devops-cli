@@ -101,8 +101,9 @@ def _run(
     phase: RunPhase,
     work: Path | None,
 ) -> FixChecksReport | None:
-    """The round, or the phase of it, that the options ask for: the report, or None for the
-    phases `prepare` and `agent`, which write the run folder."""
+    """The round, or the phase of it, that the options ask for: the report, or None for the agent
+    phase, for a `prepare` that hands the round on, and for a `publish` of a round that `prepare`
+    ended and reported."""
     from devops_cli.roadmap.steps.fix_checks import run_fix_checks
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
@@ -171,10 +172,9 @@ def _phase(
     store = get_roadmap_store(target)
     client = get_github_session().client
     if phase is RunPhase.PREPARE:
-        prepare_phase(
+        return prepare_phase(
             store, client, target, pull, head=head, check=check, repair=repair, folders=folders
         )
-        return None
     return publish_phase(
         store, client, folders, repair, repo=target, pull=pull, head=head, check=check
     )
