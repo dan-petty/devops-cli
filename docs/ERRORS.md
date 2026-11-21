@@ -64,7 +64,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `GitHubUnauthenticatedError` | `GITHUB_UNAUTHENTICATED` | `1` | Git | Raised when the process has no GitHub identity, or GitHub refused its token (HTTP 401). |
 | `GitHubUnreadError` | `GITHUB_UNREAD` | `1` | Git | Raised when no answer from GitHub could be read, so what the request did is unknown. |
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
-| `GitSettingsError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the git settings of the checkout of the implement job hold a key, an attribute |
+| `GitSettingsError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the `shallow` file of the clone of the implement job is a link or is not a |
 | `GiteaAccessBlocked` | `GITEA_ACCESS_BLOCKED` | `1` | Gitea | Raised when Cloudflare Access blocks a Gitea request with a redirect or challenge. |
 | `GiteaError` | `GITEA_ERROR` | `1` | Gitea | Base exception for Gitea forge operations. |
 | `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |

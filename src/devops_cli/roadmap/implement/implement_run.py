@@ -12,8 +12,8 @@ and to a `git` child that reaches a remote; a local `git` child (`git add`, `git
 other child (`uv`, `ruff`) get none. Each git call that reaches `origin` runs through `OriginGit`
 (`git_isolation.py`, GHSA): in a new git folder, with no configuration, hook or attribute file that
 the agent can write, after the job ends every leftover process (`end_leftover_processes`). The job
-also ends every process of a step when the step ends, and checks the git settings of the checkout
-(`check_settings`): a setting that it does not allow stops the item with the class `git_config`.
+also ends every process of a step when the step ends. A `shallow` file of the clone that is a link
+stops the item with the class `git_config`.
 
 **One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
 rebases onto the fetched default branch. It runs one step for each group that has an unticked
@@ -2054,8 +2054,8 @@ class _ItemRun:
     # ── The stop ──
 
     def stop(self, stop: _StopError) -> None:
-        """Push what passed, tell the item why, set it Blocked, and record the step. A git setting
-        that the job does not allow stops the push, and the class of the stop is `git_config`.
+        """Push what passed, tell the item why, set it Blocked, and record the step. A `shallow` file
+        of the clone that is a link stops the push, and the class of the stop is `git_config`.
         First it writes the disk use of the home volume at the step to the Job log (#6076). The
         stop comment on the issue is the one copy of the stop report; the comment of the run on
         the pull request links it (#6194)."""
@@ -2211,9 +2211,9 @@ class _ItemRun:
         with none, nothing is pushed. A rebase conflict aborts the rebase, pushes the head with a
         lease, records the conflicting paths in `implement.conflict`, and returns an empty text
         (#5615). `at_stop` is true for the push of a stop, which drops what no commit holds first.
-        The text to add to the comment when the push fails, else empty. A git setting that the job does not allow raises
-        `GitSettingsError`: the item stops with the class `git_config`, and the job writes no
-        record of the push first."""
+        The text to add to the comment when the push fails, else empty. A `shallow` file of the
+        clone that is a link raises `GitSettingsError`: the item stops with the class `git_config`,
+        and the job writes no record of the push first."""
         texts = MESSAGES.roadmap
         try:
             if self.pull is None and not self._has_new_commits():
@@ -2254,10 +2254,10 @@ def _earlier_stop(check_log: str | None, conflict: str | None) -> EarlierStop | 
 
 
 def _failure_class_of(exc: Exception) -> FailureClass | None:
-    """The class of a stop that `exc` causes, when the error knows it: a git setting that the job
-    does not allow is `git_config` (GHSA), and a command that the process runner refuses before it
-    starts (`SecurityError`) is `refused_tool`, as a new runner image meets the same refusal
-    (#5887). None lets the classifier read the text."""
+    """The class of a stop that `exc` causes, when the error knows it: a `shallow` file of the
+    clone that is a link is `git_config` (GHSA), and a command that the process runner refuses
+    before it starts (`SecurityError`) is `refused_tool`, as a new runner image meets the same
+    refusal (#5887). None lets the classifier read the text."""
     if isinstance(exc, GitSettingsError):
         return FailureClass.GIT_CONFIG
     if isinstance(exc, SecurityError):
@@ -2266,9 +2266,9 @@ def _failure_class_of(exc: Exception) -> FailureClass | None:
 
 
 def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _StopError:
-    """The stop that an error ends the run with: its class and its message, secrets masked. A git
-    setting that the job does not allow stops with the class `git_config` and pushes nothing: the
-    push would meet the same setting."""
+    """The stop that an error ends the run with: its class and its message, secrets masked. A
+    `shallow` file of the clone that is a link stops with the class `git_config` and pushes
+    nothing: the push would meet the same link."""
     reason = MESSAGES.roadmap.implement_stop_error.format(
         error=type(exc).__name__, message=mask_secrets(str(exc))
     )

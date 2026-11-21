@@ -34,6 +34,7 @@ from tests.support.roadmap_implement import (
     JobWorld,
     archive_effect,
     group_one_calls,
+    link_shallow,
     two_groups,
 )
 
@@ -288,14 +289,10 @@ def _setup_refused_reply(world: JobWorld, _config: Callable[..., Path]) -> Model
 def _setup_git_config(world: JobWorld, config: Callable[..., Path]) -> ModelScript:
     config(roadmap={"implement": {"in_runner": True}})
 
-    def set_config() -> None:
-        wt = worktree_directory(world.number, world.repo.clone)
-        subprocess.run(["git", "config", "credential.helper", "store"], cwd=wt, check=True)
-
     return ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
-        effects={1: set_config},
+        effects={1: lambda: link_shallow(world.repo)},
     )
 
 

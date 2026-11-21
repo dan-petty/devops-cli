@@ -1,4 +1,4 @@
-"""The git calls of the implement job that reach `origin`, and the check of its git settings (GHSA).
+"""The git calls of the implement job that reach `origin` (GHSA).
 
 **The invariant.** No git call that holds the GitHub token reads a configuration, hook, attribute
 or credential file that the agent can write, and no process that the agent, or a git call without
@@ -9,9 +9,9 @@ runs as a child of git, with the environment of git. The process runner gives th
 git child that reaches a remote (`git_reaches_remote`), so a local git call of the job, such as
 `git add` or `git commit`, holds none.
 
-**A network call** (`OriginGit`) ends every leftover process of the job, checks the settings of
-the checkout, ends every leftover process again, and makes a new folder with `tempfile.mkdtemp`. In it, a new bare git folder gets the
-object folder of the clone as a link, and an empty folder becomes the home folder of the call. A
+**A network call** (`OriginGit`) ends every leftover process of the job, and makes a new folder
+with `tempfile.mkdtemp`. In it, a new bare git folder gets the object folder of the clone as a
+link, and an empty folder becomes the home folder of the call. A
 fetch first gets the remote-tracking refs of the clone, so that it asks only for the objects that
 the clone lacks. The new folder gets a copy of the `shallow` file of a shallow clone, and a fetch
 that changes it writes it back. Neither step follows a link at the `shallow` file or at a
@@ -22,20 +22,11 @@ clone configuration, no hook and no attribute file, and gets the credential from
 alone. The remote is the URL of `origin` that the job read before its first step. The job writes
 the remote-tracking ref that the call changed into the clone, and removes the folder. Every call
 but the one with the token runs with no token.
-
-**The check of the settings** (`check_settings`) reads the keys of the scopes `local` and
-`worktree`, the attributes `filter`, `diff` and `merge` of each path that git would stage, and the
-alternates file of the clone. A key outside `CONST_GIT_ALLOWED_SETTINGS`, a driver that git does
-not define itself, or an alternates file raises `GitSettingsError`, which stops the item with the
-failure class `git_config`. The error names each key or attribute, and never a value. A call with
-the token reads none of these settings, so the check is a signal and a second guard. It runs only
-in a runner, as `end_leftover_processes` does: a person can keep a filter of their own.
 """
 
 from __future__ import annotations
 
 import errno
-import fnmatch
 import os
 import shutil
 import stat
@@ -47,12 +38,6 @@ from pathlib import Path
 
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
-    CONST_GIT_ALLOWED_SETTING_PATTERNS,
-    CONST_GIT_ALLOWED_SETTINGS,
-    CONST_GIT_ALTERNATES_FILE,
-    CONST_GIT_ATTRIBUTE_DRIVERS,
-    CONST_GIT_ATTRIBUTE_STATES,
-    CONST_GIT_BUILTIN_DRIVERS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_NONINTERACTIVE_ENV,
     CONST_GIT_SHALLOW_FILE,
@@ -69,18 +54,16 @@ from devops_cli.security.sanitizer import mask_secrets
 
 # The operation that a failed call names; the value of `implement.GIT_OPERATION`.
 _OPERATION = "roadmap.implement"
-# The scopes of `git config --list --show-scope` that the clone and its worktree hold.
-_CHECKED_SCOPES = frozenset({"local", "worktree"})
 _ORIGIN_REFS = "refs/remotes/origin/"
 
 
-def _git(where: Sequence[str], *args: str, stdin: str | None = None, isolated: bool = True) -> str:
-    """The output of a git call with no token: `git <where> <args>`. `isolated` turns the global
-    and the system configuration off. Raises `GitOperationError` with git's reason, masked."""
+def _git(where: Sequence[str], *args: str, stdin: str | None = None) -> str:
+    """The output of a git call with no token: `git <where> <args>`, with the global and the system
+    configuration off. Raises `GitOperationError` with git's reason, masked."""
     proc = run_subprocess(
         [BIN_GIT, *where, *args],
         input=stdin,
-        env=dict(CONST_GIT_ISOLATED_CONFIG_ENV) if isolated else None,
+        env=dict(CONST_GIT_ISOLATED_CONFIG_ENV),
         check=False,
         quiet=True,
     )
@@ -104,81 +87,6 @@ def _sweep() -> None:
     """End every leftover process of the job, in a runner (`end_leftover_processes`)."""
     if load_settings().roadmap.implement.in_runner:
         process_hardening.end_leftover_processes()
-
-
-# ── The check of the settings ─────────────────────────────────────────────────────────────
-
-
-def _allowed(key: str) -> bool:
-    return key in CONST_GIT_ALLOWED_SETTINGS or any(
-        fnmatch.fnmatchcase(key, pattern) for pattern in CONST_GIT_ALLOWED_SETTING_PATTERNS
-    )
-
-
-def _refused_keys(checkout: Path) -> list[str]:
-    """The keys of the scopes `local` and `worktree` outside the allowlist, each once. The keys of a
-    file that `include.path` names have the scope of the file that includes it."""
-    listed = _git(["-C", str(checkout)], "config", "--list", "--show-scope", "-z", isolated=False)
-    fields = listed.split("\0")
-    keys = (
-        entry.partition("\n")[0]
-        for scope, entry in zip(fields[0::2], fields[1::2], strict=False)
-        if scope in _CHECKED_SCOPES
-    )
-    return list(dict.fromkeys(key for key in keys if not _allowed(key)))
-
-
-def _driver_refused(attribute: str, value: str) -> bool:
-    return value not in CONST_GIT_ATTRIBUTE_STATES and value not in CONST_GIT_BUILTIN_DRIVERS.get(
-        attribute, frozenset()
-    )
-
-
-def _refused_attributes(checkout: Path) -> list[str]:
-    """The attributes of `CONST_GIT_ATTRIBUTE_DRIVERS` that name a driver that git does not define,
-    each with the first path that has it and the count of the others. `git check-attr` reads every
-    attribute file that git reads for a path."""
-    where = ["-C", str(checkout)]
-    listed = _git(where, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-    if not listed:
-        return []
-    found = _git(where, "check-attr", "-z", "--stdin", *CONST_GIT_ATTRIBUTE_DRIVERS, stdin=listed)
-    fields = found.split("\0")
-    paths: dict[str, list[str]] = {}
-    for path, attribute, value in zip(fields[0::3], fields[1::3], fields[2::3], strict=False):
-        if _driver_refused(attribute, value):
-            paths.setdefault(attribute, []).append(path)
-    return [
-        MESSAGES.roadmap.implement_git_attribute_refused.format(
-            attribute=attribute, path=min(held), more=len(held) - 1
-        )
-        for attribute, held in paths.items()
-    ]
-
-
-def refused_settings(checkout: Path) -> list[str]:
-    """What the git settings of `checkout` hold that the implement job does not allow: each key,
-    each attribute with its first path, and the alternates file. Empty when it allows them all."""
-    alternates = _common_dir(checkout) / CONST_GIT_ALTERNATES_FILE
-    return [
-        *_refused_keys(checkout),
-        *_refused_attributes(checkout),
-        *([CONST_GIT_ALTERNATES_FILE] if alternates.exists() else []),
-    ]
-
-
-def check_settings(checkout: Path) -> None:
-    """In a runner, raise `GitSettingsError` when the git settings of `checkout` hold what the
-    implement job does not allow (`refused_settings`)."""
-    if not load_settings().roadmap.implement.in_runner:
-        return
-    refused = refused_settings(checkout)
-    if refused:
-        named = ", ".join(f"`{setting}`" for setting in refused)
-        raise GitSettingsError(
-            MESSAGES.roadmap.implement_git_settings_refused.format(settings=named),
-            settings=tuple(refused),
-        )
 
 
 # ── The network calls ─────────────────────────────────────────────────────────────────────
@@ -280,8 +188,8 @@ class _Folder:
 class OriginGit:
     """The git calls of the implement job that reach `origin` of the clone of `repository` (the
     clone or one of its worktrees), at `url`. Each call runs in a new git folder, as the module
-    text says. A call that git refuses raises `GitOperationError`, and a refused setting raises
-    `GitSettingsError` before any call."""
+    text says. A call that git refuses raises `GitOperationError`, and a `shallow` file of the
+    clone that is a link raises `GitSettingsError`."""
 
     repository: Path
     url: str
@@ -289,11 +197,8 @@ class OriginGit:
     @contextmanager
     def _folder(self, *, refs: bool) -> Iterator[_Folder]:
         """A new git folder with the objects of the clone, and with its remote-tracking refs when
-        `refs` is true. The leftover processes end before the check of the settings, so that they
-        are gone also when the check stops the call, before the folder exists, and again before the
+        `refs` is true. The leftover processes end before the folder exists, and again before the
         caller runs the call with the token. The folder goes when the block ends."""
-        _sweep()
-        check_settings(self.repository)
         _sweep()
         parent = Path(tempfile.mkdtemp(prefix="devops-origin-"))
         try:
@@ -355,4 +260,4 @@ class OriginGit:
         _git(["-C", str(self.repository)], "update-ref", "--stdin", stdin=change)
 
 
-__all__ = ["OriginGit", "check_settings", "origin_url", "refused_settings"]
+__all__ = ["OriginGit", "origin_url"]
