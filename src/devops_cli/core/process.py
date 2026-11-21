@@ -467,8 +467,11 @@ def git_reaches_remote(args: Sequence[str]) -> bool:
 def git_credential_args(cmd: list[str]) -> list[str]:
     """The `-c` words that give a git child which reaches a remote the GitHub credential helper of
     `CONST_GIT_GITHUB_CREDENTIAL_CONFIG`, and none for any other command. `gh auth git-credential`
-    then reads the `GH_TOKEN` that `_github_pin` gives the same child (#6340)."""
+    then reads the `GH_TOKEN` that `_github_pin` gives the same child (#6340). A caller that passed
+    the values itself, as `devops infra` does, gets them once."""
     if _github_client_name(cmd) != CONST_GIT_CLI or not git_reaches_remote(cmd[1:]):
+        return []
+    if all(value in cmd for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG):
         return []
     return [word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)]
 

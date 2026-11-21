@@ -10,6 +10,9 @@ Adds: `git_credential_args`
 - [x] 1.2 Add `git_credential_args` to `src/devops_cli/core/process.py`: it returns `["-c", value, "-c", value]` from `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` when `_github_client_name` names git and `git_reaches_remote(cmd[1:])` is true, and an empty list otherwise. In `DefaultProcessRunner.run`, insert the result at index 1 of `full_cmd` right after `pin = _github_pin(full_cmd, env)`, and do the same in `run_async` after its `asyncio.to_thread` call, so the pin reads the caller's own words. Extend the docstring of `_github_pin`: a git child that reaches a remote gets the token and the helper together
   - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py` passes
 
+- [x] 1.3 Make `git_credential_args` return no word for a command that already holds the values of `CONST_GIT_GITHUB_CREDENTIAL_CONFIG`, and write `test_a_git_child_that_has_the_credential_values_gets_them_once` in `tests/core/test_subprocess_env_boundary.py`, so the callers of `devops infra` and the Argo CD override fetch, which pass the values, get no second copy
+  - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py` passes
+
 ## 2. Read origin before worktrees add reclaims
 
 Kind: behavior. Reads: `src/devops_cli/git/worktree_add.py`, `src/devops_cli/commands/repos.py`, `tests/git/test_repos_worktrees_reclaim.py`, `tests/git/conftest.py`, `tests/roadmap/implement/test_roadmap_implement_git_isolation.py`, `tests/commands/test_all_commands_help_dryrun.py`, `tests/commands/test_repos.py`, `tests/core/test_repos_worktrees_add.py`, `tests/roadmap/implement/test_roadmap_implement_job.py`, `tests/roadmap/stage/test_roadmap_stage_plan.py`, `tests/roadmap/steps/test_roadmap_step_scaffold.py`, `tests/roadmap/test_roadmap_explain.py`, `tests/roadmap/test_roadmap_faults.py`. Changes: `src/devops_cli/git/worktree_add.py`, `src/devops_cli/commands/repos.py`, `tests/git/test_repos_worktrees_reclaim.py`.

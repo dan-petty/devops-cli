@@ -27,6 +27,7 @@ from devops_cli.core.process import (
     DEFAULT_ALLOWED_ENV_VARS,
     DEFAULT_DENIED_ENV_PATTERNS,
     build_subprocess_env,
+    git_credential_args,
     run_json_subprocess,
     run_subprocess,
     run_subprocess_async,
@@ -966,6 +967,17 @@ def test_a_local_git_child_gets_no_credential_helper(
         proc = run_subprocess(["git", "status"])
 
     assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
+
+
+def test_a_git_child_that_has_the_credential_values_gets_them_once() -> None:
+    """A caller that passed the `-c` values itself, as `devops infra` does, does not get them
+    twice (#6340)."""
+    own = ["git", *_CREDENTIAL_WORDS, "fetch", "origin"]
+
+    assert (git_credential_args(own), git_credential_args(["git", "fetch", "origin"])) == (
+        [],
+        list(_CREDENTIAL_WORDS),
+    )
 
 
 @pytest.mark.parametrize("argv", [[CONST_GH_CLI, "--version"], [CONST_GH_CLI, "help"]])
