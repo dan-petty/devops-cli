@@ -745,6 +745,52 @@ def check_the_admin_port_rule_names_a_policy_that_admits_a_named_port() -> None:
     assert _filer_admitted_on([{"protocol": "TCP", "port": "grpc"}])
 
 
+def _admin_port_problems_of(policies: list[dict[str, Any]], name: str) -> list[str]:
+    """The problems of the admin port rule for `policies` that name the policy or the text
+    `name` and the admin gRPC port."""
+    return [p for p in admin_port_problems(policies) if name in p and str(ADMIN_GRPC_PORT) in p]
+
+
+def check_the_admin_port_rule_names_a_perimeter_whose_namespace_egress_has_no_ports() -> None:
+    # The controller of the cluster does not apply the ingress rules of the admin pod when an
+    # egress rule of the source pod allows the traffic, so a rule with no ports opens 33646.
+    policies = _store_kind("NetworkPolicy")
+    (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter"]
+    (namespace_rule,) = [
+        rule for rule in perimeter["spec"]["egress"] if rule.get("to") == [{"podSelector": {}}]
+    ]
+    namespace_rule.pop("ports", None)
+
+    assert _admin_port_problems_of(policies, "object-store-perimeter")
+
+
+def check_the_admin_port_rule_names_a_policy_that_lets_a_filer_send_to_the_admin_port() -> None:
+    fixture = {
+        "kind": "NetworkPolicy",
+        "metadata": {"name": "fixture-filer-egress", "namespace": NAMESPACE},
+        "spec": {
+            "podSelector": {"matchLabels": component_labels("filer")},
+            "policyTypes": ["Egress"],
+            "egress": [
+                {
+                    "to": [{"podSelector": {"matchLabels": component_labels("admin")}}],
+                    "ports": [{"protocol": "TCP", "port": ADMIN_GRPC_PORT}],
+                }
+            ],
+        },
+    }
+
+    assert _admin_port_problems_of([*_store_kind("NetworkPolicy"), fixture], "fixture-filer-egress")
+
+
+def check_the_admin_port_rule_names_a_worker_with_no_egress_to_the_admin_port() -> None:
+    policies = [
+        p for p in _store_kind("NetworkPolicy") if p["metadata"]["name"] != "object-store-worker"
+    ]
+
+    assert _admin_port_problems_of(policies, "lets the worker send")
+
+
 def check_the_store_has_no_internet_egress() -> None:
     assert egress_problems(_store_kind("NetworkPolicy")) == []
 
