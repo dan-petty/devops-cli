@@ -43,12 +43,13 @@ after Valkey answered, and uses and writes the shared copy only for a public ans
 answer removes the shared copy of a repository that became private. A failed visibility read
 gives an unknown answer: the store does not read or write the shared copy, and reads the
 visibility again after `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`. A save comes only after a
-public answer, so the age of the last save, which the TTL of the key gives, is the time since a
-process last saw the repository as public. An unknown answer removes a copy whose last save is
-older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and leaves a fresher copy (#6611). Thus a short
-failure keeps a fresh copy, and a failure that goes on, such as a token that cannot see a
-repository that became private, removes the copy at most about 2 hours after the change, at the
-first run after that.
+public answer, which a process keeps for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min). An
+unknown answer removes a copy whose last save, which the TTL of the key gives, is older than that
+time, and leaves a fresher copy (#6611). Valkey reads the TTL again and removes the key in one
+script, so a save during the visibility read keeps the copy. Thus a short failure keeps a fresh
+copy, and a failure that goes on, such as a token that cannot see a repository that became
+private, removes the copy at most 1 hour after the change, at the first run after that: the bound
+that the owner accepted on 2026-11-21.
 """
 
 from __future__ import annotations
@@ -147,14 +148,6 @@ class HeldMeta:
     raw: bytes
     meta: SharedMeta | None
     pttl: int
-
-    @property
-    def saved_seconds_ago(self) -> float | None:
-        """The time since a save last set the TTL of the key: the TTL of a snapshot less the
-        time that the key has left. None for a key with no TTL (-1) and a key that went (-2)."""
-        if self.pttl < 0:
-            return None
-        return DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS - self.pttl / 1000
 
 
 @dataclass(frozen=True)
@@ -436,6 +429,17 @@ class ValkeySnapshotStore:
             self._seen.pop(RepoRef(repo).key, None)
         return bool(self.tier.unlink(snapshot_key(repo)))
 
+    def remove_stale(self, repo: str) -> bool:
+        """Remove the shared snapshot of `repo` when its last save is older than
+        `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`; whether Valkey removed a key. Valkey reads the TTL
+        of the key and removes the key in one script, so a save that came after the read of
+        `meta` keeps the key."""
+        removed = bool(self.tier.unlink_if_expiring(snapshot_key(repo), _STALE_TTL_BELOW_MS))
+        if removed:
+            with self._lock:
+                self._seen.pop(RepoRef(repo).key, None)
+        return removed
+
 
 def _holds(stored: SharedMeta, mine: SharedMeta) -> bool:
     """Whether the stored copy already holds what `mine` would write: the same schema key and
@@ -536,9 +540,10 @@ _visibility: TLRUCache[str, Visibility] = TLRUCache(
 
 def repository_visibility(repo: str, *, runner: GhRunner | None = None) -> Visibility:
     """The visibility of `repo` that GitHub gives, read once for each repository and its time to
-    live (`_visibility_expiry`). A failed read gives `Visibility.UNKNOWN`: the shared tier then
-    keeps its copy as it is and gets no data that could be private (ADR 0023 section 8), and a
-    process that is out of GitHub quota sends no visibility read for each round."""
+    live (`_visibility_expiry`). A failed read gives `Visibility.UNKNOWN`: the shared tier gets no
+    data that could be private (ADR 0023 section 8), keeps only a copy saved in the last
+    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and removes an older one, and a process that is out of
+    GitHub quota sends no visibility read for each round."""
     name = RepoRef(repo).key
     with _VISIBILITY_LOCK:
         held = _visibility.get(name)
@@ -549,9 +554,11 @@ def repository_visibility(repo: str, *, runner: GhRunner | None = None) -> Visib
         answer = Visibility.PRIVATE if store.repository_is_private() else Visibility.PUBLIC
     except DevOpsCLIError as exc:
         logger.warning(
-            "The visibility of %s is not known, so the shared tier keeps its copy as it is "
-            "for %s s: %s",
+            "The visibility of %s is not known, so the round does not use or write its shared "
+            "copy, removes the copy if its last save is older than %s s, and reads the "
+            "visibility again after %s s: %s",
             repo,
+            DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS,
             DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS,
             exc,
         )
@@ -574,13 +581,21 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+# A shared copy whose key has less time left than this is stale: its last save is older than
+# `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`.
+_STALE_TTL_BELOW_MS = int(
+    (DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS - DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS) * 1000
+)
+
+
 def _stale(held: HeldMeta) -> bool:
     """Whether the last save of the shared copy whose `meta` is `held` is older than
-    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`. A save comes only after a public answer, so no
-    process saw the repository as public in that time. A key with no TTL gives no age and is not
-    stale."""
-    age = held.saved_seconds_ago
-    return age is not None and age > DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS
+    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`: each save sets the TTL of the key to
+    `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS`, so the age is that TTL less the time that the key has
+    left. A save comes only after a public answer, which a process keeps for that time, so the copy
+    of a repository that became private is stale at most two times that time after the change. A
+    key with no TTL (-1) and a key that went (-2) give no age and are not stale."""
+    return 0 <= held.pttl < _STALE_TTL_BELOW_MS
 
 
 @dataclass(frozen=True)
@@ -650,20 +665,25 @@ class TieredSnapshotStore:
 
     def _checked(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> Visibility:
         """The visibility of `repo`. A private answer removes the shared copy, so the shared tier
-        keeps no copy of a repository that became private. An unknown answer removes a copy that
-        no process saw as public for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and
-        leaves a fresher copy as it is."""
+        keeps no copy of a repository that became private. An unknown answer removes a copy whose
+        last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and leaves a
+        fresher copy as it is. Valkey checks the age again when it removes the copy, so a save
+        during the visibility read keeps it."""
         visibility = self.visibility(repo)
-        private = visibility is Visibility.PRIVATE
-        stale = visibility is Visibility.UNKNOWN and held is not None and _stale(held)
-        if held is not None and (private or stale) and shared.remove(repo):
-            logger.info(
-                "The shared tier held the listing of %s, which %s.",
-                repo,
-                "is private now"
-                if private
-                else "no process saw as public in the last hour, and its visibility is not known",
+        if held is None:
+            return visibility
+        if visibility is Visibility.PRIVATE:
+            removed, reason = shared.remove(repo), "is private now"
+        elif visibility is Visibility.UNKNOWN and _stale(held):
+            removed = shared.remove_stale(repo)
+            reason = (
+                f"has no save in the last {DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS:.0f} s, and whose "
+                "visibility is not known"
             )
+        else:
+            return visibility
+        if removed:
+            logger.info("The shared tier held the listing of %s, which %s.", repo, reason)
             count_write(BrainStore.SNAPSHOT, BrainWrite.REMOVED)
         return visibility
 

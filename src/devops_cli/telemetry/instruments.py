@@ -727,8 +727,8 @@ BRAIN_WRITES_TOTAL = Instrument(
     "stays local, older when the shared "
     "snapshot is newer or another writer won, private, removed for the shared snapshot of a "
     "repository that became private or of a repository whose visibility read failed and whose "
-    "last save is older than 1 hour, and unknown for a repository whose visibility read failed, "
-    "which writes nothing",
+    "last save is older than 30 minutes, and unknown for a repository whose visibility read "
+    "failed, which writes nothing",
 )
 VALKEY_CACHE_ERRORS_TOTAL = Instrument(
     "devops_cli_valkey_cache_errors_total",

@@ -760,11 +760,16 @@ DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
 # The temporary key of a full write lives this long, so a killed writer leaves no key without an
 # end.
 DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
-# A process reads the visibility of a repository again after this time (#4668).
-DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
+# A process reads the visibility of a repository again after this time (#4668). A process saves
+# the shared copy only with a public answer, and an unknown answer removes a copy whose last save
+# is older than this time (#6611). Thus the copy of a repository that became private goes at most
+# two times this time after the change, at the first run after that: the 1 hour that the owner
+# accepted on 2026-11-21.
+DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 1800.0
 # A process reads the visibility of a repository again after this time when its last read failed
-# (#6611). The shared copy stays as it is in this time, and a process that is out of GitHub quota
-# sends no visibility read for each lane round.
+# (#6611). In this time the process does not use or write the shared copy, keeps a copy whose
+# last save is younger than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and removes an older one. A
+# process that is out of GitHub quota sends no visibility read for each lane round.
 DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS: float = 60.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0

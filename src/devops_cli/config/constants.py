@@ -2931,7 +2931,7 @@ class BrainWrite(StrEnum):
     failed, kept local because the value or the records of the snapshot are over their bound
     (#6611), refused because the shared copy is
     newer, kept local for a private repository, the shared copy removed of a repository that
-    became private or whose visibility read failed and whose last save is older than one hour,
+    became private or whose visibility read failed and whose last save is older than 30 minutes,
     or kept local for a repository whose visibility read failed (#6611)."""
 
     SHARED = "shared"
