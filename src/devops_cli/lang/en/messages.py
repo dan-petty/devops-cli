@@ -5973,6 +5973,7 @@ class RoadmapMessages:
             "file": "{path} at {ref}",
             "milestones": "every milestone",
             "check_runs": "the check runs of the head commit of an open draft of a job",
+            "delivery_pull": "the pull request of `implement.pr`, whose draft state gives the phase",
             "issues": "the issues ({query})",
             "comments": "the comments on {subject}",
             "issue": "{subject}",
@@ -6046,6 +6047,9 @@ class RoadmapMessages:
             ),
             "repeat_refused": "the store refuses the comment of refine as a repeat",
             "job_drafts": "the pull request is an open draft of a job",
+            "drafted_delivery": (
+                "the record holds `implement.result` equal to `drafted` and `implement.pr`"
+            ),
             "check_on": "the repository is public and a search provider is configured",
             "item_not_skip_class": "the item is no skip class",
             "check_changed": (

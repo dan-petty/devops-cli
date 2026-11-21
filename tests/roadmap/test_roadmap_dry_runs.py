@@ -755,6 +755,20 @@ def test_the_stage_and_explain_plans_list_the_read_of_the_tree_of_the_default_br
         assert [request.argv for request in reads if request.argv == tree] == [tree]
 
 
+def test_the_explain_plan_lists_the_read_of_the_pull_request_of_a_drafted_delivery() -> None:
+    """For its phase, explain reads the pull request of `implement.pr` of a drafted delivery, so
+    the dry run lists that read with its condition (#6559)."""
+    from devops_cli.lang import MESSAGES
+    from devops_cli.roadmap.request_plan import explain_requests
+
+    reads, _ = explain_requests(REPO, item=7)
+
+    number = MESSAGES.roadmap.plan_placeholders["pull"]
+    pull = ("GET", f"https://api.github.com/repos/{REPO}/pulls/{number}")
+    drafted = MESSAGES.roadmap.plan_conditions["drafted_delivery"]
+    assert [request.argv for request in reads if request.condition == drafted] == [pull]
+
+
 def test_the_stage_plan_moves_the_clone_to_the_staged_commit_and_starts_each_branch_there() -> None:
     from devops_cli.roadmap.request_plan import stage_requests
 

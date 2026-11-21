@@ -1203,16 +1203,23 @@ def explain_requests(
     (#4629), the open issue that a stage item depends on, and the tracked files of the default
     branch, which keep the files that a wait names (#6444). The command reads the heads of
     `origin` and the plans once and gives them to both jobs, so the list holds each read once.
+    For the phase of a drafted delivery it reads the pull request of `implement.pr` (#6559).
     With `trace` it reads the one issue and nothing else (#3032)."""
     if trace:
         return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
     store = StoreRequests(repo)
-    blockers = within(store.issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"])
+    texts = MESSAGES.roadmap
+    blockers = within(store.issue(_p("blocker")), repeat=texts.plan_repeat["blocker"])
     refine = [*store.comments_on(f"#{item}"), *_wait_reads(store)]
     clone = "<model-clone>"
     tree = _default_tree_read(clone)
-    return (*reads, _openspec_config_read(clone), *blockers, tree, *refine), ()
+    delivery = planned_session_read(
+        f"/repos/{repo}/pulls/{_p('pull')}",
+        texts.plan_targets["delivery_pull"],
+        condition=texts.plan_conditions["drafted_delivery"],
+    )
+    return (*reads, delivery, _openspec_config_read(clone), *blockers, tree, *refine), ()
 
 
 def plan_recheck_requests(
