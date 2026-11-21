@@ -1246,3 +1246,51 @@ def test_two_lanes_that_load_one_repository_at_the_same_time_send_one_hscan(
     _valkey_store(shared_valkey).save(snapshot)
 
     assert _two_loads_at_once(valkey_server, clock) == (1, [snapshot, snapshot], [True, True])
+
+
+def test_a_shared_load_that_passes_its_budget_in_its_last_hscan_falls_back(
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    shared_valkey: ValkeyCacheTier,
+    clock: ClockFake,
+    otlp: FakeCollector,
+) -> None:
+    """The shared snapshot of 3 records is newer than the local one, and the clock moves 21 s
+    during the only `HSCAN` of its load. The load stops in the inflate of the records, and the
+    reader takes the local snapshot."""
+    local = _snapshot(STARTED - timedelta(hours=1), 1)
+    FileSnapshotStore(tmp_path).save(local)
+    _valkey_store(shared_valkey).save(_snapshot(STARTED, 3, 2, 1))
+
+    def slow(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSCAN":
+            clock.shift(21)
+
+    slow_tier = ValkeyCacheTier(valkey_client_on(valkey_server, after_command=slow))
+    otlp.clear()
+
+    loaded = _tiered(tmp_path, shared=lambda: _valkey_store(slow_tier)).load(REPO)
+
+    assert (loaded, _errors(otlp), _reads(otlp)) == (
+        local,
+        {("hscan", "budget"): 1.0},
+        {("snapshot", "fallback"): 1.0},
+    )
+
+
+def test_a_lane_that_waits_past_its_budget_sends_no_hscan(
+    valkey_server: FakeServer,
+    shared_valkey: ValkeyCacheTier,
+    clock: ClockFake,
+    otlp: FakeCollector,
+) -> None:
+    """The `HSCAN` of thread A waits until thread B starts the budget of its load of the same
+    `meta`, and then the clock moves 21 s. A stops in the inflate of the records, and B stops
+    after the lock with no scan: the server gets one `HSCAN`, both loads give no snapshot, and
+    each counts its budget stop."""
+    _valkey_store(shared_valkey).save(_snapshot(STARTED, 3, 2, 1))
+    otlp.clear()
+
+    loads = _two_loads_at_once(valkey_server, clock, shift=21)
+
+    assert (loads, _errors(otlp)) == ((1, [None, None], [True, True]), {("hscan", "budget"): 2.0})
