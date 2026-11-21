@@ -4,6 +4,8 @@ labels and their state from REST (#1335).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from devops_cli.exceptions.git import (
@@ -20,6 +22,7 @@ from tests.support.roadmap_github_store import (
     ISSUES_IN_MILESTONE,
     OPEN_ISSUES,
     REPO,
+    issue_payload,
     labeled,
     read,
     recorded_store,
@@ -183,3 +186,29 @@ def test_issues_read_every_state_and_drop_pull_requests() -> None:
         True,
         [f"{API}/repos/{REPO}/issues?state=all&per_page=100"],
     )
+
+
+def test_the_listing_gives_the_merge_time_of_a_merged_pull_request_and_null_for_a_closed_one() -> (
+    None
+):
+    """The issue listing holds `pull_request.merged_at`, so the review counts the merged pull
+    requests with no search request (#4692)."""
+    pull = f"{API}/repos/{REPO}/pulls"
+    store, _ = recorded_store(
+        {
+            "issues?state=all": [
+                issue_payload(
+                    7,
+                    state="closed",
+                    pull_request={"url": f"{pull}/7", "merged_at": "2026-11-11T10:00:00Z"},
+                ),
+                issue_payload(
+                    8, state="closed", pull_request={"url": f"{pull}/8", "merged_at": None}
+                ),
+            ]
+        }
+    )
+
+    merged = {record.number: record.merged_at for record in store.listing()}
+
+    assert merged == {7: datetime(2026, 11, 11, 10, 0, tzinfo=UTC), 8: None}
