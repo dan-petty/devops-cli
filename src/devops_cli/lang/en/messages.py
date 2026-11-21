@@ -7007,6 +7007,11 @@ class RoadmapMessages:
         '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '
         "own braces, so its value adds the repositories together."
     )
+    review_catalog_unscoped_workload: str = (
+        "{subject}: `{field}` groups or joins by the label `{label}` and has no matcher "
+        'namespace="..." or namespace=~"...", so its rows can name the workloads of other '
+        'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label.'
+    )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"
     review_catalog_root: str = "the catalog"

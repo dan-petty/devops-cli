@@ -18,6 +18,12 @@ loader also refuses each selector of a Service metric, in `query` or `base`, who
 no matcher `repo="{repo}"`: a ratio whose numerator has no such matcher adds the repositories
 together.
 
+A review gives no name of a workload outside the project namespaces (#6615). The loader refuses a
+`rows` fact whose query names `namespace` or `pod` in a `by (...)` or `on (...)` clause and holds
+no positive namespace matcher, `namespace="..."` or `namespace=~"..."`, such as
+`namespace=~"{namespaces}"`. A negative matcher still reads every other namespace, so it does not
+scope the fact. A `scalar` fact is one number with no label, so the rule does not apply to it.
+
 The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
 in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
@@ -53,6 +59,11 @@ _FACTS: Final = "facts"
 # A metric of the Service: its value is the value of one repository only with `repo="{repo}"`.
 _SERVICE_METRIC: Final = re.compile(r"\bdevops_cli_service_[a-z_]+")
 _REPO_MATCHER: Final = re.compile(r'(?:^|,)\s*repo\s*=\s*"\{repo\}"\s*(?:,|$)')
+# The labels that name a workload, the label list of a `by (...)` or `on (...)` clause, and a
+# positive matcher of the label namespace: `namespace!="..."` does not match.
+_WORKLOAD_LABELS: Final = frozenset({"namespace", "pod"})
+_GROUPING: Final = re.compile(r"\b(?:by|on)\s*\(([^)]*)\)")
+_NAMESPACE_MATCHER: Final = re.compile(r'\bnamespace\s*=~?\s*"')
 
 
 class ReaderKind(StrEnum):
@@ -233,6 +244,18 @@ def unscoped_service_metric(query: str) -> str | None:
     return None
 
 
+def unscoped_workload_metric(query: str) -> str | None:
+    """The first label `namespace` or `pod` that a `by (...)` or `on (...)` clause of `query`
+    names when `query` holds no positive namespace matcher, or None."""
+    if _NAMESPACE_MATCHER.search(query):
+        return None
+    for clause in _GROUPING.finditer(query):
+        for label in clause.group(1).split(","):
+            if label.strip() in _WORKLOAD_LABELS:
+                return label.strip()
+    return None
+
+
 def _fact(entry: Mapping[str, Any]) -> CatalogFact:
     shape = entry.get("shape")
     return CatalogFact(
@@ -252,8 +275,26 @@ def _fact(entry: Mapping[str, Any]) -> CatalogFact:
     )
 
 
+def _scope_refusal(fact: CatalogFact) -> str | None:
+    """The reason to refuse `fact` for its scope, or None: a Service metric with no repository
+    matcher, or a `rows` fact that names the workloads of all namespaces."""
+    texts = MESSAGES.roadmap
+    subject = texts.review_catalog_fact.format(id=fact.id)
+    for field, text in (("query", fact.query), ("base", fact.base)):
+        if text is not None and (metric := unscoped_service_metric(text)) is not None:
+            return texts.review_catalog_unscoped_metric.format(
+                subject=subject, field=field, metric=metric
+            )
+    if fact.shape is Shape.ROWS and (label := unscoped_workload_metric(fact.query)):
+        return texts.review_catalog_unscoped_workload.format(
+            subject=subject, field="query", label=label
+        )
+    return None
+
+
 def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
-    """Refuse two facts with one id, an unlisted section and a pair that names no fact."""
+    """Refuse two facts with one id, an unlisted section, a pair that names no fact, a Service
+    metric of no repository and a `rows` fact of the workloads of all namespaces."""
     texts = MESSAGES.roadmap
     sections = {section.id for section in catalog.sections}
     seen: set[str] = set()
@@ -278,14 +319,10 @@ def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
                 )
     for fact in catalog.facts:
         _check_programs(source, fact)
-        for field, text in (("query", fact.query), ("base", fact.base)):
-            if text is not None and (metric := unscoped_service_metric(text)) is not None:
-                reason = texts.review_catalog_unscoped_metric.format(
-                    subject=texts.review_catalog_fact.format(id=fact.id), field=field, metric=metric
-                )
-                raise RoadmapReviewError(
-                    texts.review_catalog_refused.format(path=source, reason=reason)
-                )
+        if (reason := _scope_refusal(fact)) is not None:
+            raise RoadmapReviewError(
+                texts.review_catalog_refused.format(path=source, reason=reason)
+            )
     return catalog
 
 
