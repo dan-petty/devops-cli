@@ -426,6 +426,22 @@ EVERY_LABEL = "sort_desc(sum without (instance) (redis_memory_used_bytes))"
         ({"namespace": "other-project", "pod": "database-0"}, "namespace"),
         ({"pod": "database-0"}, "pod"),
         ({"container": "database"}, "container"),
+        # A scrape that keeps the labels of its target as exported_* (kube-state-metrics with
+        # honor_labels false, a Pushgateway).
+        (
+            {"namespace": "devops", "exported_namespace": "other-project", "exported_pod": "db-0"},
+            "exported_namespace",
+        ),
+        ({"exported_pod": "database-0"}, "exported_pod"),
+        ({"exported_container": "database"}, "exported_container"),
+        # An Argo CD application in a project namespace that deploys to another namespace.
+        (
+            {"namespace": "devops", "name": "app", "dest_namespace": "other-project"},
+            "dest_namespace",
+        ),
+        # A Traefik service: its name holds the namespace, and the series has no namespace label.
+        ({"service": "other-project-database-5432@kubernetes"}, "service"),
+        ({"persistentvolumeclaim": "data-database-0"}, "persistentvolumeclaim"),
     ],
 )
 def test_a_row_of_a_workload_outside_the_project_namespaces_marks_the_fact_error(
@@ -468,7 +484,14 @@ def test_a_loki_row_of_another_namespace_marks_the_fact_error(
 
 
 @pytest.mark.parametrize(
-    "labels", [{"resource": "cpu"}, {"namespace": "devops", "pod": "valkey-0"}, {}]
+    "labels",
+    [
+        {"resource": "cpu"},
+        {"namespace": "devops", "pod": "valkey-0"},
+        {"namespace": "devops", "service": "valkey"},
+        {"namespace": "devops", "exported_namespace": "devops", "exported_pod": "valkey-0"},
+        {},
+    ],
 )
 def test_a_row_with_no_workload_label_or_of_a_project_namespace_is_kept(
     tmp_path: Path, web: WebFake, config: Callable[..., Path], labels: Mapping[str, str]
