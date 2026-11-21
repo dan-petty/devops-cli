@@ -13,10 +13,14 @@ records) and one zlib JSON `IssueRecord` for each issue number. One field for ea
 each value far under the bound of 1 MiB; the whole snapshot of devops-cli is about 38 MB of JSON
 and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last save.
 
-- A load reads `meta`, then the records with `HSCAN`, and stops when it passes
-  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`. It uses the records only when their digest is the
-  one of `meta`, so a copy that another writer changed during the scan is not used, and a new
-  `meta` of the same records does not spoil the scan. A value that does not parse, a time with
+- A load reads `meta`, then the records with `HSCAN`. It uses the records only when their digest
+  is the one of `meta`, so a copy that another writer changed during the scan is not used, and a
+  new `meta` of the same records does not spoil the scan. Two lanes that load one repository at
+  the same time share one scan: a load takes a lock for its repository, and a load that waited
+  takes the records of the scan of the other load. The budget of a load,
+  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`, starts when it misses the known records, and covers
+  the wait for the scan of another lane, the `HSCAN`, and the inflate and validation of the
+  records. A value that does not parse, a time with
   no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
   miss: the values are untrusted. So does a sum of expanded records past
   `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB), the total bound of one load.
@@ -31,7 +35,10 @@ and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after it
   the stored records (they have the digest of the snapshot, or of the copy that this process
   last wrote or read), a write sends only the changed and removed records and the new `meta`.
   Else it writes all records to a temporary key with a TTL and RENAMEs it onto the snapshot key.
-  Either way an issue that left the repository leaves the shared copy.
+  Either way an issue that left the repository leaves the shared copy. A save compresses only
+  the records that it sends: a store that knows the stored records compares each record with the
+  known record of its number before it encodes, so an older or unchanged save compresses no
+  record.
 
 `TieredSnapshotStore` is the `SnapshotStore` that intake and the lanes read through. It loads the
 local and the shared copy, drops a copy with another schema key or a full read older than
@@ -253,8 +260,10 @@ class ValkeySnapshotStore:
     """The snapshots of the repositories in the cache Valkey, one hash for each repository.
 
     The store keeps the records of the shared copy of each repository that it last wrote or
-    read, so a later write sends only the changed records, and a later load of the same records,
-    such as by another lane of the process, sends no `HSCAN`. It keeps them by the casefolded
+    read, so a later write encodes and sends only the changed records, and a later load of the
+    same records, such as by another lane of the process, sends no `HSCAN`. It keeps one lock for
+    each repository that it loads, so the loads of one repository at the same time send one
+    scan. It keeps them by the casefolded
     name of `RepoRef.key`, as `snapshot_key` does, so each spelling of a name uses the one set of
     known records of its one key. One store lives for a process (`shared_snapshot_store`).
     `load_max_bytes` is the total bound of the expanded records of one load, and of the record
