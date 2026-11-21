@@ -2145,7 +2145,7 @@ class RoadmapProjectReviewConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
     namespaces: Annotated[list[NamespaceStr], Variable()] = Field(
-        description="The project namespaces whose workloads the project review `devops roadmap review run` can name. Each fact of the catalog that groups or joins by `namespace` or `pod` reads only these namespaces: the placeholder `{namespaces}` gives the names joined with `|`. The default is the namespaces of the manifests of devops-cli. The settings load refuses an empty list, because an empty list would read the workloads of all projects, and a name that is not an RFC 1123 label",
+        description="The project namespaces whose workloads the project review `devops roadmap review run` can name. Each fact of the catalog that groups or joins by `namespace` or `pod` reads only these namespaces: the placeholder `{namespaces}` gives the names joined with `|`. A `rows` fact whose answer names a workload outside them gives `error`. The default is the namespaces of the manifests of devops-cli. The settings load refuses an empty list, because an empty list would read the workloads of all projects, and a name that is not an RFC 1123 label",
         default_factory=lambda: list(DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES),
         min_length=1,
     )

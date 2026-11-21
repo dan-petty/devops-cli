@@ -82,8 +82,7 @@ def test_a_dry_run_prints_the_project_namespaces_of_the_setting_and_sends_no_req
     config: Callable[..., Path],
     refuse_requests: list[str],
 ) -> None:
-    """A fact that names workloads reads only the project namespaces (#6615). The names differ from
-    the fixed matcher `namespace=~"devops|llm"` of loki.error_lines_top."""
+    """A fact that names workloads reads only the project namespaces (#6615)."""
     config(roadmap={"project_review": {"namespaces": ["devops", "agents"]}})
 
     result = cli(

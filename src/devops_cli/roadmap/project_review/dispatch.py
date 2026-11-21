@@ -13,6 +13,7 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
+| A row of a `rows` fact names a workload outside `roadmap.project_review.namespaces` | `error`, the reason names the fact and the label, never a label value | sent |
 | A query gives no series, and the fact names no `base` metric or that metric has no series in the window | `skipped` | sent |
 | A query gives no series, and the `base` metric of the fact has a series in the window | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
@@ -21,6 +22,11 @@ A missing value is never 0, and a fact that is not `ok` has a null value. A read
 answer from the network (a `ServiceRequestError` with no HTTP status) ends the reads of its reader
 kind, so an address that does not answer costs one read and its retries, not one for each fact.
 Each other exception stops the run.
+
+A review gives no name of a workload outside the project namespaces (#6615). The loader reads the
+`by (...)` and `on (...)` clauses of a query; the dispatcher also reads the labels of each series
+of a `rows` fact, so a form that keeps every label (no aggregation, `without (...)`, `topk`, `sort`
+or `label_replace`) cannot add a name of another project to the review.
 """
 
 from __future__ import annotations
@@ -92,6 +98,24 @@ _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
 _RETENTION_GRACE: Final = timedelta(hours=1)
 # The read that tells whether the base metric of a fact has a series in the window.
 _PROBE: Final = "group(last_over_time({base}[{range}]))"
+# The labels that name a workload: the labels by which the catalog facts group (namespace, pod,
+# container) and the workload labels of kube-state-metrics. A series of a `rows` fact that holds
+# one of them holds a namespace of roadmap.project_review.namespaces, else the fact gives `error`.
+_WORKLOAD_LABELS: Final = frozenset(
+    {
+        "namespace",
+        "pod",
+        "container",
+        "deployment",
+        "statefulset",
+        "daemonset",
+        "replicaset",
+        "job_name",
+        "cronjob",
+        "created_by_name",
+        "owner_name",
+    }
+)
 
 
 def _github_session() -> PagedSession:
@@ -232,6 +256,18 @@ def _vector_value(
             rows.append({"labels": dict(labels), "value": value})
     rows.sort(key=lambda row: -float(str(row["value"])))
     return list(rows), len(rows), None
+
+
+def _foreign_workload(result: PrometheusQueryResult, namespaces: Sequence[str]) -> str | None:
+    """The label of the first series of `result` that names a workload outside `namespaces`:
+    `namespace` for a series of another namespace, else the workload label of a series with no
+    namespace; or None. The value of a label never leaves this function."""
+    for series in result.series:
+        named = _WORKLOAD_LABELS.intersection(series.labels)
+        if not named or series.labels.get("namespace") in namespaces:
+            continue
+        return "namespace" if "namespace" in named else min(named)
+    return None
 
 
 def _program_value(
@@ -384,6 +420,10 @@ def _read_fact(
     if fact.reader in (ReaderKind.PROMETHEUS, ReaderKind.LOKI):
         if not answer.value.series and fact.base is not None:
             return _no_series(fact, query, values, answers)
+        namespaces = answers.context.settings.roadmap.project_review.namespaces
+        if fact.shape is Shape.ROWS and (label := _foreign_workload(answer.value, namespaces)):
+            reason = MESSAGES.roadmap.review_foreign_workload.format(id=fact.id, label=label)
+            return _fact(fact, query, status=FactStatus.ERROR, reason=reason)
         value, n, empty = _vector_value(fact, answer.value)
     else:
         try:

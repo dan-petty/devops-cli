@@ -21,8 +21,11 @@ together.
 A review gives no name of a workload outside the project namespaces (#6615). The loader refuses a
 `rows` fact whose query names `namespace` or `pod` in a `by (...)` or `on (...)` clause and holds
 no positive namespace matcher, `namespace="..."` or `namespace=~"..."`, such as
-`namespace=~"{namespaces}"`. A negative matcher still reads every other namespace, so it does not
-scope the fact. A `scalar` fact is one number with no label, so the rule does not apply to it.
+`namespace=~"{namespaces}"`, in the query and in its `base`: the probe of the base tells whether an
+empty answer is "none", so a base of all namespaces makes an empty answer of the project `ok`. A
+negative matcher still reads every other namespace, so it does not scope the fact. A `scalar` fact
+is one number with no label, so the rule does not apply to it. The rule reads only the clauses;
+the dispatcher also checks the labels of each row that a `rows` fact gives.
 
 The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
@@ -244,15 +247,22 @@ def unscoped_service_metric(query: str) -> str | None:
     return None
 
 
-def unscoped_workload_metric(query: str) -> str | None:
-    """The first label `namespace` or `pod` that a `by (...)` or `on (...)` clause of `query`
-    names when `query` holds no positive namespace matcher, or None."""
-    if _NAMESPACE_MATCHER.search(query):
+def unscoped_workload_metric(query: str, base: str | None = None) -> tuple[str, str] | None:
+    """The field, `query` or `base`, that holds no positive namespace matcher, and the first label
+    `namespace` or `pod` that a `by (...)` or `on (...)` clause of `query` names; or None. The
+    probe of `base` tells whether an empty answer of `query` is "none", so it reads the same
+    namespaces."""
+    labels = (
+        label.strip()
+        for clause in _GROUPING.finditer(query)
+        for label in clause.group(1).split(",")
+    )
+    label = next((label for label in labels if label in _WORKLOAD_LABELS), None)
+    if label is None:
         return None
-    for clause in _GROUPING.finditer(query):
-        for label in clause.group(1).split(","):
-            if label.strip() in _WORKLOAD_LABELS:
-                return label.strip()
+    for field, text in (("query", query), ("base", base)):
+        if text is not None and not _NAMESPACE_MATCHER.search(text):
+            return field, label
     return None
 
 
@@ -285,9 +295,10 @@ def _scope_refusal(fact: CatalogFact) -> str | None:
             return texts.review_catalog_unscoped_metric.format(
                 subject=subject, field=field, metric=metric
             )
-    if fact.shape is Shape.ROWS and (label := unscoped_workload_metric(fact.query)):
+    if fact.shape is Shape.ROWS and (found := unscoped_workload_metric(fact.query, fact.base)):
+        field, label = found
         return texts.review_catalog_unscoped_workload.format(
-            subject=subject, field="query", label=label
+            subject=subject, field=field, label=label
         )
     return None
 

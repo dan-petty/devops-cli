@@ -6987,6 +6987,10 @@ class RoadmapMessages:
     )
     review_many_series: str = "The scalar query gave {count} series, not one."
     review_not_number: str = "The sample is not a finite number."
+    review_foreign_workload: str = (
+        "The fact {id} gives a row with the label `{label}` of a workload outside the namespaces "
+        "of roadmap.project_review.namespaces, so the review keeps no row of the fact."
+    )
     review_no_value: str = "The value program gave no value."
     review_plan_condition: dict[str, str] = field(
         default_factory=lambda: {
@@ -7008,9 +7012,10 @@ class RoadmapMessages:
         "own braces, so its value adds the repositories together."
     )
     review_catalog_unscoped_workload: str = (
-        "{subject}: `{field}` groups or joins by the label `{label}` and has no matcher "
-        'namespace="..." or namespace=~"...", so its rows can name the workloads of other '
-        'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label.'
+        "{subject}: `query` groups or joins by the label `{label}`, and `{field}` has no matcher "
+        'namespace="..." or namespace=~"...", so the fact can read the workloads of other '
+        'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label in '
+        "`query` and `base`."
     )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"
