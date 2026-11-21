@@ -3192,7 +3192,6 @@ def _resumable_branches(
 ) -> list[str]:
     """The branches on origin for open Ready items where only the App wrote and this job may resume (#5499)."""
     from devops_cli.git.branch_form import parse_branch
-    from devops_cli.roadmap.stores.store import ScaffoldRecordKey
 
     pushed = set(remote_branches(heads))
     resumable: list[str] = []
@@ -3202,9 +3201,7 @@ def _resumable_branches(
         checkout = item.job_record.get(StageRecordKey.JOB)
         if checkout is not None and checkout != job:
             continue
-        has_scaffold = bool(item.job_record.get(ScaffoldRecordKey.BRANCH))
-        has_pending = bool(item.job_record.get(StageRecordKey.PENDING))
-        if not (has_scaffold or has_pending):
+        if not item.job_record.get(StageRecordKey.PENDING):
             continue
         for branch in pushed:
             parts = parse_branch(branch)

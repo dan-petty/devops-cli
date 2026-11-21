@@ -814,25 +814,6 @@ devops roadmap step review [OPTIONS]
 | `--confirm` | `boolean` | - | Write the verdict and take its next action in a runner Job, in the mode on of roadmap.review.mode. Without it, the step prints the verdict and writes nothing. |
 | `--dry-run` | `boolean` | - | Make no network request and change nothing. |
 
-### `devops roadmap step scaffold`
-
-**Make, resume, adopt or hold the item branch for a roadmap stage run (#5499).**
-
-```bash
-devops roadmap step scaffold [OPTIONS]
-```
-
-**Options:**
-
-| Option / Flag | Type | Default | Description |
-|---|---|---|---|
-| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
-| `--source` | `path` | - | Path to a clone of the repository at its default branch. Without it, the job clones the repository into its own model clone, updates it, and uses it. |
-| `--item`, `-i` | `integer` | - | Number of the item to scaffold. |
-| `--kind`, `-k` | `string` | `plan` | Kind of the scaffold step (plan or delivery). |
-| `--slug` | `string` | - | Slug of the change folder or branch. |
-| `--dry-run` | `boolean` | - | Make no request to GitHub or git, and write no record key. |
-
 ### `devops roadmap step watch`
 
 **Watch pull request checks and state until the verdict settles (#5021).**

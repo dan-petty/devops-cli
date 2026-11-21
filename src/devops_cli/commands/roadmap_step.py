@@ -13,7 +13,6 @@ from devops_cli.commands.roadmap_step_fix_plan import fix_plan_cmd
 from devops_cli.commands.roadmap_step_open import open_cmd
 from devops_cli.commands.roadmap_step_ready import ready_cmd
 from devops_cli.commands.roadmap_step_review import review_cmd
-from devops_cli.commands.roadmap_step_scaffold import scaffold_cmd
 from devops_cli.commands.roadmap_step_watch import watch_cmd
 from devops_cli.core.cli import new_typer
 from devops_cli.lang import HELP
@@ -25,5 +24,4 @@ step_app.command("fix-plan", help=HELP.roadmap.step_fix_plan)(fix_plan_cmd)
 step_app.command("open", help=HELP.roadmap.step_open)(open_cmd)
 step_app.command("ready", help=HELP.roadmap.step_ready)(ready_cmd)
 step_app.command("review", help=HELP.roadmap.step_review)(review_cmd)
-step_app.command("scaffold", help=HELP.roadmap.step_scaffold)(scaffold_cmd)
 step_app.command("watch", help=HELP.roadmap.step_watch)(watch_cmd)

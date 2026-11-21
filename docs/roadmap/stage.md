@@ -157,15 +157,6 @@ A pushed branch with no mark is never an orphan, because a person or another age
 
 A stage Job judges the mark of its own item at any age when the check-out of the item (`stage.job`) names the Job: no other run publishes that item. So the pod that the Job controller runs again after an eviction removes the branch of the pod before it, and plans and stages the item in the same run ([The stage Job](#the-stage-job)).
 
-### The scaffold step and resume rules
-
-The scaffold step (`devops roadmap step scaffold`) manages the topic branch on `origin` (#5499). The step applies four resume rules:
-
-- `resumed`: An App-only branch for the item exists on `origin`. The step resumes on this existing branch.
-- `held`: A branch exists on `origin` and holds a commit of a person or an agent other than the App. The step leaves the branch alone and marks the item `held`.
-- `adopted`: An App-only branch exists on `origin` but the item record does not name it. The step adopts the branch and records `scaffold.branch`.
-- `created`: No branch exists on `origin`. The step creates the branch reference at `origin/main` with the GitHub git refs API and no initial commit.
-
 ### The verify screen
 
 The verify screen is the decision point `stage.verify_screen` of [ADR 0020](../adr/0020-a-decision-point-is-a-unit-of-a-workflow-with-a-resolver-chain-and-a-rule-goes-before-a-decision-model.md), before the model review of the stage job. It is pilot 1 of the decision steps of [ADR 0019](../adr/0019-a-decision-step-asks-jev-short-closed-questions-about-evidence-that-tools-extract.md). Code builds a digest of the plan: the criteria of the issue, the groups, the paths that the repository does not hold, and whether the verify command of a group names a test file. One request asks the decision model nine yes/no questions about it, one for each defect type. The cuts of the questions are data, in `src/devops_cli/roadmap/stage/jev_screen_cuts.json`, with the model, the day and the numbers of their fit. The point has no rule, because no rule is proven on the golden set.
