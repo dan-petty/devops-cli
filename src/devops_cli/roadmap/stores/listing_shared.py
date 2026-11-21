@@ -51,6 +51,7 @@ import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from itertools import batched
 from typing import Any, Final
 
@@ -132,11 +133,18 @@ class HeldMeta:
 
 @dataclass(frozen=True)
 class _Seen:
-    """The records of a shared copy that a store knows: the bytes of its `meta` and a digest of
-    the JSON of each record by number."""
+    """The records of a shared copy that a store knows: the bytes of its `meta`, a digest of the
+    JSON of each record by number, and the records, the highest number first, when the store
+    wrote or read them."""
 
     raw: bytes
     digests: Mapping[str, bytes]
+    issues: tuple[IssueRecord, ...] | None = None
+
+    @cached_property
+    def digest(self) -> str:
+        """The digest of the records, as `meta` names it."""
+        return _records_digest(self.digests)
 
 
 def snapshot_key(repo: str) -> str:
@@ -155,6 +163,21 @@ def _records_digest(digests: Mapping[str, bytes]) -> str:
     for number in sorted(digests):
         total.update(number.encode() + b"\0" + digests[number])
     return total.hexdigest()
+
+
+def _listing(repo: str, meta: SharedMeta, issues: tuple[IssueRecord, ...]) -> ListingSnapshot:
+    """The snapshot of `repo` with the facts of `meta` and the records `issues`."""
+    return ListingSnapshot(
+        repo=repo,
+        schema_key=meta.schema_key,
+        full_at=meta.full_at,
+        watermark=meta.watermark,
+        issues=issues,
+    )
+
+
+def _newest_first(issues: tuple[IssueRecord, ...] | list[IssueRecord]) -> tuple[IssueRecord, ...]:
+    return tuple(sorted(issues, key=lambda issue: issue.number, reverse=True))
 
 
 def _parsed(raw: bytes) -> SharedMeta | None:
@@ -186,8 +209,9 @@ def _count_budget() -> None:
 class ValkeySnapshotStore:
     """The snapshots of the repositories in the cache Valkey, one hash for each repository.
 
-    The store keeps what the shared copy of each repository held when the store last wrote or
-    read it, so a later write sends only the changed records. One store lives for a process
+    The store keeps the records of the shared copy of each repository that it last wrote or
+    read, so a later write sends only the changed records, and a later load of the same records,
+    such as by another lane of the process, sends no `HSCAN`. One store lives for a process
     (`shared_snapshot_store`).
     """
 
@@ -207,26 +231,13 @@ class ValkeySnapshotStore:
         `held` names, because another writer changed them."""
         if held.meta is None:
             return None
-        key = snapshot_key(repo)
-        started = clock.monotonic()
-        values: dict[str, bytes] = {}
-        cursor = 0
-        while True:
-            step = self.tier.hscan(key, cursor, DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT)
-            if step is None:
-                return None
-            cursor, fields = step
-            values |= fields
-            if cursor == 0:
-                break
-            if clock.monotonic() - started > DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
-                logger.info(
-                    "The load of the shared snapshot of %s passed its budget of %s s.",
-                    repo,
-                    DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
-                )
-                _count_budget()
-                return None
+        with self._lock:
+            before = self._seen.get(repo)
+        if before is not None and before.issues is not None and before.digest == held.meta.digest:
+            return _listing(repo, held.meta, before.issues)
+        values = self._scan(repo)
+        if values is None:
+            return None
         values.pop(META_FIELD, None)
         texts = _decompressed(repo, values)
         if texts is None:
@@ -242,16 +253,34 @@ class ValkeySnapshotStore:
         except ValidationError as exc:
             logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
             return None
-        meta = held.meta
+        newest_first = _newest_first(issues)
         with self._lock:
-            self._seen[repo] = _Seen(held.raw, digests)
-        return ListingSnapshot(
-            repo=repo,
-            schema_key=meta.schema_key,
-            full_at=meta.full_at,
-            watermark=meta.watermark,
-            issues=tuple(sorted(issues, key=lambda issue: issue.number, reverse=True)),
-        )
+            self._seen[repo] = _Seen(held.raw, digests, newest_first)
+        return _listing(repo, held.meta, newest_first)
+
+    def _scan(self, repo: str) -> dict[str, bytes] | None:
+        """Every field of the shared snapshot of `repo` by `HSCAN`; None when a step fails or the
+        scan passes its budget."""
+        key = snapshot_key(repo)
+        started = clock.monotonic()
+        values: dict[str, bytes] = {}
+        cursor = 0
+        while True:
+            step = self.tier.hscan(key, cursor, DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT)
+            if step is None:
+                return None
+            cursor, fields = step
+            values |= fields
+            if cursor == 0:
+                return values
+            if clock.monotonic() - started > DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
+                logger.info(
+                    "The load of the shared snapshot of %s passed its budget of %s s.",
+                    repo,
+                    DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
+                )
+                _count_budget()
+                return None
 
     def load(self, repo: str) -> ListingSnapshot | None:
         held = self.meta(repo)
@@ -280,10 +309,11 @@ class ValkeySnapshotStore:
         stored = None if held is None else held.meta
         if held is not None and not may_replace(stored, meta):
             return BrainWrite.OLDER
+        issues = _newest_first(snapshot.issues)
         if held is not None and stored is not None and _holds(stored, meta):
             self.tier.expire(snapshot_key(snapshot.repo), DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS)
-            return self._kept(snapshot.repo, _Seen(held.raw, digests), BrainWrite.UNCHANGED)
-        seen = _Seen(meta.model_dump_json().encode(), digests)
+            return self._kept(snapshot.repo, _Seen(held.raw, digests, issues), BrainWrite.UNCHANGED)
+        seen = _Seen(meta.model_dump_json().encode(), digests, issues)
         known = self._known(snapshot.repo, held, seen)
         if known is not None and self._update(snapshot.repo, known, seen, records):
             return self._kept(snapshot.repo, seen)
@@ -297,9 +327,9 @@ class ValkeySnapshotStore:
             return None
         with self._lock:
             before = self._seen.get(repo)
-        for digests in (mine.digests, None if before is None else before.digests):
-            if digests is not None and stored.digest == _records_digest(digests):
-                return _Seen(held.raw, digests)
+        for known in (mine, before):
+            if known is not None and stored.digest == known.digest:
+                return _Seen(held.raw, known.digests)
         return None
 
     def _update(self, repo: str, before: _Seen, seen: _Seen, records: dict[str, bytes]) -> bool:

@@ -61,6 +61,13 @@ A save that may replace the shared snapshot SHALL leave it with the records of t
 - **WHEN** the shared snapshot holds issues 1, 2 and 3, and a full read lists issues 1 and 3
 - **THEN** the shared snapshot holds issues 1 and 3 only, and no temporary key stays
 
+### Requirement: The lanes of one process scan a shared copy once
+A load SHALL take the records of the shared snapshot from the shared store of the process, and SHALL send no `HSCAN`, when the process last wrote or read the records that the stored `meta` names.
+
+#### Scenario: A lane after another lane of the process
+- **WHEN** lane B of a process saved a snapshot with the watermark 09:00, lane A of the same process saved one with the watermark 10:00, and lane B loads
+- **THEN** lane B gets the records and the watermark 10:00 of lane A, and sends only the read of `meta` to Valkey
+
 ### Requirement: A save of the records that the shared copy holds writes no record
 A save whose records, schema key and watermark the shared snapshot already holds, with a full read that is not newer than the stored one, SHALL send no record and no transaction: it SHALL set the TTL of the key again, keep the stored `meta`, and count `devops_cli_brain_writes_total{result="unchanged"}`.
 
