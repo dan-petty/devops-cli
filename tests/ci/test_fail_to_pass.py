@@ -670,6 +670,39 @@ def test_a_test_that_runs_git_ls_files_passes_on_base_in_the_replay(
     assert (report.passed_count, report.failed_count, report.could_not_run) == (1, 0, None)
 
 
+# A test that reads the pytest configuration of its project, as
+# `tests/commands/test_test_selection.py::test_the_full_gate_collects_every_test_module` does.
+_READS_ITS_CONFIGURATION = """\
+def test_reads_its_configuration(pytestconfig):
+    assert (pytestconfig.getini("addopts"), pytestconfig.getoption("numprocesses")) == (
+        ["-p", "xdist", "-n", "2", "-p", "no:randomly"],
+        0,
+    )
+"""
+
+
+def test_a_test_that_reads_addopts_passes_in_the_replay_and_starts_no_workers(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The replay keeps the `addopts` of the project (#5599): a test that reads them passes in
+    the replay as in a normal run, so the replay gives no false failure on base. The replay
+    stops only the xdist workers, so it runs in one process and takes no gate slot."""
+    # The inner run loads no installed plugin: autoloading each plugin costs seconds.
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    pytester.makepyprojecttoml(
+        '[tool.pytest.ini_options]\naddopts = "-p xdist -n 2 -p no:randomly"\n'
+    )
+    pytester.makepyfile(test_reads=_READS_ITS_CONFIGURATION)
+    argv = pytest_replay_argv(pytester.path / "junit.xml", ["test_reads.py"])
+
+    pytester.runpytest(*argv[argv.index("pytest") + 1 :])
+
+    report = parse_junit_xml((pytester.path / "junit.xml").read_text(encoding="utf-8"))
+    assert [(case.test_id, case.status) for case in report] == [
+        ("test_reads::test_reads_its_configuration", "passed")
+    ]
+
+
 def test_the_replay_leaves_no_worktree_behind(
     tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
@@ -700,7 +733,7 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     assert (
         "fail-to-pass" in {spec.name for spec in get_check_specs()},
         [(o.test_id, o.status) for o in outcomes],
-        ("-o" in argv and "addopts=" in argv and "-p" in argv and "no:cacheprovider" in argv),
+        ("-p" in argv and "no:cacheprovider" in argv),
         "devops ci fail-to-pass" in testing_md,
         "devops ci fail-to-pass" in generated_md,
     ) == (
