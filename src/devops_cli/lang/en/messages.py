@@ -6976,7 +6976,7 @@ class RoadmapMessages:
     review_other_window: str = (
         "The window is a {kind} window, and the fact needs a {needed} window."
     )
-    review_no_path: str = "The checkout holds no {path}."
+    review_no_path: str = "The commit {commit} of the window holds no {path}."
     review_before_first_time: str = (
         "The window starts at {start}, before {not_before}, the first time of the series of the "
         "fact, so the window does not read it."
@@ -7002,10 +7002,11 @@ class RoadmapMessages:
         default_factory=lambda: {
             "setting": "{name} is set",
             "window": "the window is a {name} window",
-            "path": "the checkout holds {name}",
+            "path": "the base and the head commits hold {name}",
         }
     )
     review_plan_first_time: str = "the window starts at or after {time}"
+    review_plan_base_holds: str = "the base commit holds {path}"
     review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
     review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"

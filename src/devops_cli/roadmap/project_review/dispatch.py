@@ -10,7 +10,7 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 
 | Condition | Status | Request |
 | :--- | :--- | :--- |
-| A `requires` condition is false | `skipped`, the reason names it | none |
+| A `requires` condition is false | `skipped`, the reason names it | none; a `path:` condition reads git |
 | The window starts before `not_before`, the first time of the series of the fact | `skipped`, the reason names that time | none |
 | The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
@@ -19,6 +19,12 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | A query gives no series, and the fact names no `base` metric or that metric has no series in the time scope of the query | `skipped` | sent |
 | A query gives no series, and the `base` metric of the fact has a series in the time scope of the query | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
+
+A `path:<path>` condition holds when the base and the head commits of the window hold the path
+(#6612), not the working tree: a window from before the commit that added the path has nothing
+to read there. `git ls-tree` reads the base first and the head only when the base holds the path,
+once for each path of a review. A git failure stops the review, as each other git read of the
+review does.
 
 The probe of the base has the time scope of the query (#6612): a query that holds `{range}`
 reads the window, so its probe reads the window; each other query reads only the window end, so
@@ -75,6 +81,7 @@ from devops_cli.roadmap.project_review.data import (
     FactStatus,
     ReviewWindow,
 )
+from devops_cli.roadmap.project_review.git_read import holds_path, path_args
 from devops_cli.roadmap.project_review.readers import (
     PagedSession,
     Reads,
@@ -192,7 +199,26 @@ def _setting(settings: Settings, dotted: str) -> Any:
     return value
 
 
-def _unmet(requires: Sequence[str], context: ReadContext) -> str | None:
+def _missing_path(path: str, context: ReadContext, paths: dict[str, str | None]) -> str | None:
+    """The reason when the base or the head commit of the window does not hold `path`, or None.
+    `paths` keeps the reason of each path that the review read, so git reads each path once."""
+    if path not in paths:
+        window = context.window
+        commits = (window.base_sha, window.head_sha)
+        missing = next(
+            (commit for commit in commits if not holds_path(context.checkout, commit, path)), None
+        )
+        paths[path] = (
+            None
+            if missing is None
+            else MESSAGES.roadmap.review_no_path.format(path=path, commit=missing)
+        )
+    return paths[path]
+
+
+def _unmet(
+    requires: Sequence[str], context: ReadContext, paths: dict[str, str | None]
+) -> str | None:
     """The reason of the first condition that does not hold, or None."""
     texts = MESSAGES.roadmap
     for condition in requires:
@@ -205,9 +231,9 @@ def _unmet(requires: Sequence[str], context: ReadContext) -> str | None:
             if context.window.kind != kind:
                 return texts.review_other_window.format(kind=context.window.kind, needed=kind)
         elif condition.startswith(_PATH):
-            path = condition.removeprefix(_PATH)
-            if not (context.checkout / path).exists():
-                return texts.review_no_path.format(path=path)
+            reason = _missing_path(condition.removeprefix(_PATH), context, paths)
+            if reason is not None:
+                return reason
     return None
 
 
@@ -499,11 +525,13 @@ def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
         "repo": context.repo,
     }
     answers = _Answers(context, Reads())
+    paths: dict[str, str | None] = {}
     facts: list[Fact] = []
     for fact in catalog.facts:
         rules = catalog.rules(fact)
         query = render_query(fact.query, values)
-        if (reason := _unmet(rules.requires, context) or _too_early(fact, context)) is not None:
+        reason = _unmet(rules.requires, context, paths) or _too_early(fact, context)
+        if reason is not None:
             facts.append(_fact(fact, query, status=FactStatus.SKIPPED, reason=reason))
         elif (reason := _expired(rules.retention_days, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.EXPIRED, reason=reason))
@@ -552,6 +580,25 @@ def plan_catalog(
             for since, condition in (
                 (texts["watermark"], MESSAGES.roadmap.review_plan_snapshot),
                 (values["start"], MESSAGES.roadmap.review_plan_no_snapshot),
+            )
+        )
+    checked = dict.fromkeys(
+        condition.removeprefix(_PATH)
+        for fact in catalog.facts
+        for condition in catalog.rules(fact).requires
+        if condition.startswith(_PATH)
+    )
+    for path in checked:
+        shared.extend(
+            PlannedRequest(
+                "git",
+                str(checkout),
+                tuple(git_argv(checkout, *path_args(commit, path))),
+                condition=condition,
+            )
+            for commit, condition in (
+                (base, ""),
+                (head, MESSAGES.roadmap.review_plan_base_holds.format(path=path)),
             )
         )
     if ReaderKind.OPENSPEC in kinds:
