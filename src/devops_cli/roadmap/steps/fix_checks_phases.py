@@ -15,12 +15,13 @@ the run folder:
   model fix reads the item from the inputs.
 - `publish` (App key) reads the outputs of the agent as data (`read_run_file`). It checks the
   judged round against the pull request as GitHub holds it: the head branch, the item and the
-  judged head. It builds the target of the push from GitHub alone: the head branch and the
-  judged head of the pull request, the bot of the App, the workflow files that the merged plan of
-  the item names on the default branch (`Repair.workflows`), and the repository on GitHub. A
-  separate `publish` reads the state file as data, and takes the failed check and its count of
-  errors from GitHub. It checks the claim (`check_preconditions`), applies the patch in a new
-  repository, writes one commit of the bot, checks the claim again, and pushes with a lease on the
+  judged head. It builds the target of the push from GitHub and `prepare`: the head branch and the
+  judged head of the pull request, the base (the judged head, or the `onto` that `prepare`
+  recorded), the bot of the App, the workflow files that the merged plan of the item names on the
+  default branch (`Repair.workflows`), and the repository on GitHub. A separate `publish` reads the
+  state file as data, and takes the failed check and its count of errors from GitHub. It checks
+  the claim (`check_preconditions`), applies the patches in a new repository, writes one commit of
+  the bot for each patch that is not empty, checks the claim again, and pushes with a lease on the
   judged head (`publish_patch`). Then it writes the record of the round and the
   comment that names the files, as the step did before.
 

@@ -31,8 +31,12 @@ The step writes only with `confirm` (#5971). Without it, the step returns `plann
 that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
 caller gives a `Repair`, and the round runs on the phases `prepare`, `agent` and `publish`
 (`fix_checks_phases.py`, #6601): `judge_round` judges the bounds, the checks and the caps with no
-agent code; the fixers run in the checkout with no GitHub call; and `publish` applies their patch
-as one commit of the bot and pushes it once, with a lease on the judged head. The step does not wait for the checks after its push: a later call that finds the draft that
+agent code; the fixers run in the checkout with no GitHub call; and `publish` writes one commit of
+the bot for each patch that is not empty, on the base, and pushes once with a lease on the judged
+head. The base is the judged head, or the tip of main (`onto`) that `prepare` recorded for a
+rebased branch, whose patches are the work, the archive commit, the later commits and then the fix,
+or no fix for a round that is `rebased`. The step does not wait for the checks after its push: a
+later call that finds the draft that
 it repaired, or a draft that its implement Job left at the draft (#6559), with every check passing
 marks the draft ready when `draft_readiness` allows it.
 """
@@ -269,8 +273,10 @@ class Repair:
       commits in the checkout and does not push. `patch` writes the patch of the fix.
     - `publish`: `author` gives the name and the email of the bot, and `workflows` the workflow
       files that the merged plan of an item names on a branch of GitHub, each read by `publish`
-      itself. `publish` applies the patch as data, writes one commit, calls the claim check and
-      pushes with a lease on the judged head. `scratch` holds the run folder of `--phase all`.
+      itself. `publish` applies the patches as data, writes one commit for each patch that is not
+      empty on the base (the judged head, or the `onto` that `prepare` recorded), calls the claim
+      check and pushes with a lease on the judged head. `scratch` holds the run folder of
+      `--phase all`.
     """
 
     checkout: Callable[[PullStatus, int, Path], PullCheckout]

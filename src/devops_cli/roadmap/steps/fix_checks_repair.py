@@ -12,9 +12,10 @@ The command `devops roadmap step fix-checks --confirm` gives the step `job_repai
   tip that `prepare` read, as implement rebases it (`rebase_onto`). A rebase that skipped the
   archive commit of the item archives the change again, in a commit of its own. A stop that no
   rule settles aborts the rebase and stops the round with the conflicted files.
-- The publish (`publish`): the patch of the checkout (`write_patch`), applied as one commit of the
-  bot and pushed to the head branch with a lease on the judged head (`publish_patch`), so it never
-  overwrites a push of another writer. `publish` reads the workflow files that the merged plan of
+- The publish (`publish`): the patches of the checkout (`write_patch`), each that is not empty
+  applied as one commit of the bot on the base, the judged head or the `onto` that `prepare`
+  recorded for a rebased branch, and pushed to the head branch with a lease on the judged head
+  (`publish_patch`), so it never overwrites a push of another writer. `publish` reads the workflow files that the merged plan of
   the item names on the default branch of GitHub (`merged_workflows`).
 - Tier 1, with no model: for a lint failure, `ruff check --fix` and `ruff format` on the Python
   files that the pull request changes (a toolchain with the ruff gates); for a snapshot failure,
@@ -390,9 +391,10 @@ def _bot() -> tuple[str, str]:
 
 def job_repair(repo: str) -> Repair:
     """The repair of a runner Job for `repo`, by phase (#6601): the clone in the work folder; tier
-    1; the model fix, which reads the item that `prepare` gave it; the patch of the checkout; and
-    the publish of the patch as one commit of the bot. `publish` reads the bot and the workflow
-    files of the plan itself, and pushes to the repository on GitHub."""
+    1; the model fix, which reads the item that `prepare` gave it; the patches of the checkout; and
+    the publish of each patch that is not empty as one commit of the bot on the base. `publish`
+    reads the bot and the workflow files of the plan itself, and pushes to the repository on
+    GitHub."""
     scratch = _runs()
 
     def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
