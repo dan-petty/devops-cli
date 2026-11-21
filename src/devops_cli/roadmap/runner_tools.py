@@ -336,6 +336,12 @@ def checkout_environment(checkout: Path) -> dict[str, str]:
     return {"PATH": os.pathsep.join([*(str(folder) for folder in first), rest])}
 
 
+def checkout_python(checkout: Path) -> Path:
+    """The Python of the venv of `checkout`. Only the bootstrap installs the dev group, so pytest is
+    there and not in the image venv of the Job process (#6688)."""
+    return checkout / ".venv" / "bin" / "python"
+
+
 def _seed_fits(checkout: Path, seed: Path) -> bool:
     """Whether `seed` holds a cache and a record of the uv of the Job, of its Python and of the
     `uv.lock` of `checkout`."""

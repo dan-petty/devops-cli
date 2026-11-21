@@ -179,6 +179,21 @@ def test_a_test_that_fails_on_base_and_passes_after_the_change_is_accepted(
     assert _replay(outcome) == ("fails_on_base", (TEST_ID,))
 
 
+def test_the_replay_runs_pytest_with_the_python_of_the_checkout_venv(
+    store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
+) -> None:
+    """The runner image has no dev group, and the bootstrap installs pytest only into the venv
+    of the checkout (#6517), so the replay names that Python and not the one of the Job (#6688)."""
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
+
+    _run(store, checkout, ModelScript(tool_calls(*WORK), say("Done.")))
+
+    python = str(checkout / ".venv" / "bin" / "python")
+    assert [call.argv[:3] for call in _pytest_runs(implement_programs)] == [
+        (python, "-m", "pytest")
+    ]
+
+
 def test_a_behavior_group_that_changes_no_test_file_is_refused_without_a_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:

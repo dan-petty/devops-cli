@@ -578,10 +578,14 @@ def _head_tree(root: Path, head: str, dest: Path) -> Iterator[Path]:
             remove_materialised_base(root, dest)
 
 
-def pytest_replay_argv(junit_path: Path, test_files: Sequence[str]) -> list[str]:
-    """Construct the pytest argv for replaying `test_files` against the materialised base tree."""
+def pytest_replay_argv(
+    junit_path: Path, test_files: Sequence[str], *, python: str = sys.executable
+) -> list[str]:
+    """Construct the pytest argv for replaying `test_files` against the materialised base tree,
+    with the interpreter `python`: this command's, or the venv of the checkout of a runner Job,
+    whose own venv holds no pytest (#6688)."""
     return [
-        sys.executable,
+        python,
         "-m",
         "pytest",
         *CONST_FAIL_TO_PASS_PYTEST_FLAGS,
@@ -752,7 +756,7 @@ def _read_junit_report(junit_path: Path) -> tuple[TestCaseOutcome, ...] | None:
 
 
 def _run_pytest_replay(
-    tree_dir: Path, junit_path: Path, test_files: Sequence[str]
+    tree_dir: Path, junit_path: Path, test_files: Sequence[str], *, python: str = sys.executable
 ) -> BaseReplayRun:
     """Run pytest on `test_files` inside `tree_dir` and parse its JUnit XML report.
 
@@ -760,7 +764,7 @@ def _run_pytest_replay(
     report could not run, and keeps pytest's exit status and the tail of its output (#1669). A run
     that passes the process-runner limit could not run either, and names that limit (#4938).
     """
-    argv = pytest_replay_argv(junit_path, test_files)
+    argv = pytest_replay_argv(junit_path, test_files, python=python)
     try:
         result = run_subprocess(argv, cwd=tree_dir, capture_output=True)
     except subprocess.TimeoutExpired:
@@ -787,16 +791,22 @@ def _run_pytest_replay(
 
 
 def replay_on_base(
-    root: Path, merge_base: str, head: str, test_files: Sequence[str]
+    root: Path,
+    merge_base: str,
+    head: str,
+    test_files: Sequence[str],
+    *,
+    python: str = sys.executable,
 ) -> BaseReplayRun:
     """Replay `test_files` on `merge_base`, with the tests of `head` overlaid, and report the
-    outcome of each test. The base tree is removed after the run (#3042)."""
+    outcome of each test with the pytest of `python`. The base tree is removed after the run
+    (#3042)."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         tree_dir = tmp_path / "tree"
         try:
             materialise_base_with_head_tests(root, merge_base, head, tree_dir)
-            return _run_pytest_replay(tree_dir, tmp_path / "junit.xml", test_files)
+            return _run_pytest_replay(tree_dir, tmp_path / "junit.xml", test_files, python=python)
         finally:
             remove_materialised_base(root, tree_dir)
 
