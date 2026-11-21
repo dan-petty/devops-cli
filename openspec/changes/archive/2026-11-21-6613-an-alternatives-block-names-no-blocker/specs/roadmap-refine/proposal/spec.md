@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The body's answered key questions are not asked again
-Refine SHALL read the body's "Key questions" section as CommonMark, up to the next heading of the same or a higher level, or up to an HTML block that is the start or the end marker of a job block, whichever comes first. Only a top-level list item whose first paragraph holds a question mark SHALL be a question. Text after its last question mark, or a block inside the item after that paragraph, SHALL answer it. Refine SHALL send the other questions numbered, and a number that no answer names SHALL be an open question.
+Refine SHALL read the body's "Key questions" section as CommonMark, up to the next heading of the same or a higher level or the start or the end marker of a job block. Only a top-level list item whose first paragraph holds a question mark SHALL be a question. Text after its last question mark, or a block inside the item after that paragraph, SHALL answer it. Refine SHALL send the other questions numbered, and a number that no answer names SHALL be an open question.
 
 #### Scenario: A body that answers its own questions
 - **WHEN** the body's "Key questions" hold "- *Which ADR number?* (proposed) The next free one.", "- *Which files?*" with an indented answer under it, and "- #1336 owns the directory."
