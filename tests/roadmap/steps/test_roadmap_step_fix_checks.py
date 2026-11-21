@@ -33,7 +33,7 @@ from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.phases.files import RunFolders
-from devops_cli.roadmap.phases.publish import Published, PublishTarget
+from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget
 from devops_cli.roadmap.steps.fix_checks import (
     Fixed,
     PullCheckout,
@@ -167,7 +167,6 @@ class FakeRepair:
     pushed_paths: tuple[str, ...] = ()
     workflows: tuple[str, ...] = ()
     scratch: Path | None = None
-    url: str = f"https://github.com/{REPO}.git"
     fixer: Any = None
     calls: list[str] = field(default_factory=list)
     pushes: int = 0
@@ -178,7 +177,7 @@ class FakeRepair:
     def build(self) -> Repair:
         def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
             self.calls.append(f"checkout {status.head_ref} {item}")
-            return PullCheckout(self.path, self.url, self.path, "b")
+            return PullCheckout(self.path)
 
         def tier1(path: Path, item: int, check: str, log: str) -> Fixed:
             self.calls.append("tier1")
@@ -203,12 +202,12 @@ class FakeRepair:
             out.write_bytes(b"the patch")
 
         def publish(
-            target: PublishTarget, patch: bytes, message: str, before_push: Any
+            target: PublishTarget, patches: Sequence[tuple[bytes, str]], before_push: Any
         ) -> Published | None:
-            before_push()
+            before_push(NewTree(self.path, ()))
             self.pushes += 1
             self.targets.append(target)
-            self.messages.append(message)
+            self.messages.extend(message for _patch, message in patches)
             if self.pushed_head is None:
                 return None
             return Published(self.pushed_head, self.pushed_paths)
@@ -283,8 +282,8 @@ def test_the_named_check_is_the_check_of_the_round(world: PullWorld) -> None:
 def _refused_repair(tmp_path: Path) -> Repair:
     """A repair whose push the lease refuses."""
 
-    def refused(target: PublishTarget, patch: bytes, message: str, before_push: Any) -> None:
-        before_push()
+    def refused(target: PublishTarget, patches: Any, before_push: Any) -> None:
+        before_push(NewTree(tmp_path, ()))
         raise GitOperationError("git push refused: stale info", operation="roadmap.fix_checks")
 
     return replace(FakeRepair(tmp_path, tier1=DONE).build(), publish=refused)
@@ -1166,11 +1165,11 @@ def test_a_check_name_that_the_state_file_forges_pushes_nothing_from_a_separate_
     assert (report.result, repair.pushes) == (FixChecksResult.SKIPPED, 0)
 
 
-def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github(
+def test_a_separate_publish_takes_no_origin_from_the_state_file(
     world: PullWorld, tmp_path: Path
 ) -> None:
-    """A separate `publish` pushes only to the URL of the repository on GitHub, whatever the state
-    file names (#6601)."""
+    """A separate `publish` pushes only to the repository on GitHub: the state file names no
+    origin, and a state file that names one is not of its model (#6601, #3702)."""
     pull = world.item()
     world.pull(pull)
     repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
@@ -1185,32 +1184,10 @@ def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github
     state["url"] = "https://example.com/another-repository.git"
     (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
 
-    with pytest.raises(PhaseOutputError, match="another origin"):
+    with pytest.raises(PhaseOutputError, match="not of its model"):
         publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
 
     assert repair.pushes == 0
-
-
-def test_a_clone_whose_origin_is_not_the_repository_on_github_gets_no_round(
-    world: PullWorld, tmp_path: Path
-) -> None:
-    """`prepare` refuses a clone whose `origin` is not the repository on GitHub, also with
-    `--phase all`: a `--source` clone with another `remote.origin.url` sets no push URL, and its
-    worktree goes (#6601)."""
-    pull = world.item()
-    world.pull(pull)
-    released: list[str] = []
-    repair = FakeRepair(tmp_path, tier1=DONE, url="https://example.com/another-repository.git")
-    built = replace(repair.build(), release=lambda checkout: released.append(checkout.branch))
-
-    with pytest.raises(RoadmapImplementError, match="not the repository"):
-        world.run(pull, confirm=True, repair=built)
-
-    assert (repair.calls, repair.pushes, released) == (
-        [f"checkout feat/{pull}-sample {pull}"],
-        0,
-        ["b"],
-    )
 
 
 def _separate_round(world: PullWorld, pull: int, folders: RunFolders) -> tuple[Any, Any]:

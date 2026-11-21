@@ -6,8 +6,8 @@ the run folder:
 - `prepare` (App key, no agent code) judges the round (`judge_round`): the bounds, the claim, the
   checks, the caps and the failed log. A round that ends there gives its report for the Job, and
   writes a state file that says so.
-  A round that needs a repair clones the repository into `work/` and takes over the head branch in
-  a worktree (`Repair.checkout`), and writes the state file (`state/`) and the inputs of the agent
+  A round that needs a repair clones the repository into `work/` on the head branch
+  (`Repair.checkout`), and writes the state file (`state/`) and the inputs of the agent
   (`work/input.json`). It runs git and GitHub calls only: no `uv`, no hook and no fixer.
 - `agent` (model key only) reads its inputs, runs tier 1, the scope check and the model fix in the
   checkout, and writes the patch from the judged head, `outcome.json` and `summary.json`. It makes
@@ -16,18 +16,18 @@ the run folder:
   judged round against the pull request as GitHub holds it: the head branch, the item and the
   judged head. It builds the target of the push from GitHub alone: the head branch and the
   judged head of the pull request, the bot of the App, the workflow files that the merged plan of
-  the item names on the default branch (`Repair.workflows`), and the URL of `origin` that
-  `prepare` read before any agent code ran. A separate `publish` reads the state file as data, takes
-  its URL only when it is the URL of the repository on GitHub, and takes the failed check and its
-  count of errors from GitHub. It checks the claim (`check_preconditions`), applies the
-  patch to a fresh clone, writes one commit of the bot, checks the claim again, and pushes with a
-  lease on the judged head (`publish_patch`). Then it writes the record of the round and the
+  the item names on the default branch (`Repair.workflows`), and the repository on GitHub. A
+  separate `publish` reads the state file as data, and takes the failed check and its count of
+  errors from GitHub. It checks the claim (`check_preconditions`), applies the patch in a new
+  repository, writes one commit of the bot, checks the claim again, and pushes with a lease on the
+  judged head (`publish_patch`). Then it writes the record of the round and the
   comment that names the files, as the step did before.
 
 The base and the lease are the judged head: fix-checks makes no rebase, so the agent phase needs no
 network git call (#6601). `repair_round` runs the three phases in one process, which `--phase all`
 and the current Job template use: the state of `prepare` stays in memory, so `publish` reads no
-file of the run but the outputs of the agent. #3700 runs each phase in its own container.
+file of the run but the outputs of the agent, and the run folder goes when the round ends. #3700
+runs each phase in its own container.
 """
 
 from __future__ import annotations
@@ -56,7 +56,6 @@ from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import (
     PhaseOutputError,
     PublishRefusedError,
-    RoadmapImplementError,
 )
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.check_verdict import CheckBucket, read_check_runs
@@ -73,7 +72,7 @@ from devops_cli.roadmap.phases.files import (
     read_run_file,
     write_json,
 )
-from devops_cli.roadmap.phases.publish import Published, PublishTarget
+from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import (
     MARKER,
@@ -118,8 +117,7 @@ class FixState(_Model):
     """`state/state.json`, which `prepare` writes and a separate `publish` reads: that the round
     ended in `prepare`, or the facts of the round that `prepare` judged. `publish` builds the
     target of the push from the pull request as GitHub holds it then, and checks these facts
-    against it: the state names no branch, author or workflow file that `publish` pushes, and
-    `publish` takes its URL only when it is the URL of the repository on GitHub."""
+    against it: the state names no branch, author or workflow file that `publish` pushes."""
 
     repo: str
     pull: int
@@ -127,15 +125,14 @@ class FixState(_Model):
     ended: bool = False
     status: dict[str, Any] | None = None
     check: str = ""
-    url: str = ""
 
 
 @dataclass(frozen=True)
 class JudgedRound:
     """What `publish` takes from `prepare`: the pull request, the item, the judged status, the
-    failed check, the count of errors of its log, and the URL of `origin` that `prepare` read
-    before any agent code ran. `--phase all` keeps it in memory; a separate `publish` builds it
-    from the state file and checks each part against GitHub (`_judged_from_state`)."""
+    failed check and the count of errors of its log. `--phase all` keeps it in memory; a separate
+    `publish` builds it from the state file and checks each part against GitHub
+    (`_judged_from_state`)."""
 
     repo: str
     pull: int
@@ -143,7 +140,6 @@ class JudgedRound:
     status: PullStatus
     check: str
     errors: int
-    url: str
 
 
 class AgentInput(_Model):
@@ -210,17 +206,9 @@ def prepare_round(
     facts: FixRound, repair: Repair, folders: RunFolders
 ) -> tuple[PullCheckout, JudgedRound]:
     """The part of `prepare` after the judgment: the checkout, the state file and the inputs of
-    the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory. A
-    clone whose `origin` is not the repository on GitHub gets no round, so no run pushes to
-    another URL."""
+    the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory."""
     folders.make()
     checkout = repair.checkout(facts.status, facts.item_num, folders.work)
-    if checkout.url != CONST_GITHUB_CLONE_URL.format(repo=facts.repo):
-        repair.release(checkout)
-        raise RoadmapImplementError(
-            f"The origin of the clone is not the repository {facts.repo} on GitHub, so the "
-            "round pushes nothing"
-        )
     is_plan = _is_plan(facts.item, facts.pull, facts.status)
     state = FixState(
         repo=facts.repo,
@@ -228,7 +216,6 @@ def prepare_round(
         item=facts.item_num,
         status=facts.status.model_dump(mode="json"),
         check=facts.check,
-        url=checkout.url,
     )
     write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
     inputs = AgentInput(
@@ -248,7 +235,6 @@ def prepare_round(
         facts.status,
         facts.check,
         facts.errors,
-        checkout.url,
     )
 
 
@@ -390,10 +376,10 @@ def _live_round(
     return facts
 
 
-def _target(repair: Repair, facts: FixRound, url: str) -> PublishTarget:
+def _target(repair: Repair, facts: FixRound) -> PublishTarget:
     """The target of the push, from the pull request as GitHub holds it now and from what
-    `publish` reads itself: the URL of `origin`, the bot, and the workflow files that the merged
-    plan of the item names on the default branch. A plan draft writes no workflow file."""
+    `publish` reads itself: the repository on GitHub, the bot, and the workflow files that the
+    merged plan of the item names on the default branch. A plan draft writes no workflow file."""
     status = facts.status
     author, email = repair.author()
     workflows = (
@@ -402,7 +388,7 @@ def _target(repair: Repair, facts: FixRound, url: str) -> PublishTarget:
         else repair.workflows(facts.repo, status.default_branch or status.base_ref, facts.item_num)
     )
     return PublishTarget(
-        url=url,
+        url=CONST_GITHUB_CLONE_URL.format(repo=facts.repo),
         branch=status.head_ref,
         base=status.head_sha,
         lease=status.head_sha,
@@ -417,18 +403,17 @@ def _push(
     client: Any,
     facts: FixRound,
     repair: Repair,
-    pushed: tuple[bytes, str, str],
+    pushed: tuple[bytes, str],
 ) -> Published | FixChecksReport:
     """The publish of the patch, with the claim check right before the push: the commit, or the
     report of a round that the claim, a refusal, a move of the head or an empty patch ends."""
-    patch, message, url = pushed
 
-    def before_push() -> None:
+    def before_push(_tree: NewTree) -> None:
         if report := _claim(client, store, facts):
             raise _ClaimedError(report)
 
     try:
-        published = repair.publish(_target(repair, facts, url), patch, message, before_push)
+        published = repair.publish(_target(repair, facts), [pushed], before_push)
     except _ClaimedError as claim:
         return claim.report
     except PublishRefusedError as exc:
@@ -464,7 +449,7 @@ def publish_round(
     patch = read_output(
         folders, CONST_ROADMAP_PHASE_PATCH_FILE, limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES
     )
-    published = _push(store, client, facts, repair, (patch, _message(facts, tier), judged.url))
+    published = _push(store, client, facts, repair, (patch, _message(facts, tier)))
     if isinstance(published, FixChecksReport):
         return published
     rounds = facts.rounds + 1
@@ -499,13 +484,11 @@ def _judged_from_state(
     client: Any, state: FixState, repo: str, pull: int
 ) -> JudgedRound | FixChecksReport:
     """The judged round of a separate `publish`, from the state file, with each part that GitHub
-    can say taken from GitHub: the URL must be the URL of the repository on GitHub; the check must
-    be a failed check of the judged head, by the name that GitHub gives; and the count of errors
-    comes from the log of that check, which `publish` reads itself."""
+    can say taken from GitHub: the check must be a failed check of the judged head, by the name
+    that GitHub gives, and the count of errors comes from the log of that check, which `publish`
+    reads itself."""
     if (state.repo, state.pull) != (repo, pull) or state.status is None:
         raise PhaseOutputError("The state file of the run names another pull request")
-    if state.url != CONST_GITHUB_CLONE_URL.format(repo=repo):
-        raise PhaseOutputError("The state file of the run names another origin")
     judged = PullStatus.model_validate(state.status)
     owner, name = repo.split("/", 1)
     failed = [
@@ -522,7 +505,7 @@ def _judged_from_state(
             reason="The check of the state file is no failed check of the judged head",
         )
     errors = count_errors(failed_log(repo, failed[0]))
-    return JudgedRound(repo, pull, state.item, judged, failed[0].name, errors, state.url)
+    return JudgedRound(repo, pull, state.item, judged, failed[0].name, errors)
 
 
 def publish_phase(
@@ -561,16 +544,13 @@ def repair_round(
 ) -> FixChecksReport:
     """The three phases in one process, on a new run folder in `Repair.scratch` (`--phase all`):
     the round of `run_fix_checks` with `confirm`. The state of `prepare` stays in memory, so
-    `publish` reads no file of the run but the outputs of the agent. The worktree goes when the
-    round ends."""
+    `publish` reads no file of the run but the outputs of the agent. The run folder, with its
+    clone, goes when the round ends."""
     with tempfile.TemporaryDirectory(prefix="devops-fix-checks-", dir=repair.scratch) as root:
         folders = RunFolders(Path(root))
-        checkout, judged = prepare_round(facts, repair, folders)
-        try:
-            agent_phase(folders, repair)
-            return publish_round(store, client, judged, folders, repair)
-        finally:
-            repair.release(checkout)
+        _checkout, judged = prepare_round(facts, repair, folders)
+        agent_phase(folders, repair)
+        return publish_round(store, client, judged, folders, repair)
 
 
 __all__ = [

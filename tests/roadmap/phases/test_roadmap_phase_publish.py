@@ -1,8 +1,8 @@
-"""`publish` applies the patch of the agent phase as data and pushes one commit (#6601).
+"""`publish` applies the patches of the agent phase as data and pushes commits of the bot (#6601).
 
-The patch comes from code that the agent controls, so `publish` reads it as data: git applies it to
-the index of a fresh clone, and `publish` writes its own commit with the bot as author. It refuses
-a new or changed link, gitlink or `.gitmodules`, and a workflow file that the plan does not name,
+The patches come from code that the agent controls, so `publish` reads them as data: git applies
+each to a new repository, and `publish` writes its own commit with the bot as author. It refuses a
+new or changed link, gitlink or `.gitmodules`, and a workflow file that the plan does not name,
 before it pushes with a lease on the old tip (#3702).
 """
 
@@ -15,7 +15,7 @@ import pytest
 
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import PublishRefusedError
-from devops_cli.roadmap.phases.publish import PublishTarget, publish_patch
+from devops_cli.roadmap.phases.publish import NewTree, PublishTarget, delete_branch, publish_patch
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import git_for_real
 from tests.support.roadmap_stage import StageRepo, run_git
@@ -66,6 +66,10 @@ def _patch(repo: StageRepo, tip: str, change: Callable[[Path], None], *, add: bo
     return (patch + "\n").encode()
 
 
+def _none(_tree: NewTree) -> None:
+    """A claim check that finds no claim."""
+
+
 def _write(name: str, text: str = "x\n") -> Callable[[Path], None]:
     def change(root: Path) -> None:
         (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -82,9 +86,8 @@ def test_publish_pushes_one_commit_of_the_bot_on_the_judged_head(
 
     published = publish_patch(
         _target(stage_repo, branch),
-        patch,
-        "fix: make check CI pass (#1)",
-        before_push=lambda: checked.append("claim"),
+        [(patch, "fix: make check CI pass (#1)")],
+        before_push=lambda _tree: checked.append("claim"),
     )
 
     assert published is not None
@@ -103,9 +106,7 @@ def test_an_author_line_in_the_patch_does_not_change_the_author(
         stage_repo, branch, _write("a.txt")
     )
 
-    published = publish_patch(
-        _target(stage_repo, branch), patch, "fix: x", before_push=lambda: None
-    )
+    published = publish_patch(_target(stage_repo, branch), [(patch, "fix: x")], before_push=_none)
 
     assert published is not None
     assert stage_repo.origin_git("log", "-1", "--format=%an", published.commit) == BOT
@@ -153,7 +154,7 @@ def test_publish_refuses_a_hostile_patch_and_pushes_nothing(
         patch = _patch(stage_repo, branch, change, add=hostile != "gitlink")
 
     with pytest.raises(PublishRefusedError, match=reason):
-        publish_patch(_target(stage_repo, branch), patch, "fix: x", before_push=lambda: None)
+        publish_patch(_target(stage_repo, branch), [(patch, "fix: x")], before_push=_none)
 
     assert stage_repo.origin_git("rev-parse", BRANCH) == branch
 
@@ -164,7 +165,7 @@ def test_a_workflow_file_that_the_plan_names_is_published(
     patch = _patch(stage_repo, branch, _write(WORKFLOW, "on: push\n"))
 
     published = publish_patch(
-        _target(stage_repo, branch, workflows=(WORKFLOW,)), patch, "ci: x", before_push=lambda: None
+        _target(stage_repo, branch, workflows=(WORKFLOW,)), [(patch, "ci: x")], before_push=_none
     )
 
     assert published is not None
@@ -184,7 +185,7 @@ def test_a_branch_that_moved_since_the_judgment_gets_no_push(
     moved = stage_repo.git("rev-parse", "HEAD")
 
     with pytest.raises(GitOperationError, match="push"):
-        publish_patch(_target(stage_repo, branch), patch, "fix: x", before_push=lambda: None)
+        publish_patch(_target(stage_repo, branch), [(patch, "fix: x")], before_push=_none)
 
     assert stage_repo.origin_git("rev-parse", BRANCH) == moved
 
@@ -192,17 +193,119 @@ def test_a_branch_that_moved_since_the_judgment_gets_no_push(
 def test_a_claim_check_that_raises_stops_the_push(stage_repo: StageRepo, branch: str) -> None:
     patch = _patch(stage_repo, branch, _write("a.txt"))
 
-    def claimed() -> None:
+    def claimed(_tree: NewTree) -> None:
         raise PublishRefusedError("Item holds an owner label")
 
     with pytest.raises(PublishRefusedError, match="owner label"):
-        publish_patch(_target(stage_repo, branch), patch, "fix: x", before_push=claimed)
+        publish_patch(_target(stage_repo, branch), [(patch, "fix: x")], before_push=claimed)
 
     assert stage_repo.origin_git("rev-parse", BRANCH) == branch
 
 
 def test_an_empty_patch_publishes_nothing(stage_repo: StageRepo, branch: str) -> None:
-    assert (
-        publish_patch(_target(stage_repo, branch), b"", "fix: x", before_push=lambda: None) is None
-    )
+    assert publish_patch(_target(stage_repo, branch), [(b"", "fix: x")], before_push=_none) is None
     assert stage_repo.origin_git("rev-parse", BRANCH) == branch
+
+
+def _main_moves(repo: StageRepo) -> str:
+    """`main` of `origin` gains a commit, as a merge does on GitHub: the new base."""
+    repo.git("switch", "-q", "main")
+    _write("main.txt")(repo.clone)
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "main moves")
+    repo.git("push", "-q", "origin", "main")
+    return repo.git("rev-parse", "HEAD")
+
+
+def test_publish_writes_a_commit_for_each_patch_on_a_base_other_than_the_old_tip(
+    stage_repo: StageRepo, branch: str
+) -> None:
+    """The implement Job rebases onto the main commit that `prepare` recorded, and keeps the
+    archive as its own commit (#3702): `publish` fetches that base, writes one commit of the bot for
+    each patch on it, and the lease on the old tip lets the push replace that tip."""
+    base = _main_moves(stage_repo)
+    work = _patch(stage_repo, base, _write("src/fixed.py", "fixed = True\n"))
+    archive = _patch(stage_repo, base, _write("openspec/archive.md", "archived\n"))
+    target = _target(stage_repo, branch).model_copy(update={"base": base})
+
+    published = publish_patch(
+        target,
+        [(work, "fix(roadmap): the work (#1)"), (b"", "empty"), (archive, "docs: archive (#1)")],
+        before_push=_none,
+    )
+
+    assert published is not None
+    log = stage_repo.origin_git("log", "--reverse", "--format=%s|%an", f"{base}..{BRANCH}")
+    assert log.splitlines() == [f"fix(roadmap): the work (#1)|{BOT}", f"docs: archive (#1)|{BOT}"]
+    assert published.paths == ("src/fixed.py", "openspec/archive.md")
+
+
+@pytest.mark.parametrize("exists", [False, True], ids=["new", "taken"])
+def test_publish_makes_a_new_branch_only_where_none_is(
+    stage_repo: StageRepo, real_git: ProcessFake, exists: bool
+) -> None:
+    """A Planned item has no branch yet: an empty lease makes `publish` push a new branch, and
+    refuse when the branch exists, so it overwrites no push of another writer (#3702)."""
+    base = stage_repo.git("rev-parse", "HEAD")
+    if exists:
+        stage_repo.git("push", "-q", "origin", f"{base}:refs/heads/{BRANCH}")
+    patch = _patch(stage_repo, base, _write("a.txt"))
+    target = PublishTarget(
+        url=str(stage_repo.origin), branch=BRANCH, base=base, lease="", author=BOT, email=BOT_EMAIL
+    )
+
+    if exists:
+        with pytest.raises(GitOperationError, match="push"):
+            publish_patch(target, [(patch, "feat: x (#1)")], before_push=_none)
+        assert stage_repo.origin_git("rev-parse", BRANCH) == base
+    else:
+        published = publish_patch(target, [(patch, "feat: x (#1)")], before_push=_none)
+        assert published is not None
+        assert stage_repo.origin_git("rev-parse", BRANCH) == published.commit
+
+
+def test_the_claim_check_reads_the_new_tree_from_its_objects(
+    stage_repo: StageRepo, branch: str
+) -> None:
+    """The implement Job reads the change of the new tree before the push: the names in a folder
+    and the text of a file come from the git objects, and a file that the tree does not hold has
+    no text (#3702)."""
+    patch = _patch(stage_repo, branch, _write("docs/a/proposal.md", "## Why\n\nA reason.\n"))
+    seen: list[object] = []
+
+    def read(tree: NewTree) -> None:
+        seen.extend([tree.changed, tree.names("docs"), tree.text("docs/a/proposal.md")])
+        seen.append(tree.text("docs/b/proposal.md"))
+
+    published = publish_patch(
+        _target(stage_repo, branch), [(patch, "feat: x (#1)")], before_push=read
+    )
+
+    assert published is not None
+    assert seen == [("docs/a/proposal.md",), ("a",), "## Why\n\nA reason.\n", None]
+
+
+def test_a_second_publish_of_the_same_tree_pushes_nothing(
+    stage_repo: StageRepo, branch: str
+) -> None:
+    """A run whose tree the branch holds already gets the commit on the branch back and makes no
+    push, so a second run pushes nothing (#3702)."""
+    patch = _patch(stage_repo, branch, _write("a.txt"))
+    first = publish_patch(_target(stage_repo, branch), [(patch, "feat: x (#1)")], before_push=_none)
+    assert first is not None
+    target = _target(stage_repo, branch).model_copy(update={"lease": first.commit})
+
+    again = publish_patch(target, [(patch, "feat: x (#1)")], before_push=_none)
+
+    assert again == first
+    assert stage_repo.origin_git("rev-parse", BRANCH) == first.commit
+
+
+def test_a_branch_that_publish_made_is_deleted_with_a_lease(
+    stage_repo: StageRepo, branch: str
+) -> None:
+    """GitHub refused the draft of a new branch: `publish` deletes the branch that it pushed, and
+    only while the branch is at that commit (#3702)."""
+    delete_branch(_target(stage_repo, branch))
+
+    assert stage_repo.origin_git("branch", "--list", BRANCH) == ""

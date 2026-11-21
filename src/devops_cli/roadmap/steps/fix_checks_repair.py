@@ -2,12 +2,12 @@
 
 The command `devops roadmap step fix-checks --confirm` gives the step `job_repair`:
 
-- The checkout (`prepare`): a new clone `model-clone` in the work folder of the run, and a worktree
-  of it on the head branch of the pull request, taken over from `origin` with `add_worktree` and
-  `OriginGit`, as the implement job takes over a staged branch (#6601). The App must have written
-  every commit of the branch past main. The clone holds no credential: git gets the token of each
-  call that reaches `origin` from its environment. The worktree and its local branch go when the
-  round ends. The run folder of `--phase all` is in the data folder, on the home volume of the Job.
+- The checkout (`prepare`): a plain clone of the repository on GitHub in the work folder of the
+  run, on the head branch of the pull request (`clone_branch`, #3702). The App must have written
+  every commit of the branch past main, and the branch must be at the judged head. The clone holds
+  no credential: git gets the token of each call that reaches `origin` from its environment. The
+  run folder of `--phase all` is in the data folder, on the home volume of the Job, and goes when
+  the round ends.
 - The publish (`publish`): the patch of the checkout (`write_patch`), applied as one commit of the
   bot and pushed to the head branch with a lease on the judged head (`publish_patch`), so it never
   overwrites a push of another writer. `publish` reads the workflow files that the merged plan of
@@ -37,22 +37,20 @@ from typing import Final
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.commands import BIN_DEVOPS, BIN_RUFF, BIN_UV
 from devops_cli.config.constants import (
+    CONST_GITHUB_CLONE_URL,
     CONST_GITHUB_WORKFLOWS_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_FIX_CHECKS_RUNS_DIR,
-    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
-from devops_cli.git.worktree_add import add_worktree
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import default_branch, git
-from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement_hooks import install_hook_environments, trusted_config
 from devops_cli.roadmap.implement.implement_limits import TokenCap
 from devops_cli.roadmap.implement.implement_step import (
@@ -62,11 +60,11 @@ from devops_cli.roadmap.implement.implement_step import (
     run_fix_step,
 )
 from devops_cli.roadmap.implement.implement_strays import plan_paths
+from devops_cli.roadmap.phases.checkout import clone_branch
 from devops_cli.roadmap.phases.patch import write_patch
-from devops_cli.roadmap.phases.publish import Published, PublishTarget, publish_patch
+from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget, publish_patch
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
-from devops_cli.roadmap.run import ensure_checkout
 from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.steps.fix_checks import (
@@ -91,42 +89,21 @@ _RUFF_GATES: Final[str] = "ruff-mypy"
 _LOCK_FILE: Final[str] = "uv.lock"
 
 
-def open_checkout(
-    repo: str, status: PullStatus, item: int, work: Path, source: Path | None = None
-) -> PullCheckout:
-    """The worktree on the head branch of the pull request of `status`, the branch of `item`: a
-    worktree of the clone `source`, or of a new clone of `repo` in the work folder `work` (#6601).
-    The take-over refuses a branch with a commit past main that the App did not write. The worktree
-    must be on the head branch of the pull request and at its judged head; else it goes, with its
-    branch. It runs git calls only, and no program of the branch."""
-    clone = source or ensure_checkout(repo, work, dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
-    # The URL of `origin` is read here, before any agent code runs, and `publish` pushes to it.
-    url = origin_url(clone)
-    report = add_worktree(clone, issue=item, origin=OriginGit(clone, url))
-    checkout = PullCheckout(Path(report.path), url, clone, report.branch)
-    try:
-        if report.branch != status.head_ref:
-            raise RoadmapImplementError(
-                f"The branch of item #{item} is `{report.branch}`, not the head branch "
-                f"`{status.head_ref}` of the pull request."
-            )
-        tip = git(checkout.path, "rev-parse", "HEAD", operation=_OPERATION)
-        if tip != status.head_sha:
-            raise RoadmapImplementError(
-                f"The head branch `{report.branch}` is at {tip[:12]}, not at the judged head "
-                f"{status.head_sha[:12]}."
-            )
-        (checkout.path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
-    except BaseException:
-        release_checkout(checkout)
-        raise
-    return checkout
-
-
-def release_checkout(checkout: PullCheckout) -> None:
-    """Remove the worktree of `checkout` and its local branch from the clone."""
-    git(checkout.clone, "worktree", "remove", "--force", str(checkout.path), operation=_OPERATION)
-    git(checkout.clone, "branch", "-D", checkout.branch, operation=_OPERATION)
+def open_checkout(repo: str, status: PullStatus, item: int, work: Path) -> PullCheckout:
+    """The clone of `repo` in the work folder `work` on the head branch of the pull request of
+    `status`, the branch of `item` (#3702). The switch refuses a branch with a commit past main that
+    the App did not write, and the branch must be at the judged head. It runs git calls only, and
+    no program of the branch."""
+    clone = clone_branch(
+        work, url=CONST_GITHUB_CLONE_URL.format(repo=repo), issue=item, branch=status.head_ref
+    )
+    if clone.lease != status.head_sha:
+        raise RoadmapImplementError(
+            f"The head branch `{clone.branch}` is at {clone.lease[:12]}, not at the judged head "
+            f"{status.head_sha[:12]}."
+        )
+    (clone.path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
+    return PullCheckout(clone.path)
 
 
 def merged_workflows(repo: str, ref: str, item: int) -> tuple[str, ...]:
@@ -341,21 +318,22 @@ def _bot() -> tuple[str, str]:
     return session.login, session.commit_email
 
 
-def job_repair(repo: str, *, source: Path | None = None) -> Repair:
-    """The repair of a runner Job for `repo`, by phase (#6601): the checkout in the work folder, or
-    in the clone `source`; tier 1; the model fix, which reads the item that `prepare` gave it; the
-    patch of the checkout; and the publish of the patch as one commit of the bot. `publish` reads
-    the bot and the workflow files of the plan itself, and pushes to the URL of `origin` that
-    `prepare` read."""
+def job_repair(repo: str) -> Repair:
+    """The repair of a runner Job for `repo`, by phase (#6601): the clone in the work folder; tier
+    1; the model fix, which reads the item that `prepare` gave it; the patch of the checkout; and
+    the publish of the patch as one commit of the bot. `publish` reads the bot and the workflow
+    files of the plan itself, and pushes to the repository on GitHub."""
     scratch = _runs()
 
     def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
-        return open_checkout(repo, status, item, work, source)
+        return open_checkout(repo, status, item, work)
 
     def publish(
-        target: PublishTarget, patch: bytes, message: str, before_push: Callable[[], None]
+        target: PublishTarget,
+        patches: Sequence[tuple[bytes, str]],
+        before_push: Callable[[NewTree], None],
     ) -> Published | None:
-        return publish_patch(target, patch, message, before_push=before_push, scratch=scratch)
+        return publish_patch(target, patches, before_push=before_push, scratch=scratch)
 
     return Repair(
         checkout=checkout,
@@ -365,6 +343,5 @@ def job_repair(repo: str, *, source: Path | None = None) -> Repair:
         publish=publish,
         author=_bot,
         workflows=merged_workflows,
-        release=release_checkout,
         scratch=scratch,
     )
