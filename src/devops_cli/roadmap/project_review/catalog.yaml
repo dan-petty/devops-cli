@@ -7,9 +7,10 @@
 # (Unix seconds) and $repo. A query gives no host name: no grouping by node or instance.
 # A query gives no name of a workload outside the project namespaces (#6615): a rows fact that
 # groups or joins by namespace or pod holds the matcher namespace=~"{namespaces}" in each selector
-# whose metric has a namespace label, in its query and in its base. A row that names a workload
-# (namespace, pod, container and the workload labels of kube-state-metrics) holds a namespace of
-# the setting, else the dispatcher gives error for the fact.
+# whose metric has a namespace label, in its query and in its base. A row that holds a namespace
+# label outside the setting, or a workload label with no namespace, makes the dispatcher give
+# error for the fact (_NAMESPACE_LABELS and _WORKLOAD_LABELS of dispatch.py). The dispatcher
+# checks only these labels, so a rows fact does not group by another label that names a workload.
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:

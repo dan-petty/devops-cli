@@ -317,7 +317,7 @@ The loader SHALL refuse a `rows` fact whose query names `namespace` or `pod` in 
 - **THEN** the loader raises no error, each `rows` fact whose query names `namespace` or `pod` in a `by` or `on` clause holds a positive namespace matcher in its query and in its `base` after the fill, and no filled query holds `{namespaces}`
 
 ### Requirement: The dispatcher keeps no row of a workload outside the project namespaces
-When a series of the answer of a `rows` fact of Prometheus or Loki holds a label that names a workload (`namespace`, `pod`, `container` or a workload label of kube-state-metrics) and no `namespace` of `roadmap.project_review.namespaces`, the fact SHALL have the status `error` and a null value, whatever the form of the query. The reason SHALL name the fact and the label, and SHALL hold no label value.
+When a series of the answer of a `rows` fact of Prometheus or Loki holds a namespace label (`namespace`, `exported_namespace` or `dest_namespace`) outside `roadmap.project_review.namespaces`, or a workload label of the dispatcher list (for example `pod`, `container` or `service`) and no `namespace`, the fact SHALL have the status `error` and a null value. The reason SHALL name the fact and the label, and SHALL hold no label value. The dispatcher SHALL check only the labels of its lists.
 
 #### Scenario: A row of another namespace
 - **WHEN** `roadmap.project_review.namespaces` is `devops`, the query of the `rows` fact `prometheus.valkey_rows` is `sort_desc(sum without (instance) (redis_memory_used_bytes))`, and the fixture Prometheus answers a series with `namespace` `devops` and `pod` `valkey-0` and a series with `namespace` `other-project` and `pod` `database-0`
@@ -326,6 +326,10 @@ When a series of the answer of a `rows` fact of Prometheus or Loki holds a label
 #### Scenario: A row with a workload label and no namespace
 - **WHEN** the fixture Prometheus answers the same fact with a series with `pod` `database-0` and no `namespace`, or with `container` `database` and no `namespace`
 - **THEN** the fact has the status `error`, and the reason names `pod` or `container` and holds no label value
+
+#### Scenario: A row of another namespace in a label of the scrape or of Traefik
+- **WHEN** the fixture Prometheus answers the same fact with a series with `namespace` `devops`, `exported_namespace` `other-project` and `exported_pod` `db-0`, or with a series with `service` `other-project-database-5432@kubernetes` and no `namespace`
+- **THEN** the fact has the status `error`, and the reason names `exported_namespace` or `service` and holds no label value
 
 #### Scenario: A Loki row of another namespace
 - **WHEN** the fixture Loki answers the `rows` fact `loki.lines` with a series with `namespace` `other-project` and `container` `app`
