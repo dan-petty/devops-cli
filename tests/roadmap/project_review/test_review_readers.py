@@ -35,6 +35,7 @@ from tests.support.fakes.http import WebFake
 REPO = "example/project"
 START = datetime(2026, 11, 4, 14, 51, 23, tzinfo=UTC)
 END = datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC)
+WATERMARK = datetime(2026, 11, 11, 14, 28, 4, tzinfo=UTC)
 RUNS = f"/repos/{REPO}/actions/runs?branch=main&event=push"
 # GitHub gives at most 1,000 results of a filtered list of runs; a later page holds none.
 CAP = 1000
@@ -138,11 +139,10 @@ def test_a_newest_first_listing_stops_at_the_page_that_reaches_the_window_start(
     )
 
 
-def test_the_listing_reads_the_issue_after_the_watermark_once_and_keeps_the_snapshot(
-    github_api: GitHubApiFake, tmp_path: Path
-) -> None:
-    store = FileSnapshotStore(tmp_path)
-    watermark = datetime(2026, 11, 11, 14, 28, 4, tzinfo=UTC)
+def _held(
+    store: FileSnapshotStore, *, full_at: datetime, schema_key: str = LISTING_SCHEMA_KEY
+) -> bytes:
+    """Keep a snapshot of intake with one issue at the watermark `WATERMARK`; give its bytes."""
     held = IssueRecord(
         number=1,
         title="Held",
@@ -153,13 +153,17 @@ def test_the_listing_reads_the_issue_after_the_watermark_once_and_keeps_the_snap
     store.save(
         ListingSnapshot(
             repo=REPO,
-            schema_key=LISTING_SCHEMA_KEY,
-            full_at=watermark - timedelta(hours=1),
-            watermark=watermark,
+            schema_key=schema_key,
+            full_at=full_at,
+            watermark=WATERMARK,
             issues=(held,),
         )
     )
-    before = store.path(REPO).read_bytes()
+    return store.path(REPO).read_bytes()
+
+
+def _changed_since(github_api: GitHubApiFake, since: str) -> str:
+    """Answer the listing changed since `since` with one issue opened after the watermark."""
     opened = {
         "number": 2,
         "title": "After the watermark",
@@ -168,20 +172,57 @@ def test_the_listing_reads_the_issue_after_the_watermark_once_and_keeps_the_snap
         "created_at": "2026-11-11T14:40:00Z",
         "updated_at": "2026-11-11T14:40:00Z",
     }
-    github_api.route(
-        "GET",
-        f"/repos/{REPO}/issues?state=all&sort=updated&direction=desc"
-        "&since=2026-11-11T14:28:04Z&per_page=100",
-        github_json([opened]),
-    )
+    path = f"/repos/{REPO}/issues?state=all&sort=updated&direction=desc&since={since}&per_page=100"
+    github_api.route("GET", path, github_json([opened]))
+    return f"GET {API}{path}"
+
+
+def test_the_listing_reads_the_issue_after_the_watermark_once_and_keeps_the_snapshot(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    store = FileSnapshotStore(tmp_path)
+    before = _held(store, full_at=WATERMARK - timedelta(hours=1))
+    _changed_since(github_api, "2026-11-11T14:28:04Z")
     reads = Reads()
 
-    records = read_listing(
-        get_github_session(), REPO, store, reads, clock=lambda: END + timedelta(minutes=1)
-    )
+    records = read_listing(get_github_session(), REPO, store, reads, start=START)
 
     assert ([record["number"] for record in records], reads.counts["listing"]) == ([2, 1], 1)
     assert store.path(REPO).read_bytes() == before
+
+
+def test_an_old_snapshot_of_this_schema_gives_only_the_changes_after_its_watermark(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The last full read of intake is 3 days old: the review reads the gap after the watermark,
+    not the whole listing, because each listing fact counts issues that changed in the window."""
+    store = FileSnapshotStore(tmp_path)
+    before = _held(store, full_at=WATERMARK - timedelta(days=3))
+    gap = _changed_since(github_api, "2026-11-11T14:28:04Z")
+
+    records = read_listing(get_github_session(), REPO, store, Reads(), start=START)
+
+    assert ([record["number"] for record in records], github_api.requested) == ([2, 1], [gap])
+    assert store.path(REPO).read_bytes() == before
+
+
+@pytest.mark.parametrize("schema_key", [None, "0000000000000000"])
+def test_with_no_snapshot_of_this_schema_the_listing_reads_the_changes_since_the_window_start(
+    github_api: GitHubApiFake, tmp_path: Path, schema_key: str | None
+) -> None:
+    """No snapshot, or a snapshot of another record schema: the review reads the issues and pull
+    requests changed at or after the window start, not the whole listing, and writes no file."""
+    store = FileSnapshotStore(tmp_path)
+    if schema_key is not None:
+        _held(store, full_at=WATERMARK, schema_key=schema_key)
+    since = _changed_since(github_api, "2026-11-04T14:51:23Z")
+
+    records = read_listing(get_github_session(), REPO, store, Reads(), start=START)
+
+    assert ([record["number"] for record in records], github_api.requested) == ([2], [since])
+    assert sorted(path.name for path in tmp_path.rglob("*.json")) == (
+        [] if schema_key is None else [store.path(REPO).name]
+    )
 
 
 def _vector(request: httpx2.Request) -> httpx2.Response:
