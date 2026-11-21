@@ -4,13 +4,20 @@ Each issue reference of the section names a blocker, also in prose, unless the t
 and no blocker: a block that starts with `None` or `No`, the references after a link word such as
 `Part of`, `Child 2 of`, `Tracker`, `Related` or `Source`, a sentence with a reverse phrase such as
 `#N needs this item`, a block whose issue merges in either order, and a reference in parentheses
-with other words, such as the tracker of the hold line `- #N (hold: ... of #M)`.
+with other words, such as the tracker of the hold line `- #N (hold: ... of #M)`. The start or the
+end marker of a job block ends the section (#6613).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
+)
 from devops_cli.roadmap.refine.refine import body_dependencies
 
 # The hold line that the freeze of #6519 writes as the first item of a Dependencies section.
@@ -18,6 +25,16 @@ HOLD = (
     "- #6521 (hold: incremental work on the stage, implement and fix-checks jobs waits for the "
     "re-architecture of #6519)"
 )
+
+
+def _alternatives_block(lacks: str) -> str:
+    """A short copy of the block that the alternatives job writes, whose Lacks list holds `lacks`."""
+    return (
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Alternatives check of 2026-11-21: build.\n\n"
+        f"Lacks:\n- {lacks}\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    )
 
 
 def test_body_dependencies_names_only_a_blocker_line() -> None:
@@ -159,3 +176,41 @@ def test_the_hold_line_names_its_hold_issue_and_not_the_tracker() -> None:
         body_dependencies(f"### Dependencies\n\n{HOLD}\nRelated: #4408\n"),
         body_dependencies(f"### Dependencies\n\n{HOLD}\n#4691 needs this item.\n"),
     ) == ([6521], [6521], [6521, 4847], [6521], [6521])
+
+
+@pytest.mark.parametrize(
+    ("body", "blockers"),
+    [
+        pytest.param(
+            "## Dependencies\n\nNone.\n"
+            + _alternatives_block("Two-container template integration that #5506 adds"),
+            [],
+            id="alternatives-after-section",
+        ),
+        pytest.param(
+            f"Body\n\n{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\n\n"
+            f"### Dependencies\n- #4989\n{CONST_ROADMAP_REFINE_END_MARKER}\n\n"
+            + _alternatives_block("A tool that #5506 adds"),
+            [4989],
+            id="refine-part-then-alternatives",
+        ),
+        pytest.param(
+            _alternatives_block("A tool that #5506 adds") + "\n## Dependencies\n\n- #4989\n",
+            [4989],
+            id="section-after-alternatives",
+        ),
+        pytest.param(
+            "## Dependencies\n\n"
+            f"The job writes `{CONST_ROADMAP_ALTERNATIVES_START_MARKER}` after this section.\n\n"
+            "- #4989\n",
+            [4989],
+            id="marker-in-code-span",
+        ),
+    ],
+)
+def test_a_job_block_marker_ends_the_dependencies_section(body: str, blockers: list[int]) -> None:
+    """The Dependencies section ends at the start or the end marker of a job block, so the Lacks
+    list of an alternatives block after it names no blocker. The `### Dependencies` part of the
+    refine block ends at the refine end marker, a heading after an alternatives block still starts
+    a section, and a marker in a code span ends no section (#6613)."""
+    assert body_dependencies(body) == blockers
