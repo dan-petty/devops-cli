@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.188.2](https://github.com/dan-petty/devops-cli/compare/v0.188.1...v0.188.2) (2026-11-21)
+
+
+### Code Refactoring
+
+* **roadmap:** delete the git settings scan check_settings ([#6646](https://github.com/dan-petty/devops-cli/issues/6646)) ([40edae3](https://github.com/dan-petty/devops-cli/commit/40edae3b203600fe778d73149868f52ca18803f6))
+
 ## [0.188.1](https://github.com/dan-petty/devops-cli/compare/v0.188.0...v0.188.1) (2026-11-21)
 
 
