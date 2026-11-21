@@ -52,12 +52,11 @@ None.
 - `run_review` reads the git facts of the window from the checkout before the readers run; its precondition is a checkout of the repository.
 - `review_listing` and the save of the review store write under the roadmap state directory; their precondition is a writable state directory, and no network.
 - The verify commands `uv run devops ci test` and `uv run devops ci docs` run tools of the image: uv and pytest are runner tools, and no program of the plan is NOT_IN_RUNNER. A failing test is class test (repair), a lint finding lint (repair) and a type error types (repair). The pod sets readOnlyRootFilesystem true, runAsNonRoot true, capabilities.drop ALL, allowPrivilegeEscalation false and seccompProfile RuntimeDefault, and the tests write only under the pytest temporary directory.
-- The 45-request limit, the 49 measured requests and the 19 listing pages are the issue body and comment 3; no file of the staged commit states them, so this run did not check them: not checked.
+- GitHub gives an exact count for each run status above the 1,000 result cap: the request `repos/dan-petty/devops-cli/actions/runs?per_page=1&branch=main&event=push&created=>=<7 days ago>&status=<status>` gave `total_count` 1830 for success, 29 for failure, 71 for cancelled and 12 for in_progress on 2026-11-21, and 1942 with no status filter, which is the sum of the four. A status with no run, skipped, gave 0. The 45-request limit is the issue body of #4692, and the 49 measured requests are the issue body of #6603.
 - First real check: run `uv run devops roadmap review run --last 7d` twice on a checkout with no review snapshot, then read `collection.reads` of each written data file; the first sum is at most 45 and the second listing count is lower.
 - First real check: run `uv run devops roadmap review run --last 7d` with no snapshot, then check that the runs fact holds four status counts whose sum is its n, and that the roadmap state directory holds one review snapshot for the repository.
 - First real check: run `uv run devops roadmap review run --last 7d --dry-run`, then check that the request plan lists one count request for each status and one for the total, with no created slice.
 - The issue can be built as written: each cited path, class and constant exists at the staged commit, and no commit renamed or removed them.
-- This reply answers the check of the previous reply: the feasibility line now cites the listing record class as a symbol, `src/devops_cli/roadmap/stores/store.py:class IssueRecord`, which the file defines, in place of a line citation of that class.
 
 ## Existing Tool Considered
 

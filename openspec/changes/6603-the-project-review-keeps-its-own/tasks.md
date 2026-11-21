@@ -33,8 +33,6 @@ Kind: other. Reads: `docs/ROADMAP_WORKFLOW.md`, `src/devops_cli/roadmap/project_
 
 - [ ] 4.1 Edit the review line of `docs/ROADMAP_WORKFLOW.md` to state that the review keeps its own listing snapshot under review-listing in the roadmap state directory, reads the gap from its watermark or the window start, and reads the runs as one count for each of four statuses and one total
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 Edit `docs/ROADMAP_WORKFLOW.md` to state the review snapshot and the run counts
-  - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
 
