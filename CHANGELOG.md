@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.188.4](https://github.com/dan-petty/devops-cli/compare/v0.188.3...v0.188.4) (2026-11-21)
+
+
+### Bug Fixes
+
+* **k8s:** cap Tempo query limits under its memory limit ([#6669](https://github.com/dan-petty/devops-cli/issues/6669)) ([62f16d5](https://github.com/dan-petty/devops-cli/commit/62f16d5d48f6b7d5cf2b03fa0be6bba62d5f4a27))
+* **roadmap:** fix-conflict runs its fixers only in a runner Job ([#6620](https://github.com/dan-petty/devops-cli/issues/6620)) ([fe2f2e8](https://github.com/dan-petty/devops-cli/commit/fe2f2e8b9f75a3c26a7ad8781a741b3035df18fe))
+
+
+### Code Refactoring
+
+* **git:** git uses the configured credential helper ([#6663](https://github.com/dan-petty/devops-cli/issues/6663)) ([c0957ae](https://github.com/dan-petty/devops-cli/commit/c0957ae36835d9bc4bca8b59df6f4b855d34537d))
+
 ## [0.188.3](https://github.com/dan-petty/devops-cli/compare/v0.188.2...v0.188.3) (2026-11-21)
 
 
