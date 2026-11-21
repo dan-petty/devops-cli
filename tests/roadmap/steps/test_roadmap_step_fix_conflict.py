@@ -81,6 +81,8 @@ def test_is_path_helpers() -> None:
     assert is_release_path(".release-please-manifest.json")
     assert is_release_path("release-please-config.json")
     assert is_release_path("pyproject.toml", '+version = "1.2.0"')
+    assert not is_release_path("pyproject.toml", '+dependencies = ["foo>=1.2"]')
+    assert not is_release_path("uv.lock", '+version = "1.2.0"')
     assert not is_release_path("src/module.py")
 
     assert is_archive_path("openspec/specs/capability/spec.md")
@@ -703,9 +705,10 @@ def test_fix_conflict_internal_helpers(tmp_path: Path, monkeypatch: pytest.Monke
     with pytest.raises(GitOperationError, match="git status failed"):
         fix_conflict._git(tmp_path, "status")
 
-    # 2. is_release_path diff hunk
-    assert is_release_path("some/file.py", '+__version__ = "1.2.3"')
-    assert is_release_path("some/file.py", '+version = "1.2.3"')
+    # 2. is_release_path diff hunk: only the version line of pyproject.toml is release metadata
+    assert is_release_path("pyproject.toml", '-  version = "1.2.3"')
+    assert not is_release_path("some/file.py", '+__version__ = "1.2.3"')
+    assert not is_release_path("some/file.py", '+version = "1.2.3"')
     assert not is_release_path("some/file.py", "+something_else = 1")
 
     # 3. _record_fix_conflict_marks with None store or None item
@@ -1415,17 +1418,45 @@ def test_a_merge_of_main_into_the_branch_is_no_commit_of_a_person(
     assert pull.pushed_file("src/after.py") == "C = 3\n"
 
 
-def test_the_plan_and_the_round_agree_on_a_version_line_of_uv_lock(
+def test_the_plan_and_the_round_settle_a_version_line_of_uv_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The plan and the round call one check of release metadata. A `version =` line on the side of
-    the pull request in a conflict of `uv.lock` stops both, and tier 1 runs no fixer."""
+    """The `version =` line of a package in a conflict of `uv.lock` is no release metadata (#6623).
+    The plan and the round use one rule: tier 1 takes the `uv.lock` of main, runs `uv lock`, and
+    the round pushes the branch with no other change."""
     package = '[[package]]\nname = "foo"\nversion = "{}"\n'
     pull = _pull_with_docs_conflict(
         tmp_path,
         base={_LOCK: package.format("1.0.0")},
         branch_files={_LOCK: package.format("1.1.0"), "src/feature.py": "A = 1\n"},
         main={_LOCK: package.format("1.2.0")},
+    )
+    ran = _with_pull_request_code(monkeypatch, pull)
+
+    plan = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
+    done = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert plan.reason.startswith("Plan: take the default branch for these files")
+    assert (done.result, done.reason) == (FixConflictResult.RESOLVED, "")
+    assert [cmd[1:] for cmd in ran] == [["lock"]]
+    assert (pull.pushed_file(_LOCK), pull.pushed_file("src/feature.py")) == (
+        package.format("1.2.0"),
+        "A = 1\n",
+    )
+    assert _git(pull.upstream, "diff", "--name-only", "main", pull.branch) == "src/feature.py"
+
+
+def test_the_plan_and_the_round_stop_on_the_version_line_of_pyproject(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A conflict on the version line of `pyproject.toml` is release metadata: the plan and the
+    round stop, and tier 1 runs no fixer (#5019, #6623)."""
+    project = '[project]\nname = "app"\nversion = "{}"\n'
+    pull = _pull_with_docs_conflict(
+        tmp_path,
+        base={"pyproject.toml": project.format("1.0.0")},
+        branch_files={"pyproject.toml": project.format("1.1.0"), "src/feature.py": "A = 1\n"},
+        main={"pyproject.toml": project.format("1.2.0")},
     )
     ran = _with_pull_request_code(monkeypatch, pull)
 
