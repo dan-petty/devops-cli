@@ -43,7 +43,7 @@
     },
     "requires": {
       "type": "array",
-      "description": "The conditions of a read: a setting that has a value, a kind of window, or a path that the checkout holds.",
+      "description": "The conditions of a read: a setting that has a value, a kind of window, or a path that the base and the head commits of the window hold.",
       "items": {
         "type": "string",
         "pattern": "^(setting:[a-z_]+(\\.[a-z_]+)+|window:(version|week|period)|path:[A-Za-z0-9_./-]+)$"

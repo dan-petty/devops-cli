@@ -88,7 +88,7 @@ def test_a_dry_run_lists_the_path_checks_at_the_base_and_the_head_commits(
     assert result.exit_code == 0, result.output
     assert process_fake.calls == []
     shown = [
-        f"ls-tree --name-only --end-of-options '{commit}' -- openspec/specs" in result.stdout
+        f"ls-tree --name-only --end-of-options '{commit}' openspec/specs" in result.stdout
         for commit in ("<base commit>", "<head commit>")
     ]
     assert shown == [True, True]

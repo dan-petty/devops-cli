@@ -99,8 +99,10 @@ def blob_args(rev: str, path: str) -> tuple[str, ...]:
 
 def path_args(commit: str, path: str) -> tuple[str, ...]:
     """The entry of `path` in the tree of `commit`: its name when the commit holds the path, and
-    no output when it does not. A commit that the checkout does not have exits non-zero."""
-    return ("ls-tree", "--name-only", "--end-of-options", commit, "--", path)
+    no output when it does not. A commit that the checkout does not have exits non-zero. After
+    `--end-of-options`, ls-tree reads each later word as the commit or a path, so no `--`
+    follows: git would read it as a second path."""
+    return ("ls-tree", "--name-only", "--end-of-options", commit, path)
 
 
 def query_text(args: tuple[str, ...]) -> str:

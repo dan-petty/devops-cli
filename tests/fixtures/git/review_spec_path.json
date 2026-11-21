@@ -10,14 +10,13 @@
     "--name-only",
     "--end-of-options",
     "v0.9.0",
-    "--",
     "openspec/specs"
    ],
    "cwd": null,
    "stdin": null,
    "env": null,
    "returncode": 0,
-   "stdout": "--\n",
+   "stdout": "",
    "stderr": ""
   },
   {
@@ -29,14 +28,13 @@
     "--name-only",
     "--end-of-options",
     "v1.0.0",
-    "--",
     "openspec/specs"
    ],
    "cwd": null,
    "stdin": null,
    "env": null,
    "returncode": 0,
-   "stdout": "--\nopenspec/specs\n",
+   "stdout": "openspec/specs\n",
    "stderr": ""
   },
   {
@@ -48,7 +46,6 @@
     "--name-only",
     "--end-of-options",
     "v9.9.9",
-    "--",
     "openspec/specs"
    ],
    "cwd": null,
@@ -60,12 +57,12 @@
   }
  ],
  "result": {
-  "v0.9.0": true,
+  "v0.9.0": false,
   "v1.0.0": true,
   "unknown_commit": [
    "error",
    "RoadmapReviewError",
-   "`git ls-tree --name-only --end-of-options v9.9.9 -- openspec/specs` failed: fatal: Not a valid object name v9.9.9"
+   "`git ls-tree --name-only --end-of-options v9.9.9 openspec/specs` failed: fatal: Not a valid object name v9.9.9"
   ]
  }
 }

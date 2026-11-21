@@ -474,7 +474,7 @@ def test_a_path_that_the_base_commit_does_not_hold_skips_the_fact_whatever_the_w
     assert (read.status, read.value) == (FactStatus.SKIPPED, None)
     assert ("openspec/specs" in read.reason, "v0.9.0" in read.reason) == (True, True)
     assert [call.argv[3:] for call in git_fake.calls] == [
-        ("ls-tree", "--name-only", "--end-of-options", "v0.9.0", "--", "openspec/specs")
+        ("ls-tree", "--name-only", "--end-of-options", "v0.9.0", "openspec/specs")
     ]
 
 

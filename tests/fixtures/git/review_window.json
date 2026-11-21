@@ -878,7 +878,6 @@
     "--name-only",
     "--end-of-options",
     "4c12ae57cef5955865f2940d87fcd5e06dca476c",
-    "--",
     "openspec/specs"
    ],
    "cwd": null,
@@ -897,7 +896,6 @@
     "--name-only",
     "--end-of-options",
     "5687bfd1e878476a5ebb8e4c136e6939754e11d9",
-    "--",
     "openspec/specs"
    ],
    "cwd": null,
