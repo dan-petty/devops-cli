@@ -4,9 +4,8 @@ A job sends one sample of `devops_cli_roadmap_step_seconds` for each call of a s
 labels: `repo`, `row`, `step` and `result`. The stage row (#4066) and the implement row (#4067)
 share this scheme, so a dashboard groups by `row` and `step` and needs no second metric. The `step`
 value is the value of a `StepName` member. The `result` is `ok`, or `error` when an exception
-leaves the step or the caller calls `fail()` on the handle: a watch that ends with a failed check
-raises nothing, and it is an error all the same. The exception goes on as before: the timer
-swallows none.
+leaves the step, or when the caller calls `fail()` on the handle for a step that ends with a
+failure and raises nothing. The exception goes on as before: the timer swallows none.
 """
 
 from __future__ import annotations
@@ -61,7 +60,7 @@ def observe_step(repo: str | None, row: str, step: StepName) -> Iterator[StepTim
 
 
 def observe_implement(repo: str | None, step: StepName) -> AbstractContextManager[StepTimer]:
-    """`observe_step` for the implement row (#4067): the steps `checks`, `publish` and `watch`."""
+    """`observe_step` for the implement row (#4067): the steps `checks` and `publish`."""
     return observe_step(repo, IMPLEMENT_ROW, step)
 
 

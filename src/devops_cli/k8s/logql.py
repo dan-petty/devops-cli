@@ -27,6 +27,7 @@ from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.http.retry import SERVICE_READ_RETRY, service_error
+from devops_cli.lang import ERRORS
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.telemetry.tracer import trace_span
 
@@ -387,14 +388,18 @@ def execute_loki_query(
     )
 
 
-def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[PrometheusQueryResult]:
-    """Run each LogQL metric expression as an instant query at the current time
-    (`/loki/api/v1/query`) and return the vector of each, in order.
+def query_loki_metrics(
+    expressions: Sequence[str], loki_url: str, *, at: str | None = None
+) -> list[PrometheusQueryResult]:
+    """Run each LogQL metric expression as an instant query (`/loki/api/v1/query`) and return the
+    vector of each, in order. The query runs at the time `at` (RFC 3339 or Unix seconds), which
+    is sent as `time`, else at the current time: the project review reads a past window at its
+    end (#4692).
 
     A metric query counts the lines in Loki, so no line limit applies. One client at the private
     level sends all the queries, with the retry policy of a cluster service, so a Loki that starts
     again gets more attempts. A Loki that does not answer, or that refuses a query, raises
-    `ServiceRequestError`.
+    `ServiceRequestError`, and an answer that is not JSON raises `KubernetesLoggingError`.
     """
     endpoint = f"{loki_url.strip().rstrip('/')}/loki/api/v1/query"
     results: list[PrometheusQueryResult] = []
@@ -403,12 +408,29 @@ def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[Promet
     ) as client:
         for expression in expressions:
             try:
-                resp = client.get(endpoint, params={"query": expression})
+                params = {"query": expression} if at is None else {"query": expression, "time": at}
+                resp = client.get(endpoint, params=params)
                 resp.raise_for_status()
             except httpx2.HTTPError as exc:
                 raise service_error("Loki", exc, setting="loki.url") from exc
-            results.append(PrometheusQueryResult.from_instant_response(resp.json()))
+            results.append(PrometheusQueryResult.from_instant_response(_json(resp, expression)))
     return results
+
+
+def _json(resp: httpx2.Response, expression: str) -> Any:
+    """The JSON of a Loki answer. An answer that is not JSON, such as the sign-in page of a proxy
+    or a page of Grafana at `loki.url`, raises `KubernetesLoggingError`, so a caller that reads
+    many queries can mark one query failed and read the others (#4692)."""
+    content_type = resp.headers.get("content-type", "") or "none"
+    refusal = KubernetesLoggingError(
+        ERRORS.k8s.loki_not_json.format(content_type=content_type), query=expression
+    )
+    if "json" not in content_type:
+        raise refusal
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise refusal from exc
 
 
 def resolve_loki_url(loki_url: str | None = None) -> str:

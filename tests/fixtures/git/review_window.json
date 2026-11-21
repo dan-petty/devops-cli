@@ -883,6 +883,7 @@
   "version_facts": [
    {
     "id": "git.commits",
+    "section": "changes",
     "value": 4,
     "unit": "commits",
     "n": 4,
@@ -894,6 +895,7 @@
    },
    {
     "id": "git.commit_types",
+    "section": "changes",
     "value": {
      "feat": 1,
      "other": 1,
@@ -910,6 +912,7 @@
    },
    {
     "id": "git.net_change",
+    "section": "changes",
     "value": {
      "all": {
       "files": 4,
@@ -932,6 +935,7 @@
    },
    {
     "id": "git.churn",
+    "section": "changes",
     "value": {
      "all": {
       "files": 4,
@@ -954,6 +958,7 @@
    },
    {
     "id": "git.releases",
+    "section": "changes",
     "value": {
      "minor": 1,
      "patch": 1
@@ -968,6 +973,7 @@
    },
    {
     "id": "git.release_tags",
+    "section": "changes",
     "value": [
      {
       "tag": "v1.1.0",
@@ -988,6 +994,7 @@
    },
    {
     "id": "git.hotspots",
+    "section": "changes",
     "value": [
      {
       "path": "a.py",
@@ -1023,6 +1030,7 @@
    },
    {
     "id": "lizard.complexity",
+    "section": "changes",
     "value": [
      {
       "path": "a.py",
@@ -1072,6 +1080,7 @@
   "period_facts": [
    {
     "id": "git.commits",
+    "section": "changes",
     "value": 2,
     "unit": "commits",
     "n": 2,
@@ -1083,6 +1092,7 @@
    },
    {
     "id": "git.commit_types",
+    "section": "changes",
     "value": {
      "feat": 1,
      "other": 1
@@ -1097,6 +1107,7 @@
    },
    {
     "id": "git.net_change",
+    "section": "changes",
     "value": {
      "all": {
       "files": 4,
@@ -1119,6 +1130,7 @@
    },
    {
     "id": "git.churn",
+    "section": "changes",
     "value": {
      "all": {
       "files": 4,
@@ -1141,6 +1153,7 @@
    },
    {
     "id": "git.releases",
+    "section": "changes",
     "value": {
      "patch": 1
     },
@@ -1154,6 +1167,7 @@
    },
    {
     "id": "git.release_tags",
+    "section": "changes",
     "value": [
      {
       "tag": "v1.1.1",
@@ -1170,6 +1184,7 @@
    },
    {
     "id": "git.hotspots",
+    "section": "changes",
     "value": [
      {
       "path": "pkg/new_name.py",
@@ -1203,6 +1218,7 @@
    },
    {
     "id": "lizard.complexity",
+    "section": "changes",
     "value": [
      {
       "path": "pkg/new_name.py",

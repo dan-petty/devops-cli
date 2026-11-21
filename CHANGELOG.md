@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.186.0](https://github.com/dan-petty/devops-cli/compare/v0.185.3...v0.186.0) (2026-11-21)
+
+
+### Features
+
+* **k8s:** run the stage job in the runner image ([#6572](https://github.com/dan-petty/devops-cli/issues/6572)) ([2b1998e](https://github.com/dan-petty/devops-cli/commit/2b1998e5001cba905b25d1dfdfbce930852e4d52)), closes [#6417](https://github.com/dan-petty/devops-cli/issues/6417)
+* **roadmap:** end the implement Job at the draft pull request ([#6562](https://github.com/dan-petty/devops-cli/issues/6562)) ([b80da38](https://github.com/dan-petty/devops-cli/commit/b80da380cdd0ca5604f2284e276638445819c1d1))
+
+## [0.185.3](https://github.com/dan-petty/devops-cli/compare/v0.185.2...v0.185.3) (2026-11-21)
+
+
+### Bug Fixes
+
+* **security:** extend the kubectl Trivy ignores to 2026-12-15 ([#6574](https://github.com/dan-petty/devops-cli/issues/6574)) ([32e9d2b](https://github.com/dan-petty/devops-cli/commit/32e9d2ba7293baebf21607e93d229d1c31fb3137))
+
 ## [0.185.2](https://github.com/dan-petty/devops-cli/compare/v0.185.1...v0.185.2) (2026-11-20)
 
 

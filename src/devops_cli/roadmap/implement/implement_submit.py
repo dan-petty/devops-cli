@@ -12,7 +12,7 @@ records `implement.job_state` as `succeeded` or `failed`. It comments the state 
 the log of its pod on the item only when the runner left no result: the finished or stop comment
 of a runner is the report of its run, once (#6194). A Job that no longer exists is recorded as
 `gone`, with a comment. A runner writes `implement.result` as the last mark
-of its end (#4071); a Job with the result `ready`, `yielded` or `returned` ended on purpose and
+of its end (#4071); a Job with the result `drafted`, `yielded` or `returned` ended on purpose and
 causes no stop. A Job with no result that leaves its item In Progress, or Ready and
 not stopped, is a stop that the runner could not write, such as a pod killed for its memory: the
 round sets the item to Blocked and records `implement.stopped` as `job`, or the next round would
@@ -55,13 +55,6 @@ has only its log, so the round classifies that log (`failure.py`), records the c
 and names the class and the action left in its comment. The runner pod is not scraped, so the Service
 counts.
 
-**Kept work** (#3650). The counter `devops_cli_service_kept_work_total` counts what became of an item
-whose kept work a next Job continued, by `repo`, the failure `class` and the `outcome`. The Job that
-starts from the kept work of a stop counts `continued` with the class of that stop. The report of
-that Job counts `finished` when it reaches the ready mark, and `blocked` with the class of the new
-stop when it stops again. A yield or a return counts no outcome, so the count of `continued` less
-those of `finished` and `blocked` is the kept runs that yielded, returned or still run.
-
 **Needs fix.** The plan leaves out a Staged item while its draft holds the label `verdict/fix-plan`
 of a plan with an open finding (`implement.py`, #4477). The round returns such an item once for
 each draft, for the row to log, and records the draft in `implement.needs_fix`. A round that judges
@@ -99,7 +92,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_JOBS,
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
-    CONST_SERVICE_METRIC_KEPT_WORK,
 )
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
@@ -156,7 +148,7 @@ from devops_cli.telemetry.metrics import GLOBAL_METRICS
 _GONE = "gone"
 # The results of a run that ended on purpose and is no stop.
 _ENDS_WITHOUT_STOP = frozenset(
-    {ImplementResult.READY.value, ImplementResult.YIELDED.value, ImplementResult.RETURNED.value}
+    {ImplementResult.DRAFTED.value, ImplementResult.YIELDED.value, ImplementResult.RETURNED.value}
 )
 # The exit status of a Job that the Job controller ended for its active deadline (SIGTERM).
 _DEADLINE_EXIT_STATUS = 143
@@ -223,7 +215,7 @@ def _settles_as_stop(item: Item) -> bool:
     """Whether an item that a Job ended is a stop that nobody wrote: it is In Progress, or Ready or
     Planned and not stopped. Any other Status, In Review and Done included, is the Job's own
     result. An item that an agent or a person claimed is theirs, and the Job ended its run for that
-    claim. A Job whose runner wrote a result that is no stop (`ready`, `yielded` or `returned`)
+    claim. A Job whose runner wrote a result that is no stop (`drafted`, `yielded` or `returned`)
     ended its run on purpose, so the Status it left is its own (#4071). A closed item is no stop:
     nothing creates a Job for it again (#4703)."""
     if item.state is not GitHubState.OPEN or claimed_by(item) is not None:
@@ -380,11 +372,7 @@ def _report(
     # count means the record started again: the whole spend is new (#4200).
     new_tokens = spend - counted if spend >= counted else spend
     result = _attempt_result(item)
-    kept = _record(item, ImplementRecordKey.CONTINUED)
-    marks: dict[ImplementRecordKey, str | None] = {
-        ImplementRecordKey.JOB_STATE: state,
-        ImplementRecordKey.CONTINUED: None,
-    }
+    marks: dict[ImplementRecordKey, str | None] = {ImplementRecordKey.JOB_STATE: state}
     if result == ImplementResult.RETURNED.value:
         # A return keeps the spend for this count only: the next plan of the item starts with
         # none (#5881).
@@ -393,8 +381,6 @@ def _report(
     elif spend > 0:
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
-    if kept is not None:
-        _count_kept_work(repo, kept, failure, result)
     if stops and failure is not None:
         write_status(
             store,
@@ -415,22 +401,20 @@ def _report(
         tokens=new_tokens,
         digest=digest,
     )
-    log_job_result(
-        RoadmapJob.IMPLEMENT,
-        repo,
-        item.number,
-        result,
-        failure=failure,
-        counts={
-            "repair_rounds": _repair_rounds(item),
-            "tokens": new_tokens,
-            "seconds": _seconds(ended),
-        },
-    )
+    counts = {
+        "repair_rounds": _repair_rounds(item),
+        "tokens": new_tokens,
+        "seconds": _seconds(ended),
+    }
+    # The draft of the Job, so the job grade scores the lines of one pull request by it (#6559).
+    pull = _record(item, ImplementRecordKey.PR) or ""
+    if pull.isdecimal():
+        counts["pull"] = int(pull)
+    log_job_result(RoadmapJob.IMPLEMENT, repo, item.number, result, failure=failure, counts=counts)
 
 
 def _attempt_result(item: Item) -> str:
-    """The result of the attempt of a Job, as its runner recorded it: `ready`, `yielded`,
+    """The result of the attempt of a Job, as its runner recorded it: `drafted`, `yielded`,
     `returned` or `stopped`. A Job that recorded no result, such as a pod that the kernel killed,
     stopped (#4845)."""
     recorded = _record(item, ImplementRecordKey.RESULT)
@@ -457,22 +441,6 @@ def _outcome(state: str, failure: FailureClass | None) -> str:
     A runner that writes its own stop exits 0, so its Job is Complete and the attempt failed
     (#4703)."""
     return JobState.FAILED.value if failure is not None else state
-
-
-def _count_kept_work(repo: str, kept: str, failure: FailureClass | None, result: str) -> None:
-    """Count what became of an item whose kept work a Job continued (#3650): a new stop is
-    `blocked` under the class of that stop, the ready mark is `finished` under the class of the
-    kept stop, and a yield or a return is neither, so it counts nothing."""
-    if failure is not None:
-        outcome, failure_class = "blocked", failure.value
-    elif result == ImplementResult.READY.value:
-        outcome, failure_class = "finished", kept
-    else:
-        return
-    GLOBAL_METRICS.increment_counter(
-        CONST_SERVICE_METRIC_KEPT_WORK,
-        labels={"repo": repo, "class": failure_class, "outcome": outcome},
-    )
 
 
 def _emit_implement_metrics(
@@ -552,17 +520,12 @@ def _create(
     ref = RepoRef(repo)
     name = runner_job_name(ref, number)
     cronjob = jobs.cronjob(RUNNER_TEMPLATE)
-    kept = _record(target.item, ImplementRecordKey.CONTINUED)
-    work = _record(target.item, ImplementRecordKey.WIP)
-    kept_work = kept if work is not None else None
     marks = {
         ImplementRecordKey.JOB: name,
         ImplementRecordKey.JOB_STATE: None,
         ImplementRecordKey.RESULT: None,
         ImplementRecordKey.JOB_DIGEST: image_digest(cronjob, RUNNER_TEMPLATE),
     }
-    if kept is not None and kept_work is None:
-        marks[ImplementRecordKey.CONTINUED] = None
     if not service_claim(store, number, marks):
         return None
     unit = RunnerUnit(
@@ -583,11 +546,6 @@ def _create(
     except ClusterJobError:
         service_release(store, number, {ImplementRecordKey.JOB: None})
         raise
-    if kept_work is not None:
-        GLOBAL_METRICS.increment_counter(
-            CONST_SERVICE_METRIC_KEPT_WORK,
-            labels={"repo": repo, "class": kept_work, "outcome": "continued"},
-        )
     return name
 
 

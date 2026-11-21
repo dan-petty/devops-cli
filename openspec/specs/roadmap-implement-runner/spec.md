@@ -13,11 +13,11 @@ The `runner` stage SHALL set `UV_PYTHON` to the Python of the devtools image and
 - **THEN** the command prints the ruff version of `uv.lock` and exits 0
 
 ### Requirement: The release publishes the runner image
-`release.yml` SHALL have a job that builds the `runner` target of `Dockerfile`, runs a smoke test, scans the image with Trivy for HIGH and CRITICAL findings, pushes it by digest as `ghcr.io/<repository>/runner`, attests its provenance, and tags the attested digest with the release tag and `latest`. `ci.yml` SHALL build, smoke-test and scan the same target on a pull request, push nothing, and run only when image content changed.
+The release SHALL build the `runner` target of `Dockerfile` one time, push it by digest as `ghcr.io/<repository>/runner`, run the smoke test on that digest, scan it with Trivy for HIGH and CRITICAL findings, attest its provenance, and tag the attested digest with the release tag and `latest`. `ci.yml` SHALL build, smoke-test and scan the same target on a pull request, push nothing, and run only when image content changed.
 
 #### Scenario: The release workflow is read
-- **WHEN** a test reads `.github/workflows/release.yml`
-- **THEN** a job runs only when the release is created, builds with `target: runner`, scans with the Trivy version of the Service image job, pushes with `push-by-digest=true`, attests `ghcr.io/${{ github.repository }}/runner`, and tags it with the release tag and `latest`
+- **WHEN** a person reads the `Runner Image` jobs of the first release after the merge with `uv run devops gh run view <run_id> --log`
+- **THEN** `Build` pushed one digest, `Verify` started and scanned that digest, and `Attest & Tag` attested it and put the release tag and `latest` on it
 
 #### Scenario: The pull request check is read
 - **WHEN** a test reads `.github/workflows/ci.yml`
@@ -278,17 +278,6 @@ In a runner, the implement job SHALL check the git settings of the checkout when
 - **WHEN** the job runs an item in a clone that `git clone` made, with the identity that `ensure_checkout` sets
 - **THEN** the check refuses no key
 
-### Requirement: A refused setting at a push stops the item at once
-A refused setting at the push of a `wip:` commit or of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
-
-#### Scenario: A setting before the push of a `wip:` commit
-- **WHEN** the agent writes `credential.helper` into the configuration of the clone, ticks a task of a group of five, and the job pushes the `wip:` commit before the next model request
-- **THEN** the item stops with the class `git_config`, and the job asks the model for nothing more
-
-#### Scenario: A setting that an exit check writes
-- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
-- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value
-
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.
 
@@ -384,14 +373,14 @@ The smoke test of the runner image SHALL run `python -m devops_cli.roadmap.runne
 - **THEN** it runs `uv sync --locked --group dev` in the checkout, then the version command of each tool of the checkout there, and exits 1 with the output of the sync when the sync fails
 
 ### Requirement: The smoke test of the runner image runs the tool check and bounds the size
-The smoke test of the runner image in `ci.yml` and in `release.yml` SHALL be the same text, SHALL run the tool check of the image and the tool check of a copy of the checkout, SHALL then run `uv run ruff --version`, `uv run pytest --version` and `uv run mypy --version` in that copy, and SHALL fail when the image is larger than 7000000000 bytes.
+The smoke test of the runner image in `ci.yml` and in the `Verify` job of `release-image.yml` SHALL be the same text, SHALL run the tool check of the image and the tool check of a copy of the checkout, SHALL then run `uv run ruff --version`, `uv run pytest --version` and `uv run mypy --version` in that copy, and SHALL fail when the image is larger than 7000000000 bytes.
 
 #### Scenario: The smoke test runs on the loaded image
 - **WHEN** the Runner Image job of `ci.yml` runs its smoke test on the loaded image
 - **THEN** the check module prints that every runner tool is on PATH and runs, for the image and for the checkout, the three `uv run` commands exit 0, and the step fails when `docker image inspect` reports more than 7000000000 bytes
 
 ### Requirement: The scan of the runner image reports and stops no build
-The Runner Image jobs of `ci.yml` and `release.yml` SHALL scan the built `runner` target with `.github/actions/image-scan` (Trivy, `HIGH,CRITICAL`, fixed findings only) with exit code 0, and SHALL upload the SARIF under the category `trivy-image-runner`. SECURITY.md SHALL record the exception in its table, with the scope, the compensating control, the evidence, the approval and the review.
+The Runner Image job of `ci.yml` and the `Verify` job of the runner image in the release SHALL scan the `runner` image with `.github/actions/image-scan` (Trivy, `HIGH,CRITICAL`, fixed findings only) with exit code 0, and SHALL upload the SARIF under the category `trivy-image-runner`. SECURITY.md SHALL record the exception in its table, with the scope, the compensating control, the evidence, the approval and the review.
 
 #### Scenario: The scan of a runner image with findings
 - **WHEN** the Runner Image job scans a runner image whose devtools tools hold fixed HIGH findings
@@ -471,3 +460,14 @@ The shell of the agent of a step, the `pre-commit` runs, the scoped checks, the 
 #### Scenario: The shell of the agent
 - **WHEN** a step builds the shell of its agent for a checkout
 - **THEN** the PATH of the shell starts with `node_modules/.bin` and `.venv/bin` of that checkout
+
+### Requirement: A refused setting at a checkpoint or stop push stops the item at once
+A refused setting at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
+
+#### Scenario: A setting before a checkpoint push
+- **WHEN** the agent writes `credential.helper` into the configuration of the clone in group 1 of a change of four groups, and group 1 passes
+- **THEN** the checkpoint before group 2 stops the item with the class `git_config`, and the job asks the model for nothing more
+
+#### Scenario: A setting that an exit check writes
+- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
+- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value

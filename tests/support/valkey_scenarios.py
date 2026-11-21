@@ -10,17 +10,20 @@ running the same scenarios against a real server.
 The request bytes do not change between runs: a `Lock` gets an explicit token and timeout, and
 `SET EXAT` a fixed time. Each scenario uses its own key prefix and deletes its keys at the end. A
 scenario that runs Lua sends `SCRIPT FLUSH` first, so valkey-py meets `NOSCRIPT` and loads the
-script on both sides in each order in which the cases run.
+script on both sides in each order in which the cases run. A binary value is a fixed zlib text,
+so its bytes do not change between runs either.
 """
 
 from __future__ import annotations
 
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 import valkey
-from valkey.exceptions import LockNotOwnedError, ResponseError
+from valkey.client import NEVER_DECODE
+from valkey.exceptions import LockNotOwnedError, ResponseError, WatchError
 
 from devops_cli.exceptions.valkey import ValkeyCommandError
 from devops_cli.valkey.client import ValkeyClient
@@ -45,6 +48,12 @@ TABLE_SCRIPT = "return {1, 'two', 3.7, false, {KEYS[1], ARGV[1]}}"
 SET_AND_GET_SCRIPT = "redis.call('SET', KEYS[1], ARGV[1]); return redis.call('GET', KEYS[1])"
 STATUS_SCRIPT = "return redis.status_reply('DONE')"
 ERROR_SCRIPT = "return redis.error_reply('devops contract refusal')"
+# A zlib value, as the shared listing snapshot keeps each record: bytes that are not UTF-8.
+BINARY_VALUE = zlib.compress(b'{"number": 1, "title": "devops contract"}' * 4)
+# How many fields one `HSCAN` asks for, as the shared listing snapshot reads them.
+SCAN_COUNT = 500
+# The TTL of the temporary key of a full write of the shared listing snapshot.
+TEMPORARY_TTL_SECONDS = 600
 
 
 def _key(scenario: str, name: str) -> str:
@@ -197,6 +206,71 @@ def eval_through_the_project_client(client: valkey.Valkey) -> tuple[Any, ...]:
     )
 
 
+def _watch_refusal(call: Callable[[], Any]) -> str:
+    """The class of the error that a transaction raises when a watched key changed."""
+    try:
+        call()
+    except WatchError as exc:
+        return type(exc).__name__
+    return "none"
+
+
+def watch_lost(client: valkey.Valkey) -> tuple[Any, ...]:
+    """A transaction whose watched hash another client changed writes nothing (#4668)."""
+    key = _key("watch_lost", "hash")
+    client.hset(key, "meta", "first")
+    with client.pipeline(transaction=True) as pipe:
+        pipe.watch(key)
+        seen = pipe.hget(key, "meta")
+        # The client sends this on a second connection, as another writer does.
+        client.hset(key, "meta", "other")
+        pipe.multi()
+        pipe.hset(key, "meta", "mine")
+        lost = _watch_refusal(pipe.execute)
+    return seen, lost, client.hget(key, "meta"), client.delete(key)
+
+
+def hscan_bytes(client: valkey.Valkey) -> tuple[Any, ...]:
+    """`HSCAN` with `NEVER_DECODE` gives the bytes of a binary value to a decoding client (#4668)."""
+    key = _key("hscan_bytes", "hash")
+    written = client.hset(key, mapping={"1": BINARY_VALUE, "2": BINARY_VALUE})
+    cursor, fields = client.execute_command(
+        "HSCAN", key, 0, "COUNT", SCAN_COUNT, **{NEVER_DECODE: True}
+    )
+    field = client.execute_command("HGET", key, "1", **{NEVER_DECODE: True})
+    return written, cursor, sorted(fields.items()), field, client.delete(key)
+
+
+def rename_hash_ttl(client: valkey.Valkey) -> tuple[Any, ...]:
+    """`RENAME` of a temporary hash with a TTL replaces a hash that exists and keeps a TTL (#4668)."""
+    key, temporary = _key("rename_hash_ttl", "hash"), _key("rename_hash_ttl", "next")
+    client.hset(key, mapping={"1": "old", "2": "old"})
+    client.hset(temporary, mapping={"1": "new"})
+    client.expire(temporary, TEMPORARY_TTL_SECONDS)
+    renamed = client.rename(temporary, key)
+    ttl = client.ttl(key)
+    return (
+        renamed,
+        0 < ttl <= TEMPORARY_TTL_SECONDS,
+        client.hgetall(key),
+        client.exists(temporary),
+        client.delete(key),
+    )
+
+
+def expire_hdel_unlink(client: valkey.Valkey) -> tuple[Any, ...]:
+    """`EXPIRE` sets a TTL, `HDEL` removes the fields that exist, `UNLINK` counts its keys (#4668)."""
+    key, other = _key("expire_hdel_unlink", "hash"), _key("expire_hdel_unlink", "other")
+    client.hset(key, mapping={"meta": "m", "1": "a", "2": "b"})
+    client.set(other, "x")
+    expired = client.expire(key, TTL_SECONDS)
+    ttl = client.ttl(key)
+    removed = client.hdel(key, "2", "3")
+    fields = sorted(client.hkeys(key))
+    unlinked = client.unlink(key, other, _key("expire_hdel_unlink", "missing"))
+    return expired, 0 < ttl <= TTL_SECONDS, removed, fields, unlinked, client.exists(key)
+
+
 @dataclass(frozen=True)
 class ValkeyScenario:
     """A scenario: its name and its calls."""
@@ -214,4 +288,8 @@ SCENARIOS: tuple[ValkeyScenario, ...] = (
     ValkeyScenario("lock_lost", lock_lost),
     ValkeyScenario("registered_script", registered_script),
     ValkeyScenario("eval", eval_through_the_project_client),
+    ValkeyScenario("watch_lost", watch_lost),
+    ValkeyScenario("hscan_bytes", hscan_bytes),
+    ValkeyScenario("rename_hash_ttl", rename_hash_ttl),
+    ValkeyScenario("expire_hdel_unlink", expire_hdel_unlink),
 )

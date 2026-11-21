@@ -32,7 +32,6 @@ import pytest
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.steps.fix_checks import (
-    FixChecksResult,
     Fixed,
     Repair,
     check_scope,
@@ -40,7 +39,7 @@ from devops_cli.roadmap.steps.fix_checks import (
     run_fix_checks,
 )
 from devops_cli.roadmap.steps.fix_checks_cause import FileCause, ScopeVerdict
-from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
+from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
 from tests.support.fakes.github import (
     GitHubApiFake,
     github_json,
@@ -746,6 +745,27 @@ def test_the_ready_path_skips_a_check_that_failed_after_the_read_of_the_watch_ro
 
     assert (report.result, world.comments(), calls) == (FixChecksResult.SKIPPED, [], [])
     assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
+
+
+def test_an_implement_draft_that_its_job_left_at_the_draft_is_marked_ready(
+    world: PullWorld,
+) -> None:
+    """The implement Job ends at the draft, so the ready path marks a green implement draft ready
+    with no repair before it (#6559)."""
+    pull = _repaired_draft(world, TICKED)
+    held = world.store.item(pull)
+    assert held is not None
+    world.store.set_marks(
+        held, {FixChecksRecordKey.RESULT: None, ImplementRecordKey.RESULT: "drafted"}
+    )
+    calls = _ready_calls(world)
+
+    report = world.run(pull, head=HEAD_SHA, confirm=True, ready_only=True)
+
+    assert (report.result, calls) == (
+        FixChecksResult.READY,
+        [("pr", "ready", str(pull), "--repo", REPO)],
+    )
 
 
 def test_a_draft_that_the_step_did_not_repair_is_left_to_the_watch_row(world: PullWorld) -> None:

@@ -132,7 +132,7 @@ from devops_cli.ai.review_schema import Finding
 - **Ecosystem Role**: Capabilities for pydantic-ai agents. `Coder` gives an agent the file and shell tools of a coding agent.
 - **Codebase Integration**:
   - `devops_cli.roadmap.implement.implement_step`: Runs one task group of a staged change in one bounded agent run (`devops roadmap implement --group`).
-  - `devops_cli.roadmap.implement.implement_run`: Runs the steps of a staged item to a ready pull request (`devops roadmap implement`), in a runner pod only.
+  - `devops_cli.roadmap.implement.implement_run`: Runs the steps of a staged item to a draft pull request with the final title and body (`devops roadmap implement`), in a runner pod only.
 
 #### `json-repair` ([Dedicated Manual](libraries/json_repair.md))
 - **Ecosystem Role**: Resilient JSON parser capable of repairing malformed, unclosed, or truncated JSON responses emitted by LLMs.

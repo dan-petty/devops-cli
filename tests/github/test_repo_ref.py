@@ -107,6 +107,23 @@ def test_an_ad_hoc_name_is_a_dns_label_of_63_characters_or_fewer(
     assert name.startswith(f"devops-cli-{what}-")
 
 
+@given(repo=_REPOS, what=st.sampled_from(["implement", "x"]), item=_ITEMS)
+def test_an_ad_hoc_name_of_a_short_name_holds_the_name_slug_after_the_row(
+    repo: RepoRef, what: str, item: int | None
+) -> None:
+    """The project review finds the Jobs of a repository by their names (#4692): kube-state-metrics
+    exports no Job label."""
+    assume(len(repo.name_slug) <= 20)
+
+    assert repo.adhoc_name(what, item).startswith(f"devops-cli-{what}-{repo.name_slug}-")
+
+
+def test_the_name_slug_is_the_casefolded_name_with_each_run_of_other_characters_as_one_dash() -> (
+    None
+):
+    assert RepoRef("Example/My..Project_2").name_slug == "my-project-2"
+
+
 def test_two_ad_hoc_names_of_one_repository_differ() -> None:
     repo = RepoRef("example-owner/devops-cli")
 

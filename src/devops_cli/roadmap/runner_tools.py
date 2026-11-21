@@ -21,10 +21,11 @@ name. Neither command writes a tracked file (#6557). A step refuses a dirty work
 lock of an existing branch is the work of the agent: its shell can run `uv lock` or
 `npm install` and commit the lock. For the same reason the Job starts `pre-commit` with
 `uv run --frozen`: a plain `uv run` locks a stale `uv.lock` again and writes it.
-The stage Job runs in the Service image, which holds no uv, so it runs no bootstrap. The dev
-tools (`ToolSource.CHECKOUT`) then come from the venv of the checkout. `checkout_environment` puts `node_modules/.bin` and that venv first on
-the PATH of the agent and of the checks that the Job starts. A child that gets a token never gets
-it, because the agent can write both folders.
+After the bootstrap, the dev tools (`ToolSource.CHECKOUT`) come from the venv of the checkout.
+`checkout_environment` puts `node_modules/.bin` and that venv first on the PATH of the agent and
+of the checks that the Job starts. A child that gets a token never gets it, because the agent can
+write both folders. The stage Job runs in the runner image too (#6417), but it runs no bootstrap:
+it starts only the `git`, `gh` and `openspec` of the image (`ToolSource.DEVTOOLS`).
 
 **The uv seed** (#4814). When the Job mounts the uv-seed image volume at `/opt/uv-seed`, and its
 `seed.json` holds the uv version, the Python version (`<major>.<minor>`) and the sha256 of the

@@ -99,8 +99,8 @@ class StepName(StrEnum):
     intake records `place` (the write of a candidate to the roadmap) (#4061), and consolidate
     records `judge` (the proposal and the refutation of one shortlist) (#3740). `select`, `gate` and
     `review` are labels of the step seconds of the stage job (#4066): a failed gate or review is
-    still recorded with the step `plan`. `checks`, `publish` and `watch` are labels of the step
-    seconds of the implement job (#4067). A job that records or times a step adds a member here."""
+    still recorded with the step `plan`. `checks` and `publish` are labels of the step seconds of
+    the implement job (#4067). A job that records or times a step adds a member here."""
 
     PLAN = "plan"
     APPLY = "apply"
@@ -111,7 +111,6 @@ class StepName(StrEnum):
     REVIEW = "review"
     CHECKS = "checks"
     PUBLISH = "publish"
-    WATCH = "watch"
     JUDGE = "judge"
 
 

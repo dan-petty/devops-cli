@@ -88,16 +88,16 @@ def _one_fix() -> tuple[ModelResponse, ModelResponse]:
     )
 
 
-def test_a_target_with_no_declaration_skips_the_docs_step_and_ends_with_a_pull_request(
+def test_a_target_with_no_declaration_skips_the_docs_step_and_ends_with_a_draft(
     job_world: JobWorld,
 ) -> None:
     undeclare_steps(job_world.repo)
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, _count(job_world, DOCS)) == ((1,), (), 0)
+    assert (applied.drafted, applied.stopped, _count(job_world, DOCS)) == ((1,), (), 0)
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
-    assert job_world.pull.ready_calls != []
+    assert job_world.pull.ready_calls == []
 
 
 def test_a_target_with_no_declaration_skips_the_docs_step_after_a_fix_too(
@@ -109,7 +109,7 @@ def test_a_target_with_no_declaration_skips_the_docs_step_after_a_fix_too(
 
     applied = job_world.run(two_groups(*_one_fix()))
 
-    assert (applied.ready, applied.stopped) == ((1,), ())
+    assert (applied.drafted, applied.stopped) == ((1,), ())
     assert _count(job_world, HOOK_PRE_PUSH) == 2
     assert _count(job_world, DOCS) == 0
 
@@ -119,14 +119,14 @@ def test_a_target_without_openspec_skips_the_archive_step(job_world: JobWorld) -
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, _count(job_world, ARCHIVE)) == ((1,), (), 0)
+    assert (applied.drafted, applied.stopped, _count(job_world, ARCHIVE)) == ((1,), (), 0)
     assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
 
 
 def test_a_target_that_declares_the_steps_runs_them(job_world: JobWorld) -> None:
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 1)
+    assert (applied.drafted, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 1)
     assert job_world.origin_log()[-2:] == [
         "docs: regenerate the documentation (#1)",
         "docs(openspec): archive the change (#1)",
@@ -138,7 +138,7 @@ def test_a_neutral_target_runs_archive_and_no_docs_step(job_world: JobWorld) -> 
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
+    assert (applied.drafted, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
 
 
 def test_an_agent_that_adds_the_declaration_in_the_checkout_adds_no_step(
@@ -160,7 +160,7 @@ def test_an_agent_that_adds_the_declaration_in_the_checkout_adds_no_step(
 
     applied = job_world.run(script)
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
+    assert (applied.drafted, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 0, 1)
 
 
 def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
@@ -184,7 +184,7 @@ def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
 
     applied = job_world.run(script)
 
-    assert (applied.ready, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 1)
+    assert (applied.drafted, _count(job_world, DOCS), _count(job_world, ARCHIVE)) == ((1,), 1, 1)
 
 
 def test_the_comment_of_the_job_names_each_step_that_it_skipped(job_world: JobWorld) -> None:

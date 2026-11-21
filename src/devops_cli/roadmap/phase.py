@@ -86,11 +86,12 @@ def _delivery_phase(
             return Phase.READY_FOR_REVIEW
         if delivery_pr.state == "open":
             return Phase.IN_REVIEW
-    if (
-        item.status == CONST_ROADMAP_STATUS_IN_REVIEW
-        or "status/in-review" in item.labels
-        or record.get(ImplementRecordKey.RESULT) == ImplementResult.READY.value
-    ):
+    if record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED.value:
+        # The Job ended at the draft and wrote In Review (#6559). Only the pull data says when the
+        # draft is out of draft: a record mark can be stale after the review step makes the pull
+        # request a draft again. With no pull data the delivery is in review.
+        return Phase.IN_REVIEW
+    if item.status == CONST_ROADMAP_STATUS_IN_REVIEW or "status/in-review" in item.labels:
         return Phase.READY_FOR_REVIEW
     if (
         item.status == CONST_ROADMAP_STATUS_IN_PROGRESS

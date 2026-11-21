@@ -48,6 +48,7 @@ from devops_cli.github.project_read import GraphQLBudget, require_budget
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.run import DEFAULT_DUE_TABLE, JobOutcome
 from devops_cli.roadmap.service_stop import service_stopping
+from devops_cli.roadmap.stores.listing_shared import TieredSnapshotStore
 from devops_cli.roadmap.stores.listing_snapshot import (
     FileSnapshotStore,
     IncrementalListing,
@@ -1994,7 +1995,8 @@ def test_a_scoped_update_reads_every_issue_through_the_snapshot_in_the_state_dir
 ) -> None:
     """Test first for #3670: the store of a scoped update reads every issue through the listing
     snapshot that the Service keeps in its state directory, the one the triage lane's intake
-    reads, and the update keeps its records beside it."""
+    reads, and the update keeps its records beside it. The local file sits under the shared tier
+    of the process (#4668)."""
     snapshots: list[SnapshotStore | None] = []
     data_dirs: list[Any] = []
 
@@ -2023,7 +2025,7 @@ def test_a_scoped_update_reads_every_issue_through_the_snapshot_in_the_state_dir
     assert (response.status_code, settled, snapshots, data_dirs) == (
         202,
         True,
-        [FileSnapshotStore(state_dir / "listing")],
+        [TieredSnapshotStore(FileSnapshotStore(state_dir / "listing"))],
         [tmp_path],
     )
 

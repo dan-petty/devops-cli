@@ -875,7 +875,7 @@ def _implement_job(
         )
     print_success(
         MESSAGES.roadmap.implement_job_applied.format(
-            ready=len(applied.ready), stopped=len(applied.stopped)
+            drafted=len(applied.drafted), stopped=len(applied.stopped)
         )
     )
     if applied.yielded:

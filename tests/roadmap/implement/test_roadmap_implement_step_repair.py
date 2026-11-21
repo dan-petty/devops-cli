@@ -37,7 +37,7 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
-    is_clean_at_wip,
+    is_clean_at,
     programs_run,
     rounds_spent,
     the_whole_group,
@@ -145,7 +145,7 @@ def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_n
         3,
         3,
     )
-    assert is_clean_at_wip(checkout, head)
+    assert is_clean_at(checkout, head)
 
 
 def test_a_failed_type_check_gets_the_extra_turn_with_its_text(
@@ -263,7 +263,7 @@ def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_ste
         outcome.reason,
         outcome.commit,
         outcome.failure_class,
-        is_clean_at_wip(checkout, head),
+        is_clean_at(checkout, head),
     ) == (
         StepStatus.STOPPED,
         "The extra turn for the failure changed files that the step had not changed: src/other.py.",
@@ -448,8 +448,7 @@ def test_the_failure_text_in_the_message_is_masked(
 def test_an_extra_turn_that_commits_is_reset_and_the_step_commits_the_repair(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The `wip:` commit of the first turn and the commit of the agent both fold into the one
-    commit of the step (#3575)."""
+    """The commit of the agent folds into the one commit of the step (#3575)."""
     _lint_fails_on_an_unused_import(programs)
     head = git(checkout, "rev-parse", "HEAD")
 
@@ -474,7 +473,7 @@ def test_an_extra_turn_that_commits_is_reset_and_the_step_commits_the_repair(
     assert "import os" not in (checkout / "tests" / "test_sample.py").read_text(encoding="utf-8")
 
 
-def test_an_extra_turn_that_commits_does_not_hide_a_failed_check_and_the_wip_commit_stays(
+def test_an_extra_turn_that_commits_does_not_hide_a_failed_check_and_the_checkout_resets(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
@@ -494,7 +493,7 @@ def test_an_extra_turn_that_commits_does_not_hide_a_failed_check_and_the_wip_com
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.commit, is_clean_at_wip(checkout, head)) == (
+    assert (outcome.status, outcome.commit, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         "",
         True,

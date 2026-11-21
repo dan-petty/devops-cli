@@ -1,7 +1,9 @@
 # Valkey that devops-cli's Service and cluster jobs in namespace devops use as their cache (#1655):
-# the embeddings of the texts they embed and their threat-intelligence reads. A settled roadmap
-# item then costs no embedding request on the next round, though each round and each job is a
-# new process with an empty memory cache.
+# the embeddings of the texts they embed, their threat-intelligence reads, the listing snapshots of
+# the public repositories and the PyPI and deps.dev facts of the alternatives check (#4668). A
+# settled roadmap item then costs no embedding request on the next round, and a new pod reads the
+# listing from the newest snapshot, though each round and each job is a new process with an empty
+# memory cache. It holds no data of a private repository until it has role ACL users (#4704).
 #
 # It holds caches only. It keeps no file, evicts the least recently used key at its bound, and
 # starts empty after a restart. The cache Valkey of Open WebUI (valkey.yaml) keeps its state with
@@ -63,11 +65,13 @@ spec:
           # The password goes into a config file on a memory volume rather than onto the command
           # line, where it would show in the process list.
           #
-          # Valkey keeps at most 96 MiB of data, three quarters of the 128Mi limit, as the other
-          # Valkeys of llm do (#711). One embedding of qwen3-embedding:0.6b is about 20 KB of JSON,
-          # so the bound holds about 4,800 of them, many times the open and closed issues that a
-          # roadmap run embeds. At the bound Valkey evicts the least recently used key: a key it
-          # evicts costs one more embedding request, not a lost state.
+          # Valkey keeps at most 256 MiB of data, two thirds of the 384Mi limit, which keeps the
+          # three-quarters rule of the Valkeys of llm (#711). The embeddings, the listing snapshots
+          # of the public repositories (about 15 MB with zlib, #4668) and the tool facts share the
+          # bound. One embedding of qwen3-embedding:0.6b is about 20 KB of JSON. At 96 MiB the old
+          # pod evicted 3,600 keys in 7 days. At the bound Valkey evicts the least recently used
+          # key: a key it evicts costs one more embedding request or listing read, not a lost
+          # state.
           command:
             - sh
             - -c
@@ -78,7 +82,7 @@ spec:
               --save ""
               --appendonly no
               --dir /data
-              --maxmemory 96mb
+              --maxmemory 256mb
               --maxmemory-policy allkeys-lru
           env:
             - name: VALKEY_PASSWORD
@@ -102,7 +106,7 @@ spec:
               memory: 32Mi
             limits:
               cpu: 500m
-              memory: 128Mi
+              memory: 384Mi
           livenessProbe:
             tcpSocket:
               port: 6379

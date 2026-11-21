@@ -8,7 +8,7 @@ with no `_bucket`, `_sum` or `_count` series (#792); a dashboard reads it with
 `histogram_quantile`, `histogram_avg` and `histogram_count`. Dashboards query only the metrics
 defined here; `tests/test_telemetry_instruments.py` checks each query.
 The series that the Service serves on its `/metrics` route, such as
-`devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`,
+`devops_cli_service_implement_jobs_total` with the labels `repo`, `item_class` and `result`,
 are declared in the config constants and are no instrument of this module.
 """
 
@@ -602,14 +602,13 @@ ROADMAP_STEP_SECONDS = Instrument(
     "Seconds that one step of a roadmap job took, one sample for each call of the step, by repo, "
     "row, step and result: ok or error. The labels are those of devops_cli_roadmap_row_seconds "
     "with a step. The stage row sends select, plan, gate, review and apply. The implement row "
-    "sends checks, publish and watch with the same labels (#4067): checks is one call of the "
-    "scoped checks with its fix rounds, publish is the push of the branch with the scoped checks "
-    "left out, and watch is one watch of the checks of the pull request, with the result error "
-    "when a check failed. The push of a stop is not timed. A refused reply adds a second plan "
-    "sample and a second gate sample, so a sample is one call and not one item. A gate that "
-    "finds a problem has the result ok. A job with no review model adds no review sample. One "
-    "repository adds at most 10 series for the stage row (5 steps and 2 results) and 6 series "
-    "for the implement row (3 steps and 2 results): 16 series. The histogram buckets add none",
+    "sends checks and publish with the same labels (#4067): checks is one call of the scoped "
+    "checks with its fix rounds, and publish is the push of the branch with the scoped checks "
+    "left out. The push of a stop is not timed. A refused reply adds a second plan sample and a "
+    "second gate sample, so a sample is one call and not one item. A gate that finds a problem "
+    "has the result ok. A job with no review model adds no review sample. One repository adds at "
+    "most 10 series for the stage row (5 steps and 2 results) and 4 series for the implement row "
+    "(2 steps and 2 results): 14 series. The histogram buckets add none",
 )
 ROADMAP_INTAKE_CANDIDATES_TOTAL = Instrument(
     "devops_cli_roadmap_intake_candidates_total",
@@ -707,6 +706,40 @@ EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "Embedding cache lookups, one for each text that an embedding request gets, by result: hit "
     "or miss. A hit names its tier: memory for the cache of the process, valkey, or disk for "
     "the cache file that keeps the vectors of intake between runs",
+)
+BRAIN_READS_TOTAL = Instrument(
+    "devops_cli_brain_reads_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Reads of the project brain (#4668), by store (snapshot or fact) and result: memory, local "
+    "or shared for the tier that gave the value (local is the snapshot file of the process), "
+    "source when no tier held it, fallback when the shared tier failed or its breaker was open, "
+    "and private for a repository that the shared tier does not hold",
+)
+BRAIN_WRITES_TOTAL = Instrument(
+    "devops_cli_brain_writes_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Writes of the project brain to the shared tier (#4668), by store and result: shared, "
+    "unchanged when the shared snapshot already holds the same records, skipped while the tier "
+    "failed, oversize for a value over 1 MiB that stays in memory, older when the shared "
+    "snapshot is newer or another writer won, private, and removed for the shared snapshot of a "
+    "repository that became private",
+)
+VALKEY_CACHE_ERRORS_TOTAL = Instrument(
+    "devops_cli_valkey_cache_errors_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Commands of the Valkey cache tier that failed or that its open breaker did not send "
+    "(#4668), by command (op) and error: timeout, connection, auth, reply, open, or budget for a "
+    "load of a shared snapshot that passed its time budget",
+)
+BRAIN_GITHUB_REQUESTS_SAVED_TOTAL = Instrument(
+    "devops_cli_brain_github_requests_saved_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Listing pages of a full read that a process did not send because it took the shared "
+    "snapshot (#4668), by store",
 )
 EMBEDDING_CACHE_SIZE = Instrument(
     "devops_cli_embedding_cache_size",
@@ -975,6 +1008,10 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    BRAIN_READS_TOTAL,
+    BRAIN_WRITES_TOTAL,
+    VALKEY_CACHE_ERRORS_TOTAL,
+    BRAIN_GITHUB_REQUESTS_SAVED_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
     RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
@@ -1071,6 +1108,9 @@ __all__ = [
     "AI_SPEND_USD_TOTAL",
     "AI_STRUCTURED_ATTEMPTS_TOTAL",
     "AI_TOKENS_TOTAL",
+    "BRAIN_GITHUB_REQUESTS_SAVED_TOTAL",
+    "BRAIN_READS_TOTAL",
+    "BRAIN_WRITES_TOTAL",
     "CI_CHECKS_TOTAL",
     "CI_GATE_SLOT_WAIT",
     "COMMAND_DURATION",
@@ -1163,6 +1203,7 @@ __all__ = [
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
     "USAGE_ERROR_TOTAL",
+    "VALKEY_CACHE_ERRORS_TOTAL",
     "VULNERABILITY_LOOKUPS_TOTAL",
     "WEB_SEARCHES_TOTAL",
     "Instrument",

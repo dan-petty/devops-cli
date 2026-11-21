@@ -164,11 +164,17 @@ def _setup_ci_infra(world: JobWorld, config: Callable[..., Path]) -> ModelScript
     return two_groups()
 
 
-def _setup_no_change_in_fix(world: JobWorld, _config: Callable[..., Path]) -> ModelScript:
-    from tests.support.roadmap_implement import FAIL
+def _scoped_static_check_fails(world: JobWorld) -> None:
+    """The scoped static check fails before the push, so the job runs a fix step (#6559: the job
+    runs no fix step after the push)."""
+    world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops ci --check --only"),
+        ProcessAnswer(returncode=1, stdout="FAILED docs: src/devops_cli/shout.py is out of date\n"),
+    )
 
-    world.pull.runs = [[FAIL]]
-    world.pull.log = "FAILED tests/test_shout.py\nsrc/devops_cli/shout.py:1: error in test\n"
+
+def _setup_no_change_in_fix(world: JobWorld, _config: Callable[..., Path]) -> ModelScript:
+    _scoped_static_check_fails(world)
     return ModelScript(
         *two_groups().replies,
         say("I changed nothing."),
@@ -242,24 +248,7 @@ def _setup_limit_reached(_world: JobWorld, _config: Callable[..., Path]) -> Mode
 
 
 def _setup_outside_plan(world: JobWorld, _config: Callable[..., Path]) -> ModelScript:
-    test_runs = 0
-
-    def handle_test(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        nonlocal test_runs
-        test_runs += 1
-        if test_runs == 1:
-            return subprocess.CompletedProcess(list(call.argv), 0, "", "")
-        return subprocess.CompletedProcess(
-            list(call.argv),
-            1,
-            "FAILED tests/test_shout.py\nsrc/devops_cli/shout.py:1: error\n",
-            "",
-        )
-
-    world.programs.answer(
-        lambda call: command_text(call).startswith("uv run devops ci test"),
-        ProcessAnswer(side_effect=handle_test),
-    )
+    _scoped_static_check_fails(world)
     unplanned = (
         "write_file",
         {"path": "src/devops_cli/outside.py", "content": "X = 1\n"},
@@ -537,13 +526,12 @@ def test_roadmap_fault_matrix(
     comment = stop_comments[-1]
     assert case.expected_comment in comment
 
-    # Assert kept work: the branch, the wip: commit, or the draft pull request
+    # Assert kept work: the branch or the draft pull request
     branch_exists = BRANCH in job_world.repo.origin_git(
         "branch", "-a"
     ) or BRANCH in job_world.repo.git("branch", "-a")
     has_draft = job_world.pull is not None and not job_world.pull.ready_calls
-    has_wip = bool(record.get("implement.wip"))
-    assert branch_exists or has_draft or has_wip
+    assert branch_exists or has_draft
 
 
 def test_every_failure_class_has_a_fault_case() -> None:

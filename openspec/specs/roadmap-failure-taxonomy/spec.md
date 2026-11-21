@@ -137,8 +137,8 @@ The module `failure.py` SHALL hold `StepName`, a string enum of the steps that t
 
 #### Scenario: The step names
 - **WHEN** a test reads the values of `StepName`
-- **THEN** it finds `plan`, `apply`, `investigate`, `place`, `select`, `gate`, `review`, `checks`, `publish` and `watch`, each once, and each one word
-- **AND** only the metric names `select`, `gate`, `review`, `checks`, `publish` and `watch`
+- **THEN** it finds `plan`, `apply`, `investigate`, `place`, `select`, `gate`, `review`, `checks` and `publish`, each once, and each one word
+- **AND** only the metric names `select`, `gate`, `review`, `checks` and `publish`
 
 #### Scenario: An old record
 - **WHEN** a record of a failed stage item holds the step `plan` written before the new members existed

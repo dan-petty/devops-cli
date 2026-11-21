@@ -1,9 +1,10 @@
-"""The data of a project review, `data.json` (#4686): its window, and each fact with its source.
+"""The data of a project review, `data.json` (#4686, #4692): its window, each fact with its source
+and section, the disagreements of the catalog and the reads of the collection.
 
-A fact holds its value, its unit, the size of its sample (`n`), the reader that gave it, the
-exact query, the time of the read and how the read ended. A fact that has no value says why in
-`reason`. The JSON Schema of `ReviewData` is the exported schema of `data.json`, and the command
-writes it beside the data as `data.schema.json`.
+A fact holds its section, its value, its unit, the size of its sample (`n`), the reader that gave
+it, the exact query, the time of the read and how the read ended. A fact that has no value says
+why in `reason`. The JSON Schema of `ReviewData` is the exported schema of `data.json`, and the
+command writes it beside the data as `data.schema.json`.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, mod
 
 from devops_cli.lang import MESSAGES
 
-SCHEMA_VERSION: Final = 1
+SCHEMA_VERSION: Final = 2
 DATA_FILENAME: Final = "data.json"
 SCHEMA_FILENAME: Final = "data.schema.json"
 
@@ -62,10 +63,16 @@ class Fact(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str = Field(description="The id of the fact, as `<source>.<name>`.")
+    section: str = Field(description="The section of the review: `changes` for a git fact.")
     value: JsonValue = Field(description="The value: a number, a mapping or a list of rows.")
     unit: str = Field(description="The unit of the value.")
     n: int | None = Field(description="The number of items that give the value, or null.")
-    source: str = Field(description="The reader: `git` or `lizard`.")
+    source: str = Field(
+        description=(
+            "The reader: `git`, `lizard`, `listing`, `github`, `github_runs`, `prometheus`, "
+            "`loki` or `openspec`."
+        )
+    )
     query: str = Field(description="The exact command or query that the reader ran.")
     definition: str = Field(description="What the value counts.")
     read_at: AwareDatetime = Field(description="The time of the read.")
@@ -79,6 +86,34 @@ class Fact(BaseModel):
         return self
 
 
+class Disagreement(BaseModel):
+    """Two facts of the catalog that must agree and do not: their relative difference is more
+    than the tolerance of the pair."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(description="The id of the pair in the catalog.")
+    left: str = Field(description="The id of the first fact.")
+    right: str = Field(description="The id of the second fact.")
+    left_value: float = Field(description="The value of the first fact.")
+    right_value: float = Field(description="The value of the second fact.")
+    difference: float = Field(description="|left - right| / max(|left|, |right|).")
+    tolerance: float = Field(description="The largest relative difference of an agreement.")
+    definition: str = Field(description="Why the two facts must agree.")
+
+
+class Collection(BaseModel):
+    """What the readers of the catalog asked for, and how long the collection took."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reads: dict[str, int] = Field(
+        default_factory=dict,
+        description="The pages or queries that each reader kind asked for; a retry is not one.",
+    )
+    seconds: float = Field(default=0.0, description="The seconds of the catalog collection.")
+
+
 class ReviewData(BaseModel):
     """The contents of `data.json`."""
 
@@ -87,7 +122,15 @@ class ReviewData(BaseModel):
     schema_version: int = Field(default=SCHEMA_VERSION, description="The version of this schema.")
     repo: str = Field(description="The repository, as owner/name.")
     window: ReviewWindow = Field(description="The window of the review.")
-    facts: list[Fact] = Field(description="The facts, in the order of their readers.")
+    facts: list[Fact] = Field(
+        description="The git facts, then the facts of the catalog in the catalog order."
+    )
+    disagreements: list[Disagreement] = Field(
+        default_factory=list, description="The pairs of facts of the catalog that disagree."
+    )
+    collection: Collection = Field(
+        default_factory=Collection, description="The reads of the catalog collection."
+    )
 
 
 def write_review(data: ReviewData, folder: Path) -> Path:

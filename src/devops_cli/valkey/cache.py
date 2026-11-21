@@ -17,24 +17,31 @@ The circuit breaker of pybreaker guards the tier:
 
 A reply error (`ValkeyCommandError`) comes from a server that answers, so it does not open the
 breaker. A command that fails is a miss or a write that does not occur, and the cache continues
-with its other tiers. pybreaker reads the time with `datetime.now`, which the `clock` fixture of
-the tests moves.
+with its other tiers. Each command that fails, and each command that the open breaker does not
+send, adds one to `devops_cli_valkey_cache_errors_total` with the command and the error (#4668).
+pybreaker reads the time with `datetime.now`, which the `clock` fixture of the tests moves.
+
+The shared tier of the project brain (#4668) uses the hash, TTL, rename and WATCH commands of the
+tier through the same breaker, so the listing snapshots and the tool facts share the cooldown of
+the embeddings and the threat-intelligence reads.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from pybreaker import (
+    STATE_OPEN,
     CircuitBreaker,
     CircuitBreakerError,
     CircuitBreakerListener,
     CircuitBreakerState,
 )
 
+from devops_cli.config.constants import ValkeyCacheError
 from devops_cli.config.defaults import (
     DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS,
     DEFAULT_VALKEY_CACHE_BREAKER_FAILURES,
@@ -42,7 +49,13 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.config.settings import get_valkey_password, load_settings
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.exceptions.valkey import ValkeyCommandError, ValkeyError
+from devops_cli.exceptions.valkey import (
+    ValkeyAuthenticationError,
+    ValkeyCommandError,
+    ValkeyError,
+    ValkeyTimeoutError,
+)
+from devops_cli.telemetry.instruments import VALKEY_CACHE_ERRORS_TOTAL, emit
 from devops_cli.valkey.client import ValkeyClient
 
 if TYPE_CHECKING:
@@ -83,24 +96,99 @@ class ValkeyCacheTier:
             throw_new_error_on_trip=False,
         )
 
+    @property
+    def is_open(self) -> bool:
+        """Whether the breaker is open: the last command failed, and the cooldown sends none.
+
+        A caller reads it after a command that gave None, to tell a miss from a failure.
+        """
+        return bool(self._breaker.current_state == STATE_OPEN)
+
     def get(self, key: str) -> str | None:
         """The string at `key`; None for a miss, an open breaker and a read that fails."""
-        value: str | None = self._send(self.client.get, key)
+        value: str | None = self._send("get", self.client.get, key)
         return value
 
-    def set(self, key: str, value: str, *, ex: int) -> None:
-        """Keep `value` at `key` for `ex` seconds; no write while the breaker is open."""
-        self._send(self.client.set, key, value, ex=ex)
+    def set(self, key: str, value: str, *, ex: int) -> bool:
+        """Keep `value` at `key` for `ex` seconds; False when the write is not sent or fails."""
+        return bool(self._send("set", self.client.set, key, value, ex=ex))
 
-    def _send(self, command: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """The reply to one command through the breaker; None when it is not sent or it fails."""
+    def hget(self, key: str, field: str) -> bytes | None:
+        """The bytes of one field of the hash at `key`; None for a miss and a failure."""
+        value: bytes | None = self._send("hget", self.client.hget, key, field)
+        return value
+
+    def hset(self, key: str, values: Mapping[str, bytes | str]) -> int | None:
+        """Set fields of the hash at `key`: the number of new fields, or None on a failure."""
+        written: int | None = self._send("hset", self.client.hset, key, values)
+        return written
+
+    def hdel(self, key: str, *fields: str) -> int | None:
+        """Remove fields of the hash at `key`: the number removed, or None on a failure."""
+        removed: int | None = self._send("hdel", self.client.hdel, key, *fields)
+        return removed
+
+    def hscan(self, key: str, cursor: int, count: int) -> tuple[int, dict[str, bytes]] | None:
+        """One step of `HSCAN` (see `ValkeyClient.hscan`), or None on a failure."""
+        step: tuple[int, dict[str, bytes]] | None = self._send(
+            "hscan", self.client.hscan, key, cursor, count
+        )
+        return step
+
+    def expire(self, key: str, seconds: int) -> bool:
+        """Expire `key` after `seconds`; False when the key is missing or the command fails."""
+        return bool(self._send("expire", self.client.expire, key, seconds))
+
+    def unlink(self, *keys: str) -> int | None:
+        """Remove keys: the number removed, or None on a failure."""
+        removed: int | None = self._send("unlink", self.client.unlink, *keys)
+        return removed
+
+    def rename(self, source: str, target: str) -> bool:
+        """Move `source` onto `target`; False when the command fails."""
+        return bool(self._send("rename", self.client.rename, source, target))
+
+    def watch_and_write(
+        self,
+        key: str,
+        field: str,
+        decide: Callable[[bytes | None], Sequence[Sequence[Any]]],
+    ) -> bool | None:
+        """One WATCH transaction (see `ValkeyClient.watch_and_write`): True when it wrote, False
+        when `decide` gave no command or another client changed `key`, None on a failure."""
+        written: bool | None = self._send("watch", self.client.watch_and_write, key, field, decide)
+        return written
+
+    def _send(self, op: str, command: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """The reply to one command through the breaker; None when it is not sent or it fails.
+
+        `op` names the command in `devops_cli_valkey_cache_errors_total`.
+        """
         try:
             return self._breaker.call(command, *args, **kwargs)
         except CircuitBreakerError:
+            _count_error(op, ValkeyCacheError.OPEN)
             return None
         except ValkeyError as exc:
             logger.debug("A command of the Valkey cache tier failed: %s", exc)
+            _count_error(op, _error_of(exc))
             return None
+
+
+def _error_of(exc: ValkeyError) -> ValkeyCacheError:
+    """The error label of a failed command."""
+    if isinstance(exc, ValkeyTimeoutError):
+        return ValkeyCacheError.TIMEOUT
+    if isinstance(exc, ValkeyAuthenticationError):
+        return ValkeyCacheError.AUTH
+    if isinstance(exc, ValkeyCommandError):
+        return ValkeyCacheError.REPLY
+    return ValkeyCacheError.CONNECTION
+
+
+def _count_error(op: str, error: ValkeyCacheError) -> None:
+    """Add one failed or unsent command to `devops_cli_valkey_cache_errors_total`."""
+    emit(VALKEY_CACHE_ERRORS_TOTAL, 1, {"op": op, "error": error.value})
 
 
 def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
@@ -143,6 +231,18 @@ def shared_cache_tier() -> ValkeyCacheTier | None:
                 _shared_tier = None
             _shared_tier_built = True
         return _shared_tier
+
+
+def install_shared_cache_tier(tier: ValkeyCacheTier | None) -> None:
+    """Make `tier` the one cache tier of the process, or turn the Valkey tier off with None.
+
+    A test installs a tier over the in-memory Valkey through this seam; `reset_shared_cache_tier`
+    removes it.
+    """
+    global _shared_tier, _shared_tier_built
+    with _SHARED_TIER_LOCK:
+        _shared_tier = tier
+        _shared_tier_built = True
 
 
 def reset_shared_cache_tier() -> None:

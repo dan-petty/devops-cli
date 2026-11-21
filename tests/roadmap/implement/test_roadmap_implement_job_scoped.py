@@ -326,8 +326,8 @@ def test_the_tests_get_the_test_modules_that_cover_the_changed_sources(
 ) -> None:
     job_world.run(two_groups())
 
-    # One run is the tick of the task, one the exit check of group 1, one the scoped check.
-    assert _count(job_world, TESTS) == 3
+    # One run is the exit check of group 1, one the scoped check: a tick runs nothing (#6559).
+    assert _count(job_world, TESTS) == 2
     assert not any("src/" in text for text in _commands(job_world) if "ci test" in text)
 
 
@@ -337,7 +337,7 @@ def test_an_ast_grep_violation_is_repaired_before_the_final_push(job_world: JobW
 
     applied = job_world.run(script)
 
-    assert (applied.ready, applied.stopped) == ((1,), ())
+    assert (applied.drafted, applied.stopped) == ((1,), ())
     assert job_world.origin_log()[-2:] == [
         "docs(openspec): archive the change (#1)",
         "fix(roadmap): Make check static pass (#1)",
@@ -463,11 +463,11 @@ def test_the_next_job_takes_the_kept_work_runs_no_group_and_runs_the_scoped_chec
     applied = job_world.run(script)
 
     status, record = _item_record(job_world)
-    assert (applied.ready, applied.stopped, status) == ((1,), (), "In Review")
+    assert (applied.drafted, applied.stopped, status) == ((1,), (), "In Review")
     assert (script.seen, record.get("implement.stopped")) == ([], None)
     assert _count(job_world, PRE_PUSH) == first_checks + 1
     assert job_world.repo.origin_git("merge-base", "--is-ancestor", kept, BRANCH) == ""
-    assert job_world.pull.ready_calls != []
+    assert job_world.pull.ready_calls == []
 
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
@@ -570,7 +570,7 @@ def test_an_edit_of_the_hook_configuration_by_the_agent_skips_no_hook(job_world:
     runs = _hook_runs(job_world)
     install = next(text for text in runs if text.startswith(INSTALL))
     trusted = install.rsplit("--config ", 1)[1]
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert len(runs) >= 4
     assert all(text.endswith(f"--config {trusted}") for text in runs)
     assert Path(trusted).read_text(encoding="utf-8") == HOOKS
@@ -669,7 +669,7 @@ def test_a_tests_check_that_runs_out_of_time_is_a_failed_check(job_world: JobWor
 
     applied = job_world.run(two_groups(*_fix(1)))
 
-    assert (applied.ready, applied.stopped) == ((1,), ())
+    assert (applied.drafted, applied.stopped) == ((1,), ())
     assert _git_push(job_world) != []
 
 
@@ -714,7 +714,7 @@ def test_a_repository_with_no_hook_configuration_gets_no_install_and_no_pre_push
     applied = job_world.run(two_groups())
 
     commands = _commands(job_world)
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert [text for text in commands if text.startswith("uv run --frozen pre-commit")] == []
     assert any(text.startswith(STATIC) for text in commands)
 
@@ -730,8 +730,8 @@ def test_a_change_that_no_test_covers_runs_no_test_and_the_comment_says_so(
     applied = job_world.run(two_groups())
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
-    assert applied.ready == (1,)
-    assert _commands(job_world).count("uv run devops ci test tests/test_shout.py") == 2
+    assert applied.drafted == (1,)
+    assert _commands(job_world).count("uv run devops ci test tests/test_shout.py") == 1
     assert (
         "- scoped check tests: not run, because no test covers the changed files"
         in (comment["body"])

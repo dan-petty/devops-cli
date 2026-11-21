@@ -191,47 +191,6 @@ def test_a_clear_by_digest_removes_the_action_left_with_the_stop(
     assert [record.get(k) for k in ("implement.stopped", "implement.left_action")] == [None, None]
 
 
-def test_a_clear_keeps_the_class_of_the_stop_with_kept_work_in_implement_continued(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """A clear removes `implement.failure`, and the class of the stop is the only record of the
-    class that the next Job continues (#3650). So the clear keeps it in `implement.continued`."""
-    number = _blocked(
-        store,
-        implement_failure="parser",
-        implement_wip='{"group": "1", "tasks": ["1.1"]}',
-    )
-    _ask_retry(store, number)
-
-    _clear(store, Template(DIGEST_B))
-
-    record = _record(store, number)
-    assert [record.get(k) for k in ("implement.continued", "implement.failure")] == ["parser", None]
-
-
-def test_a_clear_removes_implement_continued_without_kept_work_or_class(
-    store: InMemoryRoadmapStore,
-) -> None:
-    """An item with no kept work counts nothing, so the clear removes a mark of an earlier clear.
-    A class outside the taxonomy gives no count either, because the label `class` holds only the
-    taxonomy (#3650)."""
-    without_kept_work = _blocked(store, record={"implement.continued": "parser"})
-    no_class = _blocked(
-        store,
-        implement_failure="no_such_class",
-        implement_wip='{"group": "1", "tasks": ["1.1"]}',
-        record={"implement.continued": "parser"},
-    )
-    _ask_retry(store, no_class)
-
-    _clear(store, Template(DIGEST_B))
-
-    assert [
-        _record(store, without_kept_work).get("implement.continued"),
-        _record(store, no_class).get("implement.continued"),
-    ] == [None, None]
-
-
 def test_a_clear_keeps_the_conflicted_files_for_the_next_job(store: InMemoryRoadmapStore) -> None:
     number = _blocked(store, implement_conflict='["docs/a.md"]')
 

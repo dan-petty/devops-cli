@@ -65,6 +65,8 @@ from devops_cli.roadmap.stores.store import (
     Change,
     ChangeKind,
     GitHubState,
+    ImplementRecordKey,
+    ImplementResult,
     Item,
     ItemField,
     RoadmapStore,
@@ -632,6 +634,28 @@ def _phase_age_metric(
     return ItemAgeMetric(phase=phase_name, number=number, age_seconds=age_seconds)
 
 
+def _drafted_pulls(store: RoadmapStore, items: Iterable[Item]) -> dict[int, PullStatus] | None:
+    """The draft state of the pull request of each drafted delivery in `items`, by its number
+    (#6559). The record cannot say whether such a pull request is still a draft: the watch row or
+    the plan path marks it ready, and the review step makes it a draft again. One listing of the
+    open pull requests gives all of them, and with no drafted delivery the round reads nothing. A
+    pull request that is not open gives no state, so its item keeps the phase of its record."""
+    wanted: set[int] = set()
+    for item in items:
+        pull = item.job_record.get(ImplementRecordKey.PR) or ""
+        if item.job_record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED and (
+            pull.isdecimal()
+        ):
+            wanted.add(int(pull))
+    if not wanted:
+        return None
+    return {
+        listed.number: PullStatus(state="open", draft=listed.draft)
+        for listed in store.open_pulls()
+        if listed.number in wanted
+    }
+
+
 def get_item_age_metrics(
     store: RoadmapStore,
     repo: str,
@@ -654,9 +678,14 @@ def get_item_age_metrics(
     Item in that file, reads no label events of an Item whose entry holds its current `updated_at`,
     and reads the label events of at most `_MAX_ITEM_AGE_READS_PER_ROUND` Items (#3634). With no
     path it reads every Item and keeps no record.
+
+    With no `pulls`, the round reads the draft state of each drafted delivery from one listing of
+    the open pull requests (`_drafted_pulls`, #6559).
     """
     now = clock()
     items = [item for item in store.items() if item.state is GitHubState.OPEN]
+    if pulls is None:
+        pulls = _drafted_pulls(store, items)
     held = read_item_label_times(label_times_record) if label_times_record is not None else None
     times, record = _label_times(store, items, held)
     hours = (

@@ -62,7 +62,7 @@ class DueStep(StrEnum):
 
     READY = "ready"
     COMMENT_CONFLICT = "comment_conflict"
-    COMMENT_CI_INFRA = "comment_ci_infra"
+    STOP = "stop"
     FIX_CHECKS = "fix_checks"
     STATUS_SYNC = "status_sync"
     CLEANUP = "cleanup"
@@ -114,6 +114,15 @@ class WatchState:
     is_plan: bool = False
     has_live_unit: bool = False
     labels: tuple[str, ...] = ()
+    # The hand-off of a delivery draft (#6559): the pull request is the draft of `implement.pr`
+    # that the ready path takes (`takes_ready_path`), with no owner label; mode `on` lets a
+    # fix-checks unit repair; the checks of the head whose unit ended with no repair; and the
+    # pull request is the `implement.pr` of an item that holds a stop, which a person owns until
+    # `implement: retry`.
+    delivery: bool = False
+    repairs: bool = False
+    ended_checks: frozenset[str] = frozenset()
+    stopped: bool = False
 
     @property
     def bot(self) -> bool:
@@ -193,6 +202,32 @@ def fix_checks_check(state: WatchState) -> str | None:
     if classify_failure(FailureEvidence(check=first.name)) not in FIX_CHECK_CLASSES:
         return None
     return first.name
+
+
+def repair_owner(state: WatchState) -> str | None:
+    """The check of a delivery draft that a fix-checks unit owns (#6559): the check that
+    `fix_checks_check` names, when mode `on` lets a unit repair (`repairs`) and the unit of the
+    head and the check has not ended with no repair (`ended_checks`). None when no unit owns a
+    failed check: then no actor takes the draft."""
+    check = fix_checks_check(state)
+    if check is None or not state.repairs or check in state.ended_checks:
+        return None
+    return check
+
+
+def unrepaired_check(state: WatchState) -> str | None:
+    """The check of a delivery draft that no actor repairs (#6559): the check that
+    `fix_checks_check` names when no unit owns it (`repair_owner`), else the first failed or
+    cancelled check (`_first_failure`). None when no check failed or was cancelled, when a unit
+    owns the check, or when GitHub could not say how the checks ended: a later read may say."""
+    if isinstance(state.checks, CheckVerdictSummary) and state.checks.unread_reason:
+        return None
+    if repair_owner(state) is not None:
+        return None
+    if (named := fix_checks_check(state)) is not None:
+        return named
+    ended = [c for c in _check_items(state) if c.bucket in (CheckBucket.FAIL, CheckBucket.CANCEL)]
+    return _first_failure(ended).name if ended else None
 
 
 def _checks_verdict(state: WatchState) -> WatchVerdict:
@@ -278,6 +313,21 @@ def ready_held(labels: Sequence[str]) -> bool:
     return any(name in VERDICT_LABEL_NAMES and name != _MERGEABLE_LABEL for name in labels)
 
 
+def _failed_steps(state: WatchState) -> tuple[DueStep, ...]:
+    """The due step of a bot pull request with a failed check. A delivery draft gets `fix_checks`
+    only when a unit owns the check (`repair_owner`), else `stop`: no actor takes the draft
+    (#6559). The pull request of a stopped item gets neither: a person owns it, and the ready path
+    leaves it too. Another bot pull request gets `fix_checks` for the check that
+    `fix_checks_check` names (#5027)."""
+    if state.stopped:
+        return ()
+    if state.delivery:
+        if repair_owner(state) is not None:
+            return (DueStep.FIX_CHECKS,)
+        return (DueStep.STOP,) if unrepaired_check(state) is not None else ()
+    return (DueStep.FIX_CHECKS,) if fix_checks_check(state) is not None else ()
+
+
 def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     """One pure function gives the due steps for a pull request (ADR 0021, section 8; #5024).
 
@@ -286,9 +336,11 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     - Skip-ci: no verdict (returns ())
     - READY: `ready` step for bot PRs, unless a verdict label other than `verdict/mergeable`
       holds it (#6024); nothing for person PRs
-    - CONFLICT: `comment_conflict` for person PRs; nothing for bot PRs (writes no due mark)
-    - FAILED: `comment_ci_infra` for bot PRs with CI_INFRA; `fix_checks` for bot PRs whose failed
-      check `fix_checks_check` names (#5027); nothing for person PRs
+    - CONFLICT: `comment_conflict` for person PRs; `stop` for a delivery draft (#6559); nothing
+      for another bot PR
+    - FAILED: for a delivery draft, `fix_checks` when a unit owns the check (`repair_owner`),
+      else `stop` (#6559); nothing for the pull request of a stopped item (#6559); for another
+      bot PR, `fix_checks` when `fix_checks_check` names a check (#5027); nothing for person PRs
     - MERGED / CLOSED: `status_sync` (plus `cleanup` for bot plan PRs)
     - PENDING / BEHIND / THREADS / HEAD_MOVED: ()
     """
@@ -305,14 +357,12 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
         return (DueStep.READY,) if is_bot and not ready_held(state.labels) else ()
 
     if v.verdict is PRVerdict.CONFLICT:
-        return () if is_bot else (DueStep.COMMENT_CONFLICT,)
+        if not is_bot:
+            return (DueStep.COMMENT_CONFLICT,)
+        return (DueStep.STOP,) if state.delivery else ()
 
     if v.verdict is PRVerdict.FAILED:
-        if not is_bot:
-            return ()
-        if v.failure_class == FailureClass.CI_INFRA:
-            return (DueStep.COMMENT_CI_INFRA,)
-        return (DueStep.FIX_CHECKS,) if fix_checks_check(state) is not None else ()
+        return _failed_steps(state) if is_bot else ()
 
     if v.verdict in (PRVerdict.MERGED, PRVerdict.CLOSED):
         if is_bot and state.is_plan:

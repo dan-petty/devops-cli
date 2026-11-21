@@ -12,7 +12,9 @@ import pytest
 
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_data_path
+from devops_cli.roadmap.project_review.catalog import load_catalog
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 
 VERSION = "v1.0.0..v1.1.1"
@@ -53,6 +55,27 @@ def test_a_dry_run_of_a_week_lists_the_commits_before_each_time(
     assert "--before=@1791158400" in result.stdout
 
 
+@pytest.mark.usefixtures("refuse_requests")
+def test_a_dry_run_of_seven_days_lists_each_fact_of_the_catalog_and_sends_no_request(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """The plan lists each fact id with its reader kind and its rendered query (#4692)."""
+    result = cli(
+        "roadmap", "review", "run", "--last", "7d", "--repo", "example/project", "--dry-run"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    missing = [
+        fact.id
+        for fact in load_catalog().facts
+        if f"{fact.reader} {fact.id}: " not in result.stdout
+    ]
+    assert missing == []
+    assert "{repo}" not in result.stdout
+    assert "{range}" not in result.stdout
+
+
 def test_two_windows_are_refused_before_any_read(
     cli: Callable[..., Any], process_fake: ProcessFake
 ) -> None:
@@ -64,7 +87,7 @@ def test_two_windows_are_refused_before_any_read(
 
 
 def test_a_run_writes_data_json_under_the_data_directory_and_prints_it(
-    cli: Callable[..., Any], checkout: Path
+    cli: Callable[..., Any], checkout: Path, github_api: GitHubApiFake
 ) -> None:
     result = cli("roadmap", "review", "run", "--version", VERSION, "--json")
 
@@ -87,11 +110,13 @@ def test_a_run_writes_data_json_under_the_data_directory_and_prints_it(
         "git.release_tags",
         "git.hotspots",
         "lizard.complexity",
+        *(fact.id for fact in load_catalog().facts),
     ]
+    assert all(fact["reason"] for fact in written["facts"] if fact["status"] != "ok")
 
 
 def test_a_run_prints_the_window_and_one_line_for_each_fact(
-    cli: Callable[..., Any], checkout: Path, tmp_path: Path
+    cli: Callable[..., Any], checkout: Path, tmp_path: Path, github_api: GitHubApiFake
 ) -> None:
     result = cli("roadmap", "review", "run", "--version", VERSION, "--out", str(tmp_path / "out"))
 

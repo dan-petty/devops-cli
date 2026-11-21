@@ -2827,13 +2827,12 @@ class RoadmapMessages:
     explain_effort_applies: str = "applies"
     explain_effort_not_applies: str = "does not apply"
     explain_effort_explicit: str = "The filter names effort, so the effort set does not apply."
-    # The state of a stop in the report (#3648): the step, the class, the attempts, the work that
-    # the stop kept and the action that is left.
+    # The state of a stop in the report (#3648): the step, the class, the attempts and the action
+    # that is left.
     explain_stop_step: str = "Stop: step {step}."
     explain_stop_class: str = "Stop class: {failure_class}."
     explain_stop_no_class: str = "Stop class: none is recorded."
     explain_stop_attempts: str = "Stop attempts: {count}."
-    explain_stop_kept: str = "Stop kept work: {group}, {done} of {total} tasks."
     explain_stop_action: str = "Stop action left: `{action}`."
     explain_stop_no_action: str = "Stop action left: none is recorded."
     # The report of `devops roadmap explain --trace` (#3032).
@@ -3347,15 +3346,6 @@ class RoadmapMessages:
         "The plan does not name {paths}, but the change of the plan causes their failure. You "
         "can change them too."
     )
-    implement_wip_commit: str = (
-        "{prefix} {done} of {total} tasks of group {group}, {title} (#{item})"
-    )
-    implement_wip_push_failed: str = "The push of the work in progress failed: {output}"
-    implement_stop_kept: str = (
-        "\n\nThe job kept {count} work-in-progress {commits} on the branch `{branch}` on origin. "
-        "The last is `{sha}`. The job discarded only the work after it. The next run continues "
-        "from it and does the tasks that are not ticked."
-    )
     implement_stop_kept_branch: str = (
         "\n\nThe job kept the commits that passed on the branch `{branch}` on origin. The last is "
         "`{sha}`. The pull request stays a draft. The next run continues from it, runs no group "
@@ -3550,12 +3540,6 @@ class RoadmapMessages:
         "The fix step changed paths that the plan does not name: {paths}. A fix step may change "
         "only the paths that the plan names and the files of the change folder. The cause of the "
         "failed check may lie in another path. A person decides how to change the plan."
-    )
-    implement_stop_check_outside_scope: str = (
-        "The check {check} failed, and its log names no path of the repair scope. A fix turn may "
-        "change only the paths that the plan names and the files of the change folder, so the job "
-        "made no model request. The repair scope is: {scope}. A person decides how to fix the "
-        "check."
     )
     implement_stop_test_outside_changes: str = (
         "The test `{test}` failed on `{path}`, which is outside the `Changes:` list of the group. "
@@ -3836,7 +3820,9 @@ class RoadmapMessages:
         "Item #{number} has the Status {status}. A runner Job takes an item that is Ready or "
         "Planned."
     )
-    implement_job_applied: str = "Took {ready} item(s) to a ready pull request, stopped {stopped}."
+    implement_job_applied: str = (
+        "Took {drafted} item(s) to a draft pull request, stopped {stopped}."
+    )
     implement_job_yielded: str = "Left {yielded} item(s) to the owner that claimed them."
     implement_round_left: str = "Left #{number}: an agent or a person claimed it since the plan."
     implement_round_needs_fix: str = (
@@ -3867,7 +3853,6 @@ class RoadmapMessages:
             "hooks": "hooks",
             "scoped": "scoped checks",
             "pull_request": "pull request",
-            "checks": "checks",
             "ready": "ready",
             "commit": "commit",
         }
@@ -3895,17 +3880,8 @@ class RoadmapMessages:
     implement_stop_abort_failed: str = "\nThe abort of the rebase failed too.\n{output}"
     implement_stop_program_failed: str = "{command} exited with status {status}.\n{output}"
     implement_stop_program_timeout: str = "{command} ran out of time after {seconds} s."
-    implement_stop_checks_timeout: str = (
-        "The checks of the pull request did not finish in {seconds} s."
-    )
-    implement_stop_old_head: str = (
-        "GitHub did not show the commit {head} as the head of the pull request."
-    )
     implement_stop_check_failed: str = "The check {name} failed."
     implement_stop_checks_unread: str = "GitHub could not say whether the checks passed."
-    implement_stop_threads: str = "The pull request has {count} unresolved review thread(s)."
-    implement_stop_conflict: str = "The pull request has a merge conflict with the default branch."
-    implement_stop_merged: str = "The pull request was merged or closed while the job ran."
     implement_stop_ready_failed: str = "`gh pr ready` failed.\n{output}"
     implement_stop_error: str = "{error}: {message}"
     implement_stop_withdraw_failed: str = (
@@ -3923,6 +3899,18 @@ class RoadmapMessages:
         "allow it.{note}"
     )
     implement_comment_check: str = "Failed check: `{name}`.\n\n"
+    watch_stop_comment: str = (
+        "{marker}\nStopped at {step}.\n\n{failure}\n\nReason:\n\n{reason}\n\nThe item is "
+        "Blocked: the implement Job ended at the draft, and no fix-checks Job takes this case. Fix "
+        "the cause. Then comment `implement: retry`."
+    )
+    watch_stop_check: str = (
+        "The check `{check}` of the draft pull request #{pull} failed or was cancelled, and no "
+        "fix-checks Job repairs it."
+    )
+    watch_stop_conflict: str = (
+        "The draft pull request #{pull} has a merge conflict with the base branch `{base}`."
+    )
     implement_comment_check_log: str = (
         "Failed check: `{name}`. The end of its log:\n\n{fence}\n{log}\n{fence}\n\n"
     )
@@ -4029,7 +4017,12 @@ class RoadmapMessages:
         "over a limit wait for a comment `implement: retry`."
     )
     implement_comment_finished: str = (
-        "{marker}\nPull request #{pull} is ready for review. The checks passed.\n\n"
+        "{marker}\nThe draft pull request #{pull} holds the final title and body. In mode "
+        "`on` of `roadmap.fix_checks.mode`, the watch row marks it ready when its checks pass, "
+        "and a fix-checks Job repairs a failed check whose name gives the class test, lint or "
+        "types. In each other case the watch row stops the item: another failed check, a "
+        "cancelled check, a conflict, a fix-checks Job that ended with no repair, or another "
+        "mode.\n\n"
         "Spend: {requests} model requests, {input_tokens} input tokens, {output_tokens} output "
         "tokens.{extensions}"
     )
@@ -4041,9 +4034,6 @@ class RoadmapMessages:
     # holds the stop report, once (#6194).
     implement_pull_comment_stopped: str = (
         "Stopped at {step}. The stop report is on #{issue}: {url}."
-    )
-    implement_watch_progress: str = (
-        "The checks of pull request #{pull} still run after {seconds} s."
     )
     implement_table_header: str = (
         "| Step | Status | Attempts | Tokens in/out | Last failing command |\n"
@@ -5052,10 +5042,6 @@ class RoadmapMessages:
             "pull_comment": "comment the outcome of each step on the pull request",
             "pull_comment_stopped": "link the stop comment on the item from the comment of the "
             "run on the pull request",
-            "run_log": "read the log of the failed check",
-            "model_fix": "the implement model fixes the failed check, once",
-            "watch": "read the pull request and its checks until they settle",
-            "ready": "mark the pull request ready for review",
             "remove_worktree": "remove the worktree and the local branch",
         }
     )
@@ -5068,9 +5054,7 @@ class RoadmapMessages:
             "staged": "the item is Staged: its branch is on origin",
             "clear_stop": "a retry comment clears the stop",
             "docs_commit": "the documentation changes",
-            "run_log": "a check fails",
-            "model_fix": "a check fails, for the first time",
-            "ready": "the checks pass",
+            "drafted": "the run sets the title and the body of the draft pull request",
             "amend": "a step asks for an amendment",
             "split": "the inputs of a group measure more than the limit of the step",
             "return": "a step finds the premise false",
@@ -5990,6 +5974,7 @@ class RoadmapMessages:
             "file": "{path} at {ref}",
             "milestones": "every milestone",
             "check_runs": "the check runs of the head commit of an open draft of a job",
+            "delivery_pull": "the pull request of `implement.pr`, whose draft state gives the phase",
             "issues": "the issues ({query})",
             "comments": "the comments on {subject}",
             "issue": "{subject}",
@@ -6063,6 +6048,9 @@ class RoadmapMessages:
             ),
             "repeat_refused": "the store refuses the comment of refine as a repeat",
             "job_drafts": "the pull request is an open draft of a job",
+            "drafted_delivery": (
+                "the record holds `implement.result` equal to `drafted` and `implement.pr`"
+            ),
             "check_on": "the repository is public and a search provider is configured",
             "item_not_skip_class": "the item is no skip class",
             "check_changed": (
@@ -6675,6 +6663,9 @@ class RoadmapMessages:
     grades_all_attempts: str = (
         "  All attempts: {attempts}, success ratio {ratio}, infrastructure cuts {infra}."
     )
+    grades_drafts_pending: str = (
+        "  Drafted attempts whose delivery is still a draft, out of the attempts: {drafts}."
+    )
     grades_version: str = "  Version {version}: {successes} of {attempts}, p {ratio} {interval}."
     grades_efficiency: str = (
         "  Efficiency ({work}): tokens per attempt median {tokens_p50}, p90 {tokens_p90}, max "
@@ -6913,9 +6904,15 @@ class RoadmapMessages:
     review_no_previous: str = "none"
     review_wrote: str = "Wrote {path} and its JSON Schema."
     review_plan_heading: str = (
-        "The review of {window} reads the checkout {checkout}. A run starts these git commands, "
-        "and makes no network request:"
+        "The review of {window} reads the checkout {checkout}. A run starts these commands and "
+        "sends these reads, in order:"
     )
+    review_disagreement_line: str = (
+        "Disagreement {id}: {left} {left_value:g} and {right} {right_value:g} differ by "
+        "{difference:.0%}, more than {tolerance:.0%}."
+    )
+    review_collection_line: str = "Catalog reads: {reads}, in {seconds:g} s."
+    review_no_reads: str = "none"
     review_plan_each_file: str = "for each of the hottest files that lizard reads"
     review_placeholders: dict[str, str] = field(
         default_factory=lambda: {
@@ -6923,6 +6920,13 @@ class RoadmapMessages:
             "head": "<head commit>",
             "ref": "<default branch>",
             "path": "<path>",
+            "start": "<start time>",
+            "end": "<end time>",
+            "range": "<window length>",
+            "repo": "<owner/name>",
+            "name_slug": "<slug of the name>",
+            "watermark": "<watermark of the snapshot>",
+            "change": "<archived change>",
         }
     )
     review_fact_definitions: dict[str, str] = field(
@@ -6957,6 +6961,63 @@ class RoadmapMessages:
                 "that the commit does not hold."
             ),
         }
+    )
+    review_unset_setting: str = "The setting {setting} has no value."
+    review_other_window: str = (
+        "The window is a {kind} window, and the fact needs a {needed} window."
+    )
+    review_no_path: str = "The checkout holds no {path}."
+    review_past_retention: str = (
+        "The source keeps {days} days: the window starts at {start}, before {limit}."
+    )
+    review_no_series: str = "No series matched the query."
+    review_no_base_series: str = (
+        "No series matched the query, and the metric {base} has no series in the window."
+    )
+    review_many_series: str = "The scalar query gave {count} series, not one."
+    review_not_number: str = "The sample is not a finite number."
+    review_no_value: str = "The value program gave no value."
+    review_plan_condition: dict[str, str] = field(
+        default_factory=lambda: {
+            "setting": "{name} is set",
+            "window": "the window is a {name} window",
+            "path": "the checkout holds {name}",
+        }
+    )
+    review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
+    review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
+    review_plan_each_change: str = "for each archived change that holds specs/"
+    review_plan_each_slice: str = (
+        "for each created slice, split in halves while a slice reaches 1,000 runs"
+    )
+    review_plan_probe: str = "the answer of {fact} has no series"
+    review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
+    review_catalog_unscoped_metric: str = (
+        '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '
+        "own braces, so its value adds the repositories together."
+    )
+    review_catalog_fact: str = "the fact {id}"
+    review_catalog_fact_index: str = "fact {index}"
+    review_catalog_root: str = "the catalog"
+    review_catalog_missing: str = "{subject} has no `{field}`."
+    review_catalog_unknown_field: str = (
+        "{subject} has the field `{field}`, which the schema does not name."
+    )
+    review_catalog_bad_field: str = "{subject} has a `{field}` that the schema refuses. {rule}"
+    review_catalog_see_schema: str = "See catalog.schema.json."
+    review_catalog_bad_program: str = "{subject} has a `{field}` that jq cannot compile: {error}"
+    review_catalog_duplicate: str = "two facts have the id of {subject}."
+    review_catalog_unknown_section: str = (
+        "{subject} names the section {section}, which `sections` does not list."
+    )
+    review_openspec_not_json: str = "openspec show {change} printed no JSON: {text}"
+    review_page_not_a_list: str = "A page of {path} holds no list of entries."
+    review_runs_at_cap: str = (
+        "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
+        "review cannot read each run."
+    )
+    review_catalog_unknown_fact: str = (
+        "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )
 
 

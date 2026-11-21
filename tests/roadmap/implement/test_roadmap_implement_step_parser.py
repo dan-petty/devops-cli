@@ -23,12 +23,9 @@ from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus,
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
-    SHOUT_CODE,
     TASKS,
-    TASKS_PATH,
     TEST_BODY,
     WINDOW,
-    git,
     write_call,
 )
 from tests.support.model_script import InStream, ModelScript, say, tool_calls
@@ -96,28 +93,6 @@ def test_a_second_parser_failure_stops_the_step_with_class_parser_and_no_third_s
     assert (outcome.status, outcome.failure_class) == (StepStatus.STOPPED, FailureClass.PARSER)
     assert len(script.seen) == 3
     assert XML_ERROR in outcome.reason
-
-
-def test_the_ticked_task_of_a_step_stays_as_a_wip_commit_after_two_parser_failures(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """The step stops on the second parser failure, and the task that passed its verification
-    before the failure stays in the branch."""
-    start = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(
-        tool_calls(TEST_FILE),
-        tool_calls(write_call(TASKS_PATH, TICK_FIRST)),
-        tool_calls(write_call("src/sample.py", SHOUT_CODE)),
-        _fails_with(XML_ERROR),
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert outcome.status is StepStatus.STOPPED
-    assert git(checkout, "log", "--format=%s", f"{start}..HEAD") == (
-        "wip: 1 of 2 tasks of group 1, The first group (#1)"
-    )
-    assert git(checkout, "show", "HEAD:tests/test_sample.py") == TEST_BODY.strip()
 
 
 def test_a_new_tier_gets_its_own_smaller_edit_request_after_a_parser_stop(

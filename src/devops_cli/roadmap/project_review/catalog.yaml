@@ -1,0 +1,879 @@
+# yaml-language-server: $schema=catalog.schema.json
+# The fact catalog of the project review (#4692). Each fact is data: a new fact needs no code.
+# catalog.schema.json defines the form; catalog.py loads and validates it. A query names its
+# window with {start}, {end}, {range}, {base}, {head}, {repo} and {name_slug} (the slug of the
+# repository name in the Job names of the Service); a jq program reads $start and $end (Unix
+# seconds) and $repo. A query gives no host name: no grouping by node or instance.
+# A listing fact counts only issues and pull requests that changed at or after the window start:
+# with no listing snapshot, the reader reads only those.
+# A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:
+# an empty answer is none only when that metric has a series in the window.
+# "SRE Qn" is query n of the Queries of docs/SRE.md at 6eae4980 (#5567 removed the file):
+# https://github.com/dan-petty/devops-cli/blob/6eae498088b2ff86a06883638e50b1a4fe3ad11a/docs/SRE.md#queries
+# "Kubernetes Qn" is query n of the Queries of docs/K8S_PERFORMANCE.md of PR #5492 at d0f6e42d:
+# https://github.com/dan-petty/devops-cli/blob/d0f6e42d117badb5f5b68d47eb25a74e33f01609/docs/K8S_PERFORMANCE.md#queries
+version: 1
+sections:
+  - {id: activity, title: Activity}
+  - {id: openspec, title: OpenSpec}
+  - {id: service, title: Roadmap Service}
+  - {id: alerts, title: Alerts and Argo CD}
+  - {id: kubernetes, title: Kubernetes}
+  - {id: agentic_jobs, title: Agentic jobs}
+  - {id: dependencies, title: Dependency updates}
+  - {id: spend, title: Spend}
+readers:
+  prometheus: {retention: 30d, requires: ["setting:prometheus.url"]}
+  loki: {retention: 30d, requires: ["setting:loki.url"]}
+  github_runs: {retention: 90d}
+  openspec: {requires: ["path:openspec/specs"]}
+facts:
+  # ── Activity ──────────────────────────────────────────────────────────────
+  - id: listing.issues_opened
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select((.pull_request | not) and (.created_at | inwin))] | length
+    unit: issues
+    definition: The issues opened after the start up to the end. Pull requests are not issues.
+  - id: listing.issues_closed
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select((.pull_request | not) and (.closed_at | inwin))]
+      | group_by(.state_reason // "none") | map({key: (.[0].state_reason // "none"), value: length})
+      | from_entries
+    n: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select((.pull_request | not) and (.closed_at | inwin))] | length
+    unit: issues
+    definition: >-
+      The issues closed after the start up to the end, for each reason of the close
+      (completed, not_planned, duplicate). n is the sum.
+  - id: listing.pulls_merged
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and (.merged_at | inwin))] | length
+    unit: pull requests
+    definition: The pull requests merged after the start up to the end, from pull_request.merged_at.
+  - id: listing.lead_time_median
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and (.merged_at | inwin))
+        | ((.merged_at | fromdateiso8601) - (.created_at | fromdateiso8601)) / 60]
+      | sort
+      | if length == 0 then empty
+        elif length % 2 == 1 then .[(length - 1) / 2]
+        else (.[length / 2 - 1] + .[length / 2]) / 2 end
+    n: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and (.merged_at | inwin))] | length
+    unit: min
+    definition: >-
+      The median time from the open to the merge of the pull requests merged in the window.
+      n is the number of those pull requests.
+  - id: listing.alternatives_last_checked
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.job_record["alternatives.checked_at"]
+        | if . == null then false else (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | inwin) end)]
+      | length
+    unit: issues
+    definition: >-
+      The issues whose latest alternatives check (the record field alternatives.checked_at) is in
+      the window. This is not the count of checks: a later check moves the field out of an older
+      window. loki.alternatives_checks counts each check.
+  - id: github.releases
+    reader: github
+    section: activity
+    query: repos/{repo}/releases
+    newest_first: created_at
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select((.draft | not) and (.created_at | inwin))] | length
+    unit: releases
+    definition: The GitHub releases created after the start up to the end, drafts left out.
+  - id: github_runs.main_push_runs
+    reader: github_runs
+    section: activity
+    query: repos/{repo}/actions/runs?branch=main&event=push
+    value: >-
+      .workflow_runs | group_by(.conclusion // "none")
+      | map({key: (.[0].conclusion // "none"), value: length}) | from_entries
+    n: .total_count
+    unit: runs
+    definition: >-
+      The Actions runs of the push events on main created in the window, for each conclusion.
+      n is the sum. The reader splits the window while a slice reaches 1,000 runs.
+  - id: github.code_scanning_opened
+    reader: github
+    section: activity
+    query: repos/{repo}/code-scanning/alerts?sort=created&direction=desc
+    newest_first: created_at
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.created_at | inwin)] | group_by(.state)
+      | map({key: .[0].state, value: length}) | from_entries
+    n: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.created_at | inwin)] | length
+    unit: alerts
+    definition: >-
+      The code-scanning alerts created in the window, for each state that they have now.
+      n is the sum.
+  - id: github.code_scanning_fixed
+    reader: github
+    section: activity
+    query: repos/{repo}/code-scanning/alerts?state=fixed&sort=updated&direction=desc
+    newest_first: updated_at
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.fixed_at | inwin)] | length
+    unit: alerts
+    definition: The code-scanning alerts fixed after the start up to the end.
+  # ── OpenSpec ──────────────────────────────────────────────────────────────
+  - id: openspec.deltas
+    reader: openspec
+    section: openspec
+    query: openspec show <change> --json --deltas-only for each change archived in {base}..{head}
+    value: >-
+      [.changes[].deltas[].operation] | group_by(.) | map({key: .[0], value: length})
+      | from_entries
+    n: .changes | length
+    unit: requirements
+    definition: >-
+      The requirement deltas of the changes archived in the window, for each operation
+      (ADDED, MODIFIED, REMOVED, RENAMED). n is the number of changes with specs that openspec
+      showed; openspec.unread_changes lists the others.
+  - id: openspec.unread_changes
+    reader: openspec
+    section: openspec
+    query: openspec show <change> --json --deltas-only for each change archived in {base}..{head}
+    value: '[.unread[].id]'
+    n: .unread | length
+    unit: changes
+    definition: >-
+      The archived changes of the window that openspec show refused, such as a proposal with no
+      Why section. Their deltas are not in openspec.deltas.
+  - id: openspec.requirements
+    reader: openspec
+    section: openspec
+    query: git grep -c '^### Requirement:' {base} {head} -- openspec/specs
+    value: .requirements
+    unit: requirements
+    definition: The requirements of openspec/specs at the base and at the head.
+  # ── Roadmap Service ───────────────────────────────────────────────────────
+  - id: prometheus.service_slo1
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      repo="{repo}", result="success"}[{range}])) / sum(increase(devops_cli_service_jobs_total{
+      job="roadmap-service", container="service", repo="{repo}", result=~"success|error"}[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: >-
+      SLO 1 (SRE Q1) of the repository, all rows: the rounds of the Service rows that ended with
+      success over the rounds that ended. A round of a row that starts Jobs, such as stage since
+      #5559, counts its own end, not the end of its Jobs.
+  - id: prometheus.service_rows_below_objective
+    reader: prometheus
+    section: service
+    query: >-
+      sort((sum by (row) (increase(devops_cli_service_jobs_total{job="roadmap-service",
+      container="service", repo="{repo}", result="success"}[{range}])) / sum by (row)
+      (increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      repo="{repo}", result=~"success|error"}[{range}]))) < 0.99)
+    shape: rows
+    base: 'devops_cli_service_jobs_total{job="roadmap-service", container="service", repo="{repo}"}'
+    unit: ratio
+    definition: SLO 1 (SRE Q2) for each row of the repository below the objective 0.99, by rounds.
+  - id: prometheus.stage_successes
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      row="stage", repo="{repo}", result="success"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage", repo="{repo}"}'
+    unit: rounds
+    definition: >-
+      The rounds of the stage row of the repository that ended with success. Since #5559
+      (2026-11-13) a round submits and recovers the stage Jobs and plans no item, so it does not
+      count the outcome of an item: prometheus.stage_item_results does.
+  - id: prometheus.stage_errors
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      row="stage", repo="{repo}", result="error"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage", repo="{repo}"}'
+    unit: rounds
+    definition: >-
+      The rounds of the stage row of the repository that ended with an error. Since #5559
+      (2026-11-13) a round does not plan, see prometheus.stage_successes.
+  - id: prometheus.stage_sli
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      row="stage", repo="{repo}", result="success"}[{range}])) / sum(increase(
+      devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage",
+      repo="{repo}", result=~"success|error"}[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: >-
+      SLO 1 of the stage row of the repository alone, by rounds. A sum over the repositories is
+      not the SLI of one repository. Since #5559 (2026-11-13) a round does not plan, so the value
+      tells whether the round of the Service works, not whether the items were staged.
+  - id: prometheus.stage_peak_hour
+    reader: prometheus
+    section: service
+    query: >-
+      max_over_time((sum(increase(devops_cli_service_jobs_total{job="roadmap-service",
+      container="service", row="stage", repo="{repo}", result=~"success|error"}[1h])))[{range}:5m])
+    shape: scalar
+    base: 'devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage", repo="{repo}"}'
+    unit: rounds
+    definition: The most stage rounds of the repository in 1 hour, with a step of 5 minutes (SRE Q16).
+  - id: prometheus.stage_item_results
+    reader: prometheus
+    section: service
+    query: >-
+      sum by (result) (increase(devops_cli_roadmap_stage_total{repo="{repo}",
+      result!="skipped"}[{range}]))
+    shape: rows
+    base: 'devops_cli_roadmap_stage_total{repo="{repo}"}'
+    unit: items
+    definition: >-
+      The stage items of the repository that ended, by result (staged, needs_split, failed,
+      degenerate). A stage round of the Service counted them before #5559 (2026-11-13), and the
+      stage Job of the item counts them since, so the counter keeps one meaning across that date.
+  - id: prometheus.stage_jobs
+    reader: prometheus
+    section: service
+    query: >-
+      sum by (result) (increase(devops_cli_service_stage_jobs_total{job="roadmap-service",
+      container="service", repo="{repo}"}[{range}]))
+    shape: rows
+    base: 'devops_cli_service_stage_jobs_total{job="roadmap-service", container="service", repo="{repo}"}'
+    unit: jobs
+    definition: >-
+      The stage Jobs of the repository that the stage row created or found, and those that it
+      recovered after an end with no check-in, by result (#5559).
+  - id: prometheus.alternatives_rounds
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
+      row="alternatives", repo="{repo}", result="success"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_jobs_total{job="roadmap-service", container="service", row="alternatives", repo="{repo}"}'
+    unit: rounds
+    definition: >-
+      The rounds of the alternatives row of the repository that ended with success. One round
+      checks many items or none, so this is not the count of checks: loki.alternatives_checks is.
+  - id: prometheus.runner_jobs_slo2
+    reader: prometheus
+    section: service
+    query: >-
+      count(max_over_time(kube_job_status_completion_time{namespace="devops",
+      job_name=~"devops-cli-(implement|runner)-.+"}[{range}]) - max_over_time(
+      kube_job_status_start_time{namespace="devops",
+      job_name=~"devops-cli-(implement|runner)-.+"}[{range}]) < 3600) /
+      count(max_over_time(kube_job_status_completion_time{namespace="devops",
+      job_name=~"devops-cli-(implement|runner)-.+"}[{range}]) - max_over_time(
+      kube_job_status_start_time{namespace="devops",
+      job_name=~"devops-cli-(implement|runner)-.+"}[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: >-
+      SLO 2 (SRE Q3) of all repositories. The runner Jobs that ended within 3,600 s over the
+      runner Jobs that ended. A runner Job is devops-cli-implement-* (the Service since #5739,
+      2026-11-14) or devops-cli-runner-* (the runner template, and the Service before #5739).
+  - id: prometheus.gateway_availability
+    reader: prometheus
+    section: service
+    query: >-
+      1 - sum(increase(litellm_proxy_failed_requests_metric_total[{range}])) /
+      sum(increase(litellm_proxy_total_requests_metric_total[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: SLO 3 (SRE Q4). The gateway requests that did not fail.
+  - id: prometheus.gateway_latency
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[{range}])) /
+      sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: SLO 4 (SRE Q5). The gateway requests that ended within 60 s.
+  - id: prometheus.ingress_codes
+    reader: prometheus
+    section: service
+    query: >-
+      sum by (code_class) (label_replace(increase(traefik_service_requests_total{
+      service=~"devops-roadmap-service.*"}[{range}]), "code_class", "${1}xx", "code", "(.).."))
+    shape: rows
+    base: 'traefik_service_requests_total{service=~"devops-roadmap-service.*"}'
+    unit: requests
+    definition: SLO 5 (SRE Q6). The ingress requests of the roadmap Service by class of status code.
+  - id: prometheus.service_unavailable
+    reader: prometheus
+    section: service
+    query: >-
+      avg_over_time((sum(kube_deployment_status_replicas_available{namespace="devops",
+      deployment="roadmap-service"}) < bool 1)[{range}:1m])
+    shape: scalar
+    unit: ratio
+    definition: The share of the minutes with no available replica of the roadmap Service (SRE Q7).
+  - id: prometheus.service_pods
+    reader: prometheus
+    section: service
+    query: >-
+      count(count by (pod) (max_over_time(kube_pod_info{namespace="devops",
+      pod=~"roadmap-service-.*"}[{range}])))
+    shape: scalar
+    base: 'kube_pod_info{namespace="devops"}'
+    unit: pods
+    definition: The pods of the roadmap Service in the window (SRE Q15).
+  - id: prometheus.implement_runner_jobs
+    reader: prometheus
+    section: service
+    query: sum(increase(devops_cli_service_implement_jobs_total{repo="{repo}"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_implement_jobs_total{repo="{repo}"}'
+    unit: jobs
+    definition: >-
+      The implement Jobs of the repository that the Service counted, all results. The Service
+      counts a Job once, when its round reports the Job.
+  - id: prometheus.runner_jobs_started
+    reader: prometheus
+    section: service
+    query: >-
+      count(max_over_time(kube_job_status_start_time{namespace="devops",
+      job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}]))
+    shape: scalar
+    unit: jobs
+    definition: >-
+      The implement Jobs of the repository that kube-state-metrics saw start in the window.
+      kube-state-metrics exports no Job label, so the name gives the repository:
+      devops-cli-implement-<name slug>-<item>-<hex> since #5739 (2026-11-14). Before that the
+      Service named the Jobs of all repositories devops-cli-runner-<time>-<hex>, so a window before
+      that date has no series (skipped), and a window across it counts only the later Jobs.
+  - id: prometheus.implement_failures
+    reader: prometheus
+    section: service
+    query: sum(increase(devops_cli_service_implement_failures_total{repo="{repo}"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_implement_failures_total{repo="{repo}"}'
+    unit: jobs
+    definition: The failed implement Jobs of the repository, from the failure counter.
+  - id: prometheus.implement_jobs_failed
+    reader: prometheus
+    section: service
+    query: >-
+      sum(increase(devops_cli_service_implement_jobs_total{repo="{repo}",
+      result="failed"}[{range}]))
+    shape: scalar
+    base: 'devops_cli_service_implement_jobs_total{repo="{repo}"}'
+    unit: jobs
+    definition: The failed implement Jobs of the repository, from the Job counter.
+  # ── Alerts and Argo CD ────────────────────────────────────────────────────
+  - id: prometheus.alert_rules
+    reader: prometheus
+    section: alerts
+    query: sum by (rule_group) (prometheus_rule_group_rules)
+    shape: rows
+    base: 'prometheus_rule_group_rules'
+    unit: rules
+    definition: The alert and recording rules of each group at the end (SRE Q8).
+  - id: prometheus.colon_rules
+    reader: prometheus
+    section: alerts
+    query: count(count by (__name__) ({__name__=~".+:.+"}))
+    shape: scalar
+    base: 'prometheus_rule_group_rules'
+    unit: rules
+    definition: The recording rules with a colon in the name, such as the slo rules of Sloth (SRE Q9).
+  - id: prometheus.alerts_firing_hours
+    reader: prometheus
+    section: alerts
+    query: sum by (alertname) (count_over_time(ALERTS{alertstate="firing"}[{range}:5m])) / 12
+    shape: rows
+    base: 'prometheus_rule_group_rules'
+    unit: series-hours
+    definition: The firing series-hours of each alert, from ALERTS with a step of 5 minutes (SRE Q10).
+  - id: prometheus.notifications
+    reader: prometheus
+    section: alerts
+    query: sum(increase(alertmanager_notifications_total{integration="mattermost"}[{range}]))
+    shape: scalar
+    base: 'alertmanager_notifications_total{integration="mattermost"}'
+    unit: notifications
+    definition: The notifications that Alertmanager sent to Mattermost (SRE Q11).
+  - id: prometheus.notifications_failed
+    reader: prometheus
+    section: alerts
+    query: sum(increase(alertmanager_notifications_failed_total{integration="mattermost"}[{range}]))
+    shape: scalar
+    base: 'alertmanager_notifications_failed_total{integration="mattermost"}'
+    unit: notifications
+    definition: The notifications to Mattermost that failed (SRE Q11).
+  - id: prometheus.alertmanager_alerts
+    reader: prometheus
+    section: alerts
+    query: sum by (state) (alertmanager_alerts)
+    shape: rows
+    base: 'alertmanager_alerts'
+    unit: alerts
+    definition: The alerts that Alertmanager holds at the end, for each state (SRE Q12).
+  - id: prometheus.silences_active
+    reader: prometheus
+    section: alerts
+    query: sum(alertmanager_silences{state="active"})
+    shape: scalar
+    base: 'alertmanager_silences'
+    unit: silences
+    definition: >-
+      The active silences of Alertmanager at the end (SRE Q12). The match of a silence to an
+      alert is #4714.
+  - id: prometheus.argocd_apps
+    reader: prometheus
+    section: alerts
+    query: count by (sync_status, health_status) (argocd_app_info)
+    shape: rows
+    base: 'argocd_app_info'
+    unit: applications
+    definition: The Argo CD Applications at the end, for each sync and health state.
+  - id: prometheus.restarts
+    reader: prometheus
+    section: alerts
+    query: >-
+      sum by (container) (increase(kube_pod_container_status_restarts_total{namespace="devops"}[{range}]))
+      > 0
+    shape: rows
+    base: 'kube_pod_container_status_restarts_total{namespace="devops"}'
+    unit: restarts
+    definition: The restarts of each container of namespace devops (SRE Q13).
+  - id: prometheus.oom_kills_devops
+    reader: prometheus
+    section: alerts
+    query: >-
+      count by (container, reason) (max_over_time(
+      kube_pod_container_status_last_terminated_reason{namespace="devops"}[{range}]) == 1)
+    shape: rows
+    base: 'kube_pod_container_info{namespace="devops"}'
+    unit: containers
+    definition: The containers of namespace devops by the reason of their last end (SRE Q13).
+  - id: prometheus.requests_over_allocatable
+    reader: prometheus
+    section: alerts
+    query: >-
+      sum by (resource) (kube_pod_container_resource_requests{resource=~"cpu|memory"} * on (pod,
+      namespace) group_left() (max by (pod, namespace) (kube_pod_status_phase{phase="Running"}) ==
+      1)) / sum by (resource) (kube_node_status_allocatable{resource=~"cpu|memory"} * on (node)
+      group_left() (kube_node_status_condition{condition="Ready", status="true"} == 1))
+    shape: rows
+    base: 'kube_node_status_allocatable'
+    unit: ratio
+    definition: >-
+      The requests of the running pods over the allocatable resources of the Ready nodes, for
+      CPU and memory (SRE Q14, Kubernetes Q11 for the cluster).
+  # ── Kubernetes ────────────────────────────────────────────────────────────
+  - id: prometheus.node_oom_kills
+    reader: prometheus
+    section: kubernetes
+    query: sum(increase(node_vmstat_oom_kill[{range}]))
+    shape: scalar
+    base: 'node_vmstat_oom_kill'
+    unit: kills
+    definition: The out-of-memory kills of the kernels of all nodes (Kubernetes Q2).
+  - id: prometheus.working_set_over_limit
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max by (namespace, container) (max_over_time(container_memory_working_set_bytes{
+      container!="", container!="POD"}[{range}]) / on (namespace, pod, container) group_left max
+      by (namespace, pod, container) (max_over_time(kube_pod_container_resource_limits{
+      resource="memory"}[{range}]))) > 0.8
+    shape: rows
+    base: 'container_memory_working_set_bytes'
+    unit: ratio
+    definition: The containers whose peak working set is over 80 % of the memory limit (Kubernetes Q3).
+  - id: prometheus.no_memory_limit
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      count(count by (namespace, pod, container) (kube_pod_container_info) unless on (namespace,
+      pod, container) kube_pod_container_resource_limits{resource="memory"})
+    shape: scalar
+    base: 'kube_pod_container_info'
+    unit: containers
+    definition: The containers with no memory limit at the end (Kubernetes Q4).
+  - id: prometheus.no_memory_request
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      count(count by (namespace, pod, container) (kube_pod_container_info) unless on (namespace,
+      pod, container) kube_pod_container_resource_requests{resource="memory"})
+    shape: scalar
+    base: 'kube_pod_container_info'
+    unit: containers
+    definition: The containers with no memory request at the end (Kubernetes Q4).
+  - id: prometheus.cpu_throttling
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      sum by (namespace, container) (increase(container_cpu_cfs_throttled_periods_total{
+      container!=""}[{range}])) / sum by (namespace, container) (increase(
+      container_cpu_cfs_periods_total{container!=""}[{range}])) > 0.25
+    shape: rows
+    base: 'container_cpu_cfs_periods_total'
+    unit: ratio
+    definition: The containers throttled in more than 25 % of their CPU periods (Kubernetes Q5).
+  - id: prometheus.restarting_containers
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      sum by (namespace, container) (increase(kube_pod_container_status_restarts_total[{range}]))
+      > 0.5
+    shape: rows
+    base: 'kube_pod_container_status_restarts_total'
+    unit: restarts
+    definition: The restarts of each container of all namespaces (Kubernetes Q6).
+  - id: prometheus.pending_pods
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      count(max_over_time(min_over_time(max by (namespace, pod)
+      (kube_pod_status_phase{phase="Pending"})[15m:1m])[{range}:5m]) == 1)
+    shape: scalar
+    base: 'kube_pod_status_phase'
+    unit: pods
+    definition: The pods that stayed Pending for 15 minutes or more in a row (Kubernetes Q7).
+  - id: prometheus.pending_minutes
+    reader: prometheus
+    section: kubernetes
+    query: sum_over_time((sum(kube_pod_status_phase{phase="Pending"}) > bool 0)[{range}:1m])
+    shape: scalar
+    unit: min
+    definition: The minutes with a Pending pod (Kubernetes Q7).
+  - id: prometheus.pod_start_p95
+    reader: prometheus
+    section: kubernetes
+    query: histogram_quantile(0.95, sum by (le) (increase(kubelet_pod_start_duration_seconds_bucket[{range}])))
+    shape: scalar
+    unit: s
+    definition: The p95 of the pod start, with the image pull (Kubernetes Q8).
+  - id: prometheus.node_memory_use
+    reader: prometheus
+    section: kubernetes
+    query: max(1 - min_over_time(node_memory_MemAvailable_bytes[{range}]) / node_memory_MemTotal_bytes)
+    shape: scalar
+    unit: ratio
+    definition: The highest memory use of a node in the window (Kubernetes Q12), with no node name.
+  - id: prometheus.node_cpu_p95
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max(quantile_over_time(0.95, (1 - avg without (cpu, mode)
+      (rate(node_cpu_seconds_total{mode="idle"}[5m])))[{range}:5m]))
+    shape: scalar
+    unit: ratio
+    definition: The highest p95 of the CPU use of a node (Kubernetes Q12), with no node name.
+  - id: prometheus.memory_pressure
+    reader: prometheus
+    section: kubernetes
+    query: max(max_over_time(rate(node_pressure_memory_waiting_seconds_total[5m])[{range}:5m]))
+    shape: scalar
+    unit: ratio
+    definition: The highest memory pressure stall of a node (Kubernetes Q13).
+  - id: prometheus.io_pressure
+    reader: prometheus
+    section: kubernetes
+    query: max(max_over_time(rate(node_pressure_io_waiting_seconds_total[5m])[{range}:5m]))
+    shape: scalar
+    unit: ratio
+    definition: The highest IO pressure stall of a node (Kubernetes Q13).
+  - id: prometheus.cpu_pressure_p95
+    reader: prometheus
+    section: kubernetes
+    query: max(quantile_over_time(0.95, rate(node_pressure_cpu_waiting_seconds_total[5m])[{range}:5m]))
+    shape: scalar
+    unit: ratio
+    definition: The highest p95 of the CPU pressure stall of a node (Kubernetes Q13).
+  - id: prometheus.filesystem_use
+    reader: prometheus
+    section: kubernetes
+    query: max(1 - node_filesystem_avail_bytes{fstype=~"ext4|xfs|btrfs"} / node_filesystem_size_bytes)
+    shape: scalar
+    unit: ratio
+    definition: The highest use of a node filesystem at the end (Kubernetes Q15), with no mount point.
+  - id: prometheus.ingress_latency_p95
+    reader: prometheus
+    section: kubernetes
+    query: histogram_quantile(0.95, sum by (le) (increase(traefik_entrypoint_request_duration_seconds_bucket[{range}])))
+    shape: scalar
+    unit: s
+    definition: The p95 of the ingress request duration (Kubernetes Q16).
+  - id: prometheus.ingress_5xx_share
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      sum(increase(traefik_entrypoint_requests_total{code=~"5.."}[{range}])) /
+      sum(increase(traefik_entrypoint_requests_total[{range}]))
+    shape: scalar
+    unit: ratio
+    definition: The share of the ingress requests with a 5xx status (Kubernetes Q16).
+  - id: prometheus.dns_latency_p95
+    reader: prometheus
+    section: kubernetes
+    query: histogram_quantile(0.95, sum by (le) (increase(coredns_dns_request_duration_seconds_bucket[{range}])))
+    shape: scalar
+    unit: s
+    definition: The p95 of the CoreDNS request duration (Kubernetes Q16).
+  - id: prometheus.argocd_reconcile_p95
+    reader: prometheus
+    section: kubernetes
+    query: histogram_quantile(0.95, sum by (le) (increase(argocd_app_reconcile_bucket[{range}])))
+    shape: scalar
+    unit: s
+    definition: The p95 of the reconcile of an Argo CD Application (Kubernetes Q17).
+  - id: prometheus.argo_workflows_memory
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max by (container) (max_over_time(container_memory_working_set_bytes{
+      namespace="argo-workflows", container!=""}[{range}]))
+    shape: rows
+    base: 'container_memory_working_set_bytes{namespace="argo-workflows"}'
+    unit: bytes
+    definition: The peak working set of each container of Argo Workflows (Kubernetes Q17).
+  - id: prometheus.valkey_memory
+    reader: prometheus
+    section: kubernetes
+    query: max by (namespace, pod) (max_over_time(redis_memory_used_bytes[{range}]) / (redis_memory_max_bytes > 0))
+    shape: rows
+    base: 'redis_memory_used_bytes'
+    unit: ratio
+    definition: The peak memory of each Valkey over its maxmemory (Kubernetes Q18).
+  - id: prometheus.valkey_no_maxmemory
+    reader: prometheus
+    section: kubernetes
+    query: max by (namespace, pod) (redis_memory_max_bytes == 0)
+    shape: rows
+    base: 'redis_memory_max_bytes'
+    unit: pods
+    definition: The Valkey pods with no maxmemory at the end (Kubernetes Q18).
+  - id: prometheus.database_memory
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max by (namespace, pod, container) (max_over_time(container_memory_working_set_bytes{
+      container=~"valkey|postgres|qdrant"}[{range}]))
+    shape: rows
+    base: 'container_memory_working_set_bytes{container=~"valkey|postgres|qdrant"}'
+    unit: bytes
+    definition: The peak working set of each Valkey, PostgreSQL and Qdrant container (Kubernetes Q18).
+  - id: prometheus.profiler_memory
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max(max_over_time(container_memory_working_set_bytes{namespace="monitoring",
+      pod=~"k8s-monitoring-alloy-profiles.*", container="alloy"}[{range}]))
+    shape: scalar
+    unit: bytes
+    definition: The peak working set of the eBPF profiler (Kubernetes Q19).
+  - id: prometheus.profiler_cpu
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      avg(avg_over_time(rate(container_cpu_usage_seconds_total{namespace="monitoring",
+      pod=~"k8s-monitoring-alloy-profiles.*", container="alloy"}[5m])[{range}:5m]))
+    shape: scalar
+    unit: cores
+    definition: The mean CPU use of the eBPF profiler (Kubernetes Q19).
+  - id: prometheus.gpu_memory
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max by (modelName, gpu) (max_over_time((DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED +
+      DCGM_FI_DEV_FB_FREE))[{range}:5m]))
+    shape: rows
+    base: 'DCGM_FI_DEV_FB_USED'
+    unit: ratio
+    definition: The peak memory use of each GPU (Kubernetes Q20).
+  - id: prometheus.runner_memory_p90
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      quantile(0.9, max by (pod) (max_over_time(container_memory_working_set_bytes{
+      namespace="devops", container="runner", pod=~"devops-cli-(implement|runner)-.+"}[{range}])))
+    shape: scalar
+    unit: bytes
+    definition: >-
+      The p90 of the peak working set of the runner pods (Kubernetes Q21): the pods of
+      devops-cli-implement-* and devops-cli-runner-*, not the fix-checks pods, which also have a
+      container runner.
+  - id: prometheus.runner_cpu_max
+    reader: prometheus
+    section: kubernetes
+    query: >-
+      max(max_over_time(rate(container_cpu_usage_seconds_total{namespace="devops",
+      container="runner", pod=~"devops-cli-(implement|runner)-.+"}[5m])[{range}:5m]))
+    shape: scalar
+    unit: cores
+    definition: >-
+      The highest CPU use of a runner pod (Kubernetes Q21), of the pods of
+      prometheus.runner_memory_p90.
+  - id: prometheus.node_threads
+    reader: prometheus
+    section: kubernetes
+    query: max(max_over_time(node_processes_threads[{range}]))
+    shape: scalar
+    unit: threads
+    definition: The most threads of a node (Kubernetes Q22), with no node name.
+  - id: loki.error_lines_top
+    reader: loki
+    section: kubernetes
+    query: >-
+      topk(10, sum by (namespace, container) (count_over_time({namespace=~"devops|llm"} |~
+      "(?i)error" [{range}])))
+    shape: rows
+    unit: lines
+    definition: >-
+      The 10 containers of namespaces devops and llm with the most log lines that hold "error".
+      The patterns API of Loki returns 404, so the fact uses topk over count_over_time.
+  - id: loki.alternatives_checks
+    reader: loki
+    section: activity
+    query: >-
+      sum(count_over_time({namespace="devops"} |= "roadmap job result: job=alternatives
+      repo={repo} " [{range}]))
+    shape: scalar
+    unit: checks
+    definition: >-
+      Each alternatives check of an item of the repository: the result line that each attempt
+      logs (#4845). The line starts on 2026-11-12, so a window before that day has no series
+      (skipped), and a window across it counts only the later checks.
+  # ── Agentic jobs ──────────────────────────────────────────────────────────
+  - id: prometheus.spend_by_row
+    reader: prometheus
+    section: agentic_jobs
+    query: sum by (row) (increase(devops_cli_ai_spend_usd_total[{range}]))
+    shape: rows
+    base: 'devops_cli_ai_spend_usd_total'
+    unit: USD
+    definition: The spend of the agentic jobs for each row of the roadmap.
+  - id: prometheus.spend_by_model
+    reader: prometheus
+    section: agentic_jobs
+    query: sum by (model) (increase(devops_cli_ai_spend_usd_total[{range}]))
+    shape: rows
+    base: 'devops_cli_ai_spend_usd_total'
+    unit: USD
+    definition: The spend of the agentic jobs for each model.
+  - id: prometheus.tool_calls
+    reader: prometheus
+    section: agentic_jobs
+    query: sum by (row, outcome) (increase(devops_cli_roadmap_tool_calls_total[{range}]))
+    shape: rows
+    base: 'devops_cli_roadmap_tool_calls_total'
+    unit: calls
+    definition: The tool calls of the agentic jobs, for each row and outcome.
+  - id: prometheus.tool_limit_hits
+    reader: prometheus
+    section: agentic_jobs
+    query: sum by (row, cap) (increase(devops_cli_roadmap_tool_cuts_total[{range}]))
+    shape: rows
+    base: 'devops_cli_roadmap_tool_calls_total'
+    unit: cuts
+    definition: The tool answers that a limit cut, for each row and limit.
+  - id: prometheus.stage_gate_refusals
+    reader: prometheus
+    section: agentic_jobs
+    query: sum(increase(devops_cli_roadmap_stage_gate_refusals_total[{range}]))
+    shape: scalar
+    base: 'devops_cli_roadmap_stage_total'
+    unit: refusals
+    definition: The plans that the stage gate refused, a decision point of the stage job.
+  # ── Dependency updates ────────────────────────────────────────────────────
+  - id: listing.renovate_opened
+    reader: listing
+    section: dependencies
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and ((.author_login // "") | test("renovate"))
+        and (.created_at | inwin))] | length
+    unit: pull requests
+    definition: The update pull requests that the Renovate App opened in the window.
+  - id: listing.renovate_merged
+    reader: listing
+    section: dependencies
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and ((.author_login // "") | test("renovate"))
+        and (.merged_at | inwin))] | length
+    unit: pull requests
+    definition: The update pull requests of the Renovate App that merged in the window.
+  - id: prometheus.oldest_pending_update
+    reader: prometheus
+    section: dependencies
+    query: max(max_over_time(devops_cli_dependency_update_oldest_pending_seconds{repository="{repo}"}[{range}]))
+    shape: scalar
+    unit: s
+    definition: The age of the oldest pending dependency update (the gauge of #4911).
+  # ── Spend ─────────────────────────────────────────────────────────────────
+  - id: prometheus.gateway_spend
+    reader: prometheus
+    section: spend
+    query: sum(increase(litellm_spend_metric_total[{range}]))
+    shape: scalar
+    base: 'litellm_spend_metric_total'
+    unit: USD
+    definition: The spend that the LLM gateway counted.
+  - id: prometheus.cli_spend
+    reader: prometheus
+    section: spend
+    query: sum(increase(devops_cli_ai_spend_usd_total[{range}]))
+    shape: scalar
+    base: 'devops_cli_ai_spend_usd_total'
+    unit: USD
+    definition: The spend that devops-cli counted for its model calls.
+disagreements:
+  - id: implement_failures
+    left: prometheus.implement_failures
+    right: prometheus.implement_jobs_failed
+    tolerance: 0.1
+    definition: The failure counter and the Job counter count the same failed implement Jobs.
+  - id: runner_jobs
+    left: prometheus.implement_runner_jobs
+    right: prometheus.runner_jobs_started
+    tolerance: 0.1
+    definition: >-
+      The Service counts each implement Job of the repository once, when its round reports the
+      Job, and kube-state-metrics sees each implement Job of the repository start, by its name.
+      The right fact has no series before 2026-11-14 (#5739), so the pair compares later windows.
+  - id: spend
+    left: prometheus.cli_spend
+    right: prometheus.gateway_spend
+    tolerance: 0.1
+    definition: devops-cli and the gateway count the same model calls through the gateway.

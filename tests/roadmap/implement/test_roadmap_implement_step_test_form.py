@@ -232,9 +232,6 @@ def test_a_group_that_names_no_parametrized_test_runs_no_collection(
     assert (outcome.status, programs_run(programs, "uv")) == (
         StepStatus.DONE,
         [
-            "uv run devops ci test tests/test_sample.py",
-            "uv run devops ci test tests/test_sample.py",
-            "uv run devops docs check",
             "uv run ruff format -- src/sample.py tests/test_sample.py",
             "uv run devops ci test tests/test_sample.py",
             "uv run devops docs check",

@@ -19,13 +19,10 @@ from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
     CHANGE,
-    FAIL,
-    PASS,
     PULL,
     TASKS_PATH,
     TICKED_FIRST,
     JobWorld,
-    a_fix,
     group_one_calls,
     group_two_calls,
     two_groups,
@@ -50,12 +47,12 @@ def _on_origin(world: JobWorld) -> list[str]:
 DELIVERY_TITLE = "fix(roadmap): The job keeps every comment."
 
 
-def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_request(
+def test_two_groups_make_a_new_branch_a_draft_and_a_closing_body(
     planned_world: JobWorld,
 ) -> None:
     applied = planned_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert planned_world.origin_log() == [
         "fix(roadmap): The first group (#1)",
         "fix(roadmap): The second group (#1)",
@@ -77,7 +74,7 @@ def test_two_groups_make_a_new_branch_a_draft_a_closing_body_and_a_ready_pull_re
             f"\n\nCloses #1\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
-    assert planned_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
+    assert planned_world.pull.ready_calls == []
     status, record = _item(planned_world)
     assert (status, record["implement.branch"], record["implement.pr"]) == (
         "In Review",
@@ -112,22 +109,16 @@ def test_the_branch_is_published_once_and_the_clone_keeps_no_branch_or_worktree(
     assert planned_world.repo.git("branch", "--format=%(refname:short)") == "main"
 
 
-def test_a_check_that_fails_once_gets_a_fix_step_and_a_push_with_a_lease_on_the_new_branch(
-    planned_world: JobWorld,
-) -> None:
-    planned_world.pull.runs = [[FAIL], [PASS]]
-
-    applied = planned_world.run(two_groups(*a_fix()))
+def test_the_final_push_of_the_new_branch_carries_a_lease(planned_world: JobWorld) -> None:
+    applied = planned_world.run(two_groups())
 
     pushes = _pushes(planned_world)
-    first_tip = planned_world.repo.origin_git("rev-parse", f"{BRANCH}~1")
-    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
     origin, ref = str(planned_world.repo.origin), f"refs/heads/{BRANCH}"
-    # The checkpoint publishes the branch, the final push follows, and the fix gets its own push.
-    assert (applied.ready, len(pushes)) == ((1,), 3)
+    # The checkpoint publishes the branch, and the final push follows with a lease (#6559: no push
+    # after the final one).
+    assert (applied.drafted, len(pushes)) == ((1,), 2)
     assert pushes[0][:3] == ("--quiet", "--no-verify", origin)
     assert pushes[1][2].startswith(f"--force-with-lease={ref}:")
-    assert pushes[2][2:] == (f"--force-with-lease={ref}:{first_tip}", origin, f"{tip}:{ref}")
     assert len(planned_world.sent("POST", "pulls")) == 1
 
 
@@ -140,7 +131,7 @@ def test_a_group_that_is_ticked_on_main_is_not_run_again(planned_world: JobWorld
 
     applied = planned_world.run(script)
 
-    assert (applied.ready, len(script.seen)) == ((1,), 2)
+    assert (applied.drafted, len(script.seen)) == ((1,), 2)
     assert planned_world.origin_log()[0] == "fix(roadmap): The second group (#1)"
 
 
@@ -194,7 +185,7 @@ def test_a_retry_takes_over_the_branch_and_the_draft_that_the_stop_left(
     applied = planned_world.run(script)
 
     status, record = _item(planned_world)
-    assert (cleared.cleared, applied.ready, status, record.get("implement.stopped")) == (
+    assert (cleared.cleared, applied.drafted, status, record.get("implement.stopped")) == (
         (1,),
         (1,),
         "In Review",

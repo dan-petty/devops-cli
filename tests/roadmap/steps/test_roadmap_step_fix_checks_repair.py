@@ -19,9 +19,9 @@ import pytest
 from devops_cli.ai.client import factory
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult, Fixed, run_fix_checks
+from devops_cli.roadmap.steps.fix_checks import Fixed, run_fix_checks
 from devops_cli.roadmap.steps.fix_checks_repair import job_repair, pull_checkout, tier1_fix
-from devops_cli.roadmap.stores.store import FixChecksRecordKey, ImplementRecordKey
+from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore

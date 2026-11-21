@@ -230,7 +230,7 @@ def test_a_group_over_the_limit_is_split_once_with_groups_and_criteria_renumbere
 
     applied = job_world.run(script, splitter=splitter, window=WINDOW)
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert len(splitter.calls) == 1
 
     # Verify tasks.md in origin

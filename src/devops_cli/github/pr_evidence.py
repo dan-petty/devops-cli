@@ -1,7 +1,6 @@
 """The comment that holds the check results of a pull request, and its one copy (#3199).
 
-`devops pr evidence` posts it, and the roadmap Service can post it for its own pull requests: both
-call `publish_pr_evidence`. Every number in the comment comes from the check runs that GitHub
+`devops pr evidence` posts it with `publish_pr_evidence`. Every number in the comment comes from the check runs that GitHub
 returns for the head commit, so no person types a count that can be wrong.
 """
 

@@ -27,11 +27,11 @@ The `service` stage SHALL stay the last stage of the `Dockerfile`.
 - **THEN** The last stage is `service` and `mcp-server` comes before it.
 
 ### Requirement: The release publishes the MCP server image
-The `release.yml` workflow SHALL build, smoke-test, scan, push by digest, attest and tag the `mcp-server` image, in that order, only in the run that creates a release. It SHALL tag the image with the release tag and `latest`.
+The release SHALL build the `mcp-server` target one time and push it by digest, then smoke-test, scan, attest and tag that digest, in that order, only in the run that creates a release. It SHALL tag the image with the release tag and `latest`. The build SHALL set `no-cache-filters: mcp-server`.
 
 #### Scenario: Publish job order
-- **WHEN** A test reads job `mcp-server-image` of `release.yml`.
-- **THEN** The job needs `release-please`, runs only when `release_created` is `true`, builds target `mcp-server`, pushes with `push-by-digest=true`, attests `ghcr.io/${{ github.repository }}/mcp-server`, and its steps keep the order of the `runner-image` job.
+- **WHEN** a person reads the `MCP Server Image` jobs of the first release after the merge with `uv run devops gh run view <run_id>`
+- **THEN** `Build` ran first, then `Verify`, then `Attest & Tag`, and `docker buildx imagetools inspect ghcr.io/dan-petty/devops-cli/mcp-server:latest` gives the digest that `Build` pushed
 
 ### Requirement: The release gate equals the pull request gate
 The smoke test of the release job SHALL equal that of job `mcp-server-image` in `ci.yml`, and both jobs SHALL scan the image with `.github/actions/image-scan` under the category `trivy-image-mcp-server`.

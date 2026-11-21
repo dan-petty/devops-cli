@@ -14,7 +14,7 @@
 "tests/ai/test_ai_gateway_portkey.py" = 1
 "tests/ai/test_jev_gateway_route.py" = 1
 "tests/ci/test_release_download_retries.py" = 1
-"tests/commands/test_ci.py" = 9
+"tests/commands/test_ci.py" = 8
 "tests/commands/test_ci_bwrap_row.py" = 1
 "tests/commands/test_environment_root_commands.py" = 8
 "tests/commands/test_gh_cmd.py" = 3
@@ -48,7 +48,7 @@
 "tests/roadmap/implement/test_roadmap_implement_deadline.py" = 24
 "tests/roadmap/implement/test_roadmap_implement_deadline_settings.py" = 1
 "tests/roadmap/implement/test_roadmap_implement_job_result.py" = 3
-"tests/roadmap/implement/test_roadmap_implement_submit.py" = 79
+"tests/roadmap/implement/test_roadmap_implement_submit.py" = 74
 "tests/roadmap/implement/test_roadmap_implement_typed_result.py" = 4
 "tests/roadmap/intake/test_roadmap_intake_item_changed.py" = 4
 "tests/roadmap/refine/test_roadmap_refine_deferred.py" = 10

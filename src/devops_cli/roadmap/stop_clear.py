@@ -9,9 +9,9 @@ A stop of the implement job sets the Status Blocked and records `implement.stopp
 - **`continue`**: the stop is `job`, which the round records for a Job that ended without a result
   (a pod that the kernel killed or evicted, a Job that the Service ended by its stall, a Job that
   no longer exists), and the class of the stop has the action `retry` in `ACTION_BY_CLASS`
-  (#3721). The new Job takes the branch from `origin`, so it keeps the `wip:` commits that the run
-  pushed for a group with more than one task (`implement_run.py`, #3054). A group of one task that
-  passed and that no push kept runs again. The record `implement.continuations` counts the Jobs
+  (#3721). The new Job takes the branch from `origin`, so it keeps the groups that a checkpoint
+  pushed (`implement_run.py`, #3677). A group that no push kept runs again. The record
+  `implement.continuations` counts the Jobs
   that the Service started this way, and the setting `roadmap.implement.continuations_per_item`
   bounds it. Only a sign in the log gives the class `oom`, because the Service reads no pod
   status (#3727). A stop of a step that the runner wrote has its own classes and rules, and is no
@@ -311,31 +311,16 @@ def _comment(decision: _Decision, item: Item, status: str, limits: ClearLimits) 
     )
 
 
-def _continued(item: Item) -> str | None:
-    """The class of the stop whose kept work the next Job continues, or None when the record holds
-    no kept work or no class of the taxonomy. The clear removes `implement.failure`, so it keeps the
-    class here for the next Job (#3650)."""
-    if item.job_record.get(ImplementRecordKey.WIP) is None:
-        return None
-    try:
-        return FailureClass(item.job_record.get(ImplementRecordKey.FAILURE) or "").value
-    except ValueError:
-        return None
-
-
 def _marks(decision: _Decision, item: Item, now: datetime) -> dict[ImplementRecordKey, str | None]:
     """What a clear writes in the record with the Status: it removes the stop, its class, the action
     left and the failed check. It keeps the log of the check
     and the conflicted files: the next Job hands them to its first step and clears them (#4071). A clear
-    by digest also keeps the list of the clears, and the time of its comment when it writes one. The
-    clear keeps the class of a stop with kept work in `implement.continued`, and removes the mark of
-    an item with no kept work (#3650)."""
+    by digest also keeps the list of the clears, and the time of its comment when it writes one."""
     marks: dict[ImplementRecordKey, str | None] = {
         ImplementRecordKey.STOPPED: None,
         ImplementRecordKey.FAILURE: None,
         ImplementRecordKey.LEFT_ACTION: None,
         ImplementRecordKey.CHECK: None,
-        ImplementRecordKey.CONTINUED: _continued(item),
     }
     if decision.rule is ClearRule.CONTINUE:
         marks[ImplementRecordKey.CONTINUATIONS] = str(decision.continuations)

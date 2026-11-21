@@ -94,7 +94,7 @@ def test_the_options_choose_the_window_the_repository_and_the_loki(cli: Cli, web
     )
 
     report = json.loads(result.output)
-    assert (report["window"], report["repo"], len(web.sent)) == ("6h", "example/app", 12)
+    assert (report["window"], report["repo"], len(web.sent)) == ("6h", "example/app", 13)
 
 
 def test_a_repository_that_is_no_owner_and_name_is_refused(cli: Cli, web: WebFake) -> None:
@@ -166,7 +166,7 @@ def test_the_report_scores_the_first_verdict_of_each_bot_pull_request(
 
     assert result.exit_code == 0, result.output
     assert _graphql_searches(github_api) == [
-        "is:pr author:app/example-bot created:>=2026-11-02T12:00:00Z repo:example/app"
+        "is:pr author:app/example-bot updated:>=2026-11-02T12:00:00Z repo:example/app"
     ]
     report = json.loads(result.output)
     assert (report["verdict_bot"], report["verdict_partial_score"]) == ("example-bot[bot]", 0.5)
@@ -244,7 +244,7 @@ def test_the_dry_run_prints_the_github_search(
 
     assert (result.exit_code, web.sent) == (0, [])
     assert "POST https://api.github.com/graphql" in result.output
-    assert "is:pr author:app/example-bot created:>=2026-11-02T12:00:00Z" in result.output
+    assert "is:pr author:app/example-bot updated:>=2026-11-02T12:00:00Z" in result.output
 
 
 def test_with_no_slug_the_report_reads_no_verdict_and_names_the_setting(

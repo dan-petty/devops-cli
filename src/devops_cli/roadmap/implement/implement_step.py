@@ -14,10 +14,8 @@ tool result, and the window of the task. The step
 judges the exit, not the model: the tasks of the group change only in their checkboxes, the
 verification commands pass, the static checks pass on the changed files, and the hooks pass. Then
 the job ticks every task of the group (#3488), so a model that did the work and forgot the ticks
-does not stop the step. Then the step commits the checkout, or it resets it. While the
-agent works, the step keeps the work that is green: a task that the agent ticked and whose
-verification passes becomes a `wip:` commit (`implement_wip.py`, #3054), and a reset goes back to the
-last of them. A step writes nothing to GitHub; the caller pushes the `wip:` commits.
+does not stop the step. Then the step commits the checkout, or it resets it to the commit where
+the step started (#6559). A step writes nothing to GitHub.
 """
 
 from __future__ import annotations
@@ -171,7 +169,6 @@ from devops_cli.roadmap.implement.implement_test_form import (
 from devops_cli.roadmap.implement.implement_test_names import lost_since, unrecorded_tests
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
-from devops_cli.roadmap.implement.implement_wip import WipCommit, WipKeeper, restore_sources
 from devops_cli.roadmap.item_comments import (
     FittedComments,
     SectionForm,
@@ -1518,12 +1515,18 @@ def _remove_strays(source: Path, inputs: StepInputs, log: ToolCallLog) -> None:
         )
     for name in strays:
         _delete(source / name)
-    restore_sources(
-        lambda *args: _git_output(source, *args),
-        source,
-        [moved[name] for name in strays if name in moved],
-    )
+    _restore_sources(source, [moved[name] for name in strays if name in moved])
     log.removed_strays(strays)
+
+
+def _restore_sources(source: Path, paths: Sequence[str]) -> None:
+    """Put back the old path of each renamed stray file (#3488). A rename moves the file away, so
+    the old path is a staged deletion, and the file is gone from the checkout. The index and the
+    checkout take the path back from HEAD. A file that the agent wrote at the old path keeps its
+    content, and only the index takes the path back."""
+    for path in paths:
+        scope = ["--staged"] if (source / path).exists() else ["--staged", "--worktree"]
+        _git_output(source, "--literal-pathspecs", "restore", "--source=HEAD", *scope, "--", path)
 
 
 def _delete(path: Path) -> None:
@@ -1560,8 +1563,7 @@ class _Failure:
 
 
 def _changed_test_files(source: Path, base: str) -> list[str]:
-    """The test files that the step changed since `base`: its `wip:` commits and its staged files,
-    so a test that a keeper committed on the way is still one of them (#3042)."""
+    """The test files that the step changed since `base`, its staged files (#3042)."""
     names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z", base)
     return [name for name in names.split("\0") if name and is_test_file(PurePosixPath(name))]
 
@@ -1669,7 +1671,7 @@ def _test_form_failure(
 def _fail_to_pass_failure(
     source: Path,
     inputs: StepInputs,
-    keeper: WipKeeper,
+    start: str,
     log: ToolCallLog,
 ) -> _Failure | None:
     """Why the step stops when the tests of a behavior group do not fail on the base commit of the
@@ -1679,10 +1681,10 @@ def _fail_to_pass_failure(
     repair round that may change only the test files."""
     if not inputs.group.is_behavior:
         return None
-    files = _changed_test_files(source, keeper.base)
+    files = _changed_test_files(source, start)
     if not files:
         return _Failure(MESSAGES.roadmap.implement_stop_no_test_file)
-    replay = replay_group_tests(source, keeper.base, files)
+    replay = replay_group_tests(source, start, files)
     log.fail_to_pass = replay
     if log.trace is not None:
         log.trace.check(
@@ -1764,15 +1766,15 @@ def _outside_plan_failure(source: Path, inputs: StepInputs, base: str) -> _Failu
 
 
 def _plan_failure(
-    source: Path, inputs: StepInputs, keeper: WipKeeper, changed: Sequence[str]
+    source: Path, inputs: StepInputs, start: str, changed: Sequence[str]
 ) -> _Failure | None:
     """Why the step stops for the plan of the change, else None. A fix step stops when it changed a
     path that the plan does not name (#3824). Any step stops when a test file lost a test that
     existed at the base commit (#3490)."""
-    outside = _outside_plan_failure(source, inputs, keeper.base)
+    outside = _outside_plan_failure(source, inputs, start)
     if outside is not None:
         return outside
-    lost = _tests_failure(source, keeper.base, inputs.recorded_tests)
+    lost = _tests_failure(source, start, inputs.recorded_tests)
     if lost:
         return _Failure(lost, frozenset(changed), klass=FailureClass.TESTS_LOST)
     return None
@@ -1831,21 +1833,20 @@ def _early_failure(
 
 
 def _exit_failure(
-    source: Path, inputs: StepInputs, keeper: WipKeeper, log: ToolCallLog
+    source: Path, inputs: StepInputs, start: str, log: ToolCallLog
 ) -> _Failure | None:
     """The first exit check that fails, or None when every one passes. The step makes the only
-    commit, besides the `wip:` commits of its keeper (#3054), so a head that the agent moved is put
-    back first with `git reset --soft`, which keeps the work in the checkout, and the checks judge
-    that work (#3575). Only a reset that fails stops the step. The `tasks.md` is written
-    back next, whatever the run did to it. Once every check passes, `_tick_group` ticks the
+    commit, so a head that the agent moved is put back first at `start`, the commit where the step
+    started, with `git reset --soft`, which keeps the work in the checkout, and the checks judge
+    that work (#3575). Only a reset that fails stops the step. The `tasks.md` is written back next,
+    whatever the run did to it. Once every check passes, `_tick_group` ticks the
     tasks of the group (#3488). The stray files of the agent are deleted before the checkout is
     staged (#3092)."""
     log.fail_to_pass = None
     log.verified.clear()
-    moved = _reset_moved_head(source, keeper.expected_head)
+    moved = _reset_moved_head(source, start)
     if moved is not None:
         return moved
-    keeper.fold()
     _restore_tasks(inputs)
     _remove_strays(source, inputs, log)
     changed = _stage(source)
@@ -1861,7 +1862,7 @@ def _exit_failure(
             ),
             klass=no_change,
         )
-    outside = _plan_failure(source, inputs, keeper, changed)
+    outside = _plan_failure(source, inputs, start, changed)
     if outside is not None:
         return outside
     early = _early_failure(source, inputs, changed, log)
@@ -1870,7 +1871,7 @@ def _exit_failure(
     form = _test_form_failure(source, inputs, log.trace)
     if form is not None:
         return form
-    proof = _fail_to_pass_failure(source, inputs, keeper, log)
+    proof = _fail_to_pass_failure(source, inputs, start, log)
     if proof is not None:
         return proof
     static = (
@@ -2078,7 +2079,7 @@ def _extra_turn(
     log: ToolCallLog,
     source: Path,
     inputs: StepInputs,
-    keeper: WipKeeper,
+    start: str,
     first: _Run,
     ask: _Ask,
     *,
@@ -2089,33 +2090,26 @@ def _extra_turn(
     first exit check that fails after it, if any. The turn may change only the files that `ask`
     names and the `tasks.md`. Every exit check runs again after it. The stray files of the turn
     are deleted first, so they are no change that `ask` does not allow (#3092). A turn that a
-    limit ended, and a change that `ask` does not allow, give a failure that gets no more turns. The
-    keeper commits nothing in the turn."""
+    limit ended, and a change that `ask` does not allow, give a failure that gets no more turns."""
     tree = _tree(source)
-    # The keeper commits the whole checkout. An extra turn may change only some files, so a tick
-    # in it is no ground for a `wip:` commit (#3054).
-    before_request, log.before_request = log.before_request, None
-    try:
-        run = first.then(
-            _turn(
-                agent,
-                model,
-                log,
-                ask.message,
-                first.conversation,
-                source=source,
-                usage_limits=usage_limits,
-            )
+    run = first.then(
+        _turn(
+            agent,
+            model,
+            log,
+            ask.message,
+            first.conversation,
+            source=source,
+            usage_limits=usage_limits,
         )
-    finally:
-        log.before_request = before_request
+    )
     if run.reason:
         return run, _Failure(run.reason, klass=run.failure_class)
     _remove_strays(source, inputs, log)
-    foreign = _foreign_change(source, inputs, tree, ask, keeper.base)
+    foreign = _foreign_change(source, inputs, tree, ask, start)
     if foreign:
         return run, _Failure(foreign, klass=FailureClass.OUTSIDE_PLAN)
-    return run, _exit_failure(source, inputs, keeper, log)
+    return run, _exit_failure(source, inputs, start, log)
 
 
 def _moves_tier(run: _Run) -> bool:
@@ -2131,12 +2125,12 @@ def _moves_tier(run: _Run) -> bool:
     )
 
 
-def _commit_group(
-    source: Path, inputs: StepInputs, item: int, keeper: WipKeeper
-) -> tuple[str, str]:
-    """The commit of a step whose exit checks passed, with the `wip:` commits of the keeper folded
-    into it (#3054). The commit, and why the step stops when git refuses it."""
-    keeper.fold()
+def _commit_group(source: Path, inputs: StepInputs, item: int) -> tuple[str, str]:
+    """The commit of a step whose exit checks passed, and why the step stops when git refuses
+    it. A tracked file that an exit check changed after the staging, such as the `uv.lock` that a
+    plain `uv run` writes on a stale lock (#6557), is staged first, so the checkout is clean after
+    the commit; a new file is not (#6559)."""
+    _git_output(source, "add", "-u")
     return _commit(source, step_commit_title(inputs.item_title, inputs.group.title, item))
 
 
@@ -2162,7 +2156,7 @@ def _repair_rounds(
     log: ToolCallLog,
     source: Path,
     inputs: StepInputs,
-    keeper: WipKeeper,
+    head: str,
     start: _Rounds,
     *,
     tier: str,
@@ -2189,7 +2183,7 @@ def _repair_rounds(
         if trace is not None:
             trace.retry(failure.reason if failure else "")
         run, failure = _extra_turn(
-            agent, model, log, source, inputs, keeper, run, ask, usage_limits=usage_limits
+            agent, model, log, source, inputs, head, run, ask, usage_limits=usage_limits
         )
         used += 1
         number += 1
@@ -2279,7 +2273,7 @@ def _attempt(
     window: int,
     inputs: StepInputs,
     item: int,
-    keeper: WipKeeper,
+    start: str,
     log: ToolCallLog,
     *,
     tiers: Sequence[str],
@@ -2296,8 +2290,8 @@ def _attempt(
     left. A failure that carries no repair paths gets none. A step that stops with a failure that
     a round could have taken, and no round left, says so in its reason (#3053). A run that ends on a provider error or
     on a class that selects `change_tier` moves to the next healthy tier at once, spends no repair
-    round, and discards the checkout of the failed attempt, back to the last `wip:` commit of the
-    keeper (#3060, #3054). The third attempt of a ladder that holds another tier moves there too,
+    round, and discards the checkout of the failed attempt, back to the commit where the step
+    started (#3060). The third attempt of a ladder that holds another tier moves there too,
     spends no round, and starts a new conversation with the repair message of the failure (#3569).
     Each attempt is an event of the `trace`, with its strategy, and the agent stops before a
     request when `limits` is spent. Each run of the agent has the requests and tool calls of
@@ -2347,7 +2341,7 @@ def _attempt(
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
                 if run.reason
-                else _exit_failure(source, inputs, keeper, log)
+                else _exit_failure(source, inputs, start, log)
             )
             repaired = _repair_rounds(
                 agent,
@@ -2355,7 +2349,7 @@ def _attempt(
                 log,
                 source,
                 inputs,
-                keeper,
+                start,
                 _Rounds(run, failure, rounds, number, budget),
                 tier=tier,
                 tier_move=attempt + 1 < len(tiers),
@@ -2380,7 +2374,7 @@ def _attempt(
             )
             if moved is None:
                 break
-            keeper.discard()
+            _discard(source, start)
             attempt += 1
             number += 1
             strategy = strategy_for(number, moves_tier=True)
@@ -2414,9 +2408,9 @@ def _attempt(
         reason = f"{reason}\n{MESSAGES.roadmap.implement_stop_rounds.format(rounds=budget)}"
     commit = ""
     if not reason:
-        commit, reason = _commit_group(source, inputs, item, keeper)
+        commit, reason = _commit_group(source, inputs, item)
     if reason:
-        diff, cut, reason = _read_discarded_diff(source, keeper.tip, reason)
+        diff, cut, reason = _read_discarded_diff(source, start, reason)
         return outcome.model_copy(
             update={"reason": reason, "diff": diff, "diff_cut": cut, "failure_class": klass}
         )
@@ -2429,45 +2423,11 @@ def _attempt(
     )
 
 
-def _unkeepable(source: Path, base: str, recorded: frozenset[str]) -> str | None:
-    """Why the staged work must not become a `wip:` commit (#3054), else None: it loses a test
-    that existed at `base` and that `recorded` does not name, or it holds a symbolic link, which
-    the step refuses at its exit."""
-    lost = _tests_failure(source, base, recorded)
-    if lost:
-        return lost
-    names = _git_output(source, "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z")
-    return _link_failure(source, [name for name in names.split("\0") if name])
-
-
-def _keeper(
-    source: Path,
-    inputs: StepInputs,
-    item: int,
-    log: ToolCallLog,
-    on_wip: Callable[[WipCommit], None] | None,
-    *,
-    keep: bool,
-) -> WipKeeper:
-    """The keeper of the step (#3054). A group step lets it commit, before each model request, the
-    tasks that the agent ticked and whose verification passes. A fix step ticks no task, so its
-    keeper only holds the head."""
-    keeper = WipKeeper(
-        source=source,
-        tasks_file=inputs.change / "tasks.md",
-        group=inputs.group,
-        before=inputs.tasks_md,
-        item=item,
-        git=lambda *args: _git_output(source, *args),
-        verify=lambda commands: commands_failure(source, commands, log.trace),
-        strays=lambda: _strays(source, inputs),
-        moved=lambda: _index_adds(source)[1],
-        blocked=lambda: _unkeepable(source, keeper.base, inputs.recorded_tests),
-        on_commit=on_wip,
-    )
-    if inputs.fix is None and keep:
-        log.before_request = keeper.check
-    return keeper
+def _discard(source: Path, start: str) -> None:
+    """Reset the checkout to `start`, the commit where the step started, and remove the files that
+    git does not track. A step that does not end done keeps no work (#6559)."""
+    _git_output(source, "reset", "--hard", start)
+    _git_output(source, "clean", "-fd")
 
 
 def _with_shell_spend(outcome: StepOutcome, broker: StepBroker | None) -> StepOutcome:
@@ -2516,8 +2476,6 @@ def run_step(
     model_for_tier: Callable[[str], Any] | None = None,
     tier_health: Callable[[Sequence[str]], Mapping[str, bool]] | None = None,
     trace: ImplementTrace | None = None,
-    on_wip: Callable[[WipCommit], None] | None = None,
-    keep: bool = True,
     spend: ItemSpend | None = None,
     recorded_tests: frozenset[str] = frozenset(),
     mcp_toolset: AbstractToolset[Any] | None = None,
@@ -2531,12 +2489,8 @@ def run_step(
 
     The step commits the group with the type and the scope of the item, the group title and the
     issue reference (`step_commit_title`) when every exit check passes. Otherwise it resets the
-    checkout to its last `wip:` commit, or to the commit it started at when it made none, also
-    when the agent made commits or the run raises. A `wip:` commit holds the tasks that the agent
-    ticked and whose verification passed, and `on_wip` tells the caller of each one (#3054). A step
-    that ends done folds its `wip:` commits into its own commit. With `keep` false, the step
-    makes none: the evaluation judges the whole attempt. It reads the item once and
-    writes nothing to GitHub. A failed model call ends
+    checkout to the commit it started at, also when the agent made commits or the run raises
+    (#6559). It reads the item once and writes nothing to GitHub. A failed model call ends
     the step as stopped, with the diff of the work. Raises `RoadmapImplementError` for a step it
     refuses to start, and `AICredentialsError` when the model refuses the key. With `fix`, the
     step makes the failed check pass and ticks no task (`run_fix_step`). `hooks` is the trusted
@@ -2595,8 +2549,8 @@ def run_step(
     if model is None and model_for_tier is None:
         raise RoadmapImplementError(MESSAGES.roadmap.implement_no_model)
     _require_clean(source)
+    start = _git_output(source, "rev-parse", "HEAD").strip()
     log = ToolCallLog(source, trace=trace)
-    keeper = _keeper(source, inputs, item, log, on_wip, keep=keep)
     budget = StepBudget(spend, progress=log.progress, cap=token_cap)
     done = False
     broker: StepBroker | None = None
@@ -2608,7 +2562,7 @@ def run_step(
             window,
             inputs,
             item,
-            keeper,
+            start,
             log,
             tiers=_ladder_tiers(step_class, ladder),
             model_for_tier=model_for_tier,
@@ -2625,7 +2579,7 @@ def run_step(
     finally:
         stop_step_broker(broker)
         if not done:
-            keeper.discard()
+            _discard(source, start)
         end_step(source, inputs.group.title)
 
 

@@ -204,6 +204,29 @@ def test_a_github_tool_whose_package_deps_dev_links_and_the_sbom_holds_is_in_use
     )
 
 
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_second_deps_dev_read_of_one_project_sends_no_request(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    """deps.dev fact reuse (#4668): two inventory reads link the packages of one project, with
+    the memory tier of the process empty between them, as in a new process."""
+    from devops_cli.valkey.tiered import reset_tiered_mappings
+
+    project = "github.com/example/tool"
+    _deps_dev(web, project, ("PYPI", "example-tool"))
+    store.seed_dependencies("pkg:pypi/example-tool@1.0.0")
+
+    first = read_inventory(store, None, PATHS).uses(f"https://{project}", project)
+    reset_tiered_mappings()
+    second = read_inventory(store, None, PATHS).uses(f"https://{project}", project)
+
+    assert (first, second, web.requested) == (
+        True,
+        True,
+        [DEFAULT_DEPS_DEV_PROJECT_URL.format(project=quote(project, safe=""))],
+    )
+
+
 def test_a_tool_that_no_source_holds_keeps_its_verdict_and_an_empty_sbom_asks_no_deps_dev(
     store: InMemoryRoadmapStore, web: WebFake
 ) -> None:

@@ -18,7 +18,10 @@ keeps the schema keeps the snapshot.
 in the state directory of the roadmap: under the data directory for `devops roadmap intake`, and on
 the Service's volume for the intake of the lane of `intake` and the scoped intake of a delivery.
 Each other lane of the Service keeps its own snapshots beside them (`lane_listing`, #4854, #5553),
-so each file has one writer. A shared store for the pods of the Service can plug in later (#4517).
+so each file has one writer. `intake_listing` and `lane_listing` put the local file under a
+`TieredSnapshotStore` (`listing_shared`, #4668), which shares one copy of each public repository
+through the cache Valkey: a cold process starts from the newest copy, and the newest watermark
+wins. While Valkey fails, the local file is the only tier.
 """
 
 from __future__ import annotations
@@ -153,6 +156,16 @@ def snapshot_root(state_dir: Path | None = None) -> Path:
     return state_dir / _SNAPSHOT_DIRNAME
 
 
+class ListingRead(Protocol):
+    """How a store reads the issues and pull requests of a repository, by number:
+    `IncrementalListing`, or the read-only listing of the project review (#4692). `read_issues`
+    reads the listing of a query and parses each issue it gets."""
+
+    def read(
+        self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
+    ) -> dict[int, IssueRecord]: ...
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -214,15 +227,24 @@ def intake_listing(state_dir: Path | None = None, *, full: bool = False) -> Incr
     """How intake reads every issue: the snapshot that `state_dir` keeps, see `snapshot_root`, and
     the issues changed since its watermark, or the whole listing on `full`. `devops roadmap
     intake`, the lane of `intake` in the Service and the scoped intake of a delivery read through
-    it (#4448, #3670)."""
-    return IncrementalListing(FileSnapshotStore(snapshot_root(state_dir)), full=full)
+    it (#4448, #3670). The local file sits under the shared tier (#4668)."""
+    return IncrementalListing(_tiered(FileSnapshotStore(snapshot_root(state_dir))), full=full)
 
 
 def lane_listing(state_dir: Path, lane: str) -> IncrementalListing:
     """How the rounds of the Service lane `lane` read every issue: the snapshot that `state_dir`
     keeps for the lane in `listing-<lane>`, apart from the one of intake, and the issues changed
-    since its watermark. The lane's worker is the one writer of each file of the lane (#4854)."""
-    return IncrementalListing(FileSnapshotStore(state_dir / f"{_SNAPSHOT_DIRNAME}-{lane}"))
+    since its watermark. The lane's worker is the one writer of each file of the lane (#4854). The
+    lanes of a repository share one copy in the shared tier, where the newest watermark wins (#4668)."""
+    return IncrementalListing(_tiered(FileSnapshotStore(state_dir / f"{_SNAPSHOT_DIRNAME}-{lane}")))
+
+
+def _tiered(local: SnapshotStore) -> SnapshotStore:
+    """`local` under the shared tier of the process (#4668). The import is local, since the
+    shared store reads the types of this module."""
+    from devops_cli.roadmap.stores.listing_shared import TieredSnapshotStore
+
+    return TieredSnapshotStore(local)
 
 
 def lane_snapshot_dirs(state_dir: Path) -> dict[str, Path]:

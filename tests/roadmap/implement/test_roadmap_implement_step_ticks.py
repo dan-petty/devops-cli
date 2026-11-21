@@ -434,7 +434,7 @@ def test_a_directory_in_place_of_the_tasks_file_is_replaced_and_the_group_is_tic
     assert (result[0], tasks.is_file(), (later_open / TASKS_PATH).read_text(encoding="utf-8")) == (
         StepStatus.DONE,
         True,
-        # The tick of the agent kept both tasks of group 1 in a `wip:` commit (#3054).
+        # The job ticks both tasks of group 1 when its exit checks pass (#3488).
         LATER_OPEN.replace("- [ ] Add", "- [x] Add"),
     )
 

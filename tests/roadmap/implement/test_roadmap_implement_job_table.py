@@ -6,13 +6,10 @@ import pytest
 from pydantic_ai.messages import ModelResponse
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_trace import ImplementTrace, decode
-from devops_cli.roadmap.stores.store import ImplementRecordKey
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
-    FAIL,
     PULL,
     SHOUT,
     JobWorld,
@@ -113,19 +110,3 @@ def _fix(round_number: int) -> tuple[ModelResponse, ModelResponse]:
         tool_calls(("write_file", {"path": path, "content": changed})),
         say(f"Fixed round {round_number}."),
     )
-
-
-def test_a_failed_check_of_the_pull_request_gives_a_row_for_the_step_of_the_checks(
-    job_world: JobWorld,
-) -> None:
-    job_world.pull.runs = [[FAIL]]
-
-    job_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
-
-    (comment,) = job_world.issue_comments()
-    last = _rows(comment)[-1]
-    assert last[0] == "checks"
-    assert last[4] == f"`{CHECK}`"
-    held = job_world.store.item(1)
-    assert held is not None
-    assert isinstance(decode(held.job_record[ImplementRecordKey.TRACE] or ""), ImplementTrace)

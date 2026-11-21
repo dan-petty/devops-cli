@@ -31,7 +31,6 @@ from tests.support.implement_step import (
     git,
     git_for_real,
     is_clean_at,
-    is_clean_at_wip,
     make_checkout,
     programs_run,
     rounds_spent,
@@ -183,7 +182,7 @@ def test_a_lint_error_after_the_format_run_still_stops_the_step(
 
     outcome = _step(store, checkout, _formatted_script())
 
-    assert (outcome.status, outcome.reason, is_clean_at_wip(checkout, head)) == (
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"uv run ruff check -- {CHANGED_FILES} exited with status 1.\nF401 unused import"
         + rounds_spent(3),
@@ -221,18 +220,13 @@ def test_a_file_with_a_syntax_error_stops_the_step_with_the_error_of_the_formatt
 
     outcome = _step(store, checkout, ModelScript(tool_calls(*the_whole_group()), say("Done.")))
 
-    assert (outcome.status, outcome.reason, is_clean_at_wip(checkout, head)) == (
+    assert (outcome.status, outcome.reason, is_clean_at(checkout, head)) == (
         StepStatus.STOPPED,
         f"{FORMAT} {CHANGED_FILES} exited with status 2.\n{error}",
         True,
     )
-    # The ticks run the verification of each task first (#3054).
-    assert programs_run(programs, "uv") == [
-        "uv run devops ci test tests/test_sample.py",
-        "uv run devops ci test tests/test_sample.py",
-        "uv run devops docs check",
-        f"{FORMAT} {CHANGED_FILES}",
-    ]
+    # The formatter is the first command: a tick runs no verification (#6559).
+    assert programs_run(programs, "uv") == [f"{FORMAT} {CHANGED_FILES}"]
 
 
 def test_a_format_run_that_runs_out_of_time_stops_the_step(

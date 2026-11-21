@@ -386,9 +386,8 @@ DEFAULT_AI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 DEFAULT_GH_SESSION_CONNECT_TIMEOUT_SECONDS: float = 10.0
 # The GitHub session's read timeout (#4626): the longest wait for each chunk of an answer. GitHub
 # ends a REST request that it cannot process in 10 s, so a read that waits longer gets no answer.
-# The bound is shorter than the calls around a GitHub read that the chain test
-# `tests/github/test_github_session_timeouts.py` holds: the watch of the checks of the implement job
-# (`DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS`) and the MCP read of a `resource://gh/`
+# The bound is shorter than the call around a GitHub read that the chain test
+# `tests/github/test_github_session_timeouts.py` holds: the MCP read of a `resource://gh/`
 # resource (`DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, #4678). So the read fails first and the call around
 # it gets its error. Downloads keep `DEFAULT_HTTP_TIMEOUT_SECONDS`.
 DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS: float = 60.0
@@ -734,6 +733,29 @@ DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # 2026-10-29: a loopback connect took at most 0.6 ms, and a connect to a Service on another node
 # of the homelab took at most 0.4 ms, so the bound is more than 400 times the slowest connect.
 DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS: float = 0.25
+# The project brain in the cache Valkey (#4668, ADR 0023 section 2). A value whose encoded form is
+# over this bound stays in the in-process tier: ADR 0023 section 2 sets 1 MiB. A record of a
+# shared snapshot keeps both its JSON and its zlib form under it, so a reader expands no value
+# past it.
+DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
+# The entries of the in-process tier of one tiered mapping. A PyPI fact holds about 1 KB, so a
+# full tier holds about 1 MB.
+DEFAULT_BRAIN_MEMORY_ENTRIES: int = 1024
+# How long a tool fact of PyPI or deps.dev is kept, in memory and in Valkey: 24 hours.
+DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
+# The shared listing snapshot of a repository lives 7 days after its last write (#4668).
+DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
+# A load of a shared snapshot stops after this time and the reader takes the local copy or reads
+# GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
+DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
+# The fields that one `HSCAN` of a shared snapshot asks for, and that one `HSET` of a full write
+# sends. 500 records are about 1 MB with zlib.
+DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
+# The temporary key of a full write lives this long, so a killed writer leaves no key without an
+# end.
+DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
+# A process reads the visibility of a repository again after this time (#4668).
+DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 
@@ -872,6 +894,12 @@ DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 # watermark, so a change that GitHub lists late is read again.
 DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS: int = 24
 DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
+# The project review catalog (#4692). GitHub gives at most 1,000 results of a filtered list of
+# Actions runs (page 11 gave 0 runs on 2026-11-11), so the runs reader splits a `created` slice in
+# two halves while its `total_count` reaches the cap. The OpenSpec reader runs `openspec show` in
+# these workers: a 7-day window archived 406 changes at about 0.2 s each.
+DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
+DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
 # `devops roadmap consolidate` (#1127): the most members one shortlist holds, and the most open
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10
@@ -1079,10 +1107,8 @@ DEFAULT_ROADMAP_IMPLEMENT_CONTINUATIONS_PER_ITEM: int = 2
 # gateway group of the implement task. One tier keeps every attempt on the same model until a
 # person names a stronger tier, as `devops-reasoning`, after it.
 DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS: Final[tuple[str, ...]] = (DEFAULT_AI_IMPLEMENT_MODEL,)
-# The most items one implement run takes, and the seconds between two reads of a pull request
-# whose checks are not there yet (#2665).
+# The most items one implement run takes (#2665).
 DEFAULT_ROADMAP_IMPLEMENT_LIMIT: int = 1
-DEFAULT_ROADMAP_IMPLEMENT_POLL_SECONDS: int = 30
 # The effort values of the implement job's passes, in order (#3385): the job takes an item of the
 # first effort, and an item of the next effort only when no item of the first is selectable.
 DEFAULT_ROADMAP_IMPLEMENT_EFFORT: Final[tuple[str, ...]] = ("low", "medium")
@@ -1090,22 +1116,20 @@ DEFAULT_ROADMAP_IMPLEMENT_EFFORT: Final[tuple[str, ...]] = ("low", "medium")
 # the Jobs and the plan; the Job itself runs for up to two hours.
 DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES: int = 7
 # The time limits of the implement job (#3206), in seconds, which the settings
-# `roadmap.implement.request_timeout_seconds`, `command_timeout_seconds` and
-# `monitor_timeout_seconds` change. The deadline of one model call is one clock over the whole
+# `roadmap.implement.request_timeout_seconds` and `command_timeout_seconds` change. The deadline of one model call is one clock over the whole
 # call: every send of it and the read of the stream. It is more than a cold read of the largest
 # window (about 90 s) and a reply at the output cap (a quarter of the window, 32,000 tokens) at the
 # average rate of the longest measured call (38 tokens per second, about 840 s), and above the
 # timeout of the router in `k8s/llm/gateway/config.yaml` (900 s), so the gateway ends a stuck
 # attempt and can retry it or fall back first (#5965), which a test holds. A command is one
-# verification command, static check or hook of a step. The monitor is the most time that the
-# checks of a pull request may take to settle: CI that takes more than 5 minutes is a P0 bug, so
-# an hour is an outer bound. The Job deadline ends a run that these limits do not.
+# verification command, static check or hook of a step. The Job deadline ends a run that these
+# limits do not.
 DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS: int = 1200
 DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS: int = 1800
-DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS: int = 3600
 # The deadline of a runner Job follows its progress (#3063). The stall is the time without a new
 # line in the Job log that ends a run. It is above the longest wait in which the runner writes no
-# line (the watch of the checks, 3600 s) by 600 s (#3206). The extension is the time the deadline
+# line: a command, 1800 s (#3206). It was 600 s above the watch of the checks of a pull request,
+# which the runner no longer runs (#6559). The extension is the time the deadline
 # is kept ahead of the last progress, above the stall by the delay of a row (7 minutes) and a tick
 # of the Service (151 s), so the Service sees a stall before the deadline passes. The ceiling is
 # the cap of the admission policy of the Service's Jobs.

@@ -2,8 +2,8 @@
 
 An item is New while it waits for refine, Ready while it waits for a plan, Planned once its plan is
 on the default branch, In Progress while a runner Job, an open pull request or the claim of an agent
-works on it, In Review once that pull request is ready for review, and Blocked while a stop is on
-record. `derive_status` is the one function that maps the facts of an item to that Status.
+works on it, In Review once that pull request is ready for review or the implement Job ended at
+its draft (#6559), and Blocked while a stop is on record. `derive_status` is the one function that maps the facts of an item to that Status.
 
 **The one writer.** `write_status` derives the Status from the facts that its caller gives, writes
 the label with the family replace of the store (`set_field`) only when it differs, and reads the
@@ -74,9 +74,10 @@ _WRITTEN_FROM = frozenset({CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLAN
 @dataclass(frozen=True)
 class StatusFacts:
     """What decides the Status of an item: it waits for refine (`needs_refine`: intake filed it,
-    or a job returned it), a pull request that delivers it is ready for review (`pull_ready`) or
-    open (`pull_open`), an agent claimed it for a worktree (`agent_claimed`, #4685), a runner Job
-    holds it, a stop is on record, its plan is on the default branch."""
+    or a job returned it), a pull request that delivers it is ready for review, or is the draft at
+    which the implement Job ended (`pull_ready`, #6559), or is open (`pull_open`), an agent claimed
+    it for a worktree (`agent_claimed`, #4685), a runner Job holds it, a stop is on record, its plan
+    is on the default branch."""
 
     plan_merged: bool = False
     job_active: bool = False
@@ -89,9 +90,10 @@ class StatusFacts:
 
 def derive_status(facts: StatusFacts) -> str:
     """The Status of an item with `facts`: New while it waits for refine, else In Review while its
-    pull request is ready for review, else In Progress while a Job holds it, its pull request is
-    open or an agent claimed it, else Blocked while a stop is on record, else Planned when the plan is merged, else Ready.
-    The one function that rows and filters use."""
+    pull request is ready for review or is the draft at which the implement Job ended, else In
+    Progress while a Job holds it, its pull request is open or an agent claimed it, else Blocked
+    while a stop is on record, else Planned when the plan is merged, else Ready. The one function
+    that rows and filters use."""
     if facts.needs_refine:
         return CONST_ROADMAP_STATUS_NEW
     if facts.pull_ready:

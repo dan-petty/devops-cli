@@ -16,6 +16,18 @@ A plan of the queries (`plan_grade_queries`) is the dry run of the report: it se
 For stage and implement the report also gives the verdicts of the pull requests that the bot of
 `service.github_app.slug` opened in the window, and their score (`roadmap/pr_verdict.py`, #5968),
 beside the attempt ratio. With no slug there is no bot, and the report reads no verdict.
+
+The implement Job ends at its draft and logs `drafted` with the number of the draft in `pull`
+(#6559), so its line is the hand-off and not the outcome. The report scores the `drafted` lines of
+each pull request once, by the forge state of that pull request, from the same search of the bot
+pull requests: a pull request that merged, or that is open and out of draft, is a success; one that
+closed with no merge is a failure; a draft has no outcome yet, so its lines stay out of the
+attempts and count in `drafts_pending`. With n lines on one pull request, a success counts 1
+success and n - 1 failures, and a failure n failures. A line with no `pull` takes the forge state
+of the newest delivery of its item. The window grade, its first passes and its efficiency per
+success take this score. The versions and the trend count the
+lines as written, and with no bot the report reads no delivery, so a `drafted` line counts as its
+line says.
 """
 
 from __future__ import annotations
@@ -47,8 +59,11 @@ from devops_cli.roadmap.job_result import FIRST_PASS_LIMITS, LINE_PREFIX, CountL
 from devops_cli.roadmap.pr_verdict import (
     KIND_JOBS,
     BotPull,
+    ForgeOutcome,
+    PullKind,
     Verdict,
     VerdictGrade,
+    forge_outcome,
     grade_verdicts,
     read_bot_pulls,
     verdict_search,
@@ -69,6 +84,7 @@ class GradeQueryKind(StrEnum):
     SECONDS_P90 = "seconds_p90"
     SECONDS_MAX = "seconds_max"
     SECONDS_SUM = "seconds_sum"
+    DRAFTED = "drafted"
 
 
 class GradeSignal(StrEnum):
@@ -121,6 +137,8 @@ _FIELDS: Final = (
     r"result=(?P<result>\S+) success=(?P<success>\S+) class=(?P<failure_class>\S+) "
     r"infra=(?P<infra>\S+) .*version=(?P<version>\S+)$"
 )
+# The fields of a line with its item, for the `drafted` lines of implement (#6559).
+_ITEM_FIELDS: Final = _FIELDS.replace(r"item=\S+ ", r"item=#?(?P<item>[0-9]+) ")
 _KEY: Final = "roadmap_job, repo"
 # The counts of each efficiency query: the count of the line and the LogQL of the range.
 _EFFICIENCY: Final[Mapping[GradeQueryKind, tuple[str, str]]] = {
@@ -221,6 +239,12 @@ class WorkflowGrade(BaseModel):
         description="The verdicts of the bot pull requests of stage or implement; None for "
         "another job, or when the report read no verdict",
     )
+    drafts_pending: int | None = Field(
+        default=None,
+        description="Implement attempts that ended at a delivery that is still a draft, out of the "
+        "attempts until it merges, is ready or closes; None for another job, or when the report "
+        "read no pull request",
+    )
 
 
 class GradeReport(BaseModel):
@@ -250,16 +274,22 @@ class VerdictRead:
     bot: str
     partial_score: float
     pulls: Sequence[BotPull]
+    # The start of the window: a pull request opened before it gives a forge outcome and no
+    # verdict (#6559). None counts each pull request.
+    opened_since: datetime | None = None
 
     def grade(self, job: str, repo: str | None) -> VerdictGrade | None:
-        """The verdicts of the pull requests of `job` in `repo`; None for a job that opens no
-        pull request."""
+        """The verdicts of the pull requests of `job` in `repo` that the bot opened in the window;
+        None for a job that opens no pull request."""
         if job not in (RoadmapJob.STAGE, RoadmapJob.IMPLEMENT):
             return None
+        since = self.opened_since
         pulls = [
             pull
             for pull in self.pulls
-            if KIND_JOBS[pull.kind] == job and pull.repo.casefold() == (repo or "").casefold()
+            if KIND_JOBS[pull.kind] == job
+            and pull.repo.casefold() == (repo or "").casefold()
+            and (since is None or pull.created is None or pull.created >= since)
         ]
         return grade_verdicts(
             RoadmapJob(job),
@@ -269,8 +299,36 @@ class VerdictRead:
         )
 
     def keys(self) -> set[tuple[str, str | None]]:
-        """The job and the repository of each pull request."""
-        return {(KIND_JOBS[pull.kind].value, pull.repo) for pull in self.pulls}
+        """The job and the repository of each pull request that the bot opened in the window, as
+        `grade` counts them: a pull request opened before it gives only a forge outcome (#6559)."""
+        since = self.opened_since
+        return {
+            (KIND_JOBS[pull.kind].value, pull.repo)
+            for pull in self.pulls
+            if since is None or pull.created is None or pull.created >= since
+        }
+
+    def pull(self, repo: str, number: int) -> BotPull | None:
+        """The pull request `number` of `repo`, or None when the search did not find it."""
+        return next(
+            (
+                pull
+                for pull in self.pulls
+                if pull.number == number and pull.repo.casefold() == repo.casefold()
+            ),
+            None,
+        )
+
+    def delivery(self, repo: str, item: int) -> BotPull | None:
+        """The newest delivery of `item` in `repo`, or None when the search found none."""
+        found = [
+            pull
+            for pull in self.pulls
+            if pull.kind is PullKind.DELIVERY
+            and pull.item == item
+            and pull.repo.casefold() == repo.casefold()
+        ]
+        return max(found, key=lambda pull: pull.number) if found else None
 
 
 def _lines(repo: RepoRef | None) -> str:
@@ -294,6 +352,16 @@ def _query(kind: GradeQueryKind, window: GradeWindow, repo: RepoRef | None) -> G
             expr = (
                 f"sum by ({_KEY}, failure_class) "
                 f'(count_over_time({lines} | success="false" | infra="false" [{window}]))'
+            )
+        case GradeQueryKind.DRAFTED:
+            pipeline = f"{RESULT_LINES} | regexp `{_ITEM_FIELDS}`"
+            if repo is not None:
+                pipeline += f" | repo=~`(?i){re.escape(repo.display)}`"
+            expr = (
+                "sum by (repo, item, pull, repair_rounds) (count_over_time("
+                f'{pipeline} | roadmap_job="{RoadmapJob.IMPLEMENT}" | result="drafted" '
+                f'| infra="false" {_count_label("repair_rounds")} {_count_label("pull")} '
+                f"[{window}]))"
             )
         case GradeQueryKind.FIRST_PASSES:
             counts = " ".join(_count_label(count) for count in _FIRST_PASS_COUNTS)
@@ -455,6 +523,19 @@ def _signals(trend: Mapping[GradeWindow, _Counts]) -> list[GradeSignal]:
 
 
 @dataclass(frozen=True)
+class _Drafted:
+    """The `drafted` lines of implement on one item: the count, the pull request that the lines
+    name (None for a line written before the field), and whether they had no repair round, so a
+    success of theirs is a first pass."""
+
+    repo: str
+    item: int
+    lines: int
+    first_pass: bool
+    pull: int | None = None
+
+
+@dataclass(frozen=True)
 class _Answers:
     """The parsed answers of the queries of one report."""
 
@@ -464,6 +545,93 @@ class _Answers:
     classes: dict[_Key, list[ClassCount]]
     first_passes: Counter[_Key]
     efficiency: Mapping[GradeQueryKind, dict[_Key, float]]
+    drafted: list[_Drafted]
+
+
+def _drafted(answer: PrometheusQueryResult) -> list[_Drafted]:
+    limits = _first_pass_limits(RoadmapJob.IMPLEMENT) or ()
+    return [
+        _Drafted(
+            repo=series.labels.get("repo", ""),
+            item=int(series.labels["item"]),
+            lines=round(_number(series.value)),
+            first_pass=_is_first_pass(series.labels, limits),
+            pull=int(series.labels["pull"]) if series.labels.get("pull", "").isdigit() else None,
+        )
+        for series in answer.series
+        if series.labels.get("item", "").isdigit()
+    ]
+
+
+@dataclass
+class _Linked:
+    """The forge outcome of the `drafted` lines of one repository (#6559): the lines whose
+    delivery succeeded, failed or is a draft, and the first passes among the successes and among
+    all the lines."""
+
+    successes: int = 0
+    failures: int = 0
+    pending: int = 0
+    first_successes: int = 0
+    first_lines: int = 0
+
+
+def _link(drafted: Sequence[_Drafted], repo: str | None, verdicts: VerdictRead) -> _Linked:
+    """Score the `drafted` lines of `repo` by their forge outcome (#6559). The lines that name one
+    pull request are scored once, by that pull request (`_score_pull`). A line written before the
+    field takes the outcome of the newest delivery of its item."""
+    linked = _Linked()
+    by_pull: defaultdict[tuple[int, int], list[_Drafted]] = defaultdict(list)
+    for lines in drafted:
+        if lines.repo.casefold() != (repo or "").casefold():
+            continue
+        if lines.pull is not None:
+            by_pull[lines.item, lines.pull].append(lines)
+            continue
+        pull = verdicts.delivery(lines.repo, lines.item)
+        outcome = forge_outcome(pull) if pull is not None else None
+        linked.first_lines += lines.lines if lines.first_pass else 0
+        if outcome is ForgeOutcome.SUCCESS:
+            linked.successes += lines.lines
+            linked.first_successes += lines.lines if lines.first_pass else 0
+        elif outcome is ForgeOutcome.FAILURE:
+            linked.failures += lines.lines
+        else:
+            linked.pending += lines.lines
+    for (_, number), group in by_pull.items():
+        _score_pull(linked, group, verdicts.pull(group[0].repo, number))
+    return linked
+
+
+def _score_pull(linked: _Linked, group: Sequence[_Drafted], pull: BotPull | None) -> None:
+    """Score the n `drafted` lines of one pull request once, by its forge outcome: a success
+    counts 1 success and n - 1 failures, because an earlier Job of the same pull request did not
+    reach the outcome alone; a failure counts n failures; a draft, or a pull request that the
+    search did not find, keeps the n lines pending. The success is a first pass only for one line
+    with no repair round."""
+    count = sum(lines.lines for lines in group)
+    linked.first_lines += sum(lines.lines for lines in group if lines.first_pass)
+    outcome = forge_outcome(pull) if pull is not None else None
+    if outcome is ForgeOutcome.SUCCESS:
+        linked.successes += 1
+        linked.failures += count - 1
+        linked.first_successes += 1 if count == 1 and group[0].first_pass else 0
+    elif outcome is ForgeOutcome.FAILURE:
+        linked.failures += count
+    else:
+        linked.pending += count
+
+
+def _forge_counts(counts: _Counts, linked: _Linked) -> _Counts:
+    """`counts` with each `drafted` line scored by its forge outcome: a draft leaves the attempts,
+    and a failed delivery takes its success back."""
+    taken_back = linked.failures + linked.pending
+    return _Counts(
+        attempts=counts.attempts - linked.pending,
+        successes=counts.successes - taken_back,
+        infra=counts.infra,
+        all_successes=counts.all_successes - taken_back,
+    )
 
 
 def _parse(window: GradeWindow, answers: Mapping[str, PrometheusQueryResult]) -> _Answers:
@@ -477,6 +645,7 @@ def _parse(window: GradeWindow, answers: Mapping[str, PrometheusQueryResult]) ->
         classes=_classes(answer(GradeQueryKind.CLASSES)),
         first_passes=_first_passes(answer(GradeQueryKind.FIRST_PASSES)),
         efficiency={kind: _by_key(answer(kind)) for kind in _EFFICIENCY},
+        drafted=_drafted(answer(GradeQueryKind.DRAFTED)),
     )
 
 
@@ -484,6 +653,13 @@ def _workflow(key: _Key, parsed: _Answers, verdicts: VerdictRead | None) -> Work
     job, repo = key
     counts = parsed.counts[parsed.window].get(key, _Counts())
     first_pass = parsed.first_passes[key] if _first_pass_limits(job) else None
+    pending: int | None = None
+    if job == RoadmapJob.IMPLEMENT and verdicts is not None:
+        linked = _link(parsed.drafted, repo, verdicts)
+        counts = _forge_counts(counts, linked)
+        pending = linked.pending
+        if first_pass is not None:
+            first_pass += linked.first_successes - linked.first_lines
     measure = measure_grade(
         attempts=counts.attempts, successes=counts.successes, first_pass=first_pass
     )
@@ -516,6 +692,7 @@ def _workflow(key: _Key, parsed: _Answers, verdicts: VerdictRead | None) -> Work
         trend=[_window_grade(at, trend[at]) for at in TREND_WINDOWS],
         signals=_signals(trend),
         verdicts=verdicts.grade(job, repo) if verdicts is not None else None,
+        drafts_pending=pending,
     )
 
 
@@ -574,8 +751,9 @@ def plan_verdict_search(
     return verdict_search(window, repo, slug, now or datetime.now(UTC))
 
 
-def _read_verdicts(search: str) -> VerdictRead:
-    """The bot pull requests that `search` finds, read through the GitHub session."""
+def _read_verdicts(search: str, since: datetime) -> VerdictRead:
+    """The bot pull requests that `search` finds, read through the GitHub session. The verdicts
+    count the pull requests opened at `since` or later."""
     from devops_cli.github.session import get_github_session
 
     settings = load_settings()
@@ -583,6 +761,7 @@ def _read_verdicts(search: str) -> VerdictRead:
         bot=settings.service.github_app.bot_login or "",
         partial_score=settings.roadmap.verdict_partial_score,
         pulls=read_bot_pulls(get_github_session().client, search),
+        opened_since=since,
     )
 
 
@@ -593,13 +772,14 @@ def grade_report(
     when a bot is set, and build the report."""
     queries = plan_grade_queries(window, repo)
     answers = query_loki_metrics([query.expr for query in queries], loki_url)
-    search = plan_verdict_search(window, repo, now)
+    at = now or datetime.now(UTC)
+    search = plan_verdict_search(window, repo, at)
     return build_grade_report(
         window,
         repo,
         loki_url,
         {query.key: answer for query, answer in zip(queries, answers, strict=True)},
-        _read_verdicts(search) if search is not None else None,
+        _read_verdicts(search, at - window.span) if search is not None else None,
     )
 
 
@@ -689,6 +869,8 @@ def _details(row: WorkflowGrade) -> list[str]:
                 infra=row.infra_attempts,
             )
         )
+    if row.drafts_pending:
+        lines.append(texts.grades_drafts_pending.format(drafts=row.drafts_pending))
     lines += [
         texts.grades_version.format(
             version=version.version,

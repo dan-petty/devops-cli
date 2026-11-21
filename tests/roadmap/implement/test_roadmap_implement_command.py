@@ -306,7 +306,7 @@ def test_confirm_without_a_token_for_the_one_repository_exits_1_and_runs_nothing
     assert (script.seen, job_world.programs.calls, job_world.api.requested) == ([], [], [])
 
 
-def test_confirm_in_a_runner_takes_the_item_to_a_ready_pull_request(
+def test_confirm_in_a_runner_takes_the_item_to_a_draft_pull_request(
     cli: Callable[..., Any], job_world: JobWorld
 ) -> None:
     factory.set_llm_client_override(two_groups().model())
@@ -314,8 +314,8 @@ def test_confirm_in_a_runner_takes_the_item_to_a_ready_pull_request(
     result = _job(cli, job_world, "--confirm")
 
     assert result.exit_code == 0
-    assert "Took 1 item(s) to a ready pull request, stopped 0." in result.output
-    assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
+    assert "Took 1 item(s) to a draft pull request, stopped 0." in result.output
+    assert job_world.pull.ready_calls == []
 
 
 def test_confirm_in_a_runner_counts_its_model_requests_under_the_implement_row(
@@ -342,7 +342,7 @@ def test_confirm_reports_a_stopped_item_and_exits_0(
     result = _job(cli, job_world, "--confirm")
 
     assert result.exit_code == 0
-    assert "Took 0 item(s) to a ready pull request, stopped 1." in result.output
+    assert "Took 0 item(s) to a draft pull request, stopped 1." in result.output
 
 
 def test_confirm_reports_an_item_that_a_person_claimed_during_the_run(
@@ -355,7 +355,7 @@ def test_confirm_reports_an_item_that_a_person_claimed_during_the_run(
     result = _job(cli, job_world, "--confirm")
 
     assert result.exit_code == 0
-    assert "Took 0 item(s) to a ready pull request, stopped 0." in result.output
+    assert "Took 0 item(s) to a draft pull request, stopped 0." in result.output
     assert "Left 1 item(s) to the owner that claimed them." in result.output
 
 
@@ -366,7 +366,7 @@ def test_the_job_dry_run_makes_no_request_and_lists_the_requests_of_a_run(
 
     assert result.exit_code == 0
     assert "Dry run: no request was made" in result.output
-    assert "pr ready" in result.output
+    assert "pr ready" not in result.output
     assert (job_world.programs.calls, job_world.api.requested) == ([], [])
 
 

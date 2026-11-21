@@ -1,5 +1,5 @@
-"""`devops roadmap implement` as a job: the run of a Staged item from the first group to a ready
-pull request, and every way it stops (#2665).
+"""`devops roadmap implement` as a job: the run of a Staged item from the first group to a draft
+pull request, and every way it stops (#2665, #6559).
 
 Git runs for real on a clone with an `origin`. The model is scripted, so the steps are real: they
 write files in the worktree, and their exit checks run through the process edge. GitHub's REST API
@@ -27,7 +27,6 @@ from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config import constants
 from devops_cli.exceptions import RoadmapImplementError
 from devops_cli.git.worktree_add import worktree_directory
-from devops_cli.github.check_verdict import CheckBucket, CheckVerdictSummary, PRCheckItem
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement import (
@@ -203,7 +202,7 @@ def test_the_job_checks_the_token_scope_before_it_clears_its_dumpable_flag(
     assert seen == []
 
 
-# ── The run to a ready pull request ───────────────────────────────────────────────────────
+# ── The run to a draft pull request ───────────────────────────────────────────────────────
 
 
 def test_the_job_makes_its_process_unreadable_before_it_does_any_work(
@@ -227,7 +226,7 @@ def test_the_job_makes_its_process_unreadable_before_it_does_any_work(
         window=WINDOW,
     )
 
-    assert (seen, applied.ready) == ([before], (1,))
+    assert (seen, applied.drafted) == ([before], (1,))
 
 
 def test_the_job_runs_no_step_when_the_kernel_refuses_to_clear_the_flag(
@@ -270,12 +269,15 @@ def test_a_job_outside_a_runner_does_not_touch_its_process(
     assert seen == []
 
 
-def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pull_request(
+def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_draft_pull_request(
     job_world: JobWorld,
 ) -> None:
+    """The Job ends when the draft pull request holds the final title and body: it watches no
+    check, posts no evidence comment and sends no `gh pr ready`. The watch row and the fix-checks
+    Jobs take the pull request after it (#6559)."""
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert job_world.origin_log() == [
         "fix(roadmap): plan",
         "fix(roadmap): The first group (#1)",
@@ -290,51 +292,14 @@ def test_two_groups_end_in_commits_a_pushed_branch_a_closing_body_and_a_ready_pu
             f"\n\nCloses #1\n\nChange: `openspec/changes/archive/2026-10-29-{CHANGE}/`",
         }
     ]
-    assert job_world.pull.ready_calls == [("pr", "ready", str(PULL), "--repo", STAGE_REPO)]
+    assert (job_world.pull.ready_calls, job_world.sent("PATCH", "issues/comments/900")) == ([], [])
     status, record = _item(job_world)
-    assert (status, record["implement.pr"], record.get("implement.stopped")) == (
-        "In Review",
-        str(PULL),
-        None,
-    )
-
-
-def test_the_job_changes_the_evidence_comment_before_it_marks_the_pull_request_ready(
-    job_world: JobWorld,
-) -> None:
-    """The job publishes the check results of the head commit as the one evidence comment of the
-    delivery pull request, and it marks the pull request ready only after that write (#4129)."""
-    applied = job_world.run(two_groups())
-
-    head = job_world.repo.origin_git("rev-parse", BRANCH)
-    (changed,) = job_world.sent("PATCH", "issues/comments/900")
-    posted = job_world.sent("POST", f"issues/{PULL}/comments")
-    (ready_requests,) = job_world.pull.ready_requests
-    assert applied.ready == (1,)
-    assert f"Head commit: `{head}`" in changed["body"]
-    assert not any(
-        str(body["body"]).startswith(constants.CONST_PR_EVIDENCE_MARKER) for body in posted
-    )
-    assert any(
-        entry.startswith("PATCH ") and entry.endswith("/issues/comments/900")
-        for entry in ready_requests
-    )
-
-
-def test_a_failed_evidence_change_stops_the_item(job_world: JobWorld) -> None:
-    """A GitHub refusal of the evidence comment stops the item before the ready mark, so the pull
-    request stays a draft (#4129)."""
-    job_world.api.route(
-        "PATCH",
-        f"/repos/{STAGE_REPO}/issues/comments/900",
-        github_json({"message": "Validation Failed"}, status=422),
-    )
-
-    applied = job_world.run(two_groups())
-
-    status, record = _item(job_world)
-    assert (applied.stopped, applied.ready, job_world.pull.ready_calls) == ((1,), (), [])
-    assert (status, record.get("implement.stopped")) == ("Blocked", "ready")
+    assert (
+        status,
+        record["implement.pr"],
+        record["implement.result"],
+        record.get("implement.stopped"),
+    ) == ("In Review", str(PULL), "drafted", None)
 
 
 def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held_whole(
@@ -348,7 +313,7 @@ def test_the_pr_comment_names_each_comment_of_the_item_that_the_step_inputs_held
     applied = job_world.run(two_groups())
 
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
-    assert (applied.ready, comment["body"].count(page)) == ((1,), 1)
+    assert (applied.drafted, comment["body"].count(page)) == ((1,), 1)
     assert f"- comments of the item in the step inputs: {page}" in comment["body"]
 
 
@@ -411,7 +376,7 @@ def test_the_pull_request_comment_names_the_tools_of_the_job(
     (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
     body = comment["body"]
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert "uv run ruff check -- src/devops_cli/shout.py" in body
     tools_lines = [line for line in body.splitlines() if line.startswith("- tools:")]
     assert len(tools_lines) == 1
@@ -669,7 +634,7 @@ def test_the_issue_gets_one_comment_with_the_pull_request_and_the_spend(
     comments = job_world.issue_comments()
     assert len(comments) == 1
     assert comments[0].startswith(MARKER)
-    assert f"Pull request #{PULL} is ready for review." in comments[0]
+    assert f"The draft pull request #{PULL} holds the final title and body." in comments[0]
     assert "4 model requests" in comments[0]
 
 
@@ -750,7 +715,7 @@ def test_a_group_whose_tasks_are_ticked_on_the_branch_is_not_run_again(
 
     applied = job_world.run(script)
 
-    assert (applied.ready, len(script.seen)) == ((1,), 2)
+    assert (applied.drafted, len(script.seen)) == ((1,), 2)
     assert job_world.origin_log()[:3] == [
         "fix(roadmap): plan",
         "fix(roadmap): The first group (#1)",
@@ -881,7 +846,7 @@ def test_apply_implement_gives_a_step_shell_the_broker_variables_and_no_ai_key(
 
     (call,) = shell_calls
     token = call.env["DEVOPS_CLI_BROKER_TOKEN"]
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert call.env["DEVOPS_CLI_BROKER_URL"].startswith("http://127.0.0.1:")
     assert BROKER_KEY not in " ".join(call.env.values())
     assert (BROKER_KEY in call.command, token in call.command) == (False, False)
@@ -908,7 +873,7 @@ def test_a_stopped_step_still_ends_its_broker(
     applied = job_world.run(script)
 
     (call,) = shell_calls
-    assert (applied.ready, applied.stopped) == ((), (1,))
+    assert (applied.drafted, applied.stopped) == ((), (1,))
     assert _broker_status_after_the_step(call) == 401
     assert (_gateway_requests(job_world), live_broker()) == ([], None)
 
@@ -923,7 +888,7 @@ def test_a_retry_clears_the_stop_before_the_first_step(job_world: JobWorld) -> N
     applied = job_world.run(two_groups())
 
     status, record = _item(job_world)
-    assert (applied.ready, status, record.get("implement.stopped")) == ((1,), "In Review", None)
+    assert (applied.drafted, status, record.get("implement.stopped")) == ((1,), "In Review", None)
 
 
 # ── The stops ─────────────────────────────────────────────────────────────────────────────
@@ -942,7 +907,7 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
 
     status, record = _item(job_world)
     comment = _stop_comment(job_world)
-    assert (applied.ready, applied.stopped, status, record.get("implement.stopped")) == (
+    assert (applied.drafted, applied.stopped, status, record.get("implement.stopped")) == (
         (),
         (1,),
         "Blocked",
@@ -1222,7 +1187,7 @@ def test_no_rebase_skips_fetch_and_rebase_at_the_start_and_before_push(job_world
 
     applied = job_world.run(script, rebase=False)
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert job_world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main") == "2"
 
 
@@ -1330,7 +1295,8 @@ class TestFinalPushRebase:
         def pass_test(call: ProcessCall) -> subprocess.CompletedProcess[str]:
             nonlocal calls
             calls += 1
-            if calls == 3:
+            # The verification of group 1 is the first call, and the scoped tests the second.
+            if calls == 2:
                 advance_main(job_world)
             return subprocess.CompletedProcess(call.argv, 0, stdout="passed\n", stderr="")
 
@@ -1341,8 +1307,8 @@ class TestFinalPushRebase:
 
         applied = job_world.run(two_groups())
 
-        assert calls == 3
-        assert applied.ready == (1,)
+        assert calls == 2
+        assert applied.drafted == (1,)
         assert job_world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main") == "0"
 
     def test_a_conflict_on_the_rebase_after_the_scoped_checks_pushes_nothing(
@@ -1355,7 +1321,7 @@ class TestFinalPushRebase:
             nonlocal calls
             if command_text(call).startswith("uv run devops ci test"):
                 calls += 1
-                return calls == 3
+                return calls == 2
             return False
 
         move_main_when(
@@ -1628,7 +1594,7 @@ def test_an_item_whose_worktree_cannot_be_made_is_reported_and_left_alone(
         job_world.store, plan, source=job_world.repo.clone, model=script.model(), window=WINDOW
     )
 
-    assert (applied.ready, applied.stopped, [f.number for f in applied.failed]) == ((), (), [1])
+    assert (applied.drafted, applied.stopped, [f.number for f in applied.failed]) == ((), (), [1])
     assert applied.failed[0].error == "GitOperationError"
     assert (script.seen, _item(job_world)[0]) == ([], "Ready")
     with pytest.raises(RoadmapImplementError) as raised:
@@ -1697,7 +1663,7 @@ def test_a_person_who_claims_while_group_one_runs_ends_the_job_before_group_two(
 
     (comment,) = job_world.issue_comments()
     status, record = _item(job_world)
-    assert (applied.yielded, applied.ready, applied.stopped, applied.failed) == ((1,), (), (), ())
+    assert (applied.yielded, applied.drafted, applied.stopped, applied.failed) == ((1,), (), (), ())
     assert (len(script.seen), job_world.origin_log(), _docs_ran(job_world)) == (
         2,
         ["fix(roadmap): plan"],
@@ -1727,7 +1693,7 @@ def test_a_claim_made_before_the_first_group_ends_the_job_before_any_step(
     )
 
     (comment,) = job_world.issue_comments()
-    assert (applied.yielded, applied.ready, script.seen, job_world.origin_log()) == (
+    assert (applied.yielded, applied.drafted, script.seen, job_world.origin_log()) == (
         (1,),
         (),
         [],
@@ -1746,7 +1712,7 @@ def test_a_claim_made_while_the_last_group_runs_ends_the_job_before_the_push(
     applied = job_world.run(script)
 
     (comment,) = job_world.issue_comments()
-    assert (applied.yielded, applied.ready, len(script.seen)) == ((1,), (), 4)
+    assert (applied.yielded, applied.drafted, len(script.seen)) == ((1,), (), 4)
     # Group 1 stays on the branch: the boundary of group 2 pushed it before the claim came (#3677).
     assert (job_world.origin_log(), job_world.pull.ready_calls) == (
         ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"],
@@ -1763,7 +1729,7 @@ def test_a_planned_item_that_a_person_claims_gets_no_branch_and_no_pull_request(
 
     applied = planned_world.run(script)
 
-    assert (applied.yielded, applied.ready) == ((1,), ())
+    assert (applied.yielded, applied.drafted) == ((1,), ())
     assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
     assert not any(request.method == "POST" for request in planned_world.api.sent)
 
@@ -1773,7 +1739,7 @@ def test_the_claim_of_the_service_does_not_end_the_job(job_world: JobWorld) -> N
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.yielded) == ((1,), ())
+    assert (applied.drafted, applied.yielded) == ((1,), ())
 
 
 def test_a_claim_made_while_the_docs_are_generated_ends_the_job_before_the_push(
@@ -1793,7 +1759,7 @@ def test_a_claim_made_while_the_docs_are_generated_ends_the_job_before_the_push(
     applied = job_world.run(two_groups())
 
     (comment,) = job_world.issue_comments()
-    assert (applied.yielded, applied.ready, job_world.pull.ready_calls) == ((1,), (), [])
+    assert (applied.yielded, applied.drafted, job_world.pull.ready_calls) == ((1,), (), [])
     assert job_world.origin_log() == ["fix(roadmap): plan", "fix(roadmap): The first group (#1)"]
     assert "the end of the last group" in comment
 
@@ -1864,6 +1830,63 @@ def test_the_stop_comment_of_a_tier_change_names_the_tier_move(
     assert "Action left: `wait`" in comment
 
 
+def test_implement_replaces_staging_labels_with_new_title_labels(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [
+            {"name": "type/docs"},
+            {"name": "scope/openspec"},
+            {"name": "scope/ai"},
+        ],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
+        update={"labels": ("type/docs", "scope/openspec", "scope/ai")}
+    )
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
+    assert set(job_world.store._roadmap.issues[PULL].labels) == {
+        "type/bug",
+        "scope/roadmap",
+        "scope/ai",
+    }
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert len(unlabels) == 2
+
+
+def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> None:
+    status = {
+        "state": "open",
+        "draft": True,
+        "merged": False,
+        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "head": {"ref": BRANCH, "sha": ""},
+        "base": {"ref": "main", "sha": "basesha"},
+        "labels": [],
+    }
+    route_pull_status(job_world.api, status)
+    pr_issue = job_world.store._roadmap.issues[PULL]
+    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(update={"labels": ()})
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
+    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
+    assert unlabels == []
+
+
+# The completeness of the draft is judged before the run ends at it (#6559), as the ready step
+# judged it before: a refused draft stops the item.
+
+
 def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) -> None:
     def unticked_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
         res = archive_effect(call)
@@ -1892,26 +1915,6 @@ def test_unticked_task_in_archived_change_stops_at_ready(job_world: JobWorld) ->
     comment = _stop_comment(job_world)
     assert "2" in comment
     assert "Failure class: `plan_defect`" in comment
-
-
-def test_running_check_at_ready_stops_the_job(
-    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "devops_cli.roadmap.implement.implement_run.read_check_runs",
-        lambda *_args, **_kwargs: CheckVerdictSummary(
-            items=[PRCheckItem(name="Lint", bucket=CheckBucket.PENDING)]
-        ),
-    )
-
-    applied = job_world.run(two_groups())
-
-    assert (applied.stopped, job_world.pull.ready_calls) == ((1,), [])
-    status, record = _item(job_world)
-    assert status == "Blocked"
-    assert record.get("implement.stopped") == "ready"
-    (comment,) = job_world.issue_comments()
-    assert "a check runs" in comment.lower()
 
 
 def test_unarchived_active_change_stops_at_ready(job_world: JobWorld) -> None:
@@ -1953,60 +1956,7 @@ def test_missing_change_folder_stops_at_ready(job_world: JobWorld) -> None:
     assert "missing" in comment.lower()
 
 
-def test_implement_replaces_staging_labels_with_new_title_labels(job_world: JobWorld) -> None:
-    status = {
-        "state": "open",
-        "draft": True,
-        "merged": False,
-        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
-        "head": {"ref": BRANCH, "sha": ""},
-        "base": {"ref": "main", "sha": "basesha"},
-        "labels": [
-            {"name": "type/docs"},
-            {"name": "scope/openspec"},
-            {"name": "scope/ai"},
-        ],
-    }
-    route_pull_status(job_world.api, status)
-    pr_issue = job_world.store._roadmap.issues[PULL]
-    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
-        update={"labels": ("type/docs", "scope/openspec", "scope/ai")}
-    )
-
-    applied = job_world.run(two_groups())
-
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
-    assert set(job_world.store._roadmap.issues[PULL].labels) == {
-        "type/bug",
-        "scope/roadmap",
-        "scope/ai",
-    }
-    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
-    assert len(unlabels) == 2
-
-
-def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> None:
-    status = {
-        "state": "open",
-        "draft": True,
-        "merged": False,
-        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
-        "head": {"ref": BRANCH, "sha": ""},
-        "base": {"ref": "main", "sha": "basesha"},
-        "labels": [],
-    }
-    route_pull_status(job_world.api, status)
-    pr_issue = job_world.store._roadmap.issues[PULL]
-    job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(update={"labels": ()})
-
-    applied = job_world.run(two_groups())
-
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
-    unlabels = [w for w in job_world.store._roadmap.job_writes if w.operation == "unlabel_issue"]
-    assert unlabels == []
-
-
-def test_implement_refused_label_comments_on_pull_and_marks_ready(
+def test_implement_refused_label_comments_on_pull_and_ends_at_the_draft(
     job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from devops_cli.exceptions.git import GitHubOperationError
@@ -2029,8 +1979,8 @@ def test_implement_refused_label_comments_on_pull_and_marks_ready(
 
     applied = job_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
-    assert len(job_world.pull.ready_calls) == 1
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
+    assert job_world.pull.ready_calls == []
     comments = job_world.sent("POST", f"issues/{PULL}/comments")
     assert any(
         "refused label write" in c.get("body", "") or "type/bug" in c.get("body", "")
@@ -2055,7 +2005,7 @@ def test_implement_unauthenticated_label_error_stops_item(
 def test_planned_item_holds_labels_and_removes_none(planned_world: JobWorld) -> None:
     applied = planned_world.run(two_groups())
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert set(planned_world.store._roadmap.issues[PULL].labels) == {"type/bug", "scope/roadmap"}
     unlabels = [
         w for w in planned_world.store._roadmap.job_writes if w.operation == "unlabel_issue"
@@ -2092,7 +2042,7 @@ class TestFailToPassOfABehaviorGroup:
 
         applied = job_world.run(script)
 
-        assert (applied.ready, applied.stopped) == ((1,), ())
+        assert (applied.drafted, applied.stopped) == ((1,), ())
         (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
         assert (
             "- fail-to-pass of group 1: fails on the base commit. "
@@ -2169,7 +2119,7 @@ class TestFailToPassOfTwoBehaviorGroups:
 
         applied = job_world.run(script)
 
-        assert (applied.ready, applied.stopped) == ((1,), ())
+        assert (applied.drafted, applied.stopped) == ((1,), ())
         (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
         assert (
             "- fail-to-pass of group 1: fails on the base commit. "
@@ -2278,7 +2228,7 @@ class TestAFalsePremiseOfABehaviorGroup(_PremiseWorld):
 
         applied = job_world.run(script)
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((), (), ())
         status, record = _item(job_world)
         assert (status, record.get("implement.group"), record.get("implement.branch")) == (
             "New",
@@ -2303,7 +2253,7 @@ class TestATruePremiseOfABehaviorGroup(_PremiseWorld):
     def test_a_behavior_group_whose_guard_the_base_lacks_runs(self, job_world: JobWorld) -> None:
         applied = _run_group_one(job_world, _guard_tasks("_missing_guard", behavior=True))
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
         assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
             "diff", "--name-only", f"main..{BRANCH}"
         )
@@ -2338,7 +2288,7 @@ class TestTheAddsLineNamesADefinedName(_PremiseWorld):
 
         status, _ = _item(job_world)
         (comment,) = job_world.issue_comments()
-        assert (applied.ready, applied.stopped, applied.failed, status) == ((), (), (), "New")
+        assert (applied.drafted, applied.stopped, applied.failed, status) == ((), (), (), "New")
         assert TITLES_LINE in comment
         assert "`_delivery_title`" in comment
         assert NO_GUARD_TASK not in comment
@@ -2358,7 +2308,7 @@ class TestASentenceNamesAGuardWithNoAddsLine(_PremiseWorld):
     ) -> None:
         applied = _run_group_one(job_world, NO_ADDS_LINE)
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
         assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
             "diff", "--name-only", f"main..{BRANCH}"
         )
@@ -2377,7 +2327,7 @@ class TestTheAddsLineNamesAnUndefinedGuard(_PremiseWorld):
     ) -> None:
         applied = _run_group_one(job_world, ADDS_UNDEFINED)
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
         assert "src/devops_cli/shout.py" in job_world.repo.origin_git(
             "diff", "--name-only", f"main..{BRANCH}"
         )
@@ -2406,7 +2356,7 @@ class TestAGuardOfAGroupThatIsNotBehavior(_PremiseWorld):
 
         applied = job_world.run(script)
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
 
 
 class TestAGuardOfAGroupThatPassed(_PremiseWorld):
@@ -2426,7 +2376,7 @@ class TestAGuardOfAGroupThatPassed(_PremiseWorld):
 
         applied = job_world.run(script)
 
-        assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+        assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
         assert "CONTEXT.md" in job_world.repo.origin_git("diff", "--name-only", f"main..{BRANCH}")
 
 
@@ -2443,7 +2393,7 @@ class TestVerifyOutputOfAnOtherGroup:
 
         applied = job_world.run(two_groups())
 
-        assert (applied.ready, applied.stopped) == ((1,), ())
+        assert (applied.drafted, applied.stopped) == ((1,), ())
         (comment,) = job_world.sent("POST", f"issues/{PULL}/comments")
         assert (
             "- verify of group 1: `uv run devops ci test tests/test_shout.py` exits 0.\n\n"
@@ -2466,7 +2416,7 @@ def test_a_passing_group_without_a_model_tick_is_ticked_by_the_job_and_pushed(
 
     applied = job_world.run(script)
 
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     lines = job_world.repo.origin_git(
         "log", "--reverse", "--format=%H %s", f"main..{BRANCH}"
     ).splitlines()

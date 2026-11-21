@@ -1,7 +1,7 @@
 # roadmap-implement-job/pull-request Specification
 
 ## Purpose
-The branch and the pull request of an implement item: the commits and their titles, the work in progress and the checkpoints, the pushes, the rewrite of the pull request, and the mark as ready.
+The branch and the pull request of an implement item: the commits and their titles, the checkpoints, the pushes, the rewrite of the pull request, and the end of the run at the draft.
 
 ## Requirements
 
@@ -73,31 +73,12 @@ Once the job has finished the change and before it pushes the commits, it SHALL 
 - **WHEN** the run calls the metadata write twice for the same pull request
 - **THEN** the job sends one `PATCH` and one label write, and the pull request holds each label once
 
-### Requirement: A pull request that passes its checks is marked ready
-When `draft_readiness` answers ready for the implement pull request and no review thread is open, the job SHALL publish the evidence comment of the head commit through `publish_pr_evidence`, and then run `gh pr ready` and set Status to In Review. When the answer is wait or refuse, or the publisher raises a `GitHubOperationError`, the job SHALL stop the item and SHALL NOT run `gh pr ready`. The job SHALL NOT merge.
-
-#### Scenario: The finish
-- **WHEN** the checks pass
-- **THEN** the job writes one evidence comment that names the head commit before it runs `gh pr ready <pr>` once, Status is In Review, the record holds the number of the pull request, the last commit and the spend, and the issue holds one comment that starts with the marker and names the pull request
-
-#### Scenario: A task group stays unticked
-- **WHEN** the archived tasks file of the job holds an unticked task in group 2 after the archive step
-- **THEN** the item is Blocked with a reason that names group 2, `gh pr ready` ran never, and the class of the failure is `plan_defect`
-
-#### Scenario: A check starts after the watch
-- **WHEN** a check run of the head is running when the job reads the check runs before it marks the pull request ready
-- **THEN** the item is Blocked with the reason that a check runs, and `gh pr ready` ran never
-
-#### Scenario: The evidence publisher fails
-- **WHEN** `publish_pr_evidence` raises a `GitHubOperationError` for the head commit
-- **THEN** the item is Blocked with the stop of the ready step, the record holds the stopped step, and `gh pr ready` ran never
-
 ### Requirement: A Planned item gets a new branch
 For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<default branch>`. The type is the Conventional Commit type of the title of the item, and the slug is the one of the change folder. The job SHALL run the groups that have an unticked task, regenerate the documentation and archive the change, as it does for a Staged item.
 
 #### Scenario: Two groups
 - **WHEN** a Planned item has a change with two unticked groups on `origin/main`, both steps pass, and the checks pass
-- **THEN** `origin` holds the new branch with one commit for each group, one for the documentation and one for the archive, GitHub received one draft pull request and one body that starts with `Closes #<issue>`, `gh pr ready` ran once, the record holds `implement.branch` and `implement.pr`, and the Status is In Review
+- **THEN** `origin` holds the new branch with one commit for each group, one for the documentation and one for the archive, GitHub received one draft pull request and one body that starts with `Closes #<issue>`, `gh pr ready` ran never, `implement.result` is `drafted`, the record holds `implement.branch` and `implement.pr`, and the Status is In Review
 
 #### Scenario: A group that is done
 - **WHEN** every task of group 1 is ticked on `origin/main`
@@ -164,25 +145,6 @@ The job SHALL set the delivery pull request title using the Conventional Commit 
 #### Scenario: A scope that no label declares
 - **WHEN** the title of the issue is `fix(floor): the job drops a comment` and `.github/labels.yml` declares no `scope/floor`
 - **THEN** the title of the pull request is `fix: the job drops a comment`
-
-### Requirement: The watch reads check runs and no commit status
-The implement job watch SHALL judge the checks of its pull request head from the check runs and SHALL NOT send a request to the commit status endpoint, so a token without the `statuses` permission reads the checks. `devops pr monitor`, `devops pr ready` and `devops pr check-readiness` SHALL keep reading the commit statuses.
-
-#### Scenario: The watch reads check runs
-- **WHEN** the watch reads a pull request head whose one check run passed
-- **THEN** the watch finds every check passed, and no request goes to the commit status endpoint
-
-#### Scenario: The commit status endpoint refuses
-- **WHEN** the commit status endpoint answers HTTP 403 and the check runs of the head passed
-- **THEN** the watch finds every check passed, and the item does not stop for unread checks
-
-#### Scenario: A check run fails
-- **WHEN** a check run of the head failed
-- **THEN** the watch reports that check as failed, and no request goes to the commit status endpoint
-
-#### Scenario: A person's monitor reads the statuses
-- **WHEN** `devops pr monitor` reads a head whose commit status endpoint answers HTTP 500
-- **THEN** it exits 1
 
 ### Requirement: One function decides when a draft pull request is ready
 `draft_readiness` SHALL take a draft pull request, its kind (stage plan, implement, agent or person), its recorded item, its check runs and its change folder, and SHALL answer ready, wait or refuse with a reason. A stage plan is complete when its title summary and its body are not placeholders. An implement pull request is complete when every task group is ticked and the change is archived. An agent's or a person's pull request is complete when its author says so.
@@ -251,7 +213,7 @@ For each pull request, after the job sets the title and the body, it SHALL add t
 
 #### Scenario: A label is refused
 - **WHEN** GitHub refuses `type/bug` for the pull request
-- **THEN** a comment on the pull request names `type/bug` and the reason, and the job watches the checks and marks the pull request ready as it does without the failure
+- **THEN** a comment on the pull request names `type/bug` and the reason, and the run ends at the draft as it does without the failure
 
 #### Scenario: A dry run
 - **WHEN** `devops roadmap implement --dry-run` runs
@@ -286,38 +248,6 @@ The implement job SHALL keep the title of the archive commit in the form `docs(o
 - **WHEN** The implement job archives the change for issue 2670.
 - **THEN** The archive commit title is `docs(openspec): archive the change (#2670)`.
 
-### Requirement: The job pushes the work in progress of a step
-After each `wip:` commit of a step that leaves a task of the group unticked, the job SHALL push the item branch to `origin` with the push of a stop (a push with a lease, or the publish of a Planned item). A `wip:` commit that ticks the last task SHALL wait for the next checkpoint, the push of the stop or the push of the end of the run. A push that fails SHALL NOT stop the step.
-
-#### Scenario: A step is killed after three of five tasks
-- **WHEN** a step ticks three of five tasks in three separate tool calls, each verification passes, and the model then fails
-- **THEN** `origin` held three `wip:` commits on the item branch before the model failed, and `implement.wip` holds the group, 3 done, 5 tasks and the last commit
-
-#### Scenario: The commit of the last tick waits
-- **WHEN** a step ticks all five tasks in five tool calls and the model then fails
-- **THEN** `origin` held four `wip:` commits before the model failed, and five after the stop
-
-### Requirement: The job records the work in progress of a step
-The job SHALL write `implement.wip` to the job record as JSON with the keys `group`, `done`, `of` and `sha` for a `wip:` commit that it pushes, and at a stop for the last `wip:` commit. When a group passes, the job SHALL remove `implement.wip`.
-
-#### Scenario: A group passes
-- **WHEN** a step ends done after a `wip:` commit
-- **THEN** the job record holds no `implement.wip`
-
-### Requirement: A second Job resumes from the kept work
-The next run of an item SHALL take the branch from `origin` with its `wip:` commits. The step message SHALL show the ticks of the kept tasks, and the step SHALL end done in one commit that holds the kept work.
-
-#### Scenario: A retry after a stop
-- **WHEN** a Job stopped after three of five tasks, a person comments `implement: retry`, and the second Job does the fourth and the fifth task
-- **THEN** the message of the second step shows three tasks ticked and two unticked, the item reaches a ready pull request, and no commit on the branch has a subject that starts with `wip:`
-
-### Requirement: The stop comment names the kept work
-When the branch holds `wip:` commits past the default branch, the stop comment SHALL say how many commits the job kept, the branch on `origin`, and the last commit.
-
-#### Scenario: A stop with kept work
-- **WHEN** a step stops with three `wip:` commits on the branch
-- **THEN** the comment says that the job kept 3 work-in-progress commits on the branch and names the last commit
-
 ### Requirement: The job checkpoints each passed group on the item branch
 At each group boundary, after the claim check and the premise check and before the step of the group, the job SHALL push the item branch with the push of a stop (a push with a lease, or the publish of a Planned item), when a group passed in this run. The end boundary SHALL push nothing: only the final push, which follows the scoped checks, pushes after the last group.
 
@@ -327,7 +257,7 @@ At each group boundary, after the claim check and the premise check and before t
 
 #### Scenario: A second Job runs only the groups that are left
 - **WHEN** a first Job is killed after two of four groups, and a second Job takes the item
-- **THEN** the second Job runs groups 3 and 4 only, and the item reaches ready
+- **THEN** the second Job runs groups 3 and 4 only, and the item reaches the draft
 
 #### Scenario: The first boundary pushes nothing
 - **WHEN** the job reaches the boundary of group 1
@@ -356,11 +286,11 @@ A checkpoint push that fails SHALL NOT stop the run. The job SHALL log the failu
 - **THEN** the run goes on, makes no checkpoint push at the boundaries of groups 3 and 4, and makes the final push
 
 ### Requirement: The job skips a phase that passed at the same head
-The job SHALL write `implement.checked_sha` with the head after the scoped checks pass, and `implement.published_sha` with the head after it pushes the item branch. A job whose head equals `implement.checked_sha` SHALL run no scoped check. A job whose head equals `implement.published_sha` SHALL push nothing. The job SHALL clear both keys when it marks the pull request ready and when it returns the item to New.
+The job SHALL write `implement.checked_sha` with the head after the scoped checks pass, and `implement.published_sha` with the head after it pushes the item branch. A job whose head equals `implement.checked_sha` SHALL run no scoped check. A job whose head equals `implement.published_sha` SHALL push nothing. The job SHALL clear both keys when the run ends at the draft and when it returns the item to New.
 
 #### Scenario: A second Job at a checked head
-- **WHEN** a first Job passes the scoped checks, pushes, and stops in the watch of the checks, and a second Job starts at the same head
-- **THEN** the second Job runs no scoped check and pushes nothing, and the record holds both keys until the pull request is ready
+- **WHEN** a first Job passes the scoped checks, pushes, and stops before the end of the run, and a second Job starts at the same head
+- **THEN** the second Job runs no scoped check and pushes nothing, and the record holds both keys until the run ends at the draft
 
 #### Scenario: A head that moved
 - **WHEN** `implement.checked_sha` holds a sha that is not the head
@@ -372,44 +302,6 @@ The job SHALL write `implement.checked_sha` with the head after the scoped check
 #### Scenario: A stage plan draft is read
 - **WHEN** `read_draft` reads a stage plan pull status with title `docs(openspec): plan #3321 x` and body `x`
 - **THEN** `draft.pull.title` is the title and `draft.pull.body` is the body
-
-### Requirement: A push rebases onto the default branch
-The job SHALL fetch `origin/<default>` before each push of the item branch, including after the scoped checks of the final push, and SHALL push a commit that holds it. Between steps, after the scoped checks, and at a stop the job SHALL rebase the checkout. During a step the job SHALL rebase a copy of `HEAD` in a detached worktree and push the tip of the copy with a lease on the remote tip that it has seen, and the checkout MUST stay as it is.
-
-#### Scenario: The first push of a Planned item
-- **WHEN** `main` gains a commit while the first step runs, and the step commits its first `wip:` commit
-- **THEN** `main` has no commit that the branch on `origin` lacks
-
-#### Scenario: A later work-in-progress push
-- **WHEN** `main` gains a commit after the first `wip:` push, and the step commits a second `wip:` commit
-- **THEN** `main` has no commit that the branch on `origin` lacks
-
-#### Scenario: A checkpoint
-- **WHEN** `main` gains a commit while group 2 runs
-- **THEN** after the checkpoint of group 2 the branch on `origin` holds that commit
-
-#### Scenario: The final push
-- **WHEN** `main` gains a commit while the scoped checks run
-- **THEN** after the scoped checks the pushed branch on `origin` holds that commit
-
-#### Scenario: A conflict after scoped checks
-- **WHEN** `main` gains a conflicting commit while the scoped checks run
-- **THEN** the job stops with status Blocked, and the job pushes nothing
-
-#### Scenario: A stop
-- **WHEN** `main` gains a commit and the step stops
-- **THEN** the push of the stop holds that commit
-
-#### Scenario: A conflict during a step
-- **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit, and the step then stops
-- **THEN** the job aborts the rebase, and no rebase stays in progress
-
-### Requirement: The watch stops the item on a merged or closed pull request
-The implement job watch SHALL stop the item when the pull request is merged or closed without a merge, and MUST NOT report such a pull request as ready.
-
-#### Scenario: Closed while the job runs
-- **WHEN** the watch reads the pull request as closed and not merged
-- **THEN** the watch stops the item with the reason "The pull request was merged or closed while the job ran."
 
 ### Requirement: The summary of the delivery title comes from the plan
 The summary of the plan SHALL be the text after `docs(openspec): plan #<issue>` and one space in the subject of the newest commit of the branch that adds `proposal.md` to a folder `openspec/changes/<issue>-<slug>/`, without the end `(#<pull>)` that a squash merge adds. The job SHALL use the whole summary of the title of the issue when that subject holds no such text, or when the form of the pull request refuses the title with the summary of the plan.
@@ -425,21 +317,6 @@ The summary of the plan SHALL be the text after `docs(openspec): plan #<issue>` 
 #### Scenario: A plan summary that the form refuses
 - **WHEN** the summary of the plan has 64 characters, and the title of the issue is `fix(roadmap): the job drops a comment`
 - **THEN** the title of the pull request is `fix(roadmap): the job drops a comment`, and the job does not stop the item
-
-### Requirement: A conflicting push keeps the head on the item branch
-A checkpoint, `wip:` or stop push whose rebase conflicts SHALL abort the rebase, push the head of the checkout to the item branch with a lease, and record the conflicting paths in `implement.conflict`. The run SHALL make its next checkpoint push. The final push whose rebase conflicts MUST push nothing, MUST keep the item branch on `origin`, and SHALL stop the item with the class `conflict`, naming the conflicting paths in its comment.
-
-#### Scenario: A conflict at a checkpoint
-- **WHEN** `main` gains a commit that changes `CONTEXT.md` after group 1 passed, and the checkpoint push before group 2 conflicts
-- **THEN** the checkpoint push before group 3 puts the commit of group 2 on the item branch, and `implement.conflict` names `CONTEXT.md`
-
-#### Scenario: A conflict at a work-in-progress push
-- **WHEN** `main` of a Planned item gains a commit that conflicts with the first `wip:` commit of a step
-- **THEN** the `wip:` push puts that commit on the item branch, and no rebase stays in progress
-
-#### Scenario: A conflict at the final push
-- **WHEN** the final push rebases onto a `main` that conflicts with the branch after a checkpoint kept the passed groups
-- **THEN** the item stops with the class `conflict`, the comment names the conflicting path, and `origin` keeps the item branch
 
 ### Requirement: A prompt change waits for its live eval scores
 `draft_readiness` SHALL refuse a draft whose changed files hold `src/devops_cli/ai/tasks/roadmap_stage_change.md` and whose body holds no number on the last `Base eval score:` line or the last `Head eval score:` line. The reason SHALL name each missing marker. The rule SHALL NOT apply to a draft whose files hold no such path. `read_draft` SHALL pass the compare files of every kind to the draft, and the ready step of the implement job SHALL pass the paths of its local diff.
@@ -506,3 +383,48 @@ The implement job SHALL name each tool that a step called, with its count, in th
 #### Scenario: The comment names each tool of the job
 - **WHEN** A Job ends with two calls of `read_file` and one call of `pr_describe`, and one step of it fails a check whose command names a path.
 - **THEN** The comment holds the count of each of the two tools, the line of the counts holds no argument of a tool call and no path, and the table of the steps keeps the failing command with its path.
+
+### Requirement: The run ends at the draft pull request
+After the job sets the title and the body of the draft and comments each step, it SHALL ask `draft_readiness` with no check runs, and a refusal SHALL stop the item at the step `ready`. Then it SHALL end the run: it SHALL record `implement.result` as `drafted`, the pull request, the last commit and the spend, set Status to In Review, and comment the spend on the item. The job SHALL NOT watch the checks, publish an evidence comment, run `gh pr ready` or merge.
+
+#### Scenario: The end of a run
+- **WHEN** every group passes and the job pushes the branch
+- **THEN** the draft holds the final title and body, `gh pr ready` ran never, the record holds `implement.result` equal to `drafted` and the number of the pull request, and Status is In Review
+
+#### Scenario: A draft that the readiness function refuses
+- **WHEN** the archive leaves a task of group 2 unticked
+- **THEN** the item is Blocked at the step `ready` with the class `plan_defect`, and the record holds no `implement.result` equal to `drafted`
+
+### Requirement: A push rebases the checkout onto the default branch
+The job SHALL fetch `origin/<default>` before each push of the item branch, including after the scoped checks of the final push, and SHALL push a commit that holds it. Between steps, after the scoped checks, and at a stop the job SHALL rebase the checkout.
+
+#### Scenario: The first push of a Planned item
+- **WHEN** `main` gains a commit while the first step runs, and the step of group 2 then stops
+- **THEN** `main` has no commit that the branch on `origin` lacks
+
+#### Scenario: A checkpoint
+- **WHEN** `main` gains a commit while group 2 runs
+- **THEN** after the checkpoint of group 2 the branch on `origin` holds that commit
+
+#### Scenario: The final push
+- **WHEN** `main` gains a commit while the scoped checks run
+- **THEN** after the scoped checks the pushed branch on `origin` holds that commit
+
+#### Scenario: A conflict after scoped checks
+- **WHEN** `main` gains a conflicting commit while the scoped checks run
+- **THEN** the job stops with status Blocked, and the job pushes nothing
+
+#### Scenario: A stop
+- **WHEN** `main` gains a commit and the step stops
+- **THEN** the push of the stop holds that commit
+
+### Requirement: A conflicting checkpoint or stop push keeps the head on the item branch
+A checkpoint or stop push whose rebase conflicts SHALL abort the rebase, push the head of the checkout to the item branch with a lease, and record the conflicting paths in `implement.conflict`. The run SHALL make its next checkpoint push. The final push whose rebase conflicts MUST push nothing, MUST keep the item branch on `origin`, and SHALL stop the item with the class `conflict`, naming the conflicting paths in its comment.
+
+#### Scenario: A conflict at a checkpoint
+- **WHEN** `main` gains a commit that changes `CONTEXT.md` after group 1 passed, and the checkpoint push before group 2 conflicts
+- **THEN** the checkpoint push before group 3 puts the commit of group 2 on the item branch, and `implement.conflict` names `CONTEXT.md`
+
+#### Scenario: A conflict at the final push
+- **WHEN** the final push rebases onto a `main` that conflicts with the branch after a checkpoint kept the passed groups
+- **THEN** the item stops with the class `conflict`, the comment names the conflicting path, and `origin` keeps the item branch

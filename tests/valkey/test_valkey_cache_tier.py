@@ -2,19 +2,25 @@
 
 Each test drives the circuit breaker of the tier through the shared Valkey fake, whose server
 fails each command while `connected` is False, and through the `clock` fixture, which moves the
-wall clock that the breaker reads. No test waits in real time.
+wall clock that the breaker reads. No test waits in real time, except the test of a silent host,
+which waits one `valkey.timeout` of 0.05 s. The hash, TTL, rename and WATCH commands of the
+shared tier of the project brain (#4668) go through the same breaker.
 """
 
 from __future__ import annotations
 
 import logging
+import zlib
 from typing import TYPE_CHECKING
 
 import pytest
-from fakeredis import FakeServer
+from fakeredis import FakeServer, FakeValkey
 
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.valkey import SilentValkey, valkey_client_on
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,6 +28,8 @@ if TYPE_CHECKING:
     from devops_cli.valkey.cache import ValkeyCacheTier
 
 _TIER_LOGGER = "devops_cli.valkey.cache"
+# The window of a wait that checks that the listener accepts no second connection.
+_QUIET_SECONDS: float = 0.2
 _STATE_CHANGE = "The circuit breaker of the Valkey cache tier changed"
 
 
@@ -259,4 +267,194 @@ def test_a_valkey_url_that_is_not_valid_turns_each_cache_off_with_one_warning(
         (None, None, None, None),
         1,
         True,
+    )
+
+
+# ── The commands of the shared tier of the project brain (#4668) ──────────────
+
+# A zlib value, as the shared listing snapshot keeps each record: bytes that are not UTF-8.
+_BINARY = zlib.compress(b'{"number": 7, "title": "a record"}' * 8)
+
+
+def _errors(otlp: FakeCollector) -> dict[tuple[str, str], float]:
+    """The failed commands of the tier, by command and error."""
+    from devops_cli.telemetry.instruments import VALKEY_CACHE_ERRORS_TOTAL
+
+    counted: dict[tuple[str, str], float] = {}
+    for attributes, value in otlp.points(VALKEY_CACHE_ERRORS_TOTAL.name):
+        point = (attributes["op"], attributes["error"])
+        counted[point] = counted.get(point, 0) + value
+    return counted
+
+
+def test_the_cache_tier_keeps_a_binary_hash_with_a_ttl(
+    valkey_server: FakeServer, valkey_client: ValkeyClient
+) -> None:
+    """The tier writes and reads bytes that are not UTF-8, sets a TTL, removes a field, renames
+    the hash and unlinks it."""
+    tier = _tier(valkey_client)
+    reader = FakeValkey(server=valkey_server)
+
+    written = tier.hset("hash", {"7": _BINARY, "meta": "text"})
+    scanned = tier.hscan("hash", 0, 500)
+    expired = tier.expire("hash", 60)
+    ttl = reader.ttl("hash")
+    removed = tier.hdel("hash", "meta", "missing")
+    field = tier.hget("hash", "7")
+    renamed = tier.rename("hash", "moved")
+    unlinked = tier.unlink("moved", "missing")
+
+    assert (written, scanned, expired, 0 < ttl <= 60, removed, field, renamed, unlinked) == (
+        2,
+        (0, {"7": _BINARY, "meta": b"text"}),
+        True,
+        True,
+        1,
+        _BINARY,
+        True,
+        1,
+    )
+    assert reader.exists("hash", "moved") == 0
+
+
+def test_a_writer_whose_watched_key_changed_writes_nothing(
+    valkey_server: FakeServer, valkey_client: ValkeyClient
+) -> None:
+    """A transaction whose key another client changed after the WATCH writes nothing and is not
+    tried again; a transaction with no change writes its commands."""
+    other = valkey_client_on(valkey_server)
+    tier = _tier(valkey_client)
+    other.hset("snapshot", {"meta": "first"})
+    seen: list[bytes | None] = []
+
+    def lost(meta: bytes | None) -> list[tuple[str, ...]]:
+        seen.append(meta)
+        other.hset("snapshot", {"meta": "other"})
+        return [("HSET", "snapshot", "meta", "mine")]
+
+    def won(meta: bytes | None) -> list[tuple[str, ...]]:
+        seen.append(meta)
+        return [("HSET", "snapshot", "meta", "mine"), ("EXPIRE", "snapshot", "60")]
+
+    try:
+        lost_write = tier.watch_and_write("snapshot", "meta", lost)
+        after_the_lost_write = other.hget("snapshot", "meta")
+        refused_write = tier.watch_and_write("snapshot", "meta", lambda meta: [])
+        won_write = tier.watch_and_write("snapshot", "meta", won)
+        after_the_won_write = other.hget("snapshot", "meta")
+    finally:
+        other.close()
+
+    assert (
+        lost_write,
+        after_the_lost_write,
+        refused_write,
+        won_write,
+        after_the_won_write,
+        seen,
+    ) == (False, b"other", False, True, b"mine", [b"first", b"other"])
+
+
+@pytest.mark.parametrize(
+    "last_command",
+    [
+        pytest.param("WATCH", id="the-watched-read-fails"),
+        pytest.param("HGET", id="the-exec-fails"),
+    ],
+)
+def test_a_valkey_that_goes_away_in_a_watch_transaction_opens_the_breaker(
+    valkey_server: FakeServer, otlp: FakeCollector, last_command: str
+) -> None:
+    """valkey-py gives a `WatchError` for a connection that fails while the client watches a
+    key. The tier tells it from a lost race: it counts `error="connection"`, opens the breaker
+    and gives None, as for each other command that fails."""
+
+    def go_away(command: tuple[object, ...]) -> None:
+        if command[0] == last_command:
+            valkey_server.connected = False
+
+    client = valkey_client_on(valkey_server, after_command=go_away)
+    tier = _tier(client)
+    try:
+        written = tier.watch_and_write(
+            "snapshot", "meta", lambda meta: [("HSET", "snapshot", "meta", "mine")]
+        )
+    finally:
+        client.close()
+
+    assert (written, tier.is_open, _errors(otlp)) == (
+        None,
+        True,
+        {("watch", "connection"): 1.0},
+    )
+
+
+def test_a_failed_tier_command_counts_its_command_and_error(
+    valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
+) -> None:
+    """The first failed command counts `connection`; a command that the open breaker does not
+    send counts `open`, and the server gets nothing."""
+    tier = _tier(valkey_client)
+    valkey_server.connected = False
+    scanned = tier.hscan("hash", 0, 500)
+    valkey_server.connected = True
+    written = tier.hset("hash", {"1": _BINARY})
+
+    assert (scanned, written, FakeValkey(server=valkey_server).exists("hash"), _errors(otlp)) == (
+        None,
+        None,
+        0,
+        {("hscan", "connection"): 1.0, ("hset", "open"): 1.0},
+    )
+
+
+@pytest.mark.usefixtures("keyring_store")
+def test_a_silent_valkey_times_out_and_opens_the_breaker(
+    silent_valkey: SilentValkey, monkeypatch: pytest.MonkeyPatch, otlp: FakeCollector
+) -> None:
+    """T3: a Valkey host that accepts the connection and answers no command costs one timeout.
+
+    The tier waits at most 0.25 s for a connection and `valkey.timeout` for a reply. A fact read
+    through the tiered mapping gets the source value; its Valkey read counts `timeout` and opens
+    the breaker, and no later command opens a second connection to the host.
+    """
+    from cachetools import cached
+    from pydantic import TypeAdapter
+
+    from devops_cli.config.defaults import DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.valkey.cache import shared_cache_tier
+    from devops_cli.valkey.tiered import TieredMapping
+
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", f"valkey://127.0.0.1:{silent_valkey.port}")
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_TIMEOUT", "0.05")
+    reset_settings_cache()
+    tier = shared_cache_tier()
+    assert tier is not None
+
+    @cached(TieredMapping("valkey:brain:v1:fact:test", TypeAdapter(str), ttl=60), key=str)
+    def read(name: str) -> str:
+        return f"source {name}"
+
+    reads = (read("a"), read("b"))
+    # The accept thread of the listener records the connection; wait for it with the bound.
+    accepted = wait_until(lambda: silent_valkey.connections >= 1, THREAD_HANDOFF_BOUND_SECONDS)
+    # A second connection would wait in the backlog of the listener. This short window checks
+    # that the thread accepts none, and opens only once it has accepted the first.
+    second = wait_until(lambda: silent_valkey.connections > 1, _QUIET_SECONDS)
+
+    assert (
+        tier.client.connect_timeout <= DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
+        reads,
+        tier.is_open,
+        accepted,
+        second,
+        _errors(otlp),
+    ) == (
+        True,
+        ("source a", "source b"),
+        True,
+        True,
+        False,
+        {("get", "timeout"): 1.0, ("get", "open"): 1.0, ("set", "open"): 2.0},
     )

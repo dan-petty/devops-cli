@@ -14,10 +14,9 @@ from devops_cli.roadmap.intake.intake import CandidateResult
 from devops_cli.roadmap.job_result import SUCCESS_RESULTS, RoadmapJob, log_job_result
 from devops_cli.roadmap.refine.refine import NextStep
 from devops_cli.roadmap.stage.stage import StageResult
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult
 from devops_cli.roadmap.steps.fix_plan import FixPlanResult
 from devops_cli.roadmap.steps.review import ReviewResult
-from devops_cli.roadmap.stores.store import ImplementResult, JudgeVerdict, Verdict
+from devops_cli.roadmap.stores.store import FixChecksResult, ImplementResult, JudgeVerdict, Verdict
 from tests.support.roadmap_job_result import result_lines
 
 RetitleResult: Any = None
@@ -54,11 +53,11 @@ def test_an_intended_result_with_no_failure_is_a_success_and_no_infrastructure_c
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     with caplog.at_level(logging.INFO):
-        log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 3, "ready")
+        log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 3, "drafted")
         log_job_result(RoadmapJob.IMPLEMENT, "owner/repo", 4, "stopped", failure=FailureClass.TEST)
 
     assert [line.split(" class=")[0].split(" result=")[1] for line in result_lines(caplog)] == [
-        "ready success=true",
+        "drafted success=true",
         "stopped success=false",
     ]
     assert [" infra=false " in line for line in result_lines(caplog)] == [True, True]

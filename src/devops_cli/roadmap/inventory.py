@@ -28,11 +28,14 @@ from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit
 
 import httpx2
+from cachetools import cached
 from packageurl import PackageURL
 from packaging.utils import canonicalize_name
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter
 
+from devops_cli.config.constants import CONST_VALKEY_BRAIN_PREFIX
 from devops_cli.config.defaults import (
+    DEFAULT_BRAIN_FACT_TTL_SECONDS,
     DEFAULT_DEPS_DEV_PROJECT_URL,
     DEFAULT_DEPS_DEV_TIMEOUT_SECONDS,
 )
@@ -40,6 +43,7 @@ from devops_cli.core.paths import safe_resolve_subpath
 from devops_cli.github.repo_ref import is_repository_name
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.valkey.tiered import TieredMapping
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stores.store import RoadmapStore
@@ -183,10 +187,22 @@ def _read_files(root: Path, paths: Sequence[str]) -> str:
     return "\n".join(texts)
 
 
+# The packages that deps.dev links to each project, in the process and in the cache Valkey, by
+# the project key in lower case (#4668). deps.dev answers each client the same.
+_DEPS_DEV_FACTS: TieredMapping[frozenset[str]] = TieredMapping(
+    f"{CONST_VALKEY_BRAIN_PREFIX}:fact:deps-dev",
+    TypeAdapter(frozenset[str]),
+    ttl=DEFAULT_BRAIN_FACT_TTL_SECONDS,
+)
+
+
+@cached(_DEPS_DEV_FACTS, key=str.lower)
 def _linked_packages(project: str) -> frozenset[str]:
     """The keys of the packages that deps.dev links to `project` as their source, none when
     deps.dev does not know the project. Raises `httpx2.HTTPError` on another failed read and
-    `pydantic.ValidationError` on a malformed answer."""
+    `pydantic.ValidationError` on a malformed answer. The read goes through the fact cache of the
+    project brain (#4668): a project that a process or another pod read in the last 24 hours sends
+    no request, and a failed read keeps nothing."""
     url = DEFAULT_DEPS_DEV_PROJECT_URL.format(project=quote(project, safe=""))
     with http_client(EgressLevel.PUBLIC) as client:
         response = client.get(url, timeout=DEFAULT_DEPS_DEV_TIMEOUT_SECONDS)
