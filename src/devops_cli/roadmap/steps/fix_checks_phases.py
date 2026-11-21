@@ -11,12 +11,14 @@ the run folder:
 - `agent` (model key only) reads its inputs, runs tier 1, the scope check and the model fix in the
   checkout, and writes the patch from the judged head, `outcome.json` and `summary.json`. It makes
   no GitHub call: the model fix reads the item from the inputs.
-- `publish` (App key) reads the state file and the outputs of the agent as data
-  (`read_run_file`). It checks the state against the pull request as GitHub holds it: the
-  repository, the pull request, the head branch, the item and the judged head. It builds the
-  target of the push from GitHub alone: the head branch and the judged head of the pull request,
-  the bot of the App, and the workflow files that the merged plan of the item names on the
-  default branch (`Repair.workflows`). It checks the claim (`check_preconditions`), applies the
+- `publish` (App key) reads the outputs of the agent as data (`read_run_file`). It checks the
+  judged round against the pull request as GitHub holds it: the head branch, the item and the
+  judged head. It builds the target of the push from GitHub alone: the head branch and the
+  judged head of the pull request, the bot of the App, the workflow files that the merged plan of
+  the item names on the default branch (`Repair.workflows`), and the URL of `origin` that
+  `prepare` read before any agent code ran. A separate `publish` reads the state file as data, takes
+  its URL only when it is the URL of the repository on GitHub, and takes the failed check and its
+  count of errors from GitHub. It checks the claim (`check_preconditions`), applies the
   patch to a fresh clone, writes one commit of the bot, checks the claim again, and pushes with a
   lease on the judged head (`publish_patch`). Then it writes the record of the round and the
   comment that names the files, as the step did before.
@@ -29,7 +31,6 @@ file of the run but the outputs of the agent. #3700 runs each phase in its own c
 
 from __future__ import annotations
 
-import dataclasses
 import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
@@ -39,6 +40,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
+    CONST_GITHUB_CLONE_URL,
     CONST_ROADMAP_PHASE_INPUT_FILE,
     CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
     CONST_ROADMAP_PHASE_OUTCOME_FILE,
@@ -52,8 +54,9 @@ from devops_cli.core import process_hardening
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import PhaseOutputError, PublishRefusedError
 from devops_cli.git.branch_form import parse_branch
+from devops_cli.github.check_verdict import CheckBucket, read_check_runs
 from devops_cli.github.client import PullStatus
-from devops_cli.roadmap.implement.implement_pull import DraftKind, kind_of
+from devops_cli.roadmap.implement.implement_pull import DraftKind, failed_log, kind_of
 from devops_cli.roadmap.phases.files import (
     AgentOutcome,
     AgentSummary,
@@ -74,11 +77,13 @@ from devops_cli.roadmap.steps.fix_checks import (
     PullCheckout,
     Repair,
     check_preconditions,
+    count_errors,
     end_round,
     head_moved,
     judge_round,
     named_files,
     record_outcome,
+    shown_check,
 )
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, Item, RoadmapStore
 from devops_cli.security.sanitizer import mask_secrets
@@ -105,18 +110,35 @@ class _Model(BaseModel):
 
 
 class FixState(_Model):
-    """`state/state.json`, which `prepare` writes and `publish` reads: the report of a round that
+    """`state/state.json`, which `prepare` writes and a separate `publish` reads: that the round
     ended in `prepare`, or the facts of the round that `prepare` judged. `publish` builds the
     target of the push from the pull request as GitHub holds it then, and checks these facts
-    against it: the state names no branch, author or workflow file that `publish` pushes."""
+    against it: the state names no branch, author or workflow file that `publish` pushes, and
+    `publish` takes its URL only when it is the URL of the repository on GitHub."""
 
     repo: str
     pull: int
     item: int = 0
-    report: dict[str, Any] | None = None
+    ended: bool = False
     status: dict[str, Any] | None = None
     check: str = ""
-    errors: int = 0
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class JudgedRound:
+    """What `publish` takes from `prepare`: the pull request, the item, the judged status, the
+    failed check, the count of errors of its log, and the URL of `origin` that `prepare` read
+    before any agent code ran. `--phase all` keeps it in memory; a separate `publish` builds it
+    from the state file and checks each part against GitHub (`_judged_from_state`)."""
+
+    repo: str
+    pull: int
+    item: int
+    status: PullStatus
+    check: str
+    errors: int
+    url: str
 
 
 class AgentInput(_Model):
@@ -159,10 +181,6 @@ def _text(text: str) -> str:
     return f"{line[:_REASON_HEAD]} ... {line[-_REASON_TAIL:]}"
 
 
-def _report_of(data: dict[str, Any]) -> FixChecksReport:
-    return FixChecksReport(**{**data, "result": FixChecksResult(data["result"])})
-
-
 def _read_state(folders: RunFolders) -> FixState:
     """The state file of the run, read as data (`read_run_file`). Its text never reaches an error."""
     data = read_run_file(
@@ -185,9 +203,9 @@ def _is_plan(item: Item | None, pull: int, status: PullStatus) -> bool:
 
 def prepare_round(
     facts: FixRound, repair: Repair, folders: RunFolders
-) -> tuple[PullCheckout, FixState]:
+) -> tuple[PullCheckout, JudgedRound]:
     """The part of `prepare` after the judgment: the checkout, the state file and the inputs of
-    the agent. Gives the checkout and the state, which `--phase all` keeps in memory."""
+    the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory."""
     folders.make()
     checkout = repair.checkout(facts.status, facts.item_num, folders.work)
     is_plan = _is_plan(facts.item, facts.pull, facts.status)
@@ -197,7 +215,7 @@ def prepare_round(
         item=facts.item_num,
         status=facts.status.model_dump(mode="json"),
         check=facts.check,
-        errors=facts.errors,
+        url=checkout.url,
     )
     write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
     inputs = AgentInput(
@@ -210,7 +228,15 @@ def prepare_round(
         is_plan=is_plan,
     )
     write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
-    return checkout, state
+    return checkout, JudgedRound(
+        facts.repo,
+        facts.pull,
+        facts.item_num,
+        facts.status,
+        facts.check,
+        facts.errors,
+        checkout.url,
+    )
 
 
 def prepare_phase(
@@ -229,9 +255,10 @@ def prepare_phase(
     judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=True)
     if isinstance(judged, FixChecksReport):
         folders.make()
-        report = dataclasses.asdict(judged) | {"result": judged.result.value}
-        ended = FixState(repo=repo, pull=pull, report=report)
-        write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, ended)
+        write_json(
+            folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+            FixState(repo=repo, pull=pull, ended=True),
+        )
         return
     prepare_round(judged, repair, folders)
 
@@ -304,44 +331,43 @@ def _claim(client: Any, store: RoadmapStore, facts: FixRound) -> FixChecksReport
 
 
 def _message(facts: FixRound, tier: FixTier) -> str:
-    """The message of the commit that `publish` writes, from the facts of the round only."""
+    """The message of the commit that `publish` writes, from the facts of the round only, with the
+    name of the check on one line and masked, so the message is one line."""
+    check = mask_secrets(" ".join(facts.check.split()))
     if tier is FixTier.TIER1:
-        return f"style: apply the fixers of tier 1 for check {facts.check} (#{facts.item_num})"
-    return f"fix: make check {facts.check} pass (#{facts.item_num})"
+        return f"style: apply the fixers of tier 1 for check {check} (#{facts.item_num})"
+    return f"fix: make check {check} pass (#{facts.item_num})"
 
 
 def _live_round(
-    store: RoadmapStore, client: Any, state: FixState, repo: str, pull: int
+    store: RoadmapStore, client: Any, judged: JudgedRound
 ) -> FixRound | FixChecksReport:
     """The facts of the round from the pull request and the item as GitHub holds them now, checked
-    against the state of `prepare`: the repository, the pull request, the head branch, the item
-    and the judged head. The report of a round that the check ends."""
-    if (state.repo, state.pull) != (repo, pull) or state.status is None:
-        raise PhaseOutputError("The state file of the run names another pull request")
-    judged = PullStatus.model_validate(state.status)
-    live: PullStatus = client.get_pull_status(repo, pull)
+    against the judged round: the head branch, the item and the judged head. The report of a round
+    that the check ends."""
+    live: PullStatus = client.get_pull_status(judged.repo, judged.pull)
     parsed = parse_branch(live.head_ref)
-    item_num = parsed.issue if parsed else pull
+    item_num = parsed.issue if parsed else judged.pull
     item = store.item(item_num)
-    if claimed := check_preconditions(live, judged.head_sha, item, repo, pull):
+    if claimed := check_preconditions(live, judged.status.head_sha, item, judged.repo, judged.pull):
         return claimed
     record = item.job_record if item is not None else {}
     heads = [head for head in (record.get(FixChecksRecordKey.HEADS) or "").split(",") if head]
     if live.head_sha not in heads:
         heads.append(live.head_sha)
     facts = FixRound(
-        repo,
-        pull,
+        judged.repo,
+        judged.pull,
         live,
         item_num,
         item,
         heads,
-        state.check,
+        judged.check,
         "",
         int(record.get(FixChecksRecordKey.ROUNDS) or 0),
-        state.errors,
+        judged.errors,
     )
-    if live.head_ref != judged.head_ref or item_num != state.item:
+    if live.head_ref != judged.status.head_ref or item_num != judged.item:
         return facts.report(
             FixChecksResult.STOPPED,
             "The head branch of the pull request is not the branch that prepare judged",
@@ -349,7 +375,7 @@ def _live_round(
     return facts
 
 
-def _target(repair: Repair, facts: FixRound) -> PublishTarget:
+def _target(repair: Repair, facts: FixRound, url: str) -> PublishTarget:
     """The target of the push, from the pull request as GitHub holds it now and from what
     `publish` reads itself: the URL of `origin`, the bot, and the workflow files that the merged
     plan of the item names on the default branch. A plan draft writes no workflow file."""
@@ -361,7 +387,7 @@ def _target(repair: Repair, facts: FixRound) -> PublishTarget:
         else repair.workflows(facts.repo, status.default_branch or status.base_ref, facts.item_num)
     )
     return PublishTarget(
-        url=repair.origin(),
+        url=url,
         branch=status.head_ref,
         base=status.head_sha,
         lease=status.head_sha,
@@ -376,18 +402,18 @@ def _push(
     client: Any,
     facts: FixRound,
     repair: Repair,
-    pushed: tuple[bytes, str],
+    pushed: tuple[bytes, str, str],
 ) -> Published | FixChecksReport:
     """The publish of the patch, with the claim check right before the push: the commit, or the
     report of a round that the claim, a refusal, a move of the head or an empty patch ends."""
-    patch, message = pushed
+    patch, message, url = pushed
 
     def before_push() -> None:
         if report := _claim(client, store, facts):
             raise _ClaimedError(report)
 
     try:
-        published = repair.publish(_target(repair, facts), patch, message, before_push)
+        published = repair.publish(_target(repair, facts, url), patch, message, before_push)
     except _ClaimedError as claim:
         return claim.report
     except PublishRefusedError as exc:
@@ -406,15 +432,13 @@ def _push(
 def publish_round(
     store: RoadmapStore,
     client: Any,
-    state: FixState,
+    judged: JudgedRound,
     folders: RunFolders,
     repair: Repair,
 ) -> FixChecksReport:
-    """The publish of the outcome of the agent phase for the round of `state`, as the module text
-    says. The state comes from `prepare` in memory (`--phase all`) or from the state file."""
-    if state.report is not None:
-        return _report_of(state.report)
-    facts = _live_round(store, client, state, state.repo, state.pull)
+    """The publish of the outcome of the agent phase for the judged round, as the module text
+    says."""
+    facts = _live_round(store, client, judged)
     if isinstance(facts, FixChecksReport):
         return facts
     outcome = read_outcome(folders)
@@ -425,7 +449,7 @@ def publish_round(
     patch = read_output(
         folders, CONST_ROADMAP_PHASE_PATCH_FILE, limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES
     )
-    published = _push(store, client, facts, repair, (patch, _message(facts, tier)))
+    published = _push(store, client, facts, repair, (patch, _message(facts, tier), judged.url))
     if isinstance(published, FixChecksReport):
         return published
     rounds = facts.rounds + 1
@@ -446,9 +470,44 @@ def publish_round(
         else [(held.path, held.reason) for held in outcome.files]
     )
     if body := named_files(facts.check, tier1=tier1, files=named):
-        post(Target(facts.repo, facts.pull, client=client), MARKER, facts.check, body)
+        post(
+            Target(facts.repo, facts.pull, client=client),
+            MARKER,
+            shown_check(facts.check),
+            body,
+        )
     done = "Tier 1 resolved check with 0 model requests" if tier1 else "Tier 2 model repaired check"
     return facts.report(FixChecksResult.REPAIRED, done, head=published.commit, rounds=rounds)
+
+
+def _judged_from_state(
+    client: Any, state: FixState, repo: str, pull: int
+) -> JudgedRound | FixChecksReport:
+    """The judged round of a separate `publish`, from the state file, with each part that GitHub
+    can say taken from GitHub: the URL must be the URL of the repository on GitHub; the check must
+    be a failed check of the judged head, by the name that GitHub gives; and the count of errors
+    comes from the log of that check, which `publish` reads itself."""
+    if (state.repo, state.pull) != (repo, pull) or state.status is None:
+        raise PhaseOutputError("The state file of the run names another pull request")
+    if state.url != CONST_GITHUB_CLONE_URL.format(repo=repo):
+        raise PhaseOutputError("The state file of the run names another origin")
+    judged = PullStatus.model_validate(state.status)
+    owner, name = repo.split("/", 1)
+    failed = [
+        run
+        for run in read_check_runs(owner, name, judged.head_sha).items
+        if run.bucket is CheckBucket.FAIL and run.name == state.check
+    ]
+    if not failed:
+        return FixChecksReport(
+            repo=repo,
+            pull=pull,
+            result=FixChecksResult.SKIPPED,
+            head=judged.head_sha,
+            reason="The check of the state file is no failed check of the judged head",
+        )
+    errors = count_errors(failed_log(repo, failed[0]))
+    return JudgedRound(repo, pull, state.item, judged, failed[0].name, errors, state.url)
 
 
 def publish_phase(
@@ -459,13 +518,24 @@ def publish_phase(
     *,
     repo: str,
     pull: int,
+    head: str | None = None,
+    check: str | None = None,
 ) -> FixChecksReport:
     """`--phase publish` on the pull request `pull` of `repo`: the state file, read as data, must
-    name that pull request; then `publish_round`."""
+    name that pull request. A round that `prepare` ended gets the report of a judgment with no
+    write, so `publish` gives its own report; a round with an outcome goes to `publish_round`."""
     state = _read_state(folders)
     if (state.repo, state.pull) != (repo, pull):
         raise PhaseOutputError("The state file of the run names another pull request")
-    return publish_round(store, client, state, folders, repair)
+    if state.ended:
+        judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=False)
+        if isinstance(judged, FixRound):
+            raise PhaseOutputError("The round that prepare ended needs a repair now")
+        return judged
+    from_state = _judged_from_state(client, state, repo, pull)
+    if isinstance(from_state, FixChecksReport):
+        return from_state
+    return publish_round(store, client, from_state, folders, repair)
 
 
 def repair_round(
@@ -477,10 +547,10 @@ def repair_round(
     round ends."""
     with tempfile.TemporaryDirectory(prefix="devops-fix-checks-", dir=repair.scratch) as root:
         folders = RunFolders(Path(root))
-        checkout, state = prepare_round(facts, repair, folders)
+        checkout, judged = prepare_round(facts, repair, folders)
         try:
             agent_phase(folders, repair)
-            return publish_round(store, client, state, folders, repair)
+            return publish_round(store, client, judged, folders, repair)
         finally:
             repair.release(checkout)
 

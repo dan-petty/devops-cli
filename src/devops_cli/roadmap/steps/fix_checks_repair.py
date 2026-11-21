@@ -37,7 +37,6 @@ from typing import Final
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.commands import BIN_DEVOPS, BIN_RUFF, BIN_UV
 from devops_cli.config.constants import (
-    CONST_GITHUB_CLONE_URL,
     CONST_GITHUB_WORKFLOWS_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_FIX_CHECKS_RUNS_DIR,
@@ -101,8 +100,10 @@ def open_checkout(
     must be on the head branch of the pull request and at its judged head; else it goes, with its
     branch. It runs git calls only, and no program of the branch."""
     clone = source or ensure_checkout(repo, work, dirname=CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME)
-    report = add_worktree(clone, issue=item, origin=OriginGit(clone, origin_url(clone)))
-    checkout = PullCheckout(Path(report.path), clone, report.branch)
+    # The URL of `origin` is read here, before any agent code runs, and `publish` pushes to it.
+    url = origin_url(clone)
+    report = add_worktree(clone, issue=item, origin=OriginGit(clone, url))
+    checkout = PullCheckout(Path(report.path), url, clone, report.branch)
     try:
         if report.branch != status.head_ref:
             raise RoadmapImplementError(
@@ -344,7 +345,8 @@ def job_repair(repo: str, *, source: Path | None = None) -> Repair:
     """The repair of a runner Job for `repo`, by phase (#6601): the checkout in the work folder, or
     in the clone `source`; tier 1; the model fix, which reads the item that `prepare` gave it; the
     patch of the checkout; and the publish of the patch as one commit of the bot. `publish` reads
-    the URL of `origin`, the bot and the workflow files of the plan itself."""
+    the bot and the workflow files of the plan itself, and pushes to the URL of `origin` that
+    `prepare` read."""
     scratch = _runs()
 
     def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
@@ -355,18 +357,12 @@ def job_repair(repo: str, *, source: Path | None = None) -> Repair:
     ) -> Published | None:
         return publish_patch(target, patch, message, before_push=before_push, scratch=scratch)
 
-    def origin() -> str:
-        return (
-            origin_url(source) if source is not None else CONST_GITHUB_CLONE_URL.format(repo=repo)
-        )
-
     return Repair(
         checkout=checkout,
         tier1=tier1_fix,
         model=model_fix,
         patch=write_patch,
         publish=publish,
-        origin=origin,
         author=_bot,
         workflows=merged_workflows,
         release=release_checkout,

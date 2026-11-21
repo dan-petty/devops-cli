@@ -175,4 +175,6 @@ def _phase(
             store, client, target, pull, head=head, check=check, repair=repair, folders=folders
         )
         return None
-    return publish_phase(store, client, folders, repair, repo=target, pull=pull)
+    return publish_phase(
+        store, client, folders, repair, repo=target, pull=pull, head=head, check=check
+    )

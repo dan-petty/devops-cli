@@ -17,7 +17,7 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 
 #### Scenario: The workflow files of the plan
 - **WHEN** the merged plan of the item names `.github/workflows/ci.yml`
-- **THEN** the state file of `prepare` names that file
+- **THEN** `publish` reads that file from the merged plan on the default branch, and lets the patch change it and no other workflow file
 
 #### Scenario: A phase with no run folder
 - **WHEN** the command runs `--phase agent` with no `--confirm`, or `--phase publish` with no `--work`
@@ -31,7 +31,7 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 - **THEN** `publish` returns `stopped` with the reason, pushes nothing and writes no record
 
 ### Requirement: Publish builds the target of its push from GitHub
-`publish` SHALL check the state of `prepare` against the pull request as GitHub holds it: the repository, the pull request, the head branch, the item and the judged head. It SHALL push to the live head branch with a lease on the judged head, as the bot of the App, with the workflow files that it reads itself from the merged plan on the default branch. `--phase all` SHALL keep the state of `prepare` in memory.
+`publish` SHALL check the state of `prepare` against the live pull request: the repository, the pull request, the head branch, the item and the judged head. It SHALL push to the live head branch with a lease on the judged head, as the bot, with the workflow files that it reads from the merged plan, and to the URL of `origin` that `prepare` read before the agent ran. A separate `publish` SHALL take only the URL of the repository on GitHub, and the check from the failed checks of the judged head.
 
 #### Scenario: A fixer that rewrites the state file in one process
 - **WHEN** a fixer of `--phase all` writes another branch, author and workflow rule over the state file of its run
@@ -40,6 +40,22 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 #### Scenario: A state file with another branch between separate phases
 - **WHEN** the state file names a head branch other than the head branch of the pull request
 - **THEN** `publish` returns `stopped` and pushes nothing
+
+#### Scenario: A fixer that rewrites the origin of the clone
+- **WHEN** a fixer sets `remote.origin.url` of the clone to another repository, with `--phase all` or with separate phases
+- **THEN** `publish` fetches from and pushes to the URL that `prepare` read, and no git call names the other repository
+
+#### Scenario: A separate publish with another origin
+- **WHEN** the state file names a URL other than the URL of the repository on GitHub
+- **THEN** `publish` raises `PhaseOutputError` and pushes nothing
+
+#### Scenario: A check that the state file forges
+- **WHEN** the state file names a check that is no failed check of the judged head
+- **THEN** `publish` returns `skipped` and pushes nothing
+
+#### Scenario: A hostile name of a check
+- **WHEN** the failed check has a name with a newline, a handle and a link
+- **THEN** the commit message holds the name on one line, and the comment shows the handle and the link in code spans
 
 #### Scenario: A state file that is not the state of prepare
 - **WHEN** the state file is a link to `/proc/self/environ`, holds a key outside its model or text that is not JSON, or names another pull request

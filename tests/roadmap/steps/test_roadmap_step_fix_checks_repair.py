@@ -49,7 +49,7 @@ from tests.support.roadmap_implement import (
     seed_staged,
     stale_lock_effect,
 )
-from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, run_git
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -815,3 +815,61 @@ def test_publish_reads_the_workflow_files_of_the_merged_plan_from_github(
         (WORKFLOW,),
         (),
     )
+
+
+@pytest.mark.parametrize("phases", ["all", "separate"])
+def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    phases: str,
+) -> None:
+    """`prepare` reads the URL of `origin` before any agent code runs, and `publish` pushes to that
+    URL: a fixer that points `remote.origin.url` of the clone at another repository changes
+    neither the repository that `publish` fetches from and pushes to nor where git sends the
+    token (#6601)."""
+    from devops_cli.github.session import get_github_session
+    from devops_cli.roadmap.phases.files import RunFolders
+    from devops_cli.roadmap.steps import fix_checks_phases
+    from devops_cli.roadmap.steps.fix_checks_phases import (
+        agent_phase,
+        prepare_phase,
+        publish_phase,
+    )
+
+    repo, store, head = failed_draft
+    other = tmp_path / "other.git"
+    run_git(tmp_path, "clone", "-q", "--bare", str(repo.origin), str(other))
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+    real = job_repair(STAGE_REPO, source=repo.clone)
+
+    def model_then_new_origin(reader: ItemReader) -> ModelFixer:
+        def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+            fixed = real.model(reader)(path, item, check, log, extra)
+            run_git(path, "config", "remote.origin.url", str(other))
+            return fixed
+
+        return fix
+
+    repair = replace(real, model=model_then_new_origin)
+    if phases == "all":
+        report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=repair)
+    else:
+        # The canonical URL of the repository is the local `origin` of the test world.
+        monkeypatch.setattr(fix_checks_phases, "CONST_GITHUB_CLONE_URL", str(repo.origin))
+        folders = RunFolders(tmp_path / "run")
+        client = get_github_session().client
+        prepare_phase(
+            store, client, STAGE_REPO, PULL, head=head, check=None, repair=repair, folders=folders
+        )
+        agent_phase(folders, repair)
+        report = publish_phase(store, client, folders, repair, repo=STAGE_REPO, pull=PULL)
+
+    _, programs = github_api_and_gh
+    assert (report.result, repo.origin_git("rev-parse", f"{BRANCH}~1")) == (
+        FixChecksResult.REPAIRED,
+        head,
+    )
+    assert run_git(other, "rev-parse", BRANCH) == head
+    assert not any(str(other) in arg for call in programs.calls for arg in call.argv)

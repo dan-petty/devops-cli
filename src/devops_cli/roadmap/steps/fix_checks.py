@@ -72,6 +72,7 @@ from devops_cli.roadmap.implement.implement_pull import (
 )
 from devops_cli.roadmap.implement.implement_step import ItemReader, find_change
 from devops_cli.roadmap.phases.publish import Published, PublishTarget
+from devops_cli.roadmap.refine.refine import sanitize_text
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.steps.comment import Target, post
@@ -237,10 +238,12 @@ class Fixed(NamedTuple):
 
 @dataclass(frozen=True)
 class PullCheckout:
-    """A worktree on the head branch of a pull request, at the judged head (#5971): its path, and
+    """A worktree on the head branch of a pull request, at the judged head (#5971): its path, the
+    URL of `origin` that the clone held before any agent code ran, which `publish` pushes to, and
     the clone and the branch that the release of the worktree removes."""
 
     path: Path
+    url: str
     clone: Path
     branch: str
 
@@ -262,9 +265,9 @@ class Repair:
     - `agent`: the deterministic fixers of tier 1, the scope check of the log, and `model`, which
       makes the model fix of tier 2 from the item that `prepare` read. A fixer commits in the
       checkout and does not push. `patch` writes the patch of the checkout from the judged head.
-    - `publish`: `origin` gives the URL of `origin`, `author` the name and the email of the bot,
-      and `workflows` the workflow files that the merged plan of an item names on a branch of
-      GitHub, each read by `publish` itself. `publish` applies the patch as data, writes one
+    - `publish`: `author` gives the name and the email of the bot, and `workflows` the workflow
+      files that the merged plan of an item names on a branch of GitHub, each read by `publish`
+      itself. `publish` applies the patch as data, writes one
       commit, calls the claim check and pushes with a lease on the judged head. `release`
       removes the worktree when the round ends. `scratch` holds the run folder of `--phase all`.
     """
@@ -274,7 +277,6 @@ class Repair:
     model: Callable[[ItemReader], ModelFixer]
     patch: Callable[[Path, str, Path], None]
     publish: Publisher
-    origin: Callable[[], str]
     author: Callable[[], tuple[str, str]]
     scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
     workflows: Callable[[str, str, int], tuple[str, ...]] = lambda repo, ref, item: ()
@@ -482,6 +484,12 @@ def head_moved(client: Any, facts: FixRound) -> bool:
     return bool(client.get_pull_status(facts.repo, facts.pull).head_sha != facts.status.head_sha)
 
 
+def shown_check(check: str) -> str:
+    """The name of a check as a comment shows it: on one line, masked, and with each handle, link
+    and reference in a code span, so it pings no one and links nothing (#6601)."""
+    return sanitize_text(mask_secrets(" ".join(check.split())), set())
+
+
 def named_files(check: str, *, tier1: bool, files: Sequence[tuple[str, str]]) -> str:
     """The comment that names the files of a pushed repair (#6116): for tier 1 the files of the
     commit, and for the model the files outside the plan that the change of the branch causes,
@@ -490,14 +498,15 @@ def named_files(check: str, *, tier1: bool, files: Sequence[tuple[str, str]]) ->
     the repair names no file."""
     if not files:
         return ""
+    shown = shown_check(check)
     if tier1:
         lead = (
-            f"Tier 1 repaired check `{check}` with the project commands and no model request. "
+            f"Tier 1 repaired check {shown} with the project commands and no model request. "
             "It wrote these files again:"
         )
     else:
         lead = (
-            f"The model repaired check `{check}`. The plan does not list these files, but the "
+            f"The model repaired check {shown}. The plan does not list these files, but the "
             "change of the branch causes their failure, so the repair could change them:"
         )
     lines = (
@@ -506,7 +515,7 @@ def named_files(check: str, *, tier1: bool, files: Sequence[tuple[str, str]]) ->
     )
     block = "\n".join(lines)
     fence = code_fence(block)
-    return "\n".join([MARKER, check, "", lead, "", fence, block, fence])
+    return "\n".join([MARKER, shown, "", lead, "", fence, block, fence])
 
 
 def takes_ready_path(item: Item) -> bool:

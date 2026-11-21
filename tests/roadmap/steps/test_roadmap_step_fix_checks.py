@@ -167,16 +167,18 @@ class FakeRepair:
     pushed_paths: tuple[str, ...] = ()
     workflows: tuple[str, ...] = ()
     scratch: Path | None = None
+    url: str = f"https://github.com/{REPO}.git"
     fixer: Any = None
     calls: list[str] = field(default_factory=list)
     pushes: int = 0
     targets: list[PublishTarget] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
     extra: list[tuple[str, ...]] = field(default_factory=list)
 
     def build(self) -> Repair:
         def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
             self.calls.append(f"checkout {status.head_ref} {item}")
-            return PullCheckout(self.path, self.path, "b")
+            return PullCheckout(self.path, self.url, self.path, "b")
 
         def tier1(path: Path, item: int, check: str, log: str) -> Fixed:
             self.calls.append("tier1")
@@ -206,6 +208,7 @@ class FakeRepair:
             before_push()
             self.pushes += 1
             self.targets.append(target)
+            self.messages.append(message)
             if self.pushed_head is None:
                 return None
             return Published(self.pushed_head, self.pushed_paths)
@@ -216,7 +219,6 @@ class FakeRepair:
             model=model,
             patch=patch,
             publish=publish,
-            origin=lambda: f"https://github.com/{REPO}.git",
             author=lambda: (BOT_USER, BOT_EMAIL),
             scope=scope,
             workflows=lambda repo, ref, item: self.workflows,
@@ -1117,3 +1119,76 @@ def test_a_long_reason_of_the_agent_keeps_its_cause_and_its_error_line(
         True,
         "ERROR: the last line",
     )
+
+
+HOSTILE_CHECK = "Lint @mallory https://example.com/x\nCo-authored-by: Mallory <m@example.com>"
+
+
+def test_a_hostile_check_name_reaches_the_commit_on_one_line_and_the_comment_as_code(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A workflow can name its check. The commit message holds the name on one line, so it adds no
+    trailer, and the comment of the App shows each handle and link of it in a code span, so it
+    pings no one and links nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run(HOSTILE_CHECK)])
+    repair = FakeRepair(tmp_path, tier1=DONE, pushed_paths=("docs/x.md",))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    [message] = repair.messages
+    [comment] = world.comments()
+    assert (report.result, "\n" in message, "Co-authored-by: Mallory" in message) == (
+        FixChecksResult.REPAIRED,
+        False,
+        True,
+    )
+    assert comment.count("@mallory") == comment.count("`@mallory`")
+
+
+def test_a_check_name_that_the_state_file_forges_pushes_nothing_from_a_separate_publish(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A separate `publish` takes the check by the name that GitHub gives to a failed check of the
+    judged head: a state file that names another check pushes nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["check"] = f"{STATIC}\nCo-authored-by: Mallory <m@example.com>"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    report = publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert (report.result, repair.pushes) == (FixChecksResult.SKIPPED, 0)
+
+
+def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A separate `publish` pushes only to the URL of the repository on GitHub, whatever the state
+    file names (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(
+        tmp_path / "checkout", tier1=DONE, url="https://example.com/another-repository.git"
+    )
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+
+    with pytest.raises(PhaseOutputError, match="another origin"):
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert repair.pushes == 0
