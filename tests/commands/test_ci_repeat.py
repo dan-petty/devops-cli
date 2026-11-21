@@ -33,6 +33,8 @@ CI = typer.main.get_command(ci_module.app)
 runner = CliRunner()
 UV_RUN_PYTEST = ["uv", "--preview-features", "malware-check,check-command", "run", "pytest"]
 HEAD = (0, "deadbeef" + 32 * "0" + "\n")
+# The scheduling that keeps the tests of one file on one xdist worker.
+LOADFILE = ["--dist", "loadfile"]
 
 SHARED_STATE_TESTS = """
 SEEN: list[str] = []
@@ -145,7 +147,7 @@ def test_each_repeat_runs_the_targets_on_the_given_workers_with_the_next_seed(
     ci_repeat_project: Path, process_fake: ProcessFake
 ) -> None:
     """Run i of N runs the targets in the project root on the workers of -n with seed S+i,
-    keeping -v, -k and -x ahead of the shuffle options (#6564)."""
+    each file on one worker, keeping -v, -k and -x ahead of the shuffle options (#6564)."""
     result, calls = _invoke(
         process_fake, *"--repeat 3 --seed 10 -n 4 -v -k unit -x -- tests/test_x.py".split()
     )
@@ -154,8 +156,8 @@ def test_each_repeat_runs_the_targets_on_the_given_workers_with_the_next_seed(
         0,
         [
             (
-                [*UV_RUN_PYTEST, "-n", "4", "-v", "-k", "unit", "-x", "-p", "randomly"]
-                + [f"--randomly-seed={seed}", "tests/test_x.py"],
+                [*UV_RUN_PYTEST, "-n", "4", "-v", "-k", "unit", "-x", *LOADFILE]
+                + ["-p", "randomly", f"--randomly-seed={seed}", "tests/test_x.py"],
                 ci_repeat_project,
             )
             for seed in (10, 11, 12)
@@ -188,11 +190,37 @@ def test_the_repeat_runs_take_the_workers_of_a_narrowed_run_from_one_collection(
         1,
         [
             (
-                [*UV_RUN_PYTEST, "-n", workers, "-p", "randomly", f"--randomly-seed={seed}"]
-                + ["tests/test_x.py"],
+                [*UV_RUN_PYTEST, "-n", workers, *LOADFILE, "-p", "randomly"]
+                + [f"--randomly-seed={seed}", "tests/test_x.py"],
                 ci_repeat_project,
             )
             for seed in (5, 6)
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("workers", "scheduling"), [("4", LOADFILE), ("0", [])], ids=["workers", "one-process"]
+)
+def test_a_repeat_run_on_workers_keeps_each_file_on_one_worker(
+    ci_repeat_project: Path, process_fake: ProcessFake, workers: str, scheduling: list[str]
+) -> None:
+    """A repeat run on workers gives `--dist loadfile` after addopts' `--dist worksteal`, so all
+    tests of one file run on one worker in their shuffled order, and a test that leaves state
+    behind meets the tests of its own file as on one process. A run on one process gives no
+    `--dist` (#6564)."""
+    result, calls = _invoke(
+        process_fake, "--repeat", "1", "--seed", "3", "-n", workers, "tests/test_x.py"
+    )
+
+    assert (result.exit_code, calls) == (
+        0,
+        [
+            (
+                [*UV_RUN_PYTEST, "-n", workers, *scheduling, "-p", "randomly"]
+                + ["--randomly-seed=3", "tests/test_x.py"],
+                ci_repeat_project,
+            )
         ],
     )
 

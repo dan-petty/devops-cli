@@ -755,7 +755,9 @@ jobs:
   # shuffled order with its own seed, to catch tests that depend on the order they run in.
   # Shuffling the whole suite waits for thread-leak isolation. Each run has a runner of its own,
   # and each run uses the workers that a narrowed `devops ci test` of the same files gets: one
-  # process for up to 50 tests, else one worker for each of the 4 CPUs of the runner. One serial
+  # process for up to 50 tests, else one worker for each of the 4 CPUs of the runner, with all
+  # tests of one file on one worker. Above 50 tests, a leak from one changed file into another
+  # changed file on another worker is not caught (owner decision of 2026-11-21). One serial
   # job ran 454 s for each run of 1,473 changed tests, and GitHub cancelled it in the second run
   # (#6564). The job `Changed-Test Independence` below gives the result of the three runs.
   changed-tests:

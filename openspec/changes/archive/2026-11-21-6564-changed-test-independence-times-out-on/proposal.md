@@ -6,7 +6,7 @@ The check `Changed-Test Independence` runs the changed test files of a pull requ
 
 ## What Changes
 
-- A `--repeat` run of `devops ci test` uses the workers that a narrowed run of the same files gets: one process for up to 50 collected tests, else the worker cap (4 workers, or fewer when `PYTEST_XDIST_AUTO_NUM_WORKERS` is smaller). A given `-n` applies to each run. The command chooses the workers one time for all of its runs.
+- A `--repeat` run of `devops ci test` uses the workers that a narrowed run of the same files gets: one process for up to 50 collected tests, else the worker cap (4 workers, or fewer when `PYTEST_XDIST_AUTO_NUM_WORKERS` is smaller). A given `-n` applies to each run. The command chooses the workers one time for all of its runs. A run on workers gives `--dist loadfile`, so all tests of one file run on one worker. Above 50 tests, a leak from one changed file into another changed file on another worker is not caught.
 - The new option `--run <k>` of `devops ci test` starts only run `<k>` of the `--repeat` runs, with the seed of that run. It refuses a run above `--repeat` with exit 2.
 - The job `changed-tests` of `ci.yml` is a matrix of three jobs, `Changed-Test Independence (run <k> of 3)`. Each job runs `devops ci test --repeat 3 --run <k>` on the changed test files. Its test step has a limit of 12 minutes under the job limit of 15 minutes, so a run that is too long fails with a message, and the job is not cancelled.
 - The new job `changed-tests-result`, named `Changed-Test Independence`, needs the three runs and fails when one of them did not succeed.

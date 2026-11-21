@@ -939,7 +939,8 @@ class CICommandHelp:
     repeat: str = (
         "Run the selected test files N times, one run after another, each in a shuffled order, "
         "with seeds counting up from --seed. Each run uses the workers of -n, or else the "
-        "workers that a narrowed run of the same files gets. 0 runs them once in file order. "
+        "workers that a narrowed run of the same files gets, with all tests of one file on one "
+        "worker. 0 runs them once in file order. "
         "Refuses the whole suite."
     )
     repeat_run: str = (

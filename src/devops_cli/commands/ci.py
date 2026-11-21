@@ -126,6 +126,11 @@ _BANDIT_SOURCE_SEVERITY: Final[str] = "low"
 # part of the suite and a collection runs no test, so both give this option, which makes that
 # failure a warning (#5606).
 _SNAPSHOT_WARN_UNUSED: Final[str] = "--snapshot-warn-unused"
+# A repeat run on workers replaces addopts' `--dist worksteal`, which splits the tests of one file
+# across workers, with `loadfile`, which runs all tests of one file on one worker in their
+# shuffled order. A test that leaves state behind then meets the tests of its own file, as on one
+# process (#6564).
+_REPEAT_SCHEDULING: Final[tuple[str, ...]] = ("--dist", "loadfile")
 
 # The names of every row in the check registry, in registry order (#5451).
 CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
@@ -2303,6 +2308,8 @@ def test(
     workers = numprocesses if numprocesses is not None else _narrowed_workers(targets, k)
     if repeat:
         base_cmd = _build_test_cmd(workers, verbose, k, x, None)
+        if workers not in (None, "0"):
+            base_cmd.extend(_REPEAT_SCHEDULING)
         _run_shuffled_repeats(base_cmd, targets, repeat, seed, only_run)
         return
 

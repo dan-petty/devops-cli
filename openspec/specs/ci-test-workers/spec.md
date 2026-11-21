@@ -94,11 +94,15 @@ The command SHALL start no collection when the count cannot change the worker co
 - **THEN** The command makes one collection call.
 
 ### Requirement: Repeat runs take the workers of a narrowed run
-A `--repeat` run of `devops ci test` SHALL use the given `-n`, or else SHALL choose its workers as a narrowed run of the same files and `-k` filter does. It SHALL choose the workers once, and SHALL start each of its runs on those workers.
+A `--repeat` run of `devops ci test` SHALL use the given `-n`, or else the workers that a narrowed run of the same files and `-k` filter gets, chosen once for all of its runs. A run on workers SHALL give `--dist loadfile`, and a run on one process SHALL give no `--dist`. Above 50 tests, a run on workers does not catch a leak from one changed file into another changed file on another worker.
 
 #### Scenario: Repeat run of many tests
 - **WHEN** The caller passes `--repeat 2 --seed 5`, one test file that collects `DEFAULT_CI_TEST_SERIAL_MAX_TESTS` + 1 tests, and no `-n`.
-- **THEN** The command makes one collection call, and runs pytest two times with `-n DEFAULT_CI_TEST_NARROWED_WORKERS`.
+- **THEN** The command makes one collection call, and runs pytest two times with `-n DEFAULT_CI_TEST_NARROWED_WORKERS` and `--dist loadfile`.
+
+#### Scenario: Repeat run on one process
+- **WHEN** The caller passes `--repeat 1 --seed 3 -n 0` and one test file.
+- **THEN** The command runs pytest with no `--dist` option.
 
 #### Scenario: Repeat run with given workers
 - **WHEN** The caller passes `--repeat 2 --seed 1 -n 2` and one test file.
