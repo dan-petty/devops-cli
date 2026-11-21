@@ -164,10 +164,12 @@ def _now() -> datetime:
 class IncrementalListing:
     """How a store reads every issue of a repository: the snapshot that `snapshots` keeps and the
     issues changed since its watermark, or the whole listing when `full` or when no snapshot is
-    fit to read from. Each read keeps a new snapshot."""
+    fit to read from. Each read keeps a new snapshot, unless `keep` is False: the project review
+    reads the snapshot of intake and does not write it, so each file keeps one writer (#4692)."""
 
     snapshots: SnapshotStore
     full: bool = False
+    keep: bool = True
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
 
@@ -184,7 +186,8 @@ class IncrementalListing:
         else:
             listed = merged(held.issues, read_issues(changed_listing(held.watermark)))
             full_at = held.full_at
-        self._keep(repo, listed, full_at=full_at, started=started)
+        if self.keep:
+            self._keep(repo, listed, full_at=full_at, started=started)
         return listed
 
     def _fit(self, held: ListingSnapshot | None, now: datetime) -> ListingSnapshot | None:

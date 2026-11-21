@@ -204,6 +204,12 @@ class _IssuePayload(BaseModel):
     def label_names(self) -> tuple[str, ...]:
         return tuple(label.name for label in self.labels)
 
+    @property
+    def merged_at(self) -> datetime | None:
+        """When a pull request merged, or None for an issue and an unmerged pull request."""
+        found = (self.pull_request or {}).get("merged_at")
+        return datetime.fromisoformat(found) if isinstance(found, str) else None
+
     def split(self) -> tuple[str, dict[str, Any]]:
         """The body with its record block taken out, and the JSON object the block holds."""
         return split_record(self.body or "", issue=f"#{self.number}")
@@ -226,6 +232,7 @@ class _IssuePayload(BaseModel):
             created_at=self.created_at,
             updated_at=self.updated_at,
             closed_at=self.closed_at,
+            merged_at=self.merged_at,
             comments=self.comments,
             sub_issues=self.sub_issues,
             parent=self.parent,
@@ -1020,6 +1027,10 @@ class GitHubRoadmapStore(RoadmapStore):
     def issues(self) -> list[IssueRecord]:
         """Every issue, open and closed, Item or not; never pull requests."""
         return [issue for issue in self._every_issue() if not issue.pull_request]
+
+    def listing(self) -> list[IssueRecord]:
+        """Every issue and pull request, open and closed, the highest number first (#4692)."""
+        return self._every_issue()
 
     def create_issue(self, title: str, body: str, *, labels: Sequence[str] = ()) -> IssueRecord:
         """Open an issue with `title`, `body` and `labels`, returning it."""

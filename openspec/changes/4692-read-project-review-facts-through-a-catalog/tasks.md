@@ -9,9 +9,9 @@
 
 ## 2. Behavior: the merged pull requests and the read-only snapshot
 
-- [ ] 2.1 Add the failing tests: a merged pull request of the issue listing gives `merged_at` and a closed one gives null, in `tests/roadmap/stores/test_roadmap_github_store_items.py`; a read with `keep=False` reads the changes after the watermark and leaves the snapshot file as it was, in `tests/roadmap/stores/test_listing_snapshot.py`
+- [x] 2.1 Add the failing tests: a merged pull request of the issue listing gives `merged_at` and a closed one gives null, in `tests/roadmap/stores/test_roadmap_github_store_items.py`; a read with `keep=False` reads the changes after the watermark and leaves the snapshot file as it was, in `tests/roadmap/stores/test_listing_snapshot.py`
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_items.py tests/roadmap/stores/test_listing_snapshot.py`
-- [ ] 2.2 Add `merged_at` to `IssueRecord` in `src/devops_cli/roadmap/stores/store.py` and read it from `pull_request.merged_at` in `src/devops_cli/roadmap/stores/github_store.py`; add `keep: bool = True` to `IncrementalListing` in `src/devops_cli/roadmap/stores/listing_snapshot.py`
+- [x] 2.2 Add `merged_at` to `IssueRecord` in `src/devops_cli/roadmap/stores/store.py` and read it from `pull_request.merged_at` in `src/devops_cli/roadmap/stores/github_store.py`, with the public `listing()` of every issue and pull request; pin the new `LISTING_SCHEMA_KEY` in `tests/roadmap/stores/test_listing_snapshot.py`; add `keep: bool = True` to `IncrementalListing` in `src/devops_cli/roadmap/stores/listing_snapshot.py`
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_roadmap_github_store_items.py tests/roadmap/stores/test_listing_snapshot.py tests/roadmap/stores/test_roadmap_store_contract.py`
 
 ## 3. Behavior: Loki metric queries at a given time
