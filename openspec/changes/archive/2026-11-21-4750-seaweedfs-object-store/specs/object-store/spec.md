@@ -136,7 +136,7 @@ The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on 
 - **THEN** the filer pod cannot connect and the worker pod connects
 
 ### Requirement: The store has no internet egress
-The NetworkPolicies of namespace `object-store` SHALL admit egress only to CoreDNS and to the pods of the namespace, except that the operator pod reaches the Kubernetes API on 443 and 6443 with the metadata address excluded.
+The NetworkPolicies of namespace `object-store` SHALL admit egress only to CoreDNS and to the pods of the namespace, except that the operator pod reaches the Kubernetes API on 6443 with the metadata address excluded.
 
 #### Scenario: The committed egress
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`

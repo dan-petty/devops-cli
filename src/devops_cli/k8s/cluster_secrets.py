@@ -675,7 +675,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     # The admin of the object store (#4750). With no password, the admin HTTP API has no
     # authentication (GHSA-m3m8-mrgq-hf9h). Nobody types the password: the push makes it. The JWT
     # signing keys have no row, because the SeaweedFS operator mints them in Secret
-    # seaweedfs-security.
+    # seaweedfs-security-config.
     ClusterSecret(
         namespace="object-store",
         name="seaweedfs-admin",

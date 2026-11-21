@@ -1,7 +1,7 @@
 # The SeaweedFS object store (#4750, ADR 0034). The SeaweedFS operator (Application
 # seaweedfs-operator) makes every StatefulSet, Deployment, Service and ServiceMonitor of the store,
-# and the JWT Secret seaweedfs-security, from this CR. k8s/README.md, section Object Store, has the
-# version rule, the rollout and the node restore.
+# and the JWT Secret seaweedfs-security-config, from this CR. k8s/README.md, section Object Store,
+# has the version rule, the rollout and the node restore.
 #
 # Each component sets the restricted security context of user seaweed (uid 1000) of the image,
 # a metrics port and its requests. The requests of the namespace add up to 900m CPU and 2752Mi with
@@ -22,7 +22,7 @@ spec:
   serviceMonitor:
     enabled: true
   # The master signs a token for each write to a volume server and to a filer. The operator mints
-  # the keys and keeps them in Secret seaweedfs-security.
+  # the keys and keeps them in Secret seaweedfs-security-config.
   securityConfig:
     jwtSigning:
       volumeWrite: true

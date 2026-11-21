@@ -177,6 +177,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 |  |
 | [0031](0031-review-scanners-run-in-the-runner-pod.md) | Review scanners run in the runner pod | accepted | 2026-11-21 |  |
 | [0032](0032-infrastructure-templates-live-in-four-homes.md) | Infrastructure templates live in four homes | proposed | 2026-11-21 | amends 0026, 0027 |
-| [0034](0034-the-object-store-is-seaweedfs-with-its-operator.md) | The object store is SeaweedFS with its operator | proposed | 2026-11-21 |  |
+| [0034](0034-the-object-store-is-seaweedfs-with-its-operator.md) | The object store is SeaweedFS with its operator | accepted | 2026-11-21 |  |
 
 <!-- ADR_INDEX_END -->

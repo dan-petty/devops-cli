@@ -1,9 +1,10 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-21
 decision-makers: [owner]
 issue: 4750
 tracker: 4742
+body-hash: 2d7666331e8134f87386fa26fa0c4a300463ab2a368397ba22d2c3bbdc51f58f
 ---
 
 # The object store is SeaweedFS with its operator
@@ -40,6 +41,6 @@ Chosen option: "SeaweedFS with the SeaweedFS operator", because it is the one pe
 
 - Good, because each object has a second copy on another node, and the loss of one node loses no object.
 - Good, because the operator makes the StatefulSets, the Services, the ServiceMonitors and the JWT keys, so the repository holds no workload of the store.
-- Bad, because the store has its own release rule: a Renovate pull request of the image waits for the operator release that builds against it.
+- Bad, because the store has its own release rule: a Renovate update of the image or the operator chart waits for an approval on the Dependency Dashboard, and a person pins the release that the operator builds against.
 - Bad, because the store needs 3 Ready nodes that are not the control-plane node, so a cluster with fewer nodes, such as minikube, cannot run it.
 - Neutral, because the general settings of the operator, a platform stack that any service can use, move to dan-petty/infra in a later item ([ADR 0032](0032-infrastructure-templates-live-in-four-homes.md)).

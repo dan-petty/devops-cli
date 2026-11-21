@@ -798,7 +798,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `object-store/seaweedfs-admin` | `adminPassword` | keyring `seaweedfs_admin_password` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `statefulset/seaweedfs-admin` |
 | `object-store/seaweedfs-s3` | `s3.json` | literal | yes | fail | infra | `deployment/seaweedfs-s3` |
 
-- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request until a person adds an identity in the admin UI. The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security`, which the `Seaweed` CR owns.
+- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request until a person adds an identity in the admin UI. The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security-config`, which the `Seaweed` CR owns.
 - A Secret that a CloudNativePG `Cluster` without `bootstrap.initdb.secret` creates, such as `llm/llm-gateway-db-app`, has no row. The operator generates its password when it creates the database, and the Deployment reads it with `secretKeyRef`.
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -1080,7 +1080,7 @@ CloudNativePG 1.32.0 removes the in-tree `barmanObjectStore` (CloudNativePG rele
 
 ## Object Store
 
-The SeaweedFS object store gives the cluster an S3 API that keeps the second copy of each object on another node (#4750, [ADR 0034](../docs/adr/0034-the-object-store-is-seaweedfs-with-its-operator.md)). The SeaweedFS operator makes each workload of the store from the one `Seaweed` CR `seaweedfs` in `object-store/seaweed.yaml`: the StatefulSets, the Deployments, the Services, the ServiceMonitors and Secret `seaweedfs-security`.
+The SeaweedFS object store gives the cluster an S3 API that keeps the second copy of each object on another node (#4750, [ADR 0034](../docs/adr/0034-the-object-store-is-seaweedfs-with-its-operator.md)). The SeaweedFS operator makes each workload of the store from the one `Seaweed` CR `seaweedfs` in `object-store/seaweed.yaml`: the StatefulSets, the Deployments, the Services, the ServiceMonitors and Secret `seaweedfs-security-config`.
 
 | Helm release and Argo CD Application | What it applies | Namespace |
 | :--- | :--- | :--- |
@@ -1107,7 +1107,7 @@ The version rule of the owner (2026-11-11) has no minimum release age. Pin the n
 
 - `spec.image` of the CR pins `chrislusf/seaweedfs` by tag and digest. No component sets its own `version`, so the one field names the release of every pod. The values of the chart set no operator tag, so the operator is the `appVersion` of the chart.
 - The release notes of each operator release name the SeaweedFS commit that it builds against. Operator 1.0.45 (chart 0.1.48) names `5ef99c1d8dbb`, the commit of tag 4.54.
-- To update, take the newest chart, read the SeaweedFS commit in the release notes of its operator, and pin the tag of that commit with its digest (`skopeo inspect --format '{{.Digest}}' docker://docker.io/chrislusf/seaweedfs:<tag>`). Then take the dashboard of the new tag ([Grafana Dashboards](#grafana-dashboards)) and run the build test. A Renovate pull request of the image waits for the chart of the operator that builds against it.
+- To update, take the newest chart, read the SeaweedFS commit in the release notes of its operator, and pin the tag of that commit with its digest (`skopeo inspect --format '{{.Digest}}' docker://docker.io/chrislusf/seaweedfs:<tag>`). Then take the dashboard of the new tag ([Grafana Dashboards](#grafana-dashboards)) and run the build test. An update of the image or the chart waits for an approval on the Renovate Dependency Dashboard and gets its own branch `seaweedfs`, and a person merges it after these steps (`.github/renovate.json`).
 - The `k8s` row refuses a release under 4.53, a release from 4.48 to 4.51, an image with no digest, a component with its own `version`, and a chart under 0.1.47.
 
 ### Security
@@ -1116,8 +1116,8 @@ The version rule of the owner (2026-11-11) has no minimum release age. Pin the n
 - **Worker control plane.** The admin gRPC port 33646 has no authentication, and no release fixes it (GHSA-3qr2-qw48-cj6q). `object-store-perimeter` admits only the worker pods to it.
 - **S3 identities.** The gateways read the identities file of Secret `object-store/seaweedfs-s3`, which holds no identity, so they refuse each request until an identity exists. With no file, SeaweedFS allows every request. Make an identity for each client in the admin UI (Object Store, Users), with only the buckets and the actions that the client needs. The gateways read the identities that the admin keeps in the filer.
 - **Optional APIs.** `iam: false` keeps the IAM API, STS and OIDC off, and with the IAM subsystem off, a request that fails its signature gets no S3 Tables access (GHSA-25hp-4mw7-9c75). `-port.iceberg=0` and `-port.lance=0` close the Iceberg catalog and the Lance namespace, which the gateway otherwise serves on 8181 and 9101. SFTP, WebDAV, S3 Vectors and the S3 of the filer stay off.
-- **Signed writes.** The master signs a token for each write to a volume server and to a filer (`securityConfig.jwtSigning`). The operator mints the keys in Secret `object-store/seaweedfs-security` and keeps them at each reconcile, so no row of [Cluster Secrets](#cluster-secrets) holds them.
-- **Network.** `object-store-perimeter` admits the pods of the namespace on the HTTP and gRPC ports of each component, the worker alone on 33646, each namespace with the label `backup-client: "true"` on 8333, and namespace `monitoring` on 9327. The egress of `monitoring-default-perimeter` lets Alloy reach `object-store` on 9327. The egress of `object-store-perimeter` is CoreDNS and the pods of the namespace. `object-store-operator` admits the API server to the webhook port 9443 and lets the operator reach the API server. No pod has internet egress, and `-telemetry=false` stops the usage report of the masters.
+- **Signed writes.** The master signs a token for each write to a volume server and to a filer (`securityConfig.jwtSigning`). The operator mints the keys in Secret `object-store/seaweedfs-security-config` and keeps them at each reconcile, so no row of [Cluster Secrets](#cluster-secrets) holds them.
+- **Network.** `object-store-perimeter` admits the pods of the namespace on the HTTP and gRPC ports of each component, the worker alone on 33646, each namespace with the label `backup-client: "true"` on 8333, and namespace `monitoring` on 9327. The egress of `monitoring-default-perimeter` lets Alloy reach `object-store` on 9327. The egress of `object-store-perimeter` is CoreDNS and the pods of the namespace. `object-store-operator` admits the API server to the webhook port 9443 and lets the operator reach TCP 6443, the port of the API server, on any address except the metadata address. No SeaweedFS pod has internet egress, and `-telemetry=false` stops the usage report of the masters.
 - **Forbidden command.** No manifest holds `fs.mergeVolumes`: `seaweedfs/seaweedfs#12521` can lose a completed object. The `k8s` row refuses it.
 
 ### Clients
@@ -1126,7 +1126,7 @@ A client namespace gets the label `backup-client: "true"` and reaches `http://se
 
 ### Rollout
 
-1. Merge. Application `base` creates namespace `object-store`, Application `seaweedfs-operator` installs the operator, and Application `object-store` applies the CR. The admin and S3 pods wait in `CreateContainerConfigError` until their Secrets exist.
+1. Merge. Application `base` creates namespace `object-store`, Application `seaweedfs-operator` installs the operator, and Application `object-store` applies the CR. The admin and S3 pods wait in `ContainerCreating`, with a `FailedMount` event that names the Secret, until their Secrets exist.
 2. Run `uv run devops k8s push-secrets --only object-store/seaweedfs-admin --only object-store/seaweedfs-s3`. The push makes the admin password and keeps it in the keyring.
 3. Run the same command with `--plan` until each key shows `unchanged`.
 4. Check the store:

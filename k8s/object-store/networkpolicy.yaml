@@ -105,16 +105,15 @@ spec:
         - protocol: TCP
           port: 9443
   egress:
-    # 1. The Kubernetes API server, which the operator watches and writes. Its address is a node
-    #    address, which no pod selector names, so the rule has the form of the CloudNativePG
-    #    database perimeter and excludes the metadata address.
+    # 1. The Kubernetes API server, which the operator watches and writes. The `kubernetes`
+    #    Service resolves to the node's address on 6443, which no pod selector names, so the peer
+    #    is an ipBlock with the metadata address excluded, as k8s/argo-workflows/networkpolicy.yaml
+    #    does. No rule gives the operator 443, so it has no HTTPS egress to the internet.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
               - 169.254.169.254/32
       ports:
-        - protocol: TCP
-          port: 443
         - protocol: TCP
           port: 6443

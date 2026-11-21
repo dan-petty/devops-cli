@@ -3,9 +3,12 @@
 The SeaweedFS operator makes every workload of the store from the one `Seaweed` CR of
 `k8s/object-store/seaweed.yaml`, so these checks read the CR, the NetworkPolicies and the
 PodDisruptionBudgets of the render of `k8s/object-store`, the NetworkPolicies of the render of
-`k8s/monitoring`, the two Argo CD Applications and the AppProject. Each rule is a function that returns its problems. One check applies the rule to the
-committed render, and one applies it to a fixture that breaks the rule and asserts that the problem
-names the object, so a rule that stops finding its problem fails the row too.
+`k8s/monitoring`, the two Argo CD Applications and the AppProject. Each rule is a function that
+returns its problems, and one check applies the rule to the committed render. The rules of the
+namespace, the chart floor, the release, the closed APIs, the placement, the admin port, the
+egress, the scrape path, the Secrets and the merge field also have a check that applies the rule
+to a fixture that breaks it and asserts that the problem names the object, so such a rule that
+stops finding its problem fails the row too.
 """
 
 from __future__ import annotations
@@ -58,7 +61,9 @@ HOSTNAME_KEY: Final = "kubernetes.io/hostname"
 
 ADMIN_GRPC_PORT: Final = 33646
 S3_PORT: Final = 8333
-API_SERVER_PORTS: Final = frozenset({443, 6443})
+# The `kubernetes` Service resolves to the node's address on 6443, and kube-router filters after
+# that translation, so the API rule of the operator needs no 443 (k8s/argo-workflows).
+API_SERVER_PORTS: Final = frozenset({6443})
 METADATA_ADDRESS: Final = "169.254.169.254/32"
 CLIENT_LABEL: Final = {"backup-client": "true"}
 MONITORING: Final = "monitoring"
@@ -567,12 +572,14 @@ def _peer_admitted(peer: Mapping[str, Any], name: str) -> bool:
 
 
 def _port_matches(rule: Mapping[str, Any], port: int) -> bool:
+    """Whether a rule admits TCP `port`. An entry with no port admits every port of its protocol.
+    The rule cannot resolve a named port, so a named port admits `port`: the rules fail closed."""
     ports = rule.get("ports")
     if not ports:
         return True
     return any(
-        isinstance(entry.get("port"), int)
-        and entry["port"] <= port <= entry.get("endPort", entry["port"])
+        not isinstance(entry.get("port"), int)
+        or entry["port"] <= port <= entry.get("endPort", entry["port"])
         for entry in ports
     )
 
@@ -649,7 +656,7 @@ def _egress_rule_problems(name: str, rule: Mapping[str, Any], operator_only: boo
 
 def egress_problems(policies: Iterable[Mapping[str, Any]]) -> list[str]:
     """The pods reach only CoreDNS and the pods of the namespace; the operator pod also reaches
-    the Kubernetes API on 443 and 6443, with the metadata address excluded."""
+    the Kubernetes API on 6443, with the metadata address excluded."""
     problems = []
     policies = list(policies)
     perimeter = [
@@ -700,7 +707,9 @@ def check_only_the_worker_reaches_the_admin_grpc_port() -> None:
     assert admin_port_problems(_store_kind("NetworkPolicy")) == []
 
 
-def check_the_admin_port_rule_names_a_policy_that_admits_a_filer() -> None:
+def _filer_admitted_on(ports: list[dict[str, Any]]) -> list[str]:
+    """The problems of the admin port rule for the committed policies and a fixture policy that
+    admits the filer pods to every pod of the namespace on `ports`."""
     fixture = {
         "kind": "NetworkPolicy",
         "metadata": {"name": "fixture-perimeter", "namespace": NAMESPACE},
@@ -710,16 +719,30 @@ def check_the_admin_port_rule_names_a_policy_that_admits_a_filer() -> None:
             "ingress": [
                 {
                     "from": [{"podSelector": {"matchLabels": component_labels("filer")}}],
-                    "ports": [{"protocol": "TCP", "port": ADMIN_GRPC_PORT}],
+                    "ports": ports,
                 }
             ],
         },
     }
-
-    assert any(
-        "fixture-perimeter" in p and str(ADMIN_GRPC_PORT) in p
+    return [
+        p
         for p in admin_port_problems([*_store_kind("NetworkPolicy"), fixture])
-    )
+        if "fixture-perimeter" in p and str(ADMIN_GRPC_PORT) in p
+    ]
+
+
+def check_the_admin_port_rule_names_a_policy_that_admits_a_filer() -> None:
+    assert _filer_admitted_on([{"protocol": "TCP", "port": ADMIN_GRPC_PORT}])
+
+
+def check_the_admin_port_rule_names_a_policy_that_admits_every_tcp_port() -> None:
+    # A ports entry with no port admits every port of its protocol.
+    assert _filer_admitted_on([{"protocol": "TCP"}])
+
+
+def check_the_admin_port_rule_names_a_policy_that_admits_a_named_port() -> None:
+    # The rule cannot resolve a named port, so it counts the port as the admin port.
+    assert _filer_admitted_on([{"protocol": "TCP", "port": "grpc"}])
 
 
 def check_the_store_has_no_internet_egress() -> None:
