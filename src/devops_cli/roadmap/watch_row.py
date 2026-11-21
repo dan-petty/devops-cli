@@ -415,6 +415,7 @@ def _evaluate_pull(
 
     is_bot = is_plan or (author.endswith("[bot]") if author else False)
     delivery = is_draft and _delivery_draft(item, pr_number, labels)
+    stopped = _stopped_delivery(item, pr_number)
     settings = load_settings().roadmap
 
     state = WatchState(
@@ -438,6 +439,7 @@ def _evaluate_pull(
         )
         if delivery
         else frozenset(),
+        stopped=stopped,
     )
 
     v = verdict(state)
@@ -475,6 +477,7 @@ def _evaluate_pull(
         steps=steps,
         entry=entry,
         checks=checks,
+        labels=labels,
     )
 
 
@@ -490,6 +493,16 @@ def _delivery_draft(item: Item, pull: int, labels: Sequence[str]) -> bool:
         and takes_ready_path(item)
         and not has_owner_label(labels)
         and not has_owner_label(item.labels)
+    )
+
+
+def _stopped_delivery(item: Item, pull: int) -> bool:
+    """Whether `pull` is the `implement.pr` of an item that holds a stop (#6559). A person owns
+    such a draft until `implement: retry` clears the stop: it gets no fix-checks unit and no ready
+    mark, as `takes_ready_path` reads the stop."""
+    record = item.job_record
+    return record.get(ImplementRecordKey.PR) == str(pull) and bool(
+        record.get(ImplementRecordKey.STOPPED)
     )
 
 
@@ -569,6 +582,7 @@ def _ready_plan(
     head: str,
     base_ref: str,
     checks: CheckVerdictSummary,
+    labels: Sequence[str] = (),
 ) -> bool:
     """Mark the green plan draft `pull` ready, and record `stage.ready`; True when it marked it.
     A plan that needs a fix stays a draft. Then `draft_readiness` judges the draft that
@@ -576,12 +590,12 @@ def _ready_plan(
     delivery of its item, and `read_draft` takes the kind from the record, so a delivery with a
     task that is not ticked stays a draft. The ledger keeps a refused head in `ready_head`, so the
     row judges that head once. Last, the Jev completeness check can hold the draft. A plan draft
-    that is also the delivery of a stopped item stays a draft, as a stopped delivery does (#6559)."""
+    that is also the delivery of its item (`implement.pr`) takes the guards of the delivery ready
+    path (`_delivery_held`): no stop, mode `on`, and no owner label on the pull request (`labels`)
+    or the item (#6559)."""
     if item.job_record.get(StageRecordKey.NEEDS_FIX) == str(pull):
         return False
-    if item.job_record.get(ImplementRecordKey.STOPPED) and item.job_record.get(
-        ImplementRecordKey.PR
-    ) == str(pull):
+    if item.job_record.get(ImplementRecordKey.PR) == str(pull) and _delivery_held(item, labels):
         return False
     entry = ctx.recorded_pulls.get(pull)
     if entry is not None and entry.ready_head == head:
@@ -604,6 +618,18 @@ def _ready_plan(
     mark_ready(ctx.repo, pull, expected_head=head, draft=draft)
     ctx.store.set_marks(item, {StageRecordKey.READY: str(pull)})
     return True
+
+
+def _delivery_held(item: Item, labels: Sequence[str]) -> bool:
+    """Whether the delivery ready path leaves the delivery of `item` a draft (#6559): the item
+    holds a stop, the mode of `roadmap.fix_checks.mode` is not `on`, or an owner label on the pull
+    request (`labels`) or the item claims it, as the step `fix-checks` reads a claim."""
+    return (
+        bool(item.job_record.get(ImplementRecordKey.STOPPED))
+        or load_settings().roadmap.fix_checks.mode != "on"
+        or has_owner_label(labels)
+        or has_owner_label(item.labels)
+    )
 
 
 def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
@@ -644,13 +670,14 @@ def _apply_due_steps(
     steps: Sequence[DueStep],
     entry: WatchLedgerEntry | None,
     checks: CheckVerdictSummary,
+    labels: Sequence[str] = (),
 ) -> None:
-    """Execute side-effects for active DueSteps."""
+    """Execute side-effects for active DueSteps. `labels` are the labels of the pull request."""
     client = get_github_session().client
 
     if DueStep.READY in steps:
         if is_plan:
-            if _ready_plan(ctx, item, pr_number, head_sha, base_ref, checks):
+            if _ready_plan(ctx, item, pr_number, head_sha, base_ref, checks, labels):
                 ctx.marked_ready.append(pr_number)
         elif is_draft and _ready_after_fix(ctx, item, pr_number, head_sha):
             ctx.marked_ready.append(pr_number)

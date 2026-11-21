@@ -786,6 +786,26 @@ def test_explain_item_prints_phase_and_phase_age(job_world: JobWorld) -> None:
     assert "Phase: ready. Phase age: " in rendered
 
 
+@pytest.mark.parametrize(("draft", "expected"), [(True, "in-review"), (False, "ready-for-review")])
+def test_explain_reads_the_draft_state_of_a_drafted_delivery(
+    job_world: JobWorld, draft: bool, expected: str
+) -> None:
+    """The record cannot say whether a drafted delivery is still a draft, so the explanation reads
+    the pull request of `implement.pr` for the phase (#6559)."""
+    number = _seed(job_world)
+    item = job_world.store.item(number)
+    assert item is not None
+    job_world.store.set_field(
+        item,
+        ItemField.STATUS,
+        "In Review",
+        marks={ImplementRecordKey.PR: "77", ImplementRecordKey.RESULT: "drafted"},
+    )
+    route_pull_status(job_world.api, {"state": "open", "draft": draft, "merged": False}, pull=77)
+
+    assert _explain(job_world, number).phase == expected
+
+
 def test_a_new_tracker_gets_the_refine_tracker_text(job_world: JobWorld) -> None:
     number = _seed(job_world, status="New", sub_issues=2)
     before_writes = job_world.store.job_writes

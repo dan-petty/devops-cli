@@ -1763,10 +1763,10 @@ class RoadmapCommandHelp:
         "implement it also reads the pull requests of the bot of service.github_app.slug that "
         "changed in the window (updated:>=), with one GraphQL search to GitHub for each 100, and "
         "gives the share of each first verdict label and the verdict score beside p, for the "
-        "pull requests opened in the window. It scores the drafted lines of implement by the "
-        "forge state of the pull request that each line names: merged or out of draft is a "
-        "success, closed is a failure, and a draft stays out of the attempts and counts in "
-        "drafts_pending."
+        "pull requests opened in the window. It scores the drafted lines of implement of each "
+        "pull request once, by its forge state: merged or out of draft gives 1 success and a "
+        "failure for each other line, closed gives a failure for each line, and a draft keeps "
+        "its lines out of the attempts in drafts_pending."
     )
     eval_grades_repo: str = "Report only this repository (owner/name). Default: all repositories."
     eval_grades_window: str = (

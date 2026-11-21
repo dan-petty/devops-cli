@@ -112,8 +112,8 @@ def _item(
             None,
             "in-review",
         ),
-        # The ready path of the watch row marked the draft ready (`fix_checks.result` ready), so
-        # the delivery is out of draft and ready for review (#6559)
+        # With no pull data a drafted delivery is in review: a record mark of the ready path can
+        # be stale after the review step makes the pull request a draft again (#6559)
         (
             _item(
                 18,
@@ -124,6 +124,35 @@ def _item(
                 },
             ),
             None,
+            "in-review",
+        ),
+        # The pull data says the drafted delivery is a draft again, whatever the record says
+        (
+            _item(
+                19,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.PR: "102",
+                    ImplementRecordKey.RESULT: "drafted",
+                    FixChecksRecordKey.RESULT: "ready",
+                },
+            ),
+            {102: PullStatus(state="open", draft=True)},
+            "in-review",
+        ),
+        # A Staged item delivers on its plan pull request, which the plan path marked ready
+        (
+            _item(
+                20,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.PR: "102",
+                    StageRecordKey.PR: "102",
+                    StageRecordKey.READY: "102",
+                    ImplementRecordKey.RESULT: "drafted",
+                },
+            ),
+            {102: PullStatus(state="open", draft=False)},
             "ready-for-review",
         ),
         # Ready-for-review item with ready delivery PR

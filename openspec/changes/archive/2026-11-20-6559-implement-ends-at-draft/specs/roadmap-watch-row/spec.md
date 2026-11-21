@@ -15,6 +15,13 @@ For a delivery draft with the verdict READY, the watch row SHALL run the ready p
 - **WHEN** a delivery draft whose implement Job recorded `implement.result` equal to `stopped` has passing checks and no `fix_checks.result`
 - **THEN** the row runs no ready path and sends GitHub only its GraphQL read
 
+### Requirement: The pull request of a stopped item gets no fix unit
+The watch row SHALL give no `fix_checks` to the pull request that the record of an item names as `implement.pr` while the item holds `implement.stopped`. A person owns the item until `implement: retry` clears the stop, and the ready path leaves the draft too.
+
+#### Scenario: A new head after a stop
+- **WHEN** the row stopped the item, and a new head of its draft has a failed `Tests & Coverage` check in mode `on`
+- **THEN** the row hands no unit to the fix round, and the item stays Blocked
+
 ### Requirement: The watch row stops the item of a delivery draft that no actor takes
 A delivery draft is the draft of `implement.pr` that the ready path takes, with no owner label. Its failed check has a repair owner only in mode `on`, for a class in FIX_CHECK_CLASSES, while the unit of the head and the check has not ended with no repair. For each other failed or cancelled check, the latest run of each name, and for a conflict, the `stop` due step SHALL stop the item once: one stop comment, Status Blocked, `implement.stopped`, the class and `implement.result` stopped.
 
@@ -98,7 +105,7 @@ A delivery draft is the draft of `implement.pr` that the ready path takes, with 
 - **THEN** `due_steps` returns `stop` and no `fix_checks`
 
 ### Requirement: The watch row marks a delivery draft ready after a fix or a drafted end
-For a delivery draft with the verdict READY whose item holds no stop and records `fix_checks.result` as `repaired` or `implement.result` as `drafted`, the watch row SHALL run the ready path of the step `fix-checks` only, once for each head that got a report from it, with `--confirm` only in mode `on` of `roadmap.fix_checks.mode`. The row SHALL send no request for each other delivery draft.
+For a delivery draft with the verdict READY whose item holds no stop and records `fix_checks.result` as `repaired` or `implement.result` as `drafted`, the watch row SHALL run the ready path of the step `fix-checks` only, once for each head that got a report from it, with `--confirm` only in mode `on` of `roadmap.fix_checks.mode`. A Staged item that delivers on its plan pull request SHALL get the same guards on the plan path. The row SHALL send no request for each other delivery draft.
 
 #### Scenario: A repaired draft gets the ready path once
 - **WHEN** a delivery draft that a fix Job repaired has passing checks, and the row runs twice on its head in mode `plan`
@@ -115,3 +122,7 @@ For a delivery draft with the verdict READY whose item holds no stop and records
 #### Scenario: A ready path that raises
 - **WHEN** the ready path raises a GitHub error in the first round, and the row runs again on the same head
 - **THEN** the row runs the ready path again
+
+#### Scenario: A Staged delivery outside mode on
+- **WHEN** a green drafted delivery draft is also the plan pull request of its item, in mode `plan` or `off`, or with an owner label
+- **THEN** the row reads no draft and marks nothing ready

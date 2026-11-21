@@ -116,10 +116,13 @@ class WatchState:
     labels: tuple[str, ...] = ()
     # The hand-off of a delivery draft (#6559): the pull request is the draft of `implement.pr`
     # that the ready path takes (`takes_ready_path`), with no owner label; mode `on` lets a
-    # fix-checks unit repair; and the checks of the head whose unit ended with no repair.
+    # fix-checks unit repair; the checks of the head whose unit ended with no repair; and the
+    # pull request is the `implement.pr` of an item that holds a stop, which a person owns until
+    # `implement: retry`.
     delivery: bool = False
     repairs: bool = False
     ended_checks: frozenset[str] = frozenset()
+    stopped: bool = False
 
     @property
     def bot(self) -> bool:
@@ -313,8 +316,11 @@ def ready_held(labels: Sequence[str]) -> bool:
 def _failed_steps(state: WatchState) -> tuple[DueStep, ...]:
     """The due step of a bot pull request with a failed check. A delivery draft gets `fix_checks`
     only when a unit owns the check (`repair_owner`), else `stop`: no actor takes the draft
-    (#6559). Another bot pull request gets `fix_checks` for the check that `fix_checks_check`
-    names (#5027)."""
+    (#6559). The pull request of a stopped item gets neither: a person owns it, and the ready path
+    leaves it too. Another bot pull request gets `fix_checks` for the check that
+    `fix_checks_check` names (#5027)."""
+    if state.stopped:
+        return ()
     if state.delivery:
         if repair_owner(state) is not None:
             return (DueStep.FIX_CHECKS,)
@@ -333,8 +339,8 @@ def due_steps(state: WatchState) -> tuple[DueStep, ...]:
     - CONFLICT: `comment_conflict` for person PRs; `stop` for a delivery draft (#6559); nothing
       for another bot PR
     - FAILED: for a delivery draft, `fix_checks` when a unit owns the check (`repair_owner`),
-      else `stop` (#6559); for another bot PR, `fix_checks` when `fix_checks_check` names a
-      check (#5027); nothing for person PRs
+      else `stop` (#6559); nothing for the pull request of a stopped item (#6559); for another
+      bot PR, `fix_checks` when `fix_checks_check` names a check (#5027); nothing for person PRs
     - MERGED / CLOSED: `status_sync` (plus `cleanup` for bot plan PRs)
     - PENDING / BEHIND / THREADS / HEAD_MOVED: ()
     """

@@ -28,8 +28,6 @@ from devops_cli.k8s.cluster_job import ITEM_LABEL, REPO_LABEL
 from devops_cli.k8s.cluster_job_api import ClusterJobs, JobState
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
-    FixChecksRecordKey,
-    FixChecksResult,
     GitHubState,
     ImplementRecordKey,
     ImplementResult,
@@ -89,10 +87,9 @@ def _delivery_phase(
         if delivery_pr.state == "open":
             return Phase.IN_REVIEW
     if record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED.value:
-        # The Job ended at the draft and wrote In Review (#6559). With no pull data, the record
-        # says when the draft is out of draft: the ready path of the watch row marked it ready.
-        if record.get(FixChecksRecordKey.RESULT) == FixChecksResult.READY:
-            return Phase.READY_FOR_REVIEW
+        # The Job ended at the draft and wrote In Review (#6559). Only the pull data says when the
+        # draft is out of draft: a record mark can be stale after the review step makes the pull
+        # request a draft again. With no pull data the delivery is in review.
         return Phase.IN_REVIEW
     if item.status == CONST_ROADMAP_STATUS_IN_REVIEW or "status/in-review" in item.labels:
         return Phase.READY_FOR_REVIEW

@@ -29,6 +29,8 @@ from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.worktree_add import read_remote_heads
+from devops_cli.github.client import PullStatus
+from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output.formatters.scalars import format_duration
 from devops_cli.roadmap.follow import follow_command
@@ -53,7 +55,13 @@ from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.refine.refine import refine_left_out
 from devops_cli.roadmap.stage.stage import LeftOut, StageFilter, read_stage_selection
 from devops_cli.roadmap.stop_state import StopState, stop_state_of
-from devops_cli.roadmap.stores.store import GitHubState, ImplementRecordKey, Item, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    GitHubState,
+    ImplementRecordKey,
+    ImplementResult,
+    Item,
+    RoadmapStore,
+)
 
 _GIT_OPERATION: Final[str] = "roadmap.explain"
 
@@ -305,8 +313,9 @@ def explain_item(
         limit=implement_limit or DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
         reads=reads,
     )
-    item_phase = derive_phase(item).value
-    item_phase_age = derive_phase_age(item)
+    pulls = _delivery_pulls(repo, item)
+    item_phase = derive_phase(item, pulls=pulls).value
+    item_phase_age = derive_phase_age(item, pulls=pulls)
     return Explanation(
         repo,
         number,
@@ -355,6 +364,18 @@ def _totals_lines(explained: Explanation) -> list[str]:
         )
         lines.append(dropped.format(count=totals.dropped))
     return lines
+
+
+def _delivery_pulls(repo: str, item: Item) -> dict[int, PullStatus] | None:
+    """The pull request of a drafted delivery, by its number, for the phase; None for another
+    item (#6559). The record cannot say whether the draft is still a draft: the watch row or the
+    plan path marks it ready, and the review step makes it a draft again. So the explanation reads
+    the pull request of `implement.pr`, one read."""
+    record = item.job_record
+    pull = record.get(ImplementRecordKey.PR) or ""
+    if record.get(ImplementRecordKey.RESULT) != ImplementResult.DRAFTED or not pull.isdecimal():
+        return None
+    return {int(pull): get_github_session().client.get_pull_status(repo, int(pull))}
 
 
 def _stop_lines(explained: Explanation) -> list[str]:

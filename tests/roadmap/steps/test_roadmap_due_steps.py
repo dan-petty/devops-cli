@@ -147,6 +147,20 @@ def test_a_failed_check_of_a_delivery_draft_has_a_repair_owner_or_stops_the_item
     assert due_steps(state) == expected_steps
 
 
+def test_the_draft_of_a_stopped_item_gets_no_fix_unit() -> None:
+    """A stopped item belongs to a person until `implement: retry`, so the draft that its record
+    names as `implement.pr` gets no fix-checks unit, as the ready path leaves it (#6559)."""
+    state = WatchState(
+        pull=109,
+        head_sha="9" * 40,
+        checks=_failing_checks("Tests & Coverage"),
+        is_bot=True,
+        repairs=True,
+        stopped=True,
+    )
+    assert due_steps(state) == ()
+
+
 @pytest.mark.parametrize(
     ("delivery", "expected_steps"),
     [(True, (DueStep.STOP,)), (False, ())],
