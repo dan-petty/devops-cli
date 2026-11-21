@@ -999,6 +999,8 @@ class _ItemRun:
                     default_branch=self.default,
                     store=self.store,
                 )
+            except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
+                raise
             except (DevOpsCLIError, subprocess.TimeoutExpired) as error:
                 # The round gave the branch back its tip and recorded itself. A stop that pushes
                 # would rebase again and run tier 1, the code of the branch, a second time.
