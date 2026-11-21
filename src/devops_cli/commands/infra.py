@@ -19,6 +19,7 @@ from devops_cli.telemetry import trace_span
 if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
     from devops_cli.infra.apply import ApplyRequest
+    from devops_cli.infra.node_run import NodeRequest
 
 app = new_typer(
     help=HELP.infra.app,
@@ -347,5 +348,171 @@ def _render_apply_plan(
             )
         ),
         [MESSAGES.infra.apply_dry_run_note],
+        described=True,
+    )
+
+
+node_app = new_typer(help=HELP.infra.node, no_args_is_help=True)
+app.add_typer(node_app, name="node")
+
+
+@node_app.command("drain", help=HELP.infra.node_drain)
+@dry_run_class("request-plan")
+@trace_span("infra.node.drain")
+def node_drain(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.node_repo)],
+    hosts: Annotated[list[str], typer.Argument(help=HELP.infra.node_hosts)],
+    force: Annotated[bool, typer.Option("--force", help=HELP.infra.node_force)] = False,
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Drain the node of each host of an infra repo, one host at a time."""
+    _node(
+        "drain", repo, hosts, force=force, path=path, output_format=output_format, dry_run=dry_run
+    )
+
+
+@node_app.command("uncordon", help=HELP.infra.node_uncordon)
+@dry_run_class("request-plan")
+@trace_span("infra.node.uncordon")
+def node_uncordon(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.node_repo)],
+    hosts: Annotated[list[str], typer.Argument(help=HELP.infra.node_hosts)],
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Uncordon the node of each host of an infra repo, one host at a time."""
+    _node(
+        "uncordon",
+        repo,
+        hosts,
+        force=False,
+        path=path,
+        output_format=output_format,
+        dry_run=dry_run,
+    )
+
+
+@node_app.command("restart", help=HELP.infra.node_restart)
+@dry_run_class("request-plan")
+@trace_span("infra.node.restart")
+def node_restart(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.node_repo)],
+    hosts: Annotated[list[str], typer.Argument(help=HELP.infra.node_hosts)],
+    force: Annotated[bool, typer.Option("--force", help=HELP.infra.node_force)] = False,
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Drain each host of an infra repo and restart its node service, one host at a time."""
+    _node(
+        "restart", repo, hosts, force=force, path=path, output_format=output_format, dry_run=dry_run
+    )
+
+
+@node_app.command("reboot", help=HELP.infra.node_reboot)
+@dry_run_class("request-plan")
+@trace_span("infra.node.reboot")
+def node_reboot(
+    repo: Annotated[str, typer.Argument(help=HELP.infra.node_repo)],
+    hosts: Annotated[list[str], typer.Argument(help=HELP.infra.node_hosts)],
+    force: Annotated[bool, typer.Option("--force", help=HELP.infra.node_force)] = False,
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    output_format: Annotated[
+        str, typer.Option("--format", "-f", help=HELP.options.format_type)
+    ] = CONST_OUTPUT_FORMAT_TABLE,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Drain and reboot each host of an infra repo, one host at a time."""
+    _node(
+        "reboot", repo, hosts, force=force, path=path, output_format=output_format, dry_run=dry_run
+    )
+
+
+def _node(
+    operation: str,
+    repo: str,
+    hosts: list[str],
+    *,
+    force: bool,
+    path: Path | None,
+    output_format: str,
+    dry_run: bool,
+) -> None:
+    """Run a node command, or list its requests in a dry run, and print the report."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.infra.node_run import (
+        NodeRequest,
+        node_table,
+        render_node_footer,
+        render_node_header,
+        run_node,
+    )
+    from devops_cli.infra.onboard import resolve_target
+    from devops_cli.models.infra import ApplyResult, NodeOperation
+    from devops_cli.output import print_table
+    from devops_cli.output.serialization import emit_serialized, resolve_format
+
+    fmt = resolve_format(output_format)
+    settings = load_settings()
+    request = NodeRequest(operation=NodeOperation(operation), hosts=tuple(hosts), force=force)
+    if dry_run or is_dry_run():
+        _render_node_plan(repo, path, request, settings)
+        return
+    target = resolve_target(repo, path=path, settings=settings)
+    report = run_node(target, settings, request)
+    if fmt != CONST_OUTPUT_FORMAT_TABLE:
+        emit_serialized(report.model_dump(mode="json"), fmt)
+    else:
+        write_stdout("\n".join(render_node_header(report)) + "\n")
+        columns, cells = node_table(report)
+        print_table(columns=columns, rows=cells, caption=MESSAGES.infra.node_caption)
+        write_stdout("\n".join(render_node_footer(report)) + "\n")
+    if report.result is not ApplyResult.OK:
+        raise typer.Exit(1)
+
+
+def _render_node_plan(
+    repo: str, path: Path | None, request: NodeRequest, settings: Settings
+) -> None:
+    """List the requests of a node command. The dry run reads no file of the repo and starts no
+    process, so the node and the unit of each host are named placeholders."""
+    from devops_cli.dry_run.requests import render_request_plan
+    from devops_cli.github.repo_ref import RepoRef, is_repository_name
+    from devops_cli.infra.infra_plans import NodeTarget, plan_node
+    from devops_cli.infra.onboard import default_checkout
+
+    named = is_repository_name(repo)
+    entry = settings.infra.entry(RepoRef(repo)) if named else None
+    checkout = (
+        (path or (entry.path if entry else None) or default_checkout(RepoRef(repo), settings))
+        if named
+        else Path(repo)
+    )
+    operation = request.operation.value
+    render_request_plan(
+        MESSAGES.infra.node_plan_title.format(operation=operation, repo=repo, path=checkout),
+        plan_node(
+            NodeTarget(
+                repo=repo,
+                checkout=checkout,
+                origin_lookup=not named,
+                operation=request.operation,
+                hosts=request.hosts,
+                force=request.force,
+                kube_context=entry.kube_context if entry else None,
+                drain_timeout_seconds=settings.infra.drain_timeout_seconds,
+                prometheus_url=settings.prometheus.url,
+            )
+        ),
+        [MESSAGES.infra.node_dry_run_note],
         described=True,
     )

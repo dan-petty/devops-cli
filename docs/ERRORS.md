@@ -74,6 +74,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `InfraAccessRefusedError` | `INFRA_ACCESS_REFUSED` | `1` | Infra | An agent gave an agent access level above `none` for an infra repo. Only a person sets it. |
 | `InfraApplyRefusedError` | `INFRA_APPLY_REFUSED` | `1` | Infra | A guard of `devops infra apply` refused the apply before it changed a host: the plan, its |
 | `InfraError` | `INFRA_ERROR` | `1` | Infra | Base exception of the infra repo commands. |
+| `InfraNodeRefusedError` | `INFRA_NODE_REFUSED` | `1` | Infra | A guard of `devops infra node` refused the run before it changed a node: a host that is not |
 | `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A read of an infra repo failed: a git command of the read of its default branch, an Ansible |
 | `InfraRepoNotFoundError` | `INFRA_REPO_NOT_FOUND` | `1` | Infra | The checkout of an infra repo is not where the settings or the arguments put it. |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |

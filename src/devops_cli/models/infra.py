@@ -1,6 +1,6 @@
 """Pydantic models of `devops infra`: the commit that a command read (#5162), the onboarding
-report of an infra repo (#5121), the status of its hosts (#5123), the plan of a playbook (#5124)
-and the apply of a plan (#5125)."""
+report of an infra repo (#5121), the status of its hosts (#5123), the plan of a playbook (#5124),
+the apply of a plan (#5125) and the run of a node command (#5128)."""
 
 from __future__ import annotations
 
@@ -325,12 +325,12 @@ class HostApply(BaseModel):
 
 
 class ApplyResult(StrEnum):
-    """How an apply ended."""
+    """How an apply or the run of a node command ended."""
 
     OK = "ok"
-    # A guard refused the apply before it changed a host.
+    # A guard refused the run before it changed a host.
     REFUSED = "refused"
-    # A step failed after the apply started to change hosts.
+    # A step failed after the run started to change hosts.
     STOPPED = "stopped"
 
 
@@ -376,6 +376,109 @@ class ApplyReport(BaseModel):
     )
 
 
+class NodeOperation(StrEnum):
+    """What a node command does to the node of each host (#5128)."""
+
+    DRAIN = "drain"
+    UNCORDON = "uncordon"
+    RESTART = "restart"
+    REBOOT = "reboot"
+
+
+class NodeStep(StrEnum):
+    """A step of a node command on one host, in run order."""
+
+    # One read of the health gate before the drain.
+    HEALTH_BEFORE = "health before"
+    READ = "read"
+    DRAIN_CHECK = "drain check"
+    DRAIN = "drain"
+    RESTART = "restart"
+    REBOOT = "reboot"
+    READY = "ready"
+    UNCORDON = "uncordon"
+    # The waits of the health gate after the change: the nodes, then the critical alerts.
+    HEALTH_AFTER = "health after"
+
+
+class NodeOutcome(StrEnum):
+    """How a node command ended on one host."""
+
+    DONE = "done"
+    STOPPED = "stopped"
+    # The run stopped before it reached the host.
+    NOT_RUN = "not run"
+
+
+class HostNodeRun(BaseModel):
+    """A node command on one host: its result and the state of its node before and after."""
+
+    model_config = ConfigDict(frozen=True)
+
+    host: str = Field(description="The inventory host")
+    node: str = Field(description="The name of the Kubernetes node of the host")
+    unit: str | None = Field(
+        default=None, description="The unit that a restart restarts; none for another operation"
+    )
+    outcome: NodeOutcome = Field(description="How the command ended on the host")
+    step: NodeStep | None = Field(
+        default=None, description="The step that stopped the run; none when it did not stop"
+    )
+    reason: str | None = Field(default=None, description="Why the step stopped the run")
+    down_during_drain: tuple[str, ...] = Field(
+        default=(),
+        description="The workloads on the node that the drain evicts and that mount a volume that "
+        "only the node can mount, as <namespace>/<name> (<kind>): they are down until the node "
+        "is uncordoned",
+    )
+    before: NodeState | None = Field(
+        default=None, description="The node before the first change; none when it did not read"
+    )
+    after: NodeState | None = Field(
+        default=None, description="The node after the last step; none when it did not read"
+    )
+
+
+class NodeReport(BaseModel):
+    """A run of a node command on the hosts of an infra repo: who ran it, at which level, and
+    each host in the given order."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(description="The id of the run, which names its audit record")
+    repo: str = Field(description="The GitHub repository of the infra repo, as owner/name")
+    operation: NodeOperation = Field(description="What the command does to each node")
+    commit: str | None = Field(
+        default=None,
+        description="The commit of the default branch whose inventory the run read; none when it "
+        "did not read",
+    )
+    ref: str | None = Field(
+        default=None, description="The ref at origin that the run read; none when it did not read"
+    )
+    requested: tuple[str, ...] = Field(description="The hosts that the caller gave, in order")
+    force: bool = Field(default=False, description="Whether the drain passes --force")
+    caller: str = Field(description="Who ran the command: person or agent")
+    tool: str | None = Field(
+        default=None,
+        description="The agent tool, mcp for a call of an MCP tool, or job for a cluster Job; "
+        "none for a person",
+    )
+    level: str = Field(description="The agent access level of the repo")
+    result: ApplyResult = Field(description="How the run ended")
+    reason: str | None = Field(default=None, description="Why the run did not end ok")
+    hosts: tuple[HostNodeRun, ...] = Field(
+        default=(), description="One entry for each host that the run reached or did not run"
+    )
+    left_out_alerts: tuple[str, ...] = Field(
+        default=(),
+        description="One line for each critical alert that fired and that the health gate left "
+        "out, because its node is the node of a host out of service",
+    )
+    started: datetime = Field(description="When the run started, in UTC")
+    duration_seconds: float = Field(description="How long the run took")
+
+
 __all__ = [
     "ApplyReport",
     "ApplyResult",
@@ -383,12 +486,17 @@ __all__ = [
     "ChangedTask",
     "FailedTask",
     "HostApply",
+    "HostNodeRun",
     "HostOutcome",
     "HostPing",
     "HostPlan",
     "HostStatus",
     "InfraPlan",
+    "NodeOperation",
+    "NodeOutcome",
+    "NodeReport",
     "NodeState",
+    "NodeStep",
     "OnboardReport",
     "OnboardRow",
     "OnboardState",

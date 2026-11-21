@@ -1,4 +1,4 @@
-"""Dry-run request plans of `devops infra` (#5121, #5123, #5124, #5125).
+"""Dry-run request plans of `devops infra` (#5121, #5123, #5124, #5125, #5128).
 
 A dry run starts no process and sends no request: it lists, in order, the commands that the real
 run starts, each value that only a read gives as a named placeholder.
@@ -12,6 +12,7 @@ from pathlib import Path
 
 from devops_cli.config.defaults import DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS
 from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.infra.ad_hoc import AdHocTask, ad_hoc_argv
 from devops_cli.infra.ansible_facts import (
     CONFIG_DUMP_ARGS,
     DOC_COMMAND,
@@ -21,6 +22,14 @@ from devops_cli.infra.ansible_facts import (
     galaxy_argv,
     inventory_argv,
     role_list_argv,
+)
+from devops_cli.infra.node_run import (
+    DRAIN_OPERATIONS,
+    REMOTE_OPERATIONS,
+    audit_command,
+    reboot_task,
+    render_task,
+    restart_task,
 )
 from devops_cli.infra.nodes import (
     CLAIMS_ARGS,
@@ -33,7 +42,7 @@ from devops_cli.infra.nodes import (
     pods_args,
     uncordon_args,
 )
-from devops_cli.infra.onboard import KUBE_CONTEXTS_ARGV, known_hosts_file
+from devops_cli.infra.onboard import KUBE_CONTEXTS_ARGV, NODE_SERVICE_VARIABLE, known_hosts_file
 from devops_cli.infra.plan import (
     PLAN_FILE,
     PROJECT_FOLDER,
@@ -42,7 +51,7 @@ from devops_cli.infra.plan import (
 )
 from devops_cli.infra.repo_tree import apply_read_commands, pull_number, read_commands
 from devops_cli.infra.status import REBOOT_REQUIRED_FILE, STAT_MODULE
-from devops_cli.models.infra import InfraPlan
+from devops_cli.models.infra import InfraPlan, NodeOperation
 
 
 def plan_onboard(
@@ -392,4 +401,164 @@ def _host_steps(
     ]
 
 
-__all__ = ["ApplyTarget", "plan_apply", "plan_onboard", "plan_plan", "plan_status"]
+@dataclass(frozen=True)
+class NodeTarget:
+    """What a dry run of a node command knows: the checkout, whether its origin names the repo,
+    the operation, the hosts, `--force`, the kube context and the drain bound of the entry, and
+    the Prometheus URL."""
+
+    repo: str
+    checkout: Path
+    origin_lookup: bool
+    operation: NodeOperation
+    hosts: tuple[str, ...]
+    force: bool
+    kube_context: str | None
+    drain_timeout_seconds: int
+    prometheus_url: str | None
+
+
+_WAIT = "once each poll interval until it passes twice or the wait ends"
+
+
+def plan_node(target: NodeTarget) -> list[PlannedRequest]:
+    """The requests of `devops infra node <operation>`, in order: the read of the default branch
+    and its inventory, the guards that start a process, then the steps of each host in the given
+    order, and the audit record. The node of a host and its unit are named placeholders."""
+    tool = ansible_tool()
+    operation = target.operation
+    requests = [_origin_lookup(target.checkout)] if target.origin_lookup else []
+    requests += read_commands(target.checkout)
+    requests.append(
+        PlannedRequest(
+            method="EXEC",
+            target="the Ansible inventory of the export",
+            argv=tuple(inventory_argv(tool, ("<inventory>",))),
+        )
+    )
+    if operation in REMOTE_OPERATIONS:
+        requests.append(
+            PlannedRequest(
+                method="EXEC",
+                target="the Ansible config of the export, for its host key checks",
+                argv=tuple(tool.argv("ansible-config", *CONFIG_DUMP_ARGS)),
+                condition="an agent runs the command",
+            )
+        )
+    if operation is NodeOperation.RESTART:
+        requests.append(
+            PlannedRequest(
+                method="EXEC",
+                target=f"the render of {NODE_SERVICE_VARIABLE}, with no SSH connection",
+                argv=_ad_hoc(render_task(), ",".join(target.hosts)),
+                condition=f"the {NODE_SERVICE_VARIABLE} of a host is a template",
+            )
+        )
+    for host in target.hosts:
+        requests += _node_steps(target, host)
+    requests.append(
+        PlannedRequest(method="WRITE", target=f"the audit record {audit_command(operation)}")
+    )
+    return requests
+
+
+def _ad_hoc(task: AdHocTask, pattern: str) -> tuple[str, ...]:
+    return tuple(
+        ad_hoc_argv(
+            ansible_tool(),
+            Path("<export>"),
+            ("<inventory>",),
+            Path("<key of devops ssh>"),
+            task,
+            pattern=pattern,
+            artifact_dir=Path("<artifact folder>"),
+            ident="<ident>",
+        )
+    )
+
+
+def _node_steps(target: NodeTarget, host: str) -> list[PlannedRequest]:
+    """The steps of one host of a node command."""
+    operation = target.operation
+    context = target.kube_context or "<kube context of the entry>"
+    node = f"<node of {host}>"
+
+    def kubectl(text: str, args: tuple[str, ...], **extra: str) -> PlannedRequest:
+        return PlannedRequest(
+            method="EXEC",
+            target=text,
+            argv=tuple(kubectl_argv(context, *args)),
+            repeat=extra.get("repeat", ""),
+            condition=extra.get("condition", ""),
+        )
+
+    steps: list[PlannedRequest] = []
+    drains = operation in DRAIN_OPERATIONS
+    if drains:
+        steps += _health(context, target.prometheus_url)
+    steps.append(kubectl(f"the node of {host} before the first change", get_node_args(node)))
+    if drains:
+        timeout = target.drain_timeout_seconds
+        steps += [
+            kubectl(f"the pods of {host}, for their grace periods and volumes", pods_args(node)),
+            kubectl("the PersistentVolumeClaims", CLAIMS_ARGS),
+            kubectl(
+                "the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS
+            ),
+            kubectl(
+                f"the server dry run of the drain of {host}",
+                drain_args(
+                    node,
+                    DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS,
+                    server_dry_run=True,
+                    force=target.force,
+                ),
+            ),
+            kubectl(
+                f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
+                "and 60 s",
+                drain_args(node, timeout, server_dry_run=False, force=target.force),
+            ),
+        ]
+    if operation is NodeOperation.RESTART:
+        steps.append(
+            PlannedRequest(
+                method="EXEC",
+                target=f"the restart of the unit of {host}",
+                argv=_ad_hoc(restart_task(f"<unit of {host}>"), host),
+            )
+        )
+    if operation is NodeOperation.REBOOT:
+        steps.append(
+            PlannedRequest(
+                method="EXEC", target=f"the reboot of {host}", argv=_ad_hoc(reboot_task(), host)
+            )
+        )
+    if operation in REMOTE_OPERATIONS:
+        boot = " and a new boot ID" if operation is NodeOperation.REBOOT else ""
+        steps.append(
+            kubectl(
+                f"Ready of {host} with the GPUs of before{boot}", get_node_args(node), repeat=_WAIT
+            )
+        )
+    if operation is not NodeOperation.DRAIN:
+        condition = (
+            "the node was schedulable before the drain" if operation in REMOTE_OPERATIONS else ""
+        )
+        steps.append(kubectl(f"the uncordon of {host}", uncordon_args(node), condition=condition))
+        steps += [
+            replace(request, repeat=_WAIT) for request in _health(context, target.prometheus_url)
+        ]
+    steps.append(kubectl(f"the node of {host} after the last step", get_node_args(node)))
+    return steps
+
+
+__all__ = [
+    "ApplyTarget",
+    "NodeTarget",
+    "plan_apply",
+    "plan_node",
+    "plan_onboard",
+    "plan_plan",
+    "plan_status",
+]

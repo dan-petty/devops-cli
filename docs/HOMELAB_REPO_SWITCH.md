@@ -13,7 +13,7 @@ Before step 10, these items are done:
 - Public text, such as a pull request or issue comment, holds exit codes, counts and key names only. The live objects hold the real hosts. So never post `argocd app diff` output, Application YAML, a patch list or a host.
 - This page names roles, not machines: `<homelab-checkout>` and `<devops-cli-checkout>` are clones of the two repositories, and `<temp-dir>` is a new temporary directory.
 - Do not change the name of an Application from S until step 13 is done. 31 of the 34 Applications have the finalizer `resources-finalizer.argocd.argoproj.io`, so a prune of an Application also deletes its objects.
-- Do not start a step while `devops k8s volume move` or `devops infra apply` runs.
+- Do not start a step while `devops k8s volume move`, `devops infra apply` or a `devops infra node` command runs.
 
 ## Shared checks
 

@@ -289,6 +289,10 @@ _Avoid_: re-plan, second plan
 `kubectl drain --dry-run=server` of a node before its drain. The API server checks each eviction against the PodDisruptionBudgets and changes nothing, so a drain that a budget blocks stops the apply before the node is cordoned.
 _Avoid_: pre-drain, drain test
 
+**Node command**:
+One of `devops infra node drain`, `uncordon`, `restart` and `reboot`, which changes the Kubernetes nodes of the given hosts of an infra repo one host at a time, in the given order. A drain has the health gate, the drain check and the drain; a restart or a reboot also changes the host with an Ansible ad-hoc task, waits for Ready, and uncordons only a node that was schedulable before. The first failure stops it and leaves the node cordoned. Each run writes one audit record, `infra.node.<operation>`.
+_Avoid_: make target, rolling restart
+
 **Project profile**:
 The facts of one repository that devops-cli reads: its type and the layout of its files. They merge from the field defaults, the type template in `src/devops_cli/templates/profiles/`, detection in the files of the repository and its own `.devops/project.toml`, and each value records its source. The config of devops-cli holds operational keys only, never a fact of a project.
 _Avoid_: project config, repo settings, manifest

@@ -1,0 +1,223 @@
+# serializer version: 1
+# name: test_dry_run_starts_no_process[drain]
+  '''
+  Plan for devops infra node drain of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo fetch --quiet origin
+    2. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    3. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    4. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    5. EXEC the Ansible inventory of the export
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
+    6. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+    7. EXEC the node of node-3.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+    8. EXEC the pods of node-3.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-3.example.com>' -o json
+    9. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   10. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   11. EXEC the server dry run of the drain of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   12. EXEC the drain of node-3.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   13. EXEC the node of node-3.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   14. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+   15. EXEC the node of node-4.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   16. EXEC the pods of node-4.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-4.example.com>' -o json
+   17. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   18. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   19. EXEC the server dry run of the drain of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   20. EXEC the drain of node-4.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   21. EXEC the node of node-4.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   22. WRITE the audit record infra.node.drain
+  One host at a time in the given order. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. A node that was cordoned before stays cordoned after a restart or a reboot.
+  
+  '''
+# ---
+# name: test_dry_run_starts_no_process[reboot]
+  '''
+  Plan for devops infra node reboot of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo fetch --quiet origin
+    2. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    3. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    4. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    5. EXEC the Ansible inventory of the export
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
+    6. EXEC the Ansible config of the export, for its host key checks
+         <tmp>/ansible/bin/ansible-config dump --format json --only-changed  [only if an agent runs the command]
+    7. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+    8. EXEC the node of node-3.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+    9. EXEC the pods of node-3.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-3.example.com>' -o json
+   10. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   11. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   12. EXEC the server dry run of the drain of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   13. EXEC the drain of node-3.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   14. EXEC the reboot of node-3.example.com
+         <tmp>/ansible/bin/ansible-runner run '<export>' --artifact-dir '<artifact folder>' --ident '<ident>' --omit-env-files --quiet --hosts node-3.example.com -m ansible.builtin.reboot -a reboot_timeout=600 '--cmdline=-i '"'"'<inventory>'"'"' -T 10 --become -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   15. EXEC Ready of node-3.example.com with the GPUs of before and a new boot ID
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   16. EXEC the uncordon of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-3.example.com>'  [only if the node was schedulable before the drain]
+   17. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   18. EXEC the node of node-3.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   19. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+   20. EXEC the node of node-4.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   21. EXEC the pods of node-4.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-4.example.com>' -o json
+   22. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   23. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   24. EXEC the server dry run of the drain of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   25. EXEC the drain of node-4.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   26. EXEC the reboot of node-4.example.com
+         <tmp>/ansible/bin/ansible-runner run '<export>' --artifact-dir '<artifact folder>' --ident '<ident>' --omit-env-files --quiet --hosts node-4.example.com -m ansible.builtin.reboot -a reboot_timeout=600 '--cmdline=-i '"'"'<inventory>'"'"' -T 10 --become -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   27. EXEC Ready of node-4.example.com with the GPUs of before and a new boot ID
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   28. EXEC the uncordon of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-4.example.com>'  [only if the node was schedulable before the drain]
+   29. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   30. EXEC the node of node-4.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   31. WRITE the audit record infra.node.reboot
+  One host at a time in the given order. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. A node that was cordoned before stays cordoned after a restart or a reboot.
+  
+  '''
+# ---
+# name: test_dry_run_starts_no_process[restart]
+  '''
+  Plan for devops infra node restart of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo fetch --quiet origin
+    2. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    3. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    4. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    5. EXEC the Ansible inventory of the export
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
+    6. EXEC the Ansible config of the export, for its host key checks
+         <tmp>/ansible/bin/ansible-config dump --format json --only-changed  [only if an agent runs the command]
+    7. EXEC the render of devops_infra_node_service, with no SSH connection
+         <tmp>/ansible/bin/ansible-runner run '<export>' --artifact-dir '<artifact folder>' --ident '<ident>' --omit-env-files --quiet --hosts node-3.example.com,node-4.example.com -m ansible.builtin.debug -a 'msg={{ devops_infra_node_service }}' '--cmdline=-i '"'"'<inventory>'"'"' -T 10 -e ansible_become=false -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''  [only if the devops_infra_node_service of a host is a template]
+    8. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+    9. EXEC the node of node-3.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   10. EXEC the pods of node-3.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-3.example.com>' -o json
+   11. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   12. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   13. EXEC the server dry run of the drain of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   14. EXEC the drain of node-3.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-3.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   15. EXEC the restart of the unit of node-3.example.com
+         <tmp>/ansible/bin/ansible-runner run '<export>' --artifact-dir '<artifact folder>' --ident '<ident>' --omit-env-files --quiet --hosts node-3.example.com -m ansible.builtin.systemd_service -a 'name=<unit of node-3.example.com> state=restarted' '--cmdline=-i '"'"'<inventory>'"'"' -T 10 --become --task-timeout 300 -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   16. EXEC Ready of node-3.example.com with the GPUs of before
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   17. EXEC the uncordon of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-3.example.com>'  [only if the node was schedulable before the drain]
+   18. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   19. EXEC the node of node-3.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   20. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json
+   21. EXEC the node of node-4.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   22. EXEC the pods of node-4.example.com, for their grace periods and volumes
+         kubectl --context homelab-example --request-timeout=30s get pods --all-namespaces --field-selector 'spec.nodeName=<node of node-4.example.com>' -o json
+   23. EXEC the PersistentVolumeClaims
+         kubectl --context homelab-example --request-timeout=30s get pvc --all-namespaces -o json
+   24. EXEC the PersistentVolumes, for the volumes that only one node mounts
+         kubectl --context homelab-example --request-timeout=30s get pv -o json
+   25. EXEC the server dry run of the drain of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=30s --dry-run=server
+   26. EXEC the drain of node-4.example.com, with the longer of 180 s and the longest grace period and 60 s
+         kubectl --context homelab-example --request-timeout=30s drain '<node of node-4.example.com>' --ignore-daemonsets --delete-emptydir-data --timeout=180s
+   27. EXEC the restart of the unit of node-4.example.com
+         <tmp>/ansible/bin/ansible-runner run '<export>' --artifact-dir '<artifact folder>' --ident '<ident>' --omit-env-files --quiet --hosts node-4.example.com -m ansible.builtin.systemd_service -a 'name=<unit of node-4.example.com> state=restarted' '--cmdline=-i '"'"'<inventory>'"'"' -T 10 --become --task-timeout 300 -e '"'"'ansible_ssh_private_key_file=<key of devops ssh>'"'"''
+   28. EXEC Ready of node-4.example.com with the GPUs of before
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   29. EXEC the uncordon of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-4.example.com>'  [only if the node was schedulable before the drain]
+   30. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   31. EXEC the node of node-4.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   32. WRITE the audit record infra.node.restart
+  One host at a time in the given order. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. A node that was cordoned before stays cordoned after a restart or a reboot.
+  
+  '''
+# ---
+# name: test_dry_run_starts_no_process[uncordon]
+  '''
+  Plan for devops infra node uncordon of example-org/infra at <tmp>/repo
+    1. EXEC the fetch of origin into <tmp>/repo
+         git -C <tmp>/repo fetch --quiet origin
+    2. EXEC the default branch of origin and its commit
+         git -C <tmp>/repo rev-parse refs/remotes/origin/HEAD --abbrev-ref refs/remotes/origin/HEAD
+    3. EXEC the branch and the commit of the checkout
+         git -C <tmp>/repo rev-parse HEAD --abbrev-ref HEAD
+    4. EXEC the export of the default branch, unpacked and removed after the read
+         git -C <tmp>/repo archive --format=tar '--output=<private temporary folder>/tree.tar' '<commit of the default branch>'
+    5. EXEC the Ansible inventory of the export
+         <tmp>/ansible/bin/ansible-inventory -i '<inventory>' --list
+    6. EXEC the node of node-3.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+    7. EXEC the uncordon of node-3.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-3.example.com>'
+    8. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+    9. EXEC the node of node-3.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-3.example.com>' -o json
+   10. EXEC the node of node-4.example.com before the first change
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   11. EXEC the uncordon of node-4.example.com
+         kubectl --context homelab-example --request-timeout=30s uncordon '<node of node-4.example.com>'
+   12. EXEC the health of each node in service
+         kubectl --context homelab-example --request-timeout=30s get nodes -o json  [repeated once each poll interval until it passes twice or the wait ends]
+   13. EXEC the node of node-4.example.com after the last step
+         kubectl --context homelab-example --request-timeout=30s get node '<node of node-4.example.com>' -o json
+   14. WRITE the audit record infra.node.uncordon
+  One host at a time in the given order. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. A node that was cordoned before stays cordoned after a restart or a reboot.
+  
+  '''
+# ---

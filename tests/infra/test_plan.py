@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from devops_cli.infra.ad_hoc import read_job_events
 from devops_cli.infra.ansible_facts import parse_inventory
 from devops_cli.infra.plan import (
     host_pattern,
@@ -22,7 +23,6 @@ from devops_cli.infra.plan import (
     nondisruptive_units,
     plan_id,
     plan_outcome,
-    read_job_events,
 )
 from devops_cli.models.infra import (
     ChangedTask,

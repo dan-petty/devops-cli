@@ -1,4 +1,5 @@
-"""The node reads, the health gate and the waits of `devops infra apply` (#5125).
+"""The node reads, the health gate and the waits of `devops infra apply` (#5125) and of the node
+commands (#5128).
 
 A fake `kubectl` answers from a set of nodes (`FakeCluster`), and the `clock` fixture makes each
 wait return at once and records it.
@@ -15,7 +16,9 @@ import pytest
 from devops_cli.config.settings import load_settings
 from devops_cli.infra.nodes import (
     Cluster,
+    boot_id,
     critical_alerts,
+    drain_args,
     grace_period,
     is_evicted,
     is_pinned,
@@ -288,6 +291,51 @@ def test_the_drain_bound_is_the_setting_when_no_pod_needs_more(cluster: FakeClus
         180,
         720,
     )
+
+
+def test_force_goes_to_the_drain_and_to_its_check() -> None:
+    assert drain_args("node-1", 30, server_dry_run=True, force=True) == (
+        "drain",
+        "node-1",
+        "--ignore-daemonsets",
+        "--delete-emptydir-data",
+        "--force",
+        "--timeout=30s",
+        "--dry-run=server",
+    )
+    assert "--force" not in drain_args("node-1", 180, server_dry_run=False)
+
+
+def test_the_boot_id_of_a_node_comes_from_its_node_info() -> None:
+    assert boot_id(FakeNode("node-1", boot_id="b-7").item()) == "b-7"
+    assert boot_id({"status": {}}) is None
+
+
+def test_the_wait_after_a_reboot_goes_on_until_the_node_gives_a_new_boot(
+    cluster: FakeCluster, clock: ClockFake
+) -> None:
+    reads: list[str] = []
+
+    def boot_after_two_reads(node: FakeNode) -> None:
+        if len(reads) == 2:
+            node.boot_id = "boot-2"
+        reads.append(node.boot_id)
+
+    cluster.on_node_read = boot_after_two_reads
+
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_ready("node-1", 1, old_boot="boot-1")
+
+    assert problems == []
+    assert reads == ["boot-1", "boot-1", "boot-2", "boot-2"]
+
+
+def test_a_node_that_gives_the_boot_of_before_ends_the_wait_with_a_problem(
+    cluster: FakeCluster, clock: ClockFake
+) -> None:
+    problems = Cluster(KUBE_CONTEXT, load_settings()).wait_ready("node-1", 1, old_boot="boot-1")
+
+    assert problems == ["node-1 gives the boot ID of before the reboot"]
+    assert sum(clock.waits) == 60.0
 
 
 def test_a_volume_that_names_another_node_too_is_not_pinned() -> None:
