@@ -612,14 +612,31 @@ def admitted_peers(
 
 def admin_port_problems(policies: Iterable[Mapping[str, Any]]) -> list[str]:
     """Only the worker pods reach the admin gRPC port, which has no authentication
-    (GHSA-3qr2-qw48-cj6q)."""
-    admitted = admitted_peers(policies, component_labels("admin"), ADMIN_GRPC_PORT)
-    return [
+    (GHSA-3qr2-qw48-cj6q). The rule reads the ingress and the egress rules: the network policy
+    controller of the cluster does not apply the ingress rules of the admin pod when an egress
+    rule of the source pod allows the traffic (#6707), so no egress rule of a pod that is not the
+    worker may cover the port."""
+    policies = list(policies)
+    admin = component_labels("admin")
+    admitted = admitted_peers(policies, admin, ADMIN_GRPC_PORT)
+    problems = [
         f"NetworkPolicy {', '.join(sorted(names))}: admits {peer} to the admin pod on "
         f"{ADMIN_GRPC_PORT}"
         for peer, names in sorted(admitted.items())
         if peer != "worker"
-    ] + ([] if "worker" in admitted else [f"no policy admits the worker on {ADMIN_GRPC_PORT}"])
+    ]
+    if "worker" not in admitted:
+        problems.append(f"no policy admits the worker on {ADMIN_GRPC_PORT}")
+    problems += [
+        f"NetworkPolicy {', '.join(sorted(names))}: lets {peer} send to the admin pod on "
+        f"{ADMIN_GRPC_PORT}"
+        for peer, names in sorted(egress_senders(policies, admin, ADMIN_GRPC_PORT).items())
+        if peer != "worker"
+    ]
+    worker = (NAMESPACE, component_labels("worker"))
+    if egress_blockers(policies, worker, (NAMESPACE, admin), ADMIN_GRPC_PORT):
+        problems.append(f"no policy lets the worker send to the admin pod on {ADMIN_GRPC_PORT}")
+    return problems
 
 
 def _is_dns(peer: Mapping[str, Any]) -> bool:
@@ -829,6 +846,40 @@ def _egress_peer_reaches(
     return in_namespace and (pods is None or _selects(pods, labels))
 
 
+def _egress_selecting(
+    policies: Iterable[Mapping[str, Any]], namespace: str, labels: Mapping[str, str]
+) -> list[Mapping[str, Any]]:
+    """The policies of `namespace` that select the pod with the labels `labels` for egress."""
+    return [
+        policy
+        for policy in policies
+        if policy.get("metadata", {}).get("namespace") == namespace
+        and "Egress"
+        in policy.get("spec", {}).get(
+            "policyTypes", ["Egress"] if "egress" in policy.get("spec", {}) else []
+        )
+        and _selects(policy["spec"].get("podSelector", {}), labels)
+    ]
+
+
+def _sends(
+    policy: Mapping[str, Any],
+    source_namespace: str,
+    target: tuple[str, Mapping[str, str]],
+    port: int,
+) -> bool:
+    """Whether an egress rule of `policy` lets a pod of `source_namespace` send to the pod
+    `target` (namespace, labels) on TCP `port`. A rule with no `to` sends everywhere."""
+    return any(
+        _port_matches(rule, port)
+        and any(
+            _egress_peer_reaches(peer, source_namespace, *target)
+            for peer in rule.get("to") or [{"namespaceSelector": {}}]
+        )
+        for rule in policy["spec"].get("egress", [])
+    )
+
+
 def egress_blockers(
     policies: Iterable[Mapping[str, Any]],
     source: tuple[str, Mapping[str, str]],
@@ -839,26 +890,27 @@ def egress_blockers(
     no egress rule of them lets it send to the pod `target` on TCP `port`; empty when the pod may
     send. With no policy that selects the pod for egress, the pod sends everywhere."""
     source_namespace, source_labels = source
-    selecting = [
-        policy
-        for policy in policies
-        if policy.get("metadata", {}).get("namespace") == source_namespace
-        and "Egress"
-        in policy.get("spec", {}).get(
-            "policyTypes", ["Egress"] if "egress" in policy.get("spec", {}) else []
-        )
-        and _selects(policy["spec"].get("podSelector", {}), source_labels)
-    ]
-    sends = any(
-        _port_matches(rule, port)
-        and any(
-            _egress_peer_reaches(peer, source_namespace, *target)
-            for peer in rule.get("to") or [{"namespaceSelector": {}}]
-        )
-        for policy in selecting
-        for rule in policy["spec"].get("egress", [])
-    )
+    selecting = _egress_selecting(policies, source_namespace, source_labels)
+    sends = any(_sends(policy, source_namespace, target, port) for policy in selecting)
     return [] if not selecting or sends else sorted(p["metadata"]["name"] for p in selecting)
+
+
+def egress_senders(
+    policies: Iterable[Mapping[str, Any]], target: Mapping[str, str], port: int
+) -> dict[str, set[str]]:
+    """Each peer of the model in namespace `object-store` that an egress rule lets send to a pod of
+    the namespace with the labels `target` on TCP `port`, with the names of the policies of those
+    rules. A pod that no policy selects for egress is not a sender: the ingress rules of the target
+    hold for it."""
+    policies = list(policies)
+    senders: dict[str, set[str]] = {}
+    for name, (namespace, labels, _) in _PEERS.items():
+        if namespace != NAMESPACE:
+            continue
+        for policy in _egress_selecting(policies, NAMESPACE, labels):
+            if _sends(policy, NAMESPACE, (NAMESPACE, target), port):
+                senders.setdefault(name, set()).add(policy["metadata"]["name"])
+    return senders
 
 
 def scrape_problems(
