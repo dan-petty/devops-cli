@@ -35,6 +35,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.phases import checkout as phases_checkout
+from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.steps import fix_conflict, fix_conflict_phases
 from devops_cli.roadmap.steps.fix_conflict import (
     FixConflictReport,
@@ -862,6 +863,40 @@ def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
     assert ran
     assert pull.written() == []
     assert report.result == FixConflictResult.RESOLVED
+    assert pull.pushed() == report.head != pull.head
+
+
+def test_the_three_phases_on_one_run_folder_settle_and_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`prepare`, `agent` and `publish` run one after the other on one run folder, as the three
+    containers of #3700 run them (#6703). The agent phase makes no GitHub call, tier 1 runs only
+    in it, and `publish` pushes the settled branch with a lease on the judged head."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+    folders = RunFolders(tmp_path / "run")
+    client = fix_conflict.get_github_session().client
+
+    prepared = fix_conflict_phases.prepare_phase(
+        pull.store, client, REPO, pull.number, head=pull.head, folders=folders
+    )
+    assert (prepared, ran) == (None, [])
+
+    def no_github() -> Any:
+        raise AssertionError("the agent phase makes no GitHub call")
+
+    for module in (fix_conflict, fix_conflict_phases, phases_checkout):
+        monkeypatch.setattr(module, "get_github_session", no_github)
+    fix_conflict_phases.agent_phase(folders)
+    assert ran
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = fix_conflict_phases.publish_phase(
+        pull.store, client, folders, repo=REPO, pull=pull.number
+    )
+
+    assert report is not None
+    assert (report.result, report.rounds) == (FixConflictResult.RESOLVED, 1)
     assert pull.pushed() == report.head != pull.head
 
 

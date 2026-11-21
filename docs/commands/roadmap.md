@@ -735,6 +735,8 @@ devops roadmap step fix-conflict [OPTIONS]
 | `--pull`, `-p` | `integer` | - | The pull request number to settle merge conflicts for. |
 | `--head` | `string` | - | Expected head SHA of the pull request. Refuses to run if remote head moved. |
 | `--confirm` | `boolean` | - | Settle and push in a runner Job. Without it, the step prints its plan and writes nothing. |
+| `--phase` | `choice (prepare|agent|publish|all)` | `all` | The phase of the round, with --confirm: prepare (the GitHub reads, the bounds, the clone and the conflicts, with no code of the pull request), agent (the rebase and tier 1, with no GitHub call), publish (the push with a lease and the record), or all, the three in one process. Without --confirm, prepare and all print the plan, and agent and publish do nothing. |
+| `--work` | `path` | - | The run folder of a phase other than all: state/ for prepare and publish, work/ for the clone and the inputs of the agent, and out/ for its outputs. |
 | `--dry-run` | `boolean` | - | Make no external requests: display planned actions. |
 
 ### `devops roadmap step fix-plan`

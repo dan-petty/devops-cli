@@ -1,23 +1,22 @@
 """The roadmap step `fix-conflict`: settles merge conflicts on open bot pull requests (ADR 0021,
 section 8; #5019).
 
-Tier 1 (deterministic, no model) settles each stop of the rebase onto the default branch. It takes
-the side of the default branch for generated documents and `uv.lock` (`git checkout --ours`, or
-`git rm` when that side has no file), and runs `devops docs generate` and `uv lock` after the
-rebase. It drops only the archive commit of the item, which moves its change folder into the
-archive and touches no other change (`git rebase --skip`), and archives the change again after the
-rebase, in a commit of its own. Tier 2 (model) is not built: another conflict stops the round. A
-round (`_round`) counts in the record; one that does not end `resolved`, also on an error, aborts
-the rebase and gives the branch back its tip.
+Tier 1 (deterministic, no model) settles each stop of the rebase onto the default branch with the
+shared rules of `roadmap/phases/rebase.py`, as implement and fix-checks do. It takes the side of
+the default branch for generated documents and `uv.lock` (`git checkout --ours`, or `git rm` when
+that side has no file) and makes them again at that stop. It drops only the archive commit of the
+item, which touches no other change (`git rebase --skip`), and archives the change again after the
+rebase, in a commit of its own. Tier 2 (model) is not built: another conflict stops the round. Each
+round that reaches the agent phase counts in the record; one that does not end `resolved`, also on
+an error, aborts the rebase and gives the clone back the judged head.
 
-Tier 1 runs code of the checkout of the pull request: `devops docs generate` and `uv lock` start
-the project and its build hooks. So `run_fix_conflict` rebases only with `confirm`, which the
-command gives only in a runner Job (`require_runner`), after the Job makes its process unreadable
-and adopts the orphans of that code, as fix-checks does. Without `confirm`, as on a workstation,
-the step returns `planned`: it runs no code of the checkout, pushes nothing and writes no record.
-The step works in a full clone in a new folder of the run (`ensure_checkout`), reads the URL of
-`origin` before tier 1 runs, and pushes through `OriginGit` to that URL, with a lease on the judged
-head.
+The round runs on the phases `prepare`, `agent` and `publish` (`fix_conflict_phases.py`, #6703).
+This module holds the admission (`admit_round`), the release rule, the caps, the plan and the
+record. Tier 1 runs code of the checkout of the pull request: `devops docs generate` and `uv lock`
+start the project and its build hooks. So it runs only with `confirm`, in the agent phase, which
+the command runs only in a runner Job, after the Job makes its process unreadable and adopts the
+orphans of that code, as fix-checks does. Without `confirm`, as on a workstation, the round ends in
+`prepare` with `planned`: it runs no code of the checkout, pushes nothing and writes no record.
 
 Stops immediately if a release path conflicts: CHANGELOG.md, a file of release-please, or the
 version line of pyproject.toml (#6623).
