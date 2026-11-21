@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -100,8 +101,18 @@ def test_fix_checks_command_error(
 
 
 def test_confirm_outside_a_runner_job_reads_no_pull_request(
-    cli: Cli, github_api: GitHubApiFake, roadmap_store: InMemoryRoadmapStore
+    cli: Cli,
+    github_api: GitHubApiFake,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The process is unreadable first, and the check of the runner then refuses the run before
+    any read of GitHub. The spies replace the kernel calls, which would change the test run."""
+    from devops_cli.core import process_hardening
+
+    monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
+    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: None)
+
     result = cli(
         "roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", "--confirm"
     )
@@ -211,19 +222,37 @@ def test_a_sigterm_during_the_step_exits_75_with_no_result_line(
     assert (result.exit_code, '"job"' in result.stdout) == (75, False)
 
 
-def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_step(
-    cli: Cli, roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("phase", "runs", "runner"),
+    [
+        ("all", "run_fix_checks", "runner"),
+        ("prepare", "prepare_phase", "runner"),
+        ("agent", "agent_phase", "agent runner"),
+        ("publish", "publish_phase", "runner"),
+    ],
+)
+def test_each_confirmed_phase_makes_its_process_unreadable_before_anything_else(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    phase: str,
+    runs: str,
+    runner: str,
 ) -> None:
-    """The repair runs an agent step whose shell has the user of the Job, so the Job clears its
-    dumpable flag and adopts the orphans of a step before the step starts, as the implement Job
-    does (#2667). The spies replace the kernel calls, which would change the test run."""
+    """The repair runs an agent step whose shell has the user of the Job, so each phase clears its
+    dumpable flag and adopts the orphans of a step first, before it reads the settings of the
+    runner or a file of the run (#2667, #3702). The agent phase checks that it holds no App key,
+    and the other phases that they act as the App (#6601). The spies replace the kernel calls,
+    which would change the test run."""
     from devops_cli.core import process_hardening
     from devops_cli.roadmap.attempt_kill import AttemptKilled
     from devops_cli.roadmap.implement import implement_run
-    from devops_cli.roadmap.steps import fix_checks
+    from devops_cli.roadmap.steps import fix_checks, fix_checks_phases
 
     seen: list[str] = []
     monkeypatch.setattr(implement_run, "require_runner", lambda _repo: seen.append("runner"))
+    monkeypatch.setattr(implement_run, "require_agent_runner", lambda: seen.append("agent runner"))
     monkeypatch.setattr(
         process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
     )
@@ -233,8 +262,57 @@ def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_s
         seen.append("step")
         raise AttemptKilled
 
-    monkeypatch.setattr(fix_checks, "run_fix_checks", step)
+    module = fix_checks if phase == "all" else fix_checks_phases
+    monkeypatch.setattr(module, runs, step)
+    args = ["--phase", phase, "--work", str(tmp_path)] if phase != "all" else []
 
-    cli("roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", "--confirm")
+    cli(
+        "roadmap",
+        "step",
+        "fix-checks",
+        "--repo",
+        "example/project",
+        "--pull",
+        "42",
+        "--confirm",
+        *args,
+    )
 
-    assert seen == ["runner", "unreadable", "orphans", "step"]
+    assert seen == ["unreadable", "orphans", runner, "step"]
+
+
+@pytest.mark.parametrize("args", [["--phase", "agent"], ["--phase", "publish", "--confirm"]])
+def test_a_phase_needs_confirm_and_a_run_folder(cli: Cli, args: list[str]) -> None:
+    result = cli(
+        "roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", *args
+    )
+
+    assert (result.exit_code, "--work" in result.output) == (1, True)
+
+
+@pytest.mark.parametrize(
+    ("held", "refused"),
+    [((), False), (("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",), True), (("GH_TOKEN",), True)],
+    ids=["model-key-only", "app-key", "github-token"],
+)
+def test_the_agent_phase_runs_only_with_no_app_key_and_no_github_token(
+    config: Any, monkeypatch: pytest.MonkeyPatch, held: tuple[str, ...], refused: bool
+) -> None:
+    """The agent phase holds the model key only (#2695): in a runner it starts with no App key and
+    no GitHub token in its environment, and refuses to start with either (#6601)."""
+    from devops_cli.exceptions.roadmap import RoadmapImplementError
+    from devops_cli.roadmap.implement.implement_run import require_agent_runner
+
+    config(roadmap={"implement": {"in_runner": True}})
+    for name in ("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY", "GH_TOKEN", "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    for name in held:
+        monkeypatch.setenv(name, "x")
+
+    try:
+        require_agent_runner()
+        reason = ""
+    except RoadmapImplementError as exc:
+        reason = str(exc)
+
+    assert (bool(reason), all(name in reason for name in held)) == (refused, True)

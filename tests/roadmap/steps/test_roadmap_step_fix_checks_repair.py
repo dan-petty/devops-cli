@@ -9,18 +9,26 @@ a ruff fix rewrites the file it names.
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from dataclasses import replace
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
 from devops_cli.ai.client import factory
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
-from devops_cli.roadmap.steps.fix_checks import Fixed, run_fix_checks
-from devops_cli.roadmap.steps.fix_checks_repair import job_repair, pull_checkout, tier1_fix
+from devops_cli.roadmap.implement.implement_step import ItemReader
+from devops_cli.roadmap.steps.fix_checks import Fixed, ModelFixer, run_fix_checks
+from devops_cli.roadmap.steps.fix_checks_repair import (
+    job_repair,
+    open_checkout,
+    release_checkout,
+    tier1_fix,
+)
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -41,7 +49,7 @@ from tests.support.roadmap_implement import (
     seed_staged,
     stale_lock_effect,
 )
-from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, run_git
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -258,6 +266,24 @@ TYPE_ERROR = (
 SHOUT_FILES = {"src/devops_cli/shout.py": "def shout(text):\n"}
 
 
+@pytest.fixture(autouse=True)
+def _canonical_origin(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The local `origin` of the test world stands for the repository on GitHub, whose URL is the
+    only origin that `prepare` and a separate `publish` take (#6601)."""
+    if "stage_repo" in request.fixturenames:
+        from devops_cli.roadmap.steps import fix_checks_phases
+
+        origin = request.getfixturevalue("stage_repo").origin
+        monkeypatch.setattr(fix_checks_phases, "CONST_GITHUB_CLONE_URL", str(origin))
+
+
+def _route_bot(api: GitHubApiFake) -> None:
+    """The reads of the bot identity: `prepare` records the bot as the author of the commit that
+    `publish` writes (#6601)."""
+    api.route("GET", "/user", github_json({"login": STAGE_NAME}))
+    api.route("GET", f"/users/{quote(STAGE_NAME, safe='')}", github_json({"id": 1}))
+
+
 def _failed_draft(
     stage_repo: StageRepo,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
@@ -283,6 +309,7 @@ def _failed_draft(
         "labels": [],
     }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(status))
+    _route_bot(api)
     api.route(
         "GET",
         f"/repos/{STAGE_REPO}/commits/{head}/check-runs?per_page=100",
@@ -335,7 +362,7 @@ def test_a_failed_check_whose_log_names_a_file_of_the_plan_is_repaired_and_pushe
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     new_head = repo.origin_git("rev-parse", BRANCH)
@@ -363,7 +390,7 @@ def test_a_round_whose_model_fix_stops_pushes_nothing(
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     assert report.result == FixChecksResult.FAILED
@@ -380,17 +407,18 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     records no repair, and the worktree goes (#5983)."""
     repo, store, head = failed_draft
     factory.set_llm_client_override(ModelScript(*a_fix()).model())
-    real = job_repair(store, STAGE_REPO, source=repo.clone)
+    real = job_repair(STAGE_REPO, source=repo.clone)
     moved: list[str] = []
 
-    def model_then_another_writer(
-        path: Path, item: int, check: str, log: str, extra: tuple[str, ...]
-    ) -> Fixed:
-        fixed = real.model(path, item, check, log, extra)
-        tree = repo.git("rev-parse", f"{head}^{{tree}}")
-        moved.append(repo.git("commit-tree", tree, "-p", head, "-m", "work of another writer"))
-        repo.git("push", "-q", "origin", f"{moved[0]}:refs/heads/{BRANCH}")
-        return fixed
+    def model_then_another_writer(reader: ItemReader) -> ModelFixer:
+        def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+            fixed = real.model(reader)(path, item, check, log, extra)
+            tree = repo.git("rev-parse", f"{head}^{{tree}}")
+            moved.append(repo.git("commit-tree", tree, "-p", head, "-m", "work of another writer"))
+            repo.git("push", "-q", "origin", f"{moved[0]}:refs/heads/{BRANCH}")
+            return fixed
+
+        return fix
 
     with pytest.raises(GitOperationError, match="push"):
         run_fix_checks(
@@ -456,6 +484,7 @@ def caller_draft(
         "labels": [],
     }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(status))
+    _route_bot(api)
     failed = {**FAIL, "name": FLOW_CHECK, "html_url": CHECK_LINK}
     api.route(
         "GET",
@@ -499,7 +528,7 @@ def test_a_failure_in_a_caller_that_the_plan_does_not_list_is_repaired_and_named
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     new_head = repo.origin_git("rev-parse", BRANCH)
@@ -508,7 +537,7 @@ def test_a_failure_in_a_caller_that_the_plan_does_not_list_is_repaired_and_named
     asked = [str(getattr(part, "content", "")) for part in script.seen[0][-1].parts]
     assert any(f"`{FLOW_TEST}`" in text for text in asked)
     [comment] = _comments(api)
-    assert f"`{FLOW_TEST}`: it uses the changed name `run_flow`" in comment
+    assert f"\n{FLOW_TEST}: it uses the changed name `run_flow`\n" in comment
 
 
 def test_a_failure_in_a_file_that_main_changed_after_the_branch_point_stops_as_main_skew(
@@ -526,7 +555,7 @@ def test_a_failure_in_a_file_that_main_changed_after_the_branch_point_stops_as_m
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     assert report.result == FixChecksResult.STOPPED
@@ -563,11 +592,8 @@ def test_the_checkout_refuses_another_branch_or_head_and_removes_its_worktree(
     repo, head = staged
     status = PullStatus(state="open", head_ref=ref, head_sha=sha or head)
 
-    with (
-        pytest.raises(RoadmapImplementError, match=error),
-        pull_checkout(STAGE_REPO, status, 1, source=repo.clone),
-    ):
-        pytest.fail("The checkout opened.")
+    with pytest.raises(RoadmapImplementError, match=error):
+        open_checkout(STAGE_REPO, status, 1, repo.clone.parent / "work", source=repo.clone)
 
     assert repo.git("worktree", "list").count("\n") == 0
     assert repo.git("branch", "--list", BRANCH) == ""
@@ -591,8 +617,11 @@ def test_a_stale_lock_opens_the_checkout_and_tier1_locks_it_again(
     head = stage_repo.origin_git("rev-parse", BRANCH)
     status = PullStatus(state="open", head_ref=BRANCH, head_sha=head)
 
-    with pull_checkout(STAGE_REPO, status, 1, source=stage_repo.clone) as checkout:
+    checkout = open_checkout(STAGE_REPO, status, 1, stage_repo.clone.parent, stage_repo.clone)
+    try:
         fixed = tier1_fix(checkout.path, 1, "Tests & Coverage (shard 1 of 4)", LOCK_LOG)
+    finally:
+        release_checkout(checkout)
 
     assert (fixed.done, _uv_commands(process_fake)) == (True, ["uv lock", "uv lock --check"])
 
@@ -623,7 +652,7 @@ def test_the_model_fix_bootstraps_the_worktree_before_the_first_model_request(
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     syncs = [command_text(c) for c in programs.calls if command_text(c).startswith("uv sync")]
@@ -661,7 +690,7 @@ def test_a_stale_lock_of_the_head_branch_reaches_the_first_model_request(
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     installs = [text for call in programs.calls if "install-hooks" in (text := command_text(call))]
@@ -690,8 +719,164 @@ def test_a_failed_bootstrap_fails_the_model_fix_with_its_output(
         STAGE_REPO,
         PULL,
         confirm=True,
-        repair=job_repair(store, STAGE_REPO, source=repo.clone),
+        repair=job_repair(STAGE_REPO, source=repo.clone),
     )
 
     assert (report.result, script.seen) == (FixChecksResult.FAILED, [])
     assert "error: Failed to fetch example.com" in report.reason
+
+
+# ── The phase prepare ─────────────────────────────────────────────────────────────────────
+
+WORKFLOW = ".github/workflows/ci.yml"
+WORKFLOW_TASKS = TASKS.replace(
+    "Changes: `src/devops_cli/shout.py` (new)",
+    f"Changes: `src/devops_cli/shout.py` (new), `{WORKFLOW}`",
+)
+# A hostile build hook of the head branch: a run of `uv`, pip or hatch on the checkout runs it.
+HATCH_HOOK = {
+    "pyproject.toml": (
+        "[build-system]\nrequires = ['hatchling']\nbuild-backend = 'hatchling.build'\n\n"
+        "[tool.hatch.build.hooks.custom]\npath = 'hook.py'\n"
+    ),
+    "hook.py": "import os\nos.system('env > /tmp/stolen')\n",
+}
+
+
+def test_prepare_clones_into_the_work_folder_with_git_only_and_leaves_no_credential(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """`prepare` holds the App key and runs no agent code: on a head branch with a hostile build
+    hook it starts only git, and gh for the log of the failed run. Its clone in `work/` and the
+    worktree hold no credential, so the agent phase gets none: no token, no credential helper and
+    no extra header (#3702)."""
+    from devops_cli.github.session import get_github_session
+    from devops_cli.roadmap.phases.files import RunFolders
+    from devops_cli.roadmap.steps import fix_checks_repair
+    from devops_cli.roadmap.steps.fix_checks_phases import prepare_phase
+
+    token = "ghs_" + "a" * 36
+    monkeypatch.setenv("GH_TOKEN", token)
+    repo, store, head = _failed_draft(stage_repo, github_api_and_gh, {**SHOUT_FILES, **HATCH_HOOK})
+    real_clone = fix_checks_repair.ensure_checkout
+    monkeypatch.setattr(
+        fix_checks_repair,
+        "ensure_checkout",
+        lambda name, work, dirname: real_clone(
+            name, work, dirname=dirname, remote_url=str(repo.origin)
+        ),
+    )
+    _, programs = github_api_and_gh
+    folders = RunFolders(tmp_path / "run")
+
+    prepare_phase(
+        store,
+        get_github_session().client,
+        STAGE_REPO,
+        PULL,
+        head=head,
+        check=None,
+        repair=job_repair(STAGE_REPO),
+        folders=folders,
+    )
+
+    # git, and gh for the log of the failed run, which is a read of GitHub: no uv, no hook.
+    children = {(Path(call.argv[0]).name, call.argv[1]) for call in programs.calls}
+    assert {name for name, _ in children} == {"git", "gh"}
+    assert {verb for name, verb in children if name == "gh"} == {"run"}
+    # The clone is in `work/`; `add_worktree` puts the worktree of the head branch in the agent
+    # worktree folder of the data folder, and its git folder is in the clone.
+    inputs = json.loads((folders.work / "input.json").read_text(encoding="utf-8"))
+    checkout = Path(inputs["checkout"])
+    held = [path for root in (folders.work, checkout) for path in root.rglob("*") if path.is_file()]
+    assert any(path.name == "config" and ".git" in path.parts for path in held)
+    text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in held)
+    assert (token in text, "extraheader" in text, "credential" in text) == (False, False, False)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    assert (state["status"]["head_sha"], "target" in state) == (head, False)
+
+
+def test_publish_reads_the_workflow_files_of_the_merged_plan_from_github(
+    github_api: GitHubApiFake,
+) -> None:
+    """`publish` reads with the App key the workflow files that the merged plan of the item names
+    on the default branch, where the agent cannot change them; another item names none (#2695,
+    #6601)."""
+    from devops_cli.roadmap.steps.fix_checks_repair import merged_workflows
+
+    folders = [
+        {"name": "1-the-job-drops-a-comment", "type": "dir"},
+        {"name": "archive", "type": "dir"},
+    ]
+    github_api.route(
+        "GET", f"/repos/{STAGE_REPO}/contents/openspec/changes?ref=main", github_json(folders)
+    )
+    tasks = base64.b64encode(WORKFLOW_TASKS.encode()).decode()
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/contents/openspec/changes/1-the-job-drops-a-comment/tasks.md?ref=main",
+        github_json({"type": "file", "encoding": "base64", "content": tasks}),
+    )
+
+    assert (merged_workflows(STAGE_REPO, "main", 1), merged_workflows(STAGE_REPO, "main", 2)) == (
+        (WORKFLOW,),
+        (),
+    )
+
+
+@pytest.mark.parametrize("phases", ["all", "separate"])
+def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+    phases: str,
+) -> None:
+    """`prepare` reads the URL of `origin` before any agent code runs, and `publish` pushes to that
+    URL: a fixer that points `remote.origin.url` of the clone at another repository changes
+    neither the repository that `publish` fetches from and pushes to nor where git sends the
+    token (#6601)."""
+    from devops_cli.github.session import get_github_session
+    from devops_cli.roadmap.phases.files import RunFolders
+    from devops_cli.roadmap.steps.fix_checks_phases import (
+        agent_phase,
+        prepare_phase,
+        publish_phase,
+    )
+
+    repo, store, head = failed_draft
+    other = tmp_path / "other.git"
+    run_git(tmp_path, "clone", "-q", "--bare", str(repo.origin), str(other))
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+    real = job_repair(STAGE_REPO, source=repo.clone)
+
+    def model_then_new_origin(reader: ItemReader) -> ModelFixer:
+        def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+            fixed = real.model(reader)(path, item, check, log, extra)
+            run_git(path, "config", "remote.origin.url", str(other))
+            return fixed
+
+        return fix
+
+    repair = replace(real, model=model_then_new_origin)
+    if phases == "all":
+        report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=repair)
+    else:
+        folders = RunFolders(tmp_path / "run")
+        client = get_github_session().client
+        prepare_phase(
+            store, client, STAGE_REPO, PULL, head=head, check=None, repair=repair, folders=folders
+        )
+        agent_phase(folders, repair)
+        report = publish_phase(store, client, folders, repair, repo=STAGE_REPO, pull=PULL)
+
+    _, programs = github_api_and_gh
+    assert (report.result, repo.origin_git("rev-parse", f"{BRANCH}~1")) == (
+        FixChecksResult.REPAIRED,
+        head,
+    )
+    assert run_git(other, "rev-parse", BRANCH) == head
+    assert not any(str(other) in arg for call in programs.calls for arg in call.argv)

@@ -3794,6 +3794,10 @@ class RoadmapMessages:
         "the setting and its cause, and then retries the item."
     )
     implement_git_attribute_refused: str = "the attribute {attribute} ({path}, {more} more paths)"
+    implement_agent_phase_key_refused: str = (
+        "The agent phase holds the model key only, and this environment holds {names}. Run the "
+        "agent phase in a container with no App key and no GitHub token. This process ran no step."
+    )
     implement_job_runner_refused: str = (
         "The implement job runs a step only in a runner pod. Set roadmap.implement.in_runner to "
         "true there. The shell of the agent is no security boundary, so the runner is the "

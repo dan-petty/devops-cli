@@ -21,24 +21,29 @@ from __future__ import annotations
 
 import json
 import subprocess
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
+from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.github.client import PullStatus
+from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.phases.files import RunFolders
+from devops_cli.roadmap.phases.publish import Published, PublishTarget
 from devops_cli.roadmap.steps.fix_checks import (
     Fixed,
+    PullCheckout,
     Repair,
     check_scope,
     dry_run_fix_checks,
     run_fix_checks,
 )
 from devops_cli.roadmap.steps.fix_checks_cause import FileCause, ScopeVerdict
+from devops_cli.roadmap.steps.fix_checks_phases import agent_phase, prepare_phase, publish_phase
 from devops_cli.roadmap.stores.store import FixChecksRecordKey, FixChecksResult, ImplementRecordKey
 from tests.support.fakes.github import (
     GitHubApiFake,
@@ -53,6 +58,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/project"
 BOT_USER = "devops-cli-service[bot]"
+BOT_EMAIL = "1+devops-cli-service[bot]@users.noreply.github.com"
 HEAD_SHA = "1111111111111111111111111111111111111111"
 NEW_HEAD = "2222222222222222222222222222222222222222"
 STATIC = "Static Analysis"
@@ -148,22 +154,9 @@ def world(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> PullWorld:
 
 
 @dataclass
-class FakeCheckout:
-    """A checkout whose push returns `pushed_head`: the new head, or None when no fixer made a
-    commit."""
-
-    path: Path
-    pushed_head: str | None = NEW_HEAD
-    pushes: int = 0
-
-    def push(self) -> str | None:
-        self.pushes += 1
-        return self.pushed_head
-
-
-@dataclass
 class FakeRepair:
-    """The repair of a round, with each call recorded."""
+    """The repair of a round, with each call recorded. Its publish calls the claim check and
+    gives `pushed_head`: the new head, or None when the patch changes nothing."""
 
     path: Path
     tier1: Fixed = NO_LINT
@@ -171,32 +164,66 @@ class FakeRepair:
     in_scope: bool = True
     caused: tuple[FileCause, ...] = ()
     pushed_head: str | None = NEW_HEAD
+    pushed_paths: tuple[str, ...] = ()
+    workflows: tuple[str, ...] = ()
+    scratch: Path | None = None
+    url: str = f"https://github.com/{REPO}.git"
+    fixer: Any = None
     calls: list[str] = field(default_factory=list)
-    checkout: FakeCheckout | None = None
+    pushes: int = 0
+    targets: list[PublishTarget] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
     extra: list[tuple[str, ...]] = field(default_factory=list)
 
     def build(self) -> Repair:
-        @contextmanager
-        def checkout(status: PullStatus, item: int) -> Iterator[FakeCheckout]:
+        def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
             self.calls.append(f"checkout {status.head_ref} {item}")
-            self.checkout = FakeCheckout(self.path, self.pushed_head)
-            yield self.checkout
+            return PullCheckout(self.path, self.url, self.path, "b")
 
         def tier1(path: Path, item: int, check: str, log: str) -> Fixed:
             self.calls.append("tier1")
+            if self.fixer is not None:
+                self.fixer(path)
             return self.tier1
 
-        def model(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
-            self.calls.append("model")
-            self.extra.append(extra)
-            return self.model
+        def model(reader: Any) -> Any:
+            def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+                self.calls.append("model")
+                self.extra.append(extra)
+                return self.model
+
+            return fix
 
         def scope(path: Path, item: int, log: str, is_stage_plan: bool) -> ScopeVerdict:
             self.calls.append("scope")
             outside = () if self.in_scope else (FileCause(OTHER, NOT_CAUSED),)
             return ScopeVerdict(in_scope=self.in_scope, caused=self.caused, outside=outside)
 
-        return Repair(checkout=checkout, tier1=tier1, model=model, scope=scope)
+        def patch(path: Path, base: str, out: Path) -> None:
+            out.write_bytes(b"the patch")
+
+        def publish(
+            target: PublishTarget, patch: bytes, message: str, before_push: Any
+        ) -> Published | None:
+            before_push()
+            self.pushes += 1
+            self.targets.append(target)
+            self.messages.append(message)
+            if self.pushed_head is None:
+                return None
+            return Published(self.pushed_head, self.pushed_paths)
+
+        return Repair(
+            checkout=checkout,
+            tier1=tier1,
+            model=model,
+            patch=patch,
+            publish=publish,
+            author=lambda: (BOT_USER, BOT_EMAIL),
+            scope=scope,
+            workflows=lambda repo, ref, item: self.workflows,
+            scratch=self.scratch,
+        )
 
 
 def test_dry_run_sees_zero_requests() -> None:
@@ -253,22 +280,14 @@ def test_the_named_check_is_the_check_of_the_round(world: PullWorld) -> None:
     )
 
 
-@dataclass
-class RefusedCheckout:
-    """A checkout whose push the lease refuses."""
+def _refused_repair(tmp_path: Path) -> Repair:
+    """A repair whose push the lease refuses."""
 
-    path: Path
-
-    def push(self) -> str | None:
+    def refused(target: PublishTarget, patch: bytes, message: str, before_push: Any) -> None:
+        before_push()
         raise GitOperationError("git push refused: stale info", operation="roadmap.fix_checks")
 
-
-def _refused_repair(tmp_path: Path) -> Repair:
-    @contextmanager
-    def checkout(status: PullStatus, item: int) -> Iterator[RefusedCheckout]:
-        yield RefusedCheckout(tmp_path)
-
-    return Repair(checkout=checkout, tier1=lambda *_: DONE, model=lambda *_: DONE)
+    return replace(FakeRepair(tmp_path, tier1=DONE).build(), publish=refused)
 
 
 def _status(pull: int, head: str) -> dict[str, Any]:
@@ -294,7 +313,7 @@ def test_a_push_that_the_lease_refuses_after_a_move_of_the_head_is_skipped(
     world.api.route(
         "GET",
         f"/repos/{REPO}/pulls/{pull}",
-        github_json(_status(pull, HEAD_SHA)),
+        *[github_json(_status(pull, HEAD_SHA))] * 3,
         github_json(_status(pull, NEW_HEAD)),
     )
 
@@ -526,8 +545,7 @@ def test_outside_plan_scope_stops_with_zero_model_requests(
     report = world.run(pull, confirm=True, repair=repair.build())
 
     assert "model" not in repair.calls
-    assert repair.checkout is not None
-    assert repair.checkout.pushes == 0
+    assert repair.pushes == 0
     assert report.result == FixChecksResult.STOPPED
     assert report.reason == (f"Failed check log is outside plan scope: `{OTHER}`: {NOT_CAUSED}")
     assert world.comments() == []
@@ -550,7 +568,7 @@ def test_a_repair_of_a_file_that_the_change_causes_gives_it_to_the_model_and_nam
     assert (report.result, report.head) == (FixChecksResult.REPAIRED, NEW_HEAD)
     assert repair.extra == [(regression,)]
     [comment] = world.comments()
-    assert f"`{regression}`: {cause}" in comment
+    assert f"\n{regression}: {cause}\n" in comment
     assert "Tests & Coverage (shard 4 of 4)" in comment
 
 
@@ -565,14 +583,14 @@ def test_a_tier1_repair_names_the_files_that_it_wrote_again_in_a_comment(
         "tests/ai/mcp/__snapshots__/test_mcp_tool_listing/listing.json",
     )
     world.pull(pull, runs=[_run("Tests & Coverage (shard 3 of 4)")])
-    repair = FakeRepair(tmp_path, tier1=Fixed(done=True, files=written))
+    repair = FakeRepair(tmp_path, tier1=Fixed(done=True, files=written), pushed_paths=written)
 
     report = world.run(pull, confirm=True, repair=repair.build())
 
     assert report.result == FixChecksResult.REPAIRED
     assert "model" not in repair.calls
     [comment] = world.comments()
-    assert all(f"`{name}`" in comment for name in written)
+    assert all(f"\n{name}\n" in comment for name in written)
 
 
 def test_a_failed_check_whose_log_names_a_file_of_the_plan_ends_repaired(
@@ -587,16 +605,13 @@ def test_a_failed_check_whose_log_names_a_file_of_the_plan_ends_repaired(
     (archived / "tasks.md").write_text(TICKED, encoding="utf-8")
     repair = FakeRepair(tmp_path)
     built = repair.build()
-    real_scope = Repair(
-        checkout=built.checkout, tier1=built.tier1, model=built.model, scope=check_scope
-    )
+    real_scope = replace(built, scope=check_scope)
 
     report = world.run(pull, confirm=True, repair=real_scope)
 
     assert (report.result, report.head, report.rounds) == (FixChecksResult.REPAIRED, NEW_HEAD, 1)
     assert repair.calls == [f"checkout feat/{pull}-sample {pull}", "tier1", "model"]
-    assert repair.checkout is not None
-    assert repair.checkout.pushes == 1
+    assert repair.pushes == 1
     assert world.record(pull)[FixChecksRecordKey.KEY] == f"{HEAD_SHA}:{STATIC}"
 
 
@@ -610,8 +625,7 @@ def test_model_fix_failure_names_its_reason(world: PullWorld, tmp_path: Path) ->
     assert report.result == FixChecksResult.FAILED
     assert "model repair failed" in report.reason.lower()
     assert "limit reached" in report.reason
-    assert repair.checkout is not None
-    assert repair.checkout.pushes == 0
+    assert repair.pushes == 0
     assert world.record(pull)[FixChecksRecordKey.RESULT] == "failed"
 
 
@@ -845,3 +859,423 @@ def test_report_to_json() -> None:
     assert data["rounds"] == 2
     assert data["errors"] == 3
     assert data["reason"] == "tier 2 repaired"
+
+
+# ── The phases ────────────────────────────────────────────────────────────────────────────
+
+
+def _phases(world: PullWorld, pull: int, repair: Repair, folders: RunFolders) -> Any:
+    """`prepare`, `agent` and `publish` on the run folder `folders`, one after the other, as
+    three containers run them (#6601): the report of `publish`, and the requests of the agent."""
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=repair, folders=folders
+    )
+    before = len(world.api.sent)
+    agent_phase(folders, repair)
+    agent_requests = len(world.api.sent) - before
+    report = publish_phase(world.store, client, folders, repair, repo=REPO, pull=pull)
+    return report, agent_requests
+
+
+def test_the_three_phases_on_a_run_folder_repair_as_one_round_does(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The phases hand the round on through the run folder: the agent phase makes no GitHub call,
+    and `publish` pushes and records the repair as the round of one process does (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout")
+    folders = RunFolders(tmp_path / "run")
+
+    report, agent_requests = _phases(world, pull, repair.build(), folders)
+
+    assert (report.result, report.head, agent_requests, repair.pushes) == (
+        FixChecksResult.REPAIRED,
+        NEW_HEAD,
+        0,
+        1,
+    )
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
+    [target] = repair.targets
+    assert (target.branch, target.lease, target.author) == (
+        f"feat/{pull}-sample",
+        HEAD_SHA,
+        BOT_USER,
+    )
+    assert not (folders.work / "state.json").exists()
+
+
+def test_a_round_that_prepare_ends_is_reported_by_prepare(world: PullWorld, tmp_path: Path) -> None:
+    """A round that ends in `prepare`, here on an owner label, writes no inputs: `prepare` gives
+    its report, the agent phase does nothing, and `publish` gives no second report (#6601)."""
+    pull = world.item("owner/human")
+    world.pull(pull)
+    folders = RunFolders(tmp_path / "run")
+
+    prepared, published = _separate_round(world, pull, folders)
+
+    assert (prepared.result, prepared.reason, published) == (
+        FixChecksResult.STOPPED,
+        "Item holds an owner label",
+        None,
+    )
+    assert list(folders.out.iterdir()) == []
+
+
+@pytest.mark.parametrize("when", ["publish", "push"])
+def test_a_claim_after_the_agent_phase_stops_publish_with_no_push(
+    world: PullWorld, tmp_path: Path, when: str
+) -> None:
+    """The claim check runs in `prepare`, in `publish` and again right before the push: a person
+    who claims the item while the agent works, or while `publish` builds the commit, gets no push
+    and no record (#3702)."""
+    pull = world.item()
+    world.pull(pull)
+    claimed = {**_status(pull, HEAD_SHA), "labels": [{"name": "owner/human"}]}
+    reads = 3 if when == "publish" else 4
+    world.api.route(
+        "GET",
+        f"/repos/{REPO}/pulls/{pull}",
+        *[github_json(_status(pull, HEAD_SHA))] * (reads - 2),
+        github_json(claimed),
+    )
+    repair = FakeRepair(tmp_path / "checkout")
+    folders = RunFolders(tmp_path / "run")
+
+    report, _ = _phases(world, pull, repair.build(), folders)
+
+    assert (report.result, report.reason, repair.pushes) == (
+        FixChecksResult.STOPPED,
+        "Item holds an owner label",
+        0,
+    )
+    assert world.record(pull)[FixChecksRecordKey.RESULT] is None
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [
+        ('{"kind": "done", "result": "ready", "detail": "tier1"}', "names no result"),
+        ('{"kind": "done", "result": "repaired"}', "names no result"),
+        (
+            '{"kind": "done", "result": "repaired", "detail": "tier1", "author": "mallory"}',
+            "not of its model",
+        ),
+    ],
+    ids=["other-result", "no-tier", "other-key"],
+)
+def test_publish_refuses_an_outcome_outside_the_enums_of_the_step(
+    world: PullWorld, tmp_path: Path, outcome: str, reason: str
+) -> None:
+    """`publish` takes the result and the tier of the outcome from the enums of the step only,
+    and no key outside its model (#3702)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout")
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    built = repair.build()
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    (folders.out / "outcome.json").write_text(outcome, encoding="utf-8")
+
+    with pytest.raises(PhaseOutputError, match=reason):
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert repair.pushes == 0
+
+
+# ── The trust boundary of publish ─────────────────────────────────────────────────────────
+
+FORGED_STATE = {
+    "repo": REPO,
+    "status": {"state": "open", "head": {"ref": "main", "sha": HEAD_SHA}},
+    "check": STATIC,
+    "target": {
+        "branch": "main",
+        "author": "mallory",
+        "workflow_paths": [".github/workflows/x.yml"],
+    },
+}
+
+
+def _forge(state_file: Path, pull: int) -> None:
+    """What a fixer writes over the state file of its run: another branch, author and workflow
+    rule."""
+    state_file.write_text(json.dumps({**FORGED_STATE, "pull": pull, "item": pull}), "utf-8")
+
+
+def test_a_fixer_that_rewrites_the_state_file_in_one_process_changes_nothing_that_publish_pushes(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """With `--phase all`, the state of `prepare` stays in memory, and `publish` builds the target
+    from the pull request as GitHub holds it and from what it reads itself: the branch, the bot
+    and the workflow files of the merged plan (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    forged: list[Path] = []
+
+    def rewrite(path: Path) -> None:
+        [state_file] = runs.glob("*/state/state.json")
+        _forge(state_file, pull)
+        forged.append(state_file)
+
+    workflow = ".github/workflows/ci.yml"
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE, scratch=runs, workflows=(workflow,))
+    repair.fixer = rewrite
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    [target] = repair.targets
+    assert (report.result, len(forged)) == (FixChecksResult.REPAIRED, 1)
+    assert (target.branch, target.author, target.email, target.workflow_paths) == (
+        f"feat/{pull}-sample",
+        BOT_USER,
+        BOT_EMAIL,
+        (workflow,),
+    )
+
+
+def test_a_state_file_with_another_branch_stops_the_publish_of_a_separate_phase(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """Between separate phases, `publish` checks the state against the pull request as GitHub
+    holds it: a state that names another head branch pushes nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["status"]["head_ref"] = "main"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    report = publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert (report.result, repair.pushes) == (FixChecksResult.STOPPED, 0)
+    assert "not the branch that prepare judged" in report.reason
+
+
+@pytest.mark.parametrize("plant", ["link", "forged-key", "not-json", "other-pull"])
+def test_publish_refuses_a_state_file_that_is_not_the_state_of_prepare_and_shows_no_text(
+    world: PullWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant: str
+) -> None:
+    """`publish` reads the state file as data: a link to the environment, a key outside the model,
+    text that is not JSON, or another pull request stop it, and no text of the file reaches the
+    error (#6601)."""
+    secret = "ghs_" + "s" * 36
+    monkeypatch.setenv("SECRET_OF_THE_JOB", secret)
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    folders = RunFolders(tmp_path / "run").make()
+    state_file = folders.state / "state.json"
+    if plant == "link":
+        state_file.symlink_to("/proc/self/environ")
+    elif plant == "forged-key":
+        _forge(state_file, pull)
+    elif plant == "not-json":
+        state_file.write_text(f"token={secret}", encoding="utf-8")
+    else:
+        state_file.write_text(json.dumps({"repo": REPO, "pull": pull + 1}), encoding="utf-8")
+
+    with pytest.raises(PhaseOutputError, match="state") as raised:
+        publish_phase(
+            world.store, get_github_session().client, folders, repair.build(), repo=REPO, pull=pull
+        )
+
+    assert (secret in str(raised.value), repair.pushes) == (False, 0)
+
+
+def test_a_long_reason_of_the_agent_keeps_its_cause_and_its_error_line(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The report keeps the head of a long reason, which names the cause, and its tail, which
+    holds the error line (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    reason = "limit reached " + "x" * 3000 + " ERROR: the last line"
+    repair = FakeRepair(tmp_path, model=Fixed(done=False, reason=reason))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert (
+        report.reason.startswith("Model repair failed: limit reached"),
+        report.reason[-20:],
+    ) == (
+        True,
+        "ERROR: the last line",
+    )
+
+
+HOSTILE_CHECK = "Lint @mallory https://example.com/x\nCo-authored-by: Mallory <m@example.com>"
+
+
+def test_a_hostile_check_name_reaches_the_commit_on_one_line_and_the_comment_as_code(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A workflow can name its check. The commit message holds the name on one line, so it adds no
+    trailer, and the comment of the App shows each handle and link of it in a code span, so it
+    pings no one and links nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run(HOSTILE_CHECK)])
+    repair = FakeRepair(tmp_path, tier1=DONE, pushed_paths=("docs/x.md",))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    [message] = repair.messages
+    [comment] = world.comments()
+    assert (report.result, "\n" in message, "Co-authored-by: Mallory" in message) == (
+        FixChecksResult.REPAIRED,
+        False,
+        True,
+    )
+    assert comment.count("@mallory") == comment.count("`@mallory`")
+
+
+def test_a_check_name_that_the_state_file_forges_pushes_nothing_from_a_separate_publish(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A separate `publish` takes the check by the name that GitHub gives to a failed check of the
+    judged head: a state file that names another check pushes nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["check"] = f"{STATIC}\nCo-authored-by: Mallory <m@example.com>"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    report = publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert (report.result, repair.pushes) == (FixChecksResult.SKIPPED, 0)
+
+
+def test_a_separate_publish_takes_no_origin_that_is_not_the_repository_on_github(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A separate `publish` pushes only to the URL of the repository on GitHub, whatever the state
+    file names (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["url"] = "https://example.com/another-repository.git"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    with pytest.raises(PhaseOutputError, match="another origin"):
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert repair.pushes == 0
+
+
+def test_a_clone_whose_origin_is_not_the_repository_on_github_gets_no_round(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """`prepare` refuses a clone whose `origin` is not the repository on GitHub, also with
+    `--phase all`: a `--source` clone with another `remote.origin.url` sets no push URL, and its
+    worktree goes (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    released: list[str] = []
+    repair = FakeRepair(tmp_path, tier1=DONE, url="https://example.com/another-repository.git")
+    built = replace(repair.build(), release=lambda checkout: released.append(checkout.branch))
+
+    with pytest.raises(RoadmapImplementError, match="not the repository"):
+        world.run(pull, confirm=True, repair=built)
+
+    assert (repair.calls, repair.pushes, released) == (
+        [f"checkout feat/{pull}-sample {pull}"],
+        0,
+        ["b"],
+    )
+
+
+def _separate_round(world: PullWorld, pull: int, folders: RunFolders) -> tuple[Any, Any]:
+    """`prepare`, `agent` and `publish` of one round in separate calls: the report that each of
+    `prepare` and `publish` gives."""
+    repair = FakeRepair(folders.root / "checkout").build()
+    client = get_github_session().client
+    prepared = prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=repair, folders=folders
+    )
+    agent_phase(folders, repair)
+    return prepared, publish_phase(world.store, client, folders, repair, repo=REPO, pull=pull)
+
+
+def test_a_wait_that_prepare_ends_is_reported_once_by_prepare(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A round that `prepare` ends on a CI infrastructure failure gives `wait` from `prepare`, as
+    the item record holds it, and `publish` gives no second report and no second comment (#6601)."""
+    pull = world.item()
+    world.pull(pull, runs=[_run("Test Job Duration")], log="Job duration exceeded runner limit")
+
+    prepared, published = _separate_round(world, pull, RunFolders(tmp_path / "run"))
+
+    assert (prepared.result, published, len(world.comments())) == (FixChecksResult.WAIT, None, 1)
+    assert world.record(pull)[FixChecksRecordKey.RESULT] == "wait"
+
+
+def test_a_ready_mark_that_prepare_ends_is_reported_once_by_prepare(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A round that `prepare` ends on the ready mark gives `ready` from `prepare`, and `publish`
+    marks nothing again and gives no second report (#6601)."""
+    pull = _repaired_draft(world, TICKED)
+    calls = _ready_calls(world)
+
+    prepared, published = _separate_round(world, pull, RunFolders(tmp_path / "run"))
+
+    assert (prepared.result, published, calls) == (
+        FixChecksResult.READY,
+        None,
+        [("pr", "ready", str(pull), "--repo", REPO)],
+    )
+
+
+def test_a_state_file_that_says_ended_while_a_repair_is_due_is_refused(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """A state file that says the round ended, for a round that has a repair due, stops a separate
+    `publish` with an error, so the round counts as an error and not as an end (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    (folders.state / "state.json").write_text(
+        json.dumps({"repo": REPO, "pull": pull, "ended": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(PhaseOutputError, match="step due"):
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert repair.pushes == 0

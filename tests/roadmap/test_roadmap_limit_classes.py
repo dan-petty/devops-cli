@@ -148,6 +148,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "the share of the window kept for the reply",
     ),
     "CONST_ROADMAP_INVESTIGATION_MAX_BLOB_BYTES": ("kept", "the memory of one tool answer"),
+    "CONST_ROADMAP_PHASE_PATCH_MAX_BYTES": (
+        "guard",
+        "the most bytes of the patch of the agent phase that publish reads as data (#6601)",
+    ),
+    "CONST_ROADMAP_PHASE_JSON_MAX_BYTES": (
+        "guard",
+        "the most bytes of each JSON output of the agent phase that publish reads as data (#6601)",
+    ),
     "CONST_ROADMAP_REFINE_MAX_BODY_CHARS": (
         "kept",
         "GitHub: an issue body holds 65,536 characters",

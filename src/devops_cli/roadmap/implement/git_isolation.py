@@ -328,11 +328,15 @@ class OriginGit:
                 "ls-remote", "--heads", self.url, *(f"refs/heads/{name}" for name in branches)
             ).strip()
 
-    def fetch(self, *branches: str) -> None:
-        """Fetch `branches` of `origin` into `refs/remotes/origin/<branch>` of the clone."""
+    def fetch(self, *branches: str, depth: int | None = None) -> None:
+        """Fetch `branches` of `origin` into `refs/remotes/origin/<branch>` of the clone, with
+        only the last `depth` commits of each when `depth` is given (#6601)."""
         specs = [f"+refs/heads/{name}:{_ORIGIN_REFS}{name}" for name in branches]
+        shallow = [f"--depth={depth}"] if depth is not None else []
         with self._folder(refs=True) as folder:
-            folder.call("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", self.url, *specs)
+            folder.call(
+                "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *shallow, self.url, *specs
+            )
             folder.keep_shallow()
             self._copy_refs(
                 [f"--git-dir={folder.git_dir}"], ["-C", str(self.repository)], *branches

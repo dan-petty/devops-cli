@@ -1,0 +1,23 @@
+# Design
+
+## Decisions
+
+- **One run folder, three folders.** `state/` holds the state file that `prepare` writes and `publish` reads; the agent phase does not read it. `work/` holds the clone and `input.json`. `out/` holds `agent.patch`, `outcome.json` and `summary.json`. `--phase all` makes the folder in the data folder, on the home volume of the Job, and removes it: a clone of devops-cli measured 176 MB and the fetch of `publish` 23 MB, beside the checks that write to the 1 GiB of `/tmp`.
+- **`publish` takes its target from GitHub.** `--phase all` keeps the state of `prepare` in memory. Between separate phases, `publish` reads the state file as data and checks it against the pull request as GitHub holds it: the repository, the pull request, the head branch, the item and the judged head. The branch, the lease, the bot and the workflow files of the push come from GitHub and the settings, never from a file of the run. `prepare` reads the URL of `origin` before any agent code runs, refuses a clone, a `--source` clone too, whose `origin` is not the URL of the repository on GitHub, and `publish` pushes to that URL; a separate `publish` takes only that URL from the state file. A separate `publish` takes the check by the name of a failed check of the judged head, and the count of errors from its log. A round that `prepare` ended gets its report from `prepare`.
+- **A round that needs no agent ends in `prepare`.** The bounds, the claim, the caps, the plan, the wait of a CI infrastructure failure and the ready path run as before (`judge_round`). `prepare` gives the report of such a round for the Job, as `--phase all` does, and writes a state that says the round ended. A separate `publish` gives no second report; a judgment with no write refuses that state while a repair or a ready mark is due.
+- **No rebase.** The base and the lease are the judged head. The agent phase needs no network git call. The rebase onto `main` comes with implement in part C.
+- **The clone holds no credential.** `prepare` clones with the App token, which git gets from its environment for each call. `.git/config` holds no token, no credential helper and no extra header. `add_worktree` puts the worktree in the agent worktree folder of the data folder, as it does for every take-over, so #3700 gives the agent container that folder too.
+- **The agent phase holds no App key.** `--phase agent` checks `roadmap.implement.in_runner` and refuses an App private key, `GH_TOKEN` or `GITHUB_TOKEN` in its environment. The other phases keep the runner check of the App.
+- **The agent reads no store.** `prepare` writes the item to `input.json`, and the model fix reads it there. `run_fix_step` stays the engine; #6527 changes it.
+- **The patch comes from a new git folder.** Its objects are the objects of the clone, and it has its own index and configuration. `git add -A` stages every file of the checkout over the base tree, so no clean filter or `core.fsmonitor` of the clone runs.
+- **`publish` reads the outputs as data.** `lstat` on the root and on `out/`, `O_NOFOLLOW | O_NONBLOCK`, a regular file and a size limit. The models refuse a key outside the model, and the step takes `result` and `detail` only from its enums. Each text goes through `mask_secrets`; the comment puts the paths in a fenced block.
+- **`publish` applies the patch as data.** A fresh clone fetches the branch at depth 1 through `OriginGit`; its tip must be the lease. A second new git folder applies the patch with `git apply --cached` and `git write-tree`. `git diff-tree -r --raw` refuses a new or changed link or gitlink, a change of `.gitmodules` and a workflow file that the plan does not name. `git commit-tree` writes one commit with the bot as author and committer.
+- **The claim check runs three times.** In `prepare`, at the start of `publish`, and in `publish` right before the push (`check_preconditions` on the pull request and the item as GitHub holds them then).
+- **The token keeps its permissions in B.** One process mints one token for the three phases, so a token without `workflows: write` waits for #3700. In B, `publish` reads the merged plan on the default branch of GitHub and refuses a workflow file that it does not name.
+- **No count line.** `all` prints only the current report. The count line of the agent container waits for #3700.
+
+## Rejected alternatives
+
+- A git bundle from the agent phase: it carries refs, tags, history and authors, so it needs more checks than a patch.
+- A refusal of private repositories in `prepare`: `prepare` holds the App key and clones with the token, as the code does now.
+- Two orchestrations, one in process and one on files: `--phase all` runs the same three functions on a temporary run folder.

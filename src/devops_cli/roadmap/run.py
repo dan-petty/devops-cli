@@ -71,6 +71,7 @@ from pydantic import ValidationError as MalformedRecordError
 from devops_cli.ai.client.factory import get_task_model
 from devops_cli.config.constants import (
     CONST_GIT_CLI,
+    CONST_GITHUB_CLONE_URL,
     CONST_GITHUB_REQUEST_ROW_IDLE_CHECK,
     CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_INTAKE_RECORD_FILENAME,
@@ -524,7 +525,7 @@ def ensure_checkout(
     """
     clone_dir = _resolve_roadmap_repo_path(data_dir, repo, dirname, error_cls=GitOperationError)
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
-    url = remote_url or f"https://github.com/{repo}.git"
+    url = remote_url or CONST_GITHUB_CLONE_URL.format(repo=repo)
     try:
         if not (clone_dir / ".git").exists():
             filters = ["--filter=blob:none"] if blobless else []
