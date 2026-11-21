@@ -8,17 +8,15 @@ none.
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import yaml
 from kubernetes.client.rest import ApiException
 
 from devops_cli.config.env import setting_variables
-from devops_cli.k8s.cluster_job import repository_label
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
@@ -36,7 +34,7 @@ from tests.support.fakes.kubernetes import (
     waiting,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import cronjob_template
 from tests.support.roadmap_implement import route_pull_status, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
@@ -57,8 +55,7 @@ TICK = 450  # a round of the row, in seconds: 7 minutes and a tick of the Servic
 
 @pytest.fixture
 def kube(cluster: FakeCluster) -> FakeCluster:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(template)]
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
     cluster.core.answers["list_namespaced_pod"] = [pod(f"{NAME}-x1", namespace="devops")]
     cluster.core.answers["read_namespaced_pod_log"] = ""
     return cluster

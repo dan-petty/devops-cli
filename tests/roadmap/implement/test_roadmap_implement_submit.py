@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from kubernetes.client.rest import ApiException
 from markdown_it import MarkdownIt
 
@@ -59,7 +58,6 @@ from tests.support.fakes.kubernetes import (
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.job_templates import cronjob_template
-from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     NEEDS_FIX_DRAFT,
     PULL,
@@ -95,9 +93,7 @@ def api(github_api: GitHubApiFake) -> GitHubApiFake:
 
 @pytest.fixture
 def template() -> dict[str, Any]:
-    document = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    assert isinstance(document, dict)
-    return document
+    return cronjob_template(RUNNER_TEMPLATE)
 
 
 @pytest.fixture
@@ -214,7 +210,6 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         container["name"],
         container["args"],
         env[setting_variables()["service.github_app.token_repository"]],
-        env["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"],
         job["metadata"]["name"].startswith("devops-cli-implement-"),
         record["implement.job"] == job["metadata"]["name"],
         "implement.job_state" in record and record["implement.job_state"] is not None,
@@ -223,7 +218,6 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         "runner",
         ["roadmap", "implement", "--repo", STAGE_REPO, "--item", str(number), "--confirm"],
         STAGE_REPO,
-        "true",
         True,
         True,
         False,

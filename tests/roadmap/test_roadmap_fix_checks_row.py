@@ -9,7 +9,6 @@ The Kubernetes API is faked at its edge, and the CronJob template is the committ
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 from collections.abc import Callable
@@ -36,6 +35,7 @@ from devops_cli.k8s.cluster_job import (
     MANAGED_BY_LABEL,
     MANAGED_BY_LABEL_VALUE,
     OUTCOME_ANNOTATION,
+    RUNNER_TEMPLATE,
     stage_job_labels,
 )
 from devops_cli.k8s.cluster_job_api import ClusterJobs
@@ -51,6 +51,7 @@ from devops_cli.roadmap.stores.store import FixChecksRecordKey, ItemField
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.kubernetes import FakeCluster, pod, status, terminated
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.job_templates import cronjob_template
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_run import NOW
 
@@ -67,8 +68,7 @@ PLANNED_LINE = json.dumps(
 
 @pytest.fixture
 def kube(cluster: FakeCluster) -> FakeCluster:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(template)]
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
     return cluster
 
 

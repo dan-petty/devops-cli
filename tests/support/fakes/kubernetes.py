@@ -523,8 +523,8 @@ def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
 
     The answer is what the pod wrote: text, `bytes`, or a list of byte chunks (and exceptions)
     to stream as they are. A dict holds one of those for each `(namespace, pod)`, or for each
-    `(namespace, pod, container)` of a read that names its container, and a key it does not hold
-    is a 404.
+    `(namespace, pod, container)`, which a read that names its container takes first. A key that
+    it does not hold is a 404.
 
     A read that asks not to preload the body gets the stream of the bytes. A plain read gets what
     `kubernetes` 36.0.3 gives: the response type of `read_namespaced_pod_log` is `str`, so the
@@ -532,7 +532,7 @@ def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
     """
     if isinstance(answer, dict):
         key = (kwargs.get("namespace", ""), kwargs.get("name", ""))
-        if kwargs.get("container"):
+        if (*key, kwargs.get("container")) in answer:
             key = (*key, kwargs["container"])
         if key not in answer:
             raise not_found()
