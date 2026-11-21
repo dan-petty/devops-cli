@@ -168,3 +168,17 @@ metadata:
     pod-security.kubernetes.io/audit: restricted
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false
+---
+# The site danielpetty.com (#6642). The site repository holds the manifests of its workloads, and
+# AppProject `danielpetty-com` lets them into this namespace only.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: danielpetty-com
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false

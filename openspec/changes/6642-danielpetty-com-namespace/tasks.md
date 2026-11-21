@@ -9,7 +9,7 @@
 
 ## 2. Manifests: the namespace, the AppProjects and the monitoring egress
 
-- [ ] 2.1 In `k8s/namespaces.yaml`, add namespace `danielpetty-com` with Pod Security `restricted` and `Prune=false,Delete=false`; in `k8s/argocd/apps/projects.yaml`, add AppProject `danielpetty-com` and the orphan ignore entry `repo-danielpetty-com` of project `homelab`; in `k8s/monitoring/networkpolicy.yaml`, add egress to namespace `danielpetty-com` on TCP 9090
+- [x] 2.1 In `k8s/namespaces.yaml`, add namespace `danielpetty-com` with Pod Security `restricted` and `Prune=false,Delete=false`; in `k8s/argocd/apps/projects.yaml`, add AppProject `danielpetty-com` and the orphan ignore entry `repo-danielpetty-com` of project `homelab`; in `k8s/monitoring/networkpolicy.yaml`, add egress to namespace `danielpetty-com` on TCP 9090
   - Verification: `$ uv run devops ci --check --only k8s,kube-linter,domain`
 
 ## 3. Documents

@@ -115,6 +115,10 @@ spec:
       - group: ''
         kind: Secret
         name: repo-homelab
+      # The owner makes the repository credential of the site repository; it never goes into git.
+      - group: ''
+        kind: Secret
+        name: repo-danielpetty-com
       - group: ''
         kind: Secret
         name: gitea-admin
@@ -213,3 +217,31 @@ spec:
   destinations:
     - server: https://kubernetes.default.svc
       namespace: trial-*
+---
+# The site danielpetty.com (#6642): one repository, one namespace, no cluster-scoped object and
+# no RBAC object.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: danielpetty-com
+  namespace: argocd
+spec:
+  description: The site danielpetty.com, from its own repository
+  sourceRepos:
+    - https://github.com/dan-petty/danielpetty.com
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: danielpetty-com
+  clusterResourceWhitelist: []
+  namespaceResourceBlacklist:
+    - group: rbac.authorization.k8s.io
+      kind: Role
+    - group: rbac.authorization.k8s.io
+      kind: RoleBinding
+  orphanedResources:
+    warn: true
+    ignore:
+      # `devops k8s push-secrets` writes this Secret; no Application tracks it.
+      - group: ''
+        kind: Secret
+        name: event-stream
