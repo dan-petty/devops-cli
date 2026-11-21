@@ -1259,8 +1259,9 @@ def implement_requests(
             f":refs/heads/{branch}",
             when=cond["withdraw_new"],
         ),
-        other("REST write", "close_pull", "PATCH", pulls, when=cond["withdraw_new"]),
+        # The withdraw is recorded before the close of the draft (#6693).
         *[request for when in withdrawn for request in within(store.set_marks(target), when)],
+        other("REST write", "close_pull", "PATCH", pulls, when=cond["withdraw_new"]),
         *within(store.comment(target), cond["return"], repeat=each_item),
         *within(store.write_status(target), cond["return"], repeat=each_item),
     ]

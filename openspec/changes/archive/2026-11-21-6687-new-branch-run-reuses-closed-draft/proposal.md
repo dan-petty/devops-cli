@@ -7,9 +7,9 @@ A review of #6670, the implement Job on the phases, found four defects of a `pub
 ## What Changes
 
 - `prepare` always writes `implement.pr`: the pull request of the target, or none for a new branch. A new branch no longer takes the closed draft of an earlier Job.
-- `_open_draft` finds the open draft of the branch before it opens one, so a `publish` that died before the mark `implement.pr` opens no second draft and deletes no branch.
-- A withdraw that ran clears `implement.base` at once, so a `publish` that runs again withdraws nothing a second time and returns the item to New.
-- A title of the issue with a closing keyword stops the item before the push, as the form check of the title does.
+- `_open_draft` finds the open pull request of the branch before it opens one. It updates a draft that the App opened, so a `publish` that died before the mark `implement.pr` opens no second draft and deletes no branch, and it stops at a pull request of another account and writes nothing to it.
+- A withdraw that pushed clears `implement.base` at once, before the close of the draft, so a `publish` that runs again withdraws nothing a second time and returns the item to New.
+- A title of the issue with a closing keyword stops the item before the push, with its own reason. `closing_keyword_in` counts only an issue reference after the keyword, so `closes #include` is no closing keyword.
 - The dry-run plan lists the delete of the branch of a refused draft, the new repository and the fetch of each withdraw, and the fetch of the lease.
 - SECURITY.md, the docstrings of `process_hardening.py`, `worktree_add.py` and `stop_clear.py`, the description of `continuations_per_item` and two spec texts describe the phases.
 

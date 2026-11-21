@@ -615,20 +615,14 @@ def _title(
         if not title_problems(candidate, declared) and closing_keyword_in(candidate) is None:
             return candidate
     title = delivery_title(item.title, declared)
-    problems = title_problems(title, declared)
+    texts = MESSAGES.roadmap
     if (keyword := closing_keyword_in(title)) is not None:
-        problems.append(MESSAGES.roadmap.implement_title_closing_keyword.format(keyword=keyword))
-    if problems:
-        raise _PublishStop(
-            StopFacts(
-                step=step,
-                reason=MESSAGES.roadmap.implement_stop_title_refused.format(
-                    problems=" ".join(problems), title=title
-                ),
-                push=False,
-            )
-        )
-    return title
+        reason = texts.implement_title_closing_keyword.format(keyword=keyword, title=title)
+    elif problems := title_problems(title, declared):
+        reason = texts.implement_stop_title_refused.format(problems=" ".join(problems), title=title)
+    else:
+        return title
+    raise _PublishStop(StopFacts(step=step, reason=reason, push=False))
 
 
 def _body(item: Item, change: str, why: str) -> str:
@@ -723,11 +717,26 @@ def _push(
 def _open_draft(
     store: RoadmapStore, state: ImplementState, published: Published, title: str
 ) -> int:
-    """Open the draft pull request of a new branch and record it. A draft that GitHub refuses
-    takes the branch off `origin` again when this run made it (`prepare` found no branch), so no
-    branch stays without a pull request."""
+    """Open the draft pull request of a new branch and record it. An open draft of the branch that
+    the App opened, as an earlier `publish` of the run that died before its mark, is updated; an
+    open pull request of another account stops the item, and the job writes nothing to it. A draft
+    that GitHub refuses takes the branch off `origin` again when this run made it (`prepare` found
+    no branch), so no branch stays without a pull request."""
     from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
 
+    found = get_github_session().client.find_open_pull(
+        state.repo, head=state.branch, base=state.default
+    )
+    if found is not None and found.author != load_settings().service.github_app.bot_login:
+        raise _PublishStop(
+            StopFacts(
+                step=MESSAGES.roadmap.implement_step_names["push"],
+                reason=MESSAGES.roadmap.implement_stop_pull_of_another.format(
+                    branch=state.branch, pull=found.number, author=found.author
+                ),
+                push=False,
+            )
+        )
     try:
         opened = open_or_update(
             OpenRequest(
@@ -739,6 +748,7 @@ def _open_draft(
                 kind="delivery",
                 item=state.item,
                 store=store,
+                lookup_existing=found is not None,
                 retry_refused=False,
             )
         )
@@ -924,10 +934,12 @@ def _boundary(outcome: ImplementOutcome) -> str:
     return MESSAGES.roadmap.implement_boundary_stop.format(step=outcome.stop.step)
 
 
-def _withdraw(state: ImplementState, base: str | None) -> None:
+def _withdraw(state: ImplementState, base: str | None, report: RunReport) -> None:
     """Take back what earlier Jobs of the item pushed, before a return to New (#3677). A branch that
     the first Job found goes back to `base`; a branch that it made (`new`) goes, with its draft.
-    Each push has a lease on the tip that `prepare` found, so a push of a person stays."""
+    Each push has a lease on the tip that `prepare` found, so a push of a person stays. A push
+    that ran clears `implement.base` at once, before the close of the draft, so a `publish` that
+    runs again after a kill pushes nothing a second time."""
     if not base or not state.lease or state.lease == base:
         return
     target = PublishTarget(
@@ -940,9 +952,10 @@ def _withdraw(state: ImplementState, base: str | None) -> None:
     )
     if base != _NEW_BRANCH:
         reset_branch(target)
-        return
-    delete_branch(target)
-    if state.pull is not None:
+    else:
+        delete_branch(target)
+    report.store.set_marks(report.fresh(), {ImplementRecordKey.BASE: None})
+    if base == _NEW_BRANCH and state.pull is not None:
         get_github_session().client.close_pull(state.repo, state.pull)
 
 
@@ -950,20 +963,15 @@ def _publish_return(
     state: ImplementState, outcome: ImplementOutcome, report: RunReport
 ) -> ImplementResult:
     """The return of the item to New with the evidence of the agent (#5881), after the withdraw
-    of the pushes of earlier Jobs. A withdraw that fails stops the item and returns nothing. A
-    withdraw that ran clears `implement.base` at once, so a `publish` that runs again after a kill
-    withdraws nothing a second time."""
-    base = report.fresh().job_record.get(ImplementRecordKey.BASE)
+    of the pushes of earlier Jobs. A withdraw that fails stops the item and returns nothing."""
     try:
-        _withdraw(state, base)
+        _withdraw(state, report.fresh().job_record.get(ImplementRecordKey.BASE), report)
     except DevOpsCLIError as exc:
         reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
             branch=state.branch, output=mask_secrets(str(exc))
         )
         step = MESSAGES.roadmap.implement_step_names["push"]
         raise _PublishStop(StopFacts(step=step, reason=reason, push=False)) from exc
-    if base:
-        report.store.set_marks(report.fresh(), {ImplementRecordKey.BASE: None})
     texts = MESSAGES.roadmap
     defined = outcome.returned is ReturnKind.PREMISE_DEFINED
     template = (

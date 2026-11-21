@@ -12,7 +12,7 @@ For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `ori
 - **THEN** the job runs a step for group 2 only
 
 ### Requirement: A publish that runs again keeps the draft of the run
-`publish` SHALL record the draft of a new branch in `implement.pr` at once. A `publish` of the same run that runs again SHALL take the draft from the record, or find the open draft of the branch on GitHub, and open no second draft. When GitHub refuses the draft, `publish` SHALL delete the branch only when the run made it: `prepare` found no branch.
+`publish` SHALL record the draft of a new branch in `implement.pr` at once. A `publish` of the same run that runs again SHALL take the draft from the record, or update the open draft of the branch that the App opened, and open no second draft. An open pull request of the branch that another account opened SHALL stop the item, with no write to it and no delete of the branch. When GitHub refuses the draft, `publish` SHALL delete the branch only when the run made it: `prepare` found no branch.
 
 #### Scenario: A publish that ended after the draft
 - **WHEN** `publish` pushed the new branch and opened the draft, and its Job ended before the end of the run, and `publish` runs again
@@ -21,6 +21,10 @@ For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `ori
 #### Scenario: A publish that died before it recorded the draft
 - **WHEN** the first `publish` opened the draft, and its Job ended before the mark `implement.pr`
 - **THEN** the next `publish` finds the open draft of the branch, opens no second draft and keeps the branch
+
+#### Scenario: A pull request of a person on the branch
+- **WHEN** the first `publish` pushed the new branch and its Job ended before the draft, and a person then opened a pull request on the branch
+- **THEN** the next `publish` stops the item, writes nothing to that pull request, opens no draft and keeps the branch
 
 ### Requirement: The job records the summary of the plan once
 `prepare` SHALL record the summary of the plan in `implement.plan_summary` once, and a later Job SHALL take it from the record, because a push of `publish` puts the plan inside a commit of the bot. A title with the summary of the plan that holds a closing keyword SHALL give way to the summary of the title of the issue, because a squash merge puts the title in the subject. A title of the issue with a closing keyword SHALL stop the item before the push.

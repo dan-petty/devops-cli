@@ -469,7 +469,7 @@ When a step stops with a `premise` request whose evidence is not empty, the agen
 - **THEN** the comment holds the line inside the code fence, as text
 
 ### Requirement: A return withdraws the pushes of earlier Jobs first
-`prepare` SHALL write `implement.base` once: the tip of the branch on `origin`, or `new`. Before a return to New, `publish` SHALL withdraw what earlier Jobs pushed, with a lease on the tip that `prepare` found: it SHALL push a sha base back when the tip differs, and for `new` SHALL delete the branch that `prepare` found and close the recorded draft. A withdraw that ran SHALL clear `implement.base` at once. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
+`prepare` SHALL write `implement.base` once: the tip of the branch on `origin`, or `new`. Before a return to New, `publish` SHALL withdraw what earlier Jobs pushed, with a lease on the tip that `prepare` found: it SHALL push a sha base back when the tip differs, or for `new` delete the branch that `prepare` found, then clear `implement.base` at once, and then close the recorded draft. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
 
 #### Scenario: A person pushed after prepare
 - **WHEN** a person pushes to the item branch after `prepare`, and a `premise` request with evidence follows
@@ -480,7 +480,7 @@ When a step stops with a `premise` request whose evidence is not empty, the agen
 - **THEN** the withdraw pushes nothing, and the Status is New
 
 #### Scenario: A publish that runs again after the withdraw
-- **WHEN** the withdraw deleted the branch of an earlier Job, and the Job ended before the return
+- **WHEN** the withdraw deleted the branch of an earlier Job, and the Job ended before the close of the draft or before the return
 - **THEN** the next `publish` withdraws nothing again and returns the item to New
 
 ### Requirement: A behavior group whose Adds line the branch tip defines returns the item

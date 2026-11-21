@@ -4,8 +4,8 @@
 
 Kind: behavior.
 
-- [x] 1.1 Write failing tests: a new branch after a person deleted the old one gets a new draft; a publish that died before it recorded the draft updates the open draft; a return publish that died after the withdraw returns the item the next time; an issue title with a closing keyword stops the item before the push; the dry-run plan lists the git calls of the three phases and of the withdraw
-  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_phases.py tests/roadmap/test_roadmap_dry_runs.py`
+- [x] 1.1 Write failing tests: a new branch after a person deleted the old one gets a new draft; a publish that died before it recorded the draft updates the open draft; a return publish that died after the withdraw returns the item the next time; an issue title with a closing keyword stops the item before the push; a publish writes nothing to an open pull request of a person; a withdraw killed after the delete returns the item the next time; a return with nothing to withdraw writes the base only at the return; `#include` after a closing keyword is no issue reference; the dry-run plan lists the git calls of the three phases and of the withdraw
+  - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_phases.py tests/roadmap/test_roadmap_dry_runs.py tests/roadmap/stage/test_roadmap_stage_plan.py`
 - [x] 1.2 Write the draft mark in `prepare`, turn on the lookup of the open draft, clear `implement.base` after the withdraw, check the title of the issue for a closing keyword, and list the missing calls in the dry-run plan
   - Verification: `$ uv run devops ci test tests/roadmap/implement tests/roadmap/test_roadmap_dry_runs.py`
 

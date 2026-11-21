@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions.roadmap import PhaseOutputError
+from devops_cli.github.client import GitHubClient
 from devops_cli.roadmap.implement import implement_report
 from devops_cli.roadmap.implement.implement_phases import (
     AgentTools,
@@ -41,7 +42,7 @@ from tests.support.roadmap_implement import (
     route_pull_status,
     two_groups,
 )
-from tests.support.roadmap_stage import STAGE_REPO
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -533,17 +534,7 @@ def test_a_publish_that_died_before_it_recorded_the_draft_updates_the_open_draft
     planned_world.api.route(
         "GET",
         f"/repos/{STAGE_REPO}/pulls?head={owner}:{BRANCH}&state=open",
-        github_json(
-            [
-                {
-                    "number": PULL,
-                    "draft": True,
-                    "html_url": f"https://example.com/pull/{PULL}",
-                    "head": {"ref": BRANCH, "sha": tip},
-                    "base": {"ref": "main", "sha": tip},
-                }
-            ]
-        ),
+        github_json([_open_pull(PULL, tip, STAGE_NAME)]),
     )
     planned_world.api.route(
         "POST",
@@ -599,4 +590,98 @@ def test_an_issue_title_with_a_closing_keyword_stops_the_item_before_the_push(
 
     assert applied.stopped == (1,)
     assert job_world.repo.origin_git("rev-parse", BRANCH) == before
-    assert [c for c in job_world.issue_comments() if "closes #2336" in c] != []
+    (comment,) = [c for c in job_world.issue_comments() if "closes #2336" in c]
+    # The title passes the form check: the stop names only the closing keyword.
+    assert "Semantic PR title" not in comment
+
+
+def _open_pull(number: int, tip: str, login: str) -> dict[str, Any]:
+    """An open pull request of the branch, as the lookup of GitHub lists it."""
+    return {
+        "number": number,
+        "draft": True,
+        "title": "fix: a title",
+        "body": "a body",
+        "html_url": f"https://example.com/pull/{number}",
+        "user": {"login": login},
+        "head": {"ref": BRANCH, "sha": tip},
+        "base": {"ref": "main", "sha": tip},
+    }
+
+
+def test_a_publish_writes_nothing_to_an_open_pull_request_of_a_person(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first `publish` pushed the new branch and died before it opened the draft. A person
+    then opened pull request 7 on the branch. The next `publish` stops the item: it writes
+    nothing to pull request 7, opens no draft and keeps the branch (#6693)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+    real = GitHubClient.create_draft_pull
+
+    def die(*args: Any, **kwargs: Any) -> Any:
+        raise _Killed
+
+    monkeypatch.setattr(GitHubClient, "create_draft_pull", die)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(GitHubClient, "create_draft_pull", real)
+    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
+    owner = STAGE_REPO.split("/")[0]
+    planned_world.api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls?head={owner}:{BRANCH}&state=open",
+        github_json([_open_pull(7, tip, "a-person")]),
+    )
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert again is ImplementResult.STOPPED
+    assert (planned_world.sent("PATCH", "pulls/7"), len(planned_world.sent("POST", "pulls"))) == (
+        [],
+        0,
+    )
+    assert planned_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+def test_a_withdraw_killed_after_the_delete_returns_the_item_the_next_time(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The withdraw deleted the branch, and the Job died before the close of the draft. The delete
+    is recorded at once, so the next `publish` deletes nothing again and returns the item."""
+    planned_world.run(_stop_after_group_one())
+    _continue(planned_world)
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say(PREMISE)).model(), WINDOW))
+    real = GitHubClient.close_pull
+
+    def die(*args: Any, **kwargs: Any) -> Any:
+        raise _Killed
+
+    monkeypatch.setattr(GitHubClient, "close_pull", die)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(GitHubClient, "close_pull", real)
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (again, _record(planned_world).get("Status")) == (ImplementResult.RETURNED, "New")
+
+
+def test_a_return_with_nothing_to_withdraw_writes_the_base_only_at_the_return(
+    job_world: JobWorld,
+) -> None:
+    """No earlier Job pushed, so the withdraw pushes nothing and records nothing: only the end
+    of the return clears `implement.base`."""
+    job_world.run(ModelScript(say(PREMISE)))
+
+    cleared = [
+        write.key
+        for write in job_world.store.job_writes()
+        if write.key == ImplementRecordKey.BASE and write.value is None
+    ]
+    assert cleared == [ImplementRecordKey.BASE]

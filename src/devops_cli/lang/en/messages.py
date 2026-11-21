@@ -4184,9 +4184,13 @@ class RoadmapMessages:
     implement_stop_body_refused: str = (
         "The body of the pull request does not pass the form check: {problems}"
     )
+    implement_stop_pull_of_another: str = (
+        "The branch `{branch}` has the open pull request #{pull} of `{author}`, which the job did "
+        "not open. The job writes nothing to it and keeps the branch."
+    )
     implement_title_closing_keyword: str = (
-        "The title holds the closing keyword `{keyword}`, and a squash merge puts the title in the "
-        "subject on the default branch."
+        "The title of the pull request holds the closing keyword `{keyword}`, and a squash merge "
+        "puts the title in the subject on the default branch. The title is `{title}`."
     )
     implement_stop_title_refused: str = (
         "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
