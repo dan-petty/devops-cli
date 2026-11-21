@@ -7,7 +7,7 @@ The owner gave the end state of the infrastructure on 2026-11-21: devops-cli kee
 ## What Changes
 
 - A new architecture decision record, `docs/adr/0032-infrastructure-templates-live-in-four-homes.md`, that records the four homes, the placement rule, the release-tag pins and Renovate, the shared CI in infra, the private-data rule of the public infra repository, the onboarding of a service repository with one services entry, and the sequence with #5134.
-- The record keeps two owner choices open, with the recommendation as the decision text and a marker that the owner confirms each one in the review: the App that tags infra, and the home of the root stacks of ADR 0026.
+- The record writes the two owner decisions of 2026-11-21 as decision text: the devops-cli release App tags infra, and the root stacks of ADR 0026 go to dan-petty/homelab `tf/github/`.
 - ADR 0026 and ADR 0027 get `amended-by: ["0032"]` and a dated `Status History` line. ADR 0011 is superseded, so it gets no amendment key: it gets a dated `Fact out of date` line that names ADR 0032.
 - The index of `docs/adr/README.md` gains the row of the record and the new links of ADR 0026 and ADR 0027.
 - The change writes no code and alters no behavior a consumer observes, so it carries no spec delta and sets `skip_specs: true`.
@@ -45,4 +45,4 @@ The record needs no tool: MADR 4 is the form, and the repository already holds t
 
 - ADR 0011, ADR 0026 and ADR 0027, in `docs/adr/`, done.
 - dan-petty/infra exists and is onboarded (infra PR #2), done.
-- Owner direction of 2026-11-21: the four homes, and each GitHub App of the account is installed on every dan-petty repository.
+- Owner direction of 2026-11-21: the four homes, and each GitHub App of the account is installed on every dan-petty repository. Owner decisions of 2026-11-21 (#6674): the devops-cli release App tags infra, and the root stacks of ADR 0026 go to dan-petty/homelab `tf/github/`.

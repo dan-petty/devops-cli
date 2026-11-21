@@ -8,8 +8,8 @@ Changes: `docs/adr/0032-infrastructure-templates-live-in-four-homes.md` (new), `
 
 - [x] 1.1 Write ADR 0032 with the four homes, the placement rule, the release-tag pins and Renovate, the shared CI in infra, the private-data rule of infra, the onboarding with one services entry, the sequence with #5134, and the amendments of ADR 0011, ADR 0026 and ADR 0027
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [x] 1.2 Mark the two open owner choices, the App that tags infra and the home of the root stacks of ADR 0026, with the recommendation as the decision text
-  - Verification: `$ grep -c "Open choice: the owner confirms it in the review" docs/adr/0032-infrastructure-templates-live-in-four-homes.md`
+- [x] 1.2 Write the two owner decisions of 2026-11-21, the App that tags infra and the home of the root stacks of ADR 0026, as decision text
+  - Verification: `$ grep -c "owner decision of 2026-11-21" docs/adr/0032-infrastructure-templates-live-in-four-homes.md`
 - [x] 1.3 Regenerate the index of `docs/adr/README.md`
   - Verification: `$ uv run devops ci --check --only docs,domain`
 
@@ -32,4 +32,3 @@ Changes: `docs/adr/0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-in
 ## Workflow follow-up
 
 - The items of the plan build the decision: dan-petty/infra#4, dan-petty/infra#5, dan-petty/infra#6, #6676, #6677, dan-petty/homelab#74 and dan-petty/danielpetty.com#39.
-- Pending a person: confirm the App that tags infra, and the home of the root stacks of ADR 0026, in the review.

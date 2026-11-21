@@ -49,7 +49,7 @@ infra releases one repository tag `vX.Y.Z`. A consumer pins the tag with a Kusto
 
 ### 4. The release App tags infra
 
-**Open choice: the owner confirms it in the review of this record.** release-please makes the tags of infra (dan-petty/infra#5). The devops-cli release App opens its release pull request, because a pull request that `GITHUB_TOKEN` opens starts no workflow. The credentials of the App are in an environment `release` of infra. Each GitHub App of the account is installed on every dan-petty repository, so infra needs an environment and no installation. This changes point 3 of [ADR 0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md), which gave the App to this repository only.
+release-please makes the tags of infra (dan-petty/infra#5). The devops-cli release App opens its release pull request (owner decision of 2026-11-21), because a pull request that `GITHUB_TOKEN` opens starts no workflow. The credentials of the App are in an environment `release` of infra. Each GitHub App of the account is installed on every dan-petty repository, so infra needs an environment and no installation. This changes point 3 of [ADR 0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md), which gave the App to this repository only.
 
 ### 5. Shared CI for the infrastructure
 
@@ -65,7 +65,7 @@ A service repository onboards to the cluster with one services entry in the envi
 
 ### 8. Amendments
 
-- **ADR 0026, decision 1.** The shared module moves to infra as `tf/modules/github-repository`. **Open choice: the owner confirms it in the review of this record.** The root stacks go to dan-petty/homelab `tf/github/`, because they name private repositories.
+- **ADR 0026, decision 1.** The shared module moves to infra as `tf/modules/github-repository`. The root stacks go to dan-petty/homelab `tf/github/` (owner decision of 2026-11-21), because they name private repositories.
 - **ADR 0027.** The self-hosted Renovate leaves `k8s/devops`. A later change removes its manifests from devops-cli, and homelab then runs Renovate from the upstream renovatebot chart. That chart is AGPL-3.0, so the license exception of ADR 0027 also covers the unmodified upstream chart.
 
 ### 9. Sequence with #5134
