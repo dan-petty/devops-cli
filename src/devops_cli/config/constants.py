@@ -2608,9 +2608,13 @@ CONST_MUTMUT_TREE_DIR: Final[str] = "mutants"
 # ── Fail-to-Pass Test Replay (`devops ci fail-to-pass`, #844) ────────────────
 # A changed test file that imports a module the fix adds cannot be collected on base; without
 # `--continue-on-collection-errors` pytest then runs none of the other changed files (#861).
+# The replay keeps the `addopts` of the tree, so a test runs with the plugins, the Hypothesis
+# profile and the `addopts` value of a normal run, and a test that reads them passes (#5599).
+# `-n 0` comes after `addopts` and overrides their `-n logical`: the replay starts no xdist
+# worker, and so takes no gate slot.
 CONST_FAIL_TO_PASS_PYTEST_FLAGS: Final[tuple[str, ...]] = (
-    "-o",
-    "addopts=",
+    "-n",
+    "0",
     "-p",
     "no:cacheprovider",
     "--continue-on-collection-errors",

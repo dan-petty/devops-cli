@@ -3,15 +3,16 @@
 `devops ci fail-to-pass` resolves the merge base of `--base` and `--head`, lists added or
 modified `tests/**/test_*.py` files and check modules of `tests/gate/<row>_checks/`, checks out
 the base tree as a detached git worktree in a temporary directory (#2197) with the head's `tests/`
-overlaid, and runs those test files with the current pytest (`-o addopts=`, `-p no:cacheprovider`,
+overlaid, and runs those test files with the current pytest (`-n 0`, `-p no:cacheprovider`,
 `--continue-on-collection-errors`, `--junitxml`), so a test file that cannot be collected on base
-is reported as errored and the others still run. A test that fails on base proves a change of
-code, so only a fix that changes source code (`is_source_code`: a `.py` file under `src/` outside
-the knowledge base) or a gate check needs one; a fix that changes neither passes with no replay
-(#6207). The workflow runs it only for a fix pull request (#1879), so the command reads no title,
-label or body. A
-replay whose pytest was interrupted, stopped with an internal or usage error, or wrote no complete
-JUnit report could not run on base, and fails (#1669). A replay with a failure that the host path
+is reported as errored and the others still run. The run keeps the `addopts` of the tree, so a
+test that reads them passes as in a normal run, and `-n 0` stops only their xdist workers (#5599).
+A test that fails on base proves a change of code, so only a fix that changes source code
+(`is_source_code`: a `.py` file under `src/` outside the knowledge base) or a gate check needs
+one; a fix that changes neither passes with no replay (#6207). The workflow runs it only for a
+fix pull request (#1879), so the command reads no title, label or body. A replay whose pytest
+was interrupted, stopped with an internal or usage error, or wrote no complete JUnit report
+could not run on base, and fails (#1669). A replay with a failure that the host path
 guard of the test harness raised, or with a test that the fix does not change and that fails or
 errors on base, proves nothing about the fix and fails too (#3124).
 
