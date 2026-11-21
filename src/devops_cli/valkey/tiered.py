@@ -31,7 +31,6 @@ import hashlib
 import json
 import logging
 import threading
-import weakref
 from collections.abc import Iterator, MutableMapping
 from typing import Any, Final
 
@@ -51,9 +50,10 @@ _SEPARATOR: Final = ":"
 # The length of a schema key, in hex characters.
 _SCHEMA_KEY_CHARS: Final = 16
 
-# Each mapping of the process by its id, so `reset_tiered_mappings` empties their memory tiers. A
-# mapping compares as a mapping and has no hash, so a weak set cannot hold it.
-_MAPPINGS: weakref.WeakValueDictionary[int, TieredMapping[Any]] = weakref.WeakValueDictionary()
+# The generation of the memory tiers of the process. `reset_tiered_mappings` starts a new one, and
+# a mapping empties its memory tier when it next sees a new generation, so no registry keeps the
+# mappings.
+_generation = 0
 
 
 def schema_key_of(adapter: TypeAdapter[Any]) -> str:
@@ -101,7 +101,7 @@ class TieredMapping[V](MutableMapping[str, V]):
         self._schema_key: str | None = None
         self._memory: TTLCache[str, V] = TTLCache(maxsize=entries, ttl=ttl, timer=_monotonic)
         self._lock = threading.Lock()
-        _MAPPINGS[id(self)] = self
+        self._generation = _generation
 
     @property
     def schema_key(self) -> str:
@@ -116,7 +116,8 @@ class TieredMapping[V](MutableMapping[str, V]):
 
     def __getitem__(self, key: str) -> V:
         with self._lock:
-            held = [self._memory[key]] if key in self._memory else []
+            memory = self._current()
+            held = [memory[key]] if key in memory else []
         if held:
             count_read(self.store, BrainRead.MEMORY)
             return held[0]
@@ -125,7 +126,7 @@ class TieredMapping[V](MutableMapping[str, V]):
         found = [] if text is None else self._decoded(text)
         if found:
             with self._lock:
-                self._memory[key] = found[0]
+                self._current()[key] = found[0]
             count_read(self.store, BrainRead.SHARED)
             return found[0]
         down = tier is None or tier.is_open
@@ -134,7 +135,7 @@ class TieredMapping[V](MutableMapping[str, V]):
 
     def __setitem__(self, key: str, value: V) -> None:
         with self._lock:
-            self._memory[key] = value
+            self._current()[key] = value
         encoded = self.schema_key.encode() + _SEPARATOR.encode() + self._adapter.dump_json(value)
         if len(encoded) > DEFAULT_BRAIN_VALUE_MAX_BYTES:
             count_write(self.store, BrainWrite.OVERSIZE)
@@ -145,24 +146,27 @@ class TieredMapping[V](MutableMapping[str, V]):
 
     def __delitem__(self, key: str) -> None:
         with self._lock:
-            self._memory.pop(key, None)
+            self._current().pop(key, None)
         tier = shared_cache_tier()
         if tier is not None:
             tier.unlink(self.shared_key(key))
 
     def __iter__(self) -> Iterator[str]:
         with self._lock:
-            keys = list(self._memory)
+            keys = list(self._current())
         return iter(keys)
 
     def __len__(self) -> int:
         with self._lock:
-            return len(self._memory)
+            return len(self._current())
 
-    def clear_memory(self) -> None:
-        """Empty the memory tier, as a new process starts; Valkey keeps its values."""
-        with self._lock:
+    def _current(self) -> TTLCache[str, V]:
+        """The memory tier, emptied first when `reset_tiered_mappings` started a new generation.
+        The caller holds the lock."""
+        if self._generation != _generation:
             self._memory.clear()
+            self._generation = _generation
+        return self._memory
 
     def _decoded(self, text: str) -> list[V]:
         """The value that `text` from Valkey holds, or nothing for another schema key or a value
@@ -182,9 +186,10 @@ class TieredMapping[V](MutableMapping[str, V]):
 
 
 def reset_tiered_mappings() -> None:
-    """Empty the memory tier of each mapping of the process."""
-    for mapping in list(_MAPPINGS.values()):
-        mapping.clear_memory()
+    """Empty the memory tier of each mapping of the process, as a new process starts; Valkey keeps
+    its values."""
+    global _generation
+    _generation += 1
 
 
 __all__ = [
