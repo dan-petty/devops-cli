@@ -14,14 +14,14 @@ Kind: other. Reads: `k8s/monitoring/k8s-monitoring-values.yaml`, `k8s/argocd/app
 
 Kind: other. Reads: `docs/guidelines/kubernetes.md`. Changes: `docs/guidelines/kubernetes.md`.
 
-- [ ] 2.1 In the Process IDs rule of `docs/guidelines/kubernetes.md`, state that the cAdvisor series `container_threads` of the pod cgroup (empty `container` and `image` labels) gives the thread count that `podPidsLimit` limits, and that a sum over all series of a pod counts each thread two times
+- [x] 2.1 In the Process IDs rule of `docs/guidelines/kubernetes.md`, state that the cAdvisor series `container_threads` of the pod cgroup (empty `container` and `image` labels) gives the thread count that `podPidsLimit` limits, and that a sum over all series of a pod counts each thread two times
   - Verification: `$ uv run devops ci docs` passes
 
 ## 3. Measure the cost of the series
 
 Kind: other. Reads: the cAdvisor endpoint of each node and Prometheus, read-only.
 
-- [ ] 3.1 Count the `container_threads` and `container_threads_max` series on the cAdvisor endpoint of each node whose cAdvisor target is up, and give the sum in the pull request body
+- [x] 3.1 Count the `container_threads` and `container_threads_max` series on the cAdvisor endpoint of each node whose cAdvisor target is up, and give the sum in the pull request body
   - Verification: `$ kubectl get --raw /api/v1/nodes/<node>/proxy/metrics/cadvisor | grep -c '^container_threads{'` for each node
 
 ## Workflow follow-up
