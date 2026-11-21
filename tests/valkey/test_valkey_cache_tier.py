@@ -377,13 +377,17 @@ def test_a_silent_valkey_times_out_and_opens_the_breaker(
 ) -> None:
     """T3: a Valkey host that accepts the connection and answers no command costs one timeout.
 
-    The tier waits at most 0.25 s for a connection and `valkey.timeout` for a reply. The first
-    read is a miss that counts `timeout`, the breaker opens, and the next read opens no second
-    connection to the host.
+    The tier waits at most 0.25 s for a connection and `valkey.timeout` for a reply. A fact read
+    through the tiered mapping gets the source value; its Valkey read counts `timeout` and opens
+    the breaker, and no later command opens a second connection to the host.
     """
+    from cachetools import cached
+    from pydantic import TypeAdapter
+
     from devops_cli.config.defaults import DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS
     from devops_cli.config.settings import reset_settings_cache
     from devops_cli.valkey.cache import shared_cache_tier
+    from devops_cli.valkey.tiered import TieredMapping
 
     monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", f"valkey://127.0.0.1:{silent_valkey.port}")
     monkeypatch.setenv("DEVOPS_CLI_VALKEY_TIMEOUT", "0.05")
@@ -391,7 +395,11 @@ def test_a_silent_valkey_times_out_and_opens_the_breaker(
     tier = shared_cache_tier()
     assert tier is not None
 
-    reads = (tier.get("fact"), tier.get("fact"))
+    @cached(TieredMapping("valkey:brain:v1:fact:test", TypeAdapter(str), ttl=60), key=str)
+    def read(name: str) -> str:
+        return f"source {name}"
+
+    reads = (read("a"), read("b"))
 
     assert (
         tier.client.connect_timeout <= DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
@@ -399,4 +407,10 @@ def test_a_silent_valkey_times_out_and_opens_the_breaker(
         tier.is_open,
         silent_valkey.connections,
         _errors(otlp),
-    ) == (True, (None, None), True, 1, {("get", "timeout"): 1.0, ("get", "open"): 1.0})
+    ) == (
+        True,
+        ("source a", "source b"),
+        True,
+        1,
+        {("get", "timeout"): 1.0, ("get", "open"): 1.0, ("set", "open"): 2.0},
+    )
