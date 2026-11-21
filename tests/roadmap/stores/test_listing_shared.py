@@ -9,10 +9,11 @@ are read on the OTLP fake.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -944,6 +945,43 @@ def test_a_save_compresses_only_the_records_that_it_sends(
     ) == (compressed, [], snapshot, _meta(empty))
 
 
+def test_a_delta_that_loses_its_transaction_writes_every_record_to_a_temporary_key(
+    valkey_server: FakeServer,
+) -> None:
+    """A store read issues 3, 2 and 1 with the watermark 09:00, and saves a change to issue 2 with
+    the watermark 10:00. Before the EXEC of its delta, another client writes issues 3 and 1 with
+    the watermark 10:00. The delta writes nothing, and the store writes every record of its
+    snapshot to a temporary key and RENAMEs it onto the snapshot key: its compressor gets issue 2
+    for the delta and issues 3, 2 and 1 for the temporary key, and the shared copy holds the
+    snapshot of the save."""
+    _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server))).save(
+        _snapshot(STARTED - timedelta(hours=1), 3, 2, 1)
+    )
+    other = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    sent: list[bytes] = []
+    store = _compressing_store(
+        ValkeyCacheTier(
+            valkey_client_on(
+                valkey_server,
+                after_command=_between_watch_and_exec(lambda: other.save(_snapshot(STARTED, 3, 1))),
+            )
+        ),
+        sent,
+    )
+    store.load(REPO)
+    sent.clear()
+    snapshot = _issue_2_changed()
+
+    store.save(snapshot)
+
+    reader = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    assert (_numbers(sent), reader.load(REPO), _keys(valkey_server)) == (
+        [2, 3, 2, 1],
+        snapshot,
+        [SNAPSHOT_KEY],
+    )
+
+
 def _with_body(snapshot: ListingSnapshot, size: int) -> ListingSnapshot:
     """`snapshot` with a body of `size` bytes in each record."""
     issues = tuple(issue.model_copy(update={"body": "x" * size}) for issue in snapshot.issues)
@@ -1058,6 +1096,62 @@ def test_a_shared_copy_with_a_time_with_no_offset_or_a_record_past_the_bound_is_
         naive = shared.issues[0].model_copy(update={"updated_at": naive_time})
         shared = shared.model_copy(update={"issues": (naive, *shared.issues[1:])})
     _valkey_store(shared_valkey).save(shared)
+    spoil(valkey_server)
+
+    loaded = _tiered(tmp_path).load(REPO)
+    _tiered(tmp_path).save(_snapshot(STARTED + timedelta(hours=1), 3, 2, 1))
+
+    assert (loaded, _shared(valkey_server)) == (local, ("2026-01-01T11:00:00Z", ["3", "2", "1"]))
+
+
+def _signed_again(server: FakeServer, fields: Mapping[str, bytes]) -> None:
+    """Replace the records of the shared copy with `fields`, the zlib values by field name, and
+    write a `meta` whose digest names these fields, as another writer of the key can: a BLAKE2b
+    digest of 16 bytes over each field name, a zero byte and the BLAKE2b digest of 16 bytes of the
+    JSON of its record, in the order of the names."""
+    writer = FakeValkey(server=server)
+    raw = writer.hget(SNAPSHOT_KEY, "meta")
+    assert raw is not None
+    total = hashlib.blake2b(digest_size=16)
+    for name in sorted(fields):
+        record = hashlib.blake2b(zlib.decompress(fields[name]), digest_size=16).digest()
+        total.update(name.encode() + b"\0" + record)
+    meta = json.loads(raw) | {"digest": total.hexdigest()}
+    writer.delete(SNAPSHOT_KEY)
+    writer.hset(SNAPSHOT_KEY, mapping={"meta": json.dumps(meta), **fields})
+
+
+def _issue_2_under_another_name(server: FakeServer) -> None:
+    """Keep issue 2 under the field `02` only."""
+    values = FakeValkey(server=server).hgetall(SNAPSHOT_KEY)
+    _signed_again(server, {"02": values[b"2"], "1": values[b"1"]})
+
+
+def _issue_2_under_two_names(server: FakeServer) -> None:
+    """Keep issue 2 under the fields `2` and `02`."""
+    values = FakeValkey(server=server).hgetall(SNAPSHOT_KEY)
+    _signed_again(server, {"2": values[b"2"], "02": values[b"2"], "1": values[b"1"]})
+
+
+@pytest.mark.usefixtures("shared_valkey")
+@pytest.mark.parametrize(
+    "spoil",
+    [
+        pytest.param(_issue_2_under_another_name, id="another-name"),
+        pytest.param(_issue_2_under_two_names, id="two-names"),
+    ],
+)
+def test_a_shared_copy_with_a_record_under_a_field_of_another_number_is_a_miss(
+    tmp_path: Path, valkey_server: FakeServer, spoil: Callable[[FakeServer], None]
+) -> None:
+    """The shared copy is newer than the local one, but another writer keeps issue 2 under the
+    field `02`, alone or as well as under `2`, with a `meta` whose digest names these fields. The
+    load takes the local copy, and the next save of the process raises no error and replaces the
+    shared copy."""
+    local = _snapshot(STARTED - timedelta(hours=1), 1)
+    FileSnapshotStore(tmp_path).save(local)
+    _tiered(tmp_path / "writer").save(_snapshot(STARTED, 2, 1))
+    _new_process()
     spoil(valkey_server)
 
     loaded = _tiered(tmp_path).load(REPO)
@@ -1189,6 +1283,46 @@ def test_the_lanes_of_one_process_scan_the_records_of_a_shared_copy_once(
     ) == (([3, 2, 1], STARTED), [])
 
 
+def test_a_save_of_the_process_during_a_scan_keeps_the_records_that_it_wrote(
+    valkey_server: FakeServer,
+) -> None:
+    """A store loads the shared copy of issues 3, 2 and 1 with the watermark 09:00. After its
+    `HSCAN`, another lane of the same store saves issues 4, 3, 2 and 1 with the watermark 10:00.
+    The load gives the records of 09:00, and a later save of a change to issue 2 compresses only
+    issue 2 and writes no temporary key, because the store still knows the records of 10:00."""
+    first = _snapshot(STARTED - timedelta(hours=1), 3, 2, 1)
+    _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server))).save(first)
+    scans: list[tuple[Any, ...]] = []
+    written: list[str] = []
+
+    def save_after_the_scan(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSCAN":
+            scans.append(command)
+            if len(scans) == 1:
+                store.save(_issue_4_new())
+        elif command[0] == "HSET":
+            written.append(str(command[1]))
+
+    sent: list[bytes] = []
+    store = _compressing_store(
+        ValkeyCacheTier(valkey_client_on(valkey_server, after_command=save_after_the_scan)), sent
+    )
+    loaded = store.load(REPO)
+    sent.clear()
+    written.clear()
+    snapshot = _issue_2_changed()
+
+    store.save(snapshot)
+
+    reader = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    assert (
+        loaded,
+        _numbers(sent),
+        [key for key in written if ":next:" in key],
+        reader.load(REPO),
+    ) == (first, [2], [], snapshot)
+
+
 def _two_loads_at_once(
     server: FakeServer, clock: ClockFake, *, shift: float = 0.0
 ) -> tuple[int, list[ListingSnapshot | None], list[bool]]:
@@ -1276,6 +1410,43 @@ def test_a_shared_load_that_passes_its_budget_in_its_last_hscan_falls_back(
         {("hscan", "budget"): 1.0},
         {("snapshot", "fallback"): 1.0},
     )
+
+
+def test_a_shared_load_that_passes_its_budget_in_the_validation_gives_no_snapshot(
+    valkey_server: FakeServer,
+    shared_valkey: ValkeyCacheTier,
+    clock: ClockFake,
+    otlp: FakeCollector,
+) -> None:
+    """A store loads a shared snapshot of 3 records, and the `clock` fixture moves 21 s after the
+    clock reading of the inflate of the last record. The load stops in the validation of the
+    records: it gives no snapshot, sends one `HSCAN`, and counts its budget stop."""
+    records = (3, 2, 1)
+    _valkey_store(shared_valkey).save(_snapshot(STARTED, *records))
+    sent: list[str] = []
+    reader = _valkey_store(
+        ValkeyCacheTier(
+            valkey_client_on(valkey_server, after_command=lambda command: sent.append(command[0]))
+        )
+    )
+    held = reader.meta(REPO)
+    assert held is not None
+    # The clock readings of the load before its validation: the start of its budget, the check
+    # after the lock of the repository, and one check after each inflated record.
+    last_inflate = 2 + len(records)
+    readings: list[None] = []
+
+    def move_after_the_last_inflate() -> None:
+        readings.append(None)
+        if len(readings) == last_inflate:
+            clock.shift(21)
+
+    clock.after_each_reading(move_after_the_last_inflate)
+    otlp.clear()
+
+    loaded = reader.records(REPO, held)
+
+    assert (loaded, sent.count("HSCAN"), _errors(otlp)) == (None, 1, {("hscan", "budget"): 1.0})
 
 
 def test_a_lane_that_waits_past_its_budget_sends_no_hscan(
