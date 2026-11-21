@@ -36,8 +36,11 @@ local and the shared copy, drops a copy with another schema key or a full read o
 saves the shared copy first and then the local file. While Valkey fails, it reads and writes the
 local file only. Until `valkey-devops` has role ACL users (#4704), the shared tier holds no data
 of a private repository (ADR 0023 section 8): the store reads the visibility of a repository only
-after Valkey answered, a failed visibility read counts as private, and the store removes the
-shared copy of a repository that became private.
+after Valkey answered, and uses and writes the shared copy only for a public answer. A private
+answer removes the shared copy of a repository that became private. A failed visibility read
+gives an unknown answer, which leaves the shared copy as it is: the store does not read, write
+or remove it, and reads the visibility again after
+`DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`.
 """
 
 from __future__ import annotations
@@ -51,10 +54,12 @@ import zlib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from functools import cached_property
 from itertools import batched
 from typing import Any, Final
 
+from cachetools import TLRUCache
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
@@ -65,11 +70,13 @@ from devops_cli.config.constants import (
     ValkeyCacheError,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_BRAIN_MEMORY_ENTRIES,
     DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
     DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT,
     DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS,
     DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS,
     DEFAULT_BRAIN_VALUE_MAX_BYTES,
+    DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS,
     DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS,
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS,
@@ -448,35 +455,62 @@ def shared_snapshot_store() -> ValkeySnapshotStore | None:
         return _stores[0]
 
 
+class Visibility(StrEnum):
+    """The answer of the visibility check of a repository: public, private, or unknown when the
+    read of GitHub failed. Only a public repository has a shared copy (ADR 0023 section 8)."""
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+    UNKNOWN = "unknown"
+
+
+def _monotonic() -> float:
+    """The clock of the visibility answers: the clock seam, which the `clock` fixture moves."""
+    return clock.monotonic()
+
+
+def _visibility_expiry(name: str, answer: Visibility, now: float) -> float:
+    """When the process reads the visibility of a repository again: after
+    `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` for an unknown answer, else after
+    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`."""
+    if answer is Visibility.UNKNOWN:
+        return now + DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS
+    return now + DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS
+
+
 _VISIBILITY_LOCK = threading.Lock()
-# The visibility of each repository that this process read, by `RepoRef.key`: whether it is
-# public, and when.
-_visibility: dict[str, tuple[bool, float]] = {}
+# The visibility answers of this process, by `RepoRef.key`. A `TLRUCache` is not thread-safe, so
+# each use holds the lock.
+_visibility: TLRUCache[str, Visibility] = TLRUCache(
+    maxsize=DEFAULT_BRAIN_MEMORY_ENTRIES, ttu=_visibility_expiry, timer=_monotonic
+)
 
 
-def repository_is_public(repo: str, *, runner: GhRunner | None = None) -> bool:
-    """Whether GitHub says that `repo` is public, read once for each repository and
-    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`. A failed read counts as private and is not kept, so
-    the shared tier gets no data that could be private (ADR 0023 section 8)."""
-    now = clock.monotonic()
+def repository_visibility(repo: str, *, runner: GhRunner | None = None) -> Visibility:
+    """The visibility of `repo` that GitHub gives, read once for each repository and its time to
+    live (`_visibility_expiry`). A failed read gives `Visibility.UNKNOWN`: the shared tier then
+    keeps its copy as it is and gets no data that could be private (ADR 0023 section 8), and a
+    process that is out of GitHub quota sends no visibility read for each round."""
     name = RepoRef(repo).key
     with _VISIBILITY_LOCK:
         held = _visibility.get(name)
-    if held is not None and now - held[1] < DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS:
-        return held[0]
+    if held is not None:
+        return held
     store = GitHubRoadmapStore(repo) if runner is None else GitHubRoadmapStore(repo, runner=runner)
     try:
-        public = not store.repository_is_private()
+        answer = Visibility.PRIVATE if store.repository_is_private() else Visibility.PUBLIC
     except DevOpsCLIError as exc:
         logger.warning(
-            "The visibility of %s is not known, so the shared tier does not hold its listing: %s",
+            "The visibility of %s is not known, so the shared tier keeps its copy as it is "
+            "for %s s: %s",
             repo,
+            DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS,
             exc,
         )
-        return False
+        answer = Visibility.UNKNOWN
     with _VISIBILITY_LOCK:
-        _visibility[name] = (public, now)
-    return public
+        _visibility[name] = answer
+    return answer
 
 
 def reset_shared_snapshots() -> None:
@@ -497,13 +531,13 @@ class TieredSnapshotStore:
     """The local snapshot store of a process and the shared one in Valkey, as one store.
 
     `shared` gives the shared store of the process, None when there is no Valkey tier.
-    `is_public` says whether a repository is public. `clock` gives the time now, which the age of
-    a full read is measured from.
+    `visibility` gives the visibility of a repository. `clock` gives the time now, which the age
+    of a full read is measured from.
     """
 
     local: SnapshotStore
     shared: Callable[[], ValkeySnapshotStore | None] = shared_snapshot_store
-    is_public: Callable[[str], bool] = repository_is_public
+    visibility: Callable[[str], Visibility] = repository_visibility
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
 
@@ -514,8 +548,10 @@ class TieredSnapshotStore:
         if shared is None or (held is None and shared.tier.is_open):
             count_read(BrainStore.SNAPSHOT, BrainRead.FALLBACK)
             return local
-        if not self._public(shared, repo, held):
-            count_read(BrainStore.SNAPSHOT, BrainRead.PRIVATE)
+        visibility = self._checked(shared, repo, held)
+        if visibility is not Visibility.PUBLIC:
+            private = visibility is Visibility.PRIVATE
+            count_read(BrainStore.SNAPSHOT, BrainRead.PRIVATE if private else BrainRead.UNKNOWN)
             return local
         now = self.clock()
         local_fit = self._fit(local, now)
@@ -548,19 +584,22 @@ class TieredSnapshotStore:
         held = None if shared is None else shared.meta(snapshot.repo)
         if shared is None or (held is None and shared.tier.is_open):
             return BrainWrite.SKIPPED
-        if not self._public(shared, snapshot.repo, held):
+        visibility = self._checked(shared, snapshot.repo, held)
+        if visibility is Visibility.PRIVATE:
             return BrainWrite.PRIVATE
+        if visibility is Visibility.UNKNOWN:
+            return BrainWrite.UNKNOWN
         return shared.write(snapshot, held)
 
-    def _public(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> bool:
-        """Whether `repo` is public. The shared copy of a repository that is not public is
-        removed, so the shared tier keeps no copy of a repository that became private."""
-        if self.is_public(repo):
-            return True
-        if held is not None and shared.remove(repo):
-            logger.info("The shared tier held the listing of %s, which is not public now.", repo)
+    def _checked(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> Visibility:
+        """The visibility of `repo`. A private answer removes the shared copy, so the shared tier
+        keeps no copy of a repository that became private. An unknown answer leaves the shared
+        copy as it is."""
+        visibility = self.visibility(repo)
+        if visibility is Visibility.PRIVATE and held is not None and shared.remove(repo):
+            logger.info("The shared tier held the listing of %s, which is private now.", repo)
             count_write(BrainStore.SNAPSHOT, BrainWrite.REMOVED)
-        return False
+        return visibility
 
     def _fit(self, held: ListingSnapshot | SharedMeta | None, now: datetime) -> bool:
         """Whether a run can read the changes from `held`: it has this schema key, and its last
@@ -578,8 +617,9 @@ __all__ = [
     "SharedMeta",
     "TieredSnapshotStore",
     "ValkeySnapshotStore",
+    "Visibility",
     "may_replace",
-    "repository_is_public",
+    "repository_visibility",
     "reset_shared_snapshots",
     "shared_snapshot_store",
     "snapshot_key",

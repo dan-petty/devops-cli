@@ -2912,8 +2912,9 @@ class BrainStore(StrEnum):
 class BrainRead(StrEnum):
     """The `result` label of `devops_cli_brain_reads_total` (#4668): the tier that gave the value
     (`memory`, `local` for the local snapshot file, `shared`), the source when no tier held it,
-    the fallback when the shared tier failed or its breaker was open, and a private repository,
-    which the shared tier does not hold."""
+    the fallback when the shared tier failed or its breaker was open, a private repository,
+    which the shared tier does not hold, and a repository whose visibility read failed, whose
+    shared copy is not used (#6611)."""
 
     MEMORY = "memory"
     LOCAL = "local"
@@ -2921,14 +2922,16 @@ class BrainRead(StrEnum):
     SOURCE = "source"
     FALLBACK = "fallback"
     PRIVATE = "private"
+    UNKNOWN = "unknown"
 
 
 class BrainWrite(StrEnum):
     """The `result` label of `devops_cli_brain_writes_total` (#4668): written to the shared tier,
     not written because the shared copy already holds the same records, skipped while the tier
     failed, kept local because the value is over its bound, refused because the shared copy is
-    newer, kept local for a private repository, or the shared copy of a repository that became
-    private removed."""
+    newer, kept local for a private repository, the shared copy of a repository that became
+    private removed, or kept local for a repository whose visibility read failed, whose shared
+    copy stays as it is (#6611)."""
 
     SHARED = "shared"
     UNCHANGED = "unchanged"
@@ -2937,6 +2940,7 @@ class BrainWrite(StrEnum):
     OLDER = "older"
     PRIVATE = "private"
     REMOVED = "removed"
+    UNKNOWN = "unknown"
 
 
 class ValkeyCacheError(StrEnum):

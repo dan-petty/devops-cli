@@ -447,7 +447,8 @@ def test_a_failed_visibility_read_leaves_the_shared_copy(
 ) -> None:
     """A round of a public repository writes its shared copy. In a new process, the visibility
     read fails with the quota error of GitHub. The round keeps the shared copy as it is, sends
-    only `HGET` to Valkey, reads the visibility once and counts `unknown` on each counter."""
+    only `HGET` for the key (and its temporary keys) to Valkey, reads the visibility once and
+    counts `unknown` on each counter."""
     from devops_cli.roadmap.stores.listing_shared import repository_visibility
 
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
@@ -457,11 +458,12 @@ def test_a_failed_visibility_read_leaves_the_shared_copy(
     _new_process()
     otlp.clear()
     sent: list[str] = []
-    store = _valkey_store(
-        ValkeyCacheTier(
-            valkey_client_on(valkey_server, after_command=lambda command: sent.append(command[0]))
-        )
-    )
+
+    def record(command: tuple[Any, ...]) -> None:
+        if len(command) > 1 and str(command[1]).startswith(SNAPSHOT_KEY):
+            sent.append(command[0])
+
+    store = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)))
     failing = RecordedGh({"isPrivate": (1, "API rate limit exceeded")})
     later = STARTED + timedelta(hours=1)
 
