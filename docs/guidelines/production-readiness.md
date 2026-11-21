@@ -120,7 +120,7 @@ The scope `Repo` applies to each repository, `Service` to each workload in the c
 
 | ID | Item | Scope | Level | Measured by | Owner | Standard |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| ACC-1 | Each Secret comes from the keyring through `devops k8s push-secrets`, and the Secret table lists each reference. | Service | Required | `devops k8s push-secrets --plan`; the test of the Secret table | The README of the environment tree | CIS 5.4; K8S-SC Secrets; 12F III |
+| ACC-1 | Each platform Secret comes from the keyring through `devops k8s push-secrets`, and the Secret table lists each reference. Each service Secret comes from an `ExternalSecret` ([ADR 0033](../adr/0033-service-secrets-come-from-external-secrets-operator.md)). | Service | Required | `devops k8s push-secrets --plan`; the test of the Secret table; `kubectl get externalsecret -A` shows `SecretSynced` | The README of the environment tree | CIS 5.4; K8S-SC Secrets; 12F III |
 | ACC-2 | Only a person changes a Secret, a repository or organization setting, a ruleset or an App installation. | Both | Required | `manual`: the code that refuses an agent write to the settings routes | [AGENTS.md](../../AGENTS.md) | SSDF PO.2 |
 | ACC-3 | The repository and organization settings are OpenTofu code that the owner applies. | Repo | Later, before a move into an organization | The OpenTofu code; `devops tf plan` shows no change | This guideline | SSDF PO.5 |
 | ACC-4 | Each credential has rotation steps and leak steps. | Service | Required | `devops k8s push-secrets --rotate`; `manual`: the steps | The README of the environment tree | K8S-SC Secrets |

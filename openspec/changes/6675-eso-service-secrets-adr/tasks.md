@@ -6,25 +6,25 @@ Reads: `docs/adr/README.md`, `docs/adr/0032-infrastructure-templates-live-in-fou
 
 Changes: `docs/adr/0033-service-secrets-come-from-external-secrets-operator.md` (new), `docs/adr/README.md`.
 
-- [ ] 1.1 Write ADR 0033 with the two paths for cluster Secrets, the store namespace of each service, the remote key rule, the generated, typed and unchangeable values, and the sync-wave order
+- [x] 1.1 Write ADR 0033 with the two paths for cluster Secrets, the store namespace of each service, the remote key rule, the generated, typed and unchangeable values, and the sync-wave order
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [ ] 1.2 Write the owner decision of 2026-11-21 as decision text
+- [x] 1.2 Write the owner decision of 2026-11-21 as decision text
   - Verification: `$ grep -c "2026-11-21" docs/adr/0033-service-secrets-come-from-external-secrets-operator.md`
-- [ ] 1.3 Set `status: accepted` and `body-hash` on ADR 0033, and regenerate the index of `docs/adr/README.md`
+- [x] 1.3 Set `status: accepted` and `body-hash` on ADR 0033, and regenerate the index of `docs/adr/README.md`
   - Verification: `$ uv run devops ci --check --only docs,domain`
 
 ## 2. Accept ADR 0032
 
 Changes: `docs/adr/0032-infrastructure-templates-live-in-four-homes.md`, `docs/adr/README.md`.
 
-- [ ] 2.1 Set `status: accepted` and `body-hash` on ADR 0032, add a dated `Status History` line that says the merge of #6683 accepted it, and regenerate the index
+- [x] 2.1 Set `status: accepted` and `body-hash` on ADR 0032, add a dated `Status History` line that says the merge of #6683 accepted it, and regenerate the index
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
 
 ## 3. Documents
 
 Changes: `docs/SERVICE_PATTERNS.md`, `SECURITY.md`, `docs/guidelines/production-readiness.md`.
 
-- [ ] 3.1 Name the `ExternalSecret` path of a service Secret in CF4, CF5, principle 1 and ACC-1
+- [x] 3.1 Name the `ExternalSecret` path of a service Secret in CF4, CF5, principle 1 and ACC-1
   - Verification: `$ grep -n ExternalSecret docs/SERVICE_PATTERNS.md SECURITY.md docs/guidelines/production-readiness.md`
 
 ## Criteria
