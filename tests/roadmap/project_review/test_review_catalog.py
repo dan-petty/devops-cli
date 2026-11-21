@@ -11,13 +11,13 @@ from typing import Any
 
 import pytest
 import yaml
+
+from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.roadmap.project_review.catalog import (
     load_catalog,
     render_query,
     window_placeholders,
 )
-
-from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
 
 STAGE = 'sum(increase(devops_cli_service_jobs_total{{row="stage"{repo}}}[{{range}}]))'
