@@ -1414,7 +1414,7 @@ def test_a_timeout_of_tier_1_stops_the_item_once_and_pushes_nothing(job_world: J
     ids=["unauthenticated", "stopping"],
 )
 def test_an_error_that_the_job_lets_out_leaves_the_round_of_tier_1(
-    job_world: JobWorld, error: str, kind: str
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch, error: str, kind: str
 ) -> None:
     """A missing token or a stop of the Service while the round of tier 1 writes its record leaves
     the job, as at the other sites of the job, so the item is not Blocked for a person."""
@@ -1439,7 +1439,7 @@ def test_an_error_that_the_job_lets_out_leaves_the_round_of_tier_1(
             raise failure
         return write(item, marks, *args, **kwargs)
 
-    store.set_marks = set_marks  # type: ignore[method-assign]
+    monkeypatch.setattr(store, "set_marks", set_marks)
 
     with pytest.raises(type(failure), match=error):
         job_world.run(two_groups())
