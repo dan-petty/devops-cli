@@ -75,6 +75,9 @@ _WINDOW: Final = "window:"
 _PATH: Final = "path:"
 # The readers that read one answer for every fact of their kind, whatever the query says.
 _ONE_READ: Final = frozenset({ReaderKind.LISTING, ReaderKind.OPENSPEC})
+# A time that the plan of a dry run replaces with the watermark or the start of the window.
+_SHOWN_SINCE: Final = datetime(2000, 1, 1, tzinfo=UTC)
+_SHOWN_SINCE_TEXT: Final = "2000-01-01T00:00:00Z"
 # A read that fails with one of these marks its facts `error`, and the review reads the others.
 _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
 
@@ -168,7 +171,9 @@ def _read(fact: CatalogFact, query: str, context: ReadContext, reads: Reads) -> 
     match fact.reader:
         case ReaderKind.LISTING:
             snapshots = context.snapshots or FileSnapshotStore(snapshot_root())
-            return read_listing(context.session(), context.repo, snapshots, reads)
+            return read_listing(
+                context.session(), context.repo, snapshots, reads, start=window.start
+            )
         case ReaderKind.GITHUB:
             return read_github(
                 context.session(), query, window.start, reads, newest_first=fact.newest_first
@@ -376,14 +381,16 @@ def plan_catalog(
     repo, base, head = values["repo"], values["base"], values["head"]
     shared: list[PlannedRequest] = []
     if ReaderKind.LISTING in kinds:
-        since = changed_listing(datetime(2000, 1, 1, tzinfo=UTC)).replace(
-            "2000-01-01T00:00:00Z", texts["watermark"]
-        )
-        shared.append(
+        shown = changed_listing(_SHOWN_SINCE)
+        shared.extend(
             PlannedRequest(
                 method="GET",
-                target=f"repos/{repo}/issues?{since}",
-                condition=MESSAGES.roadmap.review_plan_snapshot,
+                target=f"repos/{repo}/issues?{shown.replace(_SHOWN_SINCE_TEXT, since)}",
+                condition=condition,
+            )
+            for since, condition in (
+                (texts["watermark"], MESSAGES.roadmap.review_plan_snapshot),
+                (values["start"], MESSAGES.roadmap.review_plan_no_snapshot),
             )
         )
     if ReaderKind.OPENSPEC in kinds:

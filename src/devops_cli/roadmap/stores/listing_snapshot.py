@@ -156,6 +156,16 @@ def snapshot_root(state_dir: Path | None = None) -> Path:
     return state_dir / _SNAPSHOT_DIRNAME
 
 
+class ListingRead(Protocol):
+    """How a store reads the issues and pull requests of a repository, by number:
+    `IncrementalListing`, or the read-only listing of the project review (#4692). `read_issues`
+    reads the listing of a query and parses each issue it gets."""
+
+    def read(
+        self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
+    ) -> dict[int, IssueRecord]: ...
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -164,12 +174,10 @@ def _now() -> datetime:
 class IncrementalListing:
     """How a store reads every issue of a repository: the snapshot that `snapshots` keeps and the
     issues changed since its watermark, or the whole listing when `full` or when no snapshot is
-    fit to read from. Each read keeps a new snapshot, unless `keep` is False: the project review
-    reads the snapshot of intake and does not write it, so each file keeps one writer (#4692)."""
+    fit to read from. Each read keeps a new snapshot."""
 
     snapshots: SnapshotStore
     full: bool = False
-    keep: bool = True
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
 
@@ -186,8 +194,7 @@ class IncrementalListing:
         else:
             listed = merged(held.issues, read_issues(changed_listing(held.watermark)))
             full_at = held.full_at
-        if self.keep:
-            self._keep(repo, listed, full_at=full_at, started=started)
+        self._keep(repo, listed, full_at=full_at, started=started)
         return listed
 
     def _fit(self, held: ListingSnapshot | None, now: datetime) -> ListingSnapshot | None:

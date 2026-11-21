@@ -65,7 +65,7 @@ from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.repo_ref import is_repository_name
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.stores.comment_repeat import refused_repeat
-from devops_cli.roadmap.stores.listing_snapshot import FULL_LISTING, IncrementalListing
+from devops_cli.roadmap.stores.listing_snapshot import FULL_LISTING, ListingRead
 from devops_cli.roadmap.stores.store import (
     Candidate,
     Change,
@@ -770,7 +770,7 @@ class GitHubRoadmapStore(RoadmapStore):
         *,
         runner: GhRunner = run_gh,
         session: ListingSession | None = None,
-        listing: IncrementalListing | None = None,
+        listing: ListingRead | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self._repo = repo

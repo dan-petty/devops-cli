@@ -6979,7 +6979,8 @@ class RoadmapMessages:
             "path": "the checkout holds {name}",
         }
     )
-    review_plan_snapshot: str = "a fit listing snapshot is kept; else the whole listing, state=all"
+    review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
+    review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"
     review_plan_each_slice: str = (
         "for each created slice, split in halves while a slice reaches 1,000 runs"

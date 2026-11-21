@@ -133,29 +133,6 @@ def test_an_unchanged_issue_comes_from_the_snapshot_and_is_not_read_again(
     assert bodies == {2: "Text", 1: "kept"}
 
 
-def test_a_read_that_keeps_nothing_reads_the_changes_and_leaves_the_snapshot_as_it_was(
-    github_api: GitHubApiFake, tmp_path: Path
-) -> None:
-    """The project review reads the snapshot of intake and does not write it, so each snapshot
-    file keeps one writer (#4692)."""
-    _first_run(github_api, tmp_path, _issue(2), _issue(1))
-    before = FileSnapshotStore(tmp_path).path(REPO).read_bytes()
-    github_api.route(
-        "GET",
-        _since("2026-01-01T08:59:00Z"),
-        github_json([_issue(3, updated="2026-01-01T10:30:00Z")]),
-    )
-
-    numbers = [
-        i.number for i in _store(tmp_path, at=STARTED + timedelta(hours=1), keep=False).issues()
-    ]
-
-    assert (numbers, FileSnapshotStore(tmp_path).path(REPO).read_bytes() == before) == (
-        [3, 2, 1],
-        True,
-    )
-
-
 @pytest.mark.parametrize(
     ("started", "newest", "watermark"),
     [

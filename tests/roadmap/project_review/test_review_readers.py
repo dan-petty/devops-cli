@@ -211,18 +211,16 @@ def test_with_no_snapshot_of_this_schema_the_listing_reads_the_changes_since_the
     github_api: GitHubApiFake, tmp_path: Path, schema_key: str | None
 ) -> None:
     """No snapshot, or a snapshot of another record schema: the review reads the issues and pull
-    requests changed at or after the window start, not the whole listing, and writes no file."""
-    store = FileSnapshotStore(tmp_path)
-    if schema_key is not None:
-        _held(store, full_at=WATERMARK, schema_key=schema_key)
+    requests changed at or after the window start, not the whole listing, and writes no snapshot."""
+    store = FileSnapshotStore(tmp_path / "listing")
+    before = None if schema_key is None else _held(store, full_at=WATERMARK, schema_key=schema_key)
     since = _changed_since(github_api, "2026-11-04T14:51:23Z")
 
     records = read_listing(get_github_session(), REPO, store, Reads(), start=START)
 
     assert ([record["number"] for record in records], github_api.requested) == ([2], [since])
-    assert sorted(path.name for path in tmp_path.rglob("*.json")) == (
-        [] if schema_key is None else [store.path(REPO).name]
-    )
+    path = store.path(REPO)
+    assert (path.read_bytes() if path.exists() else None) == before
 
 
 def _vector(request: httpx2.Request) -> httpx2.Response:

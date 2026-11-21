@@ -1,9 +1,12 @@
 """The readers of the project review catalog (#4692), each a thin wrapper of an existing client.
 
 - `listing`: the issue listing that intake keeps as a snapshot, with the issues and pull requests
-  changed at or after its watermark (`issues?since=<watermark>`), read through the roadmap store
-  with `IncrementalListing(keep=False)`. The review reads the snapshot and does not write it, so
-  each snapshot file keeps one writer.
+  changed at or after its watermark (`issues?since=<watermark>`), read through the roadmap store.
+  The snapshot can be of any age when its records have the schema of this release. With no such
+  snapshot, the reader reads only the issues and pull requests changed at or after the window
+  start, not the whole listing: a listing fact counts what was opened, closed, merged or written
+  in the window, and each of these moves `updated_at`. The review never writes a snapshot, so each
+  snapshot file keeps one writer (#4854).
 - `github`: a REST listing read through `GitHubSession.pages`. A newest-first listing stops after
   the first page that holds an item at or before the window start.
 - `github_runs`: the Actions runs of a query. GitHub gives at most 1,000 results of a filtered list
@@ -33,7 +36,13 @@ from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.roadmap.project_review.catalog import ReaderKind, utc_text
-from devops_cli.roadmap.stores.listing_snapshot import IncrementalListing, SnapshotStore
+from devops_cli.roadmap.stores.listing_snapshot import (
+    LISTING_SCHEMA_KEY,
+    SnapshotStore,
+    changed_listing,
+    merged,
+)
+from devops_cli.roadmap.stores.store import IssueRecord
 
 _RUNS_KEY: Final = "workflow_runs"
 _SECOND: Final = timedelta(seconds=1)
@@ -84,25 +93,43 @@ class _CountedPages:
             yield from items
 
 
+@dataclass(frozen=True)
+class _ReviewListing:
+    """How the review reads every issue and pull request of a repository: the snapshot that
+    `snapshots` keeps, whatever the age of its last full read, and the changes after its watermark;
+    or only the changes at or after `start` when no snapshot of this record schema is kept. It
+    writes no snapshot."""
+
+    snapshots: SnapshotStore
+    start: datetime
+
+    def read(
+        self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
+    ) -> dict[int, IssueRecord]:
+        held = self.snapshots.load(repo)
+        if held is None or held.schema_key != LISTING_SCHEMA_KEY:
+            return {issue.number: issue for issue in read_issues(changed_listing(self.start))}
+        return merged(held.issues, read_issues(changed_listing(held.watermark)))
+
+
 def read_listing(
     session: PagedSession,
     repo: str,
     snapshots: SnapshotStore,
     reads: Reads,
     *,
-    clock: Callable[[], datetime] | None = None,
+    start: datetime,
 ) -> list[dict[str, Any]]:
-    """Every issue and pull request of `repo` as JSON, the highest number first: the snapshot
-    that `snapshots` keeps and the changes after its watermark, or the whole listing when no
-    snapshot is fit to read from. The snapshot is not written, and the body of an issue is left
-    out."""
+    """The issues and pull requests of `repo` as JSON, the highest number first: the snapshot that
+    `snapshots` keeps and the changes after its watermark, or only the changes at or after `start`
+    when no snapshot of this record schema is kept. The snapshot is not written, and the body of an
+    issue is left out."""
     from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 
-    listing = IncrementalListing(
-        snapshots, keep=False, clock=clock if clock is not None else lambda: datetime.now(UTC)
-    )
+    listing = _ReviewListing(snapshots, start)
     store = GitHubRoadmapStore(repo, session=_CountedPages(session, reads), listing=listing)
-    return [record.model_dump(mode="json", exclude={"body"}) for record in store.listing()]
+    records = sorted(store.listing(), key=lambda record: record.number, reverse=True)
+    return [record.model_dump(mode="json", exclude={"body"}) for record in records]
 
 
 def read_github(
