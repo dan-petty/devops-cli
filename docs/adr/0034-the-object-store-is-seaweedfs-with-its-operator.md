@@ -42,4 +42,4 @@ Chosen option: "SeaweedFS with the SeaweedFS operator", because it is the one pe
 - Good, because the operator makes the StatefulSets, the Services, the ServiceMonitors and the JWT keys, so the repository holds no workload of the store.
 - Bad, because the store has its own release rule: a Renovate pull request of the image waits for the operator release that builds against it.
 - Bad, because the store needs 3 Ready nodes that are not the control-plane node, so a cluster with fewer nodes, such as minikube, cannot run it.
-- Neutral, because the general settings of the operator move to the shared configuration repository in a later item.
+- Neutral, because the general settings of the operator, a platform stack that any service can use, move to dan-petty/infra in a later item ([ADR 0032](0032-infrastructure-templates-live-in-four-homes.md)).
