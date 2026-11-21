@@ -894,6 +894,12 @@ DEFAULT_ROADMAP_INTAKE_REASON_CHARS: int = 240
 # watermark, so a change that GitHub lists late is read again.
 DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS: int = 24
 DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
+# The project review catalog (#4692). GitHub gives at most 1,000 results of a filtered list of
+# Actions runs (page 11 gave 0 runs on 2026-11-11), so the runs reader splits a `created` slice in
+# two halves while its `total_count` reaches the cap. The OpenSpec reader runs `openspec show` in
+# these workers: a 7-day window archived 406 changes at about 0.2 s each.
+DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
+DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
 # `devops roadmap consolidate` (#1127): the most members one shortlist holds, and the most open
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10

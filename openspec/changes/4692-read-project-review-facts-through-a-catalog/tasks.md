@@ -16,16 +16,16 @@
 
 ## 3. Behavior: Loki metric queries at a given time
 
-- [x] 3.1 Add the failing test in `tests/k8s/test_logql_metrics.py`: `query_loki_metrics(..., at=<time>)` sends `time` with that instant, and a call with no `at` sends no `time`; teach `tests/support/fakes/loki.py` to read `time` when the test needs it
+- [x] 3.1 Add the failing test in `tests/k8s/test_logql_metrics.py`: `query_loki_metrics(..., at=<time>)` sends `time` with that instant, and a call with no `at` sends no `time`; answer from the HTTP fake
   - Verification: `$ uv run devops ci test tests/k8s/test_logql_metrics.py`
 - [x] 3.2 Add the optional `at` parameter to `query_loki_metrics` in `src/devops_cli/k8s/logql.py`; its caller `src/devops_cli/roadmap/job_grade_report.py` keeps the current time and does not change
   - Verification: `$ uv run devops ci test tests/k8s/test_logql_metrics.py tests/roadmap/test_job_grade_report.py`
 
 ## 4. Behavior: the GitHub, listing, Prometheus and Loki readers
 
-- [ ] 4.1 Add the failing tests in `tests/roadmap/project_review/test_review_readers.py`: a fake session with 2,000 runs that answers each `created` slice with at most 1,000 runs and the real `total_count` gives each run id once, and each slice read to the end holds fewer than 1,000 runs; a slice of 1 s with 1,000 runs raises `RoadmapReviewError`; a newest-first release listing requests pages 1 and 2 only when page 2 holds a release before the window start; the listing reader with a snapshot at the watermark `2026-11-11T14:28:04Z` and one issue opened at `2026-11-11T14:40:00Z` in the changed listing gives that issue once and leaves the snapshot file as it was; the `prometheus` and `loki` readers send `time` set to the window end (recorded requests of the HTTP fake)
+- [x] 4.1 Add the failing tests in `tests/roadmap/project_review/test_review_readers.py`: a fake session with 2,000 runs that answers each `created` slice with at most 1,000 runs and the real `total_count` gives each run id once, and each slice read to the end holds fewer than 1,000 runs; a slice of 1 s with 1,000 runs raises `RoadmapReviewError`; a newest-first release listing requests pages 1 and 2 only when page 2 holds a release before the window start; the listing reader with a snapshot at the watermark `2026-11-11T14:28:04Z` and one issue opened at `2026-11-11T14:40:00Z` in the changed listing gives that issue once and leaves the snapshot file as it was; the `prometheus` and `loki` readers send `time` set to the window end (recorded requests of the HTTP fake); `GitHubApiFake.serve` in `tests/support/fakes/github.py` answers a listing from its query
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py`
-- [ ] 4.2 Add `src/devops_cli/roadmap/project_review/readers.py` over `GitHubSession.pages`, `GitHubStore` with `IncrementalListing(keep=False)`, `PrometheusClient` and `query_loki_metrics`, and the run cap and slice constants in `src/devops_cli/config/defaults.py`
+- [x] 4.2 Add `src/devops_cli/roadmap/project_review/readers.py` over `GitHubSession.pages`, `GitHubStore` with `IncrementalListing(keep=False)`, `PrometheusClient` and `query_loki_metrics`, and the run cap and slice constants in `src/devops_cli/config/defaults.py`
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py`
 
 ## 5. Behavior: the OpenSpec reader

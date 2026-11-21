@@ -10,6 +10,10 @@ from pathlib import Path
 
 import httpx2
 import pytest
+
+from devops_cli.exceptions.roadmap import RoadmapReviewError
+from devops_cli.github.session import get_github_session
+from devops_cli.http.egress import EgressLevel
 from devops_cli.roadmap.project_review.readers import (
     Reads,
     read_github,
@@ -18,10 +22,6 @@ from devops_cli.roadmap.project_review.readers import (
     read_prometheus,
     read_runs,
 )
-
-from devops_cli.exceptions.roadmap import RoadmapReviewError
-from devops_cli.github.session import get_github_session
-from devops_cli.http.egress import EgressLevel
 from devops_cli.roadmap.stores.listing_snapshot import (
     LISTING_SCHEMA_KEY,
     FileSnapshotStore,

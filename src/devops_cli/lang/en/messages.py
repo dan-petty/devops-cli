@@ -6963,6 +6963,11 @@ class RoadmapMessages:
     review_catalog_unknown_section: str = (
         "{subject} names the section {section}, which `sections` does not list."
     )
+    review_page_not_a_list: str = "A page of {path} holds no list of entries."
+    review_runs_at_cap: str = (
+        "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
+        "review cannot read each run."
+    )
     review_catalog_unknown_fact: str = (
         "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )
