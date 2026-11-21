@@ -186,6 +186,7 @@ def test_a_fact_that_is_not_ok_must_say_why() -> None:
     with pytest.raises(ValidationError, match="must give a reason"):
         Fact(
             id="git.commits",
+            section="changes",
             value=None,
             unit="commits",
             n=None,

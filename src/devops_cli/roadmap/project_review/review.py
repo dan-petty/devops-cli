@@ -7,6 +7,7 @@ run with a placeholder for each value that a read gives.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
@@ -15,7 +16,9 @@ from devops_cli.core.repo import resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.git.operations import git_argv
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog
 from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewData
+from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
 from devops_cli.roadmap.project_review.facts import review_facts
 from devops_cli.roadmap.project_review.git_read import (
     blob_args,
@@ -40,11 +43,34 @@ _FOLDER: Final = "project-review"
 _SHOWN_VALUE: Final = 100
 
 
-def run_review(checkout: Path, repo: str, request: WindowRequest) -> ReviewData:
-    """The data of the window that `request` names, read from `checkout`."""
+def run_review(
+    checkout: Path,
+    repo: str,
+    request: WindowRequest,
+    *,
+    catalog: Catalog | None = None,
+    now: datetime | None = None,
+) -> ReviewData:
+    """The data of the window that `request` names: the git facts read from `checkout`, then the
+    facts of `catalog`, the shipped catalog by default, read at `now`."""
     tags = read_tags(checkout)
     window = resolve_window(checkout, request, tags)
-    return ReviewData(repo=repo, window=window, facts=review_facts(checkout, window, tags))
+    facts = review_facts(checkout, window, tags)
+    context = ReadContext(
+        checkout=checkout,
+        repo=repo,
+        window=window,
+        settings=load_settings(),
+        now=now or datetime.now(UTC),
+    )
+    result = read_catalog(catalog or load_catalog(), context)
+    return ReviewData(
+        repo=repo,
+        window=window,
+        facts=[*facts, *result.facts],
+        disagreements=result.disagreements,
+        collection=result.collection,
+    )
 
 
 def review_folder(repo: str, window_id: str) -> Path:

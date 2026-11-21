@@ -11,11 +11,11 @@ from typing import Any
 
 import httpx2
 import yaml
-from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
 
 from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
+from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
@@ -136,7 +136,11 @@ def test_a_scalar_query_with_no_series_is_skipped_not_zero(
 
     [fact] = read_catalog(catalog, _context(tmp_path)).facts
 
-    assert (fact.status, fact.value, "no series" in fact.reason) == (FactStatus.SKIPPED, None, True)
+    assert (fact.status, fact.value, "no series" in fact.reason.lower()) == (
+        FactStatus.SKIPPED,
+        None,
+        True,
+    )
 
 
 def test_a_failed_loki_read_marks_its_fact_and_the_review_reads_the_others(
@@ -190,7 +194,12 @@ def test_the_stage_sli_is_the_value_of_the_repository_of_the_review(
 def test_two_facts_on_one_query_share_one_read(tmp_path: Path, github_api: GitHubApiFake) -> None:
     releases = [{"id": 2, "prerelease": True}, {"id": 1, "prerelease": False}]
     github_api.route("GET", f"/repos/{REPO}/releases?per_page=100", github_json(releases))
-    common = {"reader": "github", "section": "service", "query": "repos/{repo}/releases"}
+    common = {
+        "reader": "github",
+        "section": "service",
+        "query": "repos/{repo}/releases",
+        "definition": "The releases.",
+    }
     catalog = _catalog(
         tmp_path,
         [

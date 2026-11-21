@@ -6913,6 +6913,12 @@ class RoadmapMessages:
             "head": "<head commit>",
             "ref": "<default branch>",
             "path": "<path>",
+            "start": "<start time>",
+            "end": "<end time>",
+            "range": "<window length>",
+            "repo": "<owner/name>",
+            "watermark": "<watermark of the snapshot>",
+            "change": "<archived change>",
         }
     )
     review_fact_definitions: dict[str, str] = field(
@@ -6947,6 +6953,30 @@ class RoadmapMessages:
                 "that the commit does not hold."
             ),
         }
+    )
+    review_unset_setting: str = "The setting {setting} has no value."
+    review_other_window: str = (
+        "The window is a {kind} window, and the fact needs a {needed} window."
+    )
+    review_no_path: str = "The checkout holds no {path}."
+    review_past_retention: str = (
+        "The source keeps {days} days: the window starts at {start}, before {limit}."
+    )
+    review_no_series: str = "No series matched the query."
+    review_many_series: str = "The scalar query gave {count} series, not one."
+    review_not_number: str = "The sample is not a finite number."
+    review_no_value: str = "The value program gave no value."
+    review_plan_condition: dict[str, str] = field(
+        default_factory=lambda: {
+            "setting": "{name} is set",
+            "window": "the window is a {name} window",
+            "path": "the checkout holds {name}",
+        }
+    )
+    review_plan_snapshot: str = "a fit listing snapshot is kept; else the whole listing, state=all"
+    review_plan_each_change: str = "for each archived change that holds specs/"
+    review_plan_each_slice: str = (
+        "for each created slice, split in halves while a slice reaches 1,000 runs"
     )
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
     review_catalog_fact: str = "the fact {id}"

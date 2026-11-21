@@ -53,7 +53,7 @@ disagreements:
 - `query` is the template that the reader sends: a REST path with its query string, a PromQL or LogQL expression, or the name of the OpenSpec read.
 - `value` is a `jq` program that gives the value from the answer, required for `listing`, `github`, `github_runs` and `openspec`. `n` is an optional `jq` program that gives the sample size. The program gets `$start` and `$end` (Unix seconds) and `$repo`.
 - `shape` is `scalar` or `rows`, required for `prometheus` and `loki`. A scalar is the value of the one sample. Rows are `{labels, value}` for each sample, the largest value first.
-- `requires` is a list of `setting:<dotted name>` (the setting has a value) and `window:<kind>` (the window has that kind). The reader kind and the fact can each give conditions.
+- `requires` is a list of `setting:<dotted name>` (the setting has a value), `window:<kind>` (the window has that kind) and `path:<path>` (the checkout holds the path). The `openspec` reader kind requires `path:openspec/specs`, so a repository with no OpenSpec gives `skipped`, not 0 requirements. The reader kind and the fact can each give conditions.
 - `retention` is a duration in days (`30d`). The fact value overrides the value of its reader kind.
 - `tolerance` is the largest relative difference, `|a - b| / max(|a|, |b|)`, that is not a disagreement.
 
