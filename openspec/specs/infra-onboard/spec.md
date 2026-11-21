@@ -1,7 +1,7 @@
 # infra-onboard Specification
 
 ## Purpose
-How `devops infra onboard` checks an Ansible infra repo for what `devops infra` needs, from local files and local tool output only, and how it writes the entry of the repo, with its agent access level, into `infra.repos`.
+How `devops infra onboard` checks an Ansible infra repo for what `devops infra` needs, from the files of its default branch, local tool output and the roles of its pinned collections, and how it writes the entry of the repo, with its agent access level, into `infra.repos`.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ An entry of `infra.repos` SHALL hold operational keys only: `repo`, `path`, `kub
 - **THEN** the settings are refused
 
 ### Requirement: One row for each check
-`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin`, with `ansible-config dump` and `ansible-inventory --list` in the export, `ssh-keygen -F` for each host in service and `kubectl config get-contexts`. The fetch of `origin` SHALL be its only request. It SHALL exit 1 when a row is `missing`.
+`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin` and the output of local tools, in the order of the scenario "The requests of a complete repo". The fetch of `origin` and the install of the pinned collections SHALL be its only requests. It SHALL exit 1 when a row is `missing`.
 
 #### Scenario: A complete repo
 - **WHEN** the command checks a repo in the shape of dan-petty/homelab that holds every item and has an entry in `infra.repos`
@@ -42,6 +42,10 @@ An entry of `infra.repos` SHALL hold operational keys only: `repo`, `path`, `kub
 #### Scenario: A tool environment on PATH
 - **WHEN** an `ansible-runner` is on PATH
 - **THEN** the first row is `present` and names the folder of the `ansible-runner` on PATH
+
+#### Scenario: The requests of a complete repo
+- **WHEN** the command checks the complete repo, whose `collections/requirements.yml` pins 3 collections
+- **THEN** the commands are the git reads of the default branch, the config dump, the inventory listing, the install of the pinned collections, the role listing, `ssh-keygen -F` for each host in service and the kubeconfig contexts, in that order
 
 ### Requirement: Host key checks in the config and the inventory
 The host key row SHALL be `missing` when the effective config sets `host_key_checking` false or holds `StrictHostKeyChecking=no` or `UserKnownHostsFile=/dev/null` in an option of the `ssh` plugin, or when a host variable `ansible_ssh_args`, `ansible_ssh_common_args`, `ansible_ssh_extra_args`, `ansible_host_key_checking` or `ansible_ssh_host_key_checking` does the same. It SHALL list each such setting.
@@ -94,7 +98,7 @@ With `--dry-run`, the command SHALL start no process and write no file, and SHAL
 
 #### Scenario: A dry run with confirm
 - **WHEN** the command runs with `--confirm --dry-run`
-- **THEN** no process starts, the config file keeps every byte, and the output lists the fetch of `origin`, the reads of the default branch and of the checkout, the export, the config dump, the inventory listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
+- **THEN** no process starts, the config file keeps every byte, and the output lists the fetch of `origin`, the reads of the default branch and of the checkout, the export, the config dump, the inventory listing, the install of the pinned collections, the role listing, `ssh-keygen -F <host>` for each host in service, the kubeconfig contexts and the write of `infra.repos`
 
 ### Requirement: The report reads the default branch at origin
 The command SHALL read the infra repo at the head of its default branch at `origin`, never in its working tree. It SHALL fetch `origin` with no prompt and no credential `-c` value: git gets the credential from its configured helper, `gh auth git-credential` in the devcontainer and the images. It SHALL export the tracked files of the commit that `refs/remotes/origin/HEAD` names into a new private folder, read the repo there, and remove it. It MUST NOT change a file or a branch of the checkout.
@@ -146,3 +150,21 @@ Only `ansible-runner` SHALL go on PATH. The command SHALL start the Ansible comm
 #### Scenario: No ansible-runner on PATH
 - **WHEN** no `ansible-runner` is on PATH
 - **THEN** the command finds no tool environment, and a dry run shows each Ansible command with no folder
+
+### Requirement: The roles row lists the roles of the pinned collections
+When the export holds `collections/requirements.yml`, the command SHALL install its collections into a new temporary folder with `ansible-galaxy collection install`, read `ansible-doc -t role -l -j` with only that folder as the collections path, and remove the folder. The roles row SHALL list the roles of the role folders, then each role of the listing that names a collection, by its full name. The command MUST NOT read the files of a collection itself.
+
+#### Scenario: A role of a pinned collection
+- **WHEN** `collections/requirements.yml` pins the collection `example.infra`, whose role `nvidia` has an argument spec
+- **THEN** the roles row is `present` and lists the 5 roles of `ansible/roles`, then `example.infra.nvidia`, `ansible-doc` ran with `ANSIBLE_COLLECTIONS_PATH` set to the `-p` folder of the install and `ANSIBLE_COLLECTIONS_SCAN_SYS_PATH` set to `False`, and the folder no longer exists
+
+### Requirement: The roles row keeps the role folders when the collections do not read
+When no Ansible tool environment is installed, or its folder holds no `ansible-doc`, the command SHALL start no install, and the roles row SHALL list the roles of the role folders and say in its reason that it does not list the roles of the pinned collections. When the install or the listing fails, the row SHALL list the roles of the role folders and name the command, its exit code and its last line in its reason.
+
+#### Scenario: No ansible-doc in the tool environment
+- **WHEN** the folder of the `ansible-runner` on PATH holds no `ansible-doc`
+- **THEN** the roles row is `present` and lists the 5 roles of `ansible/roles`, its reason says that no `ansible-doc` is in the Ansible tool environment, and no `ansible-galaxy` or `ansible-doc` starts
+
+#### Scenario: The install fails
+- **WHEN** `ansible-galaxy collection install` exits 1
+- **THEN** the roles row is `present` and lists the 5 roles of `ansible/roles`, its reason names `ansible-galaxy collection install` and the exit code 1, and no `ansible-doc` starts

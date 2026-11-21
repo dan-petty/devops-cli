@@ -21,7 +21,7 @@ When no Ansible tool environment is installed, or its folder holds no `ansible-d
 ## MODIFIED Requirements
 
 ### Requirement: One row for each check
-`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin`, with `ansible-config dump` and `ansible-inventory --list` in the export, the install of the pinned collections and `ansible-doc -t role -l -j` when the export holds `collections/requirements.yml`, `ssh-keygen -F` for each host in service and `kubectl config get-contexts`. The fetch of `origin` and the install of the pinned collections SHALL be its only requests. It SHALL exit 1 when a row is `missing`.
+`devops infra onboard <repo>` SHALL print one row for each of 17 checks, in order, each with one state: `present`, `missing`, `not readable` or `listed`. It SHALL read the export of the default branch at `origin` and the output of local tools, in the order of the scenario "The requests of a complete repo". The fetch of `origin` and the install of the pinned collections SHALL be its only requests. It SHALL exit 1 when a row is `missing`.
 
 #### Scenario: A complete repo
 - **WHEN** the command checks a repo in the shape of dan-petty/homelab that holds every item and has an entry in `infra.repos`
