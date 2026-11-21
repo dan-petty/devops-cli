@@ -3,7 +3,7 @@
   '''
   Plan for the apply of the plan <plan id> of example-org/infra at <tmp>/repo
     1. EXEC the fetch of origin into <tmp>/repo
-         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+         git -C <tmp>/repo fetch --quiet origin
     2. EXEC whether the default branch of origin holds f5961bd2da6856e31914037c0f048337989dfbe7
          git -C <tmp>/repo merge-base --is-ancestor f5961bd2da6856e31914037c0f048337989dfbe7 refs/remotes/origin/HEAD
     3. EXEC whether origin/main holds f5961bd2da6856e31914037c0f048337989dfbe7

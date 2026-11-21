@@ -40,7 +40,7 @@ from devops_cli.config.constants import (
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_ACCEPTED_ENV,
     CONST_GIT_CLI,
-    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
+    CONST_GIT_CONFIG_ENV_PATTERNS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_NETWORK_SUBCOMMANDS,
     CONST_GIT_REMOTE_NETWORK_ACTIONS,
@@ -206,6 +206,12 @@ def build_subprocess_env(
     against DEFAULT_ALLOWED_ENV_VARS and DEFAULT_ALLOWED_ENV_PREFIXES, while stripping
     any variables matching DEFAULT_DENIED_ENV_PATTERNS. Caller-provided env overrides
     are merged on top of the sanitized base, preserving explicit caller intent.
+
+    The git configuration keys of the environment (`CONST_GIT_CONFIG_ENV_PATTERNS`) reach each
+    child of a person, as a shell gives them, so git reads the credential helper that the
+    devcontainer sets. A process that acts as the GitHub App gives them to no child, also with
+    isolation off: its image sets the helper in `/etc/gitconfig`, and until #3700 the shell of
+    the agent can start a process with keys of its own (#6653). A caller cannot set them.
     """
     if not isolate_env:
         base_env = dict(os.environ)
@@ -229,6 +235,16 @@ def build_subprocess_env(
             if "\x00" in k or "\x00" in str(v):
                 raise SecurityError(f"Null byte in environment variable prohibited: '{k}'")
             base_env[k] = str(v)
+    git_config = {
+        key: value
+        for key, value in os.environ.items()
+        if any(fnmatch.fnmatchcase(key, pattern) for pattern in CONST_GIT_CONFIG_ENV_PATTERNS)
+    }
+    if acts_as_github_app():
+        for key in git_config:
+            base_env.pop(key, None)
+    elif isolate_env:
+        base_env.update(git_config)
     return base_env
 
 
@@ -464,18 +480,6 @@ def git_reaches_remote(args: Sequence[str]) -> bool:
     return False
 
 
-def git_credential_args(cmd: list[str]) -> list[str]:
-    """The `-c` words that give a git child which reaches a remote the GitHub credential helper of
-    `CONST_GIT_GITHUB_CREDENTIAL_CONFIG`, and none for any other command. `gh auth git-credential`
-    then reads the `GH_TOKEN` that `_github_pin` gives the same child (#6340). A caller that passed
-    the values itself, as `devops infra` does, gets them once."""
-    if _github_client_name(cmd) != CONST_GIT_CLI or not git_reaches_remote(cmd[1:]):
-        return []
-    if all(value in cmd for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG):
-        return []
-    return [word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)]
-
-
 def _refuse_root(root: Path, reason: str) -> None:
     raise PermissionError(errno.EACCES, reason, str(root))
 
@@ -613,8 +617,8 @@ def _github_pin(cmd: list[str], caller_env: dict[str, str] | None = None) -> _Gi
     """The GitHub token that the child `cmd` gets, or None for a program that is no GitHub client.
     It looks the token up and writes no file, so an async call can run it in a thread.
 
-    A git child that reaches a remote gets the session's token as GH_TOKEN and, through
-    `git_credential_args`, the GitHub credential helper that reads it. Any other git child gets no
+    A git child that reaches a remote gets the session's token as GH_TOKEN, which the credential
+    helper that git is configured with, `gh auth git-credential`, reads. Any other git child gets no
     GitHub token and starts no lookup: a program that the configuration of its repository names
     runs as its child (GHSA). A gh child gets no token in its environment: gh gives its environment
     to each `--jq` filter. It reads the token from its own configuration folder.
@@ -913,7 +917,6 @@ class DefaultProcessRunner:
             extra_allowed_keys=extra_allowed_env,
         )
         pin = _github_pin(full_cmd, env)
-        full_cmd[1:1] = git_credential_args(full_cmd)
 
         with (
             _pinned(pin, sub_env),
@@ -1048,7 +1051,6 @@ class DefaultProcessRunner:
             extra_allowed_keys=extra_allowed_env,
         )
         pin = await asyncio.to_thread(_github_pin, full_cmd, env)
-        full_cmd[1:1] = git_credential_args(full_cmd)
 
         with (
             _pinned(pin, sub_env),

@@ -3,7 +3,7 @@
   '''
   Plan for the check-mode run of ansible/playbooks/03_k3s.yaml of example-org/infra at <tmp>/repo
     1. EXEC the fetch of origin into <tmp>/repo
-         git -C <tmp>/repo -c credential.https://github.com.helper= -c 'credential.https://github.com.helper=!gh auth git-credential' fetch --quiet origin
+         git -C <tmp>/repo fetch --quiet origin
     2. EXEC the check of the branch name fix/k3s
          git -C <tmp>/repo check-ref-format --branch fix/k3s
     3. EXEC the commit of origin/fix/k3s

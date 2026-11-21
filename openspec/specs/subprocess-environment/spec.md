@@ -67,11 +67,11 @@ Which caller overrides of the environment of a child process devops-cli refuses,
 - **THEN** `semgrep --version` and `semgrep --test` each start with the caller override `{"SEMGREP_ENABLE_VERSION_CHECK": "0"}` and no other key
 
 ### Requirement: An isolated child gets no refused key from the environment
-With environment isolation on, `build_subprocess_env` SHALL keep each key that the caller override refuses out of the child environment when the key is in the environment of the process and the caller names no `extra_allowed_keys`. The one exception is the keys that the prefix `UV_` lets through: `UV_PYTHON` and `UV_PYTHON_INSTALL_DIR`.
+With environment isolation on, `build_subprocess_env` SHALL keep each key that the caller override refuses out of the child environment when the key is in the environment of the process and the caller names no `extra_allowed_keys`. The exceptions are the keys that the prefix `UV_` lets through, `UV_PYTHON` and `UV_PYTHON_INSTALL_DIR`, and, for a process that does not act as the GitHub App, the upper-case `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`.
 
 #### Scenario: Refused keys in the environment of the person
-- **WHEN** the environment holds `PYTHONPATH`, `PYTHONHOME`, `ZDOTDIR`, `NODE_OPTIONS`, `PERL5LIB`, `LD_PRELOAD`, `BASH_ENV` and each other refused key but the two uv keys, and a caller builds a child environment with isolation on
-- **THEN** the child environment holds none of these keys
+- **WHEN** the environment holds `PYTHONPATH`, `PYTHONHOME`, `ZDOTDIR`, `NODE_OPTIONS`, `PERL5LIB`, `LD_PRELOAD`, `BASH_ENV` and each other refused key but the two uv keys, in upper and in lower case, and a caller builds a child environment with isolation on
+- **THEN** the child environment holds none of these keys but the upper-case `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_0`, `GIT_CONFIG_KEY_12`, `GIT_CONFIG_VALUE_0` and `GIT_CONFIG_VALUE_12`
 
 ### Requirement: A caller override of a git key that devops-cli does not set is refused
 `build_subprocess_env` SHALL raise `SecurityError` for a caller override whose upper-case key starts with `GIT_`, but not for the seven keys of the next requirement, nor for `CONST_GIT_ISOLATED_CONFIG_ENV`. It SHALL refuse `EDITOR`, `VISUAL`, `PAGER`, `LESSOPEN`, `LESSCLOSE` and `MERGE_TOOLS_DIR` in the same way. The message is "Prohibited dangerous environment variable override: '<key>'" and the error code is `SECURITY_ERROR`. It SHALL do this with environment isolation on and off.
@@ -523,20 +523,24 @@ The process runner SHALL start each child that gets the session's token in a ses
 - **WHEN** a git child that reaches a remote starts a helper and runs past its timeout
 - **THEN** the call raises `subprocess.TimeoutExpired`, and neither the child nor the helper is alive
 
-### Requirement: A git child that reaches a remote gets the GitHub credential helper
-The process runner SHALL give each git child that reaches a remote the two `-c` values of `CONST_GIT_GITHUB_CREDENTIAL_CONFIG`, after the `git` word and before the subcommand, so that `gh auth git-credential` reads the `GH_TOKEN` that the same call pins on that child.
-
-#### Scenario: The reproduction form with a token
-- **WHEN** a test runs `git -C <clone> ls-remote --heads origin main` through the process runner with the session's token and a child that records its arguments
-- **THEN** the recorded arguments hold the two `-c` values of `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` after `git` and before `ls-remote`, and the environment of the child holds `GH_TOKEN`.
-
-#### Scenario: A fetch with prune
-- **WHEN** a test runs `git fetch --prune origin` through the process runner with the session's token and a child that records its arguments
-- **THEN** the recorded arguments hold the two `-c` values after `git` and before `fetch`, and the environment of the child holds `GH_TOKEN`.
-
-### Requirement: A git child that reaches no remote gets no credential helper
-The process runner MUST NOT give the credential helper or a GitHub token to a git child that reaches no remote.
+### Requirement: A git child gets no -c value, and a git child that reaches no remote gets no token
+The process runner MUST NOT add a `-c` value to the arguments of a git child, and MUST NOT give a GitHub token to a git child that reaches no remote.
 
 #### Scenario: A local status
 - **WHEN** a test runs `git status` through the process runner with `GH_TOKEN` in the environment of the process
 - **THEN** the recorded arguments hold no `-c` credential value, and the environment of the child holds no `GH_TOKEN`.
+
+### Requirement: The git configuration keys of the environment reach only a child of a person
+`build_subprocess_env` SHALL give each child the `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` of the environment of the process when the process does not act as the GitHub App, as a shell gives them, so git reads the credential helper that the devcontainer sets with them. When the process acts as the GitHub App, `build_subprocess_env` MUST give a child none of these keys, with isolation on or off. A caller override of these keys stays refused.
+
+#### Scenario: A git child of a person
+- **WHEN** the environment holds the `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` that set the helper `gh auth git-credential` for github.com, the process does not act as the GitHub App, and a test runs `git -C clone ls-remote --heads origin` through the process runner
+- **THEN** the child environment holds these keys with their values, the child gets the session's token as `GH_TOKEN`, and its arguments are the arguments of the caller with no `-c` value
+
+#### Scenario: A git child of the GitHub App
+- **WHEN** the environment holds the same keys and the private key of the GitHub App, and a test runs the same command through the process runner
+- **THEN** the child environment holds none of these keys, and the child gets the session's token as `GH_TOKEN`
+
+#### Scenario: The GitHub App with isolation off
+- **WHEN** the environment holds the same keys and the private key of the GitHub App, and a caller builds a child environment with isolation off
+- **THEN** the child environment holds none of these keys

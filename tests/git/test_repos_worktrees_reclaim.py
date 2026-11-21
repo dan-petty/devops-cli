@@ -7,15 +7,19 @@ pull requests the GitHub fake answers for.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.core import process
 from devops_cli.git.worktree_inventory import inventory_worktrees, prune_worktrees
 from devops_cli.output import format_bytes
 from tests.support.fakes.github import github_json
@@ -133,6 +137,84 @@ def test_a_failed_read_of_origin_removes_no_worktree(
     assert github_api.requested == []
     assert "git ls-remote --heads origin" in said
     assert "credential.https://github.com.helper" not in said
+
+
+class _Challenge(BaseHTTPRequestHandler):
+    """Answers each request with 401 and a Basic challenge, and keeps its `Authorization`."""
+
+    seen: list[str | None]
+
+    def do_GET(self) -> None:
+        self.seen.append(self.headers.get("Authorization"))
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="example"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *_args: object) -> None:
+        return None
+
+
+@pytest.fixture
+def challenge() -> Iterator[tuple[str, list[str | None]]]:
+    """The URL of a private repository on a loopback server that asks for Basic credentials, and
+    the `Authorization` header of each request that it received."""
+    seen: list[str | None] = []
+    server = HTTPServer(("127.0.0.1", 0), type("Handler", (_Challenge,), {"seen": seen}))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/example-org/app.git", seen
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_read_of_origin_uses_the_credential_helper_of_the_environment(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    github_api: GitHubApiFake,
+    new_dir: Path,
+    challenge: tuple[str, list[str | None]],
+    pin_github_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The devcontainer sets the credential helper with `GIT_CONFIG_*` keys. The read of a private
+    `origin` gets its credential from that helper, which reads the session's token, and the git
+    command holds no `-c` value of devops-cli (#6340, #6653). The server always refuses, so the
+    run stops after the read."""
+    url, seen = challenge
+    git(repo, "remote", "set-url", "origin", url)
+    helper = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+    # The home of the tests refuses every transport but `file` (#4711), so the keys also allow
+    # http for the loopback server.
+    configured = {
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "credential.helper",
+        "GIT_CONFIG_VALUE_0": "",
+        "GIT_CONFIG_KEY_1": "credential.helper",
+        "GIT_CONFIG_VALUE_1": helper,
+        "GIT_CONFIG_KEY_2": "protocol.http.allow",
+        "GIT_CONFIG_VALUE_2": "always",
+    }
+    for key, value in configured.items():
+        monkeypatch.setenv(key, value)
+    started: list[list[str]] = []
+    run_in_own_session = process._run_in_own_session
+
+    def record(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        started.append(list(cmd))
+        return run_in_own_session(cmd, **kwargs)
+
+    monkeypatch.setattr(process, "_run_in_own_session", record)
+
+    result = _add(cli, repo)
+
+    credential = base64.b64encode(f"x-access-token:{pin_github_session}".encode()).decode()
+    assert (result.exit_code, f"Basic {credential}" in seen, new_dir.exists()) == (1, True, False)
+    assert started == [["git", "-C", str(repo), "ls-remote", "--heads", "origin"]]
+    assert github_api.requested == []
 
 
 def test_the_table_output_names_each_removed_worktree_with_its_size(

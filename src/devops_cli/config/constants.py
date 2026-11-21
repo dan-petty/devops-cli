@@ -1249,9 +1249,18 @@ CONST_GIT_GITHUB_CREDENTIAL_CONFIG: Final[tuple[str, ...]] = (
 )
 """The `git -c` values that make git get a github.com credential from `gh auth git-credential`,
 which reads the GH_TOKEN that the process runner pins on a git child (#5162). The empty value
-first clears the helpers of the config files, such as the helper of VS Code, which needs keys
-that `build_subprocess_env` does not pass. The devcontainer sets the same helpers with
-`GIT_CONFIG_*` keys, which `build_subprocess_env` does not pass either."""
+first clears the helpers of the config files. Only the git calls that read no config file use
+them: the network calls of the implement job (`CONST_GIT_TOKEN_CALL_CONFIG`) and `git_call` of
+`publish`. Each other git child reads the helper that the devcontainer or the image configures
+(#6653)."""
+CONST_GIT_CONFIG_ENV_PATTERNS: Final[tuple[str, ...]] = (
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_*",
+    "GIT_CONFIG_VALUE_*",
+)
+"""The keys of the environment from which git reads configuration values (git-config(1)). The
+devcontainer sets the GitHub credential helper with them. `build_subprocess_env` gives them to
+each child of a person, as a shell does, and to no child of the GitHub App (#6653)."""
 CONST_GIT_ISOLATED_CONFIG_ENV: Final[Mapping[str, str]] = MappingProxyType(
     {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 )

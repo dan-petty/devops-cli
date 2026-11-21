@@ -1095,6 +1095,16 @@ def isolate_ssh_agent(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolate_git_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` of the
+    devcontainer out of the tests: `build_subprocess_env` gives them to each child of a person
+    (#6653), and a GitHub runner has none. A test that needs them sets them."""
+    for key in list(os.environ):
+        if key.startswith(("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            monkeypatch.delenv(key)
+
+
+@pytest.fixture(autouse=True)
 def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))

@@ -255,21 +255,13 @@ class PreReadOrigin:
         _CloneOrigin(self._repo_root).fetch(*branches)
 
 
-def _command_words(argv: list[str]) -> list[str]:
-    """The words that name the git command: everything after the clone prefix `-C <path>`, so the
-    `-c` values that the process runner inserts for a git child that reaches a remote stay out of
-    the message (#6340)."""
-    prefix = argv.index("-C") + 2 if "-C" in argv else 0
-    return argv[prefix:]
-
-
 def _run(argv: list[str]) -> str:
     """Run one git command; its output, or the error that names the command and what git said."""
     proc = run_subprocess(argv, check=False, quiet=True)
     if proc.returncode != 0:
         raise _failure(
             MESSAGES.repos.worktrees_add_git_failed.format(
-                command=" ".join(_command_words(argv)), reason=mask_secrets(git_message(proc))
+                command=" ".join(argv[3:]), reason=mask_secrets(git_message(proc))
             )
         )
     return proc.stdout
