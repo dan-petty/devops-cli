@@ -12,6 +12,7 @@ recorded transcript.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -25,6 +26,7 @@ from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.git.operations import git_argv
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.tool import OpenSpecTool, output_of
 from devops_cli.roadmap.project_review.catalog import ReaderKind
 from devops_cli.roadmap.project_review.git_read import query_text, run_git
 from devops_cli.roadmap.project_review.readers import Reads
@@ -140,8 +142,41 @@ def _deltas(answer: Mapping[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _shown(checkout: Path, changes: Sequence[ArchivedChange]) -> list[dict[str, Any]]:
-    """The deltas of each change, read by `openspec show` in a temporary root."""
+def _refusal(run: Any) -> str:
+    """Why `openspec show` refused a change: the messages of its JSON status, else the first
+    line of its output."""
+    try:
+        status = json.loads(run.stdout or "").get("status", [])
+        messages = [str(entry["message"]) for entry in status if "message" in entry]
+    except ValueError, AttributeError, TypeError, KeyError:
+        messages = []
+    if messages:
+        return "; ".join(messages)
+    lines = (output_of(run) or "").strip().splitlines()
+    return lines[0] if lines else f"exit code {run.returncode}"
+
+
+def _show(tool: OpenSpecTool, change: str, root: Path) -> dict[str, Any] | str:
+    """The JSON of `openspec show` for `change`, or the reason when the tool refuses it. A
+    change that the tool cannot parse, such as a proposal with no Why section, is data of the
+    review, so the other changes are still read."""
+    run = tool.run(show_args(change), root)
+    if run.returncode != 0:
+        return _refusal(run)
+    try:
+        answer: dict[str, Any] = json.loads(run.stdout)
+    except ValueError as error:
+        raise RoadmapReviewError(
+            MESSAGES.roadmap.review_openspec_not_json.format(change=change, text=run.stdout[:128])
+        ) from error
+    return answer
+
+
+def _shown(
+    checkout: Path, changes: Sequence[ArchivedChange]
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """The deltas of each change, read by `openspec show` in a temporary root, and each change
+    that the tool refused with its reason."""
     from devops_cli.openspec.tool import isolated_openspec
 
     with tempfile.TemporaryDirectory(prefix="project-review-openspec-") as scratch:
@@ -155,23 +190,31 @@ def _shown(checkout: Path, changes: Sequence[ArchivedChange]) -> list[dict[str, 
             isolated_openspec(checkout) as tool,
             ThreadPoolExecutor(DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS) as pool,
         ):
-            answers = list(
-                pool.map(lambda change: tool.read_json(show_args(change.name), root), changes)
-            )
-    return [
+            answers = list(pool.map(lambda change: _show(tool, change.name, root), changes))
+    shown = [
         {"id": change.name, "deltas": _deltas(answer)}
         for change, answer in zip(changes, answers, strict=True)
+        if not isinstance(answer, str)
     ]
+    unread = [
+        {"id": change.name, "reason": answer}
+        for change, answer in zip(changes, answers, strict=True)
+        if isinstance(answer, str)
+    ]
+    return shown, unread
 
 
 def read_openspec(checkout: Path, base: str, head: str, reads: Reads) -> dict[str, Any]:
-    """The deltas of each change that the window archived, and the requirement totals at the
-    base and at the head, as `{"changes": [{"id", "deltas"}], "requirements": {"base", "head"}}`.
-    """
+    """The deltas of each change that the window archived, each change that `openspec show`
+    refused with its reason, and the requirement totals at the base and at the head, as
+    `{"changes": [{"id", "deltas"}], "unread": [{"id", "reason"}], "requirements": {"base",
+    "head"}}`."""
     changes = archived_changes(checkout, base, head)
     reads.add(ReaderKind.OPENSPEC, len(changes))
+    shown, unread = _shown(checkout, changes) if changes else ([], [])
     return {
-        "changes": _shown(checkout, changes) if changes else [],
+        "changes": shown,
+        "unread": unread,
         "requirements": {
             "base": requirement_total(checkout, base),
             "head": requirement_total(checkout, head),

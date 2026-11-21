@@ -115,11 +115,15 @@ The dispatcher SHALL send each distinct rendered query once, and SHALL give the 
 - **THEN** the fake GitHub records one request for each page, and each fact has the value of its own program
 
 ### Requirement: The OpenSpec reader counts the deltas of the window
-The `openspec` reader SHALL copy the files of each change that the window archived, at the head, into a temporary root, SHALL read each change that the window archived with `openspec show --json --deltas-only`, and SHALL count the requirements at the base and at the head with `git grep -c`. It SHALL change no file of the checkout.
+The `openspec` reader SHALL copy the files of each change that the window archived, at the head, into a temporary root, SHALL read each change that the window archived with `openspec show --json --deltas-only`, and SHALL count the requirements at the base and at the head with `git grep -c`. A change that `openspec show` refuses SHALL be listed with the reason of the tool, and the reader SHALL read the other changes. It SHALL change no file of the checkout.
 
 #### Scenario: One archived change
 - **WHEN** a fixture repository archives one change with one ADDED and one MODIFIED requirement in the window, and its specs hold 1 requirement at the base and 2 at the head
 - **THEN** the reader gives 1 ADDED and 1 MODIFIED delta, and the totals 1 at the base and 2 at the head
+
+#### Scenario: A change that openspec cannot show
+- **WHEN** `openspec show` exits 1 for the archived change of the fixture repository with the message "Change must have a Why section"
+- **THEN** the reader lists the change with that message, gives no delta for it, and still gives the totals 1 at the base and 2 at the head
 
 ### Requirement: The review lists the disagreements of the catalog
 For each pair of facts that the catalog says must agree, the review SHALL list a disagreement when both facts are `ok` numbers and their relative difference is more than the tolerance of the pair. Each row SHALL hold the id of the pair, the two fact ids and the two values.

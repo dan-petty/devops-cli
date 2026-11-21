@@ -146,7 +146,18 @@ facts:
     unit: requirements
     definition: >-
       The requirement deltas of the changes archived in the window, for each operation
-      (ADDED, MODIFIED, REMOVED, RENAMED). n is the number of changes with specs.
+      (ADDED, MODIFIED, REMOVED, RENAMED). n is the number of changes with specs that openspec
+      showed; openspec.unread_changes lists the others.
+  - id: openspec.unread_changes
+    reader: openspec
+    section: openspec
+    query: openspec show <change> --json --deltas-only for each change archived in {base}..{head}
+    value: '[.unread[].id]'
+    n: .unread | length
+    unit: changes
+    definition: >-
+      The archived changes of the window that openspec show refused, such as a proposal with no
+      Why section. Their deltas are not in openspec.deltas.
   - id: openspec.requirements
     reader: openspec
     section: openspec

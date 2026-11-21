@@ -6999,6 +6999,7 @@ class RoadmapMessages:
     review_catalog_unknown_section: str = (
         "{subject} names the section {section}, which `sections` does not list."
     )
+    review_openspec_not_json: str = "openspec show {change} printed no JSON: {text}"
     review_page_not_a_list: str = "A page of {path} holds no list of entries."
     review_runs_at_cap: str = (
         "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
