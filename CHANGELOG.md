@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.185.3](https://github.com/dan-petty/devops-cli/compare/v0.185.2...v0.185.3) (2026-11-21)
+
+
+### Bug Fixes
+
+* **security:** extend the kubectl Trivy ignores to 2026-12-15 ([#6574](https://github.com/dan-petty/devops-cli/issues/6574)) ([32e9d2b](https://github.com/dan-petty/devops-cli/commit/32e9d2ba7293baebf21607e93d229d1c31fb3137))
+
 ## [0.185.2](https://github.com/dan-petty/devops-cli/compare/v0.185.1...v0.185.2) (2026-11-20)
 
 
