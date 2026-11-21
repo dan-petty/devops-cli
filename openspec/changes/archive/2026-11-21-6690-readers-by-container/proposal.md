@@ -9,13 +9,16 @@
 - The fix-checks row reads the result line from `publish`, then from `prepare`. The stage row names the container of its template. The deadline and the live view read the container that runs.
 - `template_container` takes a container name, an init container included. `build_job` gives each phase container its `--phase`, `--work /run/roadmap` and the same environment, and only `agent` the size of the unit.
 - `devops k8s run-job` follows each phase container in turn and reads the exit code of each by its name.
+- `run-job --dry-run` lists the reads of one container and of each phase container, each under its condition.
+- `roadmap step fix-checks` runs a phase with no `--confirm` as a plan: `prepare` runs the plan round, and `agent` and `publish` do nothing. So a Job in mode `plan`, the default, runs on the phases.
 - No template under `k8s/` changes.
 
 ## Capabilities
 - `roadmap-implement-runner`: adds the requirements for the Job builder, the readers and run-job on the phases.
+- `roadmap-fix-checks`: a plan Job on the phases plans in `prepare` only, and a phase of a repair needs `--work`.
 
 ## Impact
-- `src/devops_cli/k8s/cluster_job.py`, `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/commands/k8s/cluster_jobs.py`, `src/devops_cli/roadmap/fix_checks_row.py`, `src/devops_cli/roadmap/stage/stage_submit.py`.
+- `src/devops_cli/k8s/cluster_job.py`, `src/devops_cli/k8s/cluster_job_api.py`, `src/devops_cli/commands/k8s/cluster_jobs.py`, `src/devops_cli/roadmap/fix_checks_row.py`, `src/devops_cli/roadmap/stage/stage_submit.py`, `src/devops_cli/commands/roadmap_step_fix_checks.py`.
 - The one-container runner template of today works as before.
 
 ## Feasibility

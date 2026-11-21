@@ -9,7 +9,10 @@
 - [x] 1.3 Follow each phase container in run-job
   - Verification: `$ uv run devops ci test tests/commands/k8s/test_k8s_run_job.py`
 
+- [x] 1.4 Run a fix-checks phase with no `--confirm` as a plan, and list the phase reads in the dry run
+  - Verification: `$ uv run devops ci test tests/commands/test_roadmap_step_fix_checks.py tests/commands/k8s/test_k8s_run_job.py`
+
 ## 2. Documents
 
-- [x] 2.1 Add the requirements to the `roadmap-implement-runner` spec
+- [x] 2.1 Add the requirements to the `roadmap-implement-runner` and `roadmap-fix-checks` specs
   - Verification: `$ uv run devops openspec check`

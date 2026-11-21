@@ -480,3 +480,7 @@ For a Job on the phases, `devops k8s run-job` SHALL follow `prepare`, `agent` an
 #### Scenario: The agent fails
 - **WHEN** `prepare` exits with 0 and `agent` exits with 137
 - **THEN** run-job follows `prepare` and `agent`, follows no more containers, and exits with 137
+
+#### Scenario: A dry run of the runner template
+- **WHEN** run-job prints the dry run of the runner template, which reads no CronJob
+- **THEN** it lists the reads of one container under the condition that the CronJob holds one container, and the reads of each phase container under the condition that the CronJob holds the init containers `prepare` and `agent`

@@ -29,6 +29,9 @@ import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
     CONST_ROADMAP_IMPLEMENT_JOB_LABEL,
+    CONST_RUNNER_PHASE_AGENT,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
@@ -81,6 +84,12 @@ _PHASE_PATH = ".status.phase"
 # The status lists of a pod: its init containers run first, one after the other (#3700).
 _INIT_STATUSES = "initContainerStatuses"
 _APP_STATUSES = "containerStatuses"
+# The containers of a runner Job on the phases and the status list of each, as a run follows them.
+_PHASE_STATUSES = (
+    (CONST_RUNNER_PHASE_PREPARE, _INIT_STATUSES),
+    (CONST_RUNNER_PHASE_AGENT, _INIT_STATUSES),
+    (CONST_RUNNER_PHASE_PUBLISH, _APP_STATUSES),
+)
 
 
 def _name_placeholder(template: JobTemplate, item: int | None = None) -> str:
@@ -424,27 +433,55 @@ def dry_run_job(
             condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         ),
     ]
+    # The runner template has one container today, or the containers of the phases (#3700).
+    single = "the CronJob holds one container" if template == RUNNER_TEMPLATE else ""
+    started = f"{single}, after the pod left Pending" if single else "the pod left Pending"
     if wait:
         requests += [
             kubectl(
                 _pod_field_args(name, _PHASE_PATH),
                 f"pods of job {name}",
+                condition=single,
                 repeat=(
                     f"every {_POLL_SECONDS:g} s while the pod is Pending, "
                     f"for up to {start_timeout:g} s"
                 ),
             ),
-            kubectl(_logs_args(name), f"job {name}", condition="the pod left Pending"),
+            kubectl(_logs_args(name), f"job {name}", condition=started),
             kubectl(
                 _pod_field_args(name, _exit_code_path(template.container)),
                 f"pods of job {name}",
-                condition="the pod left Pending",
+                condition=started,
                 repeat=(
                     f"every {_POLL_SECONDS:g} s until the exit code is set, "
                     f"up to {_EXIT_CODE_ATTEMPTS} times"
                 ),
             ),
         ]
+    if wait and template == RUNNER_TEMPLATE:
+        # A run reads the CronJob and follows each container of a template on the phases in
+        # turn instead (#3700, #6690).
+        when = "the CronJob holds the init containers prepare and agent"
+        for container, statuses in _PHASE_STATUSES:
+            requests += [
+                kubectl(
+                    _pod_field_args(name, _started_path(container, statuses)),
+                    f"pods of job {name}",
+                    condition=when,
+                    repeat=f"every {_POLL_SECONDS:g} s until {container} starts",
+                ),
+                kubectl(
+                    _logs_args(name, container),
+                    f"job {name}",
+                    condition=f"{when}, after {container} started",
+                ),
+                kubectl(
+                    _pod_field_args(name, _exit_code_path(container, statuses)),
+                    f"pods of job {name}",
+                    condition=when,
+                    repeat=f"until the exit code is set, up to {_EXIT_CODE_ATTEMPTS} times",
+                ),
+            ]
     return JobRun(name, requests=tuple(requests), dry_run=True)
 
 
