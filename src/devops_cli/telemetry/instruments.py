@@ -707,6 +707,38 @@ EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "or miss. A hit names its tier: memory for the cache of the process, valkey, or disk for "
     "the cache file that keeps the vectors of intake between runs",
 )
+BRAIN_READS_TOTAL = Instrument(
+    "devops_cli_brain_reads_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Reads of the project brain (#4668), by store (snapshot or fact) and result: memory or "
+    "shared for the tier that gave the value, source when no tier held it, fallback when the "
+    "shared tier failed or its breaker was open, and private for a repository that the shared "
+    "tier does not hold",
+)
+BRAIN_WRITES_TOTAL = Instrument(
+    "devops_cli_brain_writes_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Writes of the project brain to the shared tier (#4668), by store and result: shared, "
+    "skipped while the tier failed, oversize for a value over 1 MiB that stays in memory, older "
+    "when the shared snapshot is newer or another writer won, and private",
+)
+VALKEY_CACHE_ERRORS_TOTAL = Instrument(
+    "devops_cli_valkey_cache_errors_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Commands of the Valkey cache tier that failed or that its open breaker did not send "
+    "(#4668), by command (op) and error: timeout, connection, auth, reply, open, or budget for a "
+    "load of a shared snapshot that passed its time budget",
+)
+BRAIN_GITHUB_REQUESTS_SAVED_TOTAL = Instrument(
+    "devops_cli_brain_github_requests_saved_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Listing pages of a full read that a process did not send because it took the shared "
+    "snapshot (#4668), by store",
+)
 EMBEDDING_CACHE_SIZE = Instrument(
     "devops_cli_embedding_cache_size",
     InstrumentKind.GAUGE,
@@ -974,6 +1006,10 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    BRAIN_READS_TOTAL,
+    BRAIN_WRITES_TOTAL,
+    VALKEY_CACHE_ERRORS_TOTAL,
+    BRAIN_GITHUB_REQUESTS_SAVED_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
     RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
@@ -1070,6 +1106,9 @@ __all__ = [
     "AI_SPEND_USD_TOTAL",
     "AI_STRUCTURED_ATTEMPTS_TOTAL",
     "AI_TOKENS_TOTAL",
+    "BRAIN_GITHUB_REQUESTS_SAVED_TOTAL",
+    "BRAIN_READS_TOTAL",
+    "BRAIN_WRITES_TOTAL",
     "CI_CHECKS_TOTAL",
     "CI_GATE_SLOT_WAIT",
     "COMMAND_DURATION",
@@ -1162,6 +1201,7 @@ __all__ = [
     "UPSTREAM_COMPONENT_STATUS",
     "UPSTREAM_SERVICE_STATUS",
     "USAGE_ERROR_TOTAL",
+    "VALKEY_CACHE_ERRORS_TOTAL",
     "VULNERABILITY_LOOKUPS_TOTAL",
     "WEB_SEARCHES_TOTAL",
     "Instrument",

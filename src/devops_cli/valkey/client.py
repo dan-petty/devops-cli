@@ -6,13 +6,17 @@ see. The connection classes here resolve the host once, when they dial, with `ve
 the private egress level, and connect only to the vetted IP literals. Valkey is an internal
 service, so every address but a cloud metadata address and a scoped IPv6 address is admitted. This
 includes the link-local 169.254.1.2 that a rootless Podman container reaches its host at.
+
+The pool decodes each reply as UTF-8, which would spoil a binary value such as a zlib record of
+the shared listing snapshot. A read of a hash value (`hget`, `hscan`) sends valkey-py's per-command
+option `NEVER_DECODE`, so the value comes back as bytes; a write of bytes needs no option (#4668).
 """
 
 from __future__ import annotations
 
 import ipaddress
 import socket
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from itertools import batched
 from typing import Any, Protocol, runtime_checkable
@@ -20,6 +24,7 @@ from typing import Any, Protocol, runtime_checkable
 import httpcore2
 import valkey
 from valkey import exceptions as valkey_exceptions
+from valkey.client import NEVER_DECODE
 from valkey.connection import Connection, SSLConnection
 
 from devops_cli.config.defaults import (
@@ -280,6 +285,85 @@ class ValkeyClient:
     def bgsave(self) -> str:
         """Start a background snapshot; the server's acknowledgement."""
         return str(self.execute("BGSAVE"))
+
+    def hget(self, key: str, field: str) -> bytes | None:
+        """The bytes of one field of the hash at `key`, or None."""
+        value = self._call(self._raw.execute_command, "HGET", key, field, **{NEVER_DECODE: True})
+        return None if value is None else bytes(value)
+
+    def hset(self, key: str, values: Mapping[str, bytes | str]) -> int:
+        """Set fields of the hash at `key`; return the number of fields that are new."""
+        words = [word for pair in values.items() for word in pair]
+        return int(self._call(self._raw.execute_command, "HSET", key, *words))
+
+    def hdel(self, key: str, *fields: str) -> int:
+        """Remove fields of the hash at `key`; return the number of fields removed."""
+        if not fields:
+            return 0
+        return int(self._call(self._raw.execute_command, "HDEL", key, *fields))
+
+    def hscan(self, key: str, cursor: int, count: int) -> tuple[int, dict[str, bytes]]:
+        """One step of `HSCAN`: the next cursor, 0 at the end, and the fields of the step with
+        the bytes of their values. `count` is the number of fields that the server is asked for."""
+        reply = self._call(
+            self._raw.execute_command,
+            "HSCAN",
+            key,
+            cursor,
+            "COUNT",
+            count,
+            **{NEVER_DECODE: True},
+        )
+        next_cursor, flat = reply
+        fields = {
+            bytes(name).decode(): bytes(value)
+            for name, value in zip(flat[::2], flat[1::2], strict=True)
+        }
+        return int(next_cursor), fields
+
+    def expire(self, key: str, seconds: int) -> bool:
+        """Expire `key` after `seconds`; whether the key exists."""
+        return bool(self._call(self._raw.execute_command, "EXPIRE", key, seconds))
+
+    def unlink(self, *keys: str) -> int:
+        """Remove keys and free their memory in the background; return the number removed."""
+        if not keys:
+            return 0
+        return int(self._call(self._raw.execute_command, "UNLINK", *keys))
+
+    def rename(self, source: str, target: str) -> bool:
+        """Move `source`, with its TTL, onto `target`, which it replaces."""
+        return bool(self._call(self._raw.execute_command, "RENAME", source, target) == "OK")
+
+    def watch_and_write(
+        self,
+        key: str,
+        field: str,
+        decide: Callable[[bytes | None], Sequence[Sequence[Any]]],
+    ) -> bool:
+        """Write the commands that `decide` gives in one MULTI/EXEC, unless `key` changed.
+
+        The client WATCHes `key`, reads `field` of its hash as bytes, and gives the bytes to
+        `decide`. When `decide` gives no command, nothing is written. When another client changed
+        `key` after the WATCH, EXEC writes nothing. In both cases the result is False, and the
+        client does not try again, unlike `Valkey.transaction` of valkey-py, which tries again.
+        """
+        # valkey-py's pipeline has no type hints.
+        pipe: Any = self._raw.pipeline(transaction=True)
+        with _valkey_failures(self.host, self.port, self.timeout), pipe:
+            pipe.watch(key)
+            value = pipe.execute_command("HGET", key, field, **{NEVER_DECODE: True})
+            commands = decide(None if value is None else bytes(value))
+            if not commands:
+                return False
+            pipe.multi()
+            for command in commands:
+                pipe.execute_command(*command)
+            try:
+                pipe.execute()
+            except valkey_exceptions.WatchError:
+                return False
+            return True
 
     def close(self) -> None:
         """Close every connection the client holds."""
