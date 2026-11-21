@@ -432,3 +432,20 @@ def test_a_first_time_that_is_not_utc_names_the_fact_and_the_field(tmp_path: Pat
         True,
         True,
     )
+
+
+def test_a_reason_of_a_missing_series_with_a_base_names_the_fact(tmp_path: Path) -> None:
+    """A fact with a base names the base metric in the reason of an empty answer."""
+
+    def add(doc: dict[str, Any]) -> None:
+        doc["facts"][0].update(
+            base='devops_cli_service_jobs_total{repo="{repo}"}', no_series_reason="A reason."
+        )
+
+    text = _refusal(tmp_path, add)
+
+    assert ("prometheus.example" in text, "`no_series_reason`" in text, "`base`" in text) == (
+        True,
+        True,
+        True,
+    )

@@ -343,6 +343,20 @@ def _probe(present: bool) -> Callable[[str], httpx2.Response]:
     return answer
 
 
+def test_a_fact_with_no_series_gives_its_own_reason_of_a_missing_series(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """A gauge that no code emits yet is not a gauge that stopped (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(lambda request: _vector())
+    reason = "No code emits this gauge before #4911."
+    fact = {**_prometheus_fact("prometheus.oldest", "max(x_seconds)"), "no_series_reason": reason}
+
+    [read] = read_catalog(_catalog(tmp_path, [fact]), _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.reason) == (FactStatus.SKIPPED, None, reason)
+
+
 def test_a_rows_fact_with_no_series_and_no_base_metric_is_skipped(
     tmp_path: Path, web: WebFake, config: Callable[..., Path]
 ) -> None:
