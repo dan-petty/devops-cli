@@ -414,7 +414,8 @@ def test_no_key_of_a_private_repository_is_written(
     github_api: GitHubApiFake, tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
 ) -> None:
     """A round for a private repository and a round whose visibility read fails write no key
-    and use no shared copy; each counts `private`."""
+    and use no shared copy; each counts `private`. A private answer is kept for the round; a
+    failed read is not, so the save reads the visibility again."""
     from devops_cli.roadmap.stores.listing_shared import repository_is_public
 
     private = RecordedGh({"isPrivate": {"data": {"repository": {"isPrivate": True}}}})
@@ -441,7 +442,7 @@ def test_no_key_of_a_private_repository_is_written(
     ) == (
         [],
         1,
-        1,
+        2,
         {("snapshot", "private"): 2.0},
         {("snapshot", "private"): 2.0},
     )

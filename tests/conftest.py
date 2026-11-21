@@ -147,6 +147,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.roadmap.stores.store": ("reset_roadmap_store",),
     "devops_cli.security.reference_extractor": ("reset_reference_extractor_caches",),
     "devops_cli.security.secrets": ("reset_resolver",),
+    "devops_cli.roadmap.stores.listing_shared": ("reset_shared_snapshots",),
     "devops_cli.server.start": ("remove_server_starter",),
     "devops_cli.telemetry.library_spans": ("reset_library_spans",),
     "devops_cli.telemetry.logfire": ("reset_logfire_bridge",),

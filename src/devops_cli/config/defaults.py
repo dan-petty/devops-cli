@@ -741,6 +741,19 @@ DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
 DEFAULT_BRAIN_MEMORY_ENTRIES: int = 1024
 # How long a tool fact of PyPI or deps.dev is kept, in memory and in Valkey: 24 hours.
 DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
+# The shared listing snapshot of a repository lives 7 days after its last write (#4668).
+DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
+# A load of a shared snapshot stops after this time and the reader takes the local copy or reads
+# GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
+DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
+# The fields that one `HSCAN` of a shared snapshot asks for, and that one `HSET` of a full write
+# sends. 500 records are about 1 MB with zlib.
+DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
+# The temporary key of a full write lives this long, so a killed writer leaves no key without an
+# end.
+DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
+# A process reads the visibility of a repository again after this time (#4668).
+DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 

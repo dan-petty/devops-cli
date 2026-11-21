@@ -28,6 +28,7 @@ from devops_cli.roadmap.run import (
     service_jobs,
 )
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+from devops_cli.roadmap.stores.listing_shared import TieredSnapshotStore
 from devops_cli.roadmap.stores.listing_snapshot import (
     FileSnapshotStore,
     IncrementalListing,
@@ -127,7 +128,7 @@ def test_each_lane_reads_every_issue_through_its_own_snapshot(
     """Test first for #3670, #4854 and #5553: the lane of intake opens its store with the listing
     snapshot that the Service keeps in its state directory, as the scoped intake does. Each other
     lane opens its store with a snapshot in a directory of its own, so each snapshot has one
-    writer."""
+    writer. Each local file sits under the shared tier of the process (#4668)."""
     github = service_github([])
     serve_over(tmp_path, monkeypatch, github, stamped=False)
     rows = (*STATUS_LANE_ROWS, *TRIAGE_LANE_ROWS, *MODEL_LANE_ROWS)
@@ -145,7 +146,9 @@ def test_each_lane_reads_every_issue_through_its_own_snapshot(
         job(POLL)
     intake_lane = _lane_of(jobs, "intake")
     assert snapshots == [
-        FileSnapshotStore(tmp_path / ("listing" if lane == intake_lane else f"listing-{lane}"))
+        TieredSnapshotStore(
+            FileSnapshotStore(tmp_path / ("listing" if lane == intake_lane else f"listing-{lane}"))
+        )
         for lane in jobs
     ]
 
