@@ -1,11 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: The map and the spec tools give short answers
-`repo_map` SHALL give one line for each of at most `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files, with the path and the names of the top-level symbols, cut to 180 characters, and a last line that says so when the directory holds more files. `read_spec` SHALL read the specs from the JSON of `openspec list --specs` and `openspec show --type spec`. For one capability it SHALL answer with a line `Purpose:`, then the name of each requirement with the name of each of its scenarios, and then the change, the requirement name and the scenario names of each requirement that another active change adds or modifies for that capability. It SHALL answer as text when OpenSpec is not installed.
+`repo_map` SHALL give one line for each file of a directory, up to `CONST_ROADMAP_STAGE_MAP_MAX_FILES` files. `read_spec` SHALL read the specs with `openspec list --specs` and `openspec show --type spec`. For one capability it SHALL answer with a line `Purpose:`, each requirement name with its scenario names, and each requirement that another active change adds or modifies. It SHALL answer as text when OpenSpec is not installed.
 
 #### Scenario: A directory with more files than the limit
 - **WHEN** `repo_map` maps a directory of `CONST_ROADMAP_STAGE_MAP_MAX_FILES` plus 5 Python files
-- **THEN** the answer has `CONST_ROADMAP_STAGE_MAP_MAX_FILES` file lines and a last line that says that files are left out
+- **THEN** the answer has `CONST_ROADMAP_STAGE_MAP_MAX_FILES` file lines, each with the path and the names of the top-level symbols cut to 180 characters, and a last line that says that files are left out
 
 #### Scenario: A requirement
 - **WHEN** `read_spec` gets a capability and a requirement name

@@ -54,4 +54,6 @@ OpenSpec (Fission-AI/OpenSpec, MIT, maintained) holds the requirement and scenar
 
 ## Dependencies
 
-- #3246: it adds the requirement text to the stage context and moves the purpose and the requirement names of a capability into the `read_spec` answer, so its text lands before this change extends the same module and the same prompt paragraph.
+None.
+
+The change #3246 edits the same module and the same prompt paragraph, but it changes other requirements, and this change needs none of its behavior. The two changes merge in any order, and the later one rebases.
