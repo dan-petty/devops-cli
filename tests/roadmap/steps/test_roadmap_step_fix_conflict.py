@@ -844,6 +844,7 @@ _WRITTEN = ("pre-push hook", "remote.origin.pushurl", "remote.origin.receivepack
 _SPEC = "openspec/specs/test-cap/spec.md"
 _DOCS = "docs/CLI_REFERENCE.md"
 _LOCK = "uv.lock"
+_NOT_SETTLED = "Conflict could not be resolved by Tier 1"
 
 
 @dataclass(frozen=True)
@@ -954,30 +955,43 @@ def _spec(text: str = "") -> dict[str, str | None]:
 
 
 def _pull_with_archive_conflict(
-    tmp_path: Path, *, after: bool = False, squashed: bool = False
+    tmp_path: Path,
+    *,
+    after: bool = False,
+    squashed: bool = False,
+    spec_fix: bool = False,
+    docs: bool = False,
+    archived: bool = True,
 ) -> _Pull:
     """A bot pull request whose archive commit conflicts with main on `_SPEC`. With `after`, a bot
     commit follows the archive commit. With `squashed`, one commit holds the code, the change and
-    its archive."""
+    its archive. With `spec_fix`, a bot commit after the archive changes only the spec. With
+    `docs`, the archive commit and main also change a generated document. With no `archived`, a
+    commit that changes only the spec takes the place of the archive commit."""
     parts = _repositories(tmp_path)
     seed, number = parts[3], parts[5]
-    _commit_files(seed, _spec(), "chore: initial specs")
+    _commit_files(seed, {**_spec(), _DOCS: "# v1\n"}, "chore: initial specs")
     _bot(seed)
     branch = f"feat/{number}-test-cap"
     _git(seed, "checkout", "-q", "-b", branch)
     change = f"openspec/changes/{number}-test-cap/tasks.md"
     _commit_files(seed, {change: "- [x] task done\n", "src/a.py": "A = 1\n"}, f"feat: {number}")
-    archived = f"openspec/changes/archive/2026-11-16-{number}-test-cap/tasks.md"
-    files = {**_spec(f"Added req {number}.\n"), change: None, archived: "- [x] task done\n"}
-    _commit_files(seed, files, f"docs(openspec): archive the change (#{number})")
+    moved = f"openspec/changes/archive/2026-11-16-{number}-test-cap/tasks.md"
+    files = {**_spec(f"Added req {number}.\n"), change: None, moved: "- [x] task done\n"}
+    if not archived:
+        files = _spec(f"Added req {number}.\n")
+    _commit_files(seed, {**files, **({_DOCS: "# v1\narchive\n"} if docs else {})}, "docs: specs")
     if squashed:
         _git(seed, "reset", "-q", "--soft", "HEAD~2")
         _git(seed, "commit", "-q", "-m", f"feat: implement {number}")
     if after:
         _commit_files(seed, {"src/fix.py": "F = 1\n"}, "fix: a check")
+    if spec_fix:
+        _commit_files(seed, _spec(f"Added req {number}, fixed by the bot.\n"), "fix: spec wording")
     _git(seed, "checkout", "-q", "main")
     _git(seed, "config", "user.name", "Alice Human")
-    _commit_files(seed, _spec("Main req concurrent.\n"), "chore: concurrent spec update")
+    main = {**_spec("Main req concurrent.\n"), **({_DOCS: "# v1\nmain\n"} if docs else {})}
+    _commit_files(seed, main, "chore: concurrent spec update")
     return _finish(tmp_path, parts, branch)
 
 
@@ -1148,6 +1162,85 @@ def test_an_archive_commit_that_holds_other_paths_stops_the_round(
         "Conflict could not be resolved by Tier 1",
     )
     assert (ran, pull.pushed()) == ([], pull.head)
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [{"spec_fix": True}, {"archived": False}],
+    ids=["a spec fix after the archive", "a spec commit with no archive"],
+)
+def test_a_conflicting_spec_commit_that_is_no_archive_commit_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: dict[str, bool]
+) -> None:
+    """The round drops only the archive commit of the item, which moves its change folder into the
+    archive. Another commit with only OpenSpec paths, such as a fix of the spec after the archive,
+    or a spec commit of a pull request that never archived, stops the round when it conflicts."""
+    pull = _pull_with_archive_conflict(tmp_path, **variant)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.STOPPED, _NOT_SETTLED)
+    assert pull.pushed() == pull.head
+
+
+def test_an_archive_commit_whose_generated_document_conflicts_too_is_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The archive commit that a round writes also holds the generated documents. When main changes
+    the spec and such a document, tier 1 takes main for the document first, then drops the archive
+    commit and archives the change again."""
+    pull = _pull_with_archive_conflict(tmp_path, docs=True)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    subject = _git(pull.upstream, "log", "-1", "--format=%s", pull.branch)
+    assert subject == f"docs(openspec): archive the change (#{pull.number})"
+
+
+def test_a_generated_document_that_main_deleted_stays_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Main deleted a generated document that the pull request changed. At that stop ("deleted by
+    us") tier 1 takes main's side as a developer does, `git rm`, and continues."""
+    old = "docs/commands/old.md"
+    pull = _pull_with_docs_conflict(
+        tmp_path,
+        base={old: "# old\n"},
+        branch_files={old: "# old\nbranch\n", "src/feature.py": "A = 1\n"},
+        main={old: None},
+    )
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    assert (pull.pushed_file(old), pull.pushed_file("src/feature.py")) == ("", "A = 1\n")
+
+
+def test_a_round_that_git_refuses_stops_and_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git call of tier 1 that fails ends the round as a stop: the rebase is aborted, the stop is
+    recorded, and the head branch does not change."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+
+    def refused(cwd: Path, *args: Any) -> str | None:
+        raise GitOperationError("git checkout failed", operation="test")
+
+    monkeypatch.setattr(fix_conflict, "resolve_tier1", refused)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.STOPPED, "git checkout failed")
+    assert pull.pushed() == pull.head
+    assert not (pull.clone / ".git" / "rebase-merge").exists()
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert item.job_record.get(FixConflictRecordKey.ROUNDS) == "1"
 
 
 def test_a_docs_and_lockfile_round_completes_with_no_environment_override(
@@ -1339,6 +1432,32 @@ def test_a_failed_round_gives_the_implement_branch_back_its_tip(
 
     assert fix_rebase_conflict(repo, repo=REPO, item=1, default_branch="main") is False
     assert _git(repo, "rev-parse", "feat/branch") == tip
+
+
+def test_a_git_failure_in_the_implement_rebase_gives_back_the_tip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git call of tier 1 that fails in the rebase of the implement job ends the round: the rebase
+    is aborted, the branch is at its tip from before the rebase, and the stop is recorded."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
+    repo, tip = _stopped_implement_rebase(tmp_path)
+
+    def refused(cwd: Path, *args: Any) -> str | None:
+        raise GitOperationError("git checkout failed", operation="test")
+
+    monkeypatch.setattr(fix_conflict, "resolve_tier1", refused)
+
+    assert (
+        fix_rebase_conflict(repo, repo=REPO, item=num, default_branch="main", store=store) is False
+    )
+    assert (_git(repo, "symbolic-ref", "HEAD"), _git(repo, "rev-parse", "HEAD")) == (
+        "refs/heads/feat/branch",
+        tip,
+    )
+    item = store.item(num)
+    assert item is not None
+    assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
 
 
 @pytest.mark.parametrize(

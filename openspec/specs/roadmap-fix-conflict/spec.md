@@ -25,7 +25,7 @@ The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull
 - **THEN** the step halts further attempts
 
 ### Requirement: Tier 1 resolves deterministic conflicts with no model call
-In a runner Job, the step SHALL settle each stop of the rebase onto the default branch. At a stop on archive paths, it SHALL drop the commit (`git rebase --skip`) only when each path of the commit is an OpenSpec path or a generated document, and SHALL archive the change again after the rebase, in a commit of its own. At a stop on generated documentation or `uv.lock`, it SHALL take the base branch version, continue with `-c core.editor=true`, and regenerate them after the rebase.
+In a runner Job, the step SHALL settle each stop of the rebase onto the default branch. At a stop it SHALL take the side of the default branch for generated documents and `uv.lock` (`git checkout --ours`, or `git rm` when that branch deleted the file). It SHALL drop only the archive commit of the item (`git rebase --skip`), which moves its change folder into the archive and holds only OpenSpec paths and generated documents. After the rebase it SHALL make these files and the archive again.
 
 #### Scenario: An archive commit that is not the tip
 - **WHEN** a confirmed round finds a conflict on archive paths, and a bot commit follows the archive commit
@@ -34,6 +34,18 @@ In a runner Job, the step SHALL settle each stop of the rebase onto the default 
 #### Scenario: An archive commit that holds code
 - **WHEN** the commit with the conflict on archive paths also holds a path that is no OpenSpec path and no generated document
 - **THEN** the round stops, and the head branch does not change
+
+#### Scenario: A spec commit that is no archive commit
+- **WHEN** a commit with only OpenSpec paths that does not move the change folder conflicts, such as a fix of the spec after the archive
+- **THEN** the round stops, and the head branch does not change
+
+#### Scenario: An archive commit whose generated document conflicts too
+- **WHEN** the archive commit and the default branch both change the spec and a generated document
+- **THEN** the step takes the default branch for the document, drops the archive commit, and archives the change again
+
+#### Scenario: A generated document that the default branch deleted
+- **WHEN** the default branch deleted a generated document that the pull request changed
+- **THEN** the step runs `git rm` for it, continues, and the pushed result has no such document
 
 #### Scenario: A generated docs and lockfile conflict is resolved
 - **WHEN** a conflict occurs on generated CLI reference documents and on `uv.lock`
@@ -50,8 +62,8 @@ When any conflicted path is a release path, including `CHANGELOG.md`, manifests,
 - **WHEN** the side of the pull request in a conflict of `uv.lock` holds a `version =` line
 - **THEN** the plan says `stop on the release path`, and a confirmed round stops and runs no fixer
 
-### Requirement: Strict validation and scoped checks run before push
-Before any push of a resolved branch, the step SHALL run `openspec validate --specs --strict` and execute the scoped quality checks. If validation or checks fail, the step SHALL NOT push the branch.
+### Requirement: Strict validation runs before push
+Before any push of a resolved branch, the step SHALL run `openspec validate --specs --strict`. If validation fails, the step SHALL NOT push the branch. The step runs no other check before the push.
 
 #### Scenario: The strict validation runs before each push
 - **WHEN** conflicts are resolved on a branch
@@ -84,7 +96,7 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 - **THEN** it calls the runner check, then `deny_environment_reads`, then `adopt_orphans`, and only then the step
 
 ### Requirement: The step works in a clone of its run and pushes through OriginGit
-The step SHALL clone the repository into a new folder of the run (`ensure_checkout`), read the URL of `origin` before tier 1 runs, switch to the head branch, and push through `OriginGit` to that URL with a lease on the judged head. A rebase that fails with no conflicted file SHALL stop the round. The step SHALL push only a result that holds a commit past the default branch.
+The step SHALL clone the repository into a new folder of the run (`ensure_checkout`), read the URL of `origin` before tier 1 runs, switch to the head branch, and push through `OriginGit` to that URL with a lease on the judged head. A rebase that fails with no conflicted file, or a git call of the round that fails, SHALL stop the round: the step aborts the rebase and records the stop. The step SHALL push only a result that holds a commit past the default branch.
 
 #### Scenario: A setting that tier 1 writes changes no push
 - **WHEN** tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack` or a `url.<base>.insteadOf` rule into the clone
@@ -93,6 +105,10 @@ The step SHALL clone the repository into a new folder of the run (`ensure_checko
 #### Scenario: A rebase that stops for another cause
 - **WHEN** git refuses the commit of a clean pick, so the rebase stops with no conflicted file
 - **THEN** the round stops with a reason that starts `The rebase failed with no conflicted file`, and the head branch does not change
+
+#### Scenario: A git call of the round that fails
+- **WHEN** a git call of tier 1 fails
+- **THEN** the round stops with the error of git, the rebase is aborted, the stop is recorded, and the head branch does not change
 
 #### Scenario: No commit past the default branch
 - **WHEN** tier 1 takes the default branch for each change of the pull request
