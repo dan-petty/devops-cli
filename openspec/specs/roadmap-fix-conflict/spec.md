@@ -25,26 +25,30 @@ The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull
 - **THEN** the step halts further attempts
 
 ### Requirement: Tier 1 resolves deterministic conflicts with no model call
-In a runner Job, in a confirmed round of the step or in the rebase of the implement job, when merge conflicts occur on archive paths (`openspec/specs/**`, `openspec/changes/archive/**`), the step SHALL drop the archive commit, rebase preceding commits onto the default branch, and re-run the finish step from the active change folder. When conflicts occur on generated documentation or `uv.lock`, the step SHALL take the base branch version and regenerate them.
+In a runner Job, the step SHALL settle each stop of the rebase onto the default branch. At a stop on archive paths, it SHALL drop the commit (`git rebase --skip`) only when each path of the commit is an OpenSpec path or a generated document, and SHALL archive the change again after the rebase, in a commit of its own. At a stop on generated documentation or `uv.lock`, it SHALL take the base branch version, continue with `-c core.editor=true`, and regenerate them after the rebase.
 
-#### Scenario: An archive-only conflict ends with clean push and zero model requests
-- **WHEN** a round in a runner Job finds a branch that conflicts only on OpenSpec archive paths
-- **THEN** the step drops the archive commit, rebases, re-archives the change, and pushes with zero model requests
+#### Scenario: An archive commit that is not the tip
+- **WHEN** a confirmed round finds a conflict on archive paths, and a bot commit follows the archive commit
+- **THEN** the step drops the archive commit, keeps the later commit, archives the change again on the tip, and pushes with zero model requests
 
-#### Scenario: A generated docs conflict is resolved
-- **WHEN** a round in a runner Job finds a conflict on generated CLI reference documents
-- **THEN** the step checks out the base branch version and runs `devops docs generate`
+#### Scenario: An archive commit that holds code
+- **WHEN** the commit with the conflict on archive paths also holds a path that is no OpenSpec path and no generated document
+- **THEN** the round stops, and the head branch does not change
 
-#### Scenario: A lockfile conflict is resolved
-- **WHEN** a round in a runner Job finds a conflict on `uv.lock`
-- **THEN** the step checks out the base branch version and runs `uv lock`
+#### Scenario: A generated docs and lockfile conflict is resolved
+- **WHEN** a conflict occurs on generated CLI reference documents and on `uv.lock`
+- **THEN** the step takes the base branch version, runs `uv lock` and `devops docs generate`, and no git call of the step sets an environment variable
 
 ### Requirement: A conflict on a release path stops with class conflict
-When any conflicted path is a release path, including `CHANGELOG.md`, manifests, or package version definitions, the step SHALL NOT attempt automated resolution and SHALL stop with failure class `conflict`.
+When any conflicted path is a release path, including `CHANGELOG.md`, manifests, or package version definitions, the step SHALL NOT attempt automated resolution and SHALL stop with failure class `conflict`. The plan and the round SHALL ask one check (`release_conflict`), so the plan names the same stop.
 
 #### Scenario: A conflict on a release path stops with class conflict
 - **WHEN** a conflict occurs on `CHANGELOG.md` or a release manifest
 - **THEN** the step halts with failure class `conflict`
+
+#### Scenario: The plan and the round agree on a version line
+- **WHEN** the side of the pull request in a conflict of `uv.lock` holds a `version =` line
+- **THEN** the plan says `stop on the release path`, and a confirmed round stops and runs no fixer
 
 ### Requirement: Strict validation and scoped checks run before push
 Before any push of a resolved branch, the step SHALL run `openspec validate --specs --strict` and execute the scoped quality checks. If validation or checks fail, the step SHALL NOT push the branch.
@@ -54,11 +58,15 @@ Before any push of a resolved branch, the step SHALL run `openspec validate --sp
 - **THEN** `openspec validate --specs --strict` runs before `git push`
 
 ### Requirement: The runner job calls fix-conflict on rebase conflicts
-When a rebase conflict occurs during an implement runner job, the job SHALL invoke `fix-conflict` instead of immediately stopping with action `wait`. When the conflict cannot be resolved, the stop comment SHALL record that a fix round was executed.
+When a rebase conflict occurs during an implement runner job, the job SHALL invoke `fix-conflict` instead of immediately stopping with action `wait`. When the conflict cannot be resolved, the stop comment SHALL record that a fix round was executed. A round that does not settle the conflict, or whose check fails after tier 1, SHALL give the branch back its tip from before the rebase.
 
 #### Scenario: A rebase conflict runs one fix round
 - **WHEN** an implement runner job encounters a rebase conflict
 - **THEN** the job executes one fix round in place of stopping with action wait
+
+#### Scenario: A failed round keeps the commits of the groups
+- **WHEN** `openspec validate` fails after tier 1 settled the rebase of an implement runner job
+- **THEN** the branch is at its tip from before the rebase
 
 ### Requirement: Tier 1 runs only in a runner Job
 Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the step `fix-conflict` SHALL check out the head branch, rebase, run tier 1 and push only with `--confirm`. The command SHALL accept `--confirm` only in a runner Job (`require_runner`), and SHALL clear the dumpable flag of its process and adopt orphans before the step. Without `--confirm` the step SHALL return `planned`, and SHALL run no code of the checkout, push nothing and write no record.
@@ -75,67 +83,27 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 - **WHEN** the command runs with `--confirm` in a runner Job
 - **THEN** it calls the runner check, then `deny_environment_reads`, then `adopt_orphans`, and only then the step
 
-### Requirement: The step reaches origin only at the URL that it read after its clone
-The step SHALL read the URL of `origin` right after its clone, before tier 1 runs, and SHALL run each fetch and push through `OriginGit` at that URL, with a lease on the judged head for the push. Each local git call of the step SHALL run with `core.hooksPath=/dev/null`. In a runner Job, a git setting of the clone that `OriginGit` does not allow SHALL stop the round before the push.
+### Requirement: The step works in a clone of its run and pushes through OriginGit
+The step SHALL clone the repository into a new folder of the run (`ensure_checkout`), read the URL of `origin` before tier 1 runs, switch to the head branch, and push through `OriginGit` to that URL with a lease on the judged head. A rebase that fails with no conflicted file SHALL stop the round. The step SHALL push only a result that holds a commit past the default branch.
 
-#### Scenario: A hook or a setting that tier 1 writes changes no push
+#### Scenario: A setting that tier 1 writes changes no push
 - **WHEN** tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack` or a `url.<base>.insteadOf` rule into the clone
-- **THEN** the push goes to the URL that the step read after its clone, and no hook, program or other repository that the clone names runs
-
-#### Scenario: A fetch reads no setting of the clone
-- **WHEN** the clone holds `remote.origin.uploadpack`
-- **THEN** the fetch of the step does not run that program
-
-#### Scenario: A local git call runs no hook of the clone
-- **WHEN** the clone holds the hooks `post-checkout`, `pre-rebase`, `post-rewrite`, `pre-commit`, `prepare-commit-msg`, `commit-msg` and `post-commit`
-- **THEN** a confirmed round of the step runs none of them
-
-#### Scenario: In a runner Job a refused setting stops the push
-- **WHEN** tier 1 writes `remote.origin.pushurl` into the clone in a runner Job
-- **THEN** the step raises `GitSettingsError` before the push, and the head branch does not change
-
-### Requirement: The step continues a rebase with no environment override
-The step SHALL continue a rebase with `git -c core.editor=true rebase --continue`, and SHALL pass no environment variable to a git call. It SHALL check out the head branch from the remote-tracking ref that its fetch wrote, so the checkout works in its shallow clone.
-
-#### Scenario: A docs and lockfile round completes in a runner Job
-- **WHEN** a round in a runner Job finds a conflict on a generated document and `uv.lock` in the shallow clone of the step
-- **THEN** it checks out the head branch, continues the rebase, generates both files again and pushes, and no git call of the step sets an environment variable
-
-#### Scenario: A failed generation stops the implement job with class conflict
-- **WHEN** `devops docs generate` fails after tier 1 took the default branch for the conflicted document in the rebase of the implement job
-- **THEN** `fix_rebase_conflict` returns false and records `stopped`, and the job stops the item with the class `conflict`
-
-### Requirement: A round pushes only a result that holds the default branch and the pull request
-A rebase that fails with no conflicted file SHALL stop the round with a reason that names its cause, and SHALL push nothing. Before a push, the step SHALL check that HEAD is the head branch, holds the tip of the default branch and differs from it, and holds each change of the pull request on a path that the default branch did not change and that tier 1 does not generate. The step SHALL never push the tip of the default branch.
+- **THEN** the push goes to the URL that the step read after its clone
 
 #### Scenario: A rebase that stops for another cause
-- **WHEN** a confirmed round rebases a branch whose first commit applies with no conflict, and git refuses the commit of that pick
-- **THEN** the round stops with a reason that starts `The rebase failed with no conflicted file`, records the stop, and the head branch does not change
+- **WHEN** git refuses the commit of a clean pick, so the rebase stops with no conflicted file
+- **THEN** the round stops with a reason that starts `The rebase failed with no conflicted file`, and the head branch does not change
 
-#### Scenario: A result that is no head to push
-- **WHEN** HEAD is not the head branch, is the tip of the default branch, does not hold it, or lacks a change of the pull request
-- **THEN** the check gives a reason that names it, and the step pushes nothing
+#### Scenario: No commit past the default branch
+- **WHEN** tier 1 takes the default branch for each change of the pull request
+- **THEN** the round fails with `The rebase left no commit past origin/main`, and the head branch does not change
 
-### Requirement: The clone of the step commits as the bot
-Right after its clone, the step SHALL write the identity of the bot (`commit_author`) into the configuration of the clone, as `ensure_checkout` does for the clone of the implement and fix-checks Jobs. The rebase and the commits of tier 1 SHALL not depend on an identity of the host.
-
-#### Scenario: A host with no git identity
-- **WHEN** git of the host has no identity and refuses to guess one (`user.useConfigOnly`), and a confirmed round settles a conflict of a generated document and `uv.lock`
-- **THEN** the round ends `resolved`, and the committer of the pushed head is the bot
-
-### Requirement: The step fetches the history to the merge base
-The step SHALL deepen its shallow clone through `OriginGit`, twice as far each time, until the clone holds the merge base of the head branch and the default branch, holds the whole history, or a deepening adds no commit. When the history holds no merge base then, the step SHALL fail with a reason that names both branches, before the check of the authors.
-
-#### Scenario: A merge base 60 commits behind the default branch
-- **WHEN** the head branch forked from a commit of a person, 61 commits below the tip of the default branch, and the clone holds the newest 50 commits
-- **THEN** the plan names the conflicted files, and a confirmed round in a runner Job ends `resolved`
-
-#### Scenario: No merge base
-- **WHEN** the head branch has a root of its own
-- **THEN** the step fails with the reason `The history holds no merge base of origin/main and origin/<head>.`
+#### Scenario: A merge of the default branch is no commit of a person
+- **WHEN** the bot merged the default branch into the head branch
+- **THEN** the authors of the pull request leave out the clean merge (`person_authors`), and the plan names the conflict
 
 ### Requirement: The plan says what a confirmed round does
-Without `--confirm`, the reason of the plan SHALL sort the conflicted paths by the rules of tier 1. It SHALL name a stop when `roadmap.fix_conflict.tier1_mode` is not `on`, when a path is a release path, or when a path is no archive, generated document or lockfile path.
+Without `--confirm`, the reason of the plan SHALL sort the conflicted paths by the rules of tier 1. It SHALL name a stop when `roadmap.fix_conflict.tier1_mode` is not `on`, when `release_conflict` holds, or when a path is no archive, generated document or lockfile path.
 
 #### Scenario: The plan of a conflict that tier 1 does not settle
 - **WHEN** the step runs without `--confirm` on a conflict of a source file

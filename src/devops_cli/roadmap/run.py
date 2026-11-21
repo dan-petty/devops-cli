@@ -437,7 +437,7 @@ def _get_session_login() -> str:
     return get_github_session().login
 
 
-def commit_author() -> tuple[str, str]:
+def _commit_author() -> tuple[str, str]:
     """The name and email the job clone commits as: the session's login, and the email GitHub
     links to that account, `<id>+<login>@users.noreply.github.com` (a GitHub App's bot too)."""
     from devops_cli.github.session import get_github_session
@@ -533,7 +533,7 @@ def ensure_checkout(
                 [CONST_GIT_CLI, "clone", *filters, url, str(clone_dir)], check=True, quiet=True
             )
         branch = _default_branch(clone_dir)
-        name, email = commit_author()
+        name, email = _commit_author()
         for step in (
             ("checkout", "--force", "-B", branch, f"refs/remotes/origin/{branch}"),
             ("reset", "--hard", f"refs/remotes/origin/{branch}"),

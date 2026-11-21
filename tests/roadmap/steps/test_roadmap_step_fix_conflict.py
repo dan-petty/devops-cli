@@ -10,8 +10,7 @@ Verifies:
 - Soft and hard caps hold
 - Strict validation runs before push
 - Without --confirm the step runs no code of the pull request and writes nothing
-- Each fetch and push goes to the URL of origin that the step read after its clone, with no hook
-  and no setting of the clone
+- A confirmed round pushes only to the URL of origin that the step read after its clone
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import json
 import os
 import shutil
 import subprocess
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +33,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitOperationError
-from devops_cli.exceptions.roadmap import GitSettingsError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.steps import fix_conflict
 from devops_cli.roadmap.steps.fix_conflict import (
@@ -61,7 +58,6 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/project"
 BOT_USER = "devops-cli-service[bot]"
-BOT_EMAIL = "7+devops-cli-service[bot]@users.noreply.github.com"
 BRANCH = "feat/42-fix-conflict"
 
 
@@ -227,6 +223,7 @@ def test_conflict_on_release_path_stops_with_class_conflict(tmp_path: Path) -> N
     _git(repo_dir, "commit", "-am", "main changelog")
 
     _git(repo_dir, "checkout", BRANCH)
+    _git(repo_dir, "update-ref", "refs/remotes/origin/main", "main")
     subprocess.run([CONST_GIT_CLI, "-C", str(repo_dir), "rebase", "main"], capture_output=True)
 
     # Call fix_rebase_conflict
@@ -535,8 +532,7 @@ def test_resolve_tier1_docs_and_lockfile(tmp_path: Path, monkeypatch: pytest.Mon
 
     monkeypatch.setattr(fix_conflict, "run_subprocess", fake_sub)
 
-    resolved = resolve_tier1(repo, 42, "main", ["docs/CLI_REFERENCE.md", "uv.lock"])
-    assert resolved is True
+    assert resolve_tier1(repo, 42) is None
     assert _git(repo, "status", "--porcelain") == ""
 
 
@@ -625,8 +621,6 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         def __init__(self, sha: str, branch: str) -> None:
             self.client = FakeClient(sha, branch)
 
-    monkeypatch.setattr(fix_conflict, "commit_author", lambda: (BOT_USER, BOT_EMAIL), raising=False)
-
     # 1. No conflict scenario
     monkeypatch.setattr(
         fix_conflict, "get_github_session", lambda: FakeSession(clean_sha, branch_clean)
@@ -634,9 +628,8 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     rep = run_fix_conflict(store, REPO, num, source=clone_dir)
     assert rep.result == FixConflictResult.NO_CONFLICT
 
-    # 2. Human commit scenario: the step gave the clone the identity of the bot
+    # 2. Human commit scenario
     _git(clone_dir, "config", "user.name", "Alice Human")
-    _git(clone_dir, "config", "user.email", "alice@example.com")
     (clone_dir / "human.txt").write_text("human\n", encoding="utf-8")
     _git(clone_dir, "add", "-A")
     _git(clone_dir, "commit", "-m", "human commit")
@@ -680,7 +673,7 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert item is not None
     item.job_record.clear()
 
-    def fake_resolve_tier1(cwd: Path, *args: Any, **kwargs: Any) -> bool:
+    def fake_resolve_tier1(cwd: Path, *args: Any, **kwargs: Any) -> str | None:
         (cwd / "base.txt").write_text("resolved\n", encoding="utf-8")
         _git(cwd, "add", "-A")
         proc = subprocess.run(
@@ -689,7 +682,7 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             text=True,
             env=dict(os.environ, GIT_EDITOR="true"),
         )
-        return proc.returncode == 0
+        return None if proc.returncode == 0 else "not settled"
 
     monkeypatch.setattr(fix_conflict, "resolve_tier1", fake_resolve_tier1)
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda *args: False)
@@ -777,72 +770,71 @@ def test_fix_conflict_internal_helpers(tmp_path: Path, monkeypatch: pytest.Monke
     assert "claimed by" in err2
 
 
-def test_fix_conflict_source_cloning(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    # 1. Failure to clone
-    monkeypatch.setattr(
-        fix_conflict,
-        "run_subprocess",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
-            [], 1, stdout="", stderr="clone failed"
-        ),
+def test_a_clone_that_fails_ends_the_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no `source`, the step clones the repository into a new folder of the run
+    (`ensure_checkout`). A clone that fails ends the round with `failed`."""
+    status = PullStatus.model_validate(
+        {
+            "state": "open",
+            "draft": False,
+            "head": {"ref": BRANCH, "sha": "111111"},
+            "base": {"ref": CONST_GIT_MAIN_BRANCH},
+            "user": {"login": BOT_USER},
+            "labels": [],
+        }
     )
-    with pytest.raises(GitOperationError, match="Failed to clone repository"):
-        fix_conflict._clone_or_reuse_source("owner/repo", None)
 
-    # 2. Success cloning
-    monkeypatch.setattr(
-        fix_conflict,
-        "run_subprocess",
-        lambda *args, **kwargs: subprocess.CompletedProcess([], 0, stdout="cloned", stderr=""),
-    )
-    worktree, temp_dir = fix_conflict._clone_or_reuse_source("owner/repo", None)
-    assert temp_dir is not None
-    assert worktree == temp_dir / "repo"
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    class FakeClient:
+        def get_pull_status(self, repo: str, pull: int) -> PullStatus:
+            return status
+
+    class FakeSession:
+        client = FakeClient()
+
+    def refused(repo: str, data_dir: Path, *args: Any, **kwargs: Any) -> Path:
+        assert data_dir.is_dir()
+        raise GitOperationError("clone failed", operation="test")
+
+    monkeypatch.setattr(fix_conflict, "get_github_session", lambda: FakeSession())
+    monkeypatch.setattr(fix_conflict, "ensure_checkout", refused)
+
+    report = run_fix_conflict(InMemoryRoadmapStore(repo=REPO), REPO, 42)
+
+    assert (report.result, report.reason) == (FixConflictResult.FAILED, "clone failed")
 
 
 def test_fix_rebase_conflict_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store = InMemoryRoadmapStore(repo=REPO)
     num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
 
+    def call() -> bool:
+        return fix_rebase_conflict(
+            tmp_path, repo=REPO, item=num, default_branch="main", store=store
+        )
+
     # 1. No conflicts
     monkeypatch.setattr(fix_conflict, "conflicted_files", lambda cwd: [])
-    assert (
-        fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
-        is False
-    )
+    assert call() is False
 
     # 2. Release path conflict
     monkeypatch.setattr(fix_conflict, "conflicted_files", lambda cwd: [CONST_CHANGELOG_FILENAME])
-    monkeypatch.setattr(fix_conflict, "_has_release_path_conflict", lambda cwd, c: True)
-    assert (
-        fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
-        is False
-    )
+    monkeypatch.setattr(fix_conflict, "_git", lambda cwd, *args: "")
+    monkeypatch.setattr(fix_conflict, "release_conflict", lambda cwd, base, head: True)
+    assert call() is False
 
     # 3. Resolved but validate_strict_specs fails
-    monkeypatch.setattr(fix_conflict, "_has_release_path_conflict", lambda cwd, c: False)
-    monkeypatch.setattr(fix_conflict, "resolve_tier1", lambda cwd, i, d, c: True)
+    monkeypatch.setattr(fix_conflict, "release_conflict", lambda cwd, base, head: False)
+    monkeypatch.setattr(fix_conflict, "resolve_tier1", lambda cwd, item: None)
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda cwd: False)
-    monkeypatch.setattr(fix_conflict, "_git", lambda cwd, *args: "")
-    assert (
-        fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
-        is False
-    )
+    assert call() is False
 
     # 4. Resolved and validate_strict_specs succeeds
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda cwd: True)
-    assert (
-        fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
-        is True
-    )
+    assert call() is True
 
     # 5. Not resolved
-    monkeypatch.setattr(fix_conflict, "resolve_tier1", lambda cwd, i, d, c: False)
-    assert (
-        fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
-        is False
-    )
+    monkeypatch.setattr(fix_conflict, "resolve_tier1", lambda cwd, item: "not settled")
+    assert call() is False
 
 
 # Tier 1 runs code of the checkout of the pull request: `uv run devops docs generate` and `uv lock`
@@ -850,14 +842,16 @@ def test_fix_rebase_conflict_branches(tmp_path: Path, monkeypatch: pytest.Monkey
 # one of these into the clone, as such code can.
 _WRITTEN = ("pre-push hook", "remote.origin.pushurl", "remote.origin.receivepack", "url.insteadOf")
 _SPEC = "openspec/specs/test-cap/spec.md"
+_DOCS = "docs/CLI_REFERENCE.md"
+_LOCK = "uv.lock"
 
 
 @dataclass(frozen=True)
 class _Pull:
-    """A bot pull request on the bare repository `upstream` whose archive commit conflicts with
-    main on `_SPEC`; the clone of the step; another bare repository with the same head branch,
-    whose pre-receive hook writes the token that it gets into `seen` and refuses the push; and
-    `seen`, where each program of the clone writes."""
+    """A bot pull request on the bare repository `upstream` that conflicts with main; the clone of
+    the step; another bare repository with the same head branch, whose pre-receive hook writes the
+    token that it gets into `seen` and refuses the push; and `seen`, where each program of the
+    clone writes."""
 
     upstream: Path
     other: Path
@@ -884,9 +878,14 @@ class _Pull:
         """The tip of the head branch on `upstream`."""
         return _git(self.upstream, "rev-parse", f"refs/heads/{self.branch}")
 
-    def other_tip(self) -> str:
-        """The tip of the head branch on the other repository, which holds the same branch."""
-        return _git(self.other, "rev-parse", f"refs/heads/{self.branch}")
+    def pushed_file(self, name: str) -> str:
+        """The text of `name` at the tip of the head branch on `upstream`, or "" with no file."""
+        found = subprocess.run(
+            [CONST_GIT_CLI, "-C", str(self.upstream), "show", f"{self.branch}:{name}"],
+            capture_output=True,
+            text=True,
+        )
+        return found.stdout if found.returncode == 0 else ""
 
     def written(self) -> list[str]:
         """What the programs of the clone wrote into `seen`."""
@@ -903,54 +902,127 @@ def _bot(clone: Path) -> None:
     _git(clone, "config", "user.email", "bot@example.com")
 
 
-def _commit_spec(seed: Path, text: str, message: str) -> None:
-    (seed / _SPEC).write_text(f"# Test Spec\n\n## Requirements\nInitial req.\n{text}", "utf-8")
+def _commit_files(seed: Path, files: dict[str, str | None], message: str) -> None:
+    """Commit `files` in `seed`: a text writes the file, None removes it."""
+    for name, text in files.items():
+        if text is None:
+            (seed / name).unlink()
+            continue
+        (seed / name).parent.mkdir(parents=True, exist_ok=True)
+        (seed / name).write_text(text, encoding="utf-8")
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", message)
 
 
-def _pull_with_archive_conflict(tmp_path: Path) -> _Pull:
-    upstream = tmp_path / "upstream.git"
-    other = tmp_path / "other.git"
-    seen = tmp_path / "seen"
+def _repositories(tmp_path: Path) -> tuple[Path, Path, Path, Path, InMemoryRoadmapStore, int]:
+    """The bare `upstream` and other repositories, `seen`, the seed clone with the identity of a
+    person, and the store with the item."""
+    upstream, other, seen, seed = (tmp_path / name for name in ("up.git", "other.git", "seen", "s"))
     seen.mkdir()
     _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(upstream))
     _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(other))
-
-    seed = tmp_path / "seed"
     _git(tmp_path, "clone", "-q", str(upstream), str(seed))
-    _bot(seed)
-    (seed / _SPEC).parent.mkdir(parents=True)
-    _commit_spec(seed, "", "chore: initial specs")
-    _git(seed, "push", "-q", "origin", "main")
+    _git(seed, "config", "user.name", "Alice Human")
+    _git(seed, "config", "user.email", "alice@example.com")
     store = InMemoryRoadmapStore(repo=REPO)
     number = store.seed_issue(
         title="feat: test", labels=("status/in-progress", "priority/p2-medium")
     )
-    branch = f"feat/{number}-test-cap"
-    _git(seed, "checkout", "-q", "-b", branch)
-    change = seed / "openspec" / "changes" / f"{number}-test-cap"
-    change.mkdir(parents=True)
-    (change / "tasks.md").write_text("- [x] task done\n", encoding="utf-8")
-    _git(seed, "add", "-A")
-    _git(seed, "commit", "-q", "-m", f"feat: implement {number}")
-    (change.parent / "archive").mkdir()
-    shutil.move(change, change.parent / "archive" / f"2026-11-16-{number}-test-cap")
-    _commit_spec(seed, f"Added req {number}.\n", f"docs(openspec): archive the change (#{number})")
-    _git(seed, "push", "-q", "origin", branch)
+    return upstream, other, seen, seed, store, number
+
+
+def _finish(
+    tmp_path: Path, parts: tuple[Path, Path, Path, Path, InMemoryRoadmapStore, int], branch: str
+) -> _Pull:
+    """Push the head branch to `upstream` and to the other repository, arm the hook of the other
+    repository, and clone `upstream` as the clone of the step, with the identity of the bot."""
+    upstream, other, seen, seed, store, number = parts
+    _git(seed, "push", "-q", "origin", "main", branch)
     _git(seed, "push", "-q", str(other), branch)
     receive = other / "hooks" / "pre-receive"
     receive.write_text(f"#!/bin/sh\n{_record(seen / 'other')}\nexit 1\n", encoding="utf-8")
     receive.chmod(0o755)
-    head = _git(seed, "rev-parse", "HEAD")
-    _git(seed, "checkout", "-q", "main")
-    _commit_spec(seed, "Main req concurrent.\n", "chore: concurrent spec update")
-    _git(seed, "push", "-q", "origin", "main")
-
     clone = tmp_path / "clone"
     _git(tmp_path, "clone", "-q", str(upstream), str(clone))
     _bot(clone)
+    head = _git(seed, "rev-parse", branch)
     return _Pull(upstream, other, clone, seen, branch, head, number, store)
+
+
+def _spec(text: str = "") -> dict[str, str | None]:
+    return {_SPEC: f"# Test Spec\n\n## Requirements\nInitial req.\n{text}"}
+
+
+def _pull_with_archive_conflict(
+    tmp_path: Path, *, after: bool = False, squashed: bool = False
+) -> _Pull:
+    """A bot pull request whose archive commit conflicts with main on `_SPEC`. With `after`, a bot
+    commit follows the archive commit. With `squashed`, one commit holds the code, the change and
+    its archive."""
+    parts = _repositories(tmp_path)
+    seed, number = parts[3], parts[5]
+    _commit_files(seed, _spec(), "chore: initial specs")
+    _bot(seed)
+    branch = f"feat/{number}-test-cap"
+    _git(seed, "checkout", "-q", "-b", branch)
+    change = f"openspec/changes/{number}-test-cap/tasks.md"
+    _commit_files(seed, {change: "- [x] task done\n", "src/a.py": "A = 1\n"}, f"feat: {number}")
+    archived = f"openspec/changes/archive/2026-11-16-{number}-test-cap/tasks.md"
+    files = {**_spec(f"Added req {number}.\n"), change: None, archived: "- [x] task done\n"}
+    _commit_files(seed, files, f"docs(openspec): archive the change (#{number})")
+    if squashed:
+        _git(seed, "reset", "-q", "--soft", "HEAD~2")
+        _git(seed, "commit", "-q", "-m", f"feat: implement {number}")
+    if after:
+        _commit_files(seed, {"src/fix.py": "F = 1\n"}, "fix: a check")
+    _git(seed, "checkout", "-q", "main")
+    _git(seed, "config", "user.name", "Alice Human")
+    _commit_files(seed, _spec("Main req concurrent.\n"), "chore: concurrent spec update")
+    return _finish(tmp_path, parts, branch)
+
+
+_DOCS_BASE: dict[str, str | None] = {_DOCS: "# v1\n", _LOCK: "version = 1\n"}
+_DOCS_BRANCH: dict[str, str | None] = {
+    _DOCS: "# v1\nbranch\n",
+    _LOCK: "version = 1\nbranch\n",
+    "src/feature.py": "A = 1\n",
+}
+_DOCS_MAIN: dict[str, str | None] = {_DOCS: "# v1\nmain\n", _LOCK: "version = 1\nmain\n"}
+
+
+def _pull_with_docs_conflict(
+    tmp_path: Path,
+    *,
+    base: dict[str, str | None] = _DOCS_BASE,
+    branch_files: dict[str, str | None] = _DOCS_BRANCH,
+    main: dict[str, str | None] = _DOCS_MAIN,
+    clean_first: bool = False,
+    merge_main: bool = False,
+) -> _Pull:
+    """A bot pull request whose generated document and `uv.lock` conflict with main. A person wrote
+    the base commit and the commits of main. With `clean_first` the branch starts with a commit
+    that applies with no conflict. With `merge_main` the bot merges main into the branch."""
+    parts = _repositories(tmp_path)
+    seed, number = parts[3], parts[5]
+    _commit_files(seed, base, "chore: base")
+    branch = f"feat/{number}-docs"
+    _git(seed, "checkout", "-q", "-b", branch)
+    _bot(seed)
+    if clean_first:
+        _commit_files(seed, {"src/clean.py": "B = 2\n"}, "feat: a clean change")
+    _commit_files(seed, branch_files, "feat: a feature")
+    if merge_main:
+        _git(seed, "checkout", "-q", "main")
+        _git(seed, "config", "user.name", "Alice Human")
+        _commit_files(seed, {"src/main.py": "M = 1\n"}, "chore: a change of main")
+        _git(seed, "checkout", "-q", branch)
+        _bot(seed)
+        _git(seed, "merge", "-q", "--no-edit", "main")
+        _commit_files(seed, {"src/after.py": "C = 3\n"}, "feat: after the merge")
+    _git(seed, "checkout", "-q", "main")
+    _git(seed, "config", "user.name", "Alice Human")
+    _commit_files(seed, main, "chore: main")
+    return _finish(tmp_path, parts, branch)
 
 
 def _write_into_clone(pull: _Pull, checkout: Path, written: str | None) -> None:
@@ -968,12 +1040,12 @@ def _write_into_clone(pull: _Pull, checkout: Path, written: str | None) -> None:
 
 
 def _with_pull_request_code(
-    monkeypatch: pytest.MonkeyPatch, pull: _Pull, written: str | None = None
+    monkeypatch: pytest.MonkeyPatch, pull: _Pull, written: str | None = None, *, valid: bool = True
 ) -> list[list[str]]:
     """Run the step against `pull`: GitHub gives its status, each `uv` process is the code of the
-    pull request, `openspec archive` moves the change folder and `openspec validate` passes. git
-    runs for real through the process runner, which gives the token to each git child that reaches
-    a remote. The list holds each `uv` process."""
+    pull request, `openspec archive` moves the change folder and `openspec validate` gives
+    `valid`. git runs for real through the process runner, which gives the token to each git child
+    that reaches a remote. The list holds each `uv` process."""
     ran: list[list[str]] = []
     status = pull.status()
 
@@ -994,12 +1066,11 @@ def _with_pull_request_code(
                 changes = Path(kwargs["cwd"]) / "openspec" / "changes"
                 active = changes / f"{pull.number}-test-cap"
                 shutil.move(active, changes / "archive" / f"2026-11-21-{pull.number}-test-cap")
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(cmd, 0 if valid else 1, stdout="", stderr="")
         return run_subprocess(cmd, **kwargs)
 
     monkeypatch.setattr(fix_conflict, "get_github_session", lambda: FakeSession())
     monkeypatch.setattr(fix_conflict, "run_subprocess", run)
-    monkeypatch.setattr(fix_conflict, "commit_author", lambda: (BOT_USER, BOT_EMAIL), raising=False)
     return ran
 
 
@@ -1016,7 +1087,7 @@ def test_without_confirm_the_step_runs_no_code_of_the_pull_request(
     assert ran == []
     assert pull.written() == []
     assert (report.result, report.files) == (FixConflictResult.PLANNED, (_SPEC,))
-    assert report.reason.startswith("Plan: drop the archive commit")
+    assert report.reason.startswith("Plan: drop an archive commit")
     assert "runner Job" in report.reason
     assert pull.pushed() == pull.head
     item = pull.store.item(pull.number)
@@ -1029,9 +1100,8 @@ def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, written: str
 ) -> None:
     """With --confirm, tier 1 runs code of the pull request, and that code can write a hook or a
-    git setting into the clone. The push still goes to the URL of origin that the step read after
-    its clone, before that code ran, and no hook, program or other repository that the clone names
-    runs."""
+    git setting into the clone. The push still goes through `OriginGit` to the URL of origin that
+    the step read after its clone, before that code ran."""
     pull = _pull_with_archive_conflict(tmp_path)
     ran = _with_pull_request_code(monkeypatch, pull, written)
 
@@ -1041,128 +1111,52 @@ def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
     assert pull.written() == []
     assert report.result == FixConflictResult.RESOLVED
     assert pull.pushed() == report.head != pull.head
-    assert pull.other_tip() == pull.head
 
 
-def test_in_a_runner_a_setting_that_tier_1_writes_stops_the_push(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
-) -> None:
-    """In a runner Job the step checks the git settings of the clone before each fetch and push,
-    as the implement job does. A key that tier 1 wrote stops the round before the push."""
-    config(roadmap={"implement": {"in_runner": True}})
-    pull = _pull_with_archive_conflict(tmp_path)
-    _with_pull_request_code(monkeypatch, pull, "remote.origin.pushurl")
-
-    with pytest.raises(GitSettingsError, match=r"remote\.origin\.pushurl"):
-        run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
-
-    assert pull.written() == []
-    assert pull.pushed() == pull.head
-    assert pull.other_tip() == pull.head
-
-
-def test_a_fetch_of_the_step_reads_no_setting_of_the_clone(
+def test_an_archive_commit_that_is_not_the_tip_is_dropped_and_written_again(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The step fetches at the URL that it read after the clone, in a git folder of its own, so a
-    program that a setting of the clone names, such as `remote.origin.uploadpack`, never runs."""
-    pull = _pull_with_archive_conflict(tmp_path)
-    upload = f"{_record(pull.seen / 'uploadpack')}; git-upload-pack"
-    _git(pull.clone, "config", "remote.origin.uploadpack", upload)
-    _with_pull_request_code(monkeypatch, pull)
-
-    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
-
-    assert pull.written() == []
-    assert report.result == FixConflictResult.PLANNED
-
-
-def test_no_local_git_call_of_the_step_runs_a_hook_of_the_clone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Each local git call of the step, such as checkout, rebase and commit, and each update of a
-    ref of the clone by `OriginGit` turns the hooks of the clone off (`core.hooksPath=/dev/null`)."""
-    pull = _pull_with_archive_conflict(tmp_path)
-    hooks = ("post-checkout", "pre-rebase", "post-rewrite", "pre-commit", "post-commit")
-    for name in (*hooks, "prepare-commit-msg", "commit-msg", "reference-transaction"):
-        hook = pull.clone / ".git" / "hooks" / name
-        hook.write_text(f"#!/bin/sh\ntouch '{pull.seen / name}'\n", encoding="utf-8")
-        hook.chmod(0o755)
+    """At the stop on the archive commit, the round runs `git rebase --skip`, so HEAD stays on the
+    head branch and the commit after the archive commit stays. After the rebase it archives the
+    change again, in a commit of its own on the tip."""
+    pull = _pull_with_archive_conflict(tmp_path, after=True)
     _with_pull_request_code(monkeypatch, pull)
 
     report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
 
-    assert pull.written() == []
-    assert report.result == FixConflictResult.RESOLVED
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    assert pull.pushed_file("src/fix.py") == "F = 1\n"
+    assert pull.pushed_file("src/a.py") == "A = 1\n"
+    assert pull.pushed_file(f"openspec/changes/archive/2026-11-21-{pull.number}-test-cap/tasks.md")
+    subject = _git(pull.upstream, "log", "-1", "--format=%s", pull.branch)
+    assert subject == f"docs(openspec): archive the change (#{pull.number})"
 
 
-_DOCS = "docs/CLI_REFERENCE.md"
-_LOCK = "uv.lock"
-
-
-def _commit_files(seed: Path, files: dict[str, str], message: str) -> None:
-    for name, text in files.items():
-        (seed / name).parent.mkdir(parents=True, exist_ok=True)
-        (seed / name).write_text(text, encoding="utf-8")
-    _git(seed, "add", "-A")
-    _git(seed, "commit", "-q", "-m", message)
-
-
-def _pull_with_docs_and_lock_conflict(
-    tmp_path: Path, *, clean_first: bool = False, behind: int = 0, identity: bool = True
-) -> _Pull:
-    """A bot pull request whose generated document and `uv.lock` conflict with main, and the clone
-    of the step as `_clone_or_reuse_source` makes it: shallow (`--depth=50`), with the default
-    branch only. A person wrote the base commit, as on main. With `clean_first` the branch starts
-    with a commit that applies with no conflict. `behind` is the count of commits that main gains
-    after the fork before its conflicting commit. With no `identity` the clone has no `user.*`."""
-    upstream = tmp_path / "upstream.git"
-    other = tmp_path / "other.git"
-    seen = tmp_path / "seen"
-    seen.mkdir()
-    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(upstream))
-    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(other))
-    seed = tmp_path / "seed"
-    _git(tmp_path, "clone", "-q", str(upstream), str(seed))
-    _bot(seed)
-    _git(seed, "config", "user.name", "Alice Human")
-    _commit_files(seed, {_DOCS: "# v1\n", _LOCK: "version = 1\n"}, "chore: base")
-    _bot(seed)
-    _git(seed, "push", "-q", "origin", "main")
-    store = InMemoryRoadmapStore(repo=REPO)
-    number = store.seed_issue(
-        title="feat: docs", labels=("status/in-progress", "priority/p2-medium")
-    )
-    branch = f"feat/{number}-docs"
-    _git(seed, "checkout", "-q", "-b", branch)
-    if clean_first:
-        _commit_files(seed, {"src/clean.py": "B = 2\n"}, "feat: a clean change")
-    changed = {_DOCS: "# v1\nbranch\n", _LOCK: "version = 1\nbranch\n", "src/feature.py": "A = 1\n"}
-    _commit_files(seed, changed, "feat: a feature")
-    _git(seed, "push", "-q", "origin", branch)
-    head = _git(seed, "rev-parse", "HEAD")
-    _git(seed, "checkout", "-q", "main")
-    for step in range(behind):
-        _git(seed, "commit", "-q", "--allow-empty", "-m", f"chore: main {step}")
-    _commit_files(seed, {_DOCS: "# v1\nmain\n", _LOCK: "version = 1\nmain\n"}, "chore: main")
-    _git(seed, "push", "-q", "origin", "main")
-
-    clone = tmp_path / "clone"
-    _git(tmp_path, "clone", "-q", "--depth=50", upstream.as_uri(), str(clone))
-    if identity:
-        _bot(clone)
-    return _Pull(upstream, other, clone, seen, branch, head, number, store)
-
-
-def test_in_a_runner_a_docs_and_lockfile_round_completes_with_no_environment_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+def test_an_archive_commit_that_holds_other_paths_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """In a runner Job, a round on a conflict of a generated document and `uv.lock` checks out the
-    head branch of its shallow clone, continues the rebase with `-c core.editor=true`, generates
-    both files again and pushes. No git call of the step sets an environment variable, because the
-    process runner refuses an override such as `GIT_EDITOR`."""
-    config(roadmap={"implement": {"in_runner": True}})
-    pull = _pull_with_docs_and_lock_conflict(tmp_path)
+    """The round drops a commit only when each of its paths is an OpenSpec path or a generated
+    document. A commit that also holds code, such as one squashed commit, stops the round, and the
+    head branch does not change."""
+    pull = _pull_with_archive_conflict(tmp_path, squashed=True)
+    ran = _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (
+        FixConflictResult.STOPPED,
+        "Conflict could not be resolved by Tier 1",
+    )
+    assert (ran, pull.pushed()) == ([], pull.head)
+
+
+def test_a_docs_and_lockfile_round_completes_with_no_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A round on a conflict of a generated document and `uv.lock` continues the rebase with
+    `-c core.editor=true`, generates both files again and pushes. No git call of the step sets an
+    environment variable, because the process runner refuses an override such as `GIT_EDITOR`."""
+    pull = _pull_with_docs_conflict(tmp_path)
     ran = _with_pull_request_code(monkeypatch, pull)
     code = fix_conflict.run_subprocess
     git_env: list[object] = []
@@ -1177,31 +1171,141 @@ def test_in_a_runner_a_docs_and_lockfile_round_completes_with_no_environment_ove
     report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
 
     assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
-    assert [cmd[1:] for cmd in ran] == [["run", "devops", "docs", "generate"], ["lock"]]
+    assert [cmd[1:] for cmd in ran] == [["lock"], ["run", "devops", "docs", "generate"]]
     assert pull.pushed() == report.head != pull.head
     assert git_env
     assert set(git_env) == {None}
 
 
-def test_a_tier_1_round_that_cannot_generate_again_stops_the_rebase_of_the_implement_job(
+def test_a_round_that_leaves_no_commit_past_main_pushes_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The rebase of the implement job calls `fix_rebase_conflict`. When `devops docs generate`
-    fails after tier 1 took the default branch for the conflicted document, the call returns false
-    and records the stop, so the job stops the item with the class `conflict`."""
-    store = InMemoryRoadmapStore(repo=REPO)
-    num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
+    """The pull request changes only the generated document and `uv.lock`, so tier 1 takes main
+    for each and no commit stays past main. The round never pushes the tip of main over the pull
+    request."""
+    only = {_DOCS: "# v1\nbranch only\n", _LOCK: "version = 1\nbranch only\n"}
+    pull = _pull_with_docs_conflict(tmp_path, branch_files=only)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (
+        FixConflictResult.FAILED,
+        "The rebase left no commit past origin/main",
+    )
+    assert pull.pushed() == pull.head
+
+
+def test_a_renamed_file_that_main_edited_is_pushed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pull request renames a file that main edits. The rebase carries the edit of main into
+    the renamed file, and the round pushes the result."""
+    old = "".join(f"LINE_{n} = {n}\n" for n in range(40))
+    pull = _pull_with_docs_conflict(
+        tmp_path,
+        base={**_DOCS_BASE, "src/old.py": old},
+        branch_files={**_DOCS_BRANCH, "src/old.py": None, "src/new.py": old},
+        main={**_DOCS_MAIN, "src/old.py": old.replace("LINE_39 = 39", "LINE_39 = 390")},
+    )
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    assert pull.pushed_file("src/new.py").endswith("LINE_39 = 390\n")
+    assert pull.pushed_file("src/old.py") == ""
+
+
+def test_a_merge_of_main_into_the_branch_is_no_commit_of_a_person(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bot merged main into the branch. The authors of the pull request come from
+    `person_authors`, which leaves the clean merge out, so the commits of main that the merge brings
+    are no commits of a person. The plan names the conflict, and a confirmed round settles it."""
+    pull = _pull_with_docs_conflict(tmp_path, merge_main=True)
+    _with_pull_request_code(monkeypatch, pull)
+
+    plan = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
+    done = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (plan.result, plan.files) == (FixConflictResult.PLANNED, (_DOCS, _LOCK))
+    assert (done.result, done.reason) == (FixConflictResult.RESOLVED, "")
+    assert pull.pushed_file("src/after.py") == "C = 3\n"
+
+
+def test_the_plan_and_the_round_agree_on_a_version_line_of_uv_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The plan and the round call one check of release metadata. A `version =` line on the side of
+    the pull request in a conflict of `uv.lock` stops both, and tier 1 runs no fixer."""
+    package = '[[package]]\nname = "foo"\nversion = "{}"\n'
+    pull = _pull_with_docs_conflict(
+        tmp_path,
+        base={_LOCK: package.format("1.0.0")},
+        branch_files={_LOCK: package.format("1.1.0"), "src/feature.py": "A = 1\n"},
+        main={_LOCK: package.format("1.2.0")},
+    )
+    ran = _with_pull_request_code(monkeypatch, pull)
+
+    plan = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
+    done = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert plan.reason.startswith("Plan: stop on the release path")
+    assert (done.result, done.reason) == (FixConflictResult.STOPPED, "Conflict on a release path")
+    assert (ran, pull.pushed()) == ([], pull.head)
+
+
+def test_a_rebase_that_stops_for_another_cause_stops_the_round_and_pushes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rebase that fails with no conflicted file is no settled conflict. Here git refuses the
+    commit of the first, clean pick, because the identity of the clone is empty, so the rebase
+    stops on the tip of main. The round stops, records the stop and pushes nothing."""
+    pull = _pull_with_docs_conflict(tmp_path, clean_first=True)
+    _git(pull.clone, "config", "user.name", "")
+    _git(pull.clone, "config", "user.email", "")
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert pull.pushed() == pull.head
+    assert report.result == FixConflictResult.STOPPED
+    assert report.reason.startswith("The rebase failed with no conflicted file")
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
+
+
+def _stopped_implement_rebase(tmp_path: Path) -> tuple[Path, str]:
+    """A checkout of the implement job: two commits of its groups past main, whose generated
+    document conflicts with main, and the rebase onto `origin/main` stopped. The tip before it."""
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q", "-b", "main")
     _bot(repo)
     _commit_files(repo, {_DOCS: "# v1\n"}, "chore: base")
     _git(repo, "checkout", "-q", "-b", "feat/branch")
-    _commit_files(repo, {_DOCS: "# v1\nbranch\n", "src/feature.py": "A = 1\n"}, "feat: a feature")
+    _commit_files(repo, {_DOCS: "# v1\nbranch\n", "src/feature.py": "A = 1\n"}, "feat: group 1")
+    _commit_files(repo, {"src/second.py": "B = 2\n"}, "feat: group 2")
+    tip = _git(repo, "rev-parse", "HEAD")
     _git(repo, "checkout", "-q", "main")
     _commit_files(repo, {_DOCS: "# v1\nmain\n"}, "chore: main")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "main")
     _git(repo, "checkout", "-q", "feat/branch")
-    subprocess.run([CONST_GIT_CLI, "-C", str(repo), "rebase", "main"], capture_output=True)
+    subprocess.run([CONST_GIT_CLI, "-C", str(repo), "rebase", "origin/main"], capture_output=True)
+    return repo, tip
+
+
+def test_a_tier_1_round_that_cannot_generate_again_stops_the_rebase_of_the_implement_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When `devops docs generate` fails after tier 1 took the default branch for the conflicted
+    document, `fix_rebase_conflict` returns false and records the stop, so the implement job stops
+    the item with the class `conflict`."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
+    repo, _ = _stopped_implement_rebase(tmp_path)
 
     def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if cmd[0] == BIN_UV:
@@ -1218,148 +1322,38 @@ def test_a_tier_1_round_that_cannot_generate_again_stops_the_rebase_of_the_imple
     assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
 
 
-def test_a_rebase_that_stops_for_another_cause_stops_the_round_and_pushes_nothing(
+def test_a_failed_round_gives_the_implement_branch_back_its_tip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A rebase that fails with no conflicted file is no settled conflict. Here git refuses the
-    commit of the first, clean pick, because the identity of the clone is empty, so the rebase
-    stops on the tip of main. The round stops, records the stop and pushes nothing."""
-    pull = _pull_with_docs_and_lock_conflict(tmp_path, clean_first=True, identity=False)
-    _git(pull.clone, "config", "user.name", "")
-    _git(pull.clone, "config", "user.email", "")
-    _with_pull_request_code(monkeypatch, pull)
-    monkeypatch.setattr(fix_conflict, "commit_author", lambda: ("", ""), raising=False)
+    """Tier 1 settles the rebase of the implement job, and `openspec validate` then fails. The
+    branch gets back the tip from before the rebase, with each commit of its groups, and not the
+    tip of main."""
+    repo, tip = _stopped_implement_rebase(tmp_path)
 
-    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+    def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] in (BIN_UV, BIN_OPENSPEC):
+            return subprocess.CompletedProcess(cmd, int(cmd[0] == BIN_OPENSPEC), "", "")
+        return run_subprocess(cmd, **kwargs)
 
-    assert pull.pushed() == pull.head
-    assert report.result == FixConflictResult.STOPPED
-    assert report.reason.startswith("The rebase failed with no conflicted file")
-    item = pull.store.item(pull.number)
-    assert item is not None
-    assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
+    monkeypatch.setattr(fix_conflict, "run_subprocess", run)
 
-
-def test_the_push_needs_a_result_on_the_head_branch_that_holds_main_and_the_pull_request(
-    tmp_path: Path,
-) -> None:
-    """Before a push the step checks its result: HEAD is the head branch, holds the tip of main
-    and differs from it, and holds each change of the pull request on a path that main did not
-    change and that tier 1 does not generate. It never pushes the tip of main."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-q", "-b", "main")
-    _bot(repo)
-    _commit_files(repo, {_DOCS: "# v1\n"}, "chore: base")
-    _git(repo, "checkout", "-q", "-b", "feat/branch")
-    _commit_files(repo, {_DOCS: "# branch\n", "src/feature.py": "A = 1\n"}, "feat: a feature")
-    _git(repo, "update-ref", "refs/remotes/origin/feat/branch", "HEAD")
-    _git(repo, "checkout", "-q", "main")
-    _commit_files(repo, {_DOCS: "# main\n"}, "chore: main")
-    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-    refs = ("origin/main", "origin/feat/branch", "feat/branch")
-    refused = fix_conflict._push_refused
-
-    _git(repo, "checkout", "-q", "-B", "feat/branch", "origin/main")
-    assert refused(repo, *refs) == "The result is the tip of origin/main."
-    _git(repo, "checkout", "-q", "--detach", "origin/feat/branch")
-    assert refused(repo, *refs) == "HEAD is not the branch feat/branch."
-    _git(repo, "checkout", "-q", "-B", "feat/branch", "origin/feat/branch")
-    assert refused(repo, *refs) == "The result does not hold origin/main."
-    _git(repo, "checkout", "-q", "-B", "feat/branch", "origin/main")
-    _commit_files(repo, {"src/other.py": "C = 3\n"}, "feat: another change")
-    assert refused(repo, *refs) == "The result lacks the change of the pull request: src/feature.py"
-    _commit_files(repo, {"src/feature.py": "A = 1\n"}, "feat: a feature")
-    assert refused(repo, *refs) is None
-
-
-def test_the_step_commits_as_the_bot_in_a_clone_with_no_git_identity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The clone of the step gets the identity of the bot right after the clone, as
-    `ensure_checkout` gives it to the clone of the implement and fix-checks Jobs. So the rebase and
-    the commits of tier 1 work where git has no identity of its own (`user.useConfigOnly`)."""
-    home = tmp_path / "home"
-    home.mkdir()
-    (home / ".gitconfig").write_text(
-        '[user]\n\tuseConfigOnly = true\n[protocol]\n\tallow = never\n[protocol "file"]\n\t'
-        "allow = user\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("HOME", str(home))
-    for name in (
-        "GIT_AUTHOR_NAME",
-        "GIT_AUTHOR_EMAIL",
-        "GIT_COMMITTER_NAME",
-        "GIT_COMMITTER_EMAIL",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    pull = _pull_with_docs_and_lock_conflict(tmp_path, clean_first=True, identity=False)
-    _with_pull_request_code(monkeypatch, pull)
-
-    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
-
-    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
-    assert pull.pushed() == report.head
-    committer = _git(pull.upstream, "log", "-1", "--format=%cn <%ce>", report.head)
-    assert committer == f"{BOT_USER} <{BOT_EMAIL}>"
-
-
-def test_a_merge_base_60_commits_behind_main_is_fetched_into_the_shallow_clone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
-) -> None:
-    """The clone holds the 50 newest commits of main. The step deepens it through `OriginGit` until
-    it holds the merge base, so the commits of main below the fork, which a person wrote, are no
-    commits of the pull request. The plan names the conflict, and a confirmed round in a runner
-    Job settles it."""
-    config(roadmap={"implement": {"in_runner": True}})
-    pull = _pull_with_docs_and_lock_conflict(tmp_path, behind=60)
-    _with_pull_request_code(monkeypatch, pull)
-
-    plan = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
-    done = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
-
-    assert (plan.result, plan.files) == (FixConflictResult.PLANNED, (_DOCS, _LOCK))
-    assert plan.reason.startswith("Plan: take the default branch for these files")
-    assert (done.result, done.reason) == (FixConflictResult.RESOLVED, "")
-    assert pull.pushed() == done.head
-
-
-def test_a_pull_request_with_no_merge_base_fails_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When the whole history holds no merge base of the head branch and main, the step stops with
-    a reason that names it, and runs no human-commit check, merge or rebase."""
-    pull = _pull_with_docs_and_lock_conflict(tmp_path)
-    seed = tmp_path / "seed"
-    _git(seed, "checkout", "-q", "--orphan", "unrelated")
-    _commit_files(seed, {_DOCS: "# other\n"}, "feat: an unrelated root")
-    _git(seed, "push", "-q", "--force", "origin", f"HEAD:refs/heads/{pull.branch}")
-    unrelated = _git(seed, "rev-parse", "HEAD")
-    pull = _Pull(**{**pull.__dict__, "head": unrelated})
-    _with_pull_request_code(monkeypatch, pull)
-
-    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
-
-    assert report.result == FixConflictResult.FAILED
-    assert report.reason == (
-        f"The history holds no merge base of origin/main and origin/{pull.branch}."
-    )
+    assert fix_rebase_conflict(repo, repo=REPO, item=1, default_branch="main") is False
+    assert _git(repo, "rev-parse", "feat/branch") == tip
 
 
 @pytest.mark.parametrize(
-    ("conflicts", "mode", "plan"),
+    ("conflicts", "mode", "release", "plan"),
     [
-        ((_SPEC,), "on", "Plan: drop the archive commit, rebase and archive the change again"),
-        ((_DOCS, _LOCK), "on", "Plan: take the default branch for these files"),
-        ((CONST_CHANGELOG_FILENAME, _DOCS), "on", "Plan: stop on the release path"),
-        (("src/feature.py",), "on", "Plan: stop, because tier 1 settles only"),
-        ((_DOCS,), "plan", "Plan: stop, because roadmap.fix_conflict.tier1_mode is not on"),
+        ((_SPEC,), "on", False, "Plan: drop an archive commit"),
+        ((_DOCS, _LOCK), "on", False, "Plan: take the default branch for these files"),
+        ((_LOCK,), "on", True, "Plan: stop on the release path"),
+        (("src/feature.py",), "on", False, "Plan: stop, because tier 1 settles only"),
+        ((_DOCS,), "plan", False, "Plan: stop, because roadmap.fix_conflict.tier1_mode is not on"),
     ],
 )
 def test_the_plan_says_what_a_confirmed_round_does(
-    conflicts: tuple[str, ...], mode: str, plan: str
+    conflicts: tuple[str, ...], mode: str, release: bool, plan: str
 ) -> None:
-    """The plan sorts the conflicted paths by the rules of `resolve_tier1`, so it says that a
-    confirmed round stops where it would stop."""
-    assert fix_conflict._plan_reason(conflicts, mode).startswith(plan)
+    """The plan sorts the conflicted paths by the rules of tier 1, so it says that a confirmed
+    round stops where it would stop."""
+    assert fix_conflict._plan_reason(conflicts, mode, release).startswith(plan)
