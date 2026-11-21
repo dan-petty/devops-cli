@@ -1,10 +1,12 @@
 """The fact catalog of the project review and its JSON Schema (#4692): the loader refuses a fact
 with no id or section, an unknown section, placeholder or fact, two facts with one id, a Service
-metric query with no `{repo}` and a query by node, and fills the placeholders of a window."""
+metric query with no `{repo}`, a query by node and a rows fact by namespace or pod outside the
+project namespaces (#6615), and fills the placeholders of a window."""
 
 from __future__ import annotations
 
 import copy
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +17,7 @@ import yaml
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.roadmap.project_review.catalog import (
     Catalog,
+    Shape,
     load_catalog,
     render_query,
     window_placeholders,
@@ -32,6 +35,9 @@ WINDOW = ReviewWindow(
     previous_id=None,
 )
 VALKEY_PODS = 'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"{namespaces}"} == 0)'
+# A `by (...)` or `on (...)` clause that names a workload label, and a positive namespace matcher.
+WORKLOAD_GROUPING = re.compile(r"\b(?:by|on)\s*\([^)]*\b(?:namespace|pod)\b")
+POSITIVE_NAMESPACE = re.compile(r'\bnamespace\s*=~?\s*"')
 STAGE = 'sum(increase(devops_cli_service_jobs_total{{row="stage"{repo}}}[{{range}}]))'
 VALID: dict[str, Any] = {
     "version": 1,
@@ -262,3 +268,64 @@ def test_the_namespaces_placeholder_gives_the_project_namespaces_as_one_alternat
     sent = render_query(VALKEY_PODS, window_placeholders(WINDOW, "example/project", NAMESPACES))
 
     assert sent == 'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"devops|llm"} == 0)'
+
+
+def _rows_fact(fact_id: str, query: str) -> Any:
+    return lambda doc: doc["facts"][0].update(id=fact_id, query=query, shape="rows")
+
+
+def test_a_rows_fact_by_namespace_with_no_matcher_names_the_fact_and_the_label(
+    tmp_path: Path,
+) -> None:
+    query = "max by (namespace, pod) (redis_memory_max_bytes == 0)"
+
+    text = _refusal(tmp_path, _rows_fact("prometheus.valkey_pods", query))
+
+    assert ("prometheus.valkey_pods" in text, "`query`" in text, "`namespace`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_rows_fact_that_joins_on_pod_with_no_matcher_names_the_label(tmp_path: Path) -> None:
+    query = (
+        "sum by (resource) (kube_pod_container_resource_requests * on (pod) group_left() "
+        "kube_pod_status_ready)"
+    )
+
+    text = _refusal(tmp_path, _rows_fact("prometheus.requests", query))
+
+    assert ("prometheus.requests" in text, "`pod`" in text) == (True, True)
+
+
+def test_a_negative_namespace_matcher_does_not_scope_a_rows_fact(tmp_path: Path) -> None:
+    query = 'max by (namespace, pod) (redis_memory_max_bytes{namespace!="kube-system"} == 0)'
+
+    text = _refusal(tmp_path, _rows_fact("prometheus.valkey_pods", query))
+
+    assert "prometheus.valkey_pods" in text
+
+
+def test_a_scalar_fact_by_namespace_loads_because_its_answer_has_no_label(tmp_path: Path) -> None:
+    query = "count(count by (namespace, pod) (kube_pod_info))"
+
+    catalog = _load(tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.pods", query=query))
+
+    assert (catalog.facts[0].shape, catalog.facts[0].query) == (Shape.SCALAR, query)
+
+
+def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> None:
+    values = window_placeholders(WINDOW, "example/project", ("devops",))
+    catalog = load_catalog()
+    filled = {fact.id: render_query(fact.query, values) for fact in catalog.facts}
+    grouped = [
+        fact.id
+        for fact in catalog.facts
+        if fact.shape is Shape.ROWS and WORKLOAD_GROUPING.search(fact.query)
+    ]
+
+    unscoped = [fact_id for fact_id in grouped if not POSITIVE_NAMESPACE.search(filled[fact_id])]
+
+    assert (bool(grouped), unscoped) == (True, [])
+    assert [fact_id for fact_id, query in filled.items() if "{namespaces}" in query] == []

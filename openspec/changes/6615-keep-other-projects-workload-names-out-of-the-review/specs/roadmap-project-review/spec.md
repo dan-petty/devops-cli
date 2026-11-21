@@ -39,8 +39,8 @@ The setting `roadmap.project_review.namespaces` SHALL list the project namespace
 - **THEN** the load raises a validation error at `namespaces`
 
 #### Scenario: A dry run prints the project namespaces and sends no request
-- **WHEN** a person runs `devops roadmap review run --last 7d --repo example/project --dry-run` with `roadmap.project_review.namespaces` set to `devops` and `llm`, with fakes that record each request and each process
-- **THEN** the output holds `namespace=~"devops|llm"`, the output holds no `{namespaces}`, and each fake records 0 calls
+- **WHEN** a person runs `devops roadmap review run --last 7d --repo example/project --dry-run` with `roadmap.project_review.namespaces` set to `devops` and `agents`, with fakes that record each request and each process
+- **THEN** the output holds `namespace=~"devops|agents"`, the output holds no `{namespaces}`, and each fake records 0 calls
 
 ## MODIFIED Requirements
 
