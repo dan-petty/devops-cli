@@ -194,6 +194,23 @@ def test_the_replay_runs_pytest_with_the_python_of_the_checkout_venv(
     ]
 
 
+def test_a_step_in_the_current_folder_replays_with_an_absolute_python(
+    store: InMemoryRoadmapStore,
+    checkout: Path,
+    implement_programs: ProcessFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A person's step runs in `Path(".")` when it has no `--source`. The replay runs in the
+    folder of the base tree, so a relative interpreter path names no file there (#6688)."""
+    answer_pytest_on_base(implement_programs, junit((TEST_ID, "failed")))
+    monkeypatch.chdir(checkout)
+
+    _run(store, Path("."), ModelScript(tool_calls(*WORK), say("Done.")))
+
+    python = str(checkout / ".venv" / "bin" / "python")
+    assert [call.argv[0] for call in _pytest_runs(implement_programs)] == [python]
+
+
 def test_a_behavior_group_that_changes_no_test_file_is_refused_without_a_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, implement_programs: ProcessFake
 ) -> None:
