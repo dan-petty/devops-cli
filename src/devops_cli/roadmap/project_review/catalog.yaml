@@ -239,16 +239,18 @@ facts:
     reader: prometheus
     section: service
     query: >-
-      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
-      row="stage", repo="{repo}", result="success"}[{range}])) / sum(increase(
-      devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage",
-      repo="{repo}", result=~"success|error"}[{range}]))
+      (sum(increase(devops_cli_roadmap_stage_total{repo="{repo}",
+      result=~"staged|needs_split"}[{range}])) or vector(0)) /
+      sum(increase(devops_cli_roadmap_stage_total{repo="{repo}", result!="skipped"}[{range}]))
     shape: scalar
     unit: ratio
     definition: >-
-      SLO 1 of the stage row of the repository alone, by rounds. A sum over the repositories is
-      not the SLI of one repository. Since #5559 (2026-11-13) a round does not plan, so the value
-      tells whether the round of the Service works, not whether the items were staged.
+      SLO 1 of the stage row of the repository, by the outcomes of the stage items (owner
+      decision of 2026-11-21 on #4692): the items that ended staged or needs_split over the items
+      that ended staged, needs_split, failed or degenerate. needs_split is a correct judgment that
+      an item is too big for one pull request, not a failure. A skipped item is not an outcome.
+      The value is 0 when no item ended well, and the fact is skipped when no item ended. The
+      quality of a plan, the plans that build, is #5603.
   - id: prometheus.stage_peak_hour
     reader: prometheus
     section: service
