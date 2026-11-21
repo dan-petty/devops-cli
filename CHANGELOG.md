@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.189.0](https://github.com/dan-petty/devops-cli/compare/v0.188.4...v0.189.0) (2026-11-21)
+
+
+### Features
+
+* **roadmap:** run implement as prepare, agent and publish phases ([#6670](https://github.com/dan-petty/devops-cli/issues/6670)) ([54de847](https://github.com/dan-petty/devops-cli/commit/54de847dad5ecc528c521162e358b36de64775ba)), closes [#3702](https://github.com/dan-petty/devops-cli/issues/3702)
+
+
+### Bug Fixes
+
+* **git:** a failed token mint fails clearly in App mode ([#6673](https://github.com/dan-petty/devops-cli/issues/6673)) ([fd1b859](https://github.com/dan-petty/devops-cli/commit/fd1b8599e3992c68f993152530f8ac9b80a0b25f))
+* **roadmap:** fix-conflict settles the version lines of uv.lock ([#6682](https://github.com/dan-petty/devops-cli/issues/6682)) ([82ba605](https://github.com/dan-petty/devops-cli/commit/82ba605d7e4a30827147b54ae8ac503f2ce632e3)), closes [#6623](https://github.com/dan-petty/devops-cli/issues/6623)
+
 ## [0.188.4](https://github.com/dan-petty/devops-cli/compare/v0.188.3...v0.188.4) (2026-11-21)
 
 
