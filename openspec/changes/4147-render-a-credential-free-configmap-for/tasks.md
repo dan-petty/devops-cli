@@ -34,7 +34,7 @@ Adds: `_render_sandbox_configmap`
 
 Kind: other. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 4.1 Add the row of ConfigMap `devops-cli-config-sandbox` to the table under `k8s/README.md:1099:### Homelab Values at Deploy Time` beside the row of `devops-cli-config`, with its source `config.yaml`, its place in the cluster, and `--stack devops` or `all` as the supplier. Say below the table that deploy-stack renders it from the active config with every credential-named key removed, and that teardown-stack deletes it. The opening sentence at `k8s/README.md:1101:This repository is public, so it holds no homelab value.` stays true, because the rendered ConfigMap holds no value of the repository
+- [ ] 4.1 Edit `k8s/README.md` to add the row of ConfigMap `devops-cli-config-sandbox` to the table under `k8s/README.md:1099:### Homelab Values at Deploy Time` beside the row of `devops-cli-config`, with its source `config.yaml`, its place in the cluster, and `--stack devops` or `all` as the supplier. Say below the table that deploy-stack renders it from the active config with every credential-named key removed, and that teardown-stack deletes it. The opening sentence at `k8s/README.md:1101:This repository is public, so it holds no homelab value.` stays true, because the rendered ConfigMap holds no value of the repository
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
