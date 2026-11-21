@@ -12,11 +12,13 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from cachetools import cached
 from fakeredis import FakeServer, FakeValkey
 from pydantic import BaseModel, TypeAdapter
 
 from devops_cli.config.constants import CONST_VALKEY_BRAIN_PREFIX
+from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 
 if TYPE_CHECKING:
@@ -97,6 +99,28 @@ def test_a_shared_read_fills_the_memory_tier(
         {("fact", "shared"): 1.0, ("fact", "memory"): 1.0},
         {},
     )
+
+
+def test_a_fact_read_near_the_end_of_its_ttl_leaves_the_memory_tier(
+    shared_valkey: ValkeyCacheTier,
+    valkey_server: FakeServer,
+    otlp: FakeCollector,
+    clock: ClockFake,
+) -> None:
+    """Valkey keeps a fact for 5 s more, and the mapping keeps a value for 60 s. The read keeps
+    the fact in memory no longer than its Valkey key, so a read 6 s later misses both tiers."""
+    facts = _facts()
+    fact = _Fact(name="tool", stars=3)
+    FakeValkey(server=valkey_server, decode_responses=True).set(
+        f"{_PREFIX}:tool", f"{facts.schema_key}:{fact.model_dump_json()}", ex=5
+    )
+
+    first = facts["tool"]
+    clock.shift(6)
+    with pytest.raises(KeyError, match="tool"):
+        facts["tool"]
+
+    assert (first, _reads(otlp)) == (fact, {("fact", "shared"): 1.0, ("fact", "source"): 1.0})
 
 
 def test_a_down_shared_tier_gives_the_source_value_and_keeps_the_write_in_memory(

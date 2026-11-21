@@ -8,8 +8,9 @@ service, so every address but a cloud metadata address and a scoped IPv6 address
 includes the link-local 169.254.1.2 that a rootless Podman container reaches its host at.
 
 The pool decodes each reply as UTF-8, which would spoil a binary value such as a zlib record of
-the shared listing snapshot. A read of a hash value (`hget`, `hscan`) sends valkey-py's per-command
-option `NEVER_DECODE`, so the value comes back as bytes; a write of bytes needs no option (#4668).
+the shared listing snapshot. A read of a hash value (`hget`, `hget_with_ttl`, `hscan`) sends
+valkey-py's per-command option `NEVER_DECODE`, so the value comes back as bytes; a write of bytes
+needs no option (#4668).
 """
 
 from __future__ import annotations
@@ -290,6 +291,17 @@ class ValkeyClient:
         """The bytes of one field of the hash at `key`, or None."""
         value = self._call(self._raw.execute_command, "HGET", key, field, **{NEVER_DECODE: True})
         return None if value is None else bytes(value)
+
+    def hget_with_ttl(self, key: str, field: str) -> tuple[bytes | None, int]:
+        """The bytes of one field of the hash at `key`, or None, and the time that the key has
+        left in milliseconds (`PTTL`: -2 when there is no key, -1 when the key has no TTL), read
+        with `HGET` and `PTTL` in one round trip with no MULTI/EXEC (#6611)."""
+        # valkey-py's pipeline has no type hints.
+        queue: Any = self._raw.pipeline(transaction=False)
+        queue.execute_command("HGET", key, field, **{NEVER_DECODE: True})
+        queue.execute_command("PTTL", key)
+        value, remaining = self._call(queue.execute)
+        return (None if value is None else bytes(value)), int(remaining)
 
     def hset(self, key: str, values: Mapping[str, bytes | str]) -> int:
         """Set fields of the hash at `key`; return the number of fields that are new."""
