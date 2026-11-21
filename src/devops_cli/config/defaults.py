@@ -733,6 +733,14 @@ DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # 2026-10-29: a loopback connect took at most 0.6 ms, and a connect to a Service on another node
 # of the homelab took at most 0.4 ms, so the bound is more than 400 times the slowest connect.
 DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS: float = 0.25
+# The project brain in the cache Valkey (#4668, ADR 0023 section 2). A value whose encoded form is
+# over this bound stays in the in-process tier: ADR 0023 section 2 sets 1 MiB.
+DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
+# The entries of the in-process tier of one tiered mapping. A PyPI fact holds about 1 KB, so a
+# full tier holds about 1 MB.
+DEFAULT_BRAIN_MEMORY_ENTRIES: int = 1024
+# How long a tool fact of PyPI or deps.dev is kept, in memory and in Valkey: 24 hours.
+DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 

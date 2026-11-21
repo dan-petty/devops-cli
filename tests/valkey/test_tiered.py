@@ -20,9 +20,8 @@ from devops_cli.config.constants import CONST_VALKEY_BRAIN_PREFIX
 from tests.support.fakes.otlp import FakeCollector
 
 if TYPE_CHECKING:
-    from devops_cli.valkey.tiered import TieredMapping
-
     from devops_cli.valkey.cache import ValkeyCacheTier
+    from devops_cli.valkey.tiered import TieredMapping
 
 _PREFIX = f"{CONST_VALKEY_BRAIN_PREFIX}:fact:test"
 _TTL = 60
@@ -110,7 +109,7 @@ def test_a_down_shared_tier_gives_the_source_value_and_keeps_the_write_in_memory
     """
     sources: list[str] = []
 
-    @cached(_facts())
+    @cached(_facts(), key=str)
     def read(name: str) -> _Fact:
         sources.append(name)
         return _Fact(name=name, stars=1)
@@ -168,7 +167,7 @@ def test_a_value_of_an_old_kind_or_schema_is_read_from_the_source(
     writer.set(f"{_PREFIX}:b", f"0123456789abcdef:{old}", ex=_TTL)
     facts = _facts()
 
-    @cached(facts)
+    @cached(facts, key=str)
     def read(name: str) -> _Fact:
         return _Fact(name=name, stars=2)
 
@@ -199,7 +198,7 @@ def test_the_brain_counters_send_only_fixed_labels(
         VALKEY_CACHE_ERRORS_TOTAL,
     )
 
-    @cached(_facts())
+    @cached(_facts(), key=str)
     def read(name: str) -> _Fact:
         return _Fact(name=name, stars=1)
 
