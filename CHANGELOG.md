@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.187.2](https://github.com/dan-petty/devops-cli/compare/v0.187.1...v0.187.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **roadmap:** fix the cause of a refused alternatives check ([#6617](https://github.com/dan-petty/devops-cli/issues/6617)) ([c6395d8](https://github.com/dan-petty/devops-cli/commit/c6395d856d0c7fca25e3866038c338c0cb6433e3))
+
+
+### Code Refactoring
+
+* **roadmap:** run fix-checks as prepare, agent and publish phases ([#6609](https://github.com/dan-petty/devops-cli/issues/6609)) ([8163782](https://github.com/dan-petty/devops-cli/commit/816378216dd3772a29392bf35893065ea043afcd)), closes [#6601](https://github.com/dan-petty/devops-cli/issues/6601)
+
 ## [0.187.1](https://github.com/dan-petty/devops-cli/compare/v0.187.0...v0.187.1) (2026-11-21)
 
 
