@@ -508,12 +508,6 @@ class OwnerQuestionRecordKey(StrEnum):
     ANSWER = "owner_question.answer"
 
 
-class ScaffoldRecordKey(StrEnum):
-    """What the scaffold step records in an Item's job record (#5499): the item branch."""
-
-    BRANCH = "scaffold.branch"
-
-
 class FixConflictRecordKey(StrEnum):
     """What the step `fix-conflict` records in an Item's job record (#5019):
     `fix_conflict.key` is `<base>:<head>`,
@@ -548,7 +542,6 @@ JobRecord = dict[
     | IntakeRecordKey
     | ConsolidateRecordKey
     | OwnerQuestionRecordKey
-    | ScaffoldRecordKey
     | FixConflictRecordKey
     | ClaimRecordKey,
     str | None,
@@ -937,7 +930,6 @@ _JOB_RECORD_KEYS = frozenset(
         *IntakeRecordKey,
         *ConsolidateRecordKey,
         *OwnerQuestionRecordKey,
-        *ScaffoldRecordKey,
         *FixConflictRecordKey,
         *ClaimRecordKey,
     )
@@ -1503,7 +1495,6 @@ __all__ = [
     "RetitleRecordKey",
     "ReviewRecordKey",
     "RoadmapStore",
-    "ScaffoldRecordKey",
     "StageRecordKey",
     "Verdict",
     "as_utc",

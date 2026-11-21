@@ -561,18 +561,6 @@ class GitHubClient:
                     return _read_as(OpenPullRequest, item, path=endpoint)
         return None
 
-    def create_ref(self, repo: str, *, ref: str, sha: str) -> dict[str, Any]:
-        """Create a git reference in `repo` (POST /repos/{owner}/{repo}/git/refs) (#5499)."""
-        path = _repo_path(repo, "git/refs")
-        payload = {"ref": ref, "sha": sha}
-        answer = self._session.rest("POST", path, body=payload)
-        if not isinstance(answer, dict):
-            raise GitHubUnreadError(
-                f"GitHub's answer to POST {path} is not an object: {type(answer).__name__}",
-                details={"path": path},
-            )
-        return answer
-
     def create_draft_pull(
         self, repo: str, *, title: str, body: str, head: str, base: str
     ) -> CreatedPull:

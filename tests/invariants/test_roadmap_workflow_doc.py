@@ -26,7 +26,6 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ItemField,
     RefineRecordKey,
-    ScaffoldRecordKey,
     StageRecordKey,
     field_label,
 )
@@ -54,7 +53,6 @@ RECORD_KEYS = frozenset(
         AlternativesRecordKey,
         StageRecordKey,
         ImplementRecordKey,
-        ScaffoldRecordKey,
         ClaimRecordKey,
     )
     for key in keys

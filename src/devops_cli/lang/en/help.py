@@ -1586,13 +1586,6 @@ class RoadmapCommandHelp:
     )
     step_fix_conflict_dry_run: str = "Make no external requests: display planned actions."
     step_fix_conflict_confirm: str = "Allow tier 2 model resolution and push changes."
-    step_scaffold: str = (
-        "Make, resume, adopt or hold the item branch for a roadmap stage run (#5499)."
-    )
-    step_scaffold_item: str = "Number of the item to scaffold."
-    step_scaffold_kind: str = "Kind of the scaffold step (plan or delivery)."
-    step_scaffold_slug: str = "Slug of the change folder or branch."
-    step_scaffold_dry_run: str = "Make no request to GitHub or git, and write no record key."
     step_open: str = "Open, update, or recover the draft pull request of an item (#5020)."
     step_open_item: str = "Number of the item to open or update a pull request for."
     step_open_head: str = "Branch to open the pull request from."
