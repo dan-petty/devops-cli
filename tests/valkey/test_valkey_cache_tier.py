@@ -317,6 +317,29 @@ def test_the_cache_tier_keeps_a_binary_hash_with_a_ttl(
     assert reader.exists("hash", "moved") == 0
 
 
+@pytest.mark.usefixtures("clock")
+def test_the_cache_tier_reads_a_value_and_its_ttl_in_one_round_trip(
+    valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
+) -> None:
+    """The tier reads the value and the remaining TTL of a key with one pipeline: a key with a
+    TTL of 5 s gives its value and 5,000 ms, a missing key gives no value and -2, and a read
+    while Valkey is down gives no answer and counts a failed `get`."""
+    FakeValkey(server=valkey_server).set("fact", "value", ex=5)
+    tier = _tier(valkey_client)
+
+    held = tier.get_with_ttl("fact")
+    missing = tier.get_with_ttl("missing")
+    valkey_server.connected = False
+    down = tier.get_with_ttl("fact")
+
+    assert (held, missing, down, _errors(otlp)) == (
+        ("value", 5000),
+        (None, -2),
+        None,
+        {("get", "connection"): 1.0},
+    )
+
+
 def test_a_writer_whose_watched_key_changed_writes_nothing(
     valkey_server: FakeServer, valkey_client: ValkeyClient
 ) -> None:
