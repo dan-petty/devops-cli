@@ -2,7 +2,8 @@
 value and the status of each fact, the disagreements, and the plan of a dry run.
 
 For each fact in the catalog order the dispatcher fills the placeholders of the window, checks
-the `requires` conditions and the retention, and reads the query once: the facts on one answer
+the `requires` conditions, the first time of the series and the retention, and reads the query
+once: the facts on one answer
 share the read. A jq program of the fact gives the value of a listing, GitHub or OpenSpec answer,
 with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer gives one sample
 (`scalar`) or a row of each sample (`rows`, the largest value first).
@@ -10,6 +11,7 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | Condition | Status | Request |
 | :--- | :--- | :--- |
 | A `requires` condition is false | `skipped`, the reason names it | none |
+| The window starts before `not_before`, the first time of the series of the fact | `skipped`, the reason names that time | none |
 | The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
@@ -49,7 +51,7 @@ from typing import Any, Final
 from pydantic import JsonValue
 
 from devops_cli.config.settings import Settings
-from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.git.operations import git_argv
@@ -63,6 +65,7 @@ from devops_cli.roadmap.project_review.catalog import (
     ReaderRules,
     Shape,
     render_query,
+    utc_text,
     window_placeholders,
 )
 from devops_cli.roadmap.project_review.data import (
@@ -206,6 +209,16 @@ def _unmet(requires: Sequence[str], context: ReadContext) -> str | None:
             if not (context.checkout / path).exists():
                 return texts.review_no_path.format(path=path)
     return None
+
+
+def _too_early(fact: CatalogFact, context: ReadContext) -> str | None:
+    """The reason when the window starts before the first time of the series of `fact`, or
+    None."""
+    if fact.not_before is None or context.window.start >= fact.not_before:
+        return None
+    return MESSAGES.roadmap.review_before_first_time.format(
+        start=utc_text(context.window.start), not_before=utc_text(fact.not_before)
+    )
 
 
 def _expired(days: int | None, context: ReadContext) -> str | None:
@@ -490,7 +503,7 @@ def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
     for fact in catalog.facts:
         rules = catalog.rules(fact)
         query = render_query(fact.query, values)
-        if (reason := _unmet(rules.requires, context)) is not None:
+        if (reason := _unmet(rules.requires, context) or _too_early(fact, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.SKIPPED, reason=reason))
         elif (reason := _expired(rules.retention_days, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.EXPIRED, reason=reason))
@@ -572,6 +585,9 @@ def plan_catalog(
     each: list[PlannedRequest] = []
     for fact in catalog.facts:
         condition = _condition(catalog.rules(fact).requires)
+        if fact.not_before is not None:
+            first = MESSAGES.roadmap.review_plan_first_time.format(time=utc_text(fact.not_before))
+            condition = both(condition, first)
         each.append(
             PlannedRequest(
                 method=fact.reader,

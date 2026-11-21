@@ -33,6 +33,10 @@ metric name, unless the fact gives `base_reason`, a text that says why its base 
 A probe of another metric makes an empty answer `ok` for a window in which the queried metric did
 not exist.
 
+A fact can give `not_before`, the first time of its series, as UTC `YYYY-MM-DDTHH:MM:SSZ`: the
+dispatcher skips the fact for a window that starts before it, for example a count of Jobs by a
+name that a rename brought.
+
 The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
 in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
@@ -118,7 +122,8 @@ class CatalogFact:
     `base` is a selector of the metric that a `prometheus` fact reads: an answer with no series is
     none only when that metric has a series in the time scope of the query, the window for a query
     that holds `{range}`, else the window end. Its metric is a metric of the query, else
-    `base_reason` says why the base is another metric."""
+    `base_reason` says why the base is another metric. `not_before` is the first time of the series
+    of the fact: a window that starts before it does not read the fact."""
 
     id: str
     reader: ReaderKind
@@ -134,6 +139,7 @@ class CatalogFact:
     newest_first: str | None = None
     base: str | None = None
     base_reason: str | None = None
+    not_before: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -166,6 +172,26 @@ class Catalog:
 
 def _days(text: str | None) -> int | None:
     return None if text is None else int(text.removesuffix("d"))
+
+
+def _first_time(source: Path, entry: Mapping[str, Any]) -> datetime | None:
+    """The UTC time of `not_before` of the fact `entry`. The schema checks the form, and this
+    refuses a date that does not exist, such as February 30."""
+    text = entry.get("not_before")
+    if text is None:
+        return None
+    try:
+        return datetime.strptime(text, _TIME).replace(tzinfo=UTC)
+    except ValueError as error:
+        texts = MESSAGES.roadmap
+        reason = texts.review_catalog_bad_field.format(
+            subject=texts.review_catalog_fact.format(id=entry["id"]),
+            field="not_before",
+            rule=texts.review_catalog_bad_time,
+        )
+        raise RoadmapReviewError(
+            texts.review_catalog_refused.format(path=source, reason=reason)
+        ) from error
 
 
 def _subject(document: Any, path: Sequence[Any]) -> str:
@@ -288,7 +314,7 @@ def unqueried_base(query: str, base: str) -> str | None:
     return None if whole.search(query) else metric
 
 
-def _fact(entry: Mapping[str, Any]) -> CatalogFact:
+def _fact(source: Path, entry: Mapping[str, Any]) -> CatalogFact:
     shape = entry.get("shape")
     return CatalogFact(
         id=entry["id"],
@@ -305,6 +331,7 @@ def _fact(entry: Mapping[str, Any]) -> CatalogFact:
         newest_first=entry.get("newest_first"),
         base=entry.get("base"),
         base_reason=entry.get("base_reason"),
+        not_before=_first_time(source, entry),
     )
 
 
@@ -389,7 +416,7 @@ def load_catalog(path: Path = CATALOG_FILE) -> Catalog:
             kind: ReaderRules(_days(rules.get("retention")), tuple(rules.get("requires", ())))
             for kind, rules in document["readers"].items()
         },
-        facts=tuple(_fact(entry) for entry in document[_FACTS]),
+        facts=tuple(_fact(path, entry) for entry in document[_FACTS]),
         disagreements=tuple(Agreement(**entry) for entry in document["disagreements"]),
     )
     return _cross_checked(path, catalog)

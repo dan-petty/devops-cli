@@ -6977,6 +6977,10 @@ class RoadmapMessages:
         "The window is a {kind} window, and the fact needs a {needed} window."
     )
     review_no_path: str = "The checkout holds no {path}."
+    review_before_first_time: str = (
+        "The window starts at {start}, before {not_before}, the first time of the series of the "
+        "fact, so the window does not read it."
+    )
     review_past_retention: str = (
         "The source keeps {days} days: the window starts at {start}, before {limit}."
     )
@@ -7001,6 +7005,7 @@ class RoadmapMessages:
             "path": "the checkout holds {name}",
         }
     )
+    review_plan_first_time: str = "the window starts at or after {time}"
     review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
     review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"
@@ -7033,6 +7038,7 @@ class RoadmapMessages:
     )
     review_catalog_bad_field: str = "{subject} has a `{field}` that the schema refuses. {rule}"
     review_catalog_see_schema: str = "See catalog.schema.json."
+    review_catalog_bad_time: str = "It is not a UTC time YYYY-MM-DDTHH:MM:SSZ that exists."
     review_catalog_bad_program: str = "{subject} has a `{field}` that jq cannot compile: {error}"
     review_catalog_duplicate: str = "two facts have the id of {subject}."
     review_catalog_unknown_section: str = (

@@ -378,13 +378,15 @@ facts:
       count(max_over_time(kube_job_status_start_time{namespace="devops",
       job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}]))
     shape: scalar
+    not_before: "2026-11-14T22:29:00Z"
     unit: jobs
     definition: >-
       The implement Jobs of the repository that kube-state-metrics saw start in the window.
       kube-state-metrics exports no Job label, so the name gives the repository:
-      devops-cli-implement-<name slug>-<item>-<hex> since #5739 (2026-11-14). Before that the
-      Service named the Jobs of all repositories devops-cli-runner-<time>-<hex>, so a window before
-      that date has no series (skipped), and a window across it counts only the later Jobs.
+      devops-cli-implement-<name slug>-<item>-<hex> since #5739, live at 2026-11-14T22:29:00Z
+      (release v0.144.0, #4558). Before that the Service named the Jobs of all repositories
+      devops-cli-runner-<time>-<hex>, so a window that starts before that time would count only
+      the later Jobs: the fact is skipped for it.
   - id: prometheus.implement_failures
     reader: prometheus
     section: service
@@ -904,7 +906,8 @@ disagreements:
     definition: >-
       The Service counts each implement Job of the repository once, when its round reports the
       Job, and kube-state-metrics sees each implement Job of the repository start, by its name.
-      The right fact has no series before 2026-11-14 (#5739), so the pair compares later windows.
+      The right fact is skipped for a window that starts before 2026-11-14T22:29:00Z (#5739), so
+      the pair compares only later windows.
   - id: spend
     left: prometheus.cli_spend
     right: prometheus.gateway_spend
