@@ -46,7 +46,7 @@ The `openspec` stage SHALL build FROM the `node` stage, copy `package.json` and 
 
 ### Requirement: Each image build keeps its own registry cache
 
-The image builds of `./Dockerfile` in `ci.yml`, `release.yml` and `service-image-test.yml` SHALL set
+The image builds of `./Dockerfile` in `ci.yml`, `release-image.yml` and `service-image-test.yml` SHALL set
 `cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache`. A build with
 no target SHALL use `service`. No cache entry of the three workflows SHALL use `type=gha`.
 
@@ -62,7 +62,7 @@ no target SHALL use `service`. No cache entry of the three workflows SHALL use `
 
 ### Requirement: Only the release writes the image build cache
 
-Only the `release.yml` build that pushes an image SHALL write its cache, with
+Only the `Build` job of `release-image.yml`, which pushes an image, SHALL write its cache, with
 `cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/<target>:buildcache,mode=max`. A pull
 request job SHALL read the cache with no registry login and no `packages` permission.
 

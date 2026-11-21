@@ -17,11 +17,11 @@ How CI scans each container image for vulnerabilities: one composite action runs
 - **THEN** the step fails, the job log shows the finding in a table, and code scanning lists an analysis of the category of the caller
 
 ### Requirement: The image jobs scan with the action
-The Service, Runner and MCP Server image jobs of `ci.yml` and `release.yml` SHALL call the action with the category `trivy-image-service`, `trivy-image-runner` or `trivy-image-mcp-server`, grant `security-events: write`, and set a step timeout below the job timeout. The Service and MCP Server jobs SHALL use exit code 1, and the Runner jobs exit code 0 (SECURITY.md, Dedicated Development Resources and Sandboxes). The image jobs of `ci.yml` SHALL run when `.trivyignore.yaml` or the action changes.
+The image jobs of `ci.yml` and the `Verify` job of `release-image.yml` SHALL call the action with the category `trivy-image-service`, `trivy-image-runner` or `trivy-image-mcp-server`, grant `security-events: write`, and set a step timeout below the job timeout. The Service and MCP Server scans SHALL use exit code 1, and the Runner scans exit code 0 (SECURITY.md, Dedicated Development Resources and Sandboxes). The image jobs of `ci.yml` SHALL run when `.trivyignore.yaml` or the action changes.
 
 #### Scenario: The image workflows are validated
 - **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
-- **THEN** the command exits 0 and reports no finding in `.github/workflows/ci.yml` or `.github/workflows/release.yml`
+- **THEN** the command exits 0 and reports no finding in `.github/workflows/ci.yml`, `.github/workflows/release.yml` or `.github/workflows/release-image.yml`
 
 #### Scenario: Code scanning holds each image
 - **WHEN** a person runs `uv run devops gh api 'repos/dan-petty/devops-cli/code-scanning/analyses?per_page=100' --jq '[.[].category] | unique'` after the merge

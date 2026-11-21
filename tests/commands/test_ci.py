@@ -768,9 +768,9 @@ def test_changed_line_coverage_step_fails_a_pull_request_below_ninety_percent() 
 
 def test_service_image_ci_job_invariants() -> None:
     """The CI service-image job runs for every pull request or a dispatch, pushes nothing, and
-    avoids ${{ in scripts. The release pull request skips the job: release.yml builds, starts and
-    scans the image before it publishes it, only when release-please creates a release (#1486,
-    #4637)."""
+    avoids ${{ in scripts. The release pull request skips the job: only when release-please creates
+    a release, release.yml builds the image one time, pushes it by digest, and starts and scans
+    that digest before it tags it (#1486, #4637, #6407)."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
@@ -792,87 +792,6 @@ def test_service_image_ci_job_invariants() -> None:
     interpolated_runs = [s.get("name", "") for s in job["steps"] if "${{" in s.get("run", "")]
     assert not interpolated_runs, (
         f"run: blocks in service-image job must not contain ${{}}: {interpolated_runs}"
-    )
-
-
-def test_service_image_release_job_invariants() -> None:
-    """release.yml publishes the Service image only in the run where release-please created a
-    release (#1486).
-
-    It builds, smoke-tests and scans the image, pushes it by digest and attests it, and only then
-    tags it with the release tag and `latest`, so a tag never names an unattested image. No plan
-    decides whether to build: Image Updater rolls the cluster onto the digest `latest` moves to.
-    """
-    import yaml
-
-    release_wf = (
-        yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
-    )
-    job = release_wf["jobs"]["service-image"]
-    steps = job["steps"]
-
-    assert (
-        release_wf[True]["push"]["branches"],
-        job["if"],
-        job.get("needs"),
-        job.get("permissions"),
-        "SERVICE_IMAGE_INPUTS" in job.get("env", {}),
-    ) == (
-        ["main"],
-        "needs.release-please.outputs.release_created == 'true'",
-        "release-please",
-        {
-            "contents": "read",
-            "packages": "write",
-            "id-token": "write",
-            "attestations": "write",
-            "security-events": "write",
-        },
-        False,
-    )
-    assert (
-        [s.get("name") for s in steps if s.get("id") == "plan"],
-        [s.get("name") for s in steps if "steps.plan" in str(s.get("if", ""))],
-        "Point latest at the Published Service Image" in [s.get("name") for s in steps],
-    ) == ([], [], False)
-
-    step_names = [s.get("name", "") for s in steps]
-    indices = (
-        step_names.index("Build and Load Service Image"),
-        step_names.index("Run Service Image Smoke Test"),
-        step_names.index("Scan Service Image for Vulnerabilities"),
-        step_names.index("Build and Push Service Image"),
-        step_names.index("Attest Build Provenance"),
-        step_names.index("Tag the Attested Service Image"),
-    )
-    assert indices == tuple(sorted(indices)), f"Steps out of order: {indices}"
-
-    meta_tags = next(s for s in steps if s.get("id") == "meta")["with"]["tags"]
-    push_with = next(s for s in steps if s.get("name") == "Build and Push Service Image")["with"]
-    tag_step = next(s for s in steps if s.get("name") == "Tag the Attested Service Image")
-    assert (
-        [line.strip() for line in meta_tags.splitlines() if line.strip()],
-        "push-by-digest=true" in str(push_with.get("outputs", "")),
-        "tags" in push_with,
-        push_with.get("sbom") in (True, "true"),
-        tag_step.get("shell"),
-        tag_step["env"]["DIGEST"],
-        "imagetools create" in tag_step["run"],
-        "refs/heads/release" in tag_step["run"],
-    ) == (
-        ["type=raw,value=${{ needs.release-please.outputs.tag_name }}", "type=raw,value=latest"],
-        True,
-        False,
-        True,
-        "bash",
-        "${{ steps.push.outputs.digest }}",
-        True,
-        False,
-    )
-
-    interpolated_runs = [s.get("name", "") for s in steps if "${{" in s.get("run", "")]
-    assert not interpolated_runs, (
-        f"run: blocks in service-image release job must not contain ${{}}: {interpolated_runs}"
     )
 
 
@@ -1022,11 +941,15 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
 
 
 def test_service_image_smoke_test_parity() -> None:
-    """The smoke-test run: block in ci.yml and release.yml must be identical and enforce sandbox flags."""
+    """The smoke-test run: block in ci.yml and in the Verify job of release-image.yml must be
+    identical and enforce sandbox flags."""
     import yaml
 
     ci = yaml.safe_load(Path(".github/workflows/ci.yml").read_text(encoding="utf-8")) or {}
-    rel = yaml.safe_load(Path(".github/workflows/release.yml").read_text(encoding="utf-8")) or {}
+    rel = (
+        yaml.safe_load(Path(".github/workflows/release-image.yml").read_text(encoding="utf-8"))
+        or {}
+    )
 
     ci_smoke = next(
         s
@@ -1034,9 +957,7 @@ def test_service_image_smoke_test_parity() -> None:
         if s.get("name") == "Run Service Image Smoke Test"
     )
     rel_smoke = next(
-        s
-        for s in rel["jobs"]["service-image"]["steps"]
-        if s.get("name") == "Run Service Image Smoke Test"
+        s for s in rel["jobs"]["verify"]["steps"] if s.get("name") == "Run Service Image Smoke Test"
     )
 
     ci_run = ci_smoke["run"].strip()

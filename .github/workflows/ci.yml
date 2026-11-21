@@ -39,8 +39,8 @@ env:
 # steps after it (#4677).
 # The release pull request runs only the required checks: each job that no rule of `main` reads
 # skips a branch of this repository whose name starts with `release-please--`. That pull request
-# changes `pyproject.toml` and `uv.lock`, which are image inputs, and release.yml builds, starts
-# and scans each image before it publishes it (#4637).
+# changes `pyproject.toml` and `uv.lock`, which are image inputs, and release.yml starts and scans
+# each image that it builds before it tags it (#4637).
 jobs:
   # Fast-failing static gates. Split from the test suite so lint, typing, and formatting
   # errors surface in roughly a minute instead of queuing behind the full suite.
@@ -611,7 +611,7 @@ jobs:
         run: |
           docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the loaded image, so a missing tool fails it. The size of the image stays under its bound.
+          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the image, so a missing tool fails it. The size of the image stays under its bound.
           docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi

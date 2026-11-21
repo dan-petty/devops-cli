@@ -287,377 +287,56 @@ jobs:
             fi
           done <<< "$TAGS"
 
-  service-image:
-    name: Build & Publish Service Image
+  # The service, runner and mcp-server images of the release, one call of release-image.yml for
+  # each (#6407). A call builds its image one time and pushes it by digest, then smoke-tests and
+  # scans that digest, and only then attests it and tags it with the release tag and latest.
+  # Image Updater rolls the cluster onto the digest of latest (#1486, #2667, #4324). Each image
+  # promotes on its own: a failed job of one call stops no job of another call. The mcp-server
+  # package is public, so the pod pulls it with no credential (see the pull request of #4324).
+  image:
+    name: ${{ matrix.title }} Image
     needs: release-please
-    # It builds, smoke-tests, scans, pushes by digest and attests the service image of the
-    # release, then tags it with the release tag and latest; Image Updater rolls the cluster onto
-    # the new digest (#1486).
     if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      security-events: write
-    env:
-      SERVICE_IMAGE: ghcr.io/${{ github.repository }}/service
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          # The commit that the release tags: a later push can start the run that creates it.
-          ref: ${{ needs.release-please.outputs.sha }}
-          persist-credentials: false
-
-      - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Extract Metadata for Service Image
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.SERVICE_IMAGE }}
-          tags: |
-            type=raw,value=${{ needs.release-please.outputs.tag_name }}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=devops-cli-service
-            org.opencontainers.image.description=DevOps CLI Service runtime for scheduled jobs and webhooks
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
-            org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
-            org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
-
-      - name: Build and Load Service Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          load: true
-          push: false
-          tags: devops-cli-service:local
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
           # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
           # packages a security update has since fixed.
-          no-cache-filters: service
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
-
-      - name: Run Service Image Smoke Test
-        env:
-          IMAGE: devops-cli-service:local
-        run: |
-          docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
-          curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
-          docker stop svc && docker rm svc
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm --entrypoint gh "$IMAGE" --version
-          docker run --rm --entrypoint git "$IMAGE" --version
-          docker run --rm --entrypoint openspec "$IMAGE" --version
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
-          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
-
-      - name: Scan Service Image for Vulnerabilities
-        timeout-minutes: 4
-        uses: ./.github/actions/image-scan
-        with:
-          image-ref: devops-cli-service:local
-          category: trivy-image-service
-
-      # Pushed by digest only: the tags move to the digest once its provenance is attested, so
-      # a tag never names an unattested image and a failed attestation is retried by a re-run.
-      - name: Build and Push Service Image
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          outputs: type=image,name=${{ env.SERVICE_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
-          # The final stage runs `apt-get upgrade`: never reuse it, or a cached layer keeps
-          # packages a security update has since fixed.
-          no-cache-filters: service
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
-          # The one write of the cache of this image, from the build that the release publishes.
-          # The image jobs of each pull request read it from main and write none (#4646).
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache,mode=max
-
-      - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/service
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
-
-      - name: Tag the Attested Service Image
-        id: tag
-        shell: bash
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          TAG_ARGS=()
-          while read -r TAG; do
-            if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
-          done <<< "$TAGS"
-          docker buildx imagetools create "${TAG_ARGS[@]}" "${SERVICE_IMAGE}@${DIGEST}"
-
-  runner-image:
-    name: Build & Publish Runner Image
-    needs: release-please
-    # It builds, smoke-tests, scans, pushes by digest and attests the runner image of the
-    # release, then tags it with the release tag and latest; Image Updater rolls the Job template
-    # of the implement job onto the new digest (#2667).
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
+          - image: service
+            title: Service
+            description: DevOps CLI Service runtime for scheduled jobs and webhooks
+            no-cache-filters: service
+            category: trivy-image-service
+            scan-exit-code: "1"
+          # The devtools image runs `apt-get upgrade` in its own build, so the runner stage runs
+          # none and needs no filter. Its scan only reports (SECURITY.md, Dedicated Development
+          # Resources and Sandboxes).
+          - image: runner
+            title: Runner
+            description: DevOps CLI runner for the implement job of the roadmap
+            no-cache-filters: ""
+            category: trivy-image-runner
+            scan-exit-code: "0"
+          - image: mcp-server
+            title: MCP Server
+            description: DevOps CLI MCP server that serves role-scoped tool sets to cluster jobs
+            no-cache-filters: mcp-server
+            category: trivy-image-mcp-server
+            scan-exit-code: "1"
+    # A called workflow can only keep or lower these permissions; each of its jobs asks for less.
     permissions:
       contents: read
       packages: write
       id-token: write
       attestations: write
       security-events: write
-    env:
-      RUNNER_IMAGE: ghcr.io/${{ github.repository }}/runner
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          # The commit that the release tags: a later push can start the run that creates it.
-          ref: ${{ needs.release-please.outputs.sha }}
-          persist-credentials: false
-
-      - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Extract Metadata for Runner Image
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.RUNNER_IMAGE }}
-          tags: |
-            type=raw,value=${{ needs.release-please.outputs.tag_name }}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=devops-cli-runner
-            org.opencontainers.image.description=DevOps CLI runner for the implement job of the roadmap
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
-            org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
-            org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
-
-      - name: Build and Load Runner Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          target: runner
-          load: true
-          push: false
-          tags: devops-cli-runner:local
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache
-
-      - name: Run Runner Image Smoke Test
-        env:
-          IMAGE: devops-cli-runner:local
-        run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm "$IMAGE" --version
-          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the loaded image, so a missing tool fails it. The size of the image stays under its bound.
-          docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
-          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
-          # A Job builds the venv of its checkout with the dev group before its first agent step (#6517), and the image holds no dev dependency. So the check runs the bootstrap of the Job on a copy of the checkout, checks the tools of its venv, and runs ruff, pytest and mypy from it. The checkout's .python-version names a patch release that the base image can lack.
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
-
-      - name: Scan Runner Image for Vulnerabilities
-        timeout-minutes: 4
-        uses: ./.github/actions/image-scan
-        with:
-          image-ref: devops-cli-runner:local
-          category: trivy-image-runner
-          # Report only: the runner builds FROM the devtools image, and the findings of its tool
-          # binaries go to code scanning and stop no build (SECURITY.md, Dedicated Development
-          # Resources and Sandboxes). The Service and MCP server scans keep the gate.
-          exit-code: "0"
-
-      # Pushed by digest only: the tags move to the digest once its provenance is attested, so
-      # a tag never names an unattested image and a failed attestation is retried by a re-run.
-      - name: Build and Push Runner Image
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          target: runner
-          platforms: linux/amd64
-          outputs: type=image,name=${{ env.RUNNER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache
-          # The one write of the cache of this image, as in the Service image job (#4646).
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache,mode=max
-
-      - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/runner
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
-
-      - name: Tag the Attested Runner Image
-        id: tag
-        shell: bash
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          TAG_ARGS=()
-          while read -r TAG; do
-            if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
-          done <<< "$TAGS"
-          docker buildx imagetools create "${TAG_ARGS[@]}" "${RUNNER_IMAGE}@${DIGEST}"
-
-  mcp-server-image:
-    name: Build & Publish MCP Server Image
-    needs: release-please
-    # It builds, smoke-tests, scans, pushes by digest and attests the mcp-server image of the
-    # release, then tags it with the release tag and latest; Image Updater rolls Deployment
-    # mcp-server onto the new digest (#4324). The package is new: a person sets it public once, so
-    # the pod pulls it with no credential (see the pull request of #4324).
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      attestations: write
-      security-events: write
-    env:
-      MCP_SERVER_IMAGE: ghcr.io/${{ github.repository }}/mcp-server
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          # The commit that the release tags: a later push can start the run that creates it.
-          ref: ${{ needs.release-please.outputs.sha }}
-          persist-credentials: false
-
-      - name: Log in to GitHub Container Registry (GHCR)
-        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Extract Metadata for MCP Server Image
-        id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ env.MCP_SERVER_IMAGE }}
-          tags: |
-            type=raw,value=${{ needs.release-please.outputs.tag_name }}
-            type=raw,value=latest
-          labels: |
-            org.opencontainers.image.title=devops-cli-mcp-server
-            org.opencontainers.image.description=DevOps CLI MCP server that serves role-scoped tool sets to cluster jobs
-            org.opencontainers.image.licenses=MIT
-            org.opencontainers.image.documentation=https://github.com/dan-petty/devops-cli/blob/main/README.md
-            org.opencontainers.image.source=https://github.com/dan-petty/devops-cli
-            org.opencontainers.image.version=${{ needs.release-please.outputs.tag_name }}
-
-      - name: Build and Load MCP Server Image
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          target: mcp-server
-          load: true
-          push: false
-          tags: devops-cli-mcp-server:local
-          no-cache-filters: mcp-server
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache
-
-      - name: Run MCP Server Image Smoke Test
-        env:
-          IMAGE: devops-cli-mcp-server:local
-        run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm "$IMAGE" --version
-          docker run --rm --entrypoint kubectl "$IMAGE" version --client
-          docker run --rm --entrypoint helm "$IMAGE" version
-          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
-
-      - name: Scan MCP Server Image for Vulnerabilities
-        timeout-minutes: 4
-        uses: ./.github/actions/image-scan
-        with:
-          image-ref: devops-cli-mcp-server:local
-          category: trivy-image-mcp-server
-
-      # Pushed by digest only: the tags move to the digest once its provenance is attested, so
-      # a tag never names an unattested image and a failed attestation is retried by a re-run.
-      - name: Build and Push MCP Server Image
-        id: push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          target: mcp-server
-          platforms: linux/amd64
-          outputs: type=image,name=${{ env.MCP_SERVER_IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          sbom: true
-          no-cache-filters: mcp-server
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache
-          # The one write of the cache of this image, as in the Service image job (#4646).
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache,mode=max
-
-      - name: Attest Build Provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/mcp-server
-          subject-digest: ${{ steps.push.outputs.digest }}
-          push-to-registry: true
-
-      - name: Tag the Attested MCP Server Image
-        id: tag
-        shell: bash
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          TAG_ARGS=()
-          while read -r TAG; do
-            if [ -n "$TAG" ]; then TAG_ARGS+=(--tag "$TAG"); fi
-          done <<< "$TAGS"
-          docker buildx imagetools create "${TAG_ARGS[@]}" "${MCP_SERVER_IMAGE}@${DIGEST}"
+    uses: ./.github/workflows/release-image.yml
+    with:
+      image: ${{ matrix.image }}
+      description: ${{ matrix.description }}
+      no-cache-filters: ${{ matrix.no-cache-filters }}
+      category: ${{ matrix.category }}
+      scan-exit-code: ${{ matrix.scan-exit-code }}
+      tag-name: ${{ needs.release-please.outputs.tag_name }}
+      sha: ${{ needs.release-please.outputs.sha }}

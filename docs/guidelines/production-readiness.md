@@ -229,7 +229,7 @@ This is the path from an empty repository to a service in production. Each step 
 | 2. Repository | Extend the shared Renovate preset of devops-cli. | `renovate.json` | SEC-6 |
 | 3. Build | Commit the lockfile. Pin each action, image and chart. Give each job its token permissions. | `uv lock`; `devops scan workflows`; `devops k8s image-pins` | SEC-4, SEC-5 |
 | 3. Build | Run the tests, the coverage floor, the static checks, CodeQL and the audit in CI. The owner makes them required checks. | `ci.yml` and `codeql.yml` of devops-cli as the model | REL-4, SEC-3, SEC-7 |
-| 3. Build | Build the image in stages as user 1000. Scan it, push it by digest, and attest its provenance and SBOM before the tag. | `release.yml` of devops-cli as the model | SEC-8, SEC-10 |
+| 3. Build | Build the image in stages as user 1000, one time. Push it by digest, smoke-test and scan that digest, and attest its provenance and SBOM before the tag. | `release-image.yml` of devops-cli as the model | SEC-8, SEC-10 |
 | 3. Build | Make each release with release-please from the Conventional Commit titles. | release-please; the `Semantic PR title` check | REL-5 |
 | 4. Code | Read the settings from the environment and the ConfigMap, and the secrets only from Secret references. | The settings model of devops-cli | DEP-3, ACC-1 |
 | 4. Code | Serve `/healthz` and `/readyz`, drain on SIGTERM, and put each time limit inside the limit of its caller. | The health routes of the devops-cli Service as the model | REL-7, DEP-2, CAP-2 |

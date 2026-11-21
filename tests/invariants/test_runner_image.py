@@ -16,9 +16,6 @@ RUNNER_STEPS = (
     "Build and Load Runner Image",
     "Run Runner Image Smoke Test",
     "Scan Runner Image for Vulnerabilities",
-    "Build and Push Runner Image",
-    "Attest Build Provenance",
-    "Tag the Attested Runner Image",
 )
 
 
@@ -38,7 +35,7 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
     request skips the job (#4637)."""
     job = _workflow("ci.yml")["jobs"]["runner-image"]
     build = _step(job, "Build and Load Runner Image")
-    steps = [step for step in job["steps"] if step.get("name") in RUNNER_STEPS[:3]]
+    steps = [step for step in job["steps"] if step.get("name") in RUNNER_STEPS]
 
     assert (
         job["if"],
