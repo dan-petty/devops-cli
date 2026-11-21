@@ -991,25 +991,44 @@ class _ItemRun:
             files = _conflict_files(unmerged.stdout) if unmerged.returncode == 0 else []
             from devops_cli.roadmap.steps.fix_conflict import fix_rebase_conflict
 
-            if fix_rebase_conflict(
-                path,
-                repo=self.repo,
-                item=self.number,
-                default_branch=self.default,
-                store=self.store,
-            ):
+            try:
+                settled = fix_rebase_conflict(
+                    path,
+                    repo=self.repo,
+                    item=self.number,
+                    default_branch=self.default,
+                    store=self.store,
+                )
+            except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
+                raise
+            except (DevOpsCLIError, subprocess.TimeoutExpired) as error:
+                # The round gave the branch back its tip and recorded itself. A stop that pushes
+                # would rebase again and run tier 1, the code of the branch, a second time.
+                timed_out = isinstance(error, subprocess.TimeoutExpired)
+                raise _StopError(
+                    self.step,
+                    _error_stop(self.step, error).reason,
+                    push=False,
+                    failure_class=FailureClass.TIMEOUT if timed_out else _failure_class_of(error),
+                ) from error
+            if settled:
                 return
-            aborted = run_subprocess(
-                [BIN_GIT, "-C", str(path), "rebase", "--abort"],
-                check=False,
-                quiet=True,
-                timeout=timeout,
+            # The round of tier 1 aborts the rebase that it does not settle.
+            aborted = (
+                run_subprocess(
+                    [BIN_GIT, "-C", str(path), "rebase", "--abort"],
+                    check=False,
+                    quiet=True,
+                    timeout=timeout,
+                )
+                if _rebase_in_progress(path)
+                else None
             )
             texts = MESSAGES.roadmap
             reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
             if files:
                 reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
-            if aborted.returncode != 0:
+            if aborted is not None and aborted.returncode != 0:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
             raise _StopError(
                 self.step,

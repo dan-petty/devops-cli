@@ -1,28 +1,37 @@
 """The roadmap step `fix-conflict`: settles merge conflicts on open bot pull requests (ADR 0021,
 section 8; #5019).
 
-Runs two tiers of resolution:
-1. Tier 1 (deterministic, no model): handles archive conflicts by dropping the archive commit,
-   rebasing, and re-running the finish step from the change folder; handles generated docs by
-   taking the base branch and running `devops docs generate`; handles `uv.lock` by taking the
-   base branch and running `uv lock`.
-2. Tier 2 (model): sends remaining conflicted files, both sides, and plan scope to the model.
+Tier 1 (deterministic, no model) settles each stop of the rebase onto the default branch. It takes
+the side of the default branch for generated documents and `uv.lock` (`git checkout --ours`, or
+`git rm` when that side has no file), and runs `devops docs generate` and `uv lock` after the
+rebase. It drops only the archive commit of the item, which moves its change folder into the
+archive and touches no other change (`git rebase --skip`), and archives the change again after the
+rebase, in a commit of its own. Tier 2 (model) is not built: another conflict stops the round. A
+round (`_round`) counts in the record; one that does not end `resolved`, also on an error, aborts
+the rebase and gives the branch back its tip.
+
+Tier 1 runs code of the checkout of the pull request: `devops docs generate` and `uv lock` start
+the project and its build hooks. So `run_fix_conflict` rebases only with `confirm`, which the
+command gives only in a runner Job (`require_runner`), after the Job makes its process unreadable
+and adopts the orphans of that code, as fix-checks does. Without `confirm`, as on a workstation,
+the step returns `planned`: it runs no code of the checkout, pushes nothing and writes no record.
+The step works in a full clone in a new folder of the run (`ensure_checkout`), reads the URL of
+`origin` before tier 1 runs, and pushes through `OriginGit` to that URL, with a lease on the judged
+head.
 
 Stops immediately if a release path (CHANGELOG.md, manifests, version lines) conflicts.
 Enforces safety bounds: bot pull requests only, no human commits after bot push, no human claims
 or owner/* labels, soft cap 2 rounds (extendable to 3 if conflicted files decrease), hard cap 4.
-Runs `openspec validate --specs --strict` and scoped checks before pushing.
+Runs `openspec validate --specs --strict` before pushing.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
-import shutil
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -33,22 +42,32 @@ from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
     CONST_GIT_CLI,
     CONST_GIT_MAIN_BRANCH,
+    CONST_GIT_NO_EDITOR_CONFIG,
     CONST_GIT_REMOTE_ORIGIN,
+    CONST_OPENSPEC_ARCHIVE_DIR,
+    CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
+    CONST_OPENSPEC_CHANGE_FOLDER_RE,
+    CONST_OPENSPEC_CHANGES_DIR,
 )
 from devops_cli.config.settings import RoadmapFixConflictConfig, load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import GitOperationError
+from devops_cli.exceptions.roadmap import RoadmapImplementError
+from devops_cli.git.branch_authors import LOG_FORMAT, person_authors
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.claim import claim_labels, claimed_by
+from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement_step import find_change
+from devops_cli.roadmap.run import ensure_checkout
 from devops_cli.roadmap.stores.store import (
     FixConflictRecordKey,
     Item,
     RoadmapStore,
 )
+from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +79,14 @@ _RELEASE_PATHS: Final[frozenset[str]] = frozenset(
         ".release-please-manifest.json",
         "release-please-config.json",
     }
+)
+# A commit whose paths are all under these folders or generated documents is an archive commit,
+# which tier 1 drops at a stop and writes again.
+_ARCHIVE_ROOTS: Final[tuple[str, ...]] = ("openspec/changes/", "openspec/specs/")
+_NOT_SETTLED: Final[str] = "Conflict could not be resolved by Tier 1"
+_RUNNER_NOTE: Final[str] = (
+    "Tier 1 runs code of the pull request (`devops docs generate`, `uv lock`), so it runs only "
+    "with --confirm in a runner Job."
 )
 _GENERATED_DOC_PATHS: Final[frozenset[str]] = frozenset(
     {
@@ -82,6 +109,7 @@ class FixConflictResult(StrEnum):
 
     RESOLVED = "resolved"
     NO_CONFLICT = "no_conflict"
+    PLANNED = "planned"
     REFUSED = "refused"
     STOPPED = "stopped"
     FAILED = "failed"
@@ -162,23 +190,64 @@ def is_lockfile_path(path: str) -> bool:
     return path == "uv.lock"
 
 
-def check_merge_tree_conflict(cwd: Path, base_ref: str, head_ref: str) -> tuple[bool, list[str]]:
-    """Check whether merging head_ref into base_ref causes merge conflicts (#5019)."""
+def _merge_tree(cwd: Path, base_ref: str, head_ref: str) -> tuple[str, list[str]] | None:
+    """The tree that `git merge-tree` writes for the merge of `head_ref` into `base_ref`, and its
+    conflicted paths; None for a merge with no conflict."""
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "merge-tree", "--write-tree", base_ref, head_ref],
+        [
+            CONST_GIT_CLI,
+            "-C",
+            str(cwd),
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+        ]
+        + ["-z", base_ref, head_ref],
         check=False,
         quiet=True,
     )
     if proc.returncode == 0:
-        return False, []
-    conflicted: list[str] = []
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if "CONFLICT (content): Merge conflict in " in line:
-            conflicted.append(line.split("CONFLICT (content): Merge conflict in ", 1)[1])
-        elif "CONFLICT" in line and " in " in line:
-            conflicted.append(line.rsplit(" in ", 1)[1])
-    return True, sorted(set(conflicted))
+        return None
+    if proc.returncode != 1:
+        raise GitOperationError(
+            f"git merge-tree failed: {proc.stderr.strip() or proc.stdout.strip()}",
+            operation=_GIT_OPERATION,
+        )
+    tree, *paths = [field for field in proc.stdout.split("\0") if field]
+    return tree, sorted(set(paths))
+
+
+def check_merge_tree_conflict(cwd: Path, base_ref: str, head_ref: str) -> tuple[bool, list[str]]:
+    """Check whether merging head_ref into base_ref causes merge conflicts (#5019)."""
+    merged = _merge_tree(cwd, base_ref, head_ref)
+    return (False, []) if merged is None else (True, merged[1])
+
+
+def release_conflict(cwd: Path, base_ref: str, head_ref: str) -> bool:
+    """Whether the merge of `head_ref` into `base_ref` conflicts on release metadata (#5019): a
+    release path, or a version line on the side of `head_ref` in a conflict, which `git diff`
+    shows as an added line during the rebase (`is_release_path`). The plan and the round both ask
+    it, so the plan says what the round does."""
+    merged = _merge_tree(cwd, base_ref, head_ref)
+    if merged is None:
+        return False
+    tree, paths = merged
+    for path in paths:
+        blob = run_subprocess(
+            [CONST_GIT_CLI, "-C", str(cwd), "cat-file", "-p", f"{tree}:{path}"],
+            check=False,
+            quiet=True,
+        )
+        theirs, added = False, []
+        for line in blob.stdout.splitlines() if blob.returncode == 0 else []:
+            if line.startswith(("=======", ">>>>>>>")):
+                theirs = line.startswith("=")
+            elif theirs:
+                added.append(f"+ {line}")
+        if is_release_path(path, "\n".join(added)):
+            return True
+    return False
 
 
 def conflicted_files(cwd: Path) -> list[str]:
@@ -234,75 +303,20 @@ def _check_admission_bounds(
 
 
 def _check_no_human_commit_after_bot(cwd: Path, base_ref: str, head_ref: str) -> bool:
-    """Ensure no human committed past the last bot commit (#5019)."""
-    log_output = _git(cwd, "log", "--format=%an|%ae", f"{base_ref}..{head_ref}")
-    if not log_output:
-        return True
-    lines = [line.strip() for line in log_output.splitlines() if line.strip()]
-    for author_line in lines:
-        name, _, email = author_line.partition("|")
-        is_bot = (
-            _is_bot_author(name)
-            or _BOT_SUFFIX in name
-            or (email and "github-actions" in email)
-            or (email and _BOT_SUFFIX in email)
-        )
-        if not is_bot:
-            return False
-    return True
-
-
-def _find_archive_commit(cwd: Path, base_ref: str) -> str | None:
-    """Find the commit on the branch that created or modified openspec archive (#5019)."""
-    proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "rev-list", f"{base_ref}..HEAD"],
-        check=False,
-        quiet=True,
+    """Whether a bot wrote each commit of `head_ref` past `base_ref` (#5019). A clean merge, such as
+    a merge of the default branch, counts for no author (`person_authors`)."""
+    log = _git(cwd, "log", LOG_FORMAT, f"{base_ref}..{head_ref}")
+    return all(
+        _is_bot_author(author) for author in person_authors([CONST_GIT_CLI, "-C", str(cwd)], log)
     )
-    if proc.returncode != 0:
-        return None
-    commits = proc.stdout.splitlines()
-    for sha in commits:
-        sha = sha.strip()
-        if not sha:
-            continue
-        msg = _git(cwd, "log", "-1", "--format=%s", sha)
-        if "archive the change" in msg:
-            return sha
-        files = _git(cwd, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)
-        if any(f.startswith("openspec/changes/archive/") for f in files.splitlines()):
-            return sha
-    return None
 
 
-def _resolve_tier1_archive(cwd: Path, item_number: int, base_ref: str) -> bool:
-    logger.info(
-        "All conflicts are OpenSpec archive paths; dropping archive commit and re-running finish"
-    )
-    _abort_rebase(cwd)
-    archive_sha = _find_archive_commit(cwd, base_ref)
-    if not archive_sha:
-        logger.warning("Could not find archive commit to drop")
-        return False
-
-    # Drop the archive commit
-    head_sha = _git(cwd, "rev-parse", "HEAD")
-    if head_sha == archive_sha:
-        _git(cwd, "reset", "--hard", "HEAD~1")
-    else:
-        _git(cwd, "rebase", "--onto", f"{archive_sha}^", archive_sha, "HEAD")
-
-    # Rebase non-archive commits onto base_ref
-    try:
-        _git(cwd, "rebase", base_ref)
-    except GitOperationError:
-        _abort_rebase(cwd)
-        return False
-
-    # Find active change folder
+def _archive_again(cwd: Path, item_number: int) -> bool:
+    """Generate the documents and archive the change again from the active change folder, in a
+    commit of its own (#5019)."""
     try:
         active_change = find_change(cwd, item_number, archived=False)
-    except FileNotFoundError, ValueError:
+    except FileNotFoundError, ValueError, RoadmapImplementError:
         active_change = None
 
     if active_change is None or not active_change.exists():
@@ -358,71 +372,135 @@ def _regenerate_lock_and_commit(cwd: Path, item_number: int) -> bool:
     return True
 
 
-def _resolve_tier1_docs_lockfile(
-    cwd: Path,
-    item_number: int,
-    base_ref: str,
-    conflicts: Sequence[str],
-) -> bool:
-    logger.info("Conflicts are generated docs and/or lockfile; resolving from %s", base_ref)
-    regenerate_docs = False
-    regenerate_lock = False
-    for c in conflicts:
-        _git(cwd, "checkout", "--ours", c)
-        _git(cwd, "add", c)
-        if is_generated_docs_path(c):
-            regenerate_docs = True
-        if is_lockfile_path(c):
-            regenerate_lock = True
+def _tier1_kind(conflicts: Sequence[str]) -> str:
+    """How tier 1 settles a stop or a plan on the conflicted paths `conflicts`: `generated` when
+    each is a generated document or `uv.lock`, `archive` when the others are archive paths, else
+    `stop`. The plan and the round both ask it."""
+    others = [c for c in conflicts if not (is_generated_docs_path(c) or is_lockfile_path(c))]
+    if not others:
+        return "generated"
+    return "archive" if all(is_archive_path(c) for c in others) else "stop"
 
+
+def _change_issue(path: str) -> str | None:
+    """The issue of the change folder, active or archived, that holds `path`, or None."""
+    for pattern in (CONST_OPENSPEC_ARCHIVED_FOLDER_RE, CONST_OPENSPEC_CHANGE_FOLDER_RE):
+        if found := re.fullmatch(pattern, path):
+            return found["issue"]
+    return None
+
+
+def _is_archive_commit(cwd: Path, item_number: int) -> bool:
+    """Whether the commit that the rebase stopped on is the archive commit of the item: it moves
+    `openspec/changes/<item>-*/` away, each of its paths is an OpenSpec path or a generated
+    document, and each path under `openspec/changes/` belongs to the change of the item."""
+    listed = _git(cwd, "show", "--name-status", "--format=", "REBASE_HEAD").splitlines()
+    entries = [line.split("\t") for line in listed if line]
+    item = str(item_number)
+    moves = any(
+        entry[0][:1] in "DR"
+        and not entry[1].startswith(f"{CONST_OPENSPEC_ARCHIVE_DIR}/")
+        and _change_issue(entry[1]) == item
+        for entry in entries
+    )
+    paths = [path for entry in entries for path in entry[1:]]
+    return moves and all(
+        (path.startswith(_ARCHIVE_ROOTS) or is_generated_docs_path(path))
+        and (not path.startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/") or _change_issue(path) == item)
+        for path in paths
+    )
+
+
+def _take_default_branch(cwd: Path, path: str) -> None:
+    """Take the side of the default branch for a conflicted path, as a developer does: its file,
+    or no file when the default branch has none (no stage 2 in the index: `DU`, `DD`, `UA`)."""
+    stages = {line.split()[2] for line in _git(cwd, "ls-files", "-u", "--", path).splitlines()}
+    if "2" in stages:
+        _git(cwd, "checkout", "--ours", "--", path)
+        _git(cwd, "add", "--", path)
+    else:
+        _git(cwd, "rm", "-q", "--", path)
+
+
+def _stopped_on(cwd: Path) -> str:
+    """The commit that the rebase stopped on, or "" when it stopped on none."""
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "rebase", "--continue"],
+        [CONST_GIT_CLI, "-C", str(cwd), "rev-parse", "-q", "--verify", "REBASE_HEAD"],
         check=False,
         quiet=True,
-        env=dict(os.environ, GIT_EDITOR="true"),
     )
-    if proc.returncode != 0:
-        _abort_rebase(cwd)
-        return False
-
-    if regenerate_docs and not _regenerate_docs_and_commit(cwd, item_number):
-        return False
-
-    if regenerate_lock and not _regenerate_lock_and_commit(cwd, item_number):
-        return False
-
-    return True
+    return proc.stdout.strip()
 
 
-def _has_release_path_conflict(cwd: Path, conflicts: Sequence[str]) -> bool:
-    for c in conflicts:
-        proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), "diff", c], check=False, quiet=True)
-        diff_text = proc.stdout if proc.returncode == 0 else ""
-        if is_release_path(c, diff_text):
-            return True
-    return False
+def resolve_tier1(cwd: Path, item_number: int, message: str = "") -> str | None:
+    """Settle each stop of the rebase in `cwd` with no model call (#5019), then make again what
+    tier 1 took from the default branch (`_make_again`). None when the rebase ended so, else the
+    reason of the stop. Each
+    `--skip` or `--continue` moves the rebase on, or raises `GitOperationError`. `message` is the
+    last line of git for a rebase that stopped with no conflicted file."""
+    remade: set[str] = set()
+    while conflicts := conflicted_files(cwd):
+        kind = _tier1_kind(conflicts)
+        if kind == "stop" or (kind == "archive" and not _is_archive_commit(cwd, item_number)):
+            return _NOT_SETTLED
+        for c in conflicts:
+            if is_generated_docs_path(c) or is_lockfile_path(c):
+                _take_default_branch(cwd, c)
+                remade.add("lock" if is_lockfile_path(c) else "docs")
+        args: tuple[str, ...] = ("-c", CONST_GIT_NO_EDITOR_CONFIG, "rebase", "--continue")
+        if kind == "archive":
+            remade.add("archive")
+            args = ("rebase", "--skip")
+        stopped = _stopped_on(cwd)
+        proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), *args], check=False, quiet=True)
+        if proc.returncode == 0:
+            break
+        lines = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
+        message = mask_secrets(lines[-1]) if lines else f"exit {proc.returncode}"
+        if _stopped_on(cwd) == stopped:
+            raise GitOperationError(
+                f"git {' '.join(args[-2:])} failed: {message}", operation=_GIT_OPERATION
+            )
+    else:
+        return f"The rebase failed with no conflicted file: {message or 'no output'}"
+    return _make_again(cwd, item_number, remade)
 
 
-def resolve_tier1(
-    cwd: Path,
-    item_number: int,
-    default_branch: str,
-    conflicts: Sequence[str],
-) -> bool:
-    """Resolve deterministic conflicts (archive, generated docs, lockfile) without model calls (#5019)."""
-    if _has_release_path_conflict(cwd, conflicts):
-        logger.info("Conflict on release path stops Tier 1")
-        return False
+def _make_again(cwd: Path, item_number: int, remade: set[str]) -> str | None:
+    """Make again what tier 1 took from the default branch: the lockfile, the generated documents
+    and the archive of the change, the archive last. None, or the reason of a failure."""
+    if "lock" in remade and not _regenerate_lock_and_commit(cwd, item_number):
+        return "uv lock failed"
+    if "archive" in remade:
+        return (
+            None if _archive_again(cwd, item_number) else "The change could not be archived again"
+        )
+    if "docs" in remade and not _regenerate_docs_and_commit(cwd, item_number):
+        return "devops docs generate failed"
+    return None
 
-    base_ref = f"origin/{default_branch}"
 
-    if all(is_archive_path(c) for c in conflicts):
-        return _resolve_tier1_archive(cwd, item_number, base_ref)
-
-    if all(is_generated_docs_path(c) or is_lockfile_path(c) for c in conflicts):
-        return _resolve_tier1_docs_lockfile(cwd, item_number, base_ref, conflicts)
-
-    return False
+def _plan_reason(conflicts: Sequence[str], tier1_mode: str, release: bool) -> str:
+    """What a confirmed round would do with the conflicted paths `conflicts`, by the rules of tier
+    1 (`_tier1_kind`). `release` is the answer of `release_conflict`."""
+    kind = _tier1_kind(conflicts)
+    if tier1_mode != "on":
+        action = "stop, because roadmap.fix_conflict.tier1_mode is not on"
+    elif release:
+        action = "stop on the release path"
+    elif kind == "archive":
+        action = (
+            "drop the archive commit of the item if that commit conflicts, take the default "
+            "branch for generated documents and uv.lock, and archive the change again with tier "
+            "1; another conflicting OpenSpec commit stops the round"
+        )
+    elif kind == "generated":
+        action = "take the default branch for these files and generate them again with tier 1"
+    else:
+        action = (
+            "stop, because tier 1 settles only archive, generated document and lockfile conflicts"
+        )
+    return f"Plan: {action}. {_RUNNER_NOTE}"
 
 
 def validate_strict_specs(cwd: Path) -> bool:
@@ -460,6 +538,54 @@ def _record_fix_conflict_marks(
     store.set_marks(item_obj, marks)
 
 
+def _round(
+    cwd: Path,
+    base_ref: str,
+    tip: str,
+    settle: Callable[[], str | None],
+    *,
+    store: RoadmapStore | None,
+    item: int | Item | None,
+    files: Sequence[str],
+    key: str | None = None,
+    push: Callable[[str], None] | None = None,
+) -> tuple[FixConflictResult, str, int]:
+    """One confirmed round of tier 1 in `cwd` (#5019): `settle` rebases and settles each stop (None,
+    or the reason of a stop), then the strict validation, the check that a commit is past
+    `base_ref`, and `push` of the result. Every round counts in the record. A round that does not
+    end `resolved`, also on an error, aborts the rebase and resets the branch to `tip` first. An
+    error of git is a stop; any other error goes on after that. The result, its reason, and the
+    rounds."""
+    if isinstance(item, int):
+        item = store.item(item) if store is not None else None
+    rounds = _read_item_conflict_state(item)[0] + 1
+    result, reason = FixConflictResult.FAILED, "The round ended with an error"
+    try:
+        stop = settle()
+        if stop is not None:
+            result, reason = FixConflictResult.STOPPED, stop
+        elif not validate_strict_specs(cwd):
+            reason = "openspec validate --specs --strict failed"
+        elif _git(cwd, "rev-list", "--count", f"{base_ref}..HEAD") == "0":
+            # Never push the tip of the default branch over the pull request.
+            reason = f"The rebase left no commit past {base_ref}"
+        else:
+            if push is not None:
+                push(_git(cwd, "rev-parse", "HEAD"))
+            result, reason = FixConflictResult.RESOLVED, ""
+    except GitOperationError as exc:
+        result, reason = FixConflictResult.STOPPED, mask_secrets(str(exc))
+    finally:
+        resolved = result is FixConflictResult.RESOLVED
+        if not resolved:
+            _abort_rebase(cwd)
+            _git(cwd, "reset", "--hard", tip)
+        _record_fix_conflict_marks(
+            store, item, key=key, rounds=rounds, files=[] if resolved else files, result=result
+        )
+    return result, reason, rounds
+
+
 def fix_rebase_conflict(
     cwd: Path,
     *,
@@ -470,37 +596,25 @@ def fix_rebase_conflict(
 ) -> bool:
     """Programmatic helper for implement runner Job on rebase conflict (#5019).
 
-    Attempts Tier 1 deterministic settlement. Returns True if resolved cleanly,
-    or False if conflict requires human/model intervention.
+    Attempts Tier 1 deterministic settlement in one round (`_round`). Returns True if resolved
+    cleanly, or False if conflict requires human/model intervention; then the branch is back on
+    its tip from before the rebase.
     """
     conflicts = conflicted_files(cwd)
     if not conflicts:
         return False
+    base_ref = f"origin/{default_branch}"
+    tip = _git(cwd, "rev-parse", "ORIG_HEAD")
 
-    if _has_release_path_conflict(cwd, conflicts):
-        _abort_rebase(cwd)
-        _record_fix_conflict_marks(
-            store, item, rounds=1, files=conflicts, result=FixConflictResult.STOPPED
-        )
-        return False
+    def settle() -> str | None:
+        if release_conflict(cwd, base_ref, tip):
+            return "Conflict on a release path"
+        return resolve_tier1(cwd, item)
 
-    resolved = resolve_tier1(cwd, item, default_branch, conflicts)
-    if resolved:
-        if not validate_strict_specs(cwd):
-            logger.warning("Strict spec validation failed after Tier 1 conflict resolution")
-            _git(cwd, "reset", "--hard", f"origin/{default_branch}")
-            return False
-
-        _record_fix_conflict_marks(
-            store, item, rounds=1, files=[], result=FixConflictResult.RESOLVED
-        )
-        return True
-
-    _abort_rebase(cwd)
-    _record_fix_conflict_marks(
-        store, item, rounds=1, files=conflicts, result=FixConflictResult.STOPPED
-    )
-    return False
+    result, _, _ = _round(cwd, base_ref, tip, settle, store=store, item=item, files=conflicts)
+    if result is not FixConflictResult.RESOLVED:
+        logger.warning("Tier 1 did not settle the rebase: %s", result.value)
+    return result is FixConflictResult.RESOLVED
 
 
 def _read_item_conflict_state(item: Item | None) -> tuple[int, list[str]]:
@@ -513,24 +627,6 @@ def _read_item_conflict_state(item: Item | None) -> tuple[int, list[str]]:
     except json.JSONDecodeError, TypeError, ValueError:
         files = []
     return rounds, files
-
-
-def _clone_or_reuse_source(repo: str, source: Path | None) -> tuple[Path, Path | None]:
-    if source is not None:
-        return source, None
-    temp_dir = Path(tempfile.mkdtemp(prefix="fix-conflict-"))
-    worktree = temp_dir / "repo"
-    proc = run_subprocess(
-        [CONST_GIT_CLI, "clone", "--depth=50", f"https://github.com/{repo}.git", str(worktree)],
-        check=False,
-        quiet=True,
-    )
-    if proc.returncode != 0:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise GitOperationError(
-            f"Failed to clone repository: {proc.stderr}", operation=_GIT_OPERATION
-        )
-    return worktree, temp_dir
 
 
 def _check_conflict_caps(
@@ -549,31 +645,10 @@ def _check_conflict_caps(
     return None
 
 
-def _attempt_rebase_and_tier1(
-    worktree: Path,
-    item_num: int,
-    default_branch: str,
-    base_ref: str,
-    settings: RoadmapFixConflictConfig,
-) -> tuple[bool, list[str]]:
-    rebase_proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(worktree), "rebase", base_ref],
-        check=False,
-        quiet=True,
-    )
-    conflicts = conflicted_files(worktree)
-    if rebase_proc.returncode == 0 or not conflicts:
-        return True, []
-    if settings.tier1_mode == "on":
-        resolved = resolve_tier1(worktree, item_num, default_branch, conflicts)
-        if resolved:
-            return True, []
-    return False, conflicts
-
-
 def _settle_rebase_conflict(
     worktree: Path,
     *,
+    origin: OriginGit,
     store: RoadmapStore,
     item: Item | None,
     item_num: int | None,
@@ -582,79 +657,55 @@ def _settle_rebase_conflict(
     status: PullStatus,
     settings: RoadmapFixConflictConfig,
     base_ref: str,
-    default_branch: str,
-    current_rounds: int,
-    confirm: bool,
+    head_ref: str,
+    conflicts: Sequence[str],
+    release: bool,
 ) -> FixConflictReport:
-    resolved, conflicts = _attempt_rebase_and_tier1(
+    def settle() -> str | None:
+        _git(worktree, "switch", "-C", status.head_ref, head_ref)
+        if release:
+            return "Conflict on a release path"
+        proc = run_subprocess(
+            [CONST_GIT_CLI, "-C", str(worktree), "rebase", base_ref], check=False, quiet=True
+        )
+        if proc.returncode == 0:
+            return None
+        if settings.tier1_mode != "on":
+            return _NOT_SETTLED
+        lines = (proc.stderr.strip() or proc.stdout.strip()).splitlines()
+        return resolve_tier1(worktree, item_num or pull, mask_secrets(lines[-1]) if lines else "")
+
+    def push(head: str) -> None:
+        origin.push(status.head_ref, head, lease=status.head_sha)
+
+    key = f"{_git(worktree, 'rev-parse', base_ref)}:{status.head_sha}"
+    result, reason, rounds = _round(
         worktree,
-        item_num or pull,
-        default_branch,
         base_ref,
-        settings,
+        head_ref,
+        settle,
+        store=store,
+        item=item,
+        files=conflicts,
+        key=key,
+        push=push,
     )
-
-    if not resolved:
-        _abort_rebase(worktree)
-        new_rounds = current_rounds + 1
-        _record_fix_conflict_marks(
-            store,
-            item,
-            key=f"{_git(worktree, 'rev-parse', base_ref)}:{status.head_sha}",
-            rounds=new_rounds,
-            files=conflicts,
-            result=FixConflictResult.STOPPED,
-        )
-        return FixConflictReport(
-            repo=repo,
-            pull=pull,
-            result=FixConflictResult.STOPPED,
-            head=status.head_sha,
-            rounds=new_rounds,
-            files=tuple(conflicts),
-            reason="Tier 2 is in plan mode without --confirm"
-            if settings.tier2_mode == "plan" and not confirm
-            else "Conflict could not be resolved by Tier 1",
-        )
-
-    if not validate_strict_specs(worktree):
-        _abort_rebase(worktree)
-        _git(worktree, "reset", "--hard", status.head_sha)
-        return FixConflictReport(
-            repo=repo,
-            pull=pull,
-            result=FixConflictResult.FAILED,
-            head=status.head_sha,
-            rounds=current_rounds + 1,
-            reason="openspec validate --specs --strict failed",
-        )
-
-    new_head = _git(worktree, "rev-parse", "HEAD")
-    _git(worktree, "push", "--force-with-lease", CONST_GIT_REMOTE_ORIGIN, f"HEAD:{status.head_ref}")
-
-    new_rounds = current_rounds + 1
-    _record_fix_conflict_marks(
-        store,
-        item,
-        key=f"{_git(worktree, 'rev-parse', base_ref)}:{new_head}",
-        rounds=new_rounds,
-        files=[],
-        result=FixConflictResult.RESOLVED,
-    )
-
+    resolved = result is FixConflictResult.RESOLVED
     return FixConflictReport(
         repo=repo,
         pull=pull,
-        result=FixConflictResult.RESOLVED,
-        head=new_head,
-        rounds=new_rounds,
-        files=(),
+        result=result,
+        head=_git(worktree, "rev-parse", "HEAD") if resolved else status.head_sha,
+        rounds=rounds,
+        files=() if resolved else tuple(conflicts),
+        reason=reason,
     )
 
 
 def _execute_fix_conflict_in_worktree(
     worktree: Path,
     *,
+    origin: OriginGit,
     store: RoadmapStore,
     item: Item | None,
     item_num: int | None,
@@ -667,10 +718,6 @@ def _execute_fix_conflict_in_worktree(
     prev_files: list[str],
     confirm: bool,
 ) -> FixConflictReport:
-    _git(worktree, "fetch", CONST_GIT_REMOTE_ORIGIN, status.head_ref)
-    _git(worktree, "fetch", CONST_GIT_REMOTE_ORIGIN, default_branch)
-    _git(worktree, "checkout", status.head_ref)
-
     base_ref = f"{CONST_GIT_REMOTE_ORIGIN}/{default_branch}"
     head_ref = f"{CONST_GIT_REMOTE_ORIGIN}/{status.head_ref}"
 
@@ -706,8 +753,21 @@ def _execute_fix_conflict_in_worktree(
             reason=cap_error,
         )
 
+    release = release_conflict(worktree, base_ref, head_ref)
+    if not confirm:
+        return FixConflictReport(
+            repo=repo,
+            pull=pull,
+            result=FixConflictResult.PLANNED,
+            head=status.head_sha,
+            rounds=current_rounds,
+            files=tuple(initial_conflicts),
+            reason=_plan_reason(initial_conflicts, settings.tier1_mode, release),
+        )
+
     return _settle_rebase_conflict(
         worktree,
+        origin=origin,
         store=store,
         item=item,
         item_num=item_num,
@@ -716,9 +776,9 @@ def _execute_fix_conflict_in_worktree(
         status=status,
         settings=settings,
         base_ref=base_ref,
-        default_branch=default_branch,
-        current_rounds=current_rounds,
-        confirm=confirm,
+        head_ref=head_ref,
+        conflicts=initial_conflicts,
+        release=release,
     )
 
 
@@ -731,7 +791,10 @@ def run_fix_conflict(
     confirm: bool = False,
     source: Path | None = None,
 ) -> FixConflictReport:
-    """Execute the fix-conflict step on pull request `pull` (#5019)."""
+    """Execute the fix-conflict step on pull request `pull` (#5019). Without `confirm` the step
+    returns its plan, runs no code of the checkout and writes nothing. With `confirm` it rebases,
+    runs tier 1, which runs code of the pull request, and pushes: only a runner Job passes it, after
+    `require_runner` and the hardening of its process, as the command does."""
     client = get_github_session().client
     status = client.get_pull_status(repo, pull)
 
@@ -768,20 +831,22 @@ def run_fix_conflict(
         )
 
     default_branch = status.default_branch or CONST_GIT_MAIN_BRANCH
-    try:
-        worktree, temp_dir = _clone_or_reuse_source(repo, source)
-    except GitOperationError as exc:
-        return FixConflictReport(
-            repo=repo,
-            pull=pull,
-            result=FixConflictResult.FAILED,
-            head=status.head_sha,
-            reason=str(exc),
-        )
-
-    try:
+    with tempfile.TemporaryDirectory(prefix="devops-fix-conflict-") as root:
+        try:
+            worktree = source or ensure_checkout(repo, Path(root))
+        except GitOperationError as exc:
+            return FixConflictReport(
+                repo=repo,
+                pull=pull,
+                result=FixConflictResult.FAILED,
+                head=status.head_sha,
+                reason=str(exc),
+            )
+        # The URL of `origin`, read before tier 1 runs code of the pull request.
+        origin = OriginGit(worktree, origin_url(worktree))
         return _execute_fix_conflict_in_worktree(
             worktree,
+            origin=origin,
             store=store,
             item=item,
             item_num=item_num,
@@ -794,9 +859,6 @@ def run_fix_conflict(
             prev_files=prev_files,
             confirm=confirm,
         )
-    finally:
-        if temp_dir is not None:
-            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def dry_run_fix_conflict(

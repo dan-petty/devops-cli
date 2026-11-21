@@ -14,7 +14,7 @@ import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1382,6 +1382,84 @@ def test_a_conflict_on_the_rebase_at_the_start_names_the_conflicted_files(
         "- docs/a.md" in comment and "- docs/b.md" in comment,
         json.loads(record["implement.conflict"] or "[]"),
     ) == (True, True, ["docs/a.md", "docs/b.md"])
+
+
+def test_a_timeout_of_tier_1_stops_the_item_once_and_pushes_nothing(job_world: JobWorld) -> None:
+    """The code of the pull request runs out of time in tier 1 at the rebase of the start. The round
+    gives the branch back its tip and records itself, and the job stops the item with the class
+    `timeout`, pushes nothing and runs tier 1 no second time."""
+    _conflict_on_main(job_world, ["docs/CLI_REFERENCE.md"])
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    calls: list[str] = []
+
+    def generate(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        calls.append(command_text(call))
+        raise subprocess.TimeoutExpired(list(call.argv), 1800)
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        ProcessAnswer(side_effect=generate),
+    )
+
+    job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (len(calls), status, record.get("implement.failure")) == (1, "Blocked", "timeout")
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == before
+
+
+@pytest.mark.parametrize(
+    ("error", "kind"),
+    [("no token", "unauthenticated"), ("the service stops", "stopping")],
+    ids=["unauthenticated", "stopping"],
+)
+def test_an_error_that_the_job_lets_out_leaves_the_round_of_tier_1(
+    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch, error: str, kind: str
+) -> None:
+    """A missing token or a stop of the Service while the round of tier 1 writes its record leaves
+    the job, as at the other sites of the job, so the item is not Blocked for a person."""
+    from devops_cli.exceptions.git import GitHubUnauthenticatedError
+    from devops_cli.exceptions.roadmap import ServiceStoppingError
+    from devops_cli.roadmap.stores.store import FixConflictRecordKey
+
+    raised = GitHubUnauthenticatedError(error) if kind == "unauthenticated" else None
+    failure = raised or ServiceStoppingError(error)
+    _conflict_on_main(job_world, ["docs/CLI_REFERENCE.md"])
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        ProcessAnswer(),
+    )
+    store = job_world.store
+    write = store.set_marks
+    hit: list[int] = []
+
+    def set_marks(item: Any, marks: Any, *args: Any, **kwargs: Any) -> Any:
+        if not hit and FixConflictRecordKey.ROUNDS in marks:
+            hit.append(1)
+            raise failure
+        return write(item, marks, *args, **kwargs)
+
+    monkeypatch.setattr(store, "set_marks", set_marks)
+
+    with pytest.raises(type(failure), match=error):
+        job_world.run(two_groups())
+
+    status, _ = _item(job_world)
+    assert (hit, status) == ([1], "In Progress")
+
+
+def test_a_conflict_that_tier_1_aborts_claims_no_failed_abort(job_world: JobWorld) -> None:
+    """The round of tier 1 aborts the rebase that it does not settle, so the job runs no second
+    abort, and the stop comment does not say that an abort failed."""
+    _conflict_on_main(job_world, ["src/x.py"])
+
+    job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    assert ("Failure class: `conflict`" in comment, "abort of the rebase" in comment) == (
+        True,
+        False,
+    )
 
 
 def test_a_conflict_on_the_rebase_before_the_push_names_the_conflicted_files(
