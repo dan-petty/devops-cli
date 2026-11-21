@@ -315,17 +315,56 @@ def test_a_scalar_fact_by_namespace_loads_because_its_answer_has_no_label(tmp_pa
     assert (catalog.facts[0].shape, catalog.facts[0].query) == (Shape.SCALAR, query)
 
 
+def test_a_rows_fact_whose_base_reads_all_namespaces_names_the_base(tmp_path: Path) -> None:
+    """The probe of the base reads the namespaces of the query, else a series of another project
+    makes an empty answer of the project `ok` (#6615)."""
+
+    def add(doc: dict[str, Any]) -> None:
+        doc["facts"][0].update(
+            id="prometheus.valkey_pods",
+            query=VALKEY_PODS,
+            shape="rows",
+            base="redis_memory_max_bytes",
+        )
+
+    text = _refusal(tmp_path, add)
+
+    assert ("prometheus.valkey_pods" in text, "`base`" in text, "`namespace`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_rows_fact_whose_base_holds_the_project_namespaces_loads(tmp_path: Path) -> None:
+    base = 'redis_memory_max_bytes{namespace=~"{namespaces}"}'
+
+    def add(doc: dict[str, Any]) -> None:
+        doc["facts"][0].update(
+            id="prometheus.valkey_pods", query=VALKEY_PODS, shape="rows", base=base
+        )
+
+    catalog = _load(tmp_path, add)
+
+    assert catalog.facts[0].base == base
+
+
 def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> None:
     values = window_placeholders(WINDOW, "example/project", ("devops",))
     catalog = load_catalog()
-    filled = {fact.id: render_query(fact.query, values) for fact in catalog.facts}
     grouped = [
-        fact.id
+        fact
         for fact in catalog.facts
         if fact.shape is Shape.ROWS and WORKLOAD_GROUPING.search(fact.query)
     ]
 
-    unscoped = [fact_id for fact_id in grouped if not POSITIVE_NAMESPACE.search(filled[fact_id])]
+    unscoped = [
+        f"{fact.id} {field}"
+        for fact in grouped
+        for field, text in (("query", fact.query), ("base", fact.base))
+        if text is not None and not POSITIVE_NAMESPACE.search(render_query(text, values))
+    ]
 
     assert (bool(grouped), unscoped) == (True, [])
-    assert [fact_id for fact_id, query in filled.items() if "{namespaces}" in query] == []
+    filled = [render_query(fact.query, values) for fact in catalog.facts]
+    assert [query for query in filled if "{namespaces}" in query] == []

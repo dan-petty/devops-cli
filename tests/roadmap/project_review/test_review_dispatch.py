@@ -1,6 +1,7 @@
 """The dispatcher of the project review catalog (#4692): the status of each fact past a retention,
 with an unset address, with no series and after a failed read; the Service SLI of one repository;
-one read for the facts of one query; and the disagreements of the catalog."""
+one read for the facts of one query; the disagreements of the catalog; and the guard that keeps
+the rows of a workload outside the project namespaces out of the review (#6615)."""
 
 from __future__ import annotations
 
@@ -412,3 +413,74 @@ def test_a_workload_query_reads_only_the_namespaces_of_the_setting(
     assert [request.url.params["query"] for request in web.sent] == [
         'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"devops|llm"} == 0)'
     ]
+
+
+# A query that the loader accepts, but whose rows keep every label of the series: the guard on the
+# result rows does not depend on the form of the query (#6615).
+EVERY_LABEL = "sort_desc(sum without (instance) (redis_memory_used_bytes))"
+
+
+@pytest.mark.parametrize(
+    ("labels", "label"),
+    [
+        ({"namespace": "other-project", "pod": "database-0"}, "namespace"),
+        ({"pod": "database-0"}, "pod"),
+        ({"container": "database"}, "container"),
+    ],
+)
+def test_a_row_of_a_workload_outside_the_project_namespaces_marks_the_fact_error(
+    tmp_path: Path,
+    web: WebFake,
+    config: Callable[..., Path],
+    labels: Mapping[str, str],
+    label: str,
+) -> None:
+    """The reason names the fact and the label, never a label value, so no name of a workload of
+    another project reaches the review."""
+    config(prometheus={"url": PROMETHEUS}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    web.serve(
+        lambda request: _vector(({"namespace": "devops", "pod": "valkey-0"}, 2.0), (labels, 1.0))
+    )
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.valkey_rows", EVERY_LABEL, "rows")])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.n) == (FactStatus.ERROR, None, None)
+    assert ("prometheus.valkey_rows" in read.reason, f"`{label}`" in read.reason) == (True, True)
+    assert [value for value in (*labels.values(), "valkey-0") if value in read.reason] == []
+
+
+def test_a_loki_row_of_another_namespace_marks_the_fact_error(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(loki={"url": LOKI}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    web.serve(lambda request: _vector(({"namespace": "other-project", "container": "app"}, 4.0)))
+    query = 'sum by (namespace, container) (count_over_time({namespace=~".+"}[{range}]))'
+    loki = {**_prometheus_fact("loki.lines", query, "rows"), "reader": "loki"}
+
+    [read] = read_catalog(_catalog(tmp_path, [loki]), _context(tmp_path)).facts
+
+    assert (read.status, "loki.lines" in read.reason, "other-project" in read.reason) == (
+        FactStatus.ERROR,
+        True,
+        False,
+    )
+
+
+@pytest.mark.parametrize(
+    "labels", [{"resource": "cpu"}, {"namespace": "devops", "pod": "valkey-0"}, {}]
+)
+def test_a_row_with_no_workload_label_or_of_a_project_namespace_is_kept(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path], labels: Mapping[str, str]
+) -> None:
+    config(prometheus={"url": PROMETHEUS}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    web.serve(lambda request: _vector((labels, 0.25)))
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.share", EVERY_LABEL, "rows")])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.n) == (
+        FactStatus.OK,
+        [{"labels": dict(labels), "value": 0.25}],
+        1,
+    )
