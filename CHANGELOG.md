@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.188.0](https://github.com/dan-petty/devops-cli/compare/v0.187.2...v0.188.0) (2026-11-21)
+
+
+### Features
+
+* **roadmap:** Run review scanners in the runner pod ([#6166](https://github.com/dan-petty/devops-cli/issues/6166)) ([9f164f7](https://github.com/dan-petty/devops-cli/commit/9f164f760edf79a46b9748cb9320f99cf75f842e))
+
+
+### Bug Fixes
+
+* **repos:** Give git children the session credential ([#6479](https://github.com/dan-petty/devops-cli/issues/6479)) ([7f3886e](https://github.com/dan-petty/devops-cli/commit/7f3886e20dcfd205ec44f3b0efce090f6b26ae4f))
+* **roadmap:** an alternatives block names no blocker of an item ([#6624](https://github.com/dan-petty/devops-cli/issues/6624)) ([5eac8e5](https://github.com/dan-petty/devops-cli/commit/5eac8e5d0f8527bddc831866901a3c3bc5e23a1d))
+* **roadmap:** Refuse repair text in stage feasibility lines ([#6323](https://github.com/dan-petty/devops-cli/issues/6323)) ([c105f59](https://github.com/dan-petty/devops-cli/commit/c105f59f088212739fa034299bc1ba3835b8d980))
+
 ## [0.187.2](https://github.com/dan-petty/devops-cli/compare/v0.187.1...v0.187.2) (2026-11-21)
 
 
