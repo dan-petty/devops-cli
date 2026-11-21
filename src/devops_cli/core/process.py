@@ -426,15 +426,17 @@ def _session_github_token() -> tuple[str, str]:
             return _github_token, ""
         try:
             token, why, expires_at = _lookup_session_token()
-        except GitHubUnreadError as unread:
+        except GitHubUnreadError:
             if not _kept_token():
                 raise
-            token, why, expires_at = "", unread.message, None
+            token, why, expires_at = "", "", None
         if token:
             _github_token, _github_token_expires_at = token, expires_at
             return token, ""
         if kept := _kept_token():
-            logger.warning("The kept GitHub token serves until it expires: %s", why)
+            logger.warning(
+                "The renewal of the GitHub token failed; the kept token serves until it expires"
+            )
             return kept, ""
         return "", why
 
