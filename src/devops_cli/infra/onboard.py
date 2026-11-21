@@ -5,9 +5,10 @@ The check reads the head of the default branch at `origin`, never the working tr
 folder. In the export it reads the project profile of the repo (`devops_cli.project.profile`),
 `ansible-config dump` and `ansible-inventory --list` of the Ansible tool environment and the files
 of the repo. It also reads `ssh-keygen -F` against `~/.ssh/known_hosts` and `kubectl config
-get-contexts`. It opens no connection to a host, and the fetch is its only request. Each check
-gives one row with a state, a reason and the step that fixes a gap, as `devops roadmap onboard`
-does.
+get-contexts`. When the repo pins collections in `collections/requirements.yml`, it installs them
+into a temporary folder and reads their roles from `ansible-doc -t role -l -j` (#6678). It opens no
+connection to a host, and the fetch and that install are its only requests. Each check gives one
+row with a state, a reason and the step that fixes a gap, as `devops roadmap onboard` does.
 
 The profile gives the layout: the inventory, the playbook folder, the role folders and the group of
 hosts out of service. A host variable comes raw from `ansible-inventory --list`: onboarding reads
@@ -17,6 +18,7 @@ whether a host sets `devops_infra_node_service`, and a later command renders its
 from __future__ import annotations
 
 import json
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,12 +39,16 @@ from devops_cli.exceptions.infra import InfraRepoNotFoundError
 from devops_cli.github.repo_ref import RepoRef, is_repository_name
 from devops_cli.infra.access import AgentAccess
 from devops_cli.infra.ansible_facts import (
+    DOC_COMMAND,
+    REQUIREMENTS_FILE,
     AnsibleConfig,
     AnsibleInventory,
     AnsibleTool,
     ansible_tool,
+    install_requirements,
     inventory_host_key_checks_off,
     is_template,
+    read_collection_roles,
     read_config,
     read_inventory,
 )
@@ -66,6 +72,7 @@ _PORT_VARIABLES: Final[tuple[str, ...]] = ("ansible_port", "ansible_ssh_port")
 _SSH_PORT: Final[int] = 22
 _LOCAL_READ_TIMEOUT_SECONDS: Final[float] = 30.0
 _SETTINGS_ROW: Final[int] = 17
+_COLLECTIONS_PREFIX: Final[str] = "devops-infra-collections-"
 
 _PRESENT = OnboardState.PRESENT
 _MISSING = OnboardState.MISSING
@@ -151,8 +158,9 @@ def onboard_entry(
 
 @dataclass(frozen=True)
 class _Facts:
-    """What the checks read: the profile, the Ansible tool, the config, the inventory and the YAML
-    files."""
+    """What the checks read: the profile, the Ansible tool, the config, the inventory, the YAML
+    files, and the roles of the pinned collections or the reason that the roles row does not list
+    them."""
 
     root: Path
     profile: ResolvedProfile
@@ -160,6 +168,7 @@ class _Facts:
     config: AnsibleConfig | str
     inventory: AnsibleInventory | str
     content: YamlContent
+    collection_roles: tuple[str, ...] | str
 
 
 def check_onboarding(
@@ -231,7 +240,29 @@ def _read_facts(root: Path) -> _Facts:
         )
     elif tool.installed:
         inventory = config
-    return _Facts(root, profile, tool, config, inventory, read_yaml_content(root))
+    content = read_yaml_content(root)
+    return _Facts(
+        root, profile, tool, config, inventory, content, _read_collection_roles(tool, root)
+    )
+
+
+def _read_collection_roles(tool: AnsibleTool, root: Path) -> tuple[str, ...] | str:
+    """The roles of the pinned collections of the repo at `root`, which an install puts in a
+    temporary folder for their listing; or the reason that the roles row does not list them. A repo
+    with no `collections/requirements.yml` pins no collection."""
+    texts = MESSAGES.infra
+    if not (root / REQUIREMENTS_FILE).is_file():
+        return ()
+    if not (tool.installed and check_binary(tool.argv(DOC_COMMAND)[0])):
+        return texts.roles_no_doc
+    with tempfile.TemporaryDirectory(prefix=_COLLECTIONS_PREFIX) as folder:
+        roles = _attempt(lambda: _install_and_list(tool, root, Path(folder)))
+    return roles if isinstance(roles, tuple) else texts.roles_unread.format(reason=roles)
+
+
+def _install_and_list(tool: AnsibleTool, root: Path, folder: Path) -> tuple[str, ...]:
+    install_requirements(tool, root, folder)
+    return read_collection_roles(tool, root, folder)
 
 
 def _attempt[T](read: Callable[[], T]) -> T | str:
@@ -378,14 +409,17 @@ def _playbooks_row(facts: _Facts) -> OnboardRow:
 
 
 def _roles_row(facts: _Facts) -> OnboardRow:
+    """The roles of the role folders, then the roles of the pinned collections by full name."""
     texts = MESSAGES.infra
     folders = tuple(facts.root / folder for folder in facts.profile.profile.ansible.roles_path)
-    roles = find_roles(facts.root, folders)
+    listed = facts.collection_roles
+    unread = listed if isinstance(listed, str) else None
+    roles = (*find_roles(facts.root, folders), *(() if isinstance(listed, str) else listed))
     if not roles:
-        return _row(texts.check_roles, _MISSING, step=texts.roles_step)
-    return _row(
-        texts.check_roles, _PRESENT, texts.roles_found.format(count=len(roles)), items=roles
-    )
+        return _row(texts.check_roles, _MISSING, unread, texts.roles_step)
+    found = texts.roles_found.format(count=len(roles))
+    reason = texts.roles_found_unread.format(found=found, unread=unread) if unread else found
+    return _row(texts.check_roles, _PRESENT, reason, items=roles)
 
 
 def _collections_row(facts: _Facts) -> OnboardRow:

@@ -58,7 +58,6 @@ from typing import Any, Final
 from jinja2 import Environment, TemplateSyntaxError, nodes
 
 from devops_cli.config.defaults import (
-    DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
     DEFAULT_INFRA_PLAN_TIMEOUT_MARGIN_SECONDS,
     DEFAULT_INFRA_PLAN_TIMEOUT_SECONDS,
 )
@@ -70,10 +69,13 @@ from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.infra.access import AgentAccess, require_agent_level
 from devops_cli.infra.ansible_facts import (
+    REQUIREMENTS_FILE,
     RUNNER_COMMAND,
     AnsibleInventory,
     AnsibleTool,
     ansible_tool,
+    config_env,
+    install_requirements,
     is_template,
     read_inventory,
 )
@@ -96,7 +98,6 @@ from devops_cli.security.sanitizer import mask_secrets
 
 PLAN_ACTION: Final[str] = "devops infra plan"
 NONDISRUPTIVE_UNITS_VARIABLE: Final[str] = "devops_infra_nondisruptive_units"
-REQUIREMENTS_FILE: Final[str] = "collections/requirements.yml"
 PLAN_FILE: Final[str] = "plan.json"
 PROJECT_FOLDER: Final[str] = "project"
 REBOOT: Final[str] = "reboot"
@@ -115,7 +116,6 @@ _STATUS_FILE: Final[str] = "status"
 _PARTIAL_SUFFIX: Final[str] = "-partial.json"
 _STDOUT_FILE: Final[str] = "stdout"
 _SETTINGS_FILE: Final[tuple[str, str]] = ("env", "settings")
-_ANSIBLE_CONFIG: Final[str] = "ansible.cfg"
 _PRIVATE: Final[int] = 0o700
 _FOLDER_MARK: Final[str] = "<plan folder>"
 # The options of `ansible-playbook` of every plan: check mode, the diffs, and verbosity 1, at which
@@ -405,13 +405,6 @@ def collections_folder(requirements: Path) -> Path:
     return resolve_store_path(f"{_STORE}/{_COLLECTIONS}/{digest}")
 
 
-def galaxy_argv(tool: AnsibleTool, requirements: Path, target: Path) -> list[str]:
-    """`ansible-galaxy collection install` of a requirements file into `target`."""
-    return tool.argv(
-        "ansible-galaxy", "collection", "install", "-r", str(requirements), "-p", str(target)
-    )
-
-
 def install_collections(tool: AnsibleTool, project: Path) -> Path | None:
     """The folder of the pinned collections of the repo in `project`, installed once for each
     version of `collections/requirements.yml`; none when the repo has no such file.
@@ -428,38 +421,18 @@ def install_collections(tool: AnsibleTool, project: Path) -> Path | None:
     target.parent.mkdir(parents=True, exist_ok=True, mode=_PRIVATE)
     staging = Path(tempfile.mkdtemp(prefix=_INSTALL_PREFIX, dir=target.parent))
     try:
-        result = run_subprocess(
-            galaxy_argv(tool, requirements, staging),
-            cwd=project,
-            env=_config_env(project),
-            quiet=True,
-            timeout=DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
-        )
-        if result.returncode != 0:
-            raise InfraReadError(
-                ERRORS.infra.read_failed.format(
-                    command="ansible-galaxy collection install",
-                    code=result.returncode,
-                    detail=_last_line(result.stderr or result.stdout),
-                )
-            )
+        install_requirements(tool, project, staging)
         staging.rename(target)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
     return target
 
 
-def _config_env(project: Path) -> dict[str, str]:
-    """`ANSIBLE_CONFIG` of the repo's `ansible.cfg`, when it has one."""
-    config = project / _ANSIBLE_CONFIG
-    return {"ANSIBLE_CONFIG": str(config)} if config.is_file() else {}
-
-
 def runner_env(tool: AnsibleTool, project: Path, collections: Path | None) -> dict[str, str]:
     """The environment that the run adds: the tool environment first on PATH, host key checks on,
     the repo's `ansible.cfg`, the rendered arguments in each result, the results as JSON, a line
     for each skipped host, no color, and the pinned collections."""
-    env = ping_env(tool) | _PLAN_ENV | _config_env(project)
+    env = ping_env(tool) | _PLAN_ENV | config_env(project)
     if collections is not None:
         env["ANSIBLE_COLLECTIONS_PATH"] = str(collections)
     return env
@@ -792,14 +765,12 @@ __all__ = [
     "PLAN_FILE",
     "PROJECT_FOLDER",
     "REBOOT",
-    "REQUIREMENTS_FILE",
     "SERVICE_RESTART",
     "PlanRequest",
     "Playbook",
     "RunOutcome",
     "collections_folder",
     "disruptive_class",
-    "galaxy_argv",
     "host_pattern",
     "host_plans",
     "install_collections",

@@ -1,0 +1,10 @@
+---
+namespace: example
+name: infra
+version: 1.0.0
+readme: README.md
+authors:
+  - Example <ops@example.com>
+description: A collection with one role that has an argument spec, for the tests of devops infra onboard.
+license:
+  - MIT

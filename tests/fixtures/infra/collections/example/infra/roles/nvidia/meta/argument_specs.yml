@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Install the NVIDIA driver on a GPU node.
+    options:
+      nvidia_driver_version:
+        type: str
+        description: The version of the driver package.
+        default: "580"
