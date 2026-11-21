@@ -11,7 +11,7 @@
 
 ## 2. Documents
 
-- [ ] 2.1 Write the controller behavior and the egress rules in the Security section of the object store in `k8s/README.md`, and name the three NetworkPolicies in its Application table
+- [x] 2.1 Write the controller behavior and the egress rules in the Security section of the object store in `k8s/README.md`, and name the three NetworkPolicies in its Application table
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
