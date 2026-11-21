@@ -1356,9 +1356,17 @@ class InfraMessages:
         "another folder in .devops/project.toml ([ansible] playbook_dir)."
     )
     roles_found: str = "{count} roles"
+    roles_found_unread: str = "{found}. {unread}"
+    roles_no_doc: str = (
+        "No ansible-doc is in the Ansible tool environment, so the row does not list the roles "
+        "of the pinned collections."
+    )
+    roles_unread: str = "The row does not list the roles of the pinned collections: {reason}"
     roles_step: str = (
         "Put the roles in a folder that roles_path of ansible.cfg names, or that "
-        ".devops/project.toml names ([ansible] roles_path)."
+        ".devops/project.toml names ([ansible] roles_path), or in a collection that "
+        "collections/requirements.yml pins, with an argument spec (meta/argument_specs.yml) for "
+        "each role."
     )
     collections_used: str = "The plays use {names}."
     collections_none_used: str = "The plays use no collection."

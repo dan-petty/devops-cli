@@ -14,9 +14,13 @@ from devops_cli.config.defaults import DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.infra.ansible_facts import (
     CONFIG_DUMP_ARGS,
+    DOC_COMMAND,
+    REQUIREMENTS_FILE,
     RUNNER_COMMAND,
     ansible_tool,
+    galaxy_argv,
     inventory_argv,
+    role_list_argv,
 )
 from devops_cli.infra.nodes import (
     CLAIMS_ARGS,
@@ -33,8 +37,6 @@ from devops_cli.infra.onboard import KUBE_CONTEXTS_ARGV, known_hosts_file
 from devops_cli.infra.plan import (
     PLAN_FILE,
     PROJECT_FOLDER,
-    REQUIREMENTS_FILE,
-    galaxy_argv,
     host_pattern,
     runner_argv,
 )
@@ -48,9 +50,13 @@ def plan_onboard(
 ) -> list[PlannedRequest]:
     """The commands of an onboarding of the checkout at `checkout`, and the write of `--confirm`.
     With `origin_lookup`, the repository is named by the remote `origin` of the checkout. The
-    Ansible commands run in the export of the default branch (#5162)."""
+    Ansible commands run in the export of the default branch (#5162). The pinned collections go
+    into a temporary folder for the listing of their roles (#6678)."""
     tool = ansible_tool()
     installed = "an Ansible tool environment is installed"
+    pinned = (
+        f"the Ansible tool environment holds {DOC_COMMAND} and the export holds {REQUIREMENTS_FILE}"
+    )
     requests: list[PlannedRequest] = []
     if origin_lookup:
         requests.append(
@@ -73,6 +79,20 @@ def plan_onboard(
             target="the Ansible inventory of the export",
             argv=tuple(inventory_argv(tool, ("<inventory>",))),
             condition=f"{installed} and the project profile names an inventory",
+        ),
+        PlannedRequest(
+            method="EXEC",
+            target="the install of the pinned collections into a temporary folder",
+            argv=tuple(
+                galaxy_argv(tool, Path("<export>") / REQUIREMENTS_FILE, Path("<temporary folder>"))
+            ),
+            condition=pinned,
+        ),
+        PlannedRequest(
+            method="EXEC",
+            target="the roles of the pinned collections in the temporary folder",
+            argv=tuple(role_list_argv(tool)),
+            condition=pinned,
         ),
         PlannedRequest(
             method="EXEC",

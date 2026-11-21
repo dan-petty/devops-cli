@@ -1,10 +1,18 @@
-"""The local Ansible facts of an infra repo: its effective config and its inventory (#5121).
+"""The local Ansible facts of an infra repo: its effective config, its inventory and the roles of
+its pinned collections (#5121, #6678), and the install of those collections (#5124).
 
 devops runs the Ansible commands of the tool environment of the `ansible-runner` on PATH as child
 processes in the root of the checkout. The child gets the environment of
 `run_subprocess`, so no `ANSIBLE_` variable of the person reaches it, and the `ansible.cfg` of the
-repo alone sets Ansible. Neither command connects to a host. An inventory script or plugin that the
+repo alone sets Ansible. No command connects to a host. An inventory script or plugin that the
 repo names runs, as it does for each Ansible command in the repo.
+
+`ansible-galaxy collection install` installs the collections of `collections/requirements.yml`
+into a folder that the caller gives: it downloads them from Galaxy or from their git sources.
+`ansible-doc -t role -l -j` then lists the roles of that folder alone: `ANSIBLE_COLLECTIONS_PATH`
+names it, and `ANSIBLE_COLLECTIONS_SCAN_SYS_PATH=False` keeps out the collections of the Python
+environment of the tool. The listing holds a role only when the role has an argument spec
+(`meta/argument_specs.yml`), and it marks each role of a collection with the key `collection`.
 """
 
 from __future__ import annotations
@@ -17,15 +25,30 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-from devops_cli.config.defaults import DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS
+from devops_cli.config.defaults import (
+    DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS,
+    DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
+)
 from devops_cli.core.binaries import check_binary, require_binary
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.lang import ERRORS
+from devops_cli.security.sanitizer import mask_secrets
 
 RUNNER_COMMAND: Final[str] = "ansible-runner"
 CONFIG_DUMP_ARGS: Final[tuple[str, ...]] = ("dump", "--format", "json", "--only-changed")
 INVENTORY_LIST_ARGS: Final[tuple[str, ...]] = ("--list",)
+REQUIREMENTS_FILE: Final[str] = "collections/requirements.yml"
+DOC_COMMAND: Final[str] = "ansible-doc"
+ROLE_LIST_ARGS: Final[tuple[str, ...]] = ("-t", "role", "-l", "-j")
+_GALAXY_INSTALL: Final[str] = "ansible-galaxy collection install"
+_ANSIBLE_CONFIG: Final[str] = "ansible.cfg"
+# The settings of ansible-core that give the collection folders of a command
+# (`COLLECTIONS_PATHS`, `COLLECTIONS_SCAN_SYS_PATH`), and the key of the listing that names the
+# collection of a role.
+_COLLECTIONS_PATH_ENV: Final[str] = "ANSIBLE_COLLECTIONS_PATH"
+_SCAN_SYS_PATH_ENV: Final[str] = "ANSIBLE_COLLECTIONS_SCAN_SYS_PATH"
+_COLLECTION_KEY: Final[str] = "collection"
 # The groups that Ansible makes in every inventory.
 _IMPLICIT_GROUPS: Final[frozenset[str]] = frozenset({"all", "ungrouped"})
 # The options of the `ssh` connection plugin that hold OpenSSH options, and the inventory
@@ -131,10 +154,85 @@ def read_inventory(tool: AnsibleTool, root: Path, sources: tuple[str, ...]) -> A
     return parse_inventory(data)
 
 
-def _run_json(argv: list[str], root: Path, command: str) -> Any:
-    """Run `argv` in `root` and parse what it prints as JSON. `command` names it in an error."""
+def config_env(project: Path) -> dict[str, str]:
+    """`ANSIBLE_CONFIG` of the repo's `ansible.cfg`, when it has one."""
+    config = project / _ANSIBLE_CONFIG
+    return {"ANSIBLE_CONFIG": str(config)} if config.is_file() else {}
+
+
+def galaxy_argv(tool: AnsibleTool, requirements: Path, target: Path) -> list[str]:
+    """`ansible-galaxy collection install` of a requirements file into `target`."""
+    return tool.argv(
+        "ansible-galaxy", "collection", "install", "-r", str(requirements), "-p", str(target)
+    )
+
+
+def install_requirements(tool: AnsibleTool, project: Path, target: Path) -> None:
+    """Install the collections of `collections/requirements.yml` of the repo in `project` into the
+    folder `target`, with the repo's `ansible.cfg`.
+
+    Raises:
+        InfraReadError: the install fails.
+    """
     result = run_subprocess(
-        argv, cwd=root, quiet=True, timeout=DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS
+        galaxy_argv(tool, project / REQUIREMENTS_FILE, target),
+        cwd=project,
+        env=config_env(project),
+        quiet=True,
+        timeout=DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
+    )
+    if result.returncode != 0:
+        raise InfraReadError(
+            ERRORS.infra.read_failed.format(
+                command=_GALAXY_INSTALL,
+                code=result.returncode,
+                detail=_last_line(result.stderr or result.stdout),
+            )
+        )
+
+
+def role_list_argv(tool: AnsibleTool) -> list[str]:
+    """`ansible-doc -t role -l -j`: the roles that Ansible finds, as JSON."""
+    return tool.argv(DOC_COMMAND, *ROLE_LIST_ARGS)
+
+
+def read_collection_roles(tool: AnsibleTool, project: Path, collections: Path) -> tuple[str, ...]:
+    """The roles of the collections in the folder `collections`, sorted, each by its full name, as
+    `ansible-doc -t role -l -j` lists them in the repo at `project`.
+
+    Raises:
+        InfraReadError: the listing fails or does not print a JSON mapping.
+    """
+    command = " ".join((DOC_COMMAND, *ROLE_LIST_ARGS))
+    env = config_env(project) | {
+        _COLLECTIONS_PATH_ENV: str(collections),
+        _SCAN_SYS_PATH_ENV: str(False),
+    }
+    data = _run_json(role_list_argv(tool), project, command, env=env)
+    if not isinstance(data, Mapping):
+        raise InfraReadError(ERRORS.infra.read_not_json.format(command=command))
+    return tuple(
+        sorted(
+            name
+            for name, role in data.items()
+            if isinstance(role, Mapping) and _COLLECTION_KEY in role
+        )
+    )
+
+
+def _last_line(text: str) -> str:
+    """The last line of `text` that holds a character, with each secret in it masked."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return mask_secrets(lines[-1]) if lines else ""
+
+
+def _run_json(
+    argv: list[str], root: Path, command: str, *, env: dict[str, str] | None = None
+) -> Any:
+    """Run `argv` in `root`, with `env` added to the environment of the child, and parse what it
+    prints as JSON. `command` names it in an error."""
+    result = run_subprocess(
+        argv, cwd=root, env=env, quiet=True, timeout=DEFAULT_INFRA_ANSIBLE_READ_TIMEOUT_SECONDS
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip().splitlines()[-1:] or [""]
@@ -292,18 +390,26 @@ def is_template(value: Any) -> bool:
 
 __all__ = [
     "CONFIG_DUMP_ARGS",
+    "DOC_COMMAND",
     "INVENTORY_LIST_ARGS",
+    "REQUIREMENTS_FILE",
+    "ROLE_LIST_ARGS",
     "AnsibleConfig",
     "AnsibleInventory",
     "AnsibleTool",
     "ansible_tool",
+    "config_env",
+    "galaxy_argv",
+    "install_requirements",
     "inventory_argv",
     "inventory_host_key_checks_off",
     "is_ansible_false",
     "is_template",
     "parse_config_dump",
     "parse_inventory",
+    "read_collection_roles",
     "read_config",
     "read_inventory",
+    "role_list_argv",
     "ssh_options_off",
 ]
