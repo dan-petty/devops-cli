@@ -14,7 +14,7 @@ Adds: `install_requirements`, `read_collection_roles`, `role_list_argv`, `ROLE_L
 
 Kind: other. Reads: `src/devops_cli/lang/en/help.py`, `docs/commands/infra.md`. Changes: `src/devops_cli/lang/en/help.py`, `docs/commands/infra.md`, `docs/CLI_REFERENCE.md`.
 
-- [ ] 2.1 In the help text of `devops infra onboard` in `src/devops_cli/lang/en/help.py`, say that the check installs the pinned collections of the repo into a temporary folder to list their roles, then run `uv run devops docs generate`
+- [x] 2.1 In the help text of `devops infra onboard` in `src/devops_cli/lang/en/help.py`, say that the check installs the pinned collections of the repo into a temporary folder to list their roles, then run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up

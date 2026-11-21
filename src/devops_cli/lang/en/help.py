@@ -717,9 +717,10 @@ class InfraCommandHelp:
     onboard: str = (
         "Check an Ansible infra repo for what devops infra needs, and print one row for each "
         "check with its state and the next step. The check fetches origin and reads the head of "
-        "the default branch, not the working tree of the checkout, with local tool output only. "
-        "With --confirm, write the entry of the repo in infra.repos, at agent access none unless "
-        "a person gives --agent-access."
+        "the default branch, not the working tree of the checkout, with local tool output. It "
+        "installs the pinned collections of the repo into a temporary folder to list their "
+        "roles. With --confirm, write the entry of the repo in infra.repos, at agent access none "
+        "unless a person gives --agent-access."
     )
     onboard_repo: str = (
         "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
