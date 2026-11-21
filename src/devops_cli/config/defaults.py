@@ -748,6 +748,12 @@ DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
 # A load of a shared snapshot stops after this time and the reader takes the local copy or reads
 # GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
 DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
+# A load of a shared snapshot expands at most this sum of record JSON, and is a miss past it
+# (#6611). The bound limits the expanded bytes, not the zlib bytes. The local devops-cli snapshot
+# of 2026-11-21 held 6,616 records with 37,927,266 bytes of JSON (14,256,837 bytes with zlib), so
+# 128 MiB is 3.5 times that snapshot. A larger bound lets a few lanes that load at the same time
+# come near the memory limit of the Service.
+DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES: int = 134_217_728
 # The fields that one `HSCAN` of a shared snapshot asks for, and that one `HSET` of a full write
 # sends. 500 records are about 1 MB with zlib.
 DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
@@ -756,6 +762,10 @@ DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
 DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
 # A process reads the visibility of a repository again after this time (#4668).
 DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
+# A process reads the visibility of a repository again after this time when its last read failed
+# (#6611). The shared copy stays as it is in this time, and a process that is out of GitHub quota
+# sends no visibility read for each lane round.
+DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS: float = 60.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 

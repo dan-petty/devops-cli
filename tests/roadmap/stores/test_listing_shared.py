@@ -31,10 +31,15 @@ from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.valkey import valkey_client_on
+from tests.support.gh_process import fresh_quota
 from tests.support.roadmap_github_store import REPO, RecordedGh, issue_payload
 
 if TYPE_CHECKING:
-    from devops_cli.roadmap.stores.listing_shared import TieredSnapshotStore, ValkeySnapshotStore
+    from devops_cli.roadmap.stores.listing_shared import (
+        TieredSnapshotStore,
+        ValkeySnapshotStore,
+        Visibility,
+    )
 
 STARTED = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
 REPOSITORY_URL = f"https://api.github.com/repos/{REPO}"
@@ -54,15 +59,17 @@ def _issue(number: int, *, updated: str = "2026-01-01T09:00:00Z", **changes: Any
     )
 
 
-def _public(repo: str) -> bool:
-    return True
+def _public(repo: str) -> Visibility:
+    from devops_cli.roadmap.stores.listing_shared import Visibility
+
+    return Visibility.PUBLIC
 
 
 def _tiered(
     root: Path,
     *,
     at: datetime = STARTED,
-    is_public: Callable[[str], bool] = _public,
+    visibility: Callable[[str], Visibility] = _public,
     shared: Callable[[], ValkeySnapshotStore | None] | None = None,
 ) -> TieredSnapshotStore:
     """The tiered store of a process at `at`, over the local directory `root`.
@@ -74,7 +81,7 @@ def _tiered(
     return TieredSnapshotStore(
         FileSnapshotStore(root),
         shared=shared or shared_snapshot_store,
-        is_public=is_public,
+        visibility=visibility,
         clock=lambda: at,
     )
 
@@ -271,13 +278,15 @@ def test_a_round_with_the_shared_tier_down_reads_the_local_file(
     )
     asked: list[str] = []
 
-    def is_public(repo: str) -> bool:
+    def visibility(repo: str) -> Visibility:
         asked.append(repo)
-        return True
+        return _public(repo)
 
     valkey_server.connected = False
     later = STARTED + timedelta(hours=1)
-    numbers = [i.number for i in _round(_tiered(tmp_path, at=later, is_public=is_public), at=later)]
+    numbers = [
+        i.number for i in _round(_tiered(tmp_path, at=later, visibility=visibility), at=later)
+    ]
     kept = FileSnapshotStore(tmp_path).load(REPO)
 
     assert (
@@ -415,38 +424,198 @@ def test_a_full_read_replaces_the_shared_snapshot_whole(
 def test_no_key_of_a_private_repository_is_written(
     github_api: GitHubApiFake, tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
 ) -> None:
-    """A round for a private repository and a round whose visibility read fails write no key
-    and use no shared copy; each counts `private`. A private answer is kept for the round; a
-    failed read is not, so the save reads the visibility again."""
-    from devops_cli.roadmap.stores.listing_shared import repository_is_public
+    """A round for a private repository writes no key and uses no shared copy. The private
+    answer is kept for the round, so GitHub gets one visibility read, and each counter counts
+    `private` once."""
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
 
     private = RecordedGh({"isPrivate": {"data": {"repository": {"isPrivate": True}}}})
-    failing = RecordedGh({"isPrivate": (1, "HTTP 502: Bad Gateway")})
+    github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
+
+    _round(_tiered(tmp_path, visibility=lambda repo: repository_visibility(repo, runner=private)))
+
+    assert (_keys(valkey_server), len(private.calls), _reads(otlp), _writes(otlp)) == (
+        [],
+        1,
+        {("snapshot", "private"): 1.0},
+        {("snapshot", "private"): 1.0},
+    )
+
+
+def _round_after_a_failed_visibility_read(
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    otlp: FakeCollector,
+    clock: ClockFake,
+    *,
+    age: timedelta,
+    error: str = "API rate limit exceeded",
+    change: Callable[[FakeValkey], object] = lambda client: None,
+) -> tuple[set[str], int]:
+    """A round of a public repository writes its shared copy, and `change` changes the Valkey of
+    the copy. Then a round in a new process `age` later finds that its visibility read fails with
+    `error`. The result is the commands that the second round sent alone for the key (and its
+    temporary keys), and the count of its visibility reads. A command of a pipeline is not sent
+    alone. The `clock` fixture moves the TTL of the key with the round, and the quota of the
+    rate limiter is fresh again after the move."""
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
+
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
     github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
-
-    _round(_tiered(tmp_path, is_public=lambda repo: repository_is_public(repo, runner=private)))
+    _round(_tiered(tmp_path))
+    change(FakeValkey(server=valkey_server))
     _new_process()
-    later = STARTED + timedelta(hours=1)
+    otlp.clear()
+    sent: set[str] = set()
+
+    def record(command: tuple[Any, ...]) -> None:
+        if len(command) > 1 and str(command[1]).startswith(SNAPSHOT_KEY):
+            sent.add(command[0])
+
+    store = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)))
+    failing = RecordedGh({"isPrivate": (1, error)})
+    clock.shift(age)
+    fresh_quota()
+    later = STARTED + age
+
     _round(
         _tiered(
-            tmp_path, at=later, is_public=lambda repo: repository_is_public(repo, runner=failing)
+            tmp_path,
+            at=later,
+            shared=lambda: store,
+            visibility=lambda repo: repository_visibility(repo, runner=failing),
         ),
         at=later,
     )
+    return sent, len(failing.calls)
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_failed_visibility_read_leaves_a_shared_copy_saved_in_the_last_hour(
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    otlp: FakeCollector,
+    clock: ClockFake,
+) -> None:
+    """A round of a public repository writes its shared copy. 30 min later, in a new process,
+    the visibility read fails with the quota error of GitHub. A process saw the repository as
+    public in the last hour, so the round keeps the shared copy as it is. It reads `meta` and the
+    TTL of the key in one pipeline and sends no command alone for the key, reads the visibility
+    once and counts `unknown` on each counter."""
+    saved: list[dict[bytes, bytes]] = []
+
+    sent, reads = _round_after_a_failed_visibility_read(
+        github_api,
+        tmp_path,
+        valkey_server,
+        otlp,
+        clock,
+        age=timedelta(minutes=30),
+        change=lambda client: saved.append(client.hgetall(SNAPSHOT_KEY)),
+    )
 
     assert (
-        _keys(valkey_server),
-        len(private.calls),
-        len(failing.calls),
+        [FakeValkey(server=valkey_server).hgetall(SNAPSHOT_KEY)] == saved,
+        sorted(saved[0]),
+        sent,
+        reads,
         _reads(otlp),
         _writes(otlp),
     ) == (
-        [],
+        True,
+        [b"1", b"2", b"meta"],
+        set(),
         1,
+        {("snapshot", "unknown"): 1.0},
+        {("snapshot", "unknown"): 1.0},
+    )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_failed_visibility_read_removes_a_shared_copy_saved_more_than_an_hour_ago(
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    otlp: FakeCollector,
+    clock: ClockFake,
+) -> None:
+    """A round of a public repository writes its shared copy. 61 min later, in a new process,
+    the visibility read fails as for a token that cannot see the repository. A save comes only
+    after a public answer, so no process saw the repository as public in the last hour: the
+    round removes the key with one `UNLINK`, uses no shared copy, and counts `removed`."""
+    sent, reads = _round_after_a_failed_visibility_read(
+        github_api,
+        tmp_path,
+        valkey_server,
+        otlp,
+        clock,
+        age=timedelta(minutes=61),
+        error=f"Could not resolve to a Repository with the name '{REPO}'.",
+    )
+
+    assert (_keys(valkey_server), sent, reads, _reads(otlp), _writes(otlp)) == (
+        [],
+        {"UNLINK"},
+        1,
+        {("snapshot", "unknown"): 1.0},
+        {("snapshot", "removed"): 1.0, ("snapshot", "unknown"): 1.0},
+    )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+@pytest.mark.parametrize(
+    ("change", "keys"),
+    [
+        pytest.param(lambda client: client.delete(SNAPSHOT_KEY), [], id="no-key"),
+        pytest.param(
+            lambda client: client.persist(SNAPSHOT_KEY), [SNAPSHOT_KEY], id="key-with-no-ttl"
+        ),
+    ],
+)
+def test_a_failed_visibility_read_with_no_ttl_to_read_removes_nothing(
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    otlp: FakeCollector,
+    clock: ClockFake,
+    change: Callable[[FakeValkey], object],
+    keys: list[str],
+) -> None:
+    """The shared copy of a public repository goes, or its key loses its TTL. 61 min later, in
+    a new process, the visibility read fails. The round has no age of a save to read, so it
+    removes nothing: it sends no command alone for the key and counts `unknown` only."""
+    sent, reads = _round_after_a_failed_visibility_read(
+        github_api, tmp_path, valkey_server, otlp, clock, age=timedelta(minutes=61), change=change
+    )
+
+    assert (_keys(valkey_server), sent, reads, _reads(otlp), _writes(otlp)) == (
+        keys,
+        set(),
+        1,
+        {("snapshot", "unknown"): 1.0},
+        {("snapshot", "unknown"): 1.0},
+    )
+
+
+def test_an_unknown_visibility_is_kept_for_the_failure_ttl(clock: ClockFake) -> None:
+    """A failed visibility read is kept for 60 s: a check after 59 s gives unknown with no new
+    read, and a check after 61 s reads GitHub again and gives public."""
+    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
+
+    replies = iter([(1, "API rate limit exceeded"), {"data": {"repository": {"isPrivate": False}}}])
+    runner = RecordedGh({"isPrivate": lambda args: next(replies)})
+
+    first = repository_visibility(REPO, runner=runner)
+    clock.shift(59)
+    second = repository_visibility(REPO, runner=runner)
+    clock.shift(2)
+    third = repository_visibility(REPO, runner=runner)
+
+    assert ((first, second, third), len(runner.calls)) == (
+        (Visibility.UNKNOWN, Visibility.UNKNOWN, Visibility.PUBLIC),
         2,
-        {("snapshot", "private"): 2.0},
-        {("snapshot", "private"): 2.0},
     )
 
 
@@ -456,13 +625,13 @@ def test_no_visibility_read_without_the_shared_tier(
     valkey_server: FakeServer,
     shared_valkey: ValkeyCacheTier,
 ) -> None:
-    from devops_cli.roadmap.stores.listing_shared import repository_is_public
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
 
     runner = RecordedGh({})
     github_api.route("GET", FULL, github_json([_issue(1)]))
     valkey_server.connected = False
 
-    _round(_tiered(tmp_path, is_public=lambda repo: repository_is_public(repo, runner=runner)))
+    _round(_tiered(tmp_path, visibility=lambda repo: repository_visibility(repo, runner=runner)))
 
     assert runner.calls == []
 
@@ -500,6 +669,52 @@ def test_a_shared_load_past_its_budget_falls_back(
     )
 
 
+def _large(snapshot: ListingSnapshot) -> ListingSnapshot:
+    """`snapshot` with a body of 300,000 bytes in each record: each record is under the bound of
+    a record, and two records pass a total bound of 512 KiB."""
+    large = tuple(issue.model_copy(update={"body": "x" * 300_000}) for issue in snapshot.issues)
+    return snapshot.model_copy(update={"issues": large})
+
+
+def test_a_shared_load_past_its_total_bound_falls_back(
+    tmp_path: Path, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """The shared snapshot is newer than the local one and holds two records of about 300,000
+    bytes of JSON each, each under the bound of a record. A reader store built with a total bound
+    of 512 KiB stops the load, raises no error and takes the local snapshot."""
+    from devops_cli.roadmap.stores.listing_shared import ValkeySnapshotStore
+
+    local = _snapshot(STARTED - timedelta(hours=1), 1)
+    FileSnapshotStore(tmp_path).save(local)
+    _valkey_store(shared_valkey).save(_large(_snapshot(STARTED, 2, 1)))
+    reader = ValkeySnapshotStore(shared_valkey, load_max_bytes=524_288)
+    otlp.clear()
+
+    loaded = _tiered(tmp_path, shared=lambda: reader).load(REPO)
+
+    assert (loaded, _reads(otlp)) == (local, {("snapshot", "fallback"): 1.0})
+
+
+def test_a_save_past_the_total_bound_writes_no_shared_copy(
+    tmp_path: Path, valkey_server: FakeServer, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """A snapshot of two records of about 300,000 bytes of JSON each passes the total bound of
+    512 KiB of its writer store. The save writes no key that no load accepts, counts
+    `oversize`, and writes the local file."""
+    from devops_cli.roadmap.stores.listing_shared import ValkeySnapshotStore
+
+    snapshot = _large(_snapshot(STARTED, 2, 1))
+    writer = ValkeySnapshotStore(shared_valkey, load_max_bytes=524_288)
+
+    _tiered(tmp_path, shared=lambda: writer).save(snapshot)
+
+    assert (_keys(valkey_server), _writes(otlp), FileSnapshotStore(tmp_path).load(REPO)) == (
+        [],
+        {("snapshot", "oversize"): 1.0},
+        snapshot,
+    )
+
+
 def _meta(server: FakeServer) -> bytes | None:
     """The `meta` field of the shared snapshot as Valkey holds it."""
     value: bytes | None = FakeValkey(server=server).hget(SNAPSHOT_KEY, "meta")
@@ -511,7 +726,8 @@ def test_a_save_of_the_records_that_the_shared_copy_holds_writes_no_record(
 ) -> None:
     """Two lanes of one process hold the same 1,200 records and watermark, with full reads at
     08:00 and 09:00, and a new process holds them too. After the first save of each lane, a save
-    sends no record and no transaction, keeps `meta` as it is, and counts `unchanged`."""
+    sends no record and no transaction, keeps `meta` as it is, and counts `unchanged`. Its read
+    of `meta` and of the TTL is one pipeline, so only `EXPIRE` goes alone."""
     sent: list[str] = []
     lanes = _valkey_store(
         ValkeyCacheTier(
@@ -536,7 +752,7 @@ def test_a_save_of_the_records_that_the_shared_copy_holds_writes_no_record(
     _tiered(tmp_path / "c", shared=lambda: new_process).save(older)
 
     assert (set(sent), _meta(valkey_server) == first, _writes(otlp), _keys(valkey_server)) == (
-        {"HGET", "EXPIRE"},
+        {"EXPIRE"},
         True,
         {("snapshot", "unchanged"): 5.0},
         [SNAPSHOT_KEY],
@@ -644,6 +860,8 @@ def test_a_repository_that_became_private_leaves_the_shared_tier(
 ) -> None:
     """A round of a public repository writes its shared copy. A round after the repository
     became private removes the key, uses no shared copy and counts `removed`."""
+    from devops_cli.roadmap.stores.listing_shared import Visibility
+
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
     github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
     _round(_tiered(tmp_path))
@@ -652,7 +870,7 @@ def test_a_repository_that_became_private_leaves_the_shared_tier(
     otlp.clear()
     later = STARTED + timedelta(hours=1)
 
-    _round(_tiered(tmp_path, at=later, is_public=lambda repo: False), at=later)
+    _round(_tiered(tmp_path, at=later, visibility=lambda repo: Visibility.PRIVATE), at=later)
 
     assert (public_round, _keys(valkey_server), _reads(otlp), _writes(otlp)) == (
         [SNAPSHOT_KEY],
@@ -668,7 +886,7 @@ def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelli
 ) -> None:
     """GitHub names ignore case: a save as `Dan-Petty/DevOps-CLI` and a load as
     `dan-petty/devops-cli` use one key, and the visibility of the two is read once."""
-    from devops_cli.roadmap.stores.listing_shared import repository_is_public
+    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
 
     spelled = "Dan-Petty/DevOps-CLI"
     runner = RecordedGh({"isPrivate": {"data": {"repository": {"isPrivate": False}}}})
@@ -677,8 +895,8 @@ def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelli
 
     loaded = _tiered(tmp_path / "b").load(REPO)
     answers = (
-        repository_is_public(spelled, runner=runner),
-        repository_is_public(REPO, runner=runner),
+        repository_visibility(spelled, runner=runner),
+        repository_visibility(REPO, runner=runner),
     )
 
     assert (
@@ -686,7 +904,34 @@ def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelli
         None if loaded is None else [issue.number for issue in loaded.issues],
         answers,
         len(runner.calls),
-    ) == ([SNAPSHOT_KEY], [2, 1], (True, True), 1)
+    ) == ([SNAPSHOT_KEY], [2, 1], (Visibility.PUBLIC, Visibility.PUBLIC), 1)
+
+
+def test_two_spellings_in_turn_in_one_process_write_one_temporary_key(
+    valkey_server: FakeServer,
+) -> None:
+    """One store of a process saves six snapshots, each with one more record and a newer
+    watermark, in turn as `Dan-Petty/DevOps-CLI` and `dan-petty/devops-cli`. The store knows the
+    records of the one shared copy, so only the first save writes a temporary key, and the
+    snapshot key holds the records of the last save."""
+    written: list[str] = []
+
+    def record(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSET":
+            written.append(str(command[1]))
+
+    store = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)))
+    spellings = ("Dan-Petty/DevOps-CLI", REPO)
+
+    for count in range(1, 7):
+        snapshot = _snapshot(STARTED + timedelta(minutes=count), *range(count, 0, -1))
+        store.save(snapshot.model_copy(update={"repo": spellings[count % 2]}))
+
+    temporary = {key for key in written if ":next:" in key}
+    assert (len(temporary), _shared(valkey_server)) == (
+        1,
+        ("2026-01-01T10:06:00Z", ["6", "5", "4", "3", "2", "1"]),
+    )
 
 
 @pytest.mark.usefixtures("shared_valkey")
@@ -710,7 +955,8 @@ def test_the_lanes_of_one_process_scan_the_records_of_a_shared_copy_once(
     tmp_path: Path, valkey_server: FakeServer
 ) -> None:
     """Lane A of a process saves a newer watermark. Lane B, whose local copy is older, takes the
-    shared copy that the store of the process holds: it reads `meta` and sends no `HSCAN`."""
+    shared copy that the store of the process holds: it reads `meta` and the TTL of the key in
+    one pipeline, and sends no command alone, so no `HSCAN`."""
     sent: list[str] = []
     store = _valkey_store(
         ValkeyCacheTier(
@@ -728,4 +974,4 @@ def test_the_lanes_of_one_process_scan_the_records_of_a_shared_copy_once(
     assert (
         None if loaded is None else ([issue.number for issue in loaded.issues], loaded.watermark),
         sent,
-    ) == (([3, 2, 1], STARTED), ["HGET"])
+    ) == (([3, 2, 1], STARTED), [])

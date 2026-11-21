@@ -6,8 +6,11 @@ process, then the cache Valkey `valkey-devops`, then the source. `TieredMapping`
 is. The keys are text, so `cached` gets a `key` function that gives the text of the key, such as
 `packaging.utils.canonicalize_name`, in place of its default tuple:
 
-- A read looks in memory, then in Valkey. A Valkey hit fills the memory tier. A miss in both
-  raises `KeyError`, and `cached` reads the source and writes the value.
+- A read looks in memory, then in Valkey. A Valkey read gets the value and the time that its key
+  has left (`GET` and `PTTL`) in one round trip, and a hit fills the memory tier for that time,
+  or for the TTL of the mapping when that is sooner: a value stays in memory no longer than its
+  Valkey key (#6611). A miss in both raises `KeyError`, and `cached` reads the source and writes
+  the value.
 - A write keeps the value in memory and sends it to Valkey with the TTL of the mapping. A value
   whose encoded form is over `DEFAULT_BRAIN_VALUE_MAX_BYTES` stays in memory.
 - The Valkey tier is the one tier of the process (`shared_cache_tier`), behind its circuit
@@ -32,9 +35,10 @@ import json
 import logging
 import threading
 from collections.abc import Iterator, MutableMapping
+from dataclasses import dataclass
 from typing import Any, Final
 
-from cachetools import TTLCache
+from cachetools import TLRUCache
 from pydantic import TypeAdapter, ValidationError
 
 from devops_cli.config.constants import BrainRead, BrainStore, BrainWrite
@@ -49,6 +53,9 @@ logger = logging.getLogger(__name__)
 _SEPARATOR: Final = ":"
 # The length of a schema key, in hex characters.
 _SCHEMA_KEY_CHARS: Final = 16
+# The `PTTL` replies of a key with no TTL and of a key that does not exist.
+_PTTL_NO_EXPIRY: Final = -1
+_PTTL_NO_KEY: Final = -2
 
 # The generation of the memory tiers of the process. `reset_tiered_mappings` starts a new one, and
 # a mapping empties its memory tier when it next sees a new generation, so no registry keeps the
@@ -77,12 +84,26 @@ def _monotonic() -> float:
     return clock.monotonic()
 
 
+@dataclass(frozen=True)
+class _Held[V]:
+    """A value of the memory tier, and the time on the clock seam when it expires."""
+
+    value: V
+    expires: float
+
+
+def _expiry(key: str, held: _Held[Any], now: float) -> float:
+    """The time to use of a value of the memory tier: the expiry that it holds."""
+    return held.expires
+
+
 class TieredMapping[V](MutableMapping[str, V]):
     """Values of one type under one key prefix, in the memory of the process and in Valkey.
 
     `prefix` is the key prefix in Valkey, such as `valkey:brain:v1:fact:pypi`, and the key of a
-    value is `<prefix>:<key>`. `adapter` validates and encodes the values. Each value lives `ttl`
-    seconds in memory and in Valkey. `store` is the label of the counters.
+    value is `<prefix>:<key>`. `adapter` validates and encodes the values. A written value lives
+    `ttl` seconds in memory and in Valkey. A value read from Valkey lives in memory until its key
+    expires, or `ttl` seconds when that is sooner. `store` is the label of the counters.
     """
 
     def __init__(
@@ -99,7 +120,9 @@ class TieredMapping[V](MutableMapping[str, V]):
         self.store = store
         self._adapter = adapter
         self._schema_key: str | None = None
-        self._memory: TTLCache[str, V] = TTLCache(maxsize=entries, ttl=ttl, timer=_monotonic)
+        self._memory: TLRUCache[str, _Held[V]] = TLRUCache(
+            maxsize=entries, ttu=_expiry, timer=_monotonic
+        )
         self._lock = threading.Lock()
         self._generation = _generation
 
@@ -116,17 +139,16 @@ class TieredMapping[V](MutableMapping[str, V]):
 
     def __getitem__(self, key: str) -> V:
         with self._lock:
-            memory = self._current()
-            held = [memory[key]] if key in memory else []
-        if held:
+            held = self._current().get(key)
+        if held is not None:
             count_read(self.store, BrainRead.MEMORY)
-            return held[0]
+            return held.value
         tier = shared_cache_tier()
-        text = None if tier is None else tier.get(self.shared_key(key))
+        read = None if tier is None else tier.get_with_ttl(self.shared_key(key))
+        text, remaining = (None, _PTTL_NO_KEY) if read is None else read
         found = [] if text is None else self._decoded(text)
         if found:
-            with self._lock:
-                self._current()[key] = found[0]
+            self._fill(key, found[0], remaining)
             count_read(self.store, BrainRead.SHARED)
             return found[0]
         down = tier is None or tier.is_open
@@ -135,7 +157,7 @@ class TieredMapping[V](MutableMapping[str, V]):
 
     def __setitem__(self, key: str, value: V) -> None:
         with self._lock:
-            self._current()[key] = value
+            self._current()[key] = _Held(value, _monotonic() + self.ttl)
         encoded = self.schema_key.encode() + _SEPARATOR.encode() + self._adapter.dump_json(value)
         if len(encoded) > DEFAULT_BRAIN_VALUE_MAX_BYTES:
             count_write(self.store, BrainWrite.OVERSIZE)
@@ -160,7 +182,17 @@ class TieredMapping[V](MutableMapping[str, V]):
         with self._lock:
             return len(self._current())
 
-    def _current(self) -> TTLCache[str, V]:
+    def _fill(self, key: str, value: V, remaining: int) -> None:
+        """Keep a value read from Valkey in memory for the `remaining` milliseconds of its key,
+        or for `ttl` seconds when that is sooner or the key has no TTL. A key that expired
+        between `GET` and `PTTL` leaves the memory tier as it is."""
+        if remaining == _PTTL_NO_KEY:
+            return
+        seconds = self.ttl if remaining == _PTTL_NO_EXPIRY else min(self.ttl, remaining / 1000)
+        with self._lock:
+            self._current()[key] = _Held(value, _monotonic() + seconds)
+
+    def _current(self) -> TLRUCache[str, _Held[V]]:
         """The memory tier, emptied first when `reset_tiered_mappings` started a new generation.
         The caller holds the lock."""
         if self._generation != _generation:

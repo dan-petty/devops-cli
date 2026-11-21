@@ -109,6 +109,19 @@ class ValkeyCacheTier:
         value: str | None = self._send("get", self.client.get, key)
         return value
 
+    def get_with_ttl(self, key: str) -> tuple[str | None, int] | None:
+        """The string at `key` and the time that its key has left in milliseconds (`PTTL`: -2
+        when there is no key, -1 when the key has no TTL), read with `GET` and `PTTL` in one
+        round trip with no MULTI/EXEC; None for an open breaker and a read that fails. A failure
+        counts with `op` `get`, as a plain read does."""
+        replies: list[Any] | None = self._send(
+            "get", self.client.pipeline, [("GET", key), ("PTTL", key)]
+        )
+        if replies is None:
+            return None
+        value, remaining = replies
+        return (None if value is None else str(value)), int(remaining)
+
     def set(self, key: str, value: str, *, ex: int) -> bool:
         """Keep `value` at `key` for `ex` seconds; False when the write is not sent or fails."""
         return bool(self._send("set", self.client.set, key, value, ex=ex))
@@ -117,6 +130,15 @@ class ValkeyCacheTier:
         """The bytes of one field of the hash at `key`; None for a miss and a failure."""
         value: bytes | None = self._send("hget", self.client.hget, key, field)
         return value
+
+    def hget_with_ttl(self, key: str, field: str) -> tuple[bytes | None, int] | None:
+        """The bytes of one field of the hash at `key` and the time that its key has left in
+        milliseconds (see `ValkeyClient.hget_with_ttl`), in one round trip; None for an open
+        breaker and a read that fails. A failure counts with `op` `hget`, as a plain read does."""
+        held: tuple[bytes | None, int] | None = self._send(
+            "hget", self.client.hget_with_ttl, key, field
+        )
+        return held
 
     def hset(self, key: str, values: Mapping[str, bytes | str]) -> int | None:
         """Set fields of the hash at `key`: the number of new fields, or None on a failure."""
