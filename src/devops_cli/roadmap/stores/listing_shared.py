@@ -220,12 +220,32 @@ def may_replace(stored: SharedMeta | None, schema_key: str, watermark: datetime)
     return stored is None or stored.schema_key != schema_key or watermark >= stored.watermark
 
 
-def _count_budget() -> None:
-    emit(
-        VALKEY_CACHE_ERRORS_TOTAL,
-        1,
-        {"op": "hscan", "error": ValkeyCacheError.BUDGET.value},
-    )
+@dataclass(frozen=True)
+class _Budget:
+    """The budget of one load of the shared snapshot of `repo`, which started at the monotonic
+    reading `started`: `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`."""
+
+    repo: str
+    started: float
+
+    def passed(self, step: str) -> bool:
+        """Whether the load passed its budget. A load that passed it logs `step` and counts
+        `devops_cli_valkey_cache_errors_total{op="hscan",error="budget"}`: `HSCAN` is the command
+        of the load."""
+        if clock.monotonic() - self.started <= DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
+            return False
+        logger.info(
+            "The load of the shared snapshot of %s passed its budget of %s s in %s.",
+            self.repo,
+            DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
+            step,
+        )
+        emit(
+            VALKEY_CACHE_ERRORS_TOTAL,
+            1,
+            {"op": "hscan", "error": ValkeyCacheError.BUDGET.value},
+        )
+        return True
 
 
 @dataclass
@@ -265,54 +285,63 @@ class ValkeySnapshotStore:
         A load whose records the store knows takes them and sends no command. Else it takes the
         lock of the repository before it scans, and a load that waited for the scan of another
         load takes the records of that scan, so the loads of one repository at the same time
-        send one scan."""
+        send one scan. The budget of a load starts when it misses the known records, and covers
+        the wait for the lock, the `HSCAN`, and the inflate and validation of the records, so a
+        load that waits stops after one budget, even when the scan of the other load failed."""
         meta = held.meta
         if meta is None:
             return None
         known = self._known(repo, meta)
         if known is not None:
             return _listing(repo, meta, known.issues)
-        started = clock.monotonic()
+        budget = _Budget(repo, clock.monotonic())
         with self._lock:
             load = self._loads.setdefault(RepoRef(repo).key, threading.Lock())
         with load:
             known = self._known(repo, meta)
             if known is not None:
                 return _listing(repo, meta, known.issues)
-            return self._load(repo, held, meta, started)
+            if budget.passed("the wait for the load of another lane"):
+                return None
+            return self._load(repo, held, meta, budget)
 
     def _load(
-        self, repo: str, held: HeldMeta, meta: SharedMeta, started: float
+        self, repo: str, held: HeldMeta, meta: SharedMeta, budget: _Budget
     ) -> ListingSnapshot | None:
         """Scan, inflate, digest and validate the records of the shared snapshot whose `meta` is
-        `held`, and keep them as the known records of `repo`. The budget of the load started at
-        the monotonic reading `started`."""
-        values = self._scan(repo, started)
+        `held`, and keep them as the known records of `repo`. Each step stops when the load
+        passes `budget`."""
+        values = self._scan(repo, budget)
         if values is None:
             return None
         values.pop(META_FIELD, None)
-        texts = _decompressed(repo, values, self.load_max_bytes)
+        texts = _decompressed(repo, values, self.load_max_bytes, budget)
         if texts is None:
             return None
         digests = _digests(texts)
         if _records_digest(digests) != meta.digest:
             logger.info("The shared snapshot of %s changed during its load.", repo)
             return None
-        try:
-            issues = [IssueRecord.model_validate_json(text) for text in texts.values()]
-            for issue in issues:
+        issues: list[IssueRecord] = []
+        for text in texts.values():
+            try:
+                issue = IssueRecord.model_validate_json(text)
                 _RecordTimes.model_validate(issue)
-        except ValidationError as exc:
-            logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
-            return None
+            except ValidationError as exc:
+                logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
+                return None
+            issues.append(issue)
+            if budget.passed("the validation of the records"):
+                return None
         newest_first = _newest_first(issues)
         with self._lock:
             self._seen[RepoRef(repo).key] = _Seen(held.raw, digests, _lengths(texts), newest_first)
         return _listing(repo, meta, newest_first)
 
-    def _scan(self, repo: str, started: float) -> dict[str, bytes] | None:
+    def _scan(self, repo: str, budget: _Budget) -> dict[str, bytes] | None:
         """Every field of the shared snapshot of `repo` by `HSCAN`; None when a step fails or the
-        load passes its budget, which started at the monotonic reading `started`."""
+        load passes `budget` before its last step. The inflate checks the budget after the last
+        step."""
         key = snapshot_key(repo)
         values: dict[str, bytes] = {}
         cursor = 0
@@ -324,13 +353,7 @@ class ValkeySnapshotStore:
             values |= fields
             if cursor == 0:
                 return values
-            if clock.monotonic() - started > DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS:
-                logger.info(
-                    "The load of the shared snapshot of %s passed its budget of %s s.",
-                    repo,
-                    DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
-                )
-                _count_budget()
+            if budget.passed("the HSCAN"):
                 return None
 
     def load(self, repo: str) -> ListingSnapshot | None:
@@ -550,12 +573,12 @@ def _encoded(
 
 
 def _decompressed(
-    repo: str, values: Mapping[str, bytes], max_bytes: int
+    repo: str, values: Mapping[str, bytes], max_bytes: int, budget: _Budget
 ) -> dict[str, bytes] | None:
     """The JSON of each record; None when a value is not whole zlib data or expands past
-    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, or when the sum of the
-    expanded records passes `max_bytes`. The sum is checked after each record, so a load expands
-    at most the total bound and one record."""
+    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, when the sum of the
+    expanded records passes `max_bytes`, or when the load passes `budget`. The sum and the budget
+    are checked after each record, so a load expands at most the total bound and one record."""
     texts: dict[str, bytes] = {}
     total = 0
     for number, value in values.items():
@@ -581,6 +604,8 @@ def _decompressed(
             )
             return None
         texts[number] = text
+        if budget.passed("the inflate of the records"):
+            return None
     return texts
 
 
