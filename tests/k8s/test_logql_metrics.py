@@ -71,3 +71,18 @@ def test_a_loki_that_refuses_the_connection_names_its_setting(
         4,
         True,
     )
+
+
+def test_a_metric_query_at_a_time_sends_that_time_and_a_query_now_sends_none(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """The project review reads a past window at its end (#4692)."""
+    web.serve(lambda request: httpx2.Response(200, json=_VECTOR))
+
+    query_loki_metrics(['count_over_time({app="x"}[1h])'], _LOKI, at="2026-11-11T14:51:23Z")
+    query_loki_metrics(['count_over_time({app="x"}[1h])'], _LOKI)
+
+    assert [request.url.params.get("time") for request in web.sent] == [
+        "2026-11-11T14:51:23Z",
+        None,
+    ]
