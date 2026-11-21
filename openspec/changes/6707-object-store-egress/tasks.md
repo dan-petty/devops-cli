@@ -6,7 +6,7 @@
   - Verification: `$ uv run devops ci --check --only k8s`
 - [x] 1.2 Extend `admin_port_problems` to the egress rules, with the helper `egress_senders` and one shared helper for the policies that select a pod for egress
   - Verification: `$ uv run devops ci --check --only k8s`
-- [ ] 1.3 Give the in-namespace egress rule of `object-store-perimeter` the ports of its in-namespace ingress rule, and add `object-store-worker`
+- [x] 1.3 Give the in-namespace egress rule of `object-store-perimeter` the ports of its in-namespace ingress rule, and add `object-store-worker`
   - Verification: `$ uv run devops ci --check --only k8s`
 
 ## 2. Documents
