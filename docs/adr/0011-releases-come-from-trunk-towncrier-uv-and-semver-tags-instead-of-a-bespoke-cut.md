@@ -139,3 +139,5 @@ Each point below needed the owner. Each is decided here, confirmed by merging th
 ## Status History
 
 [ADR 0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md) supersedes this ADR.
+
+2026-11-21: Fact out of date: point 3, each App is installed on every dan-petty repository, and ADR 0032 gives the release App the tags of dan-petty/infra (#6674).

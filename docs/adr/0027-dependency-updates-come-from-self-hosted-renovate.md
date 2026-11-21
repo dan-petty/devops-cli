@@ -4,6 +4,7 @@ date: 2026-11-16
 decision-makers: [owner]
 issue: 4905
 tracker: 4893
+amended-by: ["0032"]
 ---
 
 # Dependency updates come from self-hosted Renovate
@@ -68,3 +69,7 @@ The pod runs under Pod Security `restricted` with a read-only root. Its NetworkP
 - The tracker: #4893. The token command: #4897. The first measured runs: #4909.
 - The manifests: `k8s/devops/renovate/`. The runbook: `docs/CLUSTER.md`, section "Renovate".
 - The precedent: SearXNG (AGPL-3.0) runs unmodified in the same namespace.
+
+## Status History
+
+2026-11-21: Amended by ADR 0032, section 8.
