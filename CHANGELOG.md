@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.186.0](https://github.com/dan-petty/devops-cli/compare/v0.185.3...v0.186.0) (2026-11-21)
+
+
+### Features
+
+* **k8s:** run the stage job in the runner image ([#6572](https://github.com/dan-petty/devops-cli/issues/6572)) ([2b1998e](https://github.com/dan-petty/devops-cli/commit/2b1998e5001cba905b25d1dfdfbce930852e4d52)), closes [#6417](https://github.com/dan-petty/devops-cli/issues/6417)
+* **roadmap:** end the implement Job at the draft pull request ([#6562](https://github.com/dan-petty/devops-cli/issues/6562)) ([b80da38](https://github.com/dan-petty/devops-cli/commit/b80da380cdd0ca5604f2284e276638445819c1d1))
+
 ## [0.185.3](https://github.com/dan-petty/devops-cli/compare/v0.185.2...v0.185.3) (2026-11-21)
 
 
