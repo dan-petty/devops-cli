@@ -6,10 +6,11 @@
 # controller are never evaluated. It uses only standard CEL, so a test runs the same expressions
 # against the Jobs that CronJobs `devops-cli-runner` and `roadmap-stage` make
 # (tests/gate/k8s_checks/job_admission_policy.py).
-# A Job whose name starts with `devops-cli-stage-` is a stage Job (#5483, `variables.stage`): the
-# Service image, 2 keys of Secret devops-cli through `secretKeyRef` and no `envFrom`, the args
-# `roadmap stage --repo <owner/name> --job-item <n> --confirm`, only the plain env values of
-# cronjob-stage.yaml and of `stage_job_env` with a token for the repository of `--repo`, 2 retries
+# Every Job runs the runner image (#6417). A Job whose name starts with `devops-cli-stage-` is a
+# stage Job (#5483, `variables.stage`): 2 keys of Secret devops-cli through `secretKeyRef` and no
+# `envFrom`, the args `roadmap stage --repo <owner/name> --job-item <n> --confirm`, only the plain
+# env values of cronjob-stage.yaml and of `stage_job_env` with a token for the repository of
+# `--repo`, 2 retries
 # only after exit 75 (eviction or retryable failure) or a disruption, exit 1 for non-retryable
 # failures, the deadline of the template, the stage resources and the component `roadmap-stage`.
 # The pod keeps the label `app.kubernetes.io/name: devops-cli-job`, because the NetworkPolicies of
@@ -63,17 +64,14 @@ spec:
         size(object.spec.template.spec.initContainers) == 0)
       message: The Job must have one container and no init container.
       reason: Forbidden
-    # The repository alone, or followed by a tag or a digest: a bare prefix would admit
-    # `runner-evil`.
+    # Every Job of the Service runs the runner image (#6417). The repository alone, or followed by
+    # a tag or a digest: a bare prefix would admit `runner-evil`.
     - expression: >-
-        object.spec.template.spec.containers.all(c, variables.stage ?
-        (c.image == "ghcr.io/dan-petty/devops-cli/service" ||
-        c.image.startsWith("ghcr.io/dan-petty/devops-cli/service:") ||
-        c.image.startsWith("ghcr.io/dan-petty/devops-cli/service@")) :
-        (c.image == "ghcr.io/dan-petty/devops-cli/runner" ||
+        object.spec.template.spec.containers.all(c,
+        c.image == "ghcr.io/dan-petty/devops-cli/runner" ||
         c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner:") ||
-        c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner@")))
-      message: The image must be ghcr.io/dan-petty/devops-cli/runner for a runner Job and ghcr.io/dan-petty/devops-cli/service for a stage Job, alone or with a tag or a digest.
+        c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner@"))
+      message: The image must be ghcr.io/dan-petty/devops-cli/runner, alone or with a tag or a digest.
       reason: Forbidden
     - expression: >-
         has(object.spec.template.spec.serviceAccountName) &&

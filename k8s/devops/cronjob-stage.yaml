@@ -84,7 +84,9 @@ spec:
               type: RuntimeDefault
           containers:
             - name: stage
-              image: ghcr.io/dan-petty/devops-cli/service
+              # The runner image, as the implement, fix-checks and planner run Jobs (#6417). The
+              # Job runs no bootstrap of its checkout: it starts git, gh and openspec of the image.
+              image: ghcr.io/dan-petty/devops-cli/runner
               imagePullPolicy: IfNotPresent
               args: ["--version"]
               securityContext:

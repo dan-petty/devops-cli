@@ -553,10 +553,10 @@ def _ignore_every_exit(job: dict[str, Any]) -> None:
 
 def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
     forms = (
-        SERVICE_IMAGE,
-        f"{SERVICE_IMAGE}:latest",
-        f"{SERVICE_IMAGE}@{DIGEST}",
-        f"{SERVICE_IMAGE}:latest@{DIGEST}",
+        RUNNER_IMAGE,
+        f"{RUNNER_IMAGE}:latest",
+        f"{RUNNER_IMAGE}@{DIGEST}",
+        f"{RUNNER_IMAGE}:latest@{DIGEST}",
     )
 
     assert [_refusals(_stage_changed(_set_image(image))) for image in forms] == [[]] * len(forms)
@@ -565,8 +565,8 @@ def check_the_stage_job_from_the_template_passes_in_every_image_form() -> None:
 @pytest.mark.parametrize(
     ("mutate", "rule"),
     [
-        pytest.param(_set_image(RUNNER_IMAGE), "image", id="runner-image"),
-        pytest.param(_set_image(f"{SERVICE_IMAGE}-evil"), "image", id="name-prefix"),
+        pytest.param(_set_image(SERVICE_IMAGE), "image", id="service-image"),
+        pytest.param(_set_image(f"{RUNNER_IMAGE}-evil"), "image", id="name-prefix"),
         pytest.param(
             _set_env_from({"secretRef": {"name": "devops-cli"}}), "envFrom", id="env-from"
         ),
