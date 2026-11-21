@@ -19,6 +19,7 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1118,11 +1119,12 @@ def test_without_confirm_the_step_runs_no_code_of_the_pull_request(
 
 @pytest.mark.parametrize("written", _WRITTEN)
 def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, written: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path], written: str
 ) -> None:
-    """With --confirm, tier 1 runs code of the pull request, and that code can write a hook or a
-    git setting into the clone. The push still goes through `OriginGit` to the URL of origin that
-    the step read after its clone, before that code ran."""
+    """With --confirm, in a runner Job, tier 1 runs code of the pull request, and that code can
+    write a hook or a git setting into the clone. The push still goes through `OriginGit` to the URL
+    of origin that the step read after its clone, before that code ran."""
+    config(roadmap={"implement": {"in_runner": True}})
     pull = _pull_with_archive_conflict(tmp_path)
     ran = _with_pull_request_code(monkeypatch, pull, written)
 

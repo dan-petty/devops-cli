@@ -111,7 +111,7 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 The step SHALL clone the repository into a new folder of the run (`ensure_checkout`), read the URL of `origin` before tier 1 runs, switch to the head branch, and push through `OriginGit` to that URL with a lease on the judged head. The step SHALL push only a result that holds a commit past the default branch.
 
 #### Scenario: A setting that tier 1 writes changes no push
-- **WHEN** tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack` or a `url.<base>.insteadOf` rule into the clone
+- **WHEN** in a runner Job, tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack` or a `url.<base>.insteadOf` rule into the clone
 - **THEN** the push goes to the URL that the step read after its clone
 
 #### Scenario: No commit past the default branch
