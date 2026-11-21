@@ -860,9 +860,6 @@ DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS: float = 5.0
 # A loaded host can start gh slower than the timeout above. One more attempt keeps a valid login
 # from reading as an authentication error (#4940).
 DEFAULT_GH_AUTH_TOKEN_ATTEMPTS: int = 2
-# After `gh auth token` printed no token, git runs without one and looks again only this much later;
-# gh calls look again every time, since they cannot run without one.
-DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS: float = 60.0
 # A GitHub App installation token expires one hour after GitHub makes it. The process mints a new
 # one when less than this is left, so a gh or git child that starts with the token can finish.
 DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS: float = 600.0
