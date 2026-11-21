@@ -258,6 +258,8 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
             "monitoring/grafana-image-renderer: token",
             "monitoring/alertmanager-mattermost: url",
             "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey, mattermost-deploys-url",
+            "object-store/seaweedfs-admin: adminUser, adminPassword",
+            "object-store/seaweedfs-s3: s3.json",
         ],
         [],
     )
@@ -486,6 +488,47 @@ def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_ce
         namespaces["plugin-barman-cloud"] == namespaces["cloudnative-pg"],
         elsewhere & {"cloudnative-pg", "cert-manager", "plugin-barman-cloud"},
     ) == (True, True, "cert-manager", True, set())
+
+
+def test_deploy_stack_installs_the_object_store_operator_after_cert_manager_and_the_store_last() -> (
+    None
+):
+    """The operator chart issues its webhook certificate with cert-manager, and the Seaweed CR of
+    `object-store` needs the CRD of that chart. So stack `infra` installs the release into
+    `object-store` after cert-manager, applies the store after the charts, and no other stack
+    lists the release (#4750)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        HELM_RELEASES_BY_STACK,
+        HELM_REPOS_BY_STACK,
+        POST_HELM_BY_STACK,
+    )
+
+    releases = {
+        stack: {release["name"]: release for release in stack_releases}
+        for stack, stack_releases in HELM_RELEASES_BY_STACK.items()
+    }
+    infra = list(releases["infra"])
+    operator = releases["infra"].get("seaweedfs-operator", {})
+    elsewhere = {name for stack, names in releases.items() if stack != "infra" for name in names}
+
+    assert (
+        HELM_REPOS_BY_STACK["infra"].get("seaweedfs-operator"),
+        (operator.get("chart"), operator.get("namespace"), operator.get("values")),
+        "seaweedfs-operator" in infra
+        and infra.index("cert-manager") < infra.index("seaweedfs-operator"),
+        POST_HELM_BY_STACK["infra"][-1],
+        "seaweedfs-operator" in elsewhere,
+    ) == (
+        "https://seaweedfs.github.io/seaweedfs-operator",
+        (
+            "seaweedfs-operator/seaweedfs-operator",
+            "object-store",
+            ["object-store/operator-values.yaml"],
+        ),
+        True,
+        Path("object-store"),
+        False,
+    )
 
 
 def test_recover_stuck_helm_release_rolls_back_pending_upgrade(
@@ -2099,6 +2142,8 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization(
             Path("k8s"),
             Path("k8s", "monitoring"),
             Path("k8s", "gpu-feature-discovery"),
+            # The object store, after the charts: its Seaweed CR needs the operator's CRD (#4750).
+            Path("k8s", "object-store"),
         ],
     )
 
@@ -2154,6 +2199,8 @@ def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
 
 _ARGO_WORKFLOWS_POLICY = str(Path("k8s", "argo-workflows", "networkpolicy.yaml"))
 _ARGO_WORKFLOWS_TEMPLATE = str(Path("k8s", "argo-workflows", "workflowtemplate-version.yaml"))
+# The object store, the last post-Helm path of stack infra (#4750).
+_OBJECT_STORE = str(Path("k8s", "object-store"))
 
 
 def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template() -> None:
@@ -2179,11 +2226,11 @@ def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template()
         0,
         True,
         True,
-        [_ARGO_WORKFLOWS_TEMPLATE],
+        [_ARGO_WORKFLOWS_TEMPLATE, _OBJECT_STORE],
         0,
         True,
         True,
-        [_ARGO_WORKFLOWS_TEMPLATE],
+        [_OBJECT_STORE, _ARGO_WORKFLOWS_TEMPLATE],
     )
 
 

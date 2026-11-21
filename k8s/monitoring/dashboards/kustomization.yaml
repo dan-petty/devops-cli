@@ -61,3 +61,9 @@ configMapGenerator:
   - name: grafana-topology-dashboards
     files:
       - system-topology.json
+  # The SeaweedFS dashboard of the pinned tag (other/metrics/grafana_seaweedfs_k8s.json of
+  # seaweedfs/seaweedfs 4.54, Apache-2.0) for the object store (#4750). k8s/README.md, Grafana
+  # Dashboards, lists the changes of the copy.
+  - name: grafana-storage-dashboards
+    files:
+      - seaweedfs.json

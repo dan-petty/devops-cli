@@ -50,6 +50,13 @@ SEARXNG_SERVER_KEY = "searxng_secret_key"
 GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
 # The secret_key that Grafana uses to sign session cookies and CSRF tokens (#5697).
 GRAFANA_SECURITY_KEY = "grafana_secret_key"
+# The password of the admin UI of the object store (#4750). No Settings option reads it: a person
+# reads it from the keyring to sign in through a port-forward.
+SEAWEEDFS_ADMIN_AUTH_KEY = "seaweedfs_admin_password"
+# The identities file of the S3 gateway of the object store: no identity. With a file, SeaweedFS
+# refuses each request until an identity exists, and it adds the identities that the admin UI keeps
+# in the filer. With no file it allows every request.
+SEAWEEDFS_S3_NO_IDENTITIES = '{"identities": []}'
 
 
 @dataclass(frozen=True)
@@ -664,6 +671,33 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             ),
         ),
         labels={"app.kubernetes.io/name": "mattermost-db"},
+    ),
+    # The admin of the object store (#4750). With no password, the admin HTTP API has no
+    # authentication (GHSA-m3m8-mrgq-hf9h). Nobody types the password: the push makes it. The JWT
+    # signing keys have no row, because the SeaweedFS operator mints them in Secret
+    # seaweedfs-security-config.
+    ClusterSecret(
+        namespace="object-store",
+        name="seaweedfs-admin",
+        stack="infra",
+        entries=(
+            SecretEntry("adminUser", LiteralSource("admin")),
+            SecretEntry(
+                "adminPassword",
+                KeyringSource(SEAWEEDFS_ADMIN_AUTH_KEY),
+                generator=SecretGenerator("urlsafe", 32),
+            ),
+        ),
+        restarts=(Workload("statefulset", "seaweedfs-admin"),),
+        labels={"app.kubernetes.io/name": "seaweedfs"},
+    ),
+    ClusterSecret(
+        namespace="object-store",
+        name="seaweedfs-s3",
+        stack="infra",
+        entries=(SecretEntry("s3.json", LiteralSource(SEAWEEDFS_S3_NO_IDENTITIES)),),
+        restarts=(Workload("deployment", "seaweedfs-s3"),),
+        labels={"app.kubernetes.io/name": "seaweedfs"},
     ),
 )
 

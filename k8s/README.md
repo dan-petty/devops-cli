@@ -15,12 +15,12 @@ This folder is the environment tree of the homelab: what one cluster runs. `k8s/
 
 | Stack | Components | Namespaces | Default Ports |
 | :--- | :--- | :--- | :--- |
-| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator, cert-manager and the Barman Cloud plugin ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system`, `cert-manager` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo) |
+| **`infra`** *(Default)* | ArgoCD (backed by Valkey), Argo Workflows controller, Grafana k8s-monitoring (Alloy + kube-state-metrics + node-exporter), Prometheus server, Grafana, Alertmanager, Grafana Pyroscope, NVIDIA DCGM Exporter, OpenTelemetry Collector, Grafana Tempo, CloudNativePG operator, cert-manager and the Barman Cloud plugin ([CloudNativePG Backup Plugin](#cloudnativepg-backup-plugin)), the SeaweedFS operator and object store ([Object Store](#object-store)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `cnpg-system`, `cert-manager`, `object-store` | `8080` (ArgoCD), `8030` (Grafana), `8090` (Prometheus), `4040` (Pyroscope), `3200` (Tempo), `8333` (S3, in the cluster) |
 | **`llm`** | Ollama (per-VRAM-tier DaemonSets), LLM Gateway (LiteLLM) with its CloudNativePG database, Open-WebUI, Qdrant Vector DB, Valkey Cache | `llm` | `11434` (Ollama), `3000` (WebUI), `6333` (Qdrant), `6379` (Valkey) |
 | **`logging`** | Loki (pod and journal logs shipped by the `infra` stack's Alloy `alloy-logs` DaemonSet) | `logging` | `3100` (Loki) |
 | **`gitea`** | Gitea: the internal forge and container registry ([Gitea](#gitea)) | `gitea` | `3000` (Gitea HTTP, in the cluster) |
 | **`chat`** | Mattermost Team Edition on CloudNativePG ([Mattermost](#mattermost)) | `mattermost`, `mattermost-operator` | `8065` (Mattermost HTTP, in the cluster) |
-| **`all`** | All components from the stacks above, and the `devops` stack ([docs/CLUSTER.md](../docs/CLUSTER.md)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager` | All ports above |
+| **`all`** | All components from the stacks above, and the `devops` stack ([docs/CLUSTER.md](../docs/CLUSTER.md)) | `argocd`, `argo-workflows`, `monitoring`, `otel`, `llm`, `logging`, `gitea`, `devops`, `mattermost`, `cnpg-system`, `mattermost-operator`, `cert-manager`, `object-store` | All ports above |
 
 Register each manifest, Helm release and post-Helm step that runs in the cluster in `MANIFESTS_BY_STACK`, `HELM_RELEASES_BY_STACK` or `POST_HELM_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py`), with a path in the environment tree, or a file of the product base in `PRODUCT_MANIFESTS_BY_STACK` or `PRODUCT_POST_HELM_BY_STACK`, with a path in `k8s/devops`, so that `devops k8s deploy-stack --stack all` deploys it with the `infra`, `llm`, `logging`, `devops`, `gitea` and `chat` stacks. deploy-stack applies a file of `MANIFESTS_BY_STACK` with `kubectl apply -f` and a kustomization directory with `kubectl apply -k`.
 
@@ -311,7 +311,7 @@ The `monitoring` perimeter (`monitoring/networkpolicy.yaml`) admits Grafana, Pro
 
 ## Scrape Ownership
 
-Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `argo-workflows` (the workflow controller), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, the `llm-gateway-db` and `mattermost-db` PodMonitors (the CloudNativePG metrics exporter of each instance on port 9187), CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
+Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.yaml`), scrapes every target but two and remote-writes to the Prometheus server: the kubelet, cAdvisor, kube-state-metrics, node-exporter, the `argocd` (`controller`, `server`, `repoServer`, and `redis` exporter), `argo-workflows` (the workflow controller), `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, the ServiceMonitors that the SeaweedFS operator makes in `object-store` (port 9327 of each component), the `llm-gateway-db` and `mattermost-db` PodMonitors (the CloudNativePG metrics exporter of each instance on port 9187), CoreDNS (`clusterMetrics.kubeDNS`), the pods annotated for scraping (`annotationAutodiscovery`), and the Alloy collectors, Grafana, Loki, Tempo and the DCGM exporter (`integrations`). The Prometheus server scrapes only itself and the OpenTelemetry Collector (#1130). These monitoring components run outside k8s-monitoring:
 
 | Component | Owner | Reason |
 | :--- | :--- | :--- |
@@ -322,7 +322,7 @@ Alloy, run by the `k8s-monitoring` release (`monitoring/k8s-monitoring-values.ya
 | Trace backend (Tempo) | Its own `tempo` release (`otel/tempo-values.yaml`) | k8s-monitoring's Tempo integration scrapes Tempo, which its own chart deploys in `otel`. The collector's trace exporter has a Tempo to reach when the collector starts: `deploy-stack` installs `tempo` before `otel-collector`, and the `cluster` app-of-apps syncs the `otel-collector` Application in sync wave 1, after `tempo` (#409) |
 | dcgm-exporter | Its own `dcgm-exporter` chart (`monitoring/dcgm-exporter-values.yaml`) | k8s-monitoring's dcgm-exporter integration scrapes the exporter but ships none, so the chart deploys it on every GPU node; the chart's own ServiceMonitor stays off. The exporter collects the fields that `customMetrics` lists, and `podAnnotations` holds the checksum of that list, so a changed list restarts the pods |
 | otel-collector | Its own `otel-collector` release (`otel/values.yaml`), scraped by the Prometheus server's `kubernetes-pods` job, which keeps only namespace `otel` | devops-cli exports delta temporality, and Alloy's `delta_to_cumulative` is experimental only, so k8s-monitoring cannot replace the collector (#1132). The server scrapes it, not Alloy, so the collector's export failures stay visible when Alloy is what fails |
-| prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors and the CloudNativePG PodMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
+| prometheus-operator-crds | Its own release, installed first | The `argocd`, `argo-workflows`, `llm-gateway`, `pyroscope` and `qdrant` ServiceMonitors, the ServiceMonitors that the SeaweedFS operator makes in `object-store`, and the CloudNativePG PodMonitors need the `monitoring.coreos.com` CRDs, which k8s-monitoring 4.x no longer ships |
 
 cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods (port 9402) and `llm/valkey` (`redis-exporter` sidecar on port 9121) are found by annotation autodiscovery (#1130, #551), through the `prometheus.io/*` annotations their plain manifests carry, each with the pod's `app.kubernetes.io/name` as its job; CoreDNS comes through `clusterMetrics.kubeDNS`.
 
@@ -330,7 +330,7 @@ cloudflared, Traefik, Alertmanager, roadmap-service, the three cert-manager pods
 
 ## Grafana Dashboards
 
-The environment dashboards live in `monitoring/dashboards/`, and the product dashboards of devops-cli, which read the `devops_cli_*` series, live in `devops/dashboards/` (#5292). The `kustomization.yaml` of `monitoring/dashboards/` generates five ConfigMaps and lists `../../devops/dashboards`, whose `kustomization.yaml` generates the sixth ConfigMap with the same options. Each ConfigMap has the label `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
+The environment dashboards live in `monitoring/dashboards/`, and the product dashboards of devops-cli, which read the `devops_cli_*` series, live in `devops/dashboards/` (#5292). The `kustomization.yaml` of `monitoring/dashboards/` generates seven ConfigMaps and lists `../../devops/dashboards`, whose `kustomization.yaml` generates the eighth ConfigMap with the same options. Each ConfigMap has the label `grafana_dashboard: "1"`, and the Grafana dashboard sidecar (`monitoring/grafana-values.yaml`) loads every ConfigMap with that label:
 
 | ConfigMap | Dashboards |
 | :--- | :--- |
@@ -340,10 +340,14 @@ The environment dashboards live in `monitoring/dashboards/`, and the product das
 | `grafana-service-dashboards` | `devops-roadmap-service.json`, `devops-sre-service.json` |
 | `grafana-stack-dashboards` | `ingress-tunnel.json`, `llm-stack.json`, `otel-collector.json`, `prometheus-server.json`, `pyroscope.json`, `nvidia-dcgm.json`, `coredns.json` |
 | `grafana-database-dashboards` | `cloudnative-pg.json` |
+| `grafana-topology-dashboards` | `system-topology.json` |
+| `grafana-storage-dashboards` | `seaweedfs.json` |
 
 The service dashboards are generated. `make dashboards` builds each `[[service]]` table of `monitoring/dashboards/services.toml` into `<uid>.json` with the SRE template of `src/devops_cli/grafana/service_dashboard.py` ([DESIGN.md](../docs/DESIGN.md), row "Grafana"): the SLO tiles, the burn rate and the error budget, the golden signals, then the collapsed rows of capacity, logs and profiles. To change one, change its table and run `make dashboards`. Do not edit the JSON. The CI job "Design Tokens" fails when a committed dashboard is not the build.
 
 `cloudnative-pg.json` is the upstream dashboard of [cloudnative-pg/grafana-dashboards](https://github.com/cloudnative-pg/grafana-dashboards) (Apache-2.0) at commit `7dd1bc255b52`, with two changes: its indentation is one space, not two, so its ConfigMap stays under the annotation limit below, and the empty query of its replication lag stat is removed, which `devops grafana dashboards lint` refuses. The operator chart can also write this dashboard, but to `cnpg-system`, where the sidecar does not look, so `monitoring.grafanaDashboard.create` is `false` in `mattermost/cloudnative-pg-values.yaml`. To update the copy, take the file of a newer commit and make the same two changes.
+
+`seaweedfs.json` is `other/metrics/grafana_seaweedfs_k8s.json` of [seaweedfs/seaweedfs](https://github.com/seaweedfs/seaweedfs) (Apache-2.0) at tag 4.54, the release of the object store, with the changes that `devops grafana dashboards lint` needs: the uid `seaweedfs`, a data source object in place of each `$DS_PROMETHEUS` text, no empty query in the two filer panels, and the two S3 bucket panels moved under the last panel, where they no longer cover the volume server panels. Its indentation is one space. The main dashboard of the tag (`grafana_seaweedfs.json`) is larger than one ConfigMap holds. The operator chart can also write a dashboard, but to `object-store`, where the sidecar does not look, so `grafanaDashboard.enabled` is `false` in `object-store/operator-values.yaml`. To update the copy, take the file of the new tag and make the same changes.
 
 On a cluster Argo CD manages, its `monitoring` Application applies them; the root kustomization leaves them out, so the `base` Application does not own them as well. For the same reason, `devops/kustomization.yaml` does not list `dashboards`: then the `devops` Application takes the ConfigMap `grafana-devops-cli-dashboards` too, and `tests/prometheus/test_k8s_monitoring_dashboards.py` fails. Without Argo CD, `devops k8s deploy-stack --stack infra` (or `all`) applies the `monitoring` kustomization, which lists the namespace's perimeter and `dashboards`, right after the root kustomization creates the `monitoring` namespace, and `teardown-stack` removes them with that namespace. Grafana holds these dashboards as provisioned and refuses to save over them, so change the JSON file and deploy again. To provision another dashboard, add it to a generator entry; each ConfigMap must stay under the 262,144 bytes kubectl's last-applied annotation allows.
 
@@ -363,6 +367,7 @@ The stack dashboards chart the cluster workloads and infrastructure services:
 | `pyroscope.json`, "Continuous Profiling / Pyroscope Flamegraphs" (`devops-pyroscope`) | Grafana Pyroscope continuous profiling (CPU, memory, goroutines) | Continuous profiles collected by k8s-monitoring's `profiling` feature (`alloy-profiles` DaemonSet, eBPF `targetingScheme: all` and `pprof`, in `monitoring/k8s-monitoring-values.yaml`) and sent to `destinations.localPyroscope` (#1134) |
 | `coredns.json`, "CoreDNS" (`devops-coredns`) | CoreDNS metrics on port 9153 (`coredns_dns_*`, `coredns_cache_*`, `coredns_proxy_*`) | Alloy's `clusterMetrics.kubeDNS` job (`job="integrations/kubernetes/kube-dns"` in `monitoring/k8s-monitoring-values.yaml`) (#822) |
 | `cloudnative-pg.json`, "CloudNativePG" (`cloudnative-pg`) | The CloudNativePG metrics exporter of each instance on port 9187 (`cnpg_*`), and the operator's `controller_runtime_*` | The PodMonitors `llm-gateway-db` (`llm/gateway-db.yaml`) and `mattermost-db` (`mattermost/podmonitor.yaml`), and the operator's chart PodMonitor (`monitoring.podMonitorEnabled` in `mattermost/cloudnative-pg-values.yaml`), run by Alloy. Select the database with the `namespace` and `cluster` variables (#4994) |
+| `seaweedfs.json`, "SeaweedFS" (`seaweedfs`) | The metrics port 9327 of each SeaweedFS component (`SeaweedFS_*`) | The ServiceMonitors that the SeaweedFS operator makes from `serviceMonitor.enabled` of the `Seaweed` CR (`object-store/seaweed.yaml`), run by Alloy. Select the store with the `namespace` variable (#4750) |
 
 ```bash
 devops grafana dashboards lint  # both folders; also catches a uid two files share
@@ -656,6 +661,11 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `GatewayDatabaseDown` | The CloudNativePG exporter of the gateway database (`llm/llm-gateway-db`) has no connection to PostgreSQL (`cnpg_collector_up` is 0), or Prometheus has no series from it. The gateway then refuses each virtual key (#4994). Run `kubectl get cluster -n llm llm-gateway-db` and read the log of pod `llm-gateway-db-1` | 5m | warning |
 | `GatewayDatabaseConnectionsNearMax` | The client connections of the gateway database are above 80% of `max_connections`; at the limit PostgreSQL refuses each new connection. Find the client on the Connections panels of the CloudNativePG dashboard | 10m | warning |
 | `GatewayDatabaseNearClaim` | The databases and the WAL of the gateway database are above 80% of its claim (5 GiB). local-path does not enforce the claim, so the data can fill the root disk of the node. Find what grows on the CloudNativePG dashboard; the spend logs keep 30 days (`maximum_spend_logs_retention_period` in `llm/gateway/config.yaml`) | 15m | warning |
+| `SeaweedFSNoLeader` | No master of the object store (`object-store`) is the Raft leader, or Prometheus has no series from a master; each new write fails. Read the log of each master pod ([Object Store](#object-store)) | 5m | warning |
+| `SeaweedFSUnderReplicatedVolumes` | The leading master counts volumes with fewer copies than replication `001` asks; one more lost volume server then loses data. Find the volume server that is down ([Object Store](#object-store)) | 15m | warning |
+| `SeaweedFSVolumeServerDown` | Fewer than 3 volume servers answer their scrape; each volume on a missing server has one copy left. Read the status of the volume pods, and restore the node ([Object Store](#object-store)) | 10m | warning |
+| `SeaweedFSReadOnlyVolumes` | A volume server has read-only volumes: its disk is under 10% free (`minFreeSpacePercent`), or a disk failed. Free the disk, or read the log of the pod | 15m | warning |
+| `SeaweedFSVolumeDiskLow` | The disk under a volume server has under 20% free; at 10% its volumes go read-only. local-path does not enforce the 300Gi claim. Free the disk of the node, or add a volume server | 15m | warning |
 | `RagIngestBehind` | No RAG ingestion run succeeded for repository `{{ $labels.repo }}` in the last two schedule periods (360s) | — | warning |
 | `ResearchCriticalFindings` | The last `devops research sweep` of the last 7 days found a critical advisory that affects a pin of the project (#3899). The sweep sets zero for a severity with no finding, so a clean sweep ends the alert. A sweep with a lookup that got no answer sets no value. Read the candidates that the sweep filed, or run `devops research advisories`, and update the pin. Run the sweep again | — | critical |
 | `ClaudeSpendDailyHigh` | The calls of `claude-sonnet-5-5` cost more than 15 USD in the last 24 hours (#4222). The rule sums the 24 hour increase of `devops_cli_ai_spend_usd_total` of every job, and keeps the spend of a counter that reset. The highest normal day is 5.59 USD, and a failed stage burst costs about 21 USD per hour. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job. Set the threshold again with the data of a month | — | warning |
@@ -784,7 +794,11 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `mattermost/mattermost-db` | `username` | literal | yes | fail | chat | none |
 | `mattermost/mattermost-db` | `password` | keyring `mattermost_db_password` | yes | adopt from `mattermost/mattermost-db password`; else generate `token_urlsafe(32)` | chat | none |
 | `mattermost/mattermost-db` | `DB_CONNECTION_STRING` | derived from literal, keyring mattermost_db_password | yes | fail | chat | none |
+| `object-store/seaweedfs-admin` | `adminUser` | literal | yes | fail | infra | `statefulset/seaweedfs-admin` |
+| `object-store/seaweedfs-admin` | `adminPassword` | keyring `seaweedfs_admin_password` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `statefulset/seaweedfs-admin` |
+| `object-store/seaweedfs-s3` | `s3.json` | literal | yes | fail | infra | `deployment/seaweedfs-s3` |
 
+- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request until a person adds an identity in the admin UI. The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security-config`, which the `Seaweed` CR owns.
 - A Secret that a CloudNativePG `Cluster` without `bootstrap.initdb.secret` creates, such as `llm/llm-gateway-db-app`, has no row. The operator generates its password when it creates the database, and the Deployment reads it with `secretKeyRef`.
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -1063,6 +1077,121 @@ CloudNativePG 1.32.0 removes the in-tree `barmanObjectStore` (CloudNativePG rele
   kubectl -n cnpg-system get certificate   # barman-cloud-client and barman-cloud-server are Ready
   kubectl -n argocd get application cert-manager plugin-barman-cloud
   ```
+
+## Object Store
+
+The SeaweedFS object store gives the cluster an S3 API that keeps the second copy of each object on another node (#4750, [ADR 0034](../docs/adr/0034-the-object-store-is-seaweedfs-with-its-operator.md)). The SeaweedFS operator makes each workload of the store from the one `Seaweed` CR `seaweedfs` in `object-store/seaweed.yaml`: the StatefulSets, the Deployments, the Services, the ServiceMonitors and Secret `seaweedfs-security-config`.
+
+| Helm release and Argo CD Application | What it applies | Namespace |
+| :--- | :--- | :--- |
+| `seaweedfs-operator` | Chart `seaweedfs-operator` 0.1.48 of `https://seaweedfs.github.io/seaweedfs-operator` (operator 1.0.45) with its CRDs and `object-store/operator-values.yaml`, at sync-wave `-1` | `object-store` |
+| `object-store` (Application only) | `object-store/`: the `Seaweed` CR, the two NetworkPolicies and the PodDisruptionBudgets. deploy-stack applies the folder after the charts | `object-store` |
+
+### What runs where
+
+| Component | Pods | Storage | Work |
+| :--- | :--- | :--- | :--- |
+| `master` | 3, StatefulSet `seaweedfs-master` | A 1Gi `fast-nvme` claim each: the Raft state and the topology id | The leader gives each write a file id. Replication `001`, `volumeSizeLimitMB` 1000, volume growth `copy_2 = 2`, `-telemetry=false` |
+| `volume` | 3, one on each node, StatefulSet `seaweedfs-volume` | A 300Gi `fast-nvme` claim each, `mount0-seaweedfs-volume-<n>` | The data. Replication `001` keeps the second copy of each volume on another volume server. `maxVolumeCounts` 300, `minFreeSpacePercent` 10 |
+| `filer` | 2, StatefulSet `seaweedfs-filer` | A 10Gi `fast-nvme` claim each: a leveldb2 store | The metadata: the bucket and object names. Each filer syncs the metadata of the other |
+| `s3` | 2, Deployment `seaweedfs-s3` | None | The S3 API on Service `seaweedfs-s3`, port 8333 |
+| `admin` | 1, StatefulSet `seaweedfs-admin` | None | The admin UI on 23646 and the control plane of the worker on 33646 |
+| `worker` | 1, Deployment `seaweedfs-worker` | None | Vacuum, volume balance, admin scripts and S3 lifecycle; no erasure coding |
+| operator | 1, Deployment `seaweedfs-operator` | None | Reconciles the CR, and serves the admission webhooks on 9443 |
+
+The masters, the volume servers and the filers have claims, so they have the control-plane exclusion of [Local-Path Volume Placement](#local-path-volume-placement). Each component has the restricted security context of user `seaweed` (uid 1000) of the image, a PodDisruptionBudget with `maxUnavailable: 1`, and the metrics port 9327. The requests add up to 900m CPU and 2752Mi of memory, under the 1 CPU and 3Gi of the namespace.
+
+### Versions
+
+The version rule of the owner (2026-11-11) has no minimum release age. Pin the newest SeaweedFS release that fixes the known security and bug issues, that the newest operator release builds against, and that passes the [build test](#build-test). Never pin a release under 4.53, and never 4.48 to 4.51: they break minio-go multipart uploads (`seaweedfs/seaweedfs#12177`), and 4.52 has the fix (`seaweedfs/seaweedfs#12194`).
+
+- `spec.image` of the CR pins `chrislusf/seaweedfs` by tag and digest. No component sets its own `version`, so the one field names the release of every pod. The values of the chart set no operator tag, so the operator is the `appVersion` of the chart.
+- The release notes of each operator release name the SeaweedFS commit that it builds against. Operator 1.0.45 (chart 0.1.48) names `5ef99c1d8dbb`, the commit of tag 4.54.
+- To update, take the newest chart, read the SeaweedFS commit in the release notes of its operator, and pin the tag of that commit with its digest (`skopeo inspect --format '{{.Digest}}' docker://docker.io/chrislusf/seaweedfs:<tag>`). Then take the dashboard of the new tag ([Grafana Dashboards](#grafana-dashboards)) and run the build test. An update of the image or the chart waits for an approval on the Renovate Dependency Dashboard and gets its own branch `seaweedfs`, and a person merges it after these steps (`.github/renovate.json`).
+- The `k8s` row refuses a release under 4.53, a release from 4.48 to 4.51, an image with no digest, a component with its own `version`, and a chart under 0.1.47.
+
+### Security
+
+- **Admin.** Secret `object-store/seaweedfs-admin` holds `adminUser` and `adminPassword` ([Cluster Secrets](#cluster-secrets)). The operator binds the admin to all addresses only when the Secret holds `adminPassword`, so the admin UI asks for a login (GHSA-m3m8-mrgq-hf9h). No Ingress serves it. Run `kubectl -n object-store port-forward svc/seaweedfs-admin 23646`, open `http://localhost:23646`, and sign in as `admin` with the keyring value `seaweedfs_admin_password`.
+- **Worker control plane.** The admin gRPC port 33646 has no authentication, and no release fixes it (GHSA-3qr2-qw48-cj6q). `object-store-perimeter` admits only the worker pods to it.
+- **S3 identities.** The gateways read the identities file of Secret `object-store/seaweedfs-s3`, which holds no identity, so they refuse each request until an identity exists. With no file, SeaweedFS allows every request. Make an identity for each client in the admin UI (Object Store, Users), with only the buckets and the actions that the client needs. The gateways read the identities that the admin keeps in the filer.
+- **Optional APIs.** `iam: false` keeps the IAM API, STS and OIDC off, and with the IAM subsystem off, a request that fails its signature gets no S3 Tables access (GHSA-25hp-4mw7-9c75). `-port.iceberg=0` and `-port.lance=0` close the Iceberg catalog and the Lance namespace, which the gateway otherwise serves on 8181 and 9101. SFTP, WebDAV, S3 Vectors and the S3 of the filer stay off.
+- **Signed writes.** The master signs a token for each write to a volume server and to a filer (`securityConfig.jwtSigning`). The operator mints the keys in Secret `object-store/seaweedfs-security-config` and keeps them at each reconcile, so no row of [Cluster Secrets](#cluster-secrets) holds them.
+- **Network.** `object-store-perimeter` admits the pods of the namespace on the HTTP and gRPC ports of each component, the worker alone on 33646, each namespace with the label `backup-client: "true"` on 8333, and namespace `monitoring` on 9327. The egress of `monitoring-default-perimeter` lets Alloy reach `object-store` on 9327. The egress of `object-store-perimeter` is CoreDNS and the pods of the namespace. `object-store-operator` admits the API server to the webhook port 9443 and lets the operator reach TCP 6443, the port of the API server, on any address except the metadata address. No SeaweedFS pod has internet egress, and `-telemetry=false` stops the usage report of the masters.
+- **Forbidden command.** No manifest holds `fs.mergeVolumes`: `seaweedfs/seaweedfs#12521` can lose a completed object. The `k8s` row refuses it.
+
+### Clients
+
+A client namespace gets the label `backup-client: "true"` and reaches `http://seaweedfs-s3.object-store.svc.cluster.local:8333`. No rule of the store names a client namespace. Give each client its own identity in the admin UI, and keep its keys in a Secret of the client.
+
+### Rollout
+
+1. Merge. Application `base` creates namespace `object-store`, Application `seaweedfs-operator` installs the operator, and Application `object-store` applies the CR. The admin and S3 pods wait in `ContainerCreating`, with a `FailedMount` event that names the Secret, until their Secrets exist.
+2. Run `uv run devops k8s push-secrets --only object-store/seaweedfs-admin --only object-store/seaweedfs-s3`. The push makes the admin password and keeps it in the keyring.
+3. Run the same command with `--plan` until each key shows `unchanged`.
+4. Check the store:
+   ```bash
+   kubectl -n object-store get pods -o wide   # 3 master, 3 volume, 2 filer, 2 s3, 1 admin, 1 worker and 1 operator pods Running; the 3 volume pods on 3 nodes
+   kubectl -n object-store get pvc            # each claim Bound with class fast-nvme
+   kubectl -n argocd get applications seaweedfs-operator object-store   # Synced and Healthy
+   kubectl get ingress -A                     # no host for seaweedfs-master, -volume, -filer or -admin
+   kubectl -n object-store get pod seaweedfs-master-0 -o jsonpath='{.spec.containers[0].command}' | grep -c -- -telemetry=false   # 1
+   ```
+5. Run the [build test](#build-test).
+
+On a cluster without Argo CD, `devops k8s deploy-stack --stack infra` installs the operator after cert-manager and applies `object-store/` after the charts. The store needs 3 Ready nodes that are not the control-plane node, and StorageClass `fast-nvme`. On a cluster without them, such as minikube, the volume pods stay Pending.
+
+### Build test
+
+The build test proves the store with the clients that it serves. It makes the temporary S3 identity `build-test`, the bucket `build-test` and namespace `object-store-build-test`, and step 6 deletes them. Post the result lines, the delay, the HTTP codes and the exit codes on the pull request or the issue, and never a key.
+
+1. In the admin UI, make the bucket `build-test` (Object Store, Buckets), then make the identity `build-test` with the actions Read, Write, List and Tagging. The identity cannot make the bucket: SeaweedFS authorizes a bucket create as `Admin`. Read its two keys at hidden prompts, then start the two client Jobs from a namespace with the label `backup-client: "true"`:
+   ```bash
+   read -rs AK; read -rs SK
+   kubectl apply -k k8s/object-store/build-test
+   kubectl -n object-store-build-test create secret generic build-test-s3 \
+     --from-file=access-key=<(printf %s "$AK") --from-file=secret-key=<(printf %s "$SK")
+   kubectl -n object-store-build-test wait --for=condition=complete job/boto3 job/minio-go --timeout=20m
+   kubectl -n object-store-build-test logs job/boto3      # 4 lines of 150000000 bytes, SHA-256 equal; "boto3: 4 uploads complete"
+   kubectl -n object-store-build-test logs job/minio-go   # "minio-go: 1 streaming upload complete"
+   ```
+2. Write a key through one gateway pod, and measure the time until `ListObjectsV2` through the other pod lists it. The `curl` of the SeaweedFS image signs the requests:
+   ```bash
+   A=$(kubectl -n object-store get pods -l app.kubernetes.io/component=s3 -o jsonpath='{.items[0].metadata.name}')
+   B=$(kubectl -n object-store get pods -l app.kubernetes.io/component=s3 -o jsonpath='{.items[1].metadata.name}')
+   s3() { pod=$1; shift; kubectl -n object-store exec "$pod" -- curl -sS --aws-sigv4 aws:amz:us-east-1:s3 --user "$AK:$SK" "$@"; }
+   key="cross-$(date +%s)"; s3 "$A" -X PUT --data-binary probe "http://localhost:8333/build-test/$key"; start=$(date +%s%3N)
+   until s3 "$B" "http://localhost:8333/build-test?list-type=2&prefix=$key" | grep -q "<Key>$key</Key>"; do sleep 0.2; done
+   echo "delay: $(( $(date +%s%3N) - start )) ms"   # 10000 ms or less
+   ```
+3. Delete one volume pod, and write and read a key while it is away:
+   ```bash
+   kubectl -n object-store delete pod seaweedfs-volume-2 --wait=false
+   s3 "$A" -X PUT --data-binary during-loss -o /dev/null -w '%{http_code}\n' http://localhost:8333/build-test/during-loss   # 200
+   s3 "$B" http://localhost:8333/build-test/during-loss                                                                   # during-loss
+   kubectl -n object-store rollout status statefulset/seaweedfs-volume
+   ```
+4. Try the admin gRPC port from a filer pod and from the worker pod:
+   ```bash
+   kubectl -n object-store exec seaweedfs-filer-0 -- nc -z -w 3 seaweedfs-admin 33646; echo "filer: exit $?"                 # not 0
+   kubectl -n object-store exec deploy/seaweedfs-worker -c worker -- nc -z -w 3 seaweedfs-admin 33646; echo "worker: exit $?"  # 0
+   ```
+5. Through the port-forward of [Security](#security), `curl -s -o /dev/null -w '%{http_code}\n' http://localhost:23646/` with no credential answers 401, 403 or a redirect to `/login`, and never 200. An unsigned request to a gateway, `kubectl -n object-store exec "$A" -- curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8333/`, answers 403.
+6. Delete the bucket `build-test` and the identity `build-test` in the admin UI, run `kubectl delete namespace object-store-build-test`, and run `unset AK SK`.
+
+The keys go into the argument list of `curl` in the gateway pods for the time of each request, so the identity is temporary and step 6 deletes it.
+
+### Node restore
+
+The store keeps two copies of each volume on two volume servers (replication `001`), and each volume server is on its own node. The masters keep their Raft state and the filers their metadata on claims of the same nodes.
+
+- **A node stops for a time.** The volumes of its volume server have one copy, and `SeaweedFSVolumeServerDown` and `SeaweedFSUnderReplicatedVolumes` fire. Reads and writes go on through the other volume servers, and two of the three masters keep the quorum. When the node comes back, its pods start on their claims, and the alerts stop.
+- **A node is lost with its disk.** `fast-nvme` keeps the PersistentVolume of a deleted claim (`Retain`), but the directory of each volume of that node was on the lost disk.
+  1. Find the claims of the lost node: `kubectl -n object-store get pvc` names each claim and its volume, and `kubectl get pv <volume> -o jsonpath='{.spec.nodeAffinity}'` names the node of the volume.
+  2. Delete each claim of the lost node and then its pod, for example `kubectl -n object-store delete pvc mount0-seaweedfs-volume-2` and `kubectl -n object-store delete pod seaweedfs-volume-2`. The StatefulSet makes a new claim, which binds on the node where the new pod starts. The anti-affinity keeps one volume server on each node, so a volume server needs a Ready node with no volume server; until then, its pod stays Pending.
+  3. Delete each Released PersistentVolume of the lost node: `kubectl delete pv <volume>`.
+  4. A new master takes the Raft log from the leader. A new filer reads the metadata log of the other filer. A new volume server starts with no volume: in the admin UI, run an admin script with `volume.fix.replication -apply`, which copies each volume that has one copy to another volume server, and `SeaweedFSUnderReplicatedVolumes` stops.
+  5. When all three masters lost their state, the volume servers report the old topology id, and the masters freeze volume growth. Check that each volume server is back, then run `volume.growth.resume` in an admin script.
 
 ## Teardown
 
@@ -1397,6 +1526,13 @@ k8s/
 │   ├── kustomization.yaml    # The plugin perimeter, as the root kustomization applies it
 │   ├── plugin-barman-cloud-values.yaml # Helm values for cloudnative-pg/plugin-barman-cloud
 │   └── networkpolicy.yaml    # The plugin pod: the operator in on 9090, DNS and the API server out
+├── object-store/             # The SeaweedFS object store (#4750); not in the root kustomization
+│   ├── kustomization.yaml    # The Seaweed CR, the perimeters and the budgets, as Application object-store syncs them
+│   ├── seaweed.yaml          # Seaweed CR seaweedfs: 3 masters, 3 volume servers, 2 filers, 2 S3 gateways, the admin and the worker
+│   ├── networkpolicy.yaml    # Default-deny perimeter: the worker alone on 33646, backup-client namespaces on 8333, DNS out; the operator to the API server
+│   ├── poddisruptionbudgets.yaml # One budget for each component and the operator
+│   ├── operator-values.yaml  # Helm values for seaweedfs-operator/seaweedfs-operator: one watched namespace, cert-manager webhook certificate
+│   └── build-test/           # The build test of the store: a client namespace with a boto3 Job and a minio-go Job; no Application applies it
 ├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
 │   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it
 │   ├── values.yaml           # Helm values for gitea-charts/gitea: SQLite in WAL mode, rootless, no SSH, packages on, no domain

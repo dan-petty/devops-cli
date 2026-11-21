@@ -99,7 +99,8 @@ def check_namespace_and_pvc_data_safety() -> None:
             if not doc:
                 continue
             kind = doc.get("kind", "")
-            if kind in ("Namespace", "PersistentVolumeClaim", "Cluster", "Mattermost"):
+            # A Seaweed CR owns the claims of the object store through its StatefulSets (#4750).
+            if kind in ("Namespace", "PersistentVolumeClaim", "Cluster", "Mattermost", "Seaweed"):
                 annos = doc.get("metadata", {}).get("annotations", {})
                 sync_opts = annos.get("argocd.argoproj.io/sync-options", "")
                 assert "Prune=false" in sync_opts, (

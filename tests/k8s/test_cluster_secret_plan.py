@@ -504,7 +504,66 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             (),
         ),
         ("mattermost/mattermost-db", "DB_CONNECTION_STRING", "chat", True, None, None, ()),
+        (
+            "object-store/seaweedfs-admin",
+            "adminUser",
+            "infra",
+            True,
+            None,
+            None,
+            ("statefulset/seaweedfs-admin",),
+        ),
+        (
+            "object-store/seaweedfs-admin",
+            "adminPassword",
+            "infra",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            ("statefulset/seaweedfs-admin",),
+        ),
+        (
+            "object-store/seaweedfs-s3",
+            "s3.json",
+            "infra",
+            True,
+            None,
+            None,
+            ("deployment/seaweedfs-s3",),
+        ),
     ]
+
+
+def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file_is_empty() -> None:
+    """The push makes the admin password under a keyring-only key, so the admin UI asks for a
+    login, and it writes an identities file with no identity, so the S3 gateway refuses each
+    request until a person adds an identity in the admin UI (#4750). The JWT keys have no row:
+    the operator mints them."""
+    rows = {secret.ref: secret for secret in CLUSTER_SECRETS}
+    admin, s3 = rows["object-store/seaweedfs-admin"], rows["object-store/seaweedfs-s3"]
+    (identities,) = s3.entries
+    assert isinstance(identities.source, LiteralSource)
+
+    assert (
+        [(entry.key, entry.source, entry.generator) for entry in admin.entries],
+        identities.key,
+        json.loads(identities.source.value),
+        "seaweedfs_admin_password" in keyring_only_keys(),
+        sorted(ref for ref in rows if ref.startswith("object-store/")),
+    ) == (
+        [
+            ("adminUser", LiteralSource("admin"), None),
+            (
+                "adminPassword",
+                KeyringSource("seaweedfs_admin_password"),
+                SecretGenerator("urlsafe", 32),
+            ),
+        ],
+        "s3.json",
+        {"identities": []},
+        True,
+        ["object-store/seaweedfs-admin", "object-store/seaweedfs-s3"],
+    )
 
 
 def test_generators_make_the_documented_shapes() -> None:

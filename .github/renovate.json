@@ -230,6 +230,16 @@
       ]
     },
     {
+      "description": "The SeaweedFS image is the release that the operator of the pinned chart builds against, and the newest tag can be newer (k8s/README.md, section Object Store, Versions). So an update of the image or the chart waits for an approval on the Dependency Dashboard, and a person merges it. The two get their own branch, so that the other container images and charts do not wait for them.",
+      "matchPackageNames": ["chrislusf/seaweedfs", "docker.io/chrislusf/seaweedfs", "seaweedfs-operator"],
+      "groupName": "seaweedfs",
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "prBodyNotes": [
+        "Before the merge, pin `spec.image` of `k8s/object-store/seaweed.yaml` to the tag of the SeaweedFS commit that the release notes of the operator name, with its digest. Then take the dashboard of that tag and run the build test (`k8s/README.md`, section Object Store)."
+      ]
+    },
+    {
       "description": "A LiteLLM release can change the gateway configuration and its migrations.",
       "matchPackageNames": ["ghcr.io/berriai/litellm"],
       "prBodyNotes": [

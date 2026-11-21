@@ -21,6 +21,7 @@ spec:
     - https://qdrant.github.io/qdrant-helm
     - https://traefik.github.io/charts
     - https://dl.gitea.com/charts/
+    - https://seaweedfs.github.io/seaweedfs-operator
   destinations:
     - server: https://kubernetes.default.svc
       namespace: agents
@@ -52,6 +53,8 @@ spec:
       namespace: cnpg-system
     - server: https://kubernetes.default.svc
       namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: object-store
   orphanedResources:
     warn: true
     ignore:
@@ -118,6 +121,17 @@ spec:
       - group: ''
         kind: Secret
         name: gitea-admin
+      # `devops k8s push-secrets` writes the two Secrets of the object store (#4750), and
+      # cert-manager writes the webhook certificate of the SeaweedFS operator.
+      - group: ''
+        kind: Secret
+        name: seaweedfs-admin
+      - group: ''
+        kind: Secret
+        name: seaweedfs-s3
+      - group: ''
+        kind: Secret
+        name: seaweedfs-operator-webhook-server-cert
       - group: ''
         kind: Secret
         name: mattermost-db

@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: build-test-scripts
+data:
+  # Four parallel multipart uploads of 150 MB with boto3, each read back and compared by SHA-256.
+  # Both programs write to the bucket that a person makes before the run: the identity of the run
+  # has no Admin action, and SeaweedFS authorizes a bucket create as Admin.
+  multipart.py: |
+    import concurrent.futures
+    import hashlib
+    import os
+    import time
+
+    import boto3
+    from boto3.s3.transfer import TransferConfig
+
+    SIZE = 150 * 1000 * 1000
+    PART = 8 * 1024 * 1024
+    BUCKET = os.environ["BUCKET"]
+    s3 = boto3.client("s3", endpoint_url=os.environ["S3_ENDPOINT"], region_name="us-east-1")
+    config = TransferConfig(multipart_threshold=PART, multipart_chunksize=PART, max_concurrency=4)
+
+
+    class Source:
+        """SIZE random bytes, read once, with their SHA-256."""
+
+        def __init__(self) -> None:
+            self.left = SIZE
+            self.digest = hashlib.sha256()
+
+        def read(self, size: int = -1) -> bytes:
+            size = self.left if size < 0 else min(size, self.left)
+            chunk = os.urandom(size)
+            self.left -= size
+            self.digest.update(chunk)
+            return chunk
+
+
+    def upload(index: int) -> str:
+        key = f"multipart-{index}"
+        source = Source()
+        start = time.monotonic()
+        s3.upload_fileobj(source, BUCKET, key, Config=config)
+        seconds = time.monotonic() - start
+        head = s3.head_object(Bucket=BUCKET, Key=key)
+        read = hashlib.sha256()
+        for chunk in s3.get_object(Bucket=BUCKET, Key=key)["Body"].iter_chunks(PART):
+            read.update(chunk)
+        same = read.hexdigest() == source.digest.hexdigest()
+        return (
+            f"boto3 {key}: {head['ContentLength']} bytes, ETag {head['ETag']}, "
+            f"{seconds:.1f} s, SHA-256 {'equal' if same else 'DIFFERENT'}"
+        )
+
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(upload, range(4)))
+    print("\n".join(results))
+    if any("DIFFERENT" in line or f": {SIZE} bytes" not in line for line in results):
+        raise SystemExit("boto3: an upload is not complete")
+    print("boto3: 4 uploads complete")
+  # One streaming upload of unknown size with minio-go: PutObject with size -1 sends a multipart
+  # upload of the parts that it reads, which SeaweedFS 4.48 to 4.51 broke (#12177).
+  main.go: |
+    package main
+
+    import (
+        "context"
+        "crypto/rand"
+        "crypto/sha256"
+        "encoding/hex"
+        "fmt"
+        "io"
+        "log"
+        "net/url"
+        "os"
+        "time"
+
+        "github.com/minio/minio-go/v7"
+        "github.com/minio/minio-go/v7/pkg/credentials"
+    )
+
+    const size = 96 << 20
+
+    func main() {
+        endpoint, err := url.Parse(os.Getenv("S3_ENDPOINT"))
+        if err != nil {
+            log.Fatal(err)
+        }
+        client, err := minio.New(endpoint.Host, &minio.Options{
+            Creds:  credentials.NewStaticV4(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), ""),
+            Secure: endpoint.Scheme == "https",
+            Region: "us-east-1",
+        })
+        if err != nil {
+            log.Fatal(err)
+        }
+        ctx := context.Background()
+        bucket := os.Getenv("BUCKET")
+        sent := sha256.New()
+        // A pipe hides the length of the data, so PutObject cannot know its size.
+        reader, writer := io.Pipe()
+        go func() {
+            _, err := io.CopyN(io.MultiWriter(writer, sent), rand.Reader, size)
+            writer.CloseWithError(err)
+        }()
+        start := time.Now()
+        info, err := client.PutObject(ctx, bucket, "minio-go-stream", reader, -1,
+            minio.PutObjectOptions{PartSize: 16 << 20})
+        if err != nil {
+            log.Fatal(err)
+        }
+        object, err := client.GetObject(ctx, bucket, "minio-go-stream", minio.GetObjectOptions{})
+        if err != nil {
+            log.Fatal(err)
+        }
+        read := sha256.New()
+        got, err := io.Copy(read, object)
+        if err != nil {
+            log.Fatal(err)
+        }
+        same := hex.EncodeToString(read.Sum(nil)) == hex.EncodeToString(sent.Sum(nil))
+        fmt.Printf("minio-go minio-go-stream: %d bytes sent, %d read, ETag %s, %.1f s, SHA-256 equal %t\n",
+            info.Size, got, info.ETag, time.Since(start).Seconds(), same)
+        if info.Size != size || got != size || !same {
+            log.Fatal("minio-go: the upload is not complete")
+        }
+        fmt.Println("minio-go: 1 streaming upload complete")
+    }

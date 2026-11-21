@@ -84,6 +84,7 @@ HELM_REPOS_BY_STACK: dict[str, dict[str, str]] = {
         "traefik": "https://traefik.github.io/charts",
         "cloudnative-pg": "https://cloudnative-pg.github.io/charts",
         "jetstack": "https://charts.jetstack.io",
+        "seaweedfs-operator": "https://seaweedfs.github.io/seaweedfs-operator",
     },
     "llm": {
         "open-webui": "https://open-webui.github.io/helm-charts",
@@ -161,6 +162,15 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "chart": "cloudnative-pg/plugin-barman-cloud",
             "namespace": "cnpg-system",
             "values": ["cnpg-system/plugin-barman-cloud-values.yaml"],
+        },
+        # The operator of the object store (#4750). Its chart issues the certificate of its
+        # admission webhooks with cert-manager, so it comes after that release; the Seaweed CR of
+        # the post-Helm path `object-store` needs its CRD.
+        {
+            "name": "seaweedfs-operator",
+            "chart": "seaweedfs-operator/seaweedfs-operator",
+            "namespace": "object-store",
+            "values": ["object-store/operator-values.yaml"],
         },
         {
             "name": "argocd",
@@ -363,7 +373,7 @@ KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
 # reverse order before Helm releases uninstall: a directory goes through `_apply_kustomizations`
 # (`kubectl apply -k`) and a file through `_apply_manifest_files` (`kubectl apply -f`) (#1367, #1391).
 POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
-    "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"),),
+    "infra": (Path("argo-workflows", "workflowtemplate-version.yaml"), Path("object-store")),
     "llm": (Path("llm", "gateway-db.yaml"), Path("llm", "gateway", "servicemonitor.yaml")),
     "chat": (Path("mattermost"),),
 }

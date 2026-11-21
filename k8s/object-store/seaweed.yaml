@@ -1,0 +1,214 @@
+# The SeaweedFS object store (#4750, ADR 0034). The SeaweedFS operator (Application
+# seaweedfs-operator) makes every StatefulSet, Deployment, Service and ServiceMonitor of the store,
+# and the JWT Secret seaweedfs-security-config, from this CR. k8s/README.md, section Object Store,
+# has the version rule, the rollout and the node restore.
+#
+# Each component sets the restricted security context of user seaweed (uid 1000) of the image,
+# a metrics port and its requests. The requests of the namespace add up to 900m CPU and 2752Mi with
+# the operator (operator-values.yaml), under the 1 CPU and 3Gi of the namespace.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Seaweed
+metadata:
+  name: seaweedfs
+  annotations:
+    # The CR owns the StatefulSets of the claims: Argo CD neither prunes nor deletes it.
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  # SeaweedFS 4.54 is the release that operator 1.0.45 (chart 0.1.48) builds against. Never pin
+  # 4.48 to 4.51: they break minio-go multipart uploads (seaweedfs/seaweedfs#12177). No component
+  # sets its own version, so this image names the release of every pod.
+  image: chrislusf/seaweedfs:4.54@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15
+  # The operator writes one ServiceMonitor for each component with a metricsPort; Alloy scrapes it.
+  serviceMonitor:
+    enabled: true
+  # The master signs a token for each write to a volume server and to a filer. The operator mints
+  # the keys and keeps them in Secret seaweedfs-security-config.
+  securityConfig:
+    jwtSigning:
+      volumeWrite: true
+      filerWrite: true
+
+  master:
+    replicas: 3
+    defaultReplication: "001"
+    volumeSizeLimitMB: 1000
+    # Each growth step makes 2 volumes of 2 copies for replication 001.
+    config: |
+      [master.volume_growth]
+      copy_2 = 2
+    extraArgs:
+      - -telemetry=false
+    # The Raft log and the topology id. SeaweedFS freezes volume growth when a volume server reports
+    # another topology id (freeze_on_topology_mismatch), and a master with no volume mints a new id
+    # at each restart.
+    persistence:
+      enabled: true
+      storageClassName: fast-nvme
+      resources:
+        requests:
+          storage: 1Gi
+    metricsPort: 9327
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: seaweedfs
+                  app.kubernetes.io/component: master
+    podSecurityContext: &pod-security
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext: &container-security
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+
+  volume:
+    replicas: 3
+    # fast-nvme keeps the volume of a deleted claim (reclaim policy Retain).
+    storageClassName: fast-nvme
+    maxVolumeCounts: 300
+    minFreeSpacePercent: 10
+    metricsPort: 9327
+    requests:
+      cpu: 100m
+      memory: 384Mi
+      storage: 300Gi
+    limits:
+      memory: 1Gi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      # One volume server on each node, so the second copy of each volume is on another node.
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: seaweedfs
+                app.kubernetes.io/component: volume
+    podSecurityContext: *pod-security
+    containerSecurityContext: *container-security
+
+  filer:
+    replicas: 2
+    # Each filer keeps its metadata in its own leveldb2 store, and the filers sync it with each
+    # other. No S3 in the filer: the operator marks it deprecated; spec.s3 is the gateway.
+    config: |
+      [leveldb2]
+      enabled = true
+      dir = "/data/filerldb2"
+    persistence:
+      enabled: true
+      mountPath: /data
+      storageClassName: fast-nvme
+      resources:
+        requests:
+          storage: 10Gi
+    metricsPort: 9327
+    requests:
+      cpu: 75m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: DoesNotExist
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: seaweedfs
+                  app.kubernetes.io/component: filer
+    podSecurityContext: *pod-security
+    containerSecurityContext: *container-security
+
+  s3:
+    replicas: 2
+    port: 8333
+    # The identities file of Secret seaweedfs-s3 holds no identity, so the gateway refuses each
+    # request until a person adds an identity in the admin UI. With no file it allows every request.
+    configSecret:
+      name: seaweedfs-s3
+      key: s3.json
+    # No IAM API, STS or OIDC. With the IAM subsystem off, a request that fails its signature gets
+    # no S3 Tables access either (GHSA-25hp-4mw7-9c75).
+    iam: false
+    # weed s3 serves the Iceberg catalog on 8181 and the Lance namespace on 9101 unless told not to.
+    extraArgs:
+      - -port.iceberg=0
+      - -port.lance=0
+    metricsPort: 9327
+    requests:
+      cpu: 75m
+      memory: 192Mi
+    limits:
+      memory: 1Gi
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: seaweedfs
+                  app.kubernetes.io/component: s3
+    podSecurityContext: *pod-security
+    containerSecurityContext: *container-security
+
+  admin:
+    # With adminPassword in this Secret, the admin UI asks for a login (GHSA-m3m8-mrgq-hf9h).
+    credentialsSecret:
+      name: seaweedfs-admin
+    metricsPort: 9327
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+    podSecurityContext: *pod-security
+    containerSecurityContext: *container-security
+
+  worker:
+    replicas: 1
+    # Vacuum, volume balance, admin scripts and S3 lifecycle; no erasure coding.
+    jobType: vacuum,volume_balance,admin_script,s3_lifecycle
+    metricsPort: 9327
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+    podSecurityContext: *pod-security
+    containerSecurityContext: *container-security

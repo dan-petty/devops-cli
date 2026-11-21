@@ -219,6 +219,12 @@ SERVED_SERIES = frozenset(
         "cnpg_collector_up",
         "cnpg_pg_database_size_bytes",
         "cnpg_pg_settings_setting",
+        # SeaweedFS, through the ServiceMonitors that its operator makes from the Seaweed CR of
+        # namespace object-store (#4750).
+        "SeaweedFS_master_is_leader",
+        "SeaweedFS_master_under_replicated_volumes",
+        "SeaweedFS_volumeServer_read_only_volumes",
+        "SeaweedFS_volumeServer_resource",
         # Argo CD, cloudflared, CoreDNS (#822), and Valkey redis_exporter (#551, #2094).
         "argocd_app_info",
         "cloudflared_tunnel_ha_connections",
