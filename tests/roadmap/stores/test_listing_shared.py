@@ -755,6 +755,33 @@ def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelli
     ) == ([SNAPSHOT_KEY], [2, 1], (Visibility.PUBLIC, Visibility.PUBLIC), 1)
 
 
+def test_two_spellings_in_turn_in_one_process_write_one_temporary_key(
+    valkey_server: FakeServer,
+) -> None:
+    """One store of a process saves six snapshots, each with one more record and a newer
+    watermark, in turn as `Dan-Petty/DevOps-CLI` and `dan-petty/devops-cli`. The store knows the
+    records of the one shared copy, so only the first save writes a temporary key, and the
+    snapshot key holds the records of the last save."""
+    written: list[str] = []
+
+    def record(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSET":
+            written.append(str(command[1]))
+
+    store = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)))
+    spellings = ("Dan-Petty/DevOps-CLI", REPO)
+
+    for count in range(1, 7):
+        snapshot = _snapshot(STARTED + timedelta(minutes=count), *range(count, 0, -1))
+        store.save(snapshot.model_copy(update={"repo": spellings[count % 2]}))
+
+    temporary = {key for key in written if ":next:" in key}
+    assert (len(temporary), _shared(valkey_server)) == (
+        1,
+        ("2026-01-01T10:06:00Z", ["6", "5", "4", "3", "2", "1"]),
+    )
+
+
 @pytest.mark.usefixtures("shared_valkey")
 def test_a_load_counts_the_tier_that_gave_the_snapshot(tmp_path: Path, otlp: FakeCollector) -> None:
     """With no copy in either tier the load counts `source`. With the same watermark in both
