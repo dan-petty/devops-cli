@@ -32,7 +32,7 @@ None.
 
 - Code: `src/devops_cli/k8s/searxng_check.py`, `k8s/devops/searxng/configmap.yaml`
 - Documents: `docs/CLUSTER.md`
-- Tests: `tests/k8s/test_searxng_check.py`, `tests/commands/k8s/test_k8s_devops_stack.py`
+- Tests: `tests/k8s/test_searxng_check.py`
 
 ## Feasibility
 

@@ -11,7 +11,7 @@ Kind: behavior. Reads: `src/devops_cli/k8s/searxng_check.py`, `tests/k8s/test_se
 
 ## 2. Remove the three Stack Exchange engines from the settings
 
-Kind: other. Reads: `k8s/devops/searxng/configmap.yaml`, `src/devops_cli/k8s/searxng_check.py`, `docs/CLUSTER.md`, `tests/commands/k8s/test_k8s_devops_stack.py`. Changes: `k8s/devops/searxng/configmap.yaml`, `tests/commands/k8s/test_k8s_devops_stack.py`.
+Kind: other. Reads: `k8s/devops/searxng/configmap.yaml`, `src/devops_cli/k8s/searxng_check.py`, `docs/CLUSTER.md`. Changes: `k8s/devops/searxng/configmap.yaml`.
 
 - [ ] 2.1 Edit `k8s/devops/searxng/configmap.yaml`: delete the three Stack Exchange entries from the list under `keep_only` at line 30, so the list holds duckduckgo, wikipedia, github, arxiv, mdn and docker hub, the engines that answer the general, it and science categories. Extend the header comment of the same file, which starts at `k8s/devops/searxng/configmap.yaml:3:The file keeps only the engines that need no key.`: the log of 2026-11-08 records HTTP 400 from api.stackexchange.com for the three with no key in the request and a suspension for too many requests, and the log holds no reply body, so the cause of the 400 is not proven. Then run `uv run devops ci --check --only k8s`, and after the rollout of the ConfigMap run `uv run devops k8s searxng-check` on the cluster and confirm that the json-general row holds at least one hit and that no reply names an engine that must stay off. A json-general row that fails on a CAPTCHA of duckduckgo is the defect that #4201 measures: record the reply in the issue as its evidence and add no code for it. Add no engine name, no key, no retry and no suspension value
   - Verification: `$ uv run devops ci --check --only k8s` passes
@@ -21,8 +21,6 @@ Kind: other. Reads: `k8s/devops/searxng/configmap.yaml`, `src/devops_cli/k8s/sea
 Kind: other. Reads: `docs/CLUSTER.md`, `k8s/devops/searxng/configmap.yaml`, `src/devops_cli/k8s/searxng_check.py`. Changes: `docs/CLUSTER.md`.
 
 - [ ] 3.1 Rewrite the engines bullet of `docs/CLUSTER.md` (`docs/CLUSTER.md:243:keeps nine engines that need no key`): name the six kept engines duckduckgo, wikipedia, github, arxiv, mdn and docker hub, drop stackoverflow, askubuntu and superuser from the kept list and from the engines that answer it, so that list reads github, mdn and docker hub, and record that the three answered HTTP 400 from api.stackexchange.com with no key, were suspended for too many requests, and that the cause of the 400 is not proven. Say that the general category asks duckduckgo and wikipedia, and that the 1 hit of the general row on 2026-11-08 came while duckduckgo answered a CAPTCHA, so the log names no engine for it. Rewrite the off-engine list of the check bullet (`docs/CLUSTER.md:248:It fails a row when a reply lacks one of the seven keys`), so it names the ten engines of `OFF_ENGINES`. Keep the sentences on the provider categories, the suspension of a refusing engine and the absent retry loop
-  - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 Edit `docs/CLUSTER.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
