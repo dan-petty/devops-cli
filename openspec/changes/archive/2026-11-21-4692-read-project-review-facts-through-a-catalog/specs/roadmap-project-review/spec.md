@@ -209,7 +209,7 @@ The shipped `catalog.yaml` SHALL hold no fact on `devops_cli_usage_error_total`,
 ## MODIFIED Requirements
 
 ### Requirement: The review writes each git fact of the window with its source
-The review SHALL write `data.json` and its JSON Schema `data.schema.json`. Each fact SHALL hold an id, a section, a value, a unit, `n`, a source, the exact query, a definition, `read_at` and a status of `ok`, `expired`, `skipped` or `error`; a fact that is not `ok` SHALL give a reason. The facts SHALL be the commits, their types, the net change and the churn with generated paths apart, the release tags, the hot files and the complexity, then each fact of the catalog in the catalog order. `data.json` SHALL also hold the disagreements, and the count of the reads of each reader kind with the seconds of the collection.
+The review SHALL write `data.json` and its JSON Schema `data.schema.json`. Each fact SHALL hold an id, a section, a value, a unit, `n`, a source, the exact query, a definition, `read_at` and a status of `ok`, `expired`, `skipped` or `error`; a fact that is not `ok` SHALL give a reason.
 
 #### Scenario: A run writes data.json under the data directory
 - **WHEN** a person runs `devops roadmap review run --version v1.0.0..v1.1.1 --json` in a checkout of `example/project`
@@ -222,6 +222,9 @@ The review SHALL write `data.json` and its JSON Schema `data.schema.json`. Each 
 #### Scenario: A fact that is not ok must say why
 - **WHEN** a fact has the status `error` and no reason
 - **THEN** the model refuses the fact
+
+### Requirement: The review writes the facts in a fixed order with the disagreements and the read counts
+The facts in `data.json` SHALL be the commits, their types, the net change and the churn with generated paths apart, the release tags, the hot files and the complexity, then each fact of the catalog in the catalog order. `data.json` SHALL also hold the disagreements, and the count of the reads of each reader kind with the seconds of the collection.
 
 #### Scenario: The facts of a fixture catalog follow the git facts
 - **WHEN** the review runs with a fixture catalog of two facts in the section `service`
