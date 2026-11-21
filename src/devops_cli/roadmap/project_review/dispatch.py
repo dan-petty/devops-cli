@@ -42,6 +42,7 @@ from devops_cli.roadmap.project_review.catalog import (
     Catalog,
     CatalogFact,
     ReaderKind,
+    ReaderRules,
     Shape,
     render_query,
     window_placeholders,
@@ -386,23 +387,29 @@ def plan_catalog(
             )
         )
     if ReaderKind.OPENSPEC in kinds:
+        when = _condition(catalog.readers.get(ReaderKind.OPENSPEC, ReaderRules()).requires)
+        steps = [archived_args(base, head), batch_args()]
+        totals = [requirement_args(base), requirement_args(head)]
         shared.extend(
             [
-                PlannedRequest(
-                    "git", str(checkout), tuple(git_argv(checkout, *archived_args(base, head)))
+                *(
+                    PlannedRequest(
+                        "git", str(checkout), tuple(git_argv(checkout, *args)), condition=when
+                    )
+                    for args in steps
                 ),
-                PlannedRequest("git", str(checkout), tuple(git_argv(checkout, *batch_args()))),
                 PlannedRequest(
                     "openspec",
                     texts["change"],
                     ("openspec", *show_args(texts["change"])),
+                    condition=when,
                     repeat=MESSAGES.roadmap.review_plan_each_change,
                 ),
-                PlannedRequest(
-                    "git", str(checkout), tuple(git_argv(checkout, *requirement_args(base)))
-                ),
-                PlannedRequest(
-                    "git", str(checkout), tuple(git_argv(checkout, *requirement_args(head)))
+                *(
+                    PlannedRequest(
+                        "git", str(checkout), tuple(git_argv(checkout, *args)), condition=when
+                    )
+                    for args in totals
                 ),
             ]
         )

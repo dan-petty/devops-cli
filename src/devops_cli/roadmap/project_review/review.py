@@ -1,7 +1,8 @@
-"""One project review run: the window, its facts, and where `data.json` goes (#4686).
+"""One project review run: the window, its facts, and where `data.json` goes (#4686, #4692).
 
-The run reads the checkout only. Its dry run starts no program: it lists the git commands of the
-run with a placeholder for each value that a read gives.
+The run reads the git facts from the checkout, then each fact of the catalog through its reader.
+Its dry run starts no program and sends no request: it lists the git commands of the run, the
+shared reads and each fact of the catalog, with a placeholder for each value that a read gives.
 """
 
 from __future__ import annotations
@@ -16,9 +17,9 @@ from devops_cli.core.repo import resolve_data_path
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.git.operations import git_argv
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog
+from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, utc_text
 from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewData
-from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
+from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from devops_cli.roadmap.project_review.facts import review_facts
 from devops_cli.roadmap.project_review.git_read import (
     blob_args,
@@ -80,8 +81,31 @@ def review_folder(repo: str, window_id: str) -> Path:
     return root / _FOLDER / owner / name / window_id
 
 
-def planned_review(checkout: Path, request: WindowRequest) -> list[PlannedRequest]:
-    """The git commands that a run of `request` starts, in order."""
+def _plan_values(request: WindowRequest, repo: str | None) -> dict[str, str]:
+    """The placeholders of a dry run: the times of a period, else a named placeholder for each
+    value that a read gives."""
+    texts = MESSAGES.roadmap.review_placeholders
+    values = {name: texts[name] for name in ("start", "end", "range", "base", "head")}
+    values["repo"] = repo or texts["repo"]
+    if isinstance(request, PeriodRequest):
+        seconds = int((request.end - request.start).total_seconds())
+        values |= {
+            "start": utc_text(request.start),
+            "end": utc_text(request.end),
+            "range": f"{seconds}s",
+        }
+    return values
+
+
+def planned_review(
+    checkout: Path,
+    request: WindowRequest,
+    *,
+    repo: str | None = None,
+    catalog: Catalog | None = None,
+) -> list[PlannedRequest]:
+    """The git commands that a run of `request` starts, in order, then the reads of `catalog`,
+    the shipped catalog by default."""
     texts = MESSAGES.roadmap.review_placeholders
     base, head = texts["base"], texts["head"]
     match request:
@@ -104,12 +128,14 @@ def planned_review(checkout: Path, request: WindowRequest) -> list[PlannedReques
         (blob_args(base, texts["path"]), each),
         (blob_args(head, texts["path"]), each),
     ]
-    return [
+    git = [
         PlannedRequest(
             method="git", target=str(checkout), argv=tuple(git_argv(checkout, *args)), repeat=repeat
         )
         for args, repeat in steps
     ]
+    reads = plan_catalog(catalog or load_catalog(), _plan_values(request, repo), checkout)
+    return [*git, *reads]
 
 
 def _shown(fact: Fact) -> str:
@@ -136,6 +162,23 @@ def render_review(data: ReviewData, written: Path) -> str:
         ),
         texts.review_previous_line.format(id=window.previous_id or texts.review_no_previous),
         *(f"  {fact.id}: {_shown(fact)}" for fact in data.facts),
+        *(
+            texts.review_disagreement_line.format(
+                id=pair.id,
+                left=pair.left,
+                left_value=pair.left_value,
+                right=pair.right,
+                right_value=pair.right_value,
+                difference=pair.difference,
+                tolerance=pair.tolerance,
+            )
+            for pair in data.disagreements
+        ),
+        texts.review_collection_line.format(
+            reads=", ".join(f"{kind} {count}" for kind, count in data.collection.reads.items())
+            or texts.review_no_reads,
+            seconds=data.collection.seconds,
+        ),
         texts.review_wrote.format(path=written),
     ]
     return "\n".join(lines)

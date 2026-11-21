@@ -6903,9 +6903,15 @@ class RoadmapMessages:
     review_no_previous: str = "none"
     review_wrote: str = "Wrote {path} and its JSON Schema."
     review_plan_heading: str = (
-        "The review of {window} reads the checkout {checkout}. A run starts these git commands, "
-        "and makes no network request:"
+        "The review of {window} reads the checkout {checkout}. A run starts these commands and "
+        "sends these reads, in order:"
     )
+    review_disagreement_line: str = (
+        "Disagreement {id}: {left} {left_value:g} and {right} {right_value:g} differ by "
+        "{difference:.0%}, more than {tolerance:.0%}."
+    )
+    review_collection_line: str = "Catalog reads: {reads}, in {seconds:g} s."
+    review_no_reads: str = "none"
     review_plan_each_file: str = "for each of the hottest files that lizard reads"
     review_placeholders: dict[str, str] = field(
         default_factory=lambda: {

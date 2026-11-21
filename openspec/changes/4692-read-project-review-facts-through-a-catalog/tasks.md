@@ -44,9 +44,9 @@
 
 ## 7. Behavior: the command and its dry run
 
-- [ ] 7.1 Add the failing tests in `tests/commands/test_roadmap_review.py`: `--last 7d --dry-run` lists each fact id of the catalog with its rendered query, and the GitHub, HTTP and process fakes record 0 calls; the summary of a run shows each fact that is not `ok` with its reason and each disagreement
-  - Verification: `$ uv run devops ci test tests/commands/test_roadmap_review.py`
-- [ ] 7.2 Add the catalog plan to `planned_review` and the disagreement lines to `render_review` in `src/devops_cli/roadmap/project_review/review.py`; update the docstring and the run of `src/devops_cli/commands/roadmap_review.py`; update the help of `review_run` and `review_dry_run` in `src/devops_cli/lang/en/help.py` and the placeholders in `src/devops_cli/lang/en/messages.py`; regenerate the command reference
+- [x] 7.1 Add the failing tests in `tests/commands/test_roadmap_review.py`: `--last 7d --dry-run` lists each fact id of the catalog with its reader kind and rendered query, the process fake records 0 calls and `refuse_requests` records 0 requests; a run under the GitHub fake writes the git facts, then each catalog fact, each fact that is not `ok` with a reason. In `tests/roadmap/project_review/test_review_facts.py`, the summary shows each fact that is not `ok` with its reason and each disagreement (`render_review`)
+  - Verification: `$ uv run devops ci test tests/commands/test_roadmap_review.py tests/roadmap/project_review/test_review_facts.py`
+- [x] 7.2 Add the catalog plan to `planned_review` and the disagreement lines to `render_review` in `src/devops_cli/roadmap/project_review/review.py`; update the docstring and the run of `src/devops_cli/commands/roadmap_review.py`; update the help of `review_run` and `review_dry_run` in `src/devops_cli/lang/en/help.py` and the placeholders in `src/devops_cli/lang/en/messages.py`; add the shared reads to `plan_catalog` in `src/devops_cli/roadmap/project_review/dispatch.py`; regenerate the command reference (`docs/commands/roadmap.md`)
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_review.py`
 
 ## 8. Data: the shipped catalog

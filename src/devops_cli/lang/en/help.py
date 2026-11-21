@@ -2270,7 +2270,11 @@ class RoadmapCommandHelp:
         "time is in UTC before any compare. The facts are the commits and their types, the net "
         "change and the churn with the generated files apart, the release tags, the hot files "
         "with their renames followed, and the complexity of the hottest files (lizard, the extra "
-        "review). The command reads no network."
+        "review). Then the command reads each fact of the catalog (catalog.yaml) at the end of "
+        "the window: the issue listing, GitHub releases, Actions runs and code-scanning alerts, "
+        "Prometheus (prometheus.url), Loki (loki.url) and OpenSpec. A source past its retention "
+        "gives expired, an unset setting gives skipped and a failed read gives error, never 0. "
+        "data.json also lists the facts that must agree and do not."
     )
     review_version: str = (
         "Two version tags as A..B. The commits after A up to B, and the tags created after A up "
@@ -2292,7 +2296,9 @@ class RoadmapCommandHelp:
     )
     review_json: str = "Print data.json to standard output."
     review_dry_run: str = (
-        "Start no program: print the git commands that a run starts, in order, with placeholders."
+        "Start no program and send no request: print the git commands that a run starts, then "
+        "the shared reads, then each fact of the catalog with its reader kind and its query, "
+        "with placeholders."
     )
 
 

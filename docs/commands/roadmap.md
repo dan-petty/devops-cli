@@ -666,7 +666,7 @@ devops roadmap review COMMAND [ARGS]...
 
 ### `devops roadmap review run`
 
-**Read the git facts of one window from the checkout of the working directory and write data.json and its JSON Schema. The window is half-open: the base commit and the start time are out, and the head commit and the end time are in. A tag becomes its commit. A time becomes the last first-parent commit of the default branch at or before it. Each time is in UTC before any compare. The facts are the commits and their types, the net change and the churn with the generated files apart, the release tags, the hot files with their renames followed, and the complexity of the hottest files (lizard, the extra review). The command reads no network.**
+**Read the git facts of one window from the checkout of the working directory and write data.json and its JSON Schema. The window is half-open: the base commit and the start time are out, and the head commit and the end time are in. A tag becomes its commit. A time becomes the last first-parent commit of the default branch at or before it. Each time is in UTC before any compare. The facts are the commits and their types, the net change and the churn with the generated files apart, the release tags, the hot files with their renames followed, and the complexity of the hottest files (lizard, the extra review). Then the command reads each fact of the catalog (catalog.yaml) at the end of the window: the issue listing, GitHub releases, Actions runs and code-scanning alerts, Prometheus (prometheus.url), Loki (loki.url) and OpenSpec. A source past its retention gives expired, an unset setting gives skipped and a failed read gives error, never 0. data.json also lists the facts that must agree and do not.**
 
 ```bash
 devops roadmap review run [OPTIONS]
@@ -684,7 +684,7 @@ devops roadmap review run [OPTIONS]
 | `--repo`, `-R` | `string` | - | The repository as owner/name (default: the origin of the checkout). It must be the origin of the checkout. |
 | `--out` | `path` | - | The folder of data.json (default: project-review/\<owner\>/\<name\>/<window id> under the data directory). |
 | `--json` | `boolean` | - | Print data.json to standard output. |
-| `--dry-run` | `boolean` | - | Start no program: print the git commands that a run starts, in order, with placeholders. |
+| `--dry-run` | `boolean` | - | Start no program and send no request: print the git commands that a run starts, then the shared reads, then each fact of the catalog with its reader kind and its query, with placeholders. |
 
 ---
 
