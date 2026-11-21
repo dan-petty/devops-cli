@@ -734,7 +734,9 @@ DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # of the homelab took at most 0.4 ms, so the bound is more than 400 times the slowest connect.
 DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS: float = 0.25
 # The project brain in the cache Valkey (#4668, ADR 0023 section 2). A value whose encoded form is
-# over this bound stays in the in-process tier: ADR 0023 section 2 sets 1 MiB.
+# over this bound stays in the in-process tier: ADR 0023 section 2 sets 1 MiB. A record of a
+# shared snapshot keeps both its JSON and its zlib form under it, so a reader expands no value
+# past it.
 DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
 # The entries of the in-process tier of one tiered mapping. A PyPI fact holds about 1 KB, so a
 # full tier holds about 1 MB.

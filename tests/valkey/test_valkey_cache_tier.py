@@ -20,6 +20,7 @@ from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.valkey import SilentValkey, valkey_client_on
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from devops_cli.valkey.cache import ValkeyCacheTier
 
 _TIER_LOGGER = "devops_cli.valkey.cache"
+# The window of a wait that checks that the listener accepts no second connection.
+_QUIET_SECONDS: float = 0.2
 _STATE_CHANGE = "The circuit breaker of the Valkey cache tier changed"
 
 
@@ -434,17 +437,24 @@ def test_a_silent_valkey_times_out_and_opens_the_breaker(
         return f"source {name}"
 
     reads = (read("a"), read("b"))
+    # The accept thread of the listener records the connection; wait for it with the bound.
+    accepted = wait_until(lambda: silent_valkey.connections >= 1, THREAD_HANDOFF_BOUND_SECONDS)
+    # A second connection would wait in the backlog of the listener. This short window checks
+    # that the thread accepts none, and opens only once it has accepted the first.
+    second = wait_until(lambda: silent_valkey.connections > 1, _QUIET_SECONDS)
 
     assert (
         tier.client.connect_timeout <= DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
         reads,
         tier.is_open,
-        silent_valkey.connections,
+        accepted,
+        second,
         _errors(otlp),
     ) == (
         True,
         ("source a", "source b"),
         True,
-        1,
+        True,
+        False,
         {("get", "timeout"): 1.0, ("get", "open"): 1.0, ("set", "open"): 2.0},
     )

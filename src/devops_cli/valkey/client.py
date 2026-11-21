@@ -347,27 +347,47 @@ class ValkeyClient:
         `decide`. When `decide` gives no command, nothing is written. When another client changed
         `key` after the WATCH, EXEC writes nothing. In both cases the result is False, and the
         client does not try again, unlike `Valkey.transaction` of valkey-py, which tries again.
+
+        valkey-py also gives a `WatchError` when the connection fails or times out while the
+        client watches the key, with that failure as its context. The client raises that failure
+        as the `ValkeyError` of its kind, so a lost connection is never a lost race.
         """
         # valkey-py's pipeline has no type hints.
         pipe: Any = self._raw.pipeline(transaction=True)
         with _valkey_failures(self.host, self.port, self.timeout), pipe:
-            pipe.watch(key)
-            value = pipe.execute_command("HGET", key, field, **{NEVER_DECODE: True})
-            commands = decide(None if value is None else bytes(value))
-            if not commands:
-                return False
-            pipe.multi()
-            for command in commands:
-                pipe.execute_command(*command)
             try:
-                pipe.execute()
-            except valkey_exceptions.WatchError:
+                return _watched_write(pipe, key, field, decide)
+            except valkey_exceptions.WatchError as exc:
+                failure = exc.__context__
+                if isinstance(
+                    failure, valkey_exceptions.ConnectionError | valkey_exceptions.TimeoutError
+                ):
+                    raise failure from None
                 return False
-            return True
 
     def close(self) -> None:
         """Close every connection the client holds."""
         self._valkey.connection_pool.disconnect()
+
+
+def _watched_write(
+    pipe: Any,
+    key: str,
+    field: str,
+    decide: Callable[[bytes | None], Sequence[Sequence[Any]]],
+) -> bool:
+    """WATCH `key`, give `decide` the bytes of `field`, and send its commands in one MULTI/EXEC
+    on `pipe`. False when `decide` gives no command; a lost race raises `WatchError`."""
+    pipe.watch(key)
+    value = pipe.execute_command("HGET", key, field, **{NEVER_DECODE: True})
+    commands = decide(None if value is None else bytes(value))
+    if not commands:
+        return False
+    pipe.multi()
+    for command in commands:
+        pipe.execute_command(*command)
+    pipe.execute()
+    return True
 
 
 _VALKEY_CLIENT_OVERRIDE: ValkeyProtocol | None = None

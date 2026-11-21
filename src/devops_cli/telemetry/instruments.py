@@ -711,18 +711,20 @@ BRAIN_READS_TOTAL = Instrument(
     "devops_cli_brain_reads_total",
     InstrumentKind.COUNTER,
     "1",
-    "Reads of the project brain (#4668), by store (snapshot or fact) and result: memory or "
-    "shared for the tier that gave the value, source when no tier held it, fallback when the "
-    "shared tier failed or its breaker was open, and private for a repository that the shared "
-    "tier does not hold",
+    "Reads of the project brain (#4668), by store (snapshot or fact) and result: memory, local "
+    "or shared for the tier that gave the value (local is the snapshot file of the process), "
+    "source when no tier held it, fallback when the shared tier failed or its breaker was open, "
+    "and private for a repository that the shared tier does not hold",
 )
 BRAIN_WRITES_TOTAL = Instrument(
     "devops_cli_brain_writes_total",
     InstrumentKind.COUNTER,
     "1",
     "Writes of the project brain to the shared tier (#4668), by store and result: shared, "
-    "skipped while the tier failed, oversize for a value over 1 MiB that stays in memory, older "
-    "when the shared snapshot is newer or another writer won, and private",
+    "unchanged when the shared snapshot already holds the same records, skipped while the tier "
+    "failed, oversize for a value over 1 MiB that stays in memory, older when the shared "
+    "snapshot is newer or another writer won, private, and removed for the shared snapshot of a "
+    "repository that became private",
 )
 VALKEY_CACHE_ERRORS_TOTAL = Instrument(
     "devops_cli_valkey_cache_errors_total",

@@ -7,23 +7,28 @@ since its watermark. GitHub stays the source of truth (ADR 0001): each copy can 
 again in full.
 
 `ValkeySnapshotStore` keeps the snapshot of a repository in one hash,
-`valkey:roadmap:v1:snapshot:<owner>/<name>`, with the field `meta` (the schema key, the time of
-the last full read, the watermark, and a token of each write) and one zlib JSON `IssueRecord`
-for each issue number. One field for each record keeps each value far under the bound of 1 MiB;
-the whole snapshot of devops-cli is about 14 MB. The key lives
-`DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last write.
+`valkey:roadmap:v1:snapshot:<owner>/<name>` with the casefolded name of `RepoRef.key`, with the
+field `meta` (the schema key, the time of the last full read, the watermark, and a digest of the
+records) and one zlib JSON `IssueRecord` for each issue number. One field for each record keeps
+each value far under the bound of 1 MiB; the whole snapshot of devops-cli is about 14 MB. The key
+lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last save.
 
 - A load reads `meta`, then the records with `HSCAN`, and stops when it passes
-  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`. It reads `meta` again at the end, so a copy that
-  another writer changed during the scan is not used.
+  `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`. It uses the records only when their digest is the
+  one of `meta`, so a copy that another writer changed during the scan is not used, and a new
+  `meta` of the same records does not spoil the scan. A value that does not parse, a time with
+  no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
+  miss: the values are untrusted.
 - A write is made only when its watermark is not older than the stored one, or when the stored
   copy has another schema key (ADR 0023 section 4). The check and the write are one WATCH and
   MULTI/EXEC; a writer whose EXEC fails writes nothing and does not try again, because the other
   writer is as new or newer.
-- When the stored `meta` is the one that this process last wrote or read, a write sends only the
-  changed and removed records. Else, and after each full read, it writes all records to a
-  temporary key with a TTL and RENAMEs it onto the snapshot key, so an issue that left the
-  repository leaves the shared copy.
+- A save of the records that the stored copy already holds, with no newer full read or
+  watermark, writes no record: it sets the TTL again and counts `unchanged`. When the store knows
+  the stored records (they have the digest of the snapshot, or of the copy that this process
+  last wrote or read), a write sends only the changed and removed records and the new `meta`.
+  Else it writes all records to a temporary key with a TTL and RENAMEs it onto the snapshot key.
+  Either way an issue that left the repository leaves the shared copy.
 
 `TieredSnapshotStore` is the `SnapshotStore` that intake and the lanes read through. It loads the
 local and the shared copy, drops a copy with another schema key or a full read older than
@@ -31,7 +36,8 @@ local and the shared copy, drops a copy with another schema key or a full read o
 saves the shared copy first and then the local file. While Valkey fails, it reads and writes the
 local file only. Until `valkey-devops` has role ACL users (#4704), the shared tier holds no data
 of a private repository (ADR 0023 section 8): the store reads the visibility of a repository only
-after Valkey answered, and a failed visibility read counts as private.
+after Valkey answered, a failed visibility read counts as private, and the store removes the
+shared copy of a repository that became private.
 """
 
 from __future__ import annotations
@@ -48,7 +54,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import batched
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
     CONST_VALKEY_ROADMAP_PREFIX,
@@ -69,6 +75,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core import clock
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.roadmap.stores.github_store import GhRunner, GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import (
     LISTING_SCHEMA_KEY,
@@ -92,15 +99,27 @@ _MAX_AGE: Final = timedelta(hours=DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS)
 
 
 class SharedMeta(BaseModel):
-    """The `meta` field of a shared snapshot. `token` is new for each write, so two writes never
-    give the same `meta`."""
+    """The `meta` field of a shared snapshot. `digest` is the digest of its records (see
+    `_records_digest`), so two `meta` values that are equal name the same records. Each time
+    names its UTC offset: a value with no offset does not parse, and the copy is a miss."""
 
     model_config = ConfigDict(frozen=True)
 
     schema_key: str
-    full_at: datetime
-    watermark: datetime
-    token: str
+    full_at: AwareDatetime
+    watermark: AwareDatetime
+    digest: str
+
+
+class _RecordTimes(BaseModel):
+    """The times of a record of a shared snapshot. Each names its UTC offset, so the merge and
+    the watermark can compare it with the times that GitHub gives."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    created_at: AwareDatetime | None = None
+    updated_at: AwareDatetime | None = None
+    closed_at: AwareDatetime | None = None
 
 
 @dataclass(frozen=True)
@@ -113,21 +132,29 @@ class HeldMeta:
 
 @dataclass(frozen=True)
 class _Seen:
-    """What the shared copy of a repository held when this process last wrote or read it: its
-    `meta`, the time of its full read, and a digest of the JSON of each record by number."""
+    """The records of a shared copy that a store knows: the bytes of its `meta` and a digest of
+    the JSON of each record by number."""
 
     raw: bytes
-    full_at: datetime
     digests: Mapping[str, bytes]
 
 
 def snapshot_key(repo: str) -> str:
-    """The Valkey key of the shared snapshot of `repo`."""
-    return f"{CONST_VALKEY_ROADMAP_PREFIX}:snapshot:{repo}"
+    """The Valkey key of the shared snapshot of `repo`, with the casefolded name of `RepoRef`, so
+    each spelling of a name gives one key."""
+    return f"{CONST_VALKEY_ROADMAP_PREFIX}:snapshot:{RepoRef(repo).key}"
 
 
 def _digest(text: bytes) -> bytes:
     return hashlib.blake2b(text, digest_size=16).digest()
+
+
+def _records_digest(digests: Mapping[str, bytes]) -> str:
+    """One digest of the records whose digests by number are `digests`."""
+    total = hashlib.blake2b(digest_size=16)
+    for number in sorted(digests):
+        total.update(number.encode() + b"\0" + digests[number])
+    return total.hexdigest()
 
 
 def _parsed(raw: bytes) -> SharedMeta | None:
@@ -176,7 +203,8 @@ class ValkeySnapshotStore:
 
     def records(self, repo: str, held: HeldMeta) -> ListingSnapshot | None:
         """The shared snapshot whose `meta` is `held`; None when the read fails, passes its
-        budget, finds a record that does not parse, or finds that another writer changed it."""
+        budget, finds a record that does not parse, or finds records that are not the ones that
+        `held` names, because another writer changed them."""
         if held.meta is None:
             return None
         key = snapshot_key(repo)
@@ -199,19 +227,24 @@ class ValkeySnapshotStore:
                 )
                 _count_budget()
                 return None
-        if values.pop(META_FIELD, None) != held.raw or self.tier.hget(key, META_FIELD) != held.raw:
-            return None
+        values.pop(META_FIELD, None)
         texts = _decompressed(repo, values)
         if texts is None:
             return None
+        digests = _digests(texts)
+        if _records_digest(digests) != held.meta.digest:
+            logger.info("The shared snapshot of %s changed during its load.", repo)
+            return None
         try:
             issues = [IssueRecord.model_validate_json(text) for text in texts.values()]
+            for issue in issues:
+                _RecordTimes.model_validate(issue)
         except ValidationError as exc:
             logger.info("A record of the shared snapshot of %s does not parse: %s", repo, exc)
             return None
         meta = held.meta
         with self._lock:
-            self._seen[repo] = _Seen(held.raw, meta.full_at, _digests(texts))
+            self._seen[repo] = _Seen(held.raw, digests)
         return ListingSnapshot(
             repo=repo,
             schema_key=meta.schema_key,
@@ -232,28 +265,42 @@ class ValkeySnapshotStore:
         """Write `snapshot` over the shared copy whose `meta` was `held`, and return the result."""
         texts = {str(issue.number): issue.model_dump_json().encode() for issue in snapshot.issues}
         records = {number: zlib.compress(text) for number, text in texts.items()}
-        if any(len(value) > DEFAULT_BRAIN_VALUE_MAX_BYTES for value in records.values()):
+        if any(
+            len(value) > DEFAULT_BRAIN_VALUE_MAX_BYTES
+            for value in (*texts.values(), *records.values())
+        ):
             return BrainWrite.OVERSIZE
+        digests = _digests(texts)
         meta = SharedMeta(
             schema_key=snapshot.schema_key,
             full_at=snapshot.full_at,
             watermark=snapshot.watermark,
-            token=uuid.uuid4().hex,
+            digest=_records_digest(digests),
         )
-        if held is not None and not may_replace(held.meta, meta):
+        stored = None if held is None else held.meta
+        if held is not None and not may_replace(stored, meta):
             return BrainWrite.OLDER
-        seen = _Seen(meta.model_dump_json().encode(), meta.full_at, _digests(texts))
-        with self._lock:
-            before = self._seen.get(snapshot.repo)
-        if (
-            before is not None
-            and held is not None
-            and before.raw == held.raw
-            and before.full_at == snapshot.full_at
-            and self._update(snapshot.repo, before, seen, records)
-        ):
+        if held is not None and stored is not None and _holds(stored, meta):
+            self.tier.expire(snapshot_key(snapshot.repo), DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS)
+            return self._kept(snapshot.repo, _Seen(held.raw, digests), BrainWrite.UNCHANGED)
+        seen = _Seen(meta.model_dump_json().encode(), digests)
+        known = self._known(snapshot.repo, held, seen)
+        if known is not None and self._update(snapshot.repo, known, seen, records):
             return self._kept(snapshot.repo, seen)
         return self._replace(snapshot.repo, meta, seen, records)
+
+    def _known(self, repo: str, held: HeldMeta | None, mine: _Seen) -> _Seen | None:
+        """The records of the stored copy whose `meta` is `held`, when the store knows them: they
+        are the records of `mine`, or the records that this process last wrote or read."""
+        stored = None if held is None else held.meta
+        if held is None or stored is None:
+            return None
+        with self._lock:
+            before = self._seen.get(repo)
+        for digests in (mine.digests, None if before is None else before.digests):
+            if digests is not None and stored.digest == _records_digest(digests):
+                return _Seen(held.raw, digests)
+        return None
 
     def _update(self, repo: str, before: _Seen, seen: _Seen, records: dict[str, bytes]) -> bool:
         """Send the changed and removed records and the new `meta` in one transaction, when the
@@ -285,7 +332,7 @@ class ValkeySnapshotStore:
         """Write every record to a temporary key, then RENAME it onto the snapshot key when the
         stored copy may still be replaced."""
         key = snapshot_key(repo)
-        temporary = f"{key}:next:{meta.token}"
+        temporary = f"{key}:next:{uuid.uuid4().hex}"
         written = self.tier.hset(temporary, {META_FIELD: seen.raw}) is not None and (
             self.tier.expire(temporary, DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS)
         )
@@ -306,10 +353,27 @@ class ValkeySnapshotStore:
         self.tier.unlink(temporary)
         return BrainWrite.SKIPPED if renamed is None else BrainWrite.OLDER
 
-    def _kept(self, repo: str, seen: _Seen) -> BrainWrite:
+    def _kept(self, repo: str, seen: _Seen, result: BrainWrite = BrainWrite.SHARED) -> BrainWrite:
         with self._lock:
             self._seen[repo] = seen
-        return BrainWrite.SHARED
+        return result
+
+    def remove(self, repo: str) -> bool:
+        """Remove the shared snapshot of `repo`; whether Valkey removed a key."""
+        with self._lock:
+            self._seen.pop(repo, None)
+        return bool(self.tier.unlink(snapshot_key(repo)))
+
+
+def _holds(stored: SharedMeta, mine: SharedMeta) -> bool:
+    """Whether the stored copy already holds what `mine` would write: the same schema key and
+    records, and a full read and a watermark that are not older."""
+    return (
+        stored.schema_key == mine.schema_key
+        and stored.digest == mine.digest
+        and stored.watermark >= mine.watermark
+        and stored.full_at >= mine.full_at
+    )
 
 
 def _digests(texts: Mapping[str, bytes]) -> dict[str, bytes]:
@@ -317,12 +381,25 @@ def _digests(texts: Mapping[str, bytes]) -> dict[str, bytes]:
 
 
 def _decompressed(repo: str, values: Mapping[str, bytes]) -> dict[str, bytes] | None:
-    """The JSON of each record; None when a value is not zlib data."""
-    try:
-        return {number: zlib.decompress(value) for number, value in values.items()}
-    except zlib.error as exc:
-        logger.info("A record of the shared snapshot of %s is not zlib data: %s", repo, exc)
-        return None
+    """The JSON of each record; None when a value is not whole zlib data or expands past
+    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes."""
+    texts: dict[str, bytes] = {}
+    for number, value in values.items():
+        expander = zlib.decompressobj()
+        try:
+            text = expander.decompress(value, DEFAULT_BRAIN_VALUE_MAX_BYTES)
+        except zlib.error as exc:
+            logger.info("A record of the shared snapshot of %s is not zlib data: %s", repo, exc)
+            return None
+        if expander.unconsumed_tail or not expander.eof:
+            logger.info(
+                "A record of the shared snapshot of %s is cut off or expands past %s bytes.",
+                repo,
+                DEFAULT_BRAIN_VALUE_MAX_BYTES,
+            )
+            return None
+        texts[number] = text
+    return texts
 
 
 _STORE_LOCK = threading.Lock()
@@ -342,7 +419,8 @@ def shared_snapshot_store() -> ValkeySnapshotStore | None:
 
 
 _VISIBILITY_LOCK = threading.Lock()
-# The visibility of each repository that this process read: whether it is public, and when.
+# The visibility of each repository that this process read, by `RepoRef.key`: whether it is
+# public, and when.
 _visibility: dict[str, tuple[bool, float]] = {}
 
 
@@ -351,8 +429,9 @@ def repository_is_public(repo: str, *, runner: GhRunner | None = None) -> bool:
     `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`. A failed read counts as private and is not kept, so
     the shared tier gets no data that could be private (ADR 0023 section 8)."""
     now = clock.monotonic()
+    name = RepoRef(repo).key
     with _VISIBILITY_LOCK:
-        held = _visibility.get(repo)
+        held = _visibility.get(name)
     if held is not None and now - held[1] < DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS:
         return held[0]
     store = GitHubRoadmapStore(repo) if runner is None else GitHubRoadmapStore(repo, runner=runner)
@@ -366,7 +445,7 @@ def repository_is_public(repo: str, *, runner: GhRunner | None = None) -> bool:
         )
         return False
     with _VISIBILITY_LOCK:
-        _visibility[repo] = (public, now)
+        _visibility[name] = (public, now)
     return public
 
 
@@ -405,7 +484,7 @@ class TieredSnapshotStore:
         if shared is None or (held is None and shared.tier.is_open):
             count_read(BrainStore.SNAPSHOT, BrainRead.FALLBACK)
             return local
-        if not self.is_public(repo):
+        if not self._public(shared, repo, held):
             count_read(BrainStore.SNAPSHOT, BrainRead.PRIVATE)
             return local
         now = self.clock()
@@ -417,7 +496,7 @@ class TieredSnapshotStore:
             or not self._fit(meta, now)
             or (local is not None and local_fit and local.watermark >= meta.watermark)
         ):
-            count_read(BrainStore.SNAPSHOT, BrainRead.SOURCE)
+            count_read(BrainStore.SNAPSHOT, BrainRead.LOCAL if local_fit else BrainRead.SOURCE)
             return local
         copy = shared.records(repo, held)
         if copy is None:
@@ -439,9 +518,19 @@ class TieredSnapshotStore:
         held = None if shared is None else shared.meta(snapshot.repo)
         if shared is None or (held is None and shared.tier.is_open):
             return BrainWrite.SKIPPED
-        if not self.is_public(snapshot.repo):
+        if not self._public(shared, snapshot.repo, held):
             return BrainWrite.PRIVATE
         return shared.write(snapshot, held)
+
+    def _public(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> bool:
+        """Whether `repo` is public. The shared copy of a repository that is not public is
+        removed, so the shared tier keeps no copy of a repository that became private."""
+        if self.is_public(repo):
+            return True
+        if held is not None and shared.remove(repo):
+            logger.info("The shared tier held the listing of %s, which is not public now.", repo)
+            count_write(BrainStore.SNAPSHOT, BrainWrite.REMOVED)
+        return False
 
     def _fit(self, held: ListingSnapshot | SharedMeta | None, now: datetime) -> bool:
         """Whether a run can read the changes from `held`: it has this schema key, and its last
