@@ -166,6 +166,20 @@ class ReviewHandOffRefusedError(DevOpsCLIError):
         super().__init__(message, details={"session": session[:CONST_MAX_ERROR_DETAIL_LENGTH]})
 
 
+class ReviewScannerMissingError(DevOpsCLIError):
+    """Raised when a review in the pod of a runner Job needs a scanner that its image lacks."""
+
+    error_code = "REVIEW_SCANNER_MISSING"
+
+    def __init__(self, scanners: list[str]) -> None:
+        names = ", ".join(scanners)
+        super().__init__(
+            f"The review is not clean: the runner image lacks {names}, so the files it scans "
+            "went unscanned. Add each scanner to the devtools image (#3827).",
+            details={"scanners": list(scanners)},
+        )
+
+
 class LibraryIngestionError(DevOpsCLIError):
     """Base exception for package introspection and library ingestion errors."""
 
@@ -297,6 +311,7 @@ __all__ = [
     "PageTextError",
     "RagIngestError",
     "ReviewPoolError",
+    "ReviewScannerMissingError",
     "SearchFailed",
     "SearchQueryRefused",
     "SkipToolExecution",

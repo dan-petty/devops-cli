@@ -111,6 +111,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ResponseTooLargeError` | `RESPONSE_TOO_LARGE` | `1` | Security | Raised when the body of a response passes the byte cap of its client. |
 | `ReviewHandOffRefusedError` | `REVIEW_HAND_OFF_REFUSED` | `1` | Ai | Raised when `devops review intake` refuses a session that is not on merged code. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
+| `ReviewScannerMissingError` | `REVIEW_SCANNER_MISSING` | `1` | Ai | Raised when a review in the pod of a runner Job needs a scanner that its image lacks. |
 | `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
 | `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
 | `RoadmapAlternativesError` | `ROADMAP_ALTERNATIVES_FAILED` | `1` | Roadmap | Raised after an alternatives run that tried items and checked none of them. |

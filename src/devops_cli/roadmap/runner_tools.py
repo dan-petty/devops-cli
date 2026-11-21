@@ -158,6 +158,12 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _devtools("npm", "ci:audit"),
     _devtools("zsh", "test:live"),
     _devtools("ps", "test:live"),
+    # The scanners of the review, which the direct executor runs in the pod of the Job (#3827).
+    # Pluto has no `--version` flag: its `version` command prints the version.
+    _devtools("gitleaks", "job"),
+    _devtools("pluto", "job", check=("pluto", "version")),
+    _devtools("golangci-lint", "job"),
+    _devtools("semgrep", "job"),
     _base("nice", "ci:security"),
     _base(
         "env",
@@ -234,14 +240,8 @@ NOT_IN_RUNNER: dict[str, str] = {
     "minikube": _NO_CLUSTER,
     "docker": "The image holds no Docker engine and no `docker` program. " + _NO_CLUSTER,
     "popeye": _SCANNER,
-    "pluto": _SCANNER,
     "kubeconform": _SCANNER,
     "tflint": _SCANNER,
-    "gitleaks": _SCANNER,
-    "golangci-lint": _SCANNER,
-    "semgrep": (
-        "Only the workflow `rule-pack.yml` installs it, and only when a rule file changes."
-    ),
     "ansible-core": (
         "No gate row, hook or job starts Ansible. Only `devops infra` starts it, on a workstation."
     ),
