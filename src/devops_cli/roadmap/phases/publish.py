@@ -1,23 +1,25 @@
-"""The publish of a phased step (#3702, #6601): the patch of the agent phase, pushed as one commit.
+"""The publish of a phased step (#3702, #6601): the patches of the agent phase, pushed as commits of
+the bot.
 
-`publish` holds the App key, and the agent wrote the patch. So `publish` reads the patch as data and
-runs no program of the agent:
+`publish` holds the App token and runs no code of the pull request. It works as `actions/checkout`
+does, in a new repository of its own, and reads each patch as data:
 
-1. A new clone fetches the head branch at depth 1 through `OriginGit`, with no global or system
-   configuration, no hook and no attribute file of the agent. The tip must be the lease: a branch
-   that moved since the judgment gets no push.
-2. A second new git folder on the objects of that clone reads the tree of the base into its index,
-   and `git apply --cached` applies the patch to the index: git refuses a path in `.git` or outside
-   the tree, and writes no working tree. `git write-tree` gives the new tree.
-3. `git diff-tree -r --raw` lists each change from the base. `publish` refuses a new or changed
-   link (mode 120000) or gitlink (mode 160000), each change of `.gitmodules`, and each workflow
-   file that the merged plan of the item does not name (`workflow_paths`, #2695).
-4. `git commit-tree` writes one commit on the base, with the bot as author and committer, so a
-   line of the patch cannot set the author, and a later take-over accepts the commit.
-5. The step checks the claim again (`before_push`), and `OriginGit` pushes `<commit>:<branch>` with
-   a lease on the old tip.
+1. `git init` makes the repository, `origin` is the repository on GitHub, and a fetch at depth 1
+   gets the base, and the lease when it is another commit. `git switch --detach` checks out the
+   base.
+2. For each patch, in order: `git apply --index` applies it. git refuses a path in `.git`, a path
+   outside the tree and a write through a link. `git diff --cached --raw` lists each change, and
+   `publish` refuses a new or changed link (mode 120000) or gitlink (mode 160000), each change of
+   `.gitmodules`, and each workflow file that the merged plan of the item does not name
+   (`workflow_paths`, #2695). `git commit` writes one commit with the bot as author and committer,
+   so a line of the patch cannot set the author, and a later take-over accepts the commit.
+3. The step reads the new tree from its objects (`NewTree`) and checks the claim (`before_push`).
+   A new tree that the lease holds already gets no push, so a second run pushes nothing.
+4. `git push --force-with-lease` pushes `HEAD` to the branch with a lease on the old tip, or, with
+   an empty lease, only when the branch does not exist.
 
-#6528 uses this module for stage. #3700 runs it in a container of its own.
+Until #3700 runs the agent in its own container, the home folder is shared with the agent: each
+git call reads no global or system configuration, and gets its credential helper from `-c` values.
 """
 
 from __future__ import annotations
@@ -26,43 +28,47 @@ import shutil
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
+    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_LINK_MODES,
     CONST_GIT_MODULES_FILE,
     CONST_GITHUB_WORKFLOWS_DIR,
 )
+from devops_cli.config.settings import load_settings
+from devops_cli.core import process_hardening
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import PublishRefusedError
 from devops_cli.git.worktree_inventory import git_message
-from devops_cli.roadmap.implement.git_isolation import OriginGit
 from devops_cli.security.sanitizer import mask_secrets
 
 _OPERATION = "roadmap.phases.publish"
 _SHA = r"^[0-9a-f]{40}$"
-_ORIGIN_REFS = "refs/remotes/origin/"
-# The status of a removed entry in `git diff-tree --raw`.
+# A lease: the old tip of the branch, or empty for a branch that must not exist yet.
+_LEASE = r"^([0-9a-f]{40})?$"
+# The status of a removed entry in `git diff --raw`.
 _DELETED = "D"
+# The credential helper of each git call: the configured helpers are cleared first.
+_CREDENTIAL = ("credential.helper=", *CONST_GIT_GITHUB_CREDENTIAL_CONFIG)
 
 
 class PublishTarget(BaseModel):
-    """Where `publish` pushes, as the step builds it in `publish` from GitHub and the settings: the
-    URL of `origin`, the head branch, the base commit of the patch, the tip that `origin` must
-    still hold (the lease), the name and the email of the bot, and the workflow files that the
-    merged plan names."""
+    """Where `publish` pushes: the URL of the repository on GitHub, the head branch, the base commit
+    of the patches, the tip that `origin` must still hold (the lease), the name and the email of
+    the bot, and the workflow files that the merged plan names."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     url: str
     branch: str
     base: str = Field(pattern=_SHA)
-    lease: str = Field(pattern=_SHA)
+    lease: str = Field(pattern=_LEASE)
     author: str
     email: str
     workflow_paths: tuple[str, ...] = ()
@@ -84,11 +90,18 @@ class _Change:
     path: str
 
 
-def _git(where: Sequence[str], *args: str) -> str:
-    """The output of `git <where> <args>`, with no token and no global or system configuration."""
+def git_call(repo: Path, *args: str, config: Sequence[str] = (), home: Path | None = None) -> str:
+    """The output of `git <args>` in `repo`, with no global or system configuration and the
+    credential helper of `gh` (#3702). `prepare` and `publish` use it until #3700. With `home`,
+    git reads no other file of the home folder either, as `.config/git/attributes` and `.netrc`:
+    `publish` gives its own new folder (#6655). The helper gets the token from the environment."""
+    values = [part for value in (*_CREDENTIAL, *config) for part in ("-c", value)]
+    env = dict(CONST_GIT_ISOLATED_CONFIG_ENV)
+    if home is not None:
+        env |= {"HOME": str(home), "XDG_CONFIG_HOME": str(home)}
     proc = run_subprocess(
-        [BIN_GIT, *where, *args],
-        env=dict(CONST_GIT_ISOLATED_CONFIG_ENV),
+        [BIN_GIT, "-C", str(repo), *values, *args],
+        env=env,
         check=False,
         quiet=True,
     )
@@ -99,12 +112,37 @@ def _git(where: Sequence[str], *args: str) -> str:
     return proc.stdout
 
 
-def _changes(stage: Path, base: str, tree: str) -> list[_Change]:
-    """Each change from the tree of `base` to `tree`, as `git diff-tree -r --raw -z` lists it."""
-    fields = _git(["-C", str(stage)], "diff-tree", "-r", "--raw", "-z", "--no-renames", base, tree)
-    parts = fields.split("\0")
+@dataclass(frozen=True)
+class NewTree:
+    """The tree that the patches make, read from the git objects of the new repository: the path of
+    each file that they add or change, the names in a folder and the text of a file. Nothing reads
+    the working tree, so no link of the agent is followed."""
+
+    repo: Path
+    changed: tuple[str, ...]
+    home: Path | None = None
+
+    def names(self, folder: str) -> tuple[str, ...]:
+        """The names of the entries of `folder` in the tree, in order, or none."""
+        listed = git_call(
+            self.repo, "ls-tree", "--name-only", "-z", "HEAD", "--", f"{folder}/", home=self.home
+        )
+        return tuple(sorted(PurePosixPath(name).name for name in listed.split("\0") if name))
+
+    def text(self, path: str) -> str | None:
+        """The text of the file `path` of the tree, or None when the tree holds no such file."""
+        try:
+            return git_call(self.repo, "cat-file", "blob", f"HEAD:{path}", home=self.home)
+        except GitOperationError:
+            return None
+
+
+def _changes(repo: Path, home: Path) -> list[_Change]:
+    """Each change of the index from `HEAD`, as `git diff --cached --raw -z` lists it."""
+    listed = git_call(repo, "diff", "--cached", "--raw", "-z", "--no-renames", home=home)
+    fields = listed.split("\0")
     changes: list[_Change] = []
-    for head, path in zip(parts[0::2], parts[1::2], strict=False):
+    for head, path in zip(fields[0::2], fields[1::2], strict=False):
         if not head.startswith(":"):
             continue
         old_mode, new_mode, _old, _new, status = head[1:].split(" ")
@@ -130,69 +168,105 @@ def _refusals(changes: Sequence[_Change], workflow_paths: Sequence[str]) -> list
     return reasons
 
 
-def _apply(stage: Path, base: str, patch: Path) -> str:
-    """The tree of `base` with `patch` applied to the index of `stage`."""
-    where = ["-C", str(stage)]
-    _git(where, "read-tree", base)
+def _commit(repo: Path, target: PublishTarget, patch: Path, message: str) -> list[str]:
+    home = repo.parent
+    """Apply `patch` to the index and commit it as the bot: the changed paths, or none when the
+    patch changes nothing."""
     try:
-        _git(where, "apply", "--cached", "--binary", str(patch))
+        git_call(repo, "apply", "--index", "--binary", str(patch), home=home)
     except GitOperationError as exc:
         raise PublishRefusedError(f"git apply refused the patch: {exc}") from exc
-    return _git(where, "write-tree").strip()
+    changes = _changes(repo, home)
+    if refused := _refusals(changes, target.workflow_paths):
+        raise PublishRefusedError("The patch is refused: " + "; ".join(refused))
+    if not changes:
+        return []
+    identity = (f"user.name={target.author}", f"user.email={target.email}")
+    git_call(repo, "commit", "--quiet", "-m", message, config=identity, home=home)
+    return [change.path for change in changes]
 
 
 def publish_patch(
     target: PublishTarget,
-    patch: bytes,
-    message: str,
+    patches: Sequence[tuple[bytes, str]],
     *,
-    before_push: Callable[[], None],
+    before_push: Callable[[NewTree], None],
     scratch: Path | None = None,
 ) -> Published | None:
-    """Apply `patch` to the base of `target` as data, write one commit of the bot with `message`,
-    call `before_push`, and push the commit with a lease on the tip of `target`. The fresh clone is
-    in a new folder of `scratch`, or of the temporary folder. None, with no push, when the patch
-    changes nothing. Raises `PublishRefusedError` for a patch that git refuses or that holds a
-    refused change, and `GitOperationError` when the branch moved or the push fails."""
-    if not patch.strip():
+    """Apply each patch of `patches` to the base of `target` as data, write one commit of the bot
+    for each with its message, give the new tree to `before_push`, and push with a lease on the tip
+    of `target`. The repository is in a new folder of `scratch`, or of the temporary folder. None,
+    with no push, when the patches change nothing; the lease, with no push, when it holds the new
+    tree already. Raises `PublishRefusedError` for a patch that git refuses or that holds a refused
+    change, and `GitOperationError` when the fetch or the push fails, as when the branch moved."""
+    work = [(patch, message) for patch, message in patches if patch.strip()]
+    if not work:
         return None
+    if load_settings().roadmap.implement.in_runner:
+        process_hardening.end_leftover_processes()
     parent = Path(tempfile.mkdtemp(prefix="devops-publish-", dir=scratch))
     try:
-        fresh = parent / "fresh"
-        _git([], "init", "--quiet", str(fresh))
-        origin = OriginGit(fresh, target.url)
-        origin.fetch(target.branch, depth=1)
-        tip = _git(["-C", str(fresh)], "rev-parse", f"{_ORIGIN_REFS}{target.branch}").strip()
-        if tip != target.lease:
-            raise GitOperationError(
-                f"git push refused: the branch `{target.branch}` moved from "
-                f"{target.lease[:12]} to {tip[:12]}",
-                operation=_OPERATION,
-            )
-        _git(["-C", str(fresh)], "cat-file", "-e", f"{target.base}^{{commit}}")
-        stage = parent / "stage"
-        _git([], "init", "--quiet", str(stage))
-        shutil.rmtree(stage / ".git" / "objects")
-        (stage / ".git" / "objects").symlink_to(
-            fresh / ".git" / "objects", target_is_directory=True
-        )
-        patch_file = parent / "agent.patch"
-        patch_file.write_bytes(patch)
-        tree = _apply(stage, target.base, patch_file)
-        changes = _changes(stage, target.base, tree)
-        if not changes:
+        repo = parent / "repo"
+        git_call(parent, "init", "--quiet", str(repo), home=parent)
+        git_call(repo, "remote", "add", "origin", target.url, home=parent)
+        wanted = [target.base, *([target.lease] if target.lease not in ("", target.base) else [])]
+        git_call(repo, "fetch", "--quiet", "--depth=1", "--no-tags", "origin", *wanted, home=parent)
+        git_call(repo, "switch", "--quiet", "--detach", target.base, home=parent)
+        paths: list[str] = []
+        for index, (patch, message) in enumerate(work):
+            patch_file = parent / f"{index}.patch"
+            patch_file.write_bytes(patch)
+            paths.extend(_commit(repo, target, patch_file, message))
+        if not paths:
             return None
-        if refused := _refusals(changes, target.workflow_paths):
-            raise PublishRefusedError("The patch is refused: " + "; ".join(refused))
-        identity = ["-c", f"user.name={target.author}", "-c", f"user.email={target.email}"]
-        commit = _git(
-            ["-C", str(stage), *identity], "commit-tree", tree, "-p", target.base, "-m", message
-        ).strip()
-        before_push()
-        origin.push(target.branch, commit, lease=target.lease)
-        return Published(commit, tuple(change.path for change in changes))
+        changed = git_call(
+            repo,
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=ACMR",
+            "-z",
+            target.base,
+            "HEAD",
+            home=parent,
+        )
+        before_push(NewTree(repo, tuple(name for name in changed.split("\0") if name), parent))
+        tree = git_call(repo, "rev-parse", "HEAD^{tree}", home=parent).strip()
+        if (
+            target.lease
+            and git_call(repo, "rev-parse", f"{target.lease}^{{tree}}", home=parent).strip() == tree
+        ):
+            return Published(target.lease, tuple(paths))
+        head = git_call(repo, "rev-parse", "HEAD", home=parent).strip()
+        lease = f"--force-with-lease=refs/heads/{target.branch}:{target.lease}"
+        git_call(
+            repo,
+            "push",
+            "--quiet",
+            lease,
+            "origin",
+            f"HEAD:refs/heads/{target.branch}",
+            home=parent,
+        )
+        return Published(head, tuple(paths))
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 
 
-__all__ = ["PublishTarget", "Published", "publish_patch"]
+def delete_branch(target: PublishTarget) -> None:
+    """Delete the branch of `target` on `origin`, with a lease on its tip `target.lease`: a branch
+    that `publish` made, whose draft pull request GitHub refused."""
+    parent = Path(tempfile.mkdtemp(prefix="devops-publish-"))
+    try:
+        repo = parent / "repo"
+        git_call(parent, "init", "--quiet", str(repo), home=parent)
+        git_call(repo, "remote", "add", "origin", target.url, home=parent)
+        lease = f"--force-with-lease=refs/heads/{target.branch}:{target.lease}"
+        git_call(
+            repo, "push", "--quiet", lease, "origin", f":refs/heads/{target.branch}", home=parent
+        )
+    finally:
+        shutil.rmtree(parent, ignore_errors=True)
+
+
+__all__ = ["NewTree", "PublishTarget", "Published", "delete_branch", "git_call", "publish_patch"]

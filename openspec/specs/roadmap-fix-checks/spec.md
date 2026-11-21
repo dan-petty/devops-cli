@@ -85,7 +85,7 @@ When the failure is classified as `ci_infra` and its log shows no docs or lockfi
 - **THEN** the command exits 0 and makes zero requests
 
 ### Requirement: The command repairs a failed check in a runner Job
-With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a runner Job. In a runner Job it SHALL give the step a clone in the run folder, a worktree of it on the head branch in the agent worktree folder of the data folder, the tier 1 fixers, and the model fix of `ai.tasks.fix_checks`. `publish` SHALL push the patch as one commit of the bot with a lease on the judged head, and return `repaired` with the new head.
+With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a runner Job. In a runner Job it SHALL give the step a plain clone in the run folder on the head branch, the tier 1 fixers, and the model fix of `ai.tasks.fix_checks`. `publish` SHALL push the patch as one commit of the bot with a lease on the judged head, and return `repaired` with the new head.
 
 #### Scenario: A failed check whose log names a file of the plan ends repaired
 - **WHEN** the command runs with `--confirm` on a bot pull request whose `Static Analysis` check failed with a log that names a file of the plan, and the model fix commits a change
@@ -97,11 +97,11 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a
 
 #### Scenario: A push whose lease breaks is refused
 - **WHEN** another writer moves the head branch on `origin` after the judgment and before the push
-- **THEN** the push fails, the commit of the other writer stays, the step records no repair, and the worktree goes
+- **THEN** the push fails, the commit of the other writer stays, and the step records no repair
 
 #### Scenario: The checkout refuses another branch or another head
-- **WHEN** the branch of the item is not the head branch of the pull request, or its tip is not the judged head
-- **THEN** the checkout raises an error before any fixer runs, and its worktree and local branch go
+- **WHEN** `origin` holds no head branch of the pull request, or its tip is not the judged head
+- **THEN** the checkout raises an error before any fixer runs
 
 ### Requirement: The step writes nothing without --confirm
 Without `--confirm`, the step SHALL return `planned` with the action that it would take. It SHALL post no comment, write no mark, make no checkout, run no fixer and push nothing.
@@ -403,7 +403,7 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 - **THEN** `publish` returns `stopped` with the reason, pushes nothing and writes no record
 
 ### Requirement: Publish builds the target of its push from GitHub
-`publish` SHALL check the state of `prepare` against the live pull request: the repository, the pull request, the head branch, the item and the judged head. It SHALL push to the live head branch with a lease on the judged head, as the bot, with the workflow files that it reads from the merged plan, and to the URL of `origin` that `prepare` read before the agent ran. A separate `publish` SHALL take only the URL of the repository on GitHub, and the check from the failed checks of the judged head.
+`publish` SHALL check the state of `prepare` against the live pull request: the repository, the pull request, the head branch, the item and the judged head. It SHALL push to the live head branch of the repository on GitHub with a lease on the judged head, as the bot, with the workflow files that it reads from the merged plan. The state file SHALL name no URL. A separate `publish` SHALL take the check from the failed checks of the judged head.
 
 #### Scenario: A fixer that rewrites the state file in one process
 - **WHEN** a fixer of `--phase all` writes another branch, author and workflow rule over the state file of its run
@@ -415,14 +415,14 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 
 #### Scenario: A fixer that rewrites the origin of the clone
 - **WHEN** a fixer sets `remote.origin.url` of the clone to another repository, with `--phase all` or with separate phases
-- **THEN** `publish` fetches from and pushes to the URL that `prepare` read, and no git call names the other repository
+- **THEN** `publish` fetches from and pushes to the repository on GitHub, and no git call names the other repository
 
 #### Scenario: A clone with another origin
-- **WHEN** the `origin` of the clone of `prepare`, a `--source` clone too, is not the URL of the repository on GitHub
-- **THEN** `prepare` raises an error, removes the worktree, and no phase pushes
+- **WHEN** `prepare` makes its clone
+- **THEN** it clones the repository on GitHub into the run folder, and the step reads the origin of no other clone
 
 #### Scenario: A separate publish with another origin
-- **WHEN** the state file names a URL other than the URL of the repository on GitHub
+- **WHEN** the state file names a URL
 - **THEN** `publish` raises `PhaseOutputError` and pushes nothing
 
 #### Scenario: A check that the state file forges

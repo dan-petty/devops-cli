@@ -61,10 +61,23 @@ class RunFolders:
         return self.root / CONST_ROADMAP_PHASE_OUT_DIR
 
     def make(self) -> Self:
-        """Make the root and the three folders, each for the user only, and give the folders."""
-        for folder in (self.root, self.state, self.work, self.out):
+        """Make the root, `state/` and `work/`, each for the user only, and give the folders. The
+        agent phase makes `out/` itself when it writes its outputs (`make_out`)."""
+        for folder in (self.root, self.state, self.work):
             folder.mkdir(mode=_FOLDER_MODE, parents=True, exist_ok=True)
         return self
+
+    def make_out(self) -> Path:
+        """Make `out/` for the user only and give it. The agent can write the run folder, so the
+        outputs go into a folder that is new after the sweep of the leftover processes: a link or
+        a FIFO in an `out/` that is there already would turn or hold the write (#6655)."""
+        try:
+            self.out.mkdir(mode=_FOLDER_MODE)
+        except FileExistsError:
+            raise PhaseOutputError(
+                "The output folder of the run is there before the outputs"
+            ) from None
+        return self.out
 
 
 class OutcomeKind(StrEnum):

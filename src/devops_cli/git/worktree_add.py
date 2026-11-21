@@ -333,7 +333,7 @@ def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> Recla
     )
 
 
-def _check_authors(issue: int, branch: str, authors: list[str]) -> None:
+def check_authors(issue: int, branch: str, authors: list[str]) -> None:
     """Refuse the branch unless it has a commit and the App wrote every one."""
     bot = load_settings().service.github_app.bot_login
     messages = MESSAGES.repos
@@ -442,7 +442,7 @@ def _take_over(
     origin.fetch(CONST_GIT_MAIN_BRANCH, branch)
     log = _run([*git, "log", LOG_FORMAT, f"{_main_ref()}..{remote_branch}"])
     authors = person_authors(_git(repo_root), log)
-    _check_authors(issue, branch, authors)
+    check_authors(issue, branch, authors)
     _clear_stray_branch(repo_root, branch, remote_heads)
     _run([*git, "worktree", "add", "--track", "-b", branch, str(directory), remote_branch])
     return WorktreeAddReport(

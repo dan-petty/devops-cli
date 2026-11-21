@@ -50,9 +50,6 @@ def fix_checks_cmd(
     check: Annotated[
         str | None, typer.Option("--check", help=HELP.roadmap.step_fix_checks_check)
     ] = None,
-    source: Annotated[
-        Path | None, typer.Option("--source", help=HELP.roadmap.step_fix_checks_source)
-    ] = None,
     confirm: Annotated[
         bool, typer.Option("--confirm", help=HELP.roadmap.step_fix_checks_confirm)
     ] = False,
@@ -80,7 +77,7 @@ def fix_checks_cmd(
 
     try:
         with sigterm_raises():
-            report = _run(repo, pull, head, check, source, confirm, phase, work)
+            report = _run(repo, pull, head, check, confirm, phase, work)
     except DevOpsCLIError as exc:
         print_error(f"Could not fix checks on PR #{pull}: {exc}", safe=True)
         raise typer.Exit(1) from exc
@@ -96,7 +93,6 @@ def _run(
     pull: int,
     head: str | None,
     check: str | None,
-    source: Path | None,
     confirm: bool,
     phase: RunPhase,
     work: Path | None,
@@ -129,7 +125,7 @@ def _run(
             require_agent_runner()
         else:
             require_runner(target)
-        repair = job_repair(target, source=source)
+        repair = job_repair(target)
     if phase is RunPhase.ALL:
         return run_fix_checks(
             get_roadmap_store(target),

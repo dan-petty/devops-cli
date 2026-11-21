@@ -71,7 +71,7 @@ from devops_cli.roadmap.implement.implement_pull import (
     read_draft,
 )
 from devops_cli.roadmap.implement.implement_step import ItemReader, find_change
-from devops_cli.roadmap.phases.publish import Published, PublishTarget
+from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget
 from devops_cli.roadmap.refine.refine import sanitize_text
 from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.step_files import parse_task_groups
@@ -238,38 +238,35 @@ class Fixed(NamedTuple):
 
 @dataclass(frozen=True)
 class PullCheckout:
-    """A worktree on the head branch of a pull request, at the judged head (#5971): its path, the
-    URL of `origin` that the clone held before any agent code ran, which `publish` pushes to, and
-    the clone and the branch that the release of the worktree removes."""
+    """The clone on the head branch of a pull request, at the judged head (#5971, #3702): its
+    path, in the work folder of the run."""
 
     path: Path
-    url: str
-    clone: Path
-    branch: str
 
 
 # A fixer gets the worktree, the item, the name of the failed check and its log.
 Fixer = Callable[[Path, int, str, str], Fixed]
 # The model fix also gets the files outside the plan whose failure the change causes (#6116).
 ModelFixer = Callable[[Path, int, str, str, tuple[str, ...]], Fixed]
-# The push of a patch as one commit: the target, the patch, the message and the claim check.
-Publisher = Callable[[PublishTarget, bytes, str, Callable[[], None]], Published | None]
+# The push of patches as commits: the target, each patch with its message, and the claim check.
+Publisher = Callable[
+    [PublishTarget, Sequence[tuple[bytes, str]], Callable[[NewTree], None]], Published | None
+]
 
 
 @dataclass(frozen=True)
 class Repair:
     """What a confirmed round of the step uses, by phase (#5971, #6601).
 
-    - `prepare`: `checkout` clones the repository into the work folder and gives the worktree on
-      the head branch of the pull request.
+    - `prepare`: `checkout` clones the repository into the work folder, on the head branch of the
+      pull request.
     - `agent`: the deterministic fixers of tier 1, the scope check of the log, and `model`, which
       makes the model fix of tier 2 from the item that `prepare` read. A fixer commits in the
       checkout and does not push. `patch` writes the patch of the checkout from the judged head.
     - `publish`: `author` gives the name and the email of the bot, and `workflows` the workflow
       files that the merged plan of an item names on a branch of GitHub, each read by `publish`
-      itself. `publish` applies the patch as data, writes one
-      commit, calls the claim check and pushes with a lease on the judged head. `release`
-      removes the worktree when the round ends. `scratch` holds the run folder of `--phase all`.
+      itself. `publish` applies the patch as data, writes one commit, calls the claim check and
+      pushes with a lease on the judged head. `scratch` holds the run folder of `--phase all`.
     """
 
     checkout: Callable[[PullStatus, int, Path], PullCheckout]
@@ -280,7 +277,6 @@ class Repair:
     author: Callable[[], tuple[str, str]]
     scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
     workflows: Callable[[str, str, int], tuple[str, ...]] = lambda repo, ref, item: ()
-    release: Callable[[PullCheckout], None] = lambda checkout: None
     scratch: Path | None = None
 
 

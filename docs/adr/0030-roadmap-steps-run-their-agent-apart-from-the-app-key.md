@@ -22,16 +22,20 @@ The implement Job and the fix-checks Job run the shell of an agent in the runner
 
 A roadmap step that runs an agent runs three phases, one after the other (`src/devops_cli/roadmap/phases/`):
 
-- **`prepare`** holds the App key and runs no agent code: the GitHub reads, the claim check and the clone, with git and GitHub calls only. The clone holds no credential. `prepare` reads the URL of `origin` before any agent code runs, and refuses a clone whose `origin` is not the repository on GitHub.
-- **`agent`** holds the model key only and makes no GitHub call. It runs the agent and its checks in the clone, and writes a patch from a new git folder, an outcome and a summary.
-- **`publish`** holds the App key. It reads the state file and the outputs of the agent as data: no link, no FIFO, a size limit, and only the enums and the numbers of the outcome, with each text masked and fenced. It takes the target of the push from GitHub alone: the head branch and the judged head of the pull request, the bot of the App, the workflow files that the merged plan names on the default branch, and the failed check by the name that GitHub gives. It pushes only to the URL of the repository on GitHub that `prepare` read. A round that `prepare` ends gets its report from `prepare`. It applies the patch with `git apply --cached` to a fresh clone, refuses a new or changed link, gitlink or `.gitmodules` and a workflow file that the plan does not name, and writes one commit with the bot as author. It checks the claim again right before the push, pushes with a lease on the old tip, and makes the GitHub writes of the outcome.
+- **`prepare`** holds the App key and runs no agent code: the GitHub reads, the claim check and a plain full clone of the repository on GitHub in a folder that is new to the run, switched to the issue branch, with git and GitHub calls only. The clone holds no credential.
+- **`agent`** holds the model key only and makes no GitHub call. It runs the agent and its checks in the clone, and writes a patch with fixed format flags, an outcome and a summary.
+- **`publish`** holds the App key. It reads the state file and the outputs of the agent as data: no link, no FIFO, a size limit, and only the enums and the numbers of the outcome, with each text masked and fenced. It takes the target of the push from GitHub alone: the head branch and the judged head of the pull request, the bot of the App, the workflow files that the merged plan names on the default branch, and the failed check by the name that GitHub gives. It pushes only to the repository on GitHub. A round that `prepare` ends gets its report from `prepare`. It applies each patch with `git apply --index` in a new repository, refuses a new or changed link, gitlink or `.gitmodules` and a workflow file that the plan does not name, and writes one commit with the bot as author for each patch. It checks the claim again right before the push, pushes with a lease on the old tip, and makes the GitHub writes of the outcome.
 
 The fix-checks Job is the first step on the phases (#6601). `--phase all` runs the three phases in one process, so the current Job template keeps working, and keeps the state of `prepare` in memory. The agent phase refuses to start with the App key or a GitHub token in its environment. The implement Job follows (#3702, part C), and stage uses `publish` (#6528). #3700 runs each phase in its own container.
+
+### Addendum: plain git (#6655, 2026-11-21)
+
+The owner asked for a plain issue-branch flow ("it should be relatively straight forward to work an issue branch", #3702 comment 7065393209). The phases use git as a developer does: a full clone, `git switch`, `git apply --index`, `git commit` and `git push --force-with-lease`, with no `read-tree`, `write-tree` or `commit-tree` and no git folder that shares the objects of another. Until #3700, the git calls of `prepare` and `publish` read no global or system configuration, because the home folder is shared with the agent in `--phase all`. No new git hardening comes before #3700.
 
 ### Consequences
 
 - An agent that writes the settings of its clone reaches no call with the token: `publish` reads no file of the clone and runs no program of the agent.
-- A run writes one commit for each publish. The commits of the fixers stay in the agent clone.
+- `publish` writes one commit of the bot for each patch. The commits of the fixers stay in the agent clone.
 - Until #3700, one process mints one token for the three phases, so the token keeps `workflows: write`. `publish` refuses a workflow file that the merged plan does not name.
 
 ### Confirmation
