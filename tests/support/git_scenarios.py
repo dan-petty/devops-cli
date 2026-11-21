@@ -635,11 +635,13 @@ def review_window(ws: Workspace) -> Any:
 @scenario
 def review_spec_path(ws: Workspace) -> Any:
     """`spec-path` has a first commit (tag `v0.9.0`) with no `openspec/specs` and a second commit
-    (tag `v1.0.0`) that adds it. The review checks the path at both tags and at a commit that the
-    checkout does not have."""
+    (tag `v1.0.0`) that adds it. The first commit holds a file named `--` at its root, which a
+    path argument of git must not match. The review checks the path at both tags and at a commit
+    that the checkout does not have."""
     repo = ws.path("spec-path")
     ws.git("spec-path", "init", "--quiet", "-b", "main")
     ws.write("spec-path/README.md", "# Project\n")
+    ws.write("spec-path/--", "A file whose name is a git separator.\n")
     ws.git("spec-path", "add", ".")
     ws.git("spec-path", "commit", "--quiet", "-m", "feat: start")
     ws.git("spec-path", "tag", "v0.9.0")
