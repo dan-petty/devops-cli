@@ -8,17 +8,15 @@ none.
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import yaml
 from kubernetes.client.rest import ApiException
 
 from devops_cli.config.env import setting_variables
-from devops_cli.k8s.cluster_job import repository_label
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, repository_label
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
@@ -27,9 +25,16 @@ from devops_cli.roadmap.stores.store import ImplementRecordKey
 from devops_cli.telemetry.tracer import get_tracer, reset_tracer
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.github import GitHubApiFake
-from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.kubernetes import (
+    FakeCluster,
+    pod,
+    running,
+    status,
+    terminated,
+    waiting,
+)
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import cronjob_template
 from tests.support.roadmap_implement import route_pull_status, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
@@ -50,8 +55,7 @@ TICK = 450  # a round of the row, in seconds: 7 minutes and a tick of the Servic
 
 @pytest.fixture
 def kube(cluster: FakeCluster) -> FakeCluster:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(template)]
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
     cluster.core.answers["list_namespaced_pod"] = [pod(f"{NAME}-x1", namespace="devops")]
     cluster.core.answers["read_namespaced_pod_log"] = ""
     return cluster
@@ -161,6 +165,33 @@ def test_a_changed_log_sets_the_deadline_to_the_time_since_the_start_plus_the_ex
         1800 + EXTENSION,
         str(int((START + timedelta(seconds=1800)).timestamp())),
     )
+
+
+def test_a_changed_log_of_the_agent_container_extends_the_deadline_of_a_job_on_the_phases(
+    kube: FakeCluster, now: ClockFake
+) -> None:
+    """On the phases (#3700), the deadline reads the container that runs: `agent`, after
+    `prepare` ended (#6690)."""
+    _seed(kube)
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{NAME}-x1",
+            namespace="devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[status("prepare", terminated(0)), status("agent", running())],
+            statuses=[status("publish", waiting("PodInitializing"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = {
+        ("devops", f"{NAME}-x1", "agent"): "Tool call: read_file, ok.\n"
+    }
+    now.shift(1800)
+
+    _manage()
+
+    reads = [c[1].get("container") for c in kube.core.calls if c[0] == "read_namespaced_pod_log"]
+    assert (_deadline(kube), reads) == (1800 + EXTENSION, ["agent"])
 
 
 def test_the_log_is_read_for_the_lines_of_the_constant_and_its_digest_is_kept(

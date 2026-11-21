@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 from kubernetes.client.rest import ApiException
 from markdown_it import MarkdownIt
 
@@ -55,10 +54,10 @@ from tests.support.fakes.kubernetes import (
     running,
     status,
     terminated,
+    waiting,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.job_templates import cronjob_template
-from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
     NEEDS_FIX_DRAFT,
     PULL,
@@ -94,9 +93,7 @@ def api(github_api: GitHubApiFake) -> GitHubApiFake:
 
 @pytest.fixture
 def template() -> dict[str, Any]:
-    document = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    assert isinstance(document, dict)
-    return document
+    return cronjob_template(RUNNER_TEMPLATE)
 
 
 @pytest.fixture
@@ -213,7 +210,6 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         container["name"],
         container["args"],
         env[setting_variables()["service.github_app.token_repository"]],
-        env["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"],
         job["metadata"]["name"].startswith("devops-cli-implement-"),
         record["implement.job"] == job["metadata"]["name"],
         "implement.job_state" in record and record["implement.job_state"] is not None,
@@ -222,7 +218,6 @@ def test_a_round_creates_one_job_for_a_staged_item_with_its_args_and_a_token_for
         "runner",
         ["roadmap", "implement", "--repo", STAGE_REPO, "--item", str(number), "--confirm"],
         STAGE_REPO,
-        "true",
         True,
         True,
         False,
@@ -839,6 +834,42 @@ def test_a_pod_killed_for_memory_with_no_log_stops_the_item_as_oom(
         )
     ]
     kube.core.answers["read_namespaced_pod_log"] = b""
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        _record(store, number)["implement.failure"],
+        _record(store, number)["implement.stopped"],
+        len(_creates(kube)),
+    ) == ("oom", "job", 1)
+
+
+@pytest.mark.usefixtures("no_continuation")
+def test_an_agent_container_killed_for_memory_stops_the_item_as_oom(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """On the phases (#3700), the init container `agent` ends the pod with exit status 137, and
+    `publish` never starts. The report reads the init containers first (#6690)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{name}-x1",
+            namespace="devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[
+                status("prepare", terminated(0)),
+                status("agent", terminated(137, "OOMKilled")),
+            ],
+            statuses=[status("publish", waiting("PodInitializing"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = {("devops", f"{name}-x1", "agent"): b""}
 
     _round(store, staged_repo)
     _round(store, staged_repo)

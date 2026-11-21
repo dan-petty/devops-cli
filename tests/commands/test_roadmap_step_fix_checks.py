@@ -13,8 +13,11 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+from devops_cli.roadmap.stores.store import FixChecksResult
 from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer
+from tests.support.job_templates import phase_cronjob_template
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -281,13 +284,61 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_anything_else(
     assert seen == ["unreadable", "orphans", runner, "step"]
 
 
-@pytest.mark.parametrize("args", [["--phase", "agent"], ["--phase", "publish", "--confirm"]])
-def test_a_phase_needs_confirm_and_a_run_folder(cli: Cli, args: list[str]) -> None:
+@pytest.mark.parametrize("phase", ["agent", "publish"])
+def test_a_phase_of_a_repair_needs_a_run_folder(cli: Cli, phase: str) -> None:
     result = cli(
-        "roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", *args
+        "roadmap",
+        "step",
+        "fix-checks",
+        "--repo",
+        "example/project",
+        "--pull",
+        "42",
+        "--phase",
+        phase,
+        "--confirm",
     )
 
     assert (result.exit_code, "--work" in result.output) == (1, True)
+
+
+def test_each_container_of_a_plan_job_on_the_phases_runs_and_only_prepare_plans(
+    cli: Cli, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Job in mode `plan` has no `--confirm`. On the phases (#3700), `prepare` runs the plan
+    round and prints its result line, and `agent` and `publish` exit 0 with nothing to do
+    (#6690)."""
+    from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job
+    from devops_cli.roadmap.fix_checks_row import FixDue, fix_args
+    from devops_cli.roadmap.steps import fix_checks
+
+    due = FixDue(pull=42, head="a" * 40, check="lint", item=5)
+    job = build_job(
+        phase_cronjob_template(RUNNER_TEMPLATE),
+        list(fix_args("example/project", due, confirm=False)),
+        "job-x",
+        template=RUNNER_TEMPLATE,
+    )
+    pod_spec = job["spec"]["template"]["spec"]
+    rounds: list[bool] = []
+
+    def plan(*_: Any, confirm: bool, **__: Any) -> FixChecksReport:
+        rounds.append(confirm)
+        return FixChecksReport(
+            repo="example/project", pull=42, result=FixChecksResult.PLANNED, reason="Plan"
+        )
+
+    monkeypatch.setattr(fix_checks, "run_fix_checks", plan)
+    results = {
+        container["name"]: cli(*container["args"])
+        for container in [*pod_spec["initContainers"], *pod_spec["containers"]]
+    }
+
+    assert (
+        {name: result.exit_code for name, result in results.items()},
+        rounds,
+        [name for name, result in results.items() if '"result": "planned"' in result.output],
+    ) == ({"prepare": 0, "agent": 0, "publish": 0}, [False], ["prepare"])
 
 
 @pytest.mark.parametrize(

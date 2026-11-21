@@ -392,9 +392,16 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 - **WHEN** the merged plan of the item names `.github/workflows/ci.yml`
 - **THEN** `publish` reads that file from the merged plan on the default branch, and lets the patch change it and no other workflow file
 
-#### Scenario: A phase with no run folder
-- **WHEN** the command runs `--phase agent` with no `--confirm`, or `--phase publish` with no `--work`
+#### Scenario: A phase of a repair with no run folder
+- **WHEN** the command runs `--phase agent` or `--phase publish` with `--confirm` and no `--work`
 - **THEN** the command exits 1
+
+### Requirement: A plan Job on the phases plans in prepare only
+Without `--confirm`, `--phase prepare` SHALL run the plan round and print its result line, and `--phase agent` and `--phase publish` SHALL exit 0 with nothing to do, so a Job in mode `plan` on the phases runs (#6690).
+
+#### Scenario: A plan Job on the phases
+- **WHEN** each container of a Job in mode `plan`, built from a template on the phases, runs its args
+- **THEN** each exits 0, and only `prepare` runs the plan round and prints the result `planned`
 
 ### Requirement: Publish checks the claim before the push
 `publish` SHALL run `check_preconditions` on the pull request and the item as GitHub holds them at its start and again right before the push. A round that the check stops SHALL push nothing and write no record.

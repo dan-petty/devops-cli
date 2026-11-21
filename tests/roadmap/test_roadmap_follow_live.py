@@ -6,7 +6,7 @@ The Kubernetes API is faked at its edge (`FakeCluster`), so `ClusterJobs` runs f
 from __future__ import annotations
 
 from devops_cli.k8s.cluster_job_api import ClusterJobs
-from tests.support.fakes.kubernetes import FakeCluster, pod
+from tests.support.fakes.kubernetes import FakeCluster, pod, running, status, terminated
 
 SECRET = "ghp_ABC1234567890123456789012345678901234567"
 
@@ -44,3 +44,26 @@ def test_a_job_with_no_log_has_no_live_line(cluster: FakeCluster) -> None:
     from devops_cli.roadmap.follow_live import live_lines
 
     assert live_lines(ClusterJobs(), "runner-7", 40) == []
+
+
+def test_the_live_lines_of_a_job_on_the_phases_are_of_the_container_that_runs(
+    cluster: FakeCluster,
+) -> None:
+    """On the phases (#3700), the console shows the phase that runs (#6690)."""
+    from devops_cli.roadmap.follow_live import live_lines
+
+    cluster.core.answers["list_namespaced_pod"] = [
+        pod(
+            "runner-7-abc",
+            namespace="devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[status("prepare", terminated(0)), status("agent", running())],
+        )
+    ]
+    cluster.core.answers["read_namespaced_pod_log"] = {
+        ("devops", "runner-7-abc", "prepare"): "cloned\n",
+        ("devops", "runner-7-abc", "agent"): "Tool call: read_file, ok.\n",
+    }
+
+    assert live_lines(ClusterJobs(), "runner-7", 40) == ["Tool call: read_file, ok."]

@@ -29,6 +29,9 @@ import devops_cli.commands.k8s.cluster_runtime as runtime
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING,
     CONST_ROADMAP_IMPLEMENT_JOB_LABEL,
+    CONST_RUNNER_PHASE_AGENT,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
@@ -59,6 +62,7 @@ from devops_cli.k8s.cluster_job import (
     TemplateName,
     build_job,
     job_name,
+    phase_containers,
     repository_label,
     runner_job_name,
     stage_job_env,
@@ -77,6 +81,15 @@ _LOG_STREAM_TIMEOUT_SECONDS = 7200.0 + 300.0
 
 _CREATE_ARGS = ["create", "-f", "-", "-o", "name"]
 _PHASE_PATH = ".status.phase"
+# The status lists of a pod: its init containers run first, one after the other (#3700).
+_INIT_STATUSES = "initContainerStatuses"
+_APP_STATUSES = "containerStatuses"
+# The containers of a runner Job on the phases and the status list of each, as a run follows them.
+_PHASE_STATUSES = (
+    (CONST_RUNNER_PHASE_PREPARE, _INIT_STATUSES),
+    (CONST_RUNNER_PHASE_AGENT, _INIT_STATUSES),
+    (CONST_RUNNER_PHASE_PUBLISH, _APP_STATUSES),
+)
 
 
 def _name_placeholder(template: JobTemplate, item: int | None = None) -> str:
@@ -96,8 +109,12 @@ def _cronjob_args(template: JobTemplate) -> list[str]:
     return ["get", "cronjob", template.cronjob, "--ignore-not-found", "-o", "json"]
 
 
-def _exit_code_path(template: JobTemplate) -> str:
-    return f'.status.containerStatuses[?(@.name=="{template.container}")].state.terminated.exitCode'
+def _exit_code_path(container: str, statuses: str = _APP_STATUSES) -> str:
+    return f'.status.{statuses}[?(@.name=="{container}")].state.terminated.exitCode'
+
+
+def _started_path(container: str, statuses: str) -> str:
+    return f'.status.{statuses}[?(@.name=="{container}")].state.running.startedAt'
 
 
 @dataclass(frozen=True)
@@ -163,8 +180,8 @@ def _pod_field_args(name: str, path: str) -> list[str]:
     return ["get", "pods", "-l", selector, "-o", f"jsonpath={{.items[*]{path}}}"]
 
 
-def _logs_args(name: str) -> list[str]:
-    return ["logs", "-f", f"job/{name}"]
+def _logs_args(name: str, container: str | None = None) -> list[str]:
+    return ["logs", "-f", f"job/{name}", *(["-c", container] if container else [])]
 
 
 def _kubectl(args: Sequence[str], context: str | None, *, stdin: str | None = None) -> str:
@@ -212,20 +229,21 @@ def _wait_until_started(name: str, context: str | None, timeout: float) -> bool:
         clock.sleep(_POLL_SECONDS)
 
 
-def _stream_logs(name: str, context: str | None) -> None:
-    """Stream the Job's log to the terminal until its container exits."""
+def _stream_logs(name: str, context: str | None, container: str | None = None) -> None:
+    """Stream the log of the Job's container, or of `container`, to the terminal until it
+    exits."""
     run_subprocess(
-        _kubectl_argv(_logs_args(name), context),
+        _kubectl_argv(_logs_args(name, container), context),
         capture_output=False,
         quiet=True,
         timeout=_LOG_STREAM_TIMEOUT_SECONDS,
     )
 
 
-def _exit_code(name: str, context: str | None, template: JobTemplate) -> int | None:
-    """The container's `state.terminated.exitCode`, waiting briefly for the status to land."""
+def _exit_code(name: str, context: str | None, path: str) -> int | None:
+    """The `state.terminated.exitCode` at `path`, waiting briefly for the status to land."""
     for attempt in range(_EXIT_CODE_ATTEMPTS):
-        code = _pod_field(name, context, _exit_code_path(template))
+        code = _pod_field(name, context, path)
         if code:
             return int(code.split()[0])
         if attempt + 1 < _EXIT_CODE_ATTEMPTS:
@@ -233,8 +251,69 @@ def _exit_code(name: str, context: str | None, template: JobTemplate) -> int | N
     return None
 
 
-def _follow(name: str, context: str | None, start_timeout: float, template: JobTemplate) -> int:
-    """Wait for the pod, stream its log and return the container's exit code."""
+def _followed(cronjob: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """The containers of a Job on the phases (#3700) that run-job follows in turn, each with the
+    status list that holds it. Empty for a template with one container."""
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    inits = {container.get("name") for container in pod_spec.get("initContainers", [])}
+    return tuple(
+        (phase, _INIT_STATUSES if phase in inits else _APP_STATUSES)
+        for phase in phase_containers(pod_spec)
+    )
+
+
+def _container_started(
+    name: str, context: str | None, container: str, statuses: str, timeout: float
+) -> bool:
+    """Whether `container` of the Job's pod runs or ended within the timeout. The pod of a Job on
+    the phases stays Pending while its init containers run, so run-job waits for each container."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if _pod_field(name, context, _started_path(container, statuses)) or _pod_field(
+            name, context, _exit_code_path(container, statuses)
+        ):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        clock.sleep(_POLL_SECONDS)
+
+
+def _follow_phases(
+    name: str, context: str | None, start_timeout: float, followed: tuple[tuple[str, str], ...]
+) -> int:
+    """Follow each container of a Job on the phases in turn, and return the first exit code that
+    is not 0, else 0. A container after one that failed does not start."""
+    for container, statuses in followed:
+        if not _container_started(name, context, container, statuses, start_timeout):
+            print_error(
+                MESSAGES.k8s.job_container_not_started.format(
+                    name=name, container=container, seconds=start_timeout
+                ),
+                prefix=False,
+                safe=True,
+            )
+            return 1
+        _stream_logs(name, context, container)
+        code = _exit_code(name, context, _exit_code_path(container, statuses))
+        if code is None:
+            print_error(MESSAGES.k8s.job_no_exit_code.format(name=name), prefix=False, safe=True)
+            return 1
+        if code != 0:
+            return code
+    return 0
+
+
+def _follow(
+    name: str,
+    context: str | None,
+    start_timeout: float,
+    template: JobTemplate,
+    followed: tuple[tuple[str, str], ...] = (),
+) -> int:
+    """Wait for the pod, stream its log and return the container's exit code. A Job on the phases
+    follows each of its containers in turn (`_follow_phases`)."""
+    if followed:
+        return _follow_phases(name, context, start_timeout, followed)
     if not _wait_until_started(name, context, start_timeout):
         print_error(
             MESSAGES.k8s.job_not_started.format(name=name, seconds=start_timeout),
@@ -243,7 +322,7 @@ def _follow(name: str, context: str | None, start_timeout: float, template: JobT
         )
         return 1
     _stream_logs(name, context)
-    code = _exit_code(name, context, template)
+    code = _exit_code(name, context, _exit_code_path(template.container))
     if code is None:
         print_error(MESSAGES.k8s.job_no_exit_code.format(name=name), prefix=False, safe=True)
         return 1
@@ -354,27 +433,55 @@ def dry_run_job(
             condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         ),
     ]
+    # The runner template has one container today, or the containers of the phases (#3700).
+    single = "the CronJob holds one container" if template == RUNNER_TEMPLATE else ""
+    started = f"{single}, after the pod left Pending" if single else "the pod left Pending"
     if wait:
         requests += [
             kubectl(
                 _pod_field_args(name, _PHASE_PATH),
                 f"pods of job {name}",
+                condition=single,
                 repeat=(
                     f"every {_POLL_SECONDS:g} s while the pod is Pending, "
                     f"for up to {start_timeout:g} s"
                 ),
             ),
-            kubectl(_logs_args(name), f"job {name}", condition="the pod left Pending"),
+            kubectl(_logs_args(name), f"job {name}", condition=started),
             kubectl(
-                _pod_field_args(name, _exit_code_path(template)),
+                _pod_field_args(name, _exit_code_path(template.container)),
                 f"pods of job {name}",
-                condition="the pod left Pending",
+                condition=started,
                 repeat=(
                     f"every {_POLL_SECONDS:g} s until the exit code is set, "
                     f"up to {_EXIT_CODE_ATTEMPTS} times"
                 ),
             ),
         ]
+    if wait and template == RUNNER_TEMPLATE:
+        # A run reads the CronJob and follows each container of a template on the phases in
+        # turn instead (#3700, #6690).
+        when = "the CronJob holds the init containers prepare and agent"
+        for container, statuses in _PHASE_STATUSES:
+            requests += [
+                kubectl(
+                    _pod_field_args(name, _started_path(container, statuses)),
+                    f"pods of job {name}",
+                    condition=when,
+                    repeat=f"every {_POLL_SECONDS:g} s until {container} starts",
+                ),
+                kubectl(
+                    _logs_args(name, container),
+                    f"job {name}",
+                    condition=f"{when}, after {container} started",
+                ),
+                kubectl(
+                    _pod_field_args(name, _exit_code_path(container, statuses)),
+                    f"pods of job {name}",
+                    condition=when,
+                    repeat=f"until the exit code is set, up to {_EXIT_CODE_ATTEMPTS} times",
+                ),
+            ]
     return JobRun(name, requests=tuple(requests), dry_run=True)
 
 
@@ -421,7 +528,8 @@ def execute_job(
     _kubectl(_CREATE_ARGS, context, stdin=json.dumps(job))
     if not wait:
         return JobRun(name)
-    return JobRun(name, exit_code=_follow(name, context, start_timeout, template))
+    exit_code = _follow(name, context, start_timeout, template, _followed(cronjob))
+    return JobRun(name, exit_code=exit_code)
 
 
 def check_repo(repo: str) -> None:

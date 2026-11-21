@@ -1621,7 +1621,7 @@ class RoadmapCommandHelp:
         "The phase of the repair, with --confirm: prepare (the GitHub reads, the claim and the "
         "clone, with no agent code), agent (the fixers, with no GitHub call), publish (the patch "
         "as one commit, the push with a lease and the GitHub writes), or all, the three in one "
-        "process."
+        "process. Without --confirm, prepare runs the plan, and agent and publish do nothing."
     )
     step_fix_checks_work: str = (
         "The run folder of a phase other than all: state/ for prepare and publish, work/ for the "

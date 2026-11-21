@@ -72,7 +72,8 @@ def is_managed(job: ClusterJob) -> bool:
 
 def _digest(api: ClusterJobs, name: str) -> str:
     """The digest of the tail of the log of Job `name`, or empty when the log is empty or the API
-    refuses it: a pod that has not started has no log, and that is no progress."""
+    refuses it: a pod that has not started has no log, and that is no progress. The log is of the
+    container that runs: on the phases (#3700), `prepare`, then `agent`, then `publish`."""
     try:
         tail = api.log_tail(name, CONST_ROADMAP_IMPLEMENT_DEADLINE_LOG_LINES)
     except ClusterJobError:

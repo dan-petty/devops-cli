@@ -2,7 +2,8 @@
 
 The fix-checks Job of the watch row runs this command with `--head` and `--check` (#5027). With
 `--confirm`, `--phase` picks the phase of the repair (#6601): `prepare`, `agent` or `publish` on the
-run folder `--work`, or `all`, the three in one process, which the Job runs now. Each phase first
+run folder `--work`, or `all`, the three in one process. Without `--confirm`, a Job in mode `plan`
+on the phases runs the plan in `prepare`, and `agent` and `publish` do nothing (#6690). Each phase first
 makes the process unreadable to its children (`deny_environment_reads`), before it reads a file or
 starts a child. While
 the step runs, the first SIGTERM, from an eviction, a drain or the deadline of the Job, ends the
@@ -68,8 +69,8 @@ def fix_checks_cmd(
     if pull is None:
         print_error("Pass --pull <number>.")
         raise typer.Exit(1)
-    if phase is not RunPhase.ALL and (not confirm or work is None):
-        print_error("A phase other than all runs only with --confirm and --work <folder>.")
+    if phase is not RunPhase.ALL and confirm and work is None:
+        print_error("A phase of a repair runs only with --work <folder>.")
         raise typer.Exit(1)
     if dry_run or is_dry_run():
         return
@@ -98,8 +99,8 @@ def _run(
     work: Path | None,
 ) -> FixChecksReport | None:
     """The round, or the phase of it, that the options ask for: the report, or None for the agent
-    phase, for a `prepare` that hands the round on, and for a `publish` of a round that `prepare`
-    ended and reported."""
+    phase, for a `prepare` that hands the round on, for a `publish` of a round that `prepare`
+    ended and reported, and for `agent` and `publish` of a plan."""
     from devops_cli.roadmap.steps.fix_checks import run_fix_checks
     from devops_cli.roadmap.stores.store import get_roadmap_store
 
@@ -126,7 +127,9 @@ def _run(
         else:
             require_runner(target)
         repair = job_repair(target)
-    if phase is RunPhase.ALL:
+    # A phase with no `--confirm` is a plan, as a Job in mode `plan` on the phases runs it (#6690):
+    # `prepare` runs the plan round and prints its result, and `agent` and `publish` do nothing.
+    if phase is RunPhase.ALL or (repair is None and phase is RunPhase.PREPARE):
         return run_fix_checks(
             get_roadmap_store(target),
             target,
@@ -136,10 +139,12 @@ def _run(
             confirm=confirm,
             repair=repair,
         )
+    if repair is None:
+        return None
     from devops_cli.roadmap.phases.files import RunFolders
 
-    if repair is None or work is None:
-        raise ValueError("A phase needs --confirm and --work")
+    if work is None:
+        raise ValueError("A phase of a repair needs --work")
     return _phase(target, pull, head, check, repair, phase, RunFolders(work))
 
 

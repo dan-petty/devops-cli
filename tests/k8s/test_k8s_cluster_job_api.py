@@ -21,6 +21,7 @@ from tests.support.fakes.kubernetes import (
     running,
     status,
     terminated,
+    waiting,
 )
 from tests.support.job_templates import cronjob_template
 
@@ -594,3 +595,99 @@ def test_the_end_raises_when_the_api_refuses(
         ClusterJobError, match="read the status of a Job pod in namespace devops: HTTP 403"
     ):
         ClusterJobs().pod_end("devops-cli-stage-a-1")
+
+
+PHASE_LOGS = {
+    ("devops", "job-x-1", name): f"{name} line\n" for name in ("prepare", "agent", "publish")
+}
+
+
+def _phase_pod(prepare: Any = None, agent: Any = None, publish: Any = None) -> Any:
+    """The pod of a runner Job on the phases (#3700): the init containers `prepare` and `agent`
+    and the container `publish`, with the state of each that has one."""
+    inits = [status(n, s) for n, s in (("prepare", prepare), ("agent", agent)) if s is not None]
+    return pod(
+        "job-x-1",
+        namespace="devops",
+        init_containers=("prepare", "agent"),
+        containers=("publish",),
+        init_statuses=inits or None,
+        statuses=[status("publish", publish)] if publish is not None else None,
+    )
+
+
+def test_the_log_of_a_one_container_pod_is_read_whatever_container_the_reader_names(
+    kube: FakeCluster,
+) -> None:
+    """The pod of today's runner template runs every phase in one container (#6690)."""
+    kube.core.answers["list_namespaced_pod"] = [pod("job-x-1", namespace="devops")]
+    kube.core.answers["read_namespaced_pod_log"] = "every phase\n"
+
+    tail = ClusterJobs().log_tail("job-x", 40, container="agent")
+
+    log = next(c for c in kube.core.calls if c[0] == "read_namespaced_pod_log")[1]
+    assert (tail, log.get("container")) == ("every phase\n", None)
+
+
+def test_the_log_of_a_phase_pod_is_read_from_the_container_that_the_reader_names(
+    kube: FakeCluster,
+) -> None:
+    kube.core.answers["list_namespaced_pod"] = [
+        _phase_pod(terminated(0), terminated(0), terminated(0))
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = PHASE_LOGS
+
+    assert ClusterJobs().log_tail("job-x", 40, container="prepare") == "prepare line\n"
+
+
+@pytest.mark.parametrize(
+    ("states", "read"),
+    [
+        ((running(), waiting("PodInitializing"), waiting("PodInitializing")), "prepare"),
+        ((terminated(0), running(), waiting("PodInitializing")), "agent"),
+        ((terminated(0), terminated(0), running()), "publish"),
+        ((terminated(0), terminated(137, "OOMKilled"), waiting("PodInitializing")), "agent"),
+        ((terminated(0), terminated(0), terminated(0)), "publish"),
+    ],
+    ids=["prepare-runs", "agent-runs", "publish-runs", "agent-failed", "all-ended"],
+)
+def test_the_log_of_a_phase_pod_with_no_name_is_the_container_that_runs_or_ended_the_pod(
+    kube: FakeCluster, states: tuple[Any, Any, Any], read: str
+) -> None:
+    """The deadline and the live view read the phase that runs: `prepare`, then `agent`, then
+    `publish`. After the end, a report reads the container that failed, else the last one."""
+    kube.core.answers["list_namespaced_pod"] = [_phase_pod(*states)]
+    kube.core.answers["read_namespaced_pod_log"] = PHASE_LOGS
+
+    assert ClusterJobs().log_tail("job-x", 40) == f"{read} line\n"
+
+
+def test_a_phase_pod_that_has_not_started_a_container_has_an_empty_log(kube: FakeCluster) -> None:
+    kube.core.answers["list_namespaced_pod"] = [_phase_pod()]
+    kube.core.answers["read_namespaced_pod_log"] = PHASE_LOGS
+
+    tail = ClusterJobs().log_tail("job-x", 40)
+
+    assert (tail, [c for c in kube.core.calls if c[0] == "read_namespaced_pod_log"]) == ("", [])
+
+
+@pytest.mark.parametrize(
+    ("states", "end"),
+    [
+        (
+            (terminated(0), terminated(137, "OOMKilled"), waiting("PodInitializing")),
+            PodEnd(137, "OOMKilled"),
+        ),
+        ((terminated(1, "Error"), None, None), PodEnd(1, "Error")),
+        ((terminated(0), terminated(0), terminated(0, "Completed")), PodEnd(0, "Completed")),
+    ],
+    ids=["agent-oom", "prepare-failed", "all-ended"],
+)
+def test_the_end_of_a_phase_pod_reads_the_init_containers_first(
+    kube: FakeCluster, states: tuple[Any, Any, Any], end: PodEnd
+) -> None:
+    """An OOM kill of `agent` keeps its class: the end is the first container that failed, in
+    the order that they ran, else the last one that ended (#3700)."""
+    kube.core.answers["list_namespaced_pod"] = [_phase_pod(*states)]
+
+    assert ClusterJobs().pod_end("job-x") == end

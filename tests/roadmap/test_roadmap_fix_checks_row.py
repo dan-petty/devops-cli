@@ -9,7 +9,6 @@ The Kubernetes API is faked at its edge, and the CronJob template is the committ
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
 from collections.abc import Callable
@@ -36,6 +35,7 @@ from devops_cli.k8s.cluster_job import (
     MANAGED_BY_LABEL,
     MANAGED_BY_LABEL_VALUE,
     OUTCOME_ANNOTATION,
+    RUNNER_TEMPLATE,
     stage_job_labels,
 )
 from devops_cli.k8s.cluster_job_api import ClusterJobs
@@ -51,6 +51,7 @@ from devops_cli.roadmap.stores.store import FixChecksRecordKey, ItemField
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from tests.support.fakes.kubernetes import FakeCluster, pod, status, terminated
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.job_templates import cronjob_template
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_run import NOW
 
@@ -67,8 +68,7 @@ PLANNED_LINE = json.dumps(
 
 @pytest.fixture
 def kube(cluster: FakeCluster) -> FakeCluster:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[CRONJOBS] = [copy.deepcopy(template)]
+    cluster.custom_objects.objects[CRONJOBS] = [cronjob_template(RUNNER_TEMPLATE)]
     return cluster
 
 
@@ -316,6 +316,34 @@ def test_an_ended_job_is_reported_once_with_the_result_of_its_result_line(
         "result=planned" in lines[0],
         len(_jobs(kube)),
     ) == ({job["metadata"]["name"]: "planned"}, {}, "planned", 1, 1, True, 1)
+
+
+@pytest.mark.parametrize("printed_by", ["publish", "prepare"])
+def test_the_result_line_of_a_job_on_the_phases_is_read_from_publish_then_prepare(
+    kube: FakeCluster, printed_by: str
+) -> None:
+    """`publish` prints the result of the round, and `prepare` prints it when it ended the round
+    itself (#3700, #6690)."""
+    _round()
+    (job,) = _jobs(kube)
+    _end(job)
+    name = f"{job['metadata']['name']}-x1"
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            name,
+            "devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[status("prepare", terminated(0)), status("agent", terminated(0))],
+            statuses=[status("publish", terminated(0))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = {
+        ("devops", name, phase): f"{PLANNED_LINE}\n" if phase == printed_by else "a phase\n"
+        for phase in ("prepare", "agent", "publish")
+    }
+
+    assert _round().reported == {job["metadata"]["name"]: "planned"}
 
 
 def test_a_job_with_no_result_line_is_none_and_gets_the_next_attempt_after_its_wait(

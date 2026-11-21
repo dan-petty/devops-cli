@@ -45,16 +45,14 @@
 "tests/release/test_release_merge_pick.py" = 1
 "tests/research/test_sweep.py" = 7
 "tests/review/test_review_intake_handoff.py" = 1
-"tests/roadmap/implement/test_roadmap_implement_deadline.py" = 24
 "tests/roadmap/implement/test_roadmap_implement_deadline_settings.py" = 1
 "tests/roadmap/implement/test_roadmap_implement_job_result.py" = 3
-"tests/roadmap/implement/test_roadmap_implement_submit.py" = 74
 "tests/roadmap/implement/test_roadmap_implement_typed_result.py" = 4
 "tests/roadmap/intake/test_roadmap_intake_item_changed.py" = 4
 "tests/roadmap/refine/test_roadmap_refine_deferred.py" = 10
 "tests/roadmap/stage/test_roadmap_stage_job.py" = 5
 "tests/roadmap/stage/test_roadmap_stage_submit.py" = 27
-"tests/roadmap/test_roadmap_fix_checks_row.py" = 24
+"tests/roadmap/test_roadmap_fix_checks_row.py" = 1
 "tests/roadmap/test_roadmap_release_roll.py" = 10
 "tests/roadmap/test_roadmap_run_intake_row.py" = 4
 "tests/roadmap/test_roadmap_run_job.py" = 4
