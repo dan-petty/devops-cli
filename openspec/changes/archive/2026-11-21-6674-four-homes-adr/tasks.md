@@ -6,20 +6,20 @@ Reads: `docs/adr/0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-inst
 
 Changes: `docs/adr/0032-infrastructure-templates-live-in-four-homes.md` (new), `docs/adr/README.md`.
 
-- [ ] 1.1 Write ADR 0032 with the four homes, the placement rule, the release-tag pins and Renovate, the shared CI in infra, the private-data rule of infra, the onboarding with one services entry, the sequence with #5134, and the amendments of ADR 0011, ADR 0026 and ADR 0027
+- [x] 1.1 Write ADR 0032 with the four homes, the placement rule, the release-tag pins and Renovate, the shared CI in infra, the private-data rule of infra, the onboarding with one services entry, the sequence with #5134, and the amendments of ADR 0011, ADR 0026 and ADR 0027
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [ ] 1.2 Mark the two open owner choices, the App that tags infra and the home of the root stacks of ADR 0026, with the recommendation as the decision text
+- [x] 1.2 Mark the two open owner choices, the App that tags infra and the home of the root stacks of ADR 0026, with the recommendation as the decision text
   - Verification: `$ grep -c "Open choice: the owner confirms it in the review" docs/adr/0032-infrastructure-templates-live-in-four-homes.md`
-- [ ] 1.3 Regenerate the index of `docs/adr/README.md`
+- [x] 1.3 Regenerate the index of `docs/adr/README.md`
   - Verification: `$ uv run devops ci --check --only docs,domain`
 
 ## 2. Amend the older records
 
 Changes: `docs/adr/0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md`, `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md`, `docs/adr/0027-dependency-updates-come-from-self-hosted-renovate.md`.
 
-- [ ] 2.1 Add `amended-by: ["0032"]` and a dated `Amended by ADR 0032` line to ADR 0026 and ADR 0027
+- [x] 2.1 Add `amended-by: ["0032"]` and a dated `Amended by ADR 0032` line to ADR 0026 and ADR 0027
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [ ] 2.2 Add a dated `Fact out of date` line that names ADR 0032 to ADR 0011, with no amendment key
+- [x] 2.2 Add a dated `Fact out of date` line that names ADR 0032 to ADR 0011, with no amendment key
   - Verification: `$ grep -l 0032 docs/adr/0011-*.md docs/adr/0026-*.md docs/adr/0027-*.md`
 
 ## Criteria

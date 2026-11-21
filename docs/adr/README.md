@@ -170,11 +170,12 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0023](0023-the-project-brain-is-a-derived-index-in-two-cache-tiers-and-two-scheduled-runs-keep-it.md) | The project brain is a derived index in two cache tiers, and two scheduled runs keep it | accepted | 2026-11-11 | amends 0020, 0021, 0022; amended by 0025 |
 | [0024](0024-the-project-owns-its-design-tokens-in-the-dtcg-format-and-style-dictionary-builds-them.md) | The project owns its design tokens in the DTCG format, and Style Dictionary builds them | accepted | 2026-11-12 |  |
 | [0025](0025-generated-documents-stay-in-git-and-the-project-brain-cites-them.md) | Generated documents stay in git, and the project brain cites them | accepted | 2026-11-11 | amends 0012, 0023 |
-| [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 |  |
-| [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 |  |
+| [0026](0026-github-settings-are-opentofu-code-the-owner-applies.md) | GitHub settings are OpenTofu code the owner applies | accepted | 2026-11-15 | amended by 0032 |
+| [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 | amended by 0032 |
 | [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
 | [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
 | [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 |  |
 | [0031](0031-review-scanners-run-in-the-runner-pod.md) | Review scanners run in the runner pod | accepted | 2026-11-21 |  |
+| [0032](0032-infrastructure-templates-live-in-four-homes.md) | Infrastructure templates live in four homes | proposed | 2026-11-21 | amends 0026, 0027 |
 
 <!-- ADR_INDEX_END -->
