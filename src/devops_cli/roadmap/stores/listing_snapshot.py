@@ -156,6 +156,16 @@ def snapshot_root(state_dir: Path | None = None) -> Path:
     return state_dir / _SNAPSHOT_DIRNAME
 
 
+class ListingRead(Protocol):
+    """How a store reads the issues and pull requests of a repository, by number:
+    `IncrementalListing`, or the read-only listing of the project review (#4692). `read_issues`
+    reads the listing of a query and parses each issue it gets."""
+
+    def read(
+        self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
+    ) -> dict[int, IssueRecord]: ...
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 

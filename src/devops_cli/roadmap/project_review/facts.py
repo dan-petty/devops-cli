@@ -45,6 +45,8 @@ _COMPLEXITY_FILES: Final = 10
 _NO_TYPE: Final = "other"
 _LIZARD: Final = "lizard"
 _LIZARD_LANGUAGES: Final = "lizard_languages"
+# The section of the review that the git and lizard facts go in (#4692).
+SECTION: Final = "changes"
 
 
 @dataclass
@@ -130,6 +132,7 @@ class _Facts:
         definition = MESSAGES.roadmap.review_fact_definitions[fact_id]
         return Fact(
             id=fact_id,
+            section=SECTION,
             value=value,
             unit=unit,
             n=n,
@@ -143,6 +146,7 @@ class _Facts:
     def not_ok(self, fact_id: str, unit: str, query: str, status: FactStatus, reason: str) -> Fact:
         return Fact(
             id=fact_id,
+            section=SECTION,
             value=None,
             unit=unit,
             n=None,

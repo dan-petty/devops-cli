@@ -52,6 +52,7 @@ from devops_cli.git.worktree import (
     review_worktrees_context,
 )
 from devops_cli.roadmap.project_review.facts import review_facts
+from devops_cli.roadmap.project_review.openspec_read import archived_changes, requirement_total
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 
 ROOT_MARK = "{root}"
@@ -620,6 +621,62 @@ def review_window(ws: Workspace) -> Any:
             "before_history": outcome(lambda: window(week="2026-W38"), ws),
             "version_facts": facts(version="v1.0.0..v1.1.1"),
             "period_facts": facts(**period),
+        }
+
+
+OPENSPEC_SPEC = (
+    "# cap\n\n## Requirements\n\n"
+    "### Requirement: One\nThe tool SHALL do one.\n\n"
+    "#### Scenario: One\n- **WHEN** one\n- **THEN** one\n"
+)
+OPENSPEC_TWO = (
+    "\n### Requirement: Two\nThe tool SHALL do two.\n\n"
+    "#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n"
+)
+
+
+@scenario
+def review_openspec(ws: Workspace) -> Any:
+    """`specs` holds the spec `cap` with one requirement and a change archived before the base
+    (tag `v1.0.0`). The head (tag `v1.1.0`) archives `2026-10-03-add-two`, whose delta adds the
+    requirement Two and changes One, archives a change with no specs, and holds two requirements.
+    Its `design.md` has CRLF line ends, a lone carriage return and a byte that is not UTF-8, so a
+    text read gives fewer characters than git counts bytes. The review reads the text of each file
+    that the window archived and the totals at both ends."""
+    repo = ws.path("specs")
+    ws.git("specs", "init", "--quiet", "-b", "main")
+    ws.write("specs/openspec/specs/cap/spec.md", OPENSPEC_SPEC)
+    ws.write("specs/openspec/changes/archive/2026-09-01-add-one/proposal.md", "# One\n")
+    ws.write(
+        "specs/openspec/changes/archive/2026-09-01-add-one/specs/cap/spec.md",
+        "## ADDED Requirements\n\n" + OPENSPEC_SPEC.split("\n\n", 2)[2],
+    )
+    ws.git("specs", "add", ".")
+    ws.git("specs", "commit", "--quiet", "-m", "feat: one")
+    ws.git("specs", "tag", "v1.0.0")
+    archived = "specs/openspec/changes/archive/2026-10-03-add-two"
+    ws.write(f"{archived}/design.md", "")
+    ws.path(f"{archived}/design.md").write_bytes(b"# Design\r\n\r\nA caf\xe9 line.\rLast\r\n")
+    ws.write(f"{archived}/proposal.md", "# Two\n\nWhy two.\n")
+    ws.write(
+        f"{archived}/specs/cap/spec.md",
+        "## ADDED Requirements\n" + OPENSPEC_TWO + "\n## MODIFIED Requirements\n\n"
+        "### Requirement: One\nThe tool SHALL do one, now with a café.\n\n"
+        "#### Scenario: One\n- **WHEN** one\n- **THEN** one\n",
+    )
+    ws.write("specs/openspec/changes/archive/2026-10-03-plan-only/proposal.md", "# Plan\n")
+    ws.write("specs/openspec/specs/cap/spec.md", OPENSPEC_SPEC + OPENSPEC_TWO)
+    ws.git("specs", "add", ".")
+    ws.git("specs", "commit", "--quiet", "-m", "feat: two")
+    ws.git("specs", "tag", "v1.1.0")
+    with ws.environment():
+        return {
+            "changes": [
+                [change.name, dict(sorted(change.files.items()))]
+                for change in archived_changes(repo, "v1.0.0", "v1.1.0")
+            ],
+            "totals": [requirement_total(repo, rev) for rev in ("v1.0.0", "v1.1.0")],
+            "unknown_rev": outcome(lambda: requirement_total(repo, "v9.9.9"), ws),
         }
 
 

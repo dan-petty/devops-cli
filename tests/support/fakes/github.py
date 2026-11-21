@@ -321,6 +321,7 @@ class GitHubApiFake(GitHubApiDouble):
     def __init__(self) -> None:
         super().__init__()
         self._routes: dict[tuple[str, str], list[Answer]] = {}
+        self._servers: list[Callable[[httpx2.Request], httpx2.Response | None]] = []
         # The rate-limit headers the fake last reported, by resource: what its own answers report.
         self.quota: dict[str, dict[str, str]] = {}
 
@@ -328,7 +329,16 @@ class GitHubApiFake(GitHubApiDouble):
         """Answer `method` on `url` (absolute, or a path under the API) with `answers` in turn."""
         self._routes[(method, str(httpx2.URL(API).join(url)))] = list(answers)
 
+    def serve(self, server: Callable[[httpx2.Request], httpx2.Response | None]) -> None:
+        """Answer each request that `server` gives a response for, before the routes: a listing
+        whose answer follows from its query, such as the Actions runs of a `created` slice."""
+        self._servers.append(server)
+
     def _answer(self, request: httpx2.Request) -> httpx2.Response:
+        for server in self._servers:
+            served = server(request)
+            if served is not None:
+                return served
         answers = self._routes.get((request.method, str(request.url)))
         if not answers:
             return self._not_found(request)

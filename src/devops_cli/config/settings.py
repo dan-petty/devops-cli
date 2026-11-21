@@ -558,8 +558,9 @@ class LokiConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     url: Annotated[HttpUrlStr | None, Variable()] = Field(
         default=None,
-        description="Loki service endpoint that a log query dials; unset, it is "
-        "`http://localhost:3100`",
+        description="Loki service endpoint that a log query dials; unset, a log query dials "
+        "`http://localhost:3100`, but `devops roadmap review run` dials no default address and "
+        "skips its Loki facts (#5481)",
     )
 
 

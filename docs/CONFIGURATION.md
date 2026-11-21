@@ -152,7 +152,7 @@ Grafana Loki log query endpoint and service addressing settings.
 
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
-| `url` | `Union` | - | `DEVOPS_CLI_LOKI_URL` | Loki service endpoint that a log query dials; unset, it is `http://localhost:3100` |
+| `url` | `Union` | - | `DEVOPS_CLI_LOKI_URL` | Loki service endpoint that a log query dials; unset, a log query dials `http://localhost:3100`, but `devops roadmap review run` dials no default address and skips its Loki facts (#5481) |
 
 ## Tempo Configuration (`tempo`)
 

@@ -718,7 +718,9 @@ class IssueRecord(BaseModel):
     `sub_issues` is how many
     sub-issues GitHub records for the issue, open or closed. `parent` is the number of the issue
     of the same repository that has the issue as a sub-issue. `blocked_by` is how many issues
-    GitHub records as blocking the issue, open or closed (#1127).
+    GitHub records as blocking the issue, open or closed (#1127). `merged_at` is when a pull
+    request merged, from `pull_request.merged_at` of the listing, and None for an issue and for a
+    pull request that did not merge (#4692).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -738,6 +740,7 @@ class IssueRecord(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     closed_at: datetime | None = None
+    merged_at: datetime | None = None
     comments: int = 0
     sub_issues: int = 0
     parent: int | None = None

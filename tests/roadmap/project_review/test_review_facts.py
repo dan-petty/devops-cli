@@ -6,13 +6,18 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx2
 import pytest
+import yaml
 from pydantic import ValidationError
 
+from devops_cli.roadmap.project_review.catalog import load_catalog
 from devops_cli.roadmap.project_review.data import (
+    Disagreement,
     Fact,
     FactStatus,
     ReviewData,
@@ -22,8 +27,10 @@ from devops_cli.roadmap.project_review.data import (
 )
 from devops_cli.roadmap.project_review.facts import Hotspot, hotspots, review_facts
 from devops_cli.roadmap.project_review.git_read import Commit, FileChange, commits, numstat
+from devops_cli.roadmap.project_review.review import render_review, run_review
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.http import WebFake
 
 NOW = datetime(2026, 10, 6, tzinfo=UTC)
 OK = FactStatus.OK
@@ -180,6 +187,7 @@ def test_a_fact_that_is_not_ok_must_say_why() -> None:
     with pytest.raises(ValidationError, match="must give a reason"):
         Fact(
             id="git.commits",
+            section="changes",
             value=None,
             unit="commits",
             n=None,
@@ -208,3 +216,103 @@ def test_the_data_is_written_with_its_json_schema(tmp_path: Path) -> None:
     assert ReviewData.model_validate_json(written.read_text(encoding="utf-8")) == data
     schema = json.loads((tmp_path / "out" / "data.schema.json").read_text(encoding="utf-8"))
     assert schema["$defs"]["FactStatus"]["enum"] == ["ok", "expired", "skipped", "error"]
+
+
+def test_the_facts_of_a_catalog_follow_the_git_facts_with_their_section(
+    checkout: Path, tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """data.json holds the git facts in the section `changes`, then each fact of the catalog in
+    its section, and the reads of each reader kind (#4692)."""
+    config(prometheus={"url": "http://prometheus.example.com:9090"})
+    web.serve(
+        lambda request: httpx2.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {"resultType": "vector", "result": [{"metric": {}, "value": [1, "4"]}]},
+            },
+        )
+    )
+    fact = {
+        "reader": "prometheus",
+        "section": "service",
+        "shape": "scalar",
+        "unit": "count",
+        "definition": "A value.",
+    }
+    path = tmp_path / "catalog.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "sections": [{"id": "service", "title": "Service"}],
+                "readers": {"prometheus": {"requires": ["setting:prometheus.url"]}},
+                "facts": [
+                    {**fact, "id": "prometheus.one", "query": "sum(one)"},
+                    {**fact, "id": "prometheus.two", "query": "sum(two)"},
+                ],
+                "disagreements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    data = run_review(
+        checkout,
+        "example/project",
+        parse_window(version="v1.0.0..v1.1.1", now=NOW),
+        catalog=load_catalog(path),
+        now=NOW,
+    )
+
+    assert [(fact.id, fact.section) for fact in data.facts][-3:] == [
+        ("lizard.complexity", "changes"),
+        ("prometheus.one", "service"),
+        ("prometheus.two", "service"),
+    ]
+    assert {fact.section for fact in data.facts[:-2]} == {"changes"}
+    assert data.collection.reads == {"prometheus": 2}
+
+
+def test_the_summary_shows_each_fact_that_is_not_ok_and_each_disagreement(tmp_path: Path) -> None:
+    window = ReviewWindow(
+        kind=WindowKind.WEEK,
+        id="2026-W45",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 2, tzinfo=UTC),
+        end=datetime(2026, 11, 9, tzinfo=UTC),
+        previous_id="2026-W44",
+    )
+    expired = Fact(
+        id="prometheus.up",
+        section="service",
+        value=None,
+        unit="count",
+        n=None,
+        source="prometheus",
+        query="sum(up)",
+        definition="d",
+        read_at=NOW,
+        status=FactStatus.EXPIRED,
+        reason="The source keeps 30 days.",
+    )
+    pair = Disagreement(
+        id="spend",
+        left="prometheus.cli_spend",
+        right="prometheus.gateway_spend",
+        left_value=77.22,
+        right_value=118.74,
+        difference=0.3497,
+        tolerance=0.1,
+        definition="d",
+    )
+    data = ReviewData(repo="example/project", window=window, facts=[expired], disagreements=[pair])
+
+    text = render_review(data, tmp_path / "data.json")
+
+    assert "  prometheus.up: expired: The source keeps 30 days." in text
+    assert (
+        "Disagreement spend: prometheus.cli_spend 77.22 and prometheus.gateway_spend 118.74 "
+        "differ by 35%, more than 10%."
+    ) in text

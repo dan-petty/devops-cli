@@ -10,6 +10,7 @@ import httpx2
 import pytest
 
 from devops_cli.exceptions import ServiceRequestError
+from devops_cli.exceptions.k8s import KubernetesLoggingError
 from devops_cli.k8s.logql import query_loki_metrics
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
@@ -71,3 +72,37 @@ def test_a_loki_that_refuses_the_connection_names_its_setting(
         4,
         True,
     )
+
+
+def test_a_metric_query_at_a_time_sends_that_time_and_a_query_now_sends_none(
+    web: WebFake, clock: ClockFake
+) -> None:
+    """The project review reads a past window at its end (#4692)."""
+    web.serve(lambda request: httpx2.Response(200, json=_VECTOR))
+
+    query_loki_metrics(['count_over_time({app="x"}[1h])'], _LOKI, at="2026-11-11T14:51:23Z")
+    query_loki_metrics(['count_over_time({app="x"}[1h])'], _LOKI)
+
+    assert [request.url.params.get("time") for request in web.sent] == [
+        "2026-11-11T14:51:23Z",
+        None,
+    ]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx2.Response(200, headers={"content-type": "text/html"}, text="<html>Sign in</html>"),
+        httpx2.Response(200, headers={"content-type": "application/json"}, text="<html>"),
+    ],
+)
+def test_an_answer_that_is_not_json_raises_a_project_error_that_names_the_setting(
+    web: WebFake, clock: ClockFake, answer: httpx2.Response
+) -> None:
+    """A `loki.url` that points at Grafana or at a sign-in page answers 200 with HTML (#4692)."""
+    web.serve(lambda request: answer)
+
+    with pytest.raises(KubernetesLoggingError) as raised:
+        query_loki_metrics(['count_over_time({app="x"}[1h])'], _LOKI)
+
+    assert "loki.url" in str(raised.value)

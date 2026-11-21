@@ -154,7 +154,7 @@ def test_the_snapshot_key_is_the_hash_of_the_issue_record_schema() -> None:
     """The key is the first 16 hex characters of the sha256 of the JSON schema of `IssueRecord`.
     A change of the record changes the key, so each kept snapshot is read again in full once:
     pin the new key when you change the record (#3670)."""
-    assert LISTING_SCHEMA_KEY == "9b18595b00d0c95e"
+    assert LISTING_SCHEMA_KEY == "9d48b1f226de91d4"
 
 
 def test_a_new_package_version_with_the_same_record_schema_reads_only_the_changes(

@@ -161,6 +161,14 @@ class RepoRef:
         repository and no other."""
         return _label_value(self.path_parts[1], self.key)
 
+    @property
+    def name_slug(self) -> str:
+        """The slug of the name that the Job and Workflow names of the repository hold after the
+        row, `devops-cli-<row>-<name slug>-...`, before a long name is cut to 63 characters. The
+        project review finds the Jobs of the repository by it, because kube-state-metrics exports
+        no Job label (#4692)."""
+        return _dns_slug(self.path_parts[1], _NAME_LIMIT)
+
     def adhoc_name(self, what: str, item: int | None = None) -> str:
         """`devops-cli-<what>-<slug of the name>[-<item>]-<6 random hex>`: a new name at each
         call, for a Job that a person starts or for the runner Job.

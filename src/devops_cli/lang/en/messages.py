@@ -6903,9 +6903,15 @@ class RoadmapMessages:
     review_no_previous: str = "none"
     review_wrote: str = "Wrote {path} and its JSON Schema."
     review_plan_heading: str = (
-        "The review of {window} reads the checkout {checkout}. A run starts these git commands, "
-        "and makes no network request:"
+        "The review of {window} reads the checkout {checkout}. A run starts these commands and "
+        "sends these reads, in order:"
     )
+    review_disagreement_line: str = (
+        "Disagreement {id}: {left} {left_value:g} and {right} {right_value:g} differ by "
+        "{difference:.0%}, more than {tolerance:.0%}."
+    )
+    review_collection_line: str = "Catalog reads: {reads}, in {seconds:g} s."
+    review_no_reads: str = "none"
     review_plan_each_file: str = "for each of the hottest files that lizard reads"
     review_placeholders: dict[str, str] = field(
         default_factory=lambda: {
@@ -6913,6 +6919,13 @@ class RoadmapMessages:
             "head": "<head commit>",
             "ref": "<default branch>",
             "path": "<path>",
+            "start": "<start time>",
+            "end": "<end time>",
+            "range": "<window length>",
+            "repo": "<owner/name>",
+            "name_slug": "<slug of the name>",
+            "watermark": "<watermark of the snapshot>",
+            "change": "<archived change>",
         }
     )
     review_fact_definitions: dict[str, str] = field(
@@ -6947,6 +6960,63 @@ class RoadmapMessages:
                 "that the commit does not hold."
             ),
         }
+    )
+    review_unset_setting: str = "The setting {setting} has no value."
+    review_other_window: str = (
+        "The window is a {kind} window, and the fact needs a {needed} window."
+    )
+    review_no_path: str = "The checkout holds no {path}."
+    review_past_retention: str = (
+        "The source keeps {days} days: the window starts at {start}, before {limit}."
+    )
+    review_no_series: str = "No series matched the query."
+    review_no_base_series: str = (
+        "No series matched the query, and the metric {base} has no series in the window."
+    )
+    review_many_series: str = "The scalar query gave {count} series, not one."
+    review_not_number: str = "The sample is not a finite number."
+    review_no_value: str = "The value program gave no value."
+    review_plan_condition: dict[str, str] = field(
+        default_factory=lambda: {
+            "setting": "{name} is set",
+            "window": "the window is a {name} window",
+            "path": "the checkout holds {name}",
+        }
+    )
+    review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
+    review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
+    review_plan_each_change: str = "for each archived change that holds specs/"
+    review_plan_each_slice: str = (
+        "for each created slice, split in halves while a slice reaches 1,000 runs"
+    )
+    review_plan_probe: str = "the answer of {fact} has no series"
+    review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
+    review_catalog_unscoped_metric: str = (
+        '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '
+        "own braces, so its value adds the repositories together."
+    )
+    review_catalog_fact: str = "the fact {id}"
+    review_catalog_fact_index: str = "fact {index}"
+    review_catalog_root: str = "the catalog"
+    review_catalog_missing: str = "{subject} has no `{field}`."
+    review_catalog_unknown_field: str = (
+        "{subject} has the field `{field}`, which the schema does not name."
+    )
+    review_catalog_bad_field: str = "{subject} has a `{field}` that the schema refuses. {rule}"
+    review_catalog_see_schema: str = "See catalog.schema.json."
+    review_catalog_bad_program: str = "{subject} has a `{field}` that jq cannot compile: {error}"
+    review_catalog_duplicate: str = "two facts have the id of {subject}."
+    review_catalog_unknown_section: str = (
+        "{subject} names the section {section}, which `sections` does not list."
+    )
+    review_openspec_not_json: str = "openspec show {change} printed no JSON: {text}"
+    review_page_not_a_list: str = "A page of {path} holds no list of entries."
+    review_runs_at_cap: str = (
+        "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
+        "review cannot read each run."
+    )
+    review_catalog_unknown_fact: str = (
+        "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )
 
 

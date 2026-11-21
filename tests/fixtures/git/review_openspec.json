@@ -1,0 +1,135 @@
+{
+ "scenario": "review_openspec",
+ "exchanges": [
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "diff",
+    "--name-only",
+    "-z",
+    "--diff-filter=A",
+    "v1.0.0",
+    "v1.1.0",
+    "--",
+    "openspec/changes/archive/"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "openspec/changes/archive/2026-10-03-add-two/design.md\u0000openspec/changes/archive/2026-10-03-add-two/proposal.md\u0000openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u0000openspec/changes/archive/2026-10-03-plan-only/proposal.md\u0000",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-z",
+    "-n",
+    "-I",
+    "-F",
+    "--no-column",
+    "--no-color",
+    "-e",
+    "",
+    "v1.1.0",
+    "--",
+    "openspec/changes/archive/2026-10-03-add-two/"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.1.0:openspec/changes/archive/2026-10-03-add-two/design.md\u00001\u0000# Design\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/design.md\u00002\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/design.md\u00003\u0000A caf� line.\nLast\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\u00001\u0000# Two\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\u00002\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\u00003\u0000Why two.\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00001\u0000## ADDED Requirements\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00002\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00003\u0000### Requirement: Two\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00004\u0000The tool SHALL do two.\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00005\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00006\u0000#### Scenario: Two\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00007\u0000- **WHEN** two\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00008\u0000- **THEN** two\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u00009\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000010\u0000## MODIFIED Requirements\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000011\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000012\u0000### Requirement: One\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000013\u0000The tool SHALL do one, now with a café.\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000014\u0000\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000015\u0000#### Scenario: One\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000016\u0000- **WHEN** one\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u000017\u0000- **THEN** one\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v1.0.0",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.0.0:openspec/specs/cap/spec.md:1\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v1.1.0",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.1.0:openspec/specs/cap/spec.md:2\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/specs",
+    "grep",
+    "-c",
+    "-E",
+    "-e",
+    "^### Requirement:",
+    "v9.9.9",
+    "--",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 128,
+   "stdout": "",
+   "stderr": "fatal: unable to resolve revision: v9.9.9\n"
+  }
+ ],
+ "result": {
+  "changes": [
+   [
+    "2026-10-03-add-two",
+    {
+     "design.md": "# Design\n\nA caf� line.\nLast\n",
+     "proposal.md": "# Two\n\nWhy two.\n",
+     "specs/cap/spec.md": "## ADDED Requirements\n\n### Requirement: Two\nThe tool SHALL do two.\n\n#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n\n## MODIFIED Requirements\n\n### Requirement: One\nThe tool SHALL do one, now with a café.\n\n#### Scenario: One\n- **WHEN** one\n- **THEN** one\n"
+    }
+   ]
+  ],
+  "totals": [
+   1,
+   2
+  ],
+  "unknown_rev": [
+   "error",
+   "RoadmapReviewError",
+   "`git grep -c -E -e ^### Requirement: v9.9.9 -- openspec/specs` failed: fatal: unable to resolve revision: v9.9.9"
+  ]
+ }
+}

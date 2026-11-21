@@ -1,8 +1,9 @@
-"""`devops roadmap review`: the project review of a version range or a period (#4686).
+"""`devops roadmap review`: the project review of a version range or a period (#4686, #4692).
 
 `run` resolves the window to two first-parent commits and two UTC times, reads the git facts of
-the window from the checkout of the working directory, and writes data.json with its JSON Schema.
-It makes no network request, and its `--dry-run` starts no program. `commands/roadmap.py`
+the window from the checkout of the working directory, reads each fact of the catalog through its
+reader (the issue listing, GitHub, Prometheus, Loki and OpenSpec), and writes data.json with its
+JSON Schema. Its `--dry-run` starts no program and sends no request. `commands/roadmap.py`
 registers the group once.
 """
 
@@ -60,17 +61,16 @@ def run_cmd(
     json_output: Annotated[bool, typer.Option("--json", help=HELP.roadmap.review_json)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.review_dry_run)] = False,
 ) -> None:
-    """Read the git facts of one window and write data.json."""
-    request = parse_window(
-        version=version, since=since, until=until, week=week, last=last, now=datetime.now(UTC)
-    )
+    """Read the git facts and the catalog facts of one window and write data.json."""
+    now = datetime.now(UTC)
+    request = parse_window(version=version, since=since, until=until, week=week, last=last, now=now)
     checkout = find_repo_root(Path.cwd())
     if dry_run or is_dry_run():
         heading = MESSAGES.roadmap.review_plan_heading.format(window=request.id, checkout=checkout)
-        render_request_plan(heading, planned_review(checkout, request))
+        render_request_plan(heading, planned_review(checkout, request, repo=repo))
         return
     target = _repository(checkout, repo)
-    data = run_review(checkout, target, request)
+    data = run_review(checkout, target, request, now=now)
     written = write_review(data, out or review_folder(target, data.window.id))
     if json_output:
         write_stdout(data.model_dump_json(indent=2) + "\n")
