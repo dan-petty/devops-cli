@@ -398,7 +398,9 @@ def _read_fact(
 def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
     """Each fact of `catalog` for the window of `context`, in the catalog order."""
     started = time.monotonic()
-    values = window_placeholders(context.window, context.repo)
+    values = window_placeholders(
+        context.window, context.repo, context.settings.roadmap.project_review.namespaces
+    )
     arguments = {
         "start": int(context.window.start.timestamp()),
         "end": int(context.window.end.timestamp()),

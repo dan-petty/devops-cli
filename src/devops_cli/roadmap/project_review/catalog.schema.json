@@ -82,8 +82,8 @@
         "query": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^(?![\\s\\S]*\\{(?!(?:start|end|range|base|head|repo|name_slug)\\})[a-z_]+\\})",
-          "description": "A placeholder is one of {start}, {end}, {range}, {base}, {head}, {repo} and {name_slug}."
+          "pattern": "^(?![\\s\\S]*\\{(?!(?:start|end|range|base|head|repo|name_slug|namespaces)\\})[a-z_]+\\})",
+          "description": "A placeholder is one of {start}, {end}, {range}, {base}, {head}, {repo}, {name_slug} and {namespaces}."
         },
         "value": {"$ref": "#/$defs/program"},
         "n": {"$ref": "#/$defs/program"},

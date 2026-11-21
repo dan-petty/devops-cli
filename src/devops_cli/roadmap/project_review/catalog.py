@@ -18,17 +18,18 @@ loader also refuses each selector of a Service metric, in `query` or `base`, who
 no matcher `repo="{repo}"`: a ratio whose numerator has no such matcher adds the repositories
 together.
 
-The dispatcher replaces only the seven placeholders, with a regular expression: PromQL and LogQL
+The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
 in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
-label.
+label. `{namespaces}` is the project namespaces of the setting `roadmap.project_review.namespaces`
+joined with `|`, the value of a matcher `namespace=~"{namespaces}"` (#6615).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -43,7 +44,7 @@ from devops_cli.roadmap.project_review.data import ReviewWindow
 
 CATALOG_FILE: Final[Path] = Path(__file__).with_name("catalog.yaml")
 SCHEMA_FILE: Final[Path] = Path(__file__).with_name("catalog.schema.json")
-PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo", "name_slug")
+PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo", "name_slug", "namespaces")
 # The names that a jq program of a fact reads: the window times in Unix seconds and the repository.
 PROGRAM_ARGUMENTS: Final = ("start", "end", "repo")
 _PLACEHOLDER: Final = re.compile(r"\{(" + "|".join(PLACEHOLDERS) + r")\}")
@@ -315,10 +316,18 @@ def utc_text(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime(_TIME)
 
 
-def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
+def namespaces_value(namespaces: Iterable[str]) -> str:
+    """The value of `{namespaces}`: the project namespaces joined with `|`, the alternation of a
+    matcher `namespace=~"{namespaces}"`."""
+    return "|".join(namespaces)
+
+
+def window_placeholders(
+    window: ReviewWindow, repo: str, namespaces: Iterable[str]
+) -> dict[str, str]:
     """The value of each placeholder for `window` of `repo`: the UTC times, the length of the
-    window in whole seconds, the two commits, the repository as `owner/name` and the slug of its
-    name in the Job names of the Service."""
+    window in whole seconds, the two commits, the repository as `owner/name`, the slug of its
+    name in the Job names of the Service, and the project `namespaces` joined with `|`."""
     from devops_cli.github.repo_ref import RepoRef
 
     seconds = int((window.end - window.start).total_seconds())
@@ -330,10 +339,11 @@ def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
         "head": window.head_sha,
         "repo": repo,
         "name_slug": RepoRef(repo).name_slug,
+        "namespaces": namespaces_value(namespaces),
     }
 
 
 def render_query(template: str, values: Mapping[str, str]) -> str:
-    """`template` with each of the seven placeholders replaced by its value in `values`; every
+    """`template` with each of the eight placeholders replaced by its value in `values`; every
     other brace stays."""
     return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)

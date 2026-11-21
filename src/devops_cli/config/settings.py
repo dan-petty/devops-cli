@@ -41,6 +41,7 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_MODEL,
     CONST_AI_JEV_MODEL_TARGETS,
     CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
+    CONST_K8S_LABEL_RE,
     CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_STEP_CLASSES,
@@ -168,6 +169,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_MODEL_JOBS,
     DEFAULT_ROADMAP_OPEN_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_OPEN_MODE,
+    DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
     DEFAULT_ROADMAP_REVIEW_MODE,
@@ -307,6 +309,9 @@ def _validate_gitea_url(v: str) -> str:
 GiteaUrlStr = Annotated[
     str, StringConstraints(strip_whitespace=True), AfterValidator(_validate_gitea_url)
 ]
+# A Kubernetes namespace name, an RFC 1123 label: it holds only a-z, 0-9 and -, so it cannot
+# change a regular expression or end a quoted PromQL value.
+NamespaceStr = Annotated[str, StringConstraints(pattern=CONST_K8S_LABEL_RE.pattern)]
 
 
 def _is_list_annotation(annotation: Any) -> bool:
@@ -2134,6 +2139,18 @@ class RoadmapReviewConfig(BaseModel):
     )
 
 
+class RoadmapProjectReviewConfig(BaseModel):
+    """What the project review `devops roadmap review run` reads (#6615)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    namespaces: Annotated[list[NamespaceStr], Variable()] = Field(
+        description="The project namespaces whose workloads the project review `devops roadmap review run` can name. Each fact of the catalog that groups or joins by `namespace` or `pod` reads only these namespaces: the placeholder `{namespaces}` gives the names joined with `|`. The default is the namespaces of the manifests of devops-cli. The settings load refuses an empty list, because an empty list would read the workloads of all projects, and a name that is not an RFC 1123 label",
+        default_factory=lambda: list(DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES),
+        min_length=1,
+    )
+
+
 class RoadmapRefineConfig(RowCadenceConfig):
     """The cadence of the refine row of the Service (#5470)."""
 
@@ -2182,6 +2199,7 @@ class RoadmapConfig(BaseModel):
     fix_checks: RoadmapFixChecksConfig = Field(default_factory=RoadmapFixChecksConfig)
     open: RoadmapOpenConfig = Field(default_factory=RoadmapOpenConfig)
     review: RoadmapReviewConfig = Field(default_factory=RoadmapReviewConfig)
+    project_review: RoadmapProjectReviewConfig = Field(default_factory=RoadmapProjectReviewConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
     model_jobs: Annotated[int, Variable()] = Field(
         description="The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit",
