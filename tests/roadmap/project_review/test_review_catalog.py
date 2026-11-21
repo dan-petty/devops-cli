@@ -349,6 +349,54 @@ def test_a_rows_fact_whose_base_holds_the_project_namespaces_loads(tmp_path: Pat
     assert catalog.facts[0].base == base
 
 
+def _cuts(query: str = "sum(increase(x_cuts_total[{range}]))", **fields: str) -> Any:
+    """Make the first fact `prometheus.cuts` with `query`, the base `x_calls_total` and `fields`."""
+    return lambda doc: doc["facts"][0].update(
+        id="prometheus.cuts", query=query, base="x_calls_total", **fields
+    )
+
+
+def test_a_base_metric_that_the_query_does_not_read_names_the_fact_and_base_reason(
+    tmp_path: Path,
+) -> None:
+    """A probe of another metric makes an empty answer `ok` for a window in which the queried
+    metric did not exist (#6612)."""
+    text = _refusal(tmp_path, _cuts())
+
+    assert ("prometheus.cuts" in text, "x_calls_total" in text, "`base_reason`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_base_metric_of_another_metric_with_a_reason_loads(tmp_path: Path) -> None:
+    catalog = _load(tmp_path, _cuts(base_reason="The cut counter has no series before a cut."))
+
+    assert (catalog.facts[0].base, catalog.facts[0].base_reason) == (
+        "x_calls_total",
+        "The cut counter has no series before a cut.",
+    )
+
+
+def test_a_base_metric_inside_a_longer_metric_name_of_the_query_is_refused(
+    tmp_path: Path,
+) -> None:
+    text = _refusal(tmp_path, _cuts("sum(increase(x_calls_total_bucket[{range}]))"))
+
+    assert "prometheus.cuts" in text
+
+
+def test_a_base_reason_with_no_base_names_the_fact_and_the_field(tmp_path: Path) -> None:
+    text = _refusal(tmp_path, lambda doc: doc["facts"][0].update(base_reason="A reason."))
+
+    assert ("prometheus.example" in text, "`base_reason`" in text, "`base`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
 def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> None:
     values = window_placeholders(WINDOW, "example/project", ("devops",))
     catalog = load_catalog()
