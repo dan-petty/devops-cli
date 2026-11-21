@@ -62,16 +62,15 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.review_dry_run)] = False,
 ) -> None:
     """Read the git facts and the catalog facts of one window and write data.json."""
-    request = parse_window(
-        version=version, since=since, until=until, week=week, last=last, now=datetime.now(UTC)
-    )
+    now = datetime.now(UTC)
+    request = parse_window(version=version, since=since, until=until, week=week, last=last, now=now)
     checkout = find_repo_root(Path.cwd())
     if dry_run or is_dry_run():
         heading = MESSAGES.roadmap.review_plan_heading.format(window=request.id, checkout=checkout)
         render_request_plan(heading, planned_review(checkout, request, repo=repo))
         return
     target = _repository(checkout, repo)
-    data = run_review(checkout, target, request)
+    data = run_review(checkout, target, request, now=now)
     written = write_review(data, out or review_folder(target, data.window.id))
     if json_output:
         write_stdout(data.model_dump_json(indent=2) + "\n")

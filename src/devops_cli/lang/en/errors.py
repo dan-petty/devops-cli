@@ -152,6 +152,10 @@ class ConfigErrorMessages:
 @dataclass(frozen=True)
 class K8sErrorMessages:
     context_not_found: str = "Kubernetes context '{context}' was not found."
+    loki_not_json: str = (
+        "Loki at loki.url answered with the content type {content_type}, not JSON. Set loki.url "
+        "to the address of the Loki API, not of Grafana or of a sign-in page."
+    )
     resource_lookup_failed: str = "Failed to lookup Kubernetes {resource}: {exc}"
     port_forward_failed: str = "Port-forwarding to {service}:{port} failed: {exc}"
     volume_not_found: str = "PersistentVolume '{name}' not found."

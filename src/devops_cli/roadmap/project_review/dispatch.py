@@ -10,12 +10,17 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | Condition | Status | Request |
 | :--- | :--- | :--- |
 | A `requires` condition is false | `skipped`, the reason names it | none |
-| The window start is older than the retention | `expired`, the reason names the retention | none |
+| The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
+| An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
-| A `scalar` query gives no sample, or a program gives no value | `skipped` | sent |
+| A query gives no series, and the fact names no `base` metric or that metric has no series in the window | `skipped` | sent |
+| A query gives no series, and the `base` metric of the fact has a series in the window | `ok`, no rows or 0 | sent, and the probe of the base |
+| A program gives no value | `skipped` | sent |
 
-A missing value is never 0, and a fact that is not `ok` has a null value. Each other exception
-stops the run.
+A missing value is never 0, and a fact that is not `ok` has a null value. A read that gets no
+answer from the network (a `ServiceRequestError` with no HTTP status) ends the reads of its reader
+kind, so an address that does not answer costs one read and its retries, not one for each fact.
+Each other exception stops the run.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from pydantic import JsonValue
 from devops_cli.config.settings import Settings
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
+from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.git.operations import git_argv
 from devops_cli.lang import MESSAGES
 from devops_cli.models.prometheus import PrometheusQueryResult
@@ -80,6 +86,12 @@ _SHOWN_SINCE: Final = datetime(2000, 1, 1, tzinfo=UTC)
 _SHOWN_SINCE_TEXT: Final = "2000-01-01T00:00:00Z"
 # A read that fails with one of these marks its facts `error`, and the review reads the others.
 _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
+# Prometheus and Loki delete a block of samples only when the whole block is past the retention,
+# and a `--last` window starts at the whole minute before the time now less its days. So a start
+# up to this grace before the retention limit is still read.
+_RETENTION_GRACE: Final = timedelta(hours=1)
+# The read that tells whether the base metric of a fact has a series in the window.
+_PROBE: Final = "group(last_over_time({base}[{range}]))"
 
 
 def _github_session() -> PagedSession:
@@ -158,7 +170,7 @@ def _expired(days: int | None, context: ReadContext) -> str | None:
     if days is None:
         return None
     limit = context.now - timedelta(days=days)
-    if context.window.start >= limit:
+    if context.window.start >= limit - _RETENTION_GRACE:
         return None
     return MESSAGES.roadmap.review_past_retention.format(
         days=days, start=context.window.start.isoformat(), limit=limit.isoformat()
@@ -205,9 +217,9 @@ def _vector_value(
 ) -> tuple[JsonValue, int | None, str | None]:
     """The value, the sample size and the reason of a fact with no value, from a vector."""
     texts = MESSAGES.roadmap
+    if not result.series:
+        return None, None, texts.review_no_series
     if fact.shape is Shape.SCALAR:
-        if not result.series:
-            return None, None, texts.review_no_series
         if len(result.series) > 1:
             return None, None, texts.review_many_series.format(count=len(result.series))
         value = _number(result.series[0].value)
@@ -304,6 +316,85 @@ def _first_line(error: BaseException) -> str:
     return text.splitlines()[0] if text else type(error).__name__
 
 
+@dataclass
+class _Answers:
+    """The answer of each distinct read of one review, and the reason of each reader kind whose
+    read got no answer from the network."""
+
+    context: ReadContext
+    reads: Reads
+    held: dict[tuple[str, ...], _Answer] = field(default_factory=dict)
+    down: dict[ReaderKind, str] = field(default_factory=dict)
+
+    def get(self, fact: CatalogFact, query: str) -> _Answer:
+        """The answer of the reader of `fact` to `query`, read once for each distinct query."""
+        key = (
+            (fact.reader,)
+            if fact.reader in _ONE_READ
+            else (fact.reader, query, str(fact.newest_first))
+        )
+        if key not in self.held:
+            self.held[key] = self._read(fact, query)
+        return self.held[key]
+
+    def _read(self, fact: CatalogFact, query: str) -> _Answer:
+        if (reason := self.down.get(fact.reader)) is not None:
+            return _Answer(error=reason)
+        try:
+            return _Answer(_read(fact, query, self.context, self.reads))
+        except _READ_ERRORS as error:
+            reason = _first_line(error)
+            if isinstance(error, ServiceRequestError) and error.status_code is None:
+                self.down[fact.reader] = reason
+            return _Answer(error=reason)
+
+
+def _probe(fact: CatalogFact, values: Mapping[str, str]) -> str:
+    """The read that tells whether the base metric of `fact` has a series in the window."""
+    return _PROBE.format(base=render_query(str(fact.base), values), range=values["range"])
+
+
+def _no_series(fact: CatalogFact, query: str, values: Mapping[str, str], answers: _Answers) -> Fact:
+    """`fact` when its answer has no series: none, as no rows or 0, when its base metric has a
+    series in the window; else `skipped`, because a missing metric is never 0."""
+    probe = answers.get(fact, _probe(fact, values))
+    if probe.error is not None:
+        return _fact(fact, query, status=FactStatus.ERROR, reason=probe.error)
+    if not probe.value.series:
+        reason = MESSAGES.roadmap.review_no_base_series.format(
+            base=render_query(str(fact.base), values)
+        )
+        return _fact(fact, query, status=FactStatus.SKIPPED, reason=reason)
+    if fact.shape is Shape.ROWS:
+        return _fact(fact, query, value=[], n=0)
+    return _fact(fact, query, value=0.0)
+
+
+def _read_fact(
+    fact: CatalogFact,
+    query: str,
+    values: Mapping[str, str],
+    arguments: Mapping[str, Any],
+    answers: _Answers,
+) -> Fact:
+    """`fact` from the answer of its query."""
+    answer = answers.get(fact, query)
+    if answer.error is not None:
+        return _fact(fact, query, status=FactStatus.ERROR, reason=answer.error)
+    if fact.reader in (ReaderKind.PROMETHEUS, ReaderKind.LOKI):
+        if not answer.value.series and fact.base is not None:
+            return _no_series(fact, query, values, answers)
+        value, n, empty = _vector_value(fact, answer.value)
+    else:
+        try:
+            value, n, empty = _program_value(fact, answer, arguments)
+        except ValueError as error:
+            return _fact(fact, query, status=FactStatus.ERROR, reason=_first_line(error))
+    if empty is not None:
+        return _fact(fact, query, status=FactStatus.SKIPPED, reason=empty)
+    return _fact(fact, query, value=value, n=n)
+
+
 def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
     """Each fact of `catalog` for the window of `context`, in the catalog order."""
     started = time.monotonic()
@@ -313,45 +404,20 @@ def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
         "end": int(context.window.end.timestamp()),
         "repo": context.repo,
     }
-    reads = Reads()
-    answers: dict[tuple[str, ...], _Answer] = {}
+    answers = _Answers(context, Reads())
     facts: list[Fact] = []
     for fact in catalog.facts:
         rules = catalog.rules(fact)
         query = render_query(fact.query, values)
         if (reason := _unmet(rules.requires, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.SKIPPED, reason=reason))
-            continue
-        if (reason := _expired(rules.retention_days, context)) is not None:
+        elif (reason := _expired(rules.retention_days, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.EXPIRED, reason=reason))
-            continue
-        key = (
-            (fact.reader,)
-            if fact.reader in _ONE_READ
-            else (fact.reader, query, str(fact.newest_first))
-        )
-        if key not in answers:
-            try:
-                answers[key] = _Answer(_read(fact, query, context, reads))
-            except _READ_ERRORS as error:
-                answers[key] = _Answer(error=_first_line(error))
-        answer = answers[key]
-        if answer.error is not None:
-            facts.append(_fact(fact, query, status=FactStatus.ERROR, reason=answer.error))
-            continue
-        if fact.reader in (ReaderKind.PROMETHEUS, ReaderKind.LOKI):
-            value, n, empty = _vector_value(fact, answer.value)
         else:
-            try:
-                value, n, empty = _program_value(fact, answer, arguments)
-            except ValueError as error:
-                facts.append(_fact(fact, query, status=FactStatus.ERROR, reason=_first_line(error)))
-                continue
-        if empty is not None:
-            facts.append(_fact(fact, query, status=FactStatus.SKIPPED, reason=empty))
-        else:
-            facts.append(_fact(fact, query, value=value, n=n))
-    collection = Collection(reads=dict(reads.counts), seconds=round(time.monotonic() - started, 1))
+            facts.append(_read_fact(fact, query, values, arguments, answers))
+    collection = Collection(
+        reads=dict(answers.reads.counts), seconds=round(time.monotonic() - started, 1)
+    )
     return CatalogResult(facts, disagreements(catalog, facts), collection)
 
 
@@ -420,17 +486,28 @@ def plan_catalog(
                 ),
             ]
         )
-    each = [
-        PlannedRequest(
-            method=fact.reader,
-            target=f"{fact.id}: {render_query(fact.query, values)}",
-            condition=_condition(catalog.rules(fact).requires),
-            repeat=(
-                MESSAGES.roadmap.review_plan_each_slice
-                if fact.reader is ReaderKind.GITHUB_RUNS
-                else ""
-            ),
+    each: list[PlannedRequest] = []
+    for fact in catalog.facts:
+        condition = _condition(catalog.rules(fact).requires)
+        each.append(
+            PlannedRequest(
+                method=fact.reader,
+                target=f"{fact.id}: {render_query(fact.query, values)}",
+                condition=condition,
+                repeat=(
+                    MESSAGES.roadmap.review_plan_each_slice
+                    if fact.reader is ReaderKind.GITHUB_RUNS
+                    else ""
+                ),
+            )
         )
-        for fact in catalog.facts
-    ]
+        if fact.base is not None:
+            empty = MESSAGES.roadmap.review_plan_probe.format(fact=fact.id)
+            each.append(
+                PlannedRequest(
+                    method=fact.reader,
+                    target=f"{fact.id}: {_probe(fact, values)}",
+                    condition=" and ".join(part for part in (condition, empty) if part),
+                )
+            )
     return [*shared, *each]

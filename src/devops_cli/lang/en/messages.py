@@ -6969,6 +6969,9 @@ class RoadmapMessages:
         "The source keeps {days} days: the window starts at {start}, before {limit}."
     )
     review_no_series: str = "No series matched the query."
+    review_no_base_series: str = (
+        "No series matched the query, and the metric {base} has no series in the window."
+    )
     review_many_series: str = "The scalar query gave {count} series, not one."
     review_not_number: str = "The sample is not a finite number."
     review_no_value: str = "The value program gave no value."
@@ -6985,6 +6988,7 @@ class RoadmapMessages:
     review_plan_each_slice: str = (
         "for each created slice, split in halves while a slice reaches 1,000 runs"
     )
+    review_plan_probe: str = "the answer of {fact} has no series"
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"

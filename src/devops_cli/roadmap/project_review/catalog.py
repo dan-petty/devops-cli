@@ -80,7 +80,9 @@ class ReaderRules:
 
 @dataclass(frozen=True)
 class CatalogFact:
-    """One fact of the catalog. `value` and `n` are jq programs over the answer of the read."""
+    """One fact of the catalog. `value` and `n` are jq programs over the answer of the read.
+    `base` is a selector of the metric that a `prometheus` fact reads: an answer with no series is
+    none only when that metric has a series in the window."""
 
     id: str
     reader: ReaderKind
@@ -94,6 +96,7 @@ class CatalogFact:
     requires: tuple[str, ...] = ()
     retention_days: int | None = None
     newest_first: str | None = None
+    base: str | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +208,7 @@ def _fact(entry: Mapping[str, Any]) -> CatalogFact:
         requires=tuple(entry.get("requires", ())),
         retention_days=_days(entry.get("retention")),
         newest_first=entry.get("newest_first"),
+        base=entry.get("base"),
     )
 
 
