@@ -1,7 +1,9 @@
 """The dispatcher of the project review catalog (#4692): the status of each fact past a retention,
 with an unset address, with no series and after a failed read; the Service SLI of one repository;
-one read for the facts of one query; the disagreements of the catalog; and the guard that keeps
-the rows of a workload outside the project namespaces out of the review (#6615)."""
+one read for the facts of one query; the disagreements of the catalog; the guard that keeps the
+rows of a workload outside the project namespaces out of the review (#6615); and the probe at the
+window end, the first time of a series, the path condition at the commits of the window and the
+reason of a missing series (#6612)."""
 
 from __future__ import annotations
 

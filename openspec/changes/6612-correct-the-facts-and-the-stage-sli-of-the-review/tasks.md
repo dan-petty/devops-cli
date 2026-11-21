@@ -46,7 +46,7 @@
 
 ## 7. Documents
 
-- [ ] 7.1 In `docs/ROADMAP_WORKFLOW.md`, at the line on `devops roadmap review run`, say that the base metric is a metric of the query, that the probe reads the window or its end as the query does, that a fact can give the first time of its series, that a path condition reads the base and the head commits, and that `prometheus.stage_sli` counts the outcomes of the stage items
+- [x] 7.1 In `docs/ROADMAP_WORKFLOW.md`, at the line on `devops roadmap review run`, say that the base metric is a metric of the query, that the probe reads the window or its end as the query does, that a fact can give the first time of its series, that a path condition reads the base and the head commits, and that `prometheus.stage_sli` counts the outcomes of the stage items
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: after the release, run `devops roadmap review run --since 2026-11-06T00:00:00Z --until 2026-11-07T00:00:00Z` and `devops roadmap review run --since 2026-11-16T12:00:00Z --until 2026-11-17T12:00:00Z` read-only, and check that `prometheus.tool_limit_hits`, `prometheus.stage_gate_refusals`, `prometheus.alertmanager_alerts` and `prometheus.silences_active` are `skipped`, and that `prometheus.stage_sli` of the last 7 days has a value between 0 and 1.

@@ -1,7 +1,9 @@
 """The fact catalog of the project review and its JSON Schema (#4692): the loader refuses a fact
 with no id or section, an unknown section, placeholder or fact, two facts with one id, a Service
-metric query with no `{repo}`, a query by node and a rows fact by namespace or pod outside the
-project namespaces (#6615), and fills the placeholders of a window."""
+metric query with no `{repo}`, a query by node, a rows fact by namespace or pod outside the
+project namespaces (#6615), a base metric that the query does not read, a `not_before` that is not
+UTC and a `no_series_reason` with a base (#6612); fills the placeholders of a window; and gives the
+stage SLI by the outcomes of the stage items (#6612)."""
 
 from __future__ import annotations
 
