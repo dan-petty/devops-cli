@@ -19,7 +19,8 @@ The step works in a full clone in a new folder of the run (`ensure_checkout`), r
 `origin` before tier 1 runs, and pushes through `OriginGit` to that URL, with a lease on the judged
 head.
 
-Stops immediately if a release path (CHANGELOG.md, manifests, version lines) conflicts.
+Stops immediately if a release path conflicts: CHANGELOG.md, a file of release-please, or the
+version line of pyproject.toml (#6623).
 Enforces safety bounds: bot pull requests only, no human commits after bot push, no human claims
 or owner/* labels, soft cap 2 rounds (extendable to 3 if conflicted files decrease), hard cap 4.
 Runs `openspec validate --specs --strict` before pushing.
@@ -48,6 +49,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_PYPROJECT_FILENAME,
 )
 from devops_cli.config.settings import RoadmapFixConflictConfig, load_settings
 from devops_cli.core.process import run_subprocess
@@ -164,15 +166,15 @@ def _abort_rebase(cwd: Path) -> None:
 
 
 def is_release_path(path: str, diff_text: str = "") -> bool:
-    """Whether a path or diff hunk modifies release metadata or manifests (#5019)."""
+    """Whether a conflict on `path` changes release metadata (#5019, #6623): `CHANGELOG.md`, a file
+    of release-please, or the version line of `pyproject.toml` in `diff_text`. The `version =` line
+    of a package in `uv.lock` is none: tier 1 takes the `uv.lock` of the default branch and runs
+    `uv lock` again."""
     if path in _RELEASE_PATHS or path.startswith(".release-please"):
         return True
-    if diff_text:
-        if re.search(r"^[+-]\s*version\s*=\s*", diff_text, re.MULTILINE):
-            return True
-        if re.search(r"^[+-]\s*__version__\s*=\s*", diff_text, re.MULTILINE):
-            return True
-    return False
+    return path == CONST_PYPROJECT_FILENAME and bool(
+        re.search(r"^[+-]\s*version\s*=\s*", diff_text, re.MULTILINE)
+    )
 
 
 def is_archive_path(path: str) -> bool:
@@ -226,9 +228,9 @@ def check_merge_tree_conflict(cwd: Path, base_ref: str, head_ref: str) -> tuple[
 
 def release_conflict(cwd: Path, base_ref: str, head_ref: str) -> bool:
     """Whether the merge of `head_ref` into `base_ref` conflicts on release metadata (#5019): a
-    release path, or a version line on the side of `head_ref` in a conflict, which `git diff`
-    shows as an added line during the rebase (`is_release_path`). The plan and the round both ask
-    it, so the plan says what the round does."""
+    release path, or the version line of `pyproject.toml` on the side of `head_ref` in a conflict,
+    which `git diff` shows as an added line during the rebase (`is_release_path`). The plan and
+    the round both ask it, so the plan says what the round does."""
     merged = _merge_tree(cwd, base_ref, head_ref)
     if merged is None:
         return False
