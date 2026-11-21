@@ -1280,73 +1280,6 @@ CONST_GIT_TOKEN_CALL_CONFIG: Final[tuple[str, ...]] = (
 """The `git -c` values of a network git call of the implement job (GHSA). The empty helper clears
 every helper before the trusted one, and no hook runs. The git folder of the call shares the
 objects of the clone, so git packs and prunes nothing from it."""
-CONST_GIT_ALLOWED_SETTINGS: Final[frozenset[str]] = frozenset(
-    {
-        "core.repositoryformatversion",
-        "core.filemode",
-        "core.bare",
-        "core.logallrefupdates",
-        "core.ignorecase",
-        "core.precomposeunicode",
-        "remote.origin.url",
-        "remote.origin.fetch",
-        "user.name",
-        "user.email",
-        "commit.gpgsign",
-        "extensions.worktreeconfig",
-    }
-)
-"""The git keys of the scopes `local` and `worktree` that the implement job allows in its clone:
-the keys that `git clone`, `git init`, `ensure_checkout` and the eval write. None names a program,
-a file or a host (GHSA)."""
-CONST_GIT_ALLOWED_SETTING_PATTERNS: Final[tuple[str, ...]] = ("branch.*.remote", "branch.*.merge")
-"""The `fnmatch` patterns of the other git keys that the implement job allows in its clone."""
-CONST_GIT_ATTRIBUTE_DRIVERS: Final[tuple[str, ...]] = ("filter", "diff", "merge")
-"""The git attributes whose value names a driver that git starts as a program."""
-CONST_GIT_BUILTIN_DRIVERS: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
-    {
-        "filter": frozenset(),
-        "diff": frozenset(
-            {
-                "ada",
-                "bash",
-                "bibtex",
-                "cpp",
-                "csharp",
-                "css",
-                "dts",
-                "elixir",
-                "fortran",
-                "fountain",
-                "golang",
-                "html",
-                "ini",
-                "java",
-                "kotlin",
-                "markdown",
-                "matlab",
-                "objc",
-                "pascal",
-                "perl",
-                "php",
-                "python",
-                "r",
-                "ruby",
-                "rust",
-                "scheme",
-                "tex",
-            }
-        ),
-        "merge": frozenset({"text", "binary", "union"}),
-    }
-)
-"""The values of each attribute of `CONST_GIT_ATTRIBUTE_DRIVERS` that git defines itself
-(userdiff.c, gitattributes(5)): a built-in pattern of `diff` and a built-in driver of `merge` run
-no program. No filter is built in."""
-CONST_GIT_ATTRIBUTE_STATES: Final[frozenset[str]] = frozenset({"unspecified", "set", "unset"})
-"""The words of `git check-attr` for an attribute with no value."""
-CONST_GIT_ALTERNATES_FILE: Final[str] = "objects/info/alternates"
-"""The file of a git folder that names other object folders (gitrepository-layout(5))."""
 CONST_GIT_SHALLOW_FILE: Final[str] = "shallow"
 """The file of a git folder that names the commits whose parents a shallow clone does not hold
 (gitrepository-layout(5))."""
@@ -2912,8 +2845,9 @@ class BrainStore(StrEnum):
 class BrainRead(StrEnum):
     """The `result` label of `devops_cli_brain_reads_total` (#4668): the tier that gave the value
     (`memory`, `local` for the local snapshot file, `shared`), the source when no tier held it,
-    the fallback when the shared tier failed or its breaker was open, and a private repository,
-    which the shared tier does not hold."""
+    the fallback when the shared tier failed or its breaker was open, a private repository,
+    which the shared tier does not hold, and a repository whose visibility read failed, whose
+    shared copy is not used (#6611)."""
 
     MEMORY = "memory"
     LOCAL = "local"
@@ -2921,14 +2855,17 @@ class BrainRead(StrEnum):
     SOURCE = "source"
     FALLBACK = "fallback"
     PRIVATE = "private"
+    UNKNOWN = "unknown"
 
 
 class BrainWrite(StrEnum):
     """The `result` label of `devops_cli_brain_writes_total` (#4668): written to the shared tier,
     not written because the shared copy already holds the same records, skipped while the tier
-    failed, kept local because the value is over its bound, refused because the shared copy is
-    newer, kept local for a private repository, or the shared copy of a repository that became
-    private removed."""
+    failed, kept local because the value or the records of the snapshot are over their bound
+    (#6611), refused because the shared copy is
+    newer, kept local for a private repository, the shared copy removed of a repository that
+    became private or whose visibility read failed and whose last save is older than 30 minutes,
+    or kept local for a repository whose visibility read failed (#6611)."""
 
     SHARED = "shared"
     UNCHANGED = "unchanged"
@@ -2937,6 +2874,7 @@ class BrainWrite(StrEnum):
     OLDER = "older"
     PRIVATE = "private"
     REMOVED = "removed"
+    UNKNOWN = "unknown"
 
 
 class ValkeyCacheError(StrEnum):

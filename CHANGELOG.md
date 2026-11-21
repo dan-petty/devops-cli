@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.188.2](https://github.com/dan-petty/devops-cli/compare/v0.188.1...v0.188.2) (2026-11-21)
+
+
+### Code Refactoring
+
+* **roadmap:** delete the git settings scan check_settings ([#6646](https://github.com/dan-petty/devops-cli/issues/6646)) ([40edae3](https://github.com/dan-petty/devops-cli/commit/40edae3b203600fe778d73149868f52ca18803f6))
+
+## [0.188.1](https://github.com/dan-petty/devops-cli/compare/v0.188.0...v0.188.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **roadmap:** Correct visibility, keys and bounds of Valkey caches ([#6625](https://github.com/dan-petty/devops-cli/issues/6625)) ([9d8ee87](https://github.com/dan-petty/devops-cli/commit/9d8ee874204e8a60879ca7f9041fae799eae86ef))
+* **roadmap:** keep other projects' workload names out of the review ([#6629](https://github.com/dan-petty/devops-cli/issues/6629)) ([da17ec9](https://github.com/dan-petty/devops-cli/commit/da17ec968d9ed40a06b90e65bb20d7901af0d73e))
+
 ## [0.188.0](https://github.com/dan-petty/devops-cli/compare/v0.187.2...v0.188.0) (2026-11-21)
 
 

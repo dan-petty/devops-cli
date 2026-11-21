@@ -76,6 +76,27 @@ def test_a_dry_run_of_seven_days_lists_each_fact_of_the_catalog_and_sends_no_req
     assert "{range}" not in result.stdout
 
 
+def test_a_dry_run_prints_the_project_namespaces_of_the_setting_and_sends_no_request(
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    config: Callable[..., Path],
+    refuse_requests: list[str],
+) -> None:
+    """A fact that names workloads reads only the project namespaces (#6615)."""
+    config(roadmap={"project_review": {"namespaces": ["devops", "agents"]}})
+
+    result = cli(
+        "roadmap", "review", "run", "--last", "7d", "--repo", "example/project", "--dry-run"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert ('namespace=~"devops|agents"' in result.stdout, "{namespaces}" in result.stdout) == (
+        True,
+        False,
+    )
+    assert (process_fake.calls, refuse_requests) == ([], [])
+
+
 def test_two_windows_are_refused_before_any_read(
     cli: Callable[..., Any], process_fake: ProcessFake
 ) -> None:

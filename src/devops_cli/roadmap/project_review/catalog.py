@@ -18,17 +18,27 @@ loader also refuses each selector of a Service metric, in `query` or `base`, who
 no matcher `repo="{repo}"`: a ratio whose numerator has no such matcher adds the repositories
 together.
 
-The dispatcher replaces only the seven placeholders, with a regular expression: PromQL and LogQL
+A review gives no name of a workload outside the project namespaces (#6615). The loader refuses a
+`rows` fact whose query names `namespace` or `pod` in a `by (...)` or `on (...)` clause and holds
+no positive namespace matcher, `namespace="..."` or `namespace=~"..."`, such as
+`namespace=~"{namespaces}"`, in the query and in its `base`: the probe of the base tells whether an
+empty answer is "none", so a base of all namespaces makes an empty answer of the project `ok`. A
+negative matcher still reads every other namespace, so it does not scope the fact. A `scalar` fact
+is one number with no label, so the rule does not apply to it. The rule reads only the clauses;
+the dispatcher also checks the labels of each row that a `rows` fact gives.
+
+The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
 in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
-label.
+label. `{namespaces}` is the project namespaces of the setting `roadmap.project_review.namespaces`
+joined with `|`, the value of a matcher `namespace=~"{namespaces}"` (#6615).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -43,7 +53,7 @@ from devops_cli.roadmap.project_review.data import ReviewWindow
 
 CATALOG_FILE: Final[Path] = Path(__file__).with_name("catalog.yaml")
 SCHEMA_FILE: Final[Path] = Path(__file__).with_name("catalog.schema.json")
-PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo", "name_slug")
+PLACEHOLDERS: Final = ("start", "end", "range", "base", "head", "repo", "name_slug", "namespaces")
 # The names that a jq program of a fact reads: the window times in Unix seconds and the repository.
 PROGRAM_ARGUMENTS: Final = ("start", "end", "repo")
 _PLACEHOLDER: Final = re.compile(r"\{(" + "|".join(PLACEHOLDERS) + r")\}")
@@ -52,6 +62,11 @@ _FACTS: Final = "facts"
 # A metric of the Service: its value is the value of one repository only with `repo="{repo}"`.
 _SERVICE_METRIC: Final = re.compile(r"\bdevops_cli_service_[a-z_]+")
 _REPO_MATCHER: Final = re.compile(r'(?:^|,)\s*repo\s*=\s*"\{repo\}"\s*(?:,|$)')
+# The labels that name a workload, the label list of a `by (...)` or `on (...)` clause, and a
+# positive matcher of the label namespace: `namespace!="..."` does not match.
+_WORKLOAD_LABELS: Final = frozenset({"namespace", "pod"})
+_GROUPING: Final = re.compile(r"\b(?:by|on)\s*\(([^)]*)\)")
+_NAMESPACE_MATCHER: Final = re.compile(r'\bnamespace\s*=~?\s*"')
 
 
 class ReaderKind(StrEnum):
@@ -232,6 +247,25 @@ def unscoped_service_metric(query: str) -> str | None:
     return None
 
 
+def unscoped_workload_metric(query: str, base: str | None = None) -> tuple[str, str] | None:
+    """The field, `query` or `base`, that holds no positive namespace matcher, and the first label
+    `namespace` or `pod` that a `by (...)` or `on (...)` clause of `query` names; or None. The
+    probe of `base` tells whether an empty answer of `query` is "none", so it reads the same
+    namespaces."""
+    labels = (
+        label.strip()
+        for clause in _GROUPING.finditer(query)
+        for label in clause.group(1).split(",")
+    )
+    label = next((label for label in labels if label in _WORKLOAD_LABELS), None)
+    if label is None:
+        return None
+    for field, text in (("query", query), ("base", base)):
+        if text is not None and not _NAMESPACE_MATCHER.search(text):
+            return field, label
+    return None
+
+
 def _fact(entry: Mapping[str, Any]) -> CatalogFact:
     shape = entry.get("shape")
     return CatalogFact(
@@ -251,8 +285,27 @@ def _fact(entry: Mapping[str, Any]) -> CatalogFact:
     )
 
 
+def _scope_refusal(fact: CatalogFact) -> str | None:
+    """The reason to refuse `fact` for its scope, or None: a Service metric with no repository
+    matcher, or a `rows` fact that names the workloads of all namespaces."""
+    texts = MESSAGES.roadmap
+    subject = texts.review_catalog_fact.format(id=fact.id)
+    for field, text in (("query", fact.query), ("base", fact.base)):
+        if text is not None and (metric := unscoped_service_metric(text)) is not None:
+            return texts.review_catalog_unscoped_metric.format(
+                subject=subject, field=field, metric=metric
+            )
+    if fact.shape is Shape.ROWS and (found := unscoped_workload_metric(fact.query, fact.base)):
+        field, label = found
+        return texts.review_catalog_unscoped_workload.format(
+            subject=subject, field=field, label=label
+        )
+    return None
+
+
 def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
-    """Refuse two facts with one id, an unlisted section and a pair that names no fact."""
+    """Refuse two facts with one id, an unlisted section, a pair that names no fact, a Service
+    metric of no repository and a `rows` fact of the workloads of all namespaces."""
     texts = MESSAGES.roadmap
     sections = {section.id for section in catalog.sections}
     seen: set[str] = set()
@@ -277,14 +330,10 @@ def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
                 )
     for fact in catalog.facts:
         _check_programs(source, fact)
-        for field, text in (("query", fact.query), ("base", fact.base)):
-            if text is not None and (metric := unscoped_service_metric(text)) is not None:
-                reason = texts.review_catalog_unscoped_metric.format(
-                    subject=texts.review_catalog_fact.format(id=fact.id), field=field, metric=metric
-                )
-                raise RoadmapReviewError(
-                    texts.review_catalog_refused.format(path=source, reason=reason)
-                )
+        if (refusal := _scope_refusal(fact)) is not None:
+            raise RoadmapReviewError(
+                texts.review_catalog_refused.format(path=source, reason=refusal)
+            )
     return catalog
 
 
@@ -315,10 +364,18 @@ def utc_text(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime(_TIME)
 
 
-def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
+def namespaces_value(namespaces: Iterable[str]) -> str:
+    """The value of `{namespaces}`: the project namespaces joined with `|`, the alternation of a
+    matcher `namespace=~"{namespaces}"`."""
+    return "|".join(namespaces)
+
+
+def window_placeholders(
+    window: ReviewWindow, repo: str, namespaces: Iterable[str]
+) -> dict[str, str]:
     """The value of each placeholder for `window` of `repo`: the UTC times, the length of the
-    window in whole seconds, the two commits, the repository as `owner/name` and the slug of its
-    name in the Job names of the Service."""
+    window in whole seconds, the two commits, the repository as `owner/name`, the slug of its
+    name in the Job names of the Service, and the project `namespaces` joined with `|`."""
     from devops_cli.github.repo_ref import RepoRef
 
     seconds = int((window.end - window.start).total_seconds())
@@ -330,10 +387,11 @@ def window_placeholders(window: ReviewWindow, repo: str) -> dict[str, str]:
         "head": window.head_sha,
         "repo": repo,
         "name_slug": RepoRef(repo).name_slug,
+        "namespaces": namespaces_value(namespaces),
     }
 
 
 def render_query(template: str, values: Mapping[str, str]) -> str:
-    """`template` with each of the seven placeholders replaced by its value in `values`; every
+    """`template` with each of the eight placeholders replaced by its value in `values`; every
     other brace stays."""
     return _PLACEHOLDER.sub(lambda match: values[match.group(1)], template)

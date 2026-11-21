@@ -748,14 +748,29 @@ DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
 # A load of a shared snapshot stops after this time and the reader takes the local copy or reads
 # GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
 DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
+# A load of a shared snapshot expands at most this sum of record JSON, and is a miss past it
+# (#6611). The bound limits the expanded bytes, not the zlib bytes. The local devops-cli snapshot
+# of 2026-11-21 held 6,616 records with 37,927,266 bytes of JSON (14,256,837 bytes with zlib), so
+# 128 MiB is 3.5 times that snapshot. A larger bound lets a few lanes that load at the same time
+# come near the memory limit of the Service.
+DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES: int = 134_217_728
 # The fields that one `HSCAN` of a shared snapshot asks for, and that one `HSET` of a full write
 # sends. 500 records are about 1 MB with zlib.
 DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
 # The temporary key of a full write lives this long, so a killed writer leaves no key without an
 # end.
 DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
-# A process reads the visibility of a repository again after this time (#4668).
-DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
+# A process reads the visibility of a repository again after this time (#4668). A process saves
+# the shared copy only with a public answer, and an unknown answer removes a copy whose last save
+# is older than this time (#6611). Thus the copy of a repository that became private goes at most
+# two times this time after the change, at the first run after that: the 1 hour that the owner
+# accepted on 2026-11-21.
+DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 1800.0
+# A process reads the visibility of a repository again after this time when its last read failed
+# (#6611). In this time the process does not use or write the shared copy, keeps a copy whose
+# last save is younger than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and removes an older one. A
+# process that is out of GitHub quota sends no visibility read for each lane round.
+DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS: float = 60.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 
@@ -900,6 +915,26 @@ DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # these workers: a 7-day window archived 406 changes at about 0.2 s each.
 DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
+# The project namespaces whose workloads the project review can name (#6615): the 14 objects of
+# `kind: Namespace` in k8s/namespaces.yaml (`git grep -l "kind: Namespace" k8s/`). The `namespace:`
+# of each kustomization of k8s/ is one of them. A `rows` fact that groups or joins by namespace or
+# pod reads only these namespaces.
+DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
+    "agents",
+    "argo-workflows",
+    "argocd",
+    "cert-manager",
+    "cloudflared",
+    "cnpg-system",
+    "devops",
+    "gitea",
+    "llm",
+    "logging",
+    "mattermost",
+    "mattermost-operator",
+    "monitoring",
+    "otel",
+)
 # `devops roadmap consolidate` (#1127): the most members one shortlist holds, and the most open
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10

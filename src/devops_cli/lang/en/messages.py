@@ -3791,11 +3791,10 @@ class RoadmapMessages:
         "job runs no program with the GitHub token while such a process lives, so it stops the item."
     )
     implement_git_settings_refused: str = (
-        "The git settings of the checkout hold {settings}, which the implement job does not allow. "
-        "The job runs no more git commands in the checkout and pushes nothing. A person removes "
-        "the setting and its cause, and then retries the item."
+        "The git folder of the clone holds {settings} as a link or as a file that is not a regular "
+        "file, which the implement job does not allow. The job pushes nothing. A person removes "
+        "the file and its cause, and then retries the item."
     )
-    implement_git_attribute_refused: str = "the attribute {attribute} ({path}, {more} more paths)"
     implement_agent_phase_key_refused: str = (
         "The agent phase holds the model key only, and this environment holds {names}. Run the "
         "agent phase in a container with no App key and no GitHub token. This process ran no step."
@@ -6987,6 +6986,10 @@ class RoadmapMessages:
     )
     review_many_series: str = "The scalar query gave {count} series, not one."
     review_not_number: str = "The sample is not a finite number."
+    review_foreign_workload: str = (
+        "The fact {id} gives a row with the label `{label}` of a workload outside the namespaces "
+        "of roadmap.project_review.namespaces, so the review keeps no row of the fact."
+    )
     review_no_value: str = "The value program gave no value."
     review_plan_condition: dict[str, str] = field(
         default_factory=lambda: {
@@ -7006,6 +7009,12 @@ class RoadmapMessages:
     review_catalog_unscoped_metric: str = (
         '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '
         "own braces, so its value adds the repositories together."
+    )
+    review_catalog_unscoped_workload: str = (
+        "{subject}: `query` groups or joins by the label `{label}`, and `{field}` has no matcher "
+        'namespace="..." or namespace=~"...", so the fact can read the workloads of other '
+        'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label in '
+        "`query` and `base`."
     )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"

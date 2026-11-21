@@ -23,7 +23,9 @@ pybreaker reads the time with `datetime.now`, which the `clock` fixture of the t
 
 The shared tier of the project brain (#4668) uses the hash, TTL, rename and WATCH commands of the
 tier through the same breaker, so the listing snapshots and the tool facts share the cooldown of
-the embeddings and the threat-intelligence reads.
+the embeddings and the threat-intelligence reads. `unlink_if_expiring` reads the TTL of a key and
+removes the key in one Lua script, so a write or an `EXPIRE` that comes first keeps the key
+(#6611).
 """
 
 from __future__ import annotations
@@ -62,6 +64,14 @@ if TYPE_CHECKING:
     from devops_cli.config.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+# Removes KEYS[1] when it has a TTL of less than ARGV[1] milliseconds; gives the number removed.
+# Valkey runs a script as one step, so no command comes between the PTTL and the UNLINK.
+_UNLINK_IF_EXPIRING = (
+    "local left = redis.call('PTTL', KEYS[1]) "
+    "if left >= 0 and left < tonumber(ARGV[1]) then return redis.call('UNLINK', KEYS[1]) end "
+    "return 0"
+)
 
 
 class _StateChangeLog(CircuitBreakerListener):
@@ -109,6 +119,19 @@ class ValkeyCacheTier:
         value: str | None = self._send("get", self.client.get, key)
         return value
 
+    def get_with_ttl(self, key: str) -> tuple[str | None, int] | None:
+        """The string at `key` and the time that its key has left in milliseconds (`PTTL`: -2
+        when there is no key, -1 when the key has no TTL), read with `GET` and `PTTL` in one
+        round trip with no MULTI/EXEC; None for an open breaker and a read that fails. A failure
+        counts with `op` `get`, as a plain read does."""
+        replies: list[Any] | None = self._send(
+            "get", self.client.pipeline, [("GET", key), ("PTTL", key)]
+        )
+        if replies is None:
+            return None
+        value, remaining = replies
+        return (None if value is None else str(value)), int(remaining)
+
     def set(self, key: str, value: str, *, ex: int) -> bool:
         """Keep `value` at `key` for `ex` seconds; False when the write is not sent or fails."""
         return bool(self._send("set", self.client.set, key, value, ex=ex))
@@ -117,6 +140,15 @@ class ValkeyCacheTier:
         """The bytes of one field of the hash at `key`; None for a miss and a failure."""
         value: bytes | None = self._send("hget", self.client.hget, key, field)
         return value
+
+    def hget_with_ttl(self, key: str, field: str) -> tuple[bytes | None, int] | None:
+        """The bytes of one field of the hash at `key` and the time that its key has left in
+        milliseconds (see `ValkeyClient.hget_with_ttl`), in one round trip; None for an open
+        breaker and a read that fails. A failure counts with `op` `hget`, as a plain read does."""
+        held: tuple[bytes | None, int] | None = self._send(
+            "hget", self.client.hget_with_ttl, key, field
+        )
+        return held
 
     def hset(self, key: str, values: Mapping[str, bytes | str]) -> int | None:
         """Set fields of the hash at `key`: the number of new fields, or None on a failure."""
@@ -143,6 +175,16 @@ class ValkeyCacheTier:
         """Remove keys: the number removed, or None on a failure."""
         removed: int | None = self._send("unlink", self.client.unlink, *keys)
         return removed
+
+    def unlink_if_expiring(self, key: str, within_ms: int) -> int | None:
+        """Remove `key` when it expires in less than `within_ms` milliseconds: the number
+        removed, or None on a failure. The server reads the TTL and removes the key in one script,
+        so a write or an `EXPIRE` that comes before the script keeps the key. A key with no TTL
+        and a missing key stay. A failure counts with `op` `unlink`, as a plain removal does."""
+        removed: int | None = self._send(
+            "unlink", self.client.eval, _UNLINK_IF_EXPIRING, 1, key, within_ms
+        )
+        return None if removed is None else int(removed)
 
     def rename(self, source: str, target: str) -> bool:
         """Move `source` onto `target`; False when the command fails."""

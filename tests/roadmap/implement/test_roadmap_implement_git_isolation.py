@@ -1,4 +1,4 @@
-"""The network git calls of the implement job and the check of the git settings (GHSA).
+"""The network git calls of the implement job (GHSA).
 
 `OriginGit` runs each call that reaches `origin` in a new git folder, with the token, and reads no
 configuration file, hook or credential helper of the home folder or of the clone. Git runs for
@@ -21,19 +21,17 @@ import pytest
 from devops_cli.core import process_hardening
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import GitSettingsError
-from devops_cli.git.worktree_add import worktree_directory
 from devops_cli.roadmap.implement import git_isolation
-from devops_cli.roadmap.implement.git_isolation import OriginGit, refused_settings
+from devops_cli.roadmap.implement.git_isolation import OriginGit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.implement_step import git_for_real
 from tests.support.model_script import ModelScript, say, tool_calls
-from tests.support.roadmap_implement import JobWorld, group_one_calls
+from tests.support.roadmap_implement import JobWorld, group_one_calls, link_shallow
 from tests.support.roadmap_stage import StageRepo, run_git
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 BRANCH = "fix/1-the-job-drops-a-comment"
-VALUE = "example-value-7"
 
 
 def _recorder(path: Path, capture: Path, name: str) -> Path:
@@ -181,6 +179,53 @@ def test_a_push_to_a_server_that_asks_for_credentials_asks_no_planted_helper_and
     assert [headers for headers in seen if "Authorization" in headers] == []
 
 
+@pytest.mark.parametrize(
+    "lines",
+    [
+        '[url "{url}"]\n\tinsteadOf = {origin}\n',
+        '[url "{url}"]\n\tpushInsteadOf = {origin}\n',
+    ],
+    ids=["insteadOf", "pushInsteadOf"],
+)
+def test_a_push_sends_nothing_to_a_url_that_the_home_folder_or_the_clone_names(
+    stage_repo: StageRepo,
+    work: str,
+    planted: Callable[[str], None],
+    capture: Path,
+    challenge: tuple[str, list[dict[str, str]]],
+    lines: str,
+) -> None:
+    """An `insteadOf` or a `pushInsteadOf` in the home folder and in the clone names a server that
+    asks for credentials. The push goes to `origin`, and the server gets no request, so it gets no
+    token."""
+    url, seen = challenge
+    planted(lines.format(url=url, origin=stage_repo.origin))
+
+    OriginGit(stage_repo.clone, str(stage_repo.origin)).push(BRANCH, work)
+
+    assert run_git(stage_repo.origin, "rev-parse", f"refs/heads/{BRANCH}") == work
+    assert (seen, _seen(capture)) == ([], "")
+
+
+def test_a_push_runs_no_hook_of_the_hooks_folder_of_the_clone(
+    stage_repo: StageRepo, work: str, capture: Path
+) -> None:
+    """git looks for a hook in the hooks folder of the clone when no `core.hooksPath` is set. A
+    `pre-push` hook there does not run, and the branch is on `origin`."""
+    hooks = Path(
+        run_git(stage_repo.clone, "rev-parse", "--path-format=absolute", "--git-path", "hooks")
+    )
+    hooks.mkdir(parents=True, exist_ok=True)
+    _recorder(hooks / "pre-push", capture, "pre-push")
+
+    OriginGit(stage_repo.clone, str(stage_repo.origin)).push(BRANCH, work)
+
+    assert (run_git(stage_repo.origin, "rev-parse", f"refs/heads/{BRANCH}"), _seen(capture)) == (
+        work,
+        "",
+    )
+
+
 def test_a_fetch_writes_the_new_objects_and_the_ref_into_the_clone(stage_repo: StageRepo) -> None:
     other = stage_repo.origin.parent / "other"
     run_git(other.parent, "clone", "-q", str(stage_repo.origin), str(other))
@@ -247,17 +292,16 @@ def recorded(
     return order
 
 
-def test_the_leftover_processes_end_before_the_check_before_the_folder_and_before_the_token_call(
+def test_the_leftover_processes_end_before_the_folder_and_before_the_token_call(
     stage_repo: StageRepo, recorded: list[str], process_fake: ProcessFake
 ) -> None:
     OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
 
     token_call = recorded.index("fetch")
-    first, second, third = (i for i, word in enumerate(recorded) if word == "sweep")
-    assert "config" in recorded[first:second]
+    first, second = (i for i, word in enumerate(recorded) if word == "sweep")
     assert first == 0
-    assert second < recorded.index("mkdtemp") < recorded.index("update-ref") < third
-    assert third == token_call - 1
+    assert first < recorded.index("mkdtemp") < recorded.index("update-ref") < second
+    assert second == token_call - 1
     fetch = next(call for call in process_fake.calls if _words(call) == "fetch")
     assert fetch.env is not None
     assert {key: fetch.env.get(key) for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")} == {
@@ -273,18 +317,18 @@ def test_the_leftover_processes_end_before_the_check_before_the_folder_and_befor
     assert not Path(fetch.env["HOME"]).exists()
 
 
-def test_a_refused_setting_ends_the_leftover_processes_before_the_check(
+def test_a_link_at_the_shallow_file_ends_the_leftover_processes_before_the_refusal(
     stage_repo: StageRepo, recorded: list[str]
 ) -> None:
-    """A refused setting stops the call before the folder exists. The leftover processes end first
-    all the same, because the job writes to GitHub after the stop."""
-    run_git(stage_repo.clone, "config", "credential.helper", VALUE)
+    """A link at the `shallow` file stops the call before the call with the token. The leftover
+    processes end first all the same, because the job writes to GitHub after the stop."""
+    link_shallow(stage_repo)
 
     with pytest.raises(GitSettingsError) as refused:
         OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
 
-    assert (refused.value.settings, recorded[0], "mkdtemp" in recorded) == (
-        ("credential.helper",),
+    assert (refused.value.settings, recorded[0], "fetch" in recorded) == (
+        ("shallow",),
         "sweep",
         False,
     )
@@ -304,85 +348,19 @@ def test_a_push_gives_the_token_only_to_the_call_in_the_new_folder(
     assert recorded[recorded.index("push") - 1] == "sweep"
 
 
-# ── The settings check ────────────────────────────────────────────────────────────────────
+# ── The shallow file ──────────────────────────────────────────────────────────────────────
 
 
-def test_the_settings_of_a_new_clone_pass_the_check(stage_repo: StageRepo) -> None:
-    assert refused_settings(stage_repo.clone) == []
-
-
-def test_an_alternates_file_of_the_clone_is_refused(stage_repo: StageRepo, tmp_path: Path) -> None:
-    (stage_repo.clone / ".git" / "objects" / "info" / "alternates").write_text(
-        f"{tmp_path}\n", encoding="utf-8"
-    )
-
-    assert refused_settings(stage_repo.clone) == ["objects/info/alternates"]
-
-
-@pytest.mark.parametrize(
-    ("settings", "attributes", "named"),
-    [
-        ({"filter.x.clean": VALUE}, "* filter=x\n", ["filter.x.clean", "filter ("]),
-        ({"gpg.program": VALUE, "commit.gpgsign": "true"}, "", ["gpg.program"]),
-        ({"credential.helper": VALUE}, "", ["credential.helper"]),
-    ],
-    ids=["filter", "gpg", "helper"],
-)
-def test_a_setting_that_a_turn_writes_stops_the_item_with_the_class_git_config(
-    job_world: JobWorld, settings: dict[str, str], attributes: str, named: list[str]
-) -> None:
-    """The agent writes a setting in its turn. The item stops with the class `git_config` before
-    the job runs `git add`, `git commit`, `git push` or `git fetch` again, and the comment names
-    each key and holds no value."""
-    planted_at: list[int] = []
-
-    def plant() -> None:
-        for key, value in settings.items():
-            job_world.repo.git("config", key, value)
-        if attributes:
-            (worktree_directory(1, job_world.repo.clone) / ".gitattributes").write_text(
-                attributes, encoding="utf-8"
-            )
-        planted_at.append(len(job_world.programs.calls))
-
-    script = ModelScript(
-        tool_calls(*group_one_calls()), say("Group 1 is done."), effects={2: plant}
-    )
-
-    applied = job_world.run(script)
-
-    held = job_world.store.item(1)
-    assert held is not None
-    after = [_words(call) for call in job_world.programs.calls[planted_at[0] :]]
-    comment = job_world.issue_comments()[-1]
-    assert (applied.stopped, held.status, held.job_record.get("implement.failure")) == (
-        (1,),
-        "Blocked",
-        "git_config",
-    )
-    assert {"add", "commit", "push", "fetch", "ls-remote"} & set(after) == set()
-    assert ([name for name in named if name not in comment], VALUE in comment) == ([], False)
-
-
-def test_the_check_runs_only_in_a_runner(stage_repo: StageRepo) -> None:
-    """A person can keep a global filter, so outside a runner the check refuses nothing."""
-    run_git(stage_repo.clone, "config", "credential.helper", VALUE)
-
-    git_isolation.check_settings(stage_repo.clone)
-
-    assert refused_settings(stage_repo.clone) == ["credential.helper"]
-
-
-def test_a_setting_that_an_exit_check_writes_stops_the_push_of_the_stop_with_the_class_git_config(
+def test_a_link_that_an_exit_check_writes_at_the_shallow_file_stops_the_push_of_the_stop(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """An exit check of the step runs code of the checkout after the check of the turn. It writes a
-    setting and fails, and no repair round is left. The push of the stop meets the setting: the
-    item stops with the class `git_config`, and the comment names the key and holds no value."""
+    """An exit check of the step runs code of the checkout. It makes the `shallow` file of the
+    clone a link and fails, and no repair round is left. The push of the stop meets the link: the
+    item stops with the class `git_config`, and the comment names `shallow`."""
     config(roadmap={"implement": {"in_runner": True, "repair_rounds": 0}})
 
     def lint(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        job_world.repo.git("config", "credential.helper", VALUE)
+        link_shallow(job_world.repo)
         return subprocess.CompletedProcess(list(call.argv), 1, "E999 example\n", "")
 
     job_world.programs.answer(
@@ -397,7 +375,7 @@ def test_a_setting_that_an_exit_check_writes_stops_the_push_of_the_stop_with_the
     assert held is not None
     comment = job_world.issue_comments()[-1]
     assert (applied.stopped, held.job_record.get("implement.failure")) == ((1,), "git_config")
-    assert ("credential.helper" in comment, VALUE in comment) == (True, False)
+    assert "`shallow`" in comment
 
 
 def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
