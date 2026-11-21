@@ -16,6 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 
 from devops_cli.ci.fail_to_pass import BaseReplayRun, replay_on_base
+from devops_cli.roadmap.runner_tools import checkout_python
 
 # The head whose tests are overlaid on the base: the working tree, with its staged files (#3042).
 REPLAY_HEAD = "HEAD"
@@ -83,5 +84,8 @@ def _status(run: BaseReplayRun, failed: tuple[str, ...]) -> BaseStatus:
 
 
 def replay_group_tests(root: Path, base: str, files: Sequence[str]) -> BaseReplay:
-    """Replay `files` on the commit `base` of the checkout `root`, and judge the result (#3042)."""
-    return judge_replay(files, replay_on_base(root, base, REPLAY_HEAD, files))
+    """Replay `files` on the commit `base` of the checkout `root`, and judge the result (#3042).
+    The pytest of the venv of `root` runs them: the bootstrap installs the dev group there, and the
+    venv of the Job process holds no pytest (#6688)."""
+    python = str(checkout_python(root))
+    return judge_replay(files, replay_on_base(root, base, REPLAY_HEAD, files, python=python))

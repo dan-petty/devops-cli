@@ -336,6 +336,14 @@ def checkout_environment(checkout: Path) -> dict[str, str]:
     return {"PATH": os.pathsep.join([*(str(folder) for folder in first), rest])}
 
 
+def checkout_python(checkout: Path) -> Path:
+    """The absolute path of the Python of the venv of `checkout`. Only the bootstrap installs the
+    dev group, so pytest is there and not in the image venv of the Job process (#6688). A child
+    that runs in another folder finds no relative path, and `resolve` would follow the venv link
+    to a Python that has no venv packages, so the path is only made absolute."""
+    return checkout.absolute() / ".venv" / "bin" / "python"
+
+
 def _seed_fits(checkout: Path, seed: Path) -> bool:
     """Whether `seed` holds a cache and a record of the uv of the Job, of its Python and of the
     `uv.lock` of `checkout`."""
