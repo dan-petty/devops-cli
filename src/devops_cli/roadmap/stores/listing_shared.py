@@ -247,6 +247,7 @@ class ValkeySnapshotStore:
     compress: Callable[[bytes], bytes] = zlib.compress
     _seen: dict[str, _Seen] = field(default_factory=dict, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _loads: dict[str, threading.Lock] = field(default_factory=dict, init=False, repr=False)
 
     def meta(self, repo: str) -> HeldMeta | None:
         """The `meta` of the shared snapshot of `repo` and the TTL of its key, in one round trip;
@@ -259,14 +260,34 @@ class ValkeySnapshotStore:
     def records(self, repo: str, held: HeldMeta) -> ListingSnapshot | None:
         """The shared snapshot whose `meta` is `held`; None when the read fails, passes its
         budget, finds a record that does not parse, or finds records that are not the ones that
-        `held` names, because another writer changed them."""
-        if held.meta is None:
+        `held` names, because another writer changed them.
+
+        A load whose records the store knows takes them and sends no command. Else it takes the
+        lock of the repository before it scans, and a load that waited for the scan of another
+        load takes the records of that scan, so the loads of one repository at the same time
+        send one scan."""
+        meta = held.meta
+        if meta is None:
             return None
+        known = self._known(repo, meta)
+        if known is not None:
+            return _listing(repo, meta, known.issues)
+        started = clock.monotonic()
         with self._lock:
-            before = self._seen.get(RepoRef(repo).key)
-        if before is not None and before.issues is not None and before.digest == held.meta.digest:
-            return _listing(repo, held.meta, before.issues)
-        values = self._scan(repo)
+            load = self._loads.setdefault(RepoRef(repo).key, threading.Lock())
+        with load:
+            known = self._known(repo, meta)
+            if known is not None:
+                return _listing(repo, meta, known.issues)
+            return self._load(repo, held, meta, started)
+
+    def _load(
+        self, repo: str, held: HeldMeta, meta: SharedMeta, started: float
+    ) -> ListingSnapshot | None:
+        """Scan, inflate, digest and validate the records of the shared snapshot whose `meta` is
+        `held`, and keep them as the known records of `repo`. The budget of the load started at
+        the monotonic reading `started`."""
+        values = self._scan(repo, started)
         if values is None:
             return None
         values.pop(META_FIELD, None)
@@ -274,7 +295,7 @@ class ValkeySnapshotStore:
         if texts is None:
             return None
         digests = _digests(texts)
-        if _records_digest(digests) != held.meta.digest:
+        if _records_digest(digests) != meta.digest:
             logger.info("The shared snapshot of %s changed during its load.", repo)
             return None
         try:
@@ -287,13 +308,12 @@ class ValkeySnapshotStore:
         newest_first = _newest_first(issues)
         with self._lock:
             self._seen[RepoRef(repo).key] = _Seen(held.raw, digests, _lengths(texts), newest_first)
-        return _listing(repo, held.meta, newest_first)
+        return _listing(repo, meta, newest_first)
 
-    def _scan(self, repo: str) -> dict[str, bytes] | None:
+    def _scan(self, repo: str, started: float) -> dict[str, bytes] | None:
         """Every field of the shared snapshot of `repo` by `HSCAN`; None when a step fails or the
-        scan passes its budget."""
+        load passes its budget, which started at the monotonic reading `started`."""
         key = snapshot_key(repo)
-        started = clock.monotonic()
         values: dict[str, bytes] = {}
         cursor = 0
         while True:
