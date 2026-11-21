@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +18,7 @@ from devops_cli.config.constants import (
     CONST_GIT_NONINTERACTIVE_ENV,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
 )
-from devops_cli.config.defaults import (
-    DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS,
-    DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS,
-)
+from devops_cli.config.defaults import DEFAULT_GH_AUTH_TOKEN_TIMEOUT_SECONDS
 from devops_cli.core import process
 from devops_cli.core.process import (
     DEFAULT_ALLOWED_ENV_PREFIXES,
@@ -33,7 +31,6 @@ from devops_cli.core.process import (
 )
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
-from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.github_identity import faked_children, token_seen
 
@@ -879,25 +876,36 @@ def test_a_failed_lookup_is_not_kept(unresolved_identity: None) -> None:
     ]
 
 
-def test_git_waits_before_looking_again_after_a_failed_lookup(
-    clock: ClockFake, unresolved_identity: None
-) -> None:
-    """git does not run `gh auth token` on every call while gh has no login; it looks again later."""
+def test_git_looks_the_token_up_again_after_a_failed_lookup(unresolved_identity: None) -> None:
+    """A person with no gh login runs each network git command with no token, so the remote gives
+    its own answer, and the next command looks the token up again: no time window keeps git from a
+    login that `gh auth login` gives later (#6671)."""
     with faked_children(return_value=_gh_answers(returncode=1)) as run:
         run_subprocess(["git", "fetch"])
-        run_subprocess(["git", "fetch"])
-        clock.shift(DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS - 1)
-        run_subprocess(["git", "fetch"])
-        clock.shift(1)
         run_subprocess(["git", "fetch"])
     assert [call.args[0][0] for call in run.call_args_list] == [
         CONST_GH_CLI,
         "git",
-        "git",
-        "git",
         CONST_GH_CLI,
         "git",
     ]
+    assert [call.kwargs["env"].get("GH_TOKEN") for call in run.call_args_list[1::2]] == [None, None]
+
+
+def test_a_network_git_child_of_the_app_fails_at_once_when_the_mint_fails(
+    unresolved_identity: None, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """When devops-cli acts as the GitHub App, a failed mint is an error of the git child that
+    needs the token, as it is of a gh call, and the child never starts. A key that cannot sign is
+    a refusal of the App, so the error names the mint as the cause (#6671)."""
+    config(
+        service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
+    )
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "not-a-pem-key")
+    with faked_children(return_value=_gh_answers()) as run:
+        with pytest.raises(GitHubUnauthenticatedError, match="has no installation token"):
+            run_subprocess(["git", "fetch", "origin"])
+    assert run.call_args_list == []
 
 
 @pytest.mark.parametrize(

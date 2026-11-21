@@ -172,3 +172,18 @@ for the session.
 
 - **WHEN** the lookup finds a token on its second attempt and `github_token()` is called again
 - **THEN** `github_token()` returns the same token and runs no subprocess
+
+### Requirement: A mint that GitHub does not answer or rate-limits refuses no identity
+An exchange that GitHub answers with a 5xx or does not answer SHALL raise `GitHubUnreadError`, and one that GitHub rate-limits SHALL raise `GitHubRateLimitError`. Each names the App's bot login, and the Service SHALL NOT read it as a refused identity. When a renewal fails, the process SHALL use the kept installation token until it expires, and the next call SHALL mint again.
+
+#### Scenario: GitHub does not answer while a lane fetches
+- **WHEN** GitHub answers the exchange with HTTP 502 and a lane runs `git fetch origin`
+- **THEN** the fetch raises `GitHubUnreadError`, no child starts, and the Service halts no lane
+
+#### Scenario: GitHub rate-limits the exchange
+- **WHEN** GitHub answers the exchange with HTTP 429 and `retry-after: 30` and a lane runs `git fetch origin`
+- **THEN** the fetch raises `GitHubRateLimitError`, no child starts, and the Service halts no lane
+
+#### Scenario: GitHub does not answer the renewal
+- **WHEN** the kept token has 5 minutes left and GitHub answers the renewal with HTTP 502
+- **THEN** the next git child gets the kept token, and the call after it mints a new token

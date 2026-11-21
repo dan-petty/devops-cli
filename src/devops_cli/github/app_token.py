@@ -108,8 +108,9 @@ def app_token_plan(app: TokenApp, path: Path) -> tuple[str, list[PlannedRequest]
 def write_app_token(app: TokenApp, path: Path) -> WrittenToken:
     """Mint an installation token of `app` and write it to `path` with mode 0600.
 
-    Raises ConfigurationError for a setting that is not set, and GitHubUnauthenticatedError with
-    GitHub's reason when it gives no token. Then `path` stays as it was.
+    Raises ConfigurationError for a setting that is not set, GitHubUnauthenticatedError with
+    GitHub's reason when it refuses the token, GitHubUnreadError when GitHub does not answer, and
+    GitHubRateLimitError when it rate-limits the exchange. Then `path` stays as it was.
     """
     from devops_cli.exceptions.git import GitHubUnauthenticatedError
     from devops_cli.github.app_installation import mint_installation_token
