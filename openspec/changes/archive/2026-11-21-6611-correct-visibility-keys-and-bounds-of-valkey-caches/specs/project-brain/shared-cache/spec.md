@@ -58,22 +58,30 @@ The key of a shared snapshot, the visibility answer of a process, and the record
 ## ADDED Requirements
 
 ### Requirement: An unknown answer removes a stale shared copy
-An unknown answer SHALL remove the shared copy of a repository and count `devops_cli_brain_writes_total{result="removed"}` when the last save of the copy is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour). A save comes only after a public answer. The age of the last save SHALL be the TTL of a snapshot less the `PTTL` of its key, read with `meta` in one round trip. A fresher copy, a key with no TTL and a missing key SHALL stay.
+An unknown answer SHALL remove the shared copy of a repository and count `devops_cli_brain_writes_total{result="removed"}` when its last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min). The age SHALL be the TTL of a snapshot less the `PTTL` of its key, read with `meta` in one round trip. Valkey SHALL read the `PTTL` again and remove the key in one script. A fresher copy, a key with no TTL and a missing key SHALL stay.
 
 #### Scenario: A failed visibility read leaves a fresh shared copy
-- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 30 min later finds that its visibility read fails with `API rate limit exceeded`
+- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 20 min later finds that its visibility read fails with `API rate limit exceeded`
 - **THEN** the snapshot key keeps its `meta` and its records, the second round sends no command alone for the key because it reads `meta` and its `PTTL` in one pipeline, GitHub gets one visibility read in the second round, and `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` and `devops_cli_brain_writes_total{store="snapshot",result="unknown"}` each rise by one
 
 #### Scenario: A failed visibility read removes a stale shared copy
-- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 61 min later finds that its visibility read fails with `Could not resolve to a Repository`
-- **THEN** the `valkey_server` fake holds no key, the second round sends `UNLINK` and no other command alone for the key, `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` rises by one, and `devops_cli_brain_writes_total{store="snapshot"}` counts one `removed` and one `unknown`
+- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 31 min later finds that its visibility read fails with `Could not resolve to a Repository`
+- **THEN** the `valkey_server` fake holds no key, the second round sends one `EVAL` script and no other command alone for the key, `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` rises by one, and `devops_cli_brain_writes_total{store="snapshot"}` counts one `removed` and one `unknown`
 
 #### Scenario: No age of a save to read
-- **WHEN** the shared key of a public repository is removed or loses its TTL, and a round in a new process 61 min later finds that its visibility read fails
+- **WHEN** the shared key of a public repository is removed or loses its TTL, and a round in a new process 31 min later finds that its visibility read fails
 - **THEN** the round removes nothing, sends no command alone for the key, and counts only `unknown` on `devops_cli_brain_reads_total{store="snapshot"}` and `devops_cli_brain_writes_total{store="snapshot"}`
 
+#### Scenario: A save during the visibility read
+- **WHEN** a process saves the shared snapshot of a public repository, 61 min pass, and a new process loads the repository while its visibility read fails and another process with a public answer saves the same records
+- **THEN** the `valkey_server` fake keeps the snapshot key, `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` rises by one, and `devops_cli_brain_writes_total{store="snapshot"}` counts only one `unchanged`
+
 ### Requirement: A visibility answer is kept for its lifetime
-A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL go at most about 2 hours after the change, at the first run after that time.
+A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL go at most 1 hour after the change, at the first run after that time.
+
+#### Scenario: A public answer is kept for 30 min
+- **WHEN** the visibility read of a repository gives `isPrivate: false`, the `clock` fixture moves 29 min before a second check, and 2 min more before a third check whose read gives `isPrivate: true`
+- **THEN** the first two checks give public with one GitHub read, and the third check reads GitHub once more and gives private
 
 #### Scenario: An unknown answer is kept for 60 s
 - **WHEN** the visibility read of a repository fails, the `clock` fixture moves 59 s before a second check, and 2 s more before a third check whose read gives `isPrivate: false`

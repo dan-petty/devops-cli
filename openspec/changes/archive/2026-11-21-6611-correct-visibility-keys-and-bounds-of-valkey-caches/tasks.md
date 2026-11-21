@@ -63,4 +63,14 @@ Adds: `ValkeyClient.hget_with_ttl`, `ValkeyCacheTier.hget_with_ttl`, `HeldMeta.p
 - [x] 6.2 Add `hget_with_ttl` to `ValkeyClient` and `ValkeyCacheTier`, read `meta` and its `PTTL` with it in `ValkeySnapshotStore.meta`, and make `TieredSnapshotStore._checked` remove a copy for an unknown answer when its last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`; give the new bound in the spec, `docs/roadmap/intake.md` and `k8s/README.md`
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py tests/valkey/` passes
 
+## 7. Keep the 1 hour bound and remove only a copy that is still stale
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/valkey/cache.py`, `src/devops_cli/valkey/client.py`, `src/devops_cli/config/defaults.py`, `tests/roadmap/stores/test_listing_shared.py`, `tests/valkey/test_valkey_cache_tier.py`, `tests/support/fakes/valkey.py`, `tests/support/valkey_scenarios.py`. Changes: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/valkey/cache.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/telemetry/instruments.py`, `tests/roadmap/stores/test_listing_shared.py`, `tests/valkey/test_valkey_cache_tier.py`, `openspec/specs/project-brain/shared-cache/spec.md`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`, `k8s/README.md`.
+Adds: `ValkeyCacheTier.unlink_if_expiring`, `ValkeySnapshotStore.remove_stale`. Removes: `HeldMeta.saved_seconds_ago`.
+
+- [x] 7.1 Add `test_a_public_answer_is_kept_for_half_an_hour` and `test_a_save_during_a_failed_visibility_read_keeps_the_shared_copy` to `tests/roadmap/stores/test_listing_shared.py`, make the stale copy 31 min old and the fresh copy 20 min old, and add `test_the_cache_tier_removes_a_key_only_when_it_expires_within_a_bound` to `tests/valkey/test_valkey_cache_tier.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py tests/valkey/test_valkey_cache_tier.py` fails on the head of the fix stage
+- [x] 7.2 Set `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` to 1,800 s, add `ValkeyCacheTier.unlink_if_expiring` (one Lua script of `PTTL` and `UNLINK` through `ValkeyClient.eval`, `op` `unlink`) and `ValkeySnapshotStore.remove_stale`, and make `TieredSnapshotStore._checked` remove a stale copy with it; give the 1 hour bound in the specs, the docstrings, the log text, `BrainWrite`, `BRAIN_WRITES_TOTAL`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md` and `k8s/README.md`
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py tests/valkey/` passes, and `$ ! git grep -n "about 2 h" -- docs k8s openspec/specs src` exits 0
+
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
