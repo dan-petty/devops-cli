@@ -25,15 +25,15 @@
 
 - [x] 4.1 Add the failing tests in `tests/roadmap/project_review/test_review_readers.py`: a fake session with 2,000 runs that answers each `created` slice with at most 1,000 runs and the real `total_count` gives each run id once, and each slice read to the end holds fewer than 1,000 runs; a slice of 1 s with 1,000 runs raises `RoadmapReviewError`; a newest-first release listing requests pages 1 and 2 only when page 2 holds a release before the window start; the listing reader with a snapshot at the watermark `2026-11-11T14:28:04Z` and one issue opened at `2026-11-11T14:40:00Z` in the changed listing gives that issue once and leaves the snapshot file as it was; the `prometheus` and `loki` readers send `time` set to the window end (recorded requests of the HTTP fake); `GitHubApiFake.serve` in `tests/support/fakes/github.py` answers a listing from its query
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py`
-- [x] 4.2 Add `src/devops_cli/roadmap/project_review/readers.py` over `GitHubSession.pages`, `GitHubStore` with `IncrementalListing(keep=False)`, `PrometheusClient` and `query_loki_metrics`, and the run cap and the OpenSpec worker count in `src/devops_cli/config/defaults.py`, each with its class in `tests/roadmap/test_roadmap_limit_classes.py`
+- [x] 4.2 Add `src/devops_cli/roadmap/project_review/readers.py` over `GitHubSession.pages`, `GitHubStore` with `IncrementalListing(keep=False)`, `PrometheusClient` and `query_loki_metrics`, with its messages in `src/devops_cli/lang/en/messages.py`, and the run cap and the OpenSpec worker count in `src/devops_cli/config/defaults.py`, each with its class in `tests/roadmap/test_roadmap_limit_classes.py`
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py tests/roadmap/test_roadmap_limit_classes.py`
 
 ## 5. Behavior: the OpenSpec reader
 
 - [x] 5.1 Add the failing test in `tests/roadmap/project_review/test_review_openspec.py`, over the new recorded git scenario `review_openspec` of `tests/support/git_scenarios.py` (`tests/fixtures/git/review_openspec.json`): a fixture repository that archives one change with one ADDED and one MODIFIED requirement in the window gives 1 ADDED, 1 MODIFIED, and the totals 1 at the base and 2 at the head, and the checkout has no changed file after the read; a change that `openspec show` refuses (exit 1, "Change must have a Why section") is listed with that message and the totals stay; the answer of `openspec show` comes from the OpenSpec fake (`openspec_fake.script`)
-  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py`
-- [x] 5.2 Add `src/devops_cli/roadmap/project_review/openspec_read.py`: the files that the window added under `openspec/changes/archive/` (`git diff --name-only -z --diff-filter=A`), their text at the head from one `git cat-file --batch`, each archived change that holds `specs/` written to `openspec/changes/` of a temporary root, `openspec show --json --deltas-only` through `isolated_openspec` in 4 workers with each refused change listed under `unread`, and `git grep -c` at the base and the head; add the worker count to `src/devops_cli/config/defaults.py`
-  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py tests/core/test_git_contract.py`
+- [x] 5.2 Add `src/devops_cli/roadmap/project_review/openspec_read.py`: the files that the window added under `openspec/changes/archive/` (`git diff --name-only -z --diff-filter=A`), their text at the head from one `git cat-file --batch`, each archived change that holds `specs/` written to `openspec/changes/` of a temporary root, `openspec show --json --deltas-only` through `isolated_openspec` in 4 workers with each refused change listed under `unread`, and `git grep -c` at the base and the head (the worker count is in `src/devops_cli/config/defaults.py` since 4.2); add its messages to `src/devops_cli/lang/en/messages.py` and the fact `openspec.unread_changes` to `src/devops_cli/roadmap/project_review/catalog.yaml`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py tests/core/test_git_contract.py`
 
 ## 6. Behavior: the dispatcher, the status of each fact and data.json
 
@@ -68,8 +68,38 @@
 - [x] 10.1 Update the review line of `docs/ROADMAP_WORKFLOW.md`, the Purpose of `openspec/specs/roadmap-project-review/spec.md`, the docstring of `RoadmapReviewError` in `src/devops_cli/exceptions/roadmap.py` (and the generated `docs/ERRORS.md`), the `serve` of the GitHub fake in `docs/TESTING.md` and each other document that the change makes wrong (`git grep -n -i 'project review\|project_review' -- docs CONTEXT.md README.md`), and regenerate the generated documents
   - Verification: `$ uv run devops docs generate --check`
 
+## 11. Behavior: the fixes of the review
+
+- [x] 11.1 Add the failing tests in `tests/roadmap/project_review/test_review_readers.py`: a snapshot of this schema whose last full read is 3 days old gives only the listing changed since its watermark; with no snapshot, or one of another schema key, the reader sends only the listing changed since the window start; no snapshot file changes
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py`
+- [x] 11.2 Give the review its own `ListingRead` in `src/devops_cli/roadmap/project_review/readers.py`, list both listing reads in the plan of `src/devops_cli/roadmap/project_review/dispatch.py` with the messages in `src/devops_cli/lang/en/messages.py`; add the `ListingRead` protocol and remove `keep` from `IncrementalListing` in `src/devops_cli/roadmap/stores/listing_snapshot.py`, take the protocol in `src/devops_cli/roadmap/stores/github_store.py`, and remove the `keep` test from `tests/roadmap/stores/test_listing_snapshot.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_readers.py tests/roadmap/stores/test_listing_snapshot.py tests/roadmap/stores/test_roadmap_github_store_items.py`
+- [x] 11.3 Add the failing tests in `tests/roadmap/project_review/test_review_dispatch.py`: a window as long as the retention is read; an address that refuses each connection gets the attempts of one query and each fact is `error`; a Loki answer of `text/html` marks the `loki` fact `error` and the `prometheus` fact stays `ok`; a `rows` answer with no series and no base is `skipped`; an empty answer is none only when the base metric has a series. In `tests/k8s/test_logql_metrics.py`, an answer that is not JSON raises `KubernetesLoggingError` that names `loki.url`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_dispatch.py tests/k8s/test_logql_metrics.py`
+- [x] 11.4 In `src/devops_cli/roadmap/project_review/dispatch.py`, read a start up to 1 hour before the retention limit, end the reads of a reader kind after a network error, and read the base metric of an empty answer; add `base` to `src/devops_cli/roadmap/project_review/catalog.py` and `src/devops_cli/roadmap/project_review/catalog.schema.json`; refuse an answer that is not JSON in `src/devops_cli/k8s/logql.py` with its message in `src/devops_cli/lang/en/errors.py`; give one time now to the window and the review in `src/devops_cli/commands/roadmap_review.py`; add the messages to `src/devops_cli/lang/en/messages.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_dispatch.py tests/k8s/test_logql_metrics.py tests/commands/test_roadmap_review.py`
+- [x] 11.5 Add the failing tests in `tests/roadmap/project_review/test_review_catalog.py`: each Service metric selector of a query, and a base metric of the Service, must hold `repo="{repo}"`; `{name_slug}` of `Example/My.Project` is `my-project`. In `tests/github/test_repo_ref.py`, the ad hoc name of a short name holds `name_slug` after the row
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_catalog.py tests/github/test_repo_ref.py`
+- [x] 11.6 Add `RepoRef.name_slug` to `src/devops_cli/github/repo_ref.py`; add the placeholder `{name_slug}` and the check of each selector to `src/devops_cli/roadmap/project_review/catalog.py` and `catalog.schema.json`, the dry-run value to `src/devops_cli/roadmap/project_review/review.py`, and the messages to `src/devops_cli/lang/en/messages.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_catalog.py tests/github/test_repo_ref.py tests/commands/test_roadmap_review.py`
+- [x] 11.7 Add the failing test: the scenario `review_openspec` of `tests/support/git_scenarios.py` archives a `design.md` with CRLF, a lone carriage return and a byte that is not UTF-8 (`tests/fixtures/git/review_openspec.json`), and `tests/roadmap/project_review/test_review_openspec.py` checks the text of `design.md` and of the spec after it
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py tests/core/test_git_contract.py`
+- [x] 11.8 Read the archived files with one `git grep` of their lines in `src/devops_cli/roadmap/project_review/openspec_read.py` and in the plan of `src/devops_cli/roadmap/project_review/dispatch.py`; record `tests/fixtures/git/review_openspec.json` again
+  - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_openspec.py tests/core/test_git_contract.py`
+
+## 12. Data: the catalog fixes of the review
+
+- [x] 12.1 In `src/devops_cli/roadmap/project_review/catalog.yaml`: count the implement Jobs of the repository by `devops-cli-implement-{name_slug}-...` and read both runner Job names in SLO 2 and the runner memory and CPU; define the stage facts as rounds and add `prometheus.stage_item_results` and `prometheus.stage_jobs`; rename `listing.alternatives_last_checked` and `prometheus.alternatives_rounds` and add `loki.alternatives_checks`; give each count and rows fact its `base`; cite the SRE and Kubernetes query lists in the header
+  - Verification: `$ uv run devops roadmap review run --last 7d --dry-run`
+
+## 13. Documents: the fixes of the review
+
+- [x] 13.1 Keep the summary of `RoadmapReviewError` on one line in `src/devops_cli/exceptions/roadmap.py`; say in the description of `loki.url` in `src/devops_cli/config/settings.py` that the review dials no default address; regenerate `docs/ERRORS.md`, `docs/CONFIGURATION.md` and `docs/ENV_VARS.md`; update the proposal, the design and the spec delta of this change
+  - Verification: `$ uv run devops docs generate --check`
+
 ## Workflow follow-up
 
 - #4840 adds the LogQL row of the CLI usage errors in section `self_improvement`, after #5219.
 - #4714 reads the Alertmanager API to match a silence to an alert for the incident triggers.
+- #5378 (comment of 2026-11-21): repair the three archived proposals with no Why section, and make the gate check the proposal form before the archive.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

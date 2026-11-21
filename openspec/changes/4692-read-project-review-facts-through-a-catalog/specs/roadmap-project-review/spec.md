@@ -12,7 +12,7 @@ The project review SHALL read the facts that are not git facts from `catalog.yam
 - **THEN** the loader raises `RoadmapReviewError`, and the message names `prometheus.example` and the field `section`
 
 ### Requirement: The catalog refuses unknown references and placeholders
-The loader SHALL refuse a section that the catalog does not list, two facts with one id, a disagreement that names an unknown fact, and a placeholder other than `{start}`, `{end}`, `{range}`, `{base}`, `{head}` and `{repo}`. A refusal SHALL raise `RoadmapReviewError` with a message that names the fact.
+The loader SHALL refuse a section that the catalog does not list, two facts with one id, a disagreement that names an unknown fact, and a placeholder other than `{start}`, `{end}`, `{range}`, `{base}`, `{head}`, `{repo}` and `{name_slug}`. A refusal SHALL raise `RoadmapReviewError` with a message that names the fact.
 
 #### Scenario: A section that the catalog does not list is refused
 - **WHEN** the fact `prometheus.example` names the section `unknown`, and `sections` does not list it
@@ -23,11 +23,15 @@ The loader SHALL refuse a section that the catalog does not list, two facts with
 - **THEN** the loader raises `RoadmapReviewError`, and the message names `github.example` and the field `query`
 
 ### Requirement: A Service metric query names its repository
-The catalog schema SHALL refuse a `prometheus` fact whose query names a metric that starts with `devops_cli_service_` and holds no `{repo}` placeholder.
+The catalog schema SHALL refuse a `prometheus` fact whose query names a metric that starts with `devops_cli_service_` and holds no `{repo}` placeholder. The loader SHALL also refuse each selector of such a metric, in the query or in the `base` metric of a fact, whose own braces hold no matcher `repo="{repo}"`.
 
 #### Scenario: A Service metric with no repository is refused
 - **WHEN** the query of the `prometheus` fact `prometheus.stage_runs` is `sum(increase(devops_cli_service_jobs_total{row="stage"}[{range}]))`
 - **THEN** the loader raises `RoadmapReviewError`, and the message names `prometheus.stage_runs`
+
+#### Scenario: A ratio whose numerator has no repository is refused
+- **WHEN** the query of the fact `prometheus.stage_sli` is `sum(increase(devops_cli_service_jobs_total{row="stage", result="success"}[{range}])) / sum(increase(devops_cli_service_jobs_total{repo="{repo}", row="stage"}[{range}]))`
+- **THEN** the loader raises `RoadmapReviewError`, and the message names `prometheus.stage_sli` and `devops_cli_service_jobs_total`
 
 ### Requirement: A review query gives no host name
 The catalog schema SHALL refuse a `prometheus` or `loki` fact whose query groups by `node` or `instance`.
@@ -37,11 +41,15 @@ The catalog schema SHALL refuse a `prometheus` or `loki` fact whose query groups
 - **THEN** the loader raises `RoadmapReviewError`, and the message names `prometheus.memory_requests`
 
 ### Requirement: The dispatcher fills the placeholders of the window
-Before it sends a query, the dispatcher SHALL replace `{start}` and `{end}` with the UTC times of the window in the form `YYYY-MM-DDTHH:MM:SSZ`, `{range}` with the length of the window in whole seconds and the unit `s`, `{base}` and `{head}` with the two commits, and `{repo}` with the repository as `owner/name`. It SHALL keep every other brace of the query.
+Before it sends a query, the dispatcher SHALL replace `{start}` and `{end}` with the UTC times of the window in the form `YYYY-MM-DDTHH:MM:SSZ`, `{range}` with the length of the window in whole seconds and the unit `s`, `{base}` and `{head}` with the two commits, `{repo}` with the repository as `owner/name`, and `{name_slug}` with the slug of the repository name that the Job names of the Service hold (`RepoRef.name_slug`). It SHALL keep every other brace of the query.
 
 #### Scenario: The placeholders of a PromQL query
 - **WHEN** the window is the 7 days to `2026-11-11T14:51:23Z` of `example/project`, and a fact query is `sum(increase(devops_cli_service_jobs_total{repo="{repo}"}[{range}]))`
 - **THEN** the sent query is `sum(increase(devops_cli_service_jobs_total{repo="example/project"}[604800s]))`
+
+#### Scenario: The name slug of a Job name
+- **WHEN** the repository is `Example/My.Project`, and a fact query is `kube_job_status_start_time{job_name=~"devops-cli-implement-{name_slug}-.+"}`
+- **THEN** the sent query is `kube_job_status_start_time{job_name=~"devops-cli-implement-my-project-.+"}`
 
 ### Requirement: A Service SLI is the value of one repository
 A fact on a Service metric SHALL give the value of the repository of the review, and SHALL NOT add the values of the repositories together.
@@ -58,14 +66,18 @@ The `prometheus` and `loki` readers SHALL send each query as an instant query wi
 - **THEN** each recorded request to `/api/v1/query` and to `/loki/api/v1/query` holds `time` with that instant
 
 ### Requirement: A source past its retention marks its facts expired
-When the start of the window is older than the retention of a reader kind, or of a fact, the dispatcher SHALL give each fact of it the status `expired`, a null value and a reason that names the retention, and SHALL send no request for it.
+When the start of the window is more than 1 hour older than the retention limit of a reader kind, or of a fact, the dispatcher SHALL give each fact of it the status `expired`, a null value and a reason that names the retention, and SHALL send no request for it. The command SHALL give one time now to the window and to the retention test.
 
 #### Scenario: A window that ended 40 days ago
 - **WHEN** the window ended 40 days ago and the retention of the `prometheus` reader kind is `30d`
 - **THEN** each `prometheus` fact has the status `expired`, the value null and a reason that is not empty, and the fake Prometheus records 0 requests
 
+#### Scenario: A window as long as the retention
+- **WHEN** the window is the 30 days to the whole minute before the time now, and the retention of the `prometheus` reader kind is `30d`
+- **THEN** the `prometheus` fact has the status `ok` and the value of the fixture Prometheus
+
 ### Requirement: A missing value is never zero
-The dispatcher SHALL give a fact the status `skipped` with a reason when a `requires` condition is false or when a `scalar` query matches no series. It SHALL give a fact the status `error` with the first line of the error when its read raises a project error, and SHALL read the other facts. Each such fact SHALL have a null value.
+The dispatcher SHALL give a fact the status `skipped` with a reason when a `requires` condition is false or when a query matches no series. It SHALL give a fact the status `error` with the first line of the error when its read raises a project error, and SHALL read the other facts. Each fact that is not `ok` SHALL have a null value.
 
 #### Scenario: An unset address
 - **WHEN** the setting `prometheus.url` has no value
@@ -79,12 +91,46 @@ The dispatcher SHALL give a fact the status `skipped` with a reason when a `requ
 - **WHEN** the fixture Loki answers HTTP 500 to each attempt, and the catalog also holds a `prometheus` fact
 - **THEN** the `loki` fact has the status `error` and a reason, and the `prometheus` fact has the status `ok`
 
+#### Scenario: A Loki address that answers a web page
+- **WHEN** the fixture Loki answers HTTP 200 with `text/html`, and the catalog also holds a `prometheus` fact
+- **THEN** the `loki` fact has the status `error` and a reason that names `loki.url`, and the `prometheus` fact has the status `ok`
+
+#### Scenario: A rows query with no series
+- **WHEN** a fixture Prometheus answers a `rows` fact with no `base` metric with an empty vector
+- **THEN** the fact has the status `skipped`, a null value and a reason that says that no series matched
+
+### Requirement: An empty answer is none only when its base metric has a series
+A `prometheus` fact can name a `base` metric. When its query matches no series and the base metric has a series in the window, the fact SHALL have the status `ok` with no rows, or 0 for a `scalar` fact. When the base metric has no series either, the fact SHALL have the status `skipped` with a reason that names the base metric.
+
+#### Scenario: An empty answer of a fact with a base metric
+- **WHEN** a fixture Prometheus answers the query of a fact with the base metric `x_total{repo="{repo}"}` with an empty vector, and answers `group(last_over_time(x_total{repo="example/project"}[604800s]))` with one series
+- **THEN** a `rows` fact has the status `ok`, the value `[]` and `n` 0, and a `scalar` fact has the status `ok` and the value 0
+
+#### Scenario: An empty answer and no base series
+- **WHEN** the fixture Prometheus also answers the read of the base metric with an empty vector
+- **THEN** the fact has the status `skipped`, a null value and a reason that names the base metric
+
+### Requirement: An address that does not answer ends the reads of its reader kind
+After a read that gets no answer from the network, a `ServiceRequestError` with no HTTP status, each later fact of that reader kind SHALL have the status `error` with the same reason, and the dispatcher SHALL send no request for it.
+
+#### Scenario: An address that does not answer
+- **WHEN** the fixture Prometheus refuses each connection, and the catalog holds three `prometheus` facts with three queries
+- **THEN** the fake records the attempts of the first query only, and each fact has the status `error` with one reason
+
 ### Requirement: The listing reader fills the gap after the snapshot watermark
-The `listing` reader SHALL read the kept listing snapshot of the repository, SHALL send the listing of the issues and pull requests changed at or after its watermark, and SHALL merge the answer with the snapshot. It SHALL NOT write the snapshot.
+The `listing` reader SHALL read the kept listing snapshot of the repository when its records have the schema of the release, whatever the age of its last full read, SHALL send the listing of the issues and pull requests changed at or after its watermark, and SHALL merge the answer with the snapshot. When no such snapshot is kept, it SHALL send only the listing of the issues and pull requests changed at or after the window start. It SHALL NOT write a snapshot.
 
 #### Scenario: An issue after the watermark
 - **WHEN** the snapshot watermark is `2026-11-11T14:28:04Z`, the window ends at `2026-11-11T14:51:23Z`, and the fake GitHub gives one issue opened at `2026-11-11T14:40:00Z` in the listing changed since the watermark
 - **THEN** the fact of the issues opened in the window counts that issue once, and the snapshot file is the same as before the run
+
+#### Scenario: An old snapshot
+- **WHEN** the last full read of the snapshot is 3 days old
+- **THEN** the fake GitHub records only the listing changed since the watermark, and the snapshot file is the same as before the run
+
+#### Scenario: No snapshot of this schema
+- **WHEN** no snapshot is kept, or the snapshot has another schema key, and the window starts at `2026-11-04T14:51:23Z`
+- **THEN** the fake GitHub records only the listing changed since `2026-11-04T14:51:23Z`, and no snapshot file changes
 
 ### Requirement: The listing gives the merged pull requests
 An issue record of a pull request SHALL hold `merged_at` from `pull_request.merged_at` of the issue listing, or null when the pull request did not merge.
@@ -125,6 +171,13 @@ The `openspec` reader SHALL copy the files of each change that the window archiv
 - **WHEN** `openspec show` exits 1 for the archived change of the fixture repository with the message "Change must have a Why section"
 - **THEN** the reader lists the change with that message, gives no delta for it, and still gives the totals 1 at the base and 2 at the head
 
+### Requirement: The OpenSpec reader reads the archived files line by line
+The `openspec` reader SHALL read the text of the archived files with one `git grep` of their lines, so that no byte count must match the text that the git seam gives.
+
+#### Scenario: A file with CRLF line ends and a byte that is not UTF-8
+- **WHEN** the archived change also holds `design.md` with CRLF line ends, a lone carriage return and a byte that is not UTF-8
+- **THEN** the temporary root holds `design.md` with one line end in place of each, U+FFFD in place of the byte, and `specs/cap/spec.md` with its own text
+
 ### Requirement: The review lists the disagreements of the catalog
 For each pair of facts that the catalog says must agree, the review SHALL list a disagreement when both facts are `ok` numbers and their relative difference is more than the tolerance of the pair. Each row SHALL hold the id of the pair, the two fact ids and the two values.
 
@@ -138,6 +191,13 @@ The shipped `catalog.yaml` SHALL hold a fact for each SRE query Q1 to Q16 and ea
 #### Scenario: The dry run lists the alert facts
 - **WHEN** a person runs `uv run devops roadmap review run --last 7d --dry-run` in this repository
 - **THEN** the output lists `ALERTS`, `alertmanager_notifications_total`, `alertmanager_silences` and `argocd_app_info` as `prometheus` facts, and the command sends 0 requests
+
+### Requirement: The shipped catalog cites its query lists
+The header of the shipped `catalog.yaml` SHALL cite the permalink of the Queries of `docs/SRE.md` at commit 6eae498088b2ff86a06883638e50b1a4fe3ad11a (SRE Q1 to Q16) and of `docs/K8S_PERFORMANCE.md` of PR #5492 at commit d0f6e42d117badb5f5b68d47eb25a74e33f01609 (Kubernetes Q2 to Q22).
+
+#### Scenario: The header names both query lists
+- **WHEN** a person reads the comment lines at the top of `catalog.yaml`
+- **THEN** they hold both permalinks
 
 ### Requirement: The shipped catalog holds no usage-error row
 The shipped `catalog.yaml` SHALL hold no fact on `devops_cli_usage_error_total`, because that counter has 0 series, and no LogQL fact of the CLI usage errors, which #4840 adds.

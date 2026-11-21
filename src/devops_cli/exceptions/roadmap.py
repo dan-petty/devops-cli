@@ -385,10 +385,9 @@ class RoadmapMcpUnavailableError(DevOpsCLIError):
 
 
 class RoadmapReviewError(DevOpsCLIError):
-    """Raised when `devops roadmap review run` cannot resolve its window, read git or load its
-    fact catalog (#4686, #4692).
+    """Raised when `devops roadmap review run` cannot resolve its window, read git or load a catalog.
 
-    The review writes no file. The message names the option, the tag, the time, the git command
+    The fact catalog came with #4692, the git facts with #4686. The review writes no file. The message names the option, the tag, the time, the git command
     or the catalog fact and field that failed. A failed read of one catalog fact does not raise:
     the fact gets the status `error`.
     """
