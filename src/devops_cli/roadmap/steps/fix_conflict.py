@@ -611,9 +611,9 @@ def fix_rebase_conflict(
             return "Conflict on a release path"
         return resolve_tier1(cwd, item)
 
-    result, reason, _ = _round(cwd, base_ref, tip, settle, store=store, item=item, files=conflicts)
+    result, _, _ = _round(cwd, base_ref, tip, settle, store=store, item=item, files=conflicts)
     if result is not FixConflictResult.RESOLVED:
-        logger.warning("Tier 1 did not settle the rebase: %s", reason)
+        logger.warning("Tier 1 did not settle the rebase: %s", result.value)
     return result is FixConflictResult.RESOLVED
 
 

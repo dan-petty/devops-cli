@@ -1384,6 +1384,30 @@ def test_a_conflict_on_the_rebase_at_the_start_names_the_conflicted_files(
     ) == (True, True, ["docs/a.md", "docs/b.md"])
 
 
+def test_a_timeout_of_tier_1_stops_the_item_once_and_pushes_nothing(job_world: JobWorld) -> None:
+    """The code of the pull request runs out of time in tier 1 at the rebase of the start. The round
+    gives the branch back its tip and records itself, and the job stops the item with the class
+    `timeout`, pushes nothing and runs tier 1 no second time."""
+    _conflict_on_main(job_world, ["docs/CLI_REFERENCE.md"])
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    calls: list[str] = []
+
+    def generate(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        calls.append(command_text(call))
+        raise subprocess.TimeoutExpired(list(call.argv), 1800)
+
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        ProcessAnswer(side_effect=generate),
+    )
+
+    job_world.run(two_groups())
+
+    status, record = _item(job_world)
+    assert (len(calls), status, record.get("implement.failure")) == (1, "Blocked", "timeout")
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == before
+
+
 def test_a_conflict_that_tier_1_aborts_claims_no_failed_abort(job_world: JobWorld) -> None:
     """The round of tier 1 aborts the rebase that it does not settle, so the job runs no second
     abort, and the stop comment does not say that an abort failed."""
