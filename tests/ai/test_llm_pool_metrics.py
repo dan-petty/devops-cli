@@ -41,7 +41,6 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         values["serviceMonitor"]["enabled"],
         (
             release["namespace"],
-            [Path(value).name for value in release["values"]],
             repo in HELM_REPOS_BY_STACK["infra"],
         ),
     ) == (
@@ -50,7 +49,7 @@ def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> 
         ["SYS_ADMIN"],
         "50%",
         False,
-        ("monitoring", ["dcgm-exporter-values.yaml"], True),
+        ("monitoring", True),
     )
 
 

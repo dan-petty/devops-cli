@@ -233,10 +233,14 @@ def test_other_stacks_do_not_read_the_nodes_for_placement(
 
 
 def test_a_dry_run_reads_no_node_and_runs_nothing(process_fake: ProcessFake, cli: Any) -> None:
-    """`deploy-stack --stack llm --dry-run` starts no process."""
+    """`deploy-stack --stack llm --dry-run` starts no process but a local read of the checkout,
+    such as its `origin`."""
     result = cli(["k8s", "deploy-stack", "--stack", "llm", "--dry-run", "--k8s-dir", "k8s"])
 
-    assert (result.exit_code, process_fake.calls) == (0, [])
+    assert (result.exit_code, [call for call in process_fake.calls if not call.local_read]) == (
+        0,
+        [],
+    )
 
 
 def test_a_tier_with_another_operator_is_refused(tmp_path: Path) -> None:

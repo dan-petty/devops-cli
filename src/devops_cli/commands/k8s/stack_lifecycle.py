@@ -40,7 +40,12 @@ from devops_cli.exceptions.k8s import (
     KubernetesContextError,
     KubernetesDeployError,
 )
-from devops_cli.k8s.app_sources import chart_versions
+from devops_cli.k8s.app_sources import (
+    ChartSource,
+    SourceTrees,
+    chart_sources,
+    repository_origin,
+)
 from devops_cli.k8s.argocd_overrides import (
     application_patch,
     application_source,
@@ -117,13 +122,11 @@ class StackRelease(TypedDict):
     name: str
     chart: str
     namespace: str
-    # The values files, in the order of the `valueFiles` of the Application: a later file
-    # overrides an earlier one. A path in the environment tree (#5131).
-    values: list[str]
-    # The values files of the product base `k8s/devops`, after `values`.
-    product_values: NotRequired[list[str]]
-    # The chart version, which deploy-stack reads from the Argo CD Application of the release in
-    # the environment tree, so a pin has one place (#6060).
+    # The values files and the chart version, which deploy-stack reads from the Argo CD
+    # Application of the release in the environment tree, so each has one place. The values files
+    # are in the order of the `valueFiles` of the Application: a later file overrides an earlier
+    # one (#6680). The version pins the chart (#6060).
+    values: NotRequired[list[str]]
     version: NotRequired[str]
 
 
@@ -137,7 +140,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "prometheus-operator-crds",
             "chart": "prometheus-community/prometheus-operator-crds",
             "namespace": "monitoring",
-            "values": ["monitoring/prometheus-operator-crds-values.yaml"],
         },
         # The database operator of every stack that holds a CloudNativePG Cluster: the gateway
         # database of `llm` and the Mattermost database of `chat`. Its podMonitor needs the CRD above.
@@ -145,7 +147,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "cloudnative-pg",
             "chart": "cloudnative-pg/cloudnative-pg",
             "namespace": "cnpg-system",
-            "values": ["mattermost/cloudnative-pg-values.yaml"],
         },
         # The TLS certificates of the Barman Cloud plugin. Its start-up check Job holds `--wait`
         # until the webhook answers, so the plugin chart below can create its Issuer.
@@ -153,7 +154,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "cert-manager",
             "chart": "jetstack/cert-manager",
             "namespace": "cert-manager",
-            "values": ["cert-manager/values.yaml"],
         },
         # The backup plugin of CloudNativePG runs in the operator's namespace, and its chart renders
         # cert-manager objects, so it comes after both releases above (#4764).
@@ -161,7 +161,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "plugin-barman-cloud",
             "chart": "cloudnative-pg/plugin-barman-cloud",
             "namespace": "cnpg-system",
-            "values": ["cnpg-system/plugin-barman-cloud-values.yaml"],
         },
         # The operator of the object store (#4750). Its chart issues the certificate of its
         # admission webhooks with cert-manager, so it comes after that release; the Seaweed CR of
@@ -176,64 +175,52 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "argocd",
             "chart": "argo/argo-cd",
             "namespace": "argocd",
-            "values": ["argocd/values.yaml"],
         },
         {
             "name": "argo-workflows",
             "chart": "argo/argo-workflows",
             "namespace": "argo-workflows",
-            "values": ["argo-workflows/values.yaml"],
         },
         {
             "name": "k8s-monitoring",
             "chart": "grafana/k8s-monitoring",
             "namespace": "monitoring",
-            "values": ["monitoring/k8s-monitoring-values.yaml"],
         },
         {
             "name": "prometheus",
             "chart": "prometheus-community/prometheus",
             "namespace": "monitoring",
-            # The environment values, then the alert rules of devops-cli (#5292).
-            "values": ["monitoring/prometheus-values.yaml"],
-            "product_values": ["monitoring/prometheus-rules-values.yaml"],
         },
         {
             "name": "grafana",
             "chart": "grafana-community/grafana",
             "namespace": "monitoring",
-            "values": ["monitoring/grafana-values.yaml"],
         },
         {
             "name": "dcgm-exporter",
             "chart": "nvidia-dcgm/dcgm-exporter",
             "namespace": "monitoring",
-            "values": ["monitoring/dcgm-exporter-values.yaml"],
         },
         # tempo first: the collector's trace exporter has a Tempo to reach when it starts (#409)
         {
             "name": "tempo",
             "chart": "grafana-community/tempo",
             "namespace": "otel",
-            "values": ["otel/tempo-values.yaml"],
         },
         {
             "name": "otel-collector",
             "chart": "open-telemetry/opentelemetry-collector",
             "namespace": "otel",
-            "values": ["otel/values.yaml"],
         },
         {
             "name": "pyroscope",
             "chart": "grafana/pyroscope",
             "namespace": "monitoring",
-            "values": ["monitoring/pyroscope-values.yaml"],
         },
         {
             "name": "traefik",
             "chart": "traefik/traefik",
             "namespace": "kube-system",
-            "values": ["ingress/traefik-values.yaml"],
         },
     ],
     "llm": [
@@ -241,13 +228,11 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "open-webui",
             "chart": "open-webui/open-webui",
             "namespace": "llm",
-            "values": ["llm/values-open-webui.yaml"],
         },
         {
             "name": "qdrant",
             "chart": "qdrant/qdrant",
             "namespace": "llm",
-            "values": ["llm/values-qdrant.yaml"],
         },
     ],
     "logging": [
@@ -255,7 +240,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "loki",
             "chart": "grafana-community/loki",
             "namespace": "logging",
-            "values": ["logging/loki-values.yaml"],
         },
     ],
     # The internal forge and container registry (#1081). Its pod waits for Secret gitea-admin,
@@ -265,7 +249,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "gitea",
             "chart": "gitea-charts/gitea",
             "namespace": "gitea",
-            "values": ["gitea/values.yaml"],
         },
     ],
     "chat": [
@@ -273,7 +256,6 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
             "name": "mattermost-operator",
             "chart": "mattermost/mattermost-operator",
             "namespace": "mattermost-operator",
-            "values": ["mattermost/mattermost-operator-values.yaml"],
         },
     ],
 }
@@ -691,7 +673,7 @@ def _build_helm_upgrade_cmd(
     if version := release.get("version"):
         helm_cmd.extend(["--version", version])
     helm_cmd.extend(["--namespace", release["namespace"]])
-    for values in release["values"]:
+    for values in release.get("values", []):
         helm_cmd.extend(["--values", values])
     helm_cmd.extend(helm_ctx)
     if wait:
@@ -1196,18 +1178,19 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
 
 
 def _collect_deploy_targets(
-    selected_stacks: Sequence[str], env: EnvironmentTree, product: Path
+    selected_stacks: Sequence[str], env: EnvironmentTree, product: Path, trees: SourceTrees
 ) -> tuple[list[StackRelease], list[str], list[Path], list[Path]]:
     """Collect Helm releases, pre-Helm manifests, kustomizations, and post-Helm paths for stacks:
-    the values files and the environment paths under `env`, the product paths under `product`."""
+    the environment paths under `env`, the product paths under `product`, and the values files
+    that the Applications of `env` name, in the sources of `trees`."""
     all_releases: list[StackRelease] = []
     all_manifests: list[str] = []
     all_kustomizations: list[Path] = []
     all_post_helm: list[Path] = []
-    versions = chart_versions(env.application_dirs)
+    sources = chart_sources(env.application_dirs)
     for s_name in selected_stacks:
         all_releases.extend(
-            _release_at(release, env, product, versions)
+            _release_at(release, env, sources, trees)
             for release in HELM_RELEASES_BY_STACK.get(s_name, [])
         )
         all_manifests.extend(str(product / p) for p in PRODUCT_MANIFESTS_BY_STACK.get(s_name, []))
@@ -1219,13 +1202,16 @@ def _collect_deploy_targets(
 
 
 def _release_at(
-    release: StackRelease, env: EnvironmentTree, product: Path, versions: Mapping[str, str]
+    release: StackRelease,
+    env: EnvironmentTree,
+    sources: Mapping[str, ChartSource],
+    trees: SourceTrees,
 ) -> StackRelease:
-    """`release` with each values file as a path: the environment files under `env`, then the
-    product files under `product`, and with the chart version that its Application in `env` pins
-    (`versions`, by the name of the Application)."""
-    version = versions.get(release["name"])
-    if version is None:
+    """`release` with the chart version and the values files of its Application in `env`
+    (`sources`, by the name of the Application). Each values file is a path in the source that it
+    names (`trees`), in the order of the Application (#6680)."""
+    source = sources.get(release["name"])
+    if source is None:
         folders = ", ".join(str(folder) for folder in env.application_dirs)
         raise KubernetesDeployError(
             ERRORS.k8s.chart_version_not_pinned.format(folders=folders, release=release["name"]),
@@ -1236,12 +1222,18 @@ def _release_at(
         name=release["name"],
         chart=release["chart"],
         namespace=release["namespace"],
-        values=[
-            *(str(env.path(values)) for values in release["values"]),
-            *(str(product / values) for values in release.get("product_values", [])),
-        ],
-        version=version,
+        values=[str(trees.value_file(values, source.refs)) for values in source.value_files],
+        version=source.version,
     )
+
+
+def _source_trees(env: EnvironmentTree, workdir: Path, *, dry_run: bool) -> SourceTrees:
+    """The git sources of the Applications of `env`, with each fetch in `workdir`, or only its
+    commands in a dry run. The checkout of `env` is relative to the current folder when the root
+    of `env` is, so a relative root gives relative values files, as it gives relative manifests
+    (`tree_at`)."""
+    checkout = env.repo if env.root.is_absolute() else Path(os.path.relpath(env.repo))
+    return SourceTrees(checkout, repository_origin(env.repo), workdir, dry_run=dry_run)
 
 
 def _collect_teardown_targets(
@@ -1280,9 +1272,7 @@ def _stack_roots(
     env = resolve_environment(k8s_dir)
     product = resolve_product_root(product_dir)
     wanted = any(
-        PRODUCT_MANIFESTS_BY_STACK.get(s)
-        or PRODUCT_POST_HELM_BY_STACK.get(s)
-        or any(r.get("product_values") for r in HELM_RELEASES_BY_STACK.get(s, []))
+        PRODUCT_MANIFESTS_BY_STACK.get(s) or PRODUCT_POST_HELM_BY_STACK.get(s)
         for s in selected_stacks
     )
     if wanted and not product.is_dir():
@@ -1402,8 +1392,10 @@ def _render_deploy_stack_dry_run(
     config_map: str | None,
     argocd_revision: str | None,
     helm_ctx: list[str],
+    source_fetches: Sequence[Sequence[str]],
 ) -> None:
-    """Render the dry run result for deploy-stack."""
+    """Render the dry run result for deploy-stack. `source_fetches` are the git commands that the
+    real run starts to fetch the sources of the values files."""
     from devops_cli.config.settings import load_settings
 
     active_settings = load_settings()
@@ -1433,6 +1425,7 @@ def _render_deploy_stack_dry_run(
             "secrets": _dry_run_secrets(selected_stacks, push_secrets),
             "helm_releases": [r["name"] for r in all_releases],
             "helm_commands": helm_commands,
+            "source_fetches": [list(command) for command in source_fetches],
             "manifests": all_manifests,
             "kustomizations": [str(k) for k in all_kustomizations],
             "post_helm": [str(p) for p in all_post_helm],
@@ -1505,116 +1498,121 @@ def deploy_stack(
 
     selected_stacks = net._resolve_stacks(stack)
     env, product = _stack_roots(k8s_dir, product_dir, selected_stacks)
-    all_releases, all_manifests, all_kustomizations, all_post_helm = _collect_deploy_targets(
-        selected_stacks, env, product
-    )
-
-    # 1. Render what git does not hold before anything else: a missing setting stops a dry run
-    # and a deploy alike, before either touches the cluster
-    config_map = _render_devops_configmap(product) if "devops" in selected_stacks else None
-
-    helm_ctx = ["--kube-context", effective_context] if effective_context else []
-
-    if dry_run or is_dry_run():
-        _render_deploy_stack_dry_run(
-            env=env,
-            product=product,
-            stack=stack,
-            domain=domain,
-            selected_stacks=selected_stacks,
-            effective_context=effective_context,
-            wait=wait,
-            timeout=timeout,
-            port_forward=port_forward,
-            configure_urls=configure_urls,
-            push_secrets=push_secrets,
-            all_releases=all_releases,
-            all_manifests=all_manifests,
-            all_kustomizations=all_kustomizations,
-            all_post_helm=all_post_helm,
-            config_map=config_map,
-            argocd_revision=argocd_revision,
-            helm_ctx=helm_ctx,
-        )
-        return
-
-    # 2. A push needs the unlocked keyring: check it before anything reads or writes the cluster
-    if push_secrets:
-        require_keyring_for_push()
-
-    # 3. Verify cluster reachability, then warn about GPU nodes no Ollama tier accepts. The read
-    # comes before the Argo CD early return, so the warning prints on either kind of cluster.
-    _verify_cluster_ready(effective_context)
-    _warn_about_version_skew(effective_context)
-    if "llm" in selected_stacks:
-        _warn_about_gpu_placement(env, effective_context)
-
-    try:
-        is_argo = _is_cluster_argo_managed(effective_context)
-    except ArgoError:
-        is_argo = False
-
-    if is_argo:
-        _handle_argo_managed_deployment(
-            selected_stacks,
-            effective_context,
-            push_secrets,
-            config_map,
-            domain=domain,
-            revision=argocd_revision,
-        )
-        return
-
-    kubectl_ctx = ["--context", effective_context] if effective_context else []
-
-    # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
-    print_info("[bold]Applying namespaces...[/bold]", prefix=False)
-    _apply_kustomizations([env.root, *all_kustomizations], kubectl_ctx)
-
-    # 5. Push the stacks' Secrets before anything reads them
-    if push_secrets:
-        print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
-        push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
-
-    # 5b. Verify Helm version requirement before Helm operations
-    is_v4 = _check_helm_version_for_deploy(all_releases)
-
-    # 6. Add Helm repos for selected stacks
-    _deploy_helm_repos(selected_stacks)
-
-    # 7. Install native manifests
-    _deploy_native_manifests(all_manifests, config_map, kubectl_ctx, domain)
-
-    # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
-    unready_nodes = runtime._get_unready_nodes(context=effective_context)
-    if unready_nodes and wait:
-        print_warning(
-            f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
+    # A fetched source of a values file stays in the work folder until the charts are installed.
+    # A dry run fetches nothing: the trees record each fetch (#6680).
+    with tempfile.TemporaryDirectory(prefix="devops-deploy-stack-") as workdir:
+        trees = _source_trees(env, Path(workdir), dry_run=dry_run or is_dry_run())
+        all_releases, all_manifests, all_kustomizations, all_post_helm = _collect_deploy_targets(
+            selected_stacks, env, product, trees
         )
 
-    # 9. Install Helm releases
-    for release in all_releases:
-        _install_single_release(
-            release,
-            effective_context,
-            helm_ctx,
-            wait,
-            timeout,
-            unready_nodes=unready_nodes,
-            is_v4=is_v4,
-        )
+        # 1. Render what git does not hold before anything else: a missing setting stops a dry run
+        # and a deploy alike, before either touches the cluster
+        config_map = _render_devops_configmap(product) if "devops" in selected_stacks else None
 
-    # 9b. Apply post-Helm custom resources and kustomizations whose CRDs the charts installed
-    _apply_post_helm_paths(all_post_helm, kubectl_ctx, domain=domain)
+        helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
-    # 10. Post-deployment networking & credentials
-    write_stdout("\n")
-    print_success(f"Kubernetes stack ({stack}) deployed.")
-    write_stdout("\n")
-    _post_deploy_networking(stack, effective_context, port_forward, configure_urls)
-    _post_deploy_credentials(selected_stacks, effective_context)
+        if dry_run or is_dry_run():
+            _render_deploy_stack_dry_run(
+                env=env,
+                product=product,
+                stack=stack,
+                domain=domain,
+                selected_stacks=selected_stacks,
+                effective_context=effective_context,
+                wait=wait,
+                timeout=timeout,
+                port_forward=port_forward,
+                configure_urls=configure_urls,
+                push_secrets=push_secrets,
+                all_releases=all_releases,
+                all_manifests=all_manifests,
+                all_kustomizations=all_kustomizations,
+                all_post_helm=all_post_helm,
+                config_map=config_map,
+                argocd_revision=argocd_revision,
+                helm_ctx=helm_ctx,
+                source_fetches=trees.planned,
+            )
+            return
 
-    _apply_stack_config_writes(selected_stacks)
+        # 2. A push needs the unlocked keyring: check it before anything reads or writes the cluster
+        if push_secrets:
+            require_keyring_for_push()
+
+        # 3. Verify cluster reachability, then warn about GPU nodes no Ollama tier accepts. The read
+        # comes before the Argo CD early return, so the warning prints on either kind of cluster.
+        _verify_cluster_ready(effective_context)
+        _warn_about_version_skew(effective_context)
+        if "llm" in selected_stacks:
+            _warn_about_gpu_placement(env, effective_context)
+
+        try:
+            is_argo = _is_cluster_argo_managed(effective_context)
+        except ArgoError:
+            is_argo = False
+
+        if is_argo:
+            _handle_argo_managed_deployment(
+                selected_stacks,
+                effective_context,
+                push_secrets,
+                config_map,
+                domain=domain,
+                revision=argocd_revision,
+            )
+            return
+
+        kubectl_ctx = ["--context", effective_context] if effective_context else []
+
+        # 4. Apply kustomize base (namespaces), then the stacks' kustomizations the base leaves out
+        print_info("[bold]Applying namespaces...[/bold]", prefix=False)
+        _apply_kustomizations([env.root, *all_kustomizations], kubectl_ctx)
+
+        # 5. Push the stacks' Secrets before anything reads them
+        if push_secrets:
+            print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
+            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+
+        # 5b. Verify Helm version requirement before Helm operations
+        is_v4 = _check_helm_version_for_deploy(all_releases)
+
+        # 6. Add Helm repos for selected stacks
+        _deploy_helm_repos(selected_stacks)
+
+        # 7. Install native manifests
+        _deploy_native_manifests(all_manifests, config_map, kubectl_ctx, domain)
+
+        # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
+        unready_nodes = runtime._get_unready_nodes(context=effective_context)
+        if unready_nodes and wait:
+            print_warning(
+                f"Detected unready cluster nodes: {', '.join(unready_nodes)}. Skipping Helm '--wait' for DaemonSet releases to prevent deadline timeouts."
+            )
+
+        # 9. Install Helm releases
+        for release in all_releases:
+            _install_single_release(
+                release,
+                effective_context,
+                helm_ctx,
+                wait,
+                timeout,
+                unready_nodes=unready_nodes,
+                is_v4=is_v4,
+            )
+
+        # 9b. Apply post-Helm custom resources and kustomizations whose CRDs the charts installed
+        _apply_post_helm_paths(all_post_helm, kubectl_ctx, domain=domain)
+
+        # 10. Post-deployment networking & credentials
+        write_stdout("\n")
+        print_success(f"Kubernetes stack ({stack}) deployed.")
+        write_stdout("\n")
+        _post_deploy_networking(stack, effective_context, port_forward, configure_urls)
+        _post_deploy_credentials(selected_stacks, effective_context)
+
+        _apply_stack_config_writes(selected_stacks)
 
 
 @dry_run_class("request-plan")

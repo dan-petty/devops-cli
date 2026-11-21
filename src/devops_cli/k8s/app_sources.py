@@ -84,13 +84,15 @@ class SourceTrees:
     """The local folder of each git repository that the Applications of a tree name.
 
     `local` is the checkout that holds the tree, and `origin` its normalized URL. A fetched
-    repository goes in a new folder under `workdir`. The trees are safe to read from several
-    threads: a repository and revision are fetched once.
+    repository goes in a new folder under `workdir`. With `dry_run`, as in the dry-run state, a
+    fetch only records its commands. The trees are safe to read from several threads: a
+    repository and revision are fetched once.
     """
 
     local: Path
     origin: str
     workdir: Path
+    dry_run: bool = False
     _fetched: dict[tuple[str, str], SourceTree] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -113,7 +115,7 @@ class SourceTrees:
         with self._lock:
             if key not in self._fetched:
                 checkout = self.workdir / f"source-{len(self._fetched)}"
-                self._fetched[key] = _fetch(url, key[1], checkout)
+                self._fetched[key] = _fetch(url, key[1], checkout, dry_run=self.dry_run)
             return self._fetched[key]
 
     @property
@@ -149,10 +151,21 @@ def application_sources(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
     return [source for source in sources if isinstance(source, dict)]
 
 
-def chart_versions(folders: Iterable[Path]) -> dict[str, str]:
-    """The chart version that each Argo CD Application in `folders` pins, by the name of the
-    Application: the `targetRevision` of its source with a `chart` (#6060). An Application with no
-    chart source has no entry."""
+@dataclass(frozen=True)
+class ChartSource:
+    """The chart source of an Argo CD Application: the chart version that it pins (#6060), the
+    values files that it gives Helm, in their order, and each source of the Application that has
+    a `ref`, by its ref, which a values file `$<ref>/<path>` names (#6680)."""
+
+    version: str
+    value_files: tuple[str, ...]
+    refs: Mapping[str, Mapping[str, Any]]
+
+
+def chart_sources(folders: Iterable[Path]) -> dict[str, ChartSource]:
+    """The chart source of each Argo CD Application in `folders`, by the name of the Application:
+    its source with a `chart` and a `targetRevision`. An Application with no such source has no
+    entry."""
     applications = (
         doc
         for folder in folders
@@ -160,12 +173,18 @@ def chart_versions(folders: Iterable[Path]) -> dict[str, str]:
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
         if isinstance(doc, dict) and doc.get("kind") == "Application"
     )
-    return {
-        str(doc["metadata"]["name"]): revision
-        for doc in applications
-        for source in application_sources(doc)
-        if source.get("chart") and (revision := source_revision(source))
-    }
+    found: dict[str, ChartSource] = {}
+    for doc in applications:
+        sources = application_sources(doc)
+        for source in sources:
+            if source.get("chart") and (revision := source_revision(source)):
+                value_files = (source.get("helm") or {}).get("valueFiles") or ()
+                found[str(doc["metadata"]["name"])] = ChartSource(
+                    version=revision,
+                    value_files=tuple(str(value_file) for value_file in value_files),
+                    refs=ref_sources(sources),
+                )
+    return found
 
 
 def ref_sources(sources: Iterable[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
@@ -201,9 +220,9 @@ def _fetch_commands(url: str, revision: str, checkout: Path) -> list[list[str]]:
     ]
 
 
-def _fetch(url: str, revision: str, checkout: Path) -> SourceTree:
+def _fetch(url: str, revision: str, checkout: Path, *, dry_run: bool) -> SourceTree:
     commands = _fetch_commands(url, revision, checkout)
-    if is_dry_run():
+    if dry_run or is_dry_run():
         return SourceTree(checkout, tuple(tuple(command) for command in commands))
     for command in commands:
         proc = run_subprocess(
@@ -223,9 +242,11 @@ def _fetch(url: str, revision: str, checkout: Path) -> SourceTree:
 
 
 __all__ = [
+    "ChartSource",
     "SourceTree",
     "SourceTrees",
     "application_sources",
+    "chart_sources",
     "normalize_git_url",
     "ref_sources",
     "repository_origin",

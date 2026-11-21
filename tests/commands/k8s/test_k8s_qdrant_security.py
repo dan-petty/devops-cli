@@ -84,6 +84,10 @@ def cluster(process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch) -> Itera
     monkeypatch.setenv("K8S_NAMESPACE", "test")
     fake = FakeCluster(namespaces={"llm", "cloudflared"})
     process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=fake))
+    # A git read of the checkout, such as its `origin`, goes to no cluster.
+    process_fake.answer(
+        lambda call: call.local_read and call.argv[:1] == ("git",), ProcessAnswer(returncode=1)
+    )
     yield fake
 
 
