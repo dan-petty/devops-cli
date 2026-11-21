@@ -23,7 +23,7 @@ Kind: other. Reads: `src/devops_cli/config/constants.py`, `tests/roadmap/refine/
 
 Kind: other. Reads: `docs/roadmap/refine.md`, `src/devops_cli/roadmap/refine/refine.py`. Changes: `docs/roadmap/refine.md`.
 
-- [ ] 3.1 In the Dependencies paragraph of `docs/roadmap/refine.md`, state that the section ends at the next heading of the same or a higher level, or at the start or the end marker of a job block, and that the Dependencies part inside the refine block still names its blockers. In the paragraph on the new version of the rules, give the time of task 2.1 and name the rule of this change
+- [x] 3.1 In the Dependencies paragraph of `docs/roadmap/refine.md`, state that the section ends at the next heading of the same or a higher level, or at the start or the end marker of a job block, and that the Dependencies part inside the refine block still names its blockers. In the paragraph on the new version of the rules, give the time of task 2.1 and name the rule of this change
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
