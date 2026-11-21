@@ -319,6 +319,7 @@ def _failed_draft(
     files: dict[str, str],
     *,
     archived: bool = False,
+    log: str = TYPE_ERROR,
 ) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
     """Pull request 5 of item 1: a bot draft on the staged branch with `files`, whose
     `Static Analysis` check failed on its head with a log that names a file of the plan. The store
@@ -330,9 +331,7 @@ def _failed_draft(
     api, programs = github_api_and_gh
     programs.answer("git", ProcessAnswer(side_effect=git_for_real))
     programs.answer(lambda call: command_text(call).startswith("uv "), ProcessAnswer())
-    programs.answer(
-        lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=TYPE_ERROR)
-    )
+    programs.answer(lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=log))
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(_pull_status(head)))
     _route_bot(api)
     api.route(
@@ -507,6 +506,47 @@ def test_a_rebased_branch_keeps_its_archive_commit_as_its_own_commit(
         ARCHIVE_MESSAGE.format(number=1),
         f"{TITLE} (#1)",
     ]
+
+
+# A test of main that fails on the branch point and that main fixes after it: the change of the
+# branch does not cause its failure.
+NEWS_TEST = "tests/test_news.py"
+NEWS_LOG = f"FAILED {NEWS_TEST}::test_news - AssertionError: assert 1 == 2\n"
+
+
+def test_a_branch_behind_main_that_does_not_cause_the_failure_is_rebased_with_no_fix(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """The failed test is a file of main that main fixed after the branch point, and the change of
+    the branch does not cause its failure. The round pushes the rebased branch alone, with no fix
+    commit and no model request, so the new head gets new checks (#6639)."""
+    stage_repo.track({NEWS_TEST: "def test_news() -> None:\n    assert 1 == 2\n"})
+    repo, store, _head = _failed_draft(stage_repo, github_api_and_gh, SHOUT_FILES, log=NEWS_LOG)
+    fixed = "def test_news() -> None:\n    assert 1 == 1\n"
+    advance_origin(repo, tmp_path, {NEWS_TEST: fixed})
+    main = repo.origin_git("rev-parse", "main")
+    script = ModelScript(say("No fix."))
+    factory.set_llm_client_override(script.model())
+
+    report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=job_repair(STAGE_REPO))
+
+    new_head = repo.origin_git("rev-parse", BRANCH)
+    held = store.item(1)
+    assert held is not None
+    assert (report.result, report.head, held.job_record.get(FixChecksRecordKey.RESULT)) == (
+        FixChecksResult.REBASED,
+        new_head,
+        "rebased",
+    )
+    assert report.reason.startswith("Rebased onto main with no fix")
+    assert repo.origin_git("merge-base", main, new_head) == main
+    assert repo.origin_git("log", "--format=%s", f"{main}..{new_head}").splitlines() == [
+        f"{TITLE} (#1)"
+    ]
+    assert (repo.origin_git("show", f"{new_head}:{NEWS_TEST}"), script.seen) == (fixed.strip(), [])
 
 
 def test_a_rebase_conflict_that_no_rule_settles_stops_the_round_and_pushes_nothing(

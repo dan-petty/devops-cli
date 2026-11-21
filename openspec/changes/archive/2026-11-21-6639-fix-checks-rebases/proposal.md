@@ -7,12 +7,14 @@
 - `prepare` records the tip of the default branch that its clone read (`onto`) when the judged head does not hold it.
 - The agent phase rebases onto `onto` and settles each stop with the rules of implement, moved to `roadmap/phases/rebase.py` (`rebase_onto`, `settle_stop`, `skips_archive_commit`, the index-stage rule). implement calls the same module. A rebase that skipped the archive commit archives the change again in a commit of its own.
 - A conflict that the rules do not settle stops the round with a reason that starts with `Conflict: ` and names each file. The round pushes nothing.
+- When the change of a rebased branch does not cause the failure, only main does, the round pushes the rebased branch alone with the result `rebased`, so the new head gets new checks.
 - After a rebase, `publish` replaces the branch on `onto`: the work, the archive commit, the commits after it and the fix, each one commit, with a lease on the judged head. A branch that holds `onto` gets the fix as one commit on the judged head, as before.
 - Delete the main-skew stop: `BranchChange.main_paths`, its diff, its rule in `judge_scope` and its two tests.
 - The change is observable (the commits of a round), so the spec `roadmap-fix-checks` gets a delta.
 
 ## Capabilities
-- `roadmap-fix-checks`: the runner Job rebases a branch behind main, and the repair scope has no main-skew stop.
+- `roadmap-fix-checks`: the runner Job rebases a branch behind main, the repair scope has no main-skew stop, and a failure that only main causes gets the rebase alone (`rebased`).
+- `roadmap-watch-row`: the ready path also takes a draft whose result is `rebased`.
 
 ## Impact
 - A fix-checks round on a branch behind main rebases and pushes an up-to-date branch.

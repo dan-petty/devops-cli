@@ -35,6 +35,24 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a
 - **WHEN** another writer moves the head branch after the rebase and before the push, and GitHub then gives the moved head
 - **THEN** the step returns `skipped` with the reason `Head has moved: the lease refused the push`, and the commit of the other writer stays
 
+### Requirement: The step marks an implement draft ready only by the readiness rule
+When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired` or `rebased`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), whose item holds no stop, with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
+
+#### Scenario: A repaired draft whose checks pass is marked ready
+- **WHEN** the step runs with `--confirm` on a repaired implement draft whose checks pass and that `draft_readiness` calls ready
+- **THEN** the step marks the draft ready with the expected head and returns `ready`
+
+#### Scenario: A drafted implement draft whose checks pass is marked ready
+- **WHEN** the step runs with `--confirm` and `ready_only` on an implement draft whose item records `implement.result` equal to `drafted`, whose checks pass and that `draft_readiness` calls ready
+- **THEN** the step marks the draft ready with the expected head and returns `ready`
+
+### Requirement: Publish takes only the enums of the outcome
+`publish` SHALL take the result and the tier of `outcome.json` from the enums of the step only: `repaired` with a tier, or `rebased`, `failed` or `stopped` with none. Each other outcome SHALL raise `PhaseOutputError` and push nothing. The reason of the agent SHALL reach the report masked and on one line.
+
+#### Scenario: An outcome outside the enums
+- **WHEN** `outcome.json` names the result `ready`, names `repaired` with no tier, or holds a key outside the model
+- **THEN** `publish` raises `PhaseOutputError` and pushes nothing
+
 ## REMOVED Requirements
 
 ### Requirement: The repair scope takes the failed files that the change causes
@@ -44,7 +62,7 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a
 ## ADDED Requirements
 
 ### Requirement: The repair scope takes the failed files that the rebased change causes
-After the rebase, a failed file outside the plan SHALL be in the repair scope when the branch changes it, when it uses a function, class or method whose definition the branch changes, when it is a test that imports a module that the branch changes, or when it is a snapshot test whose snapshot differs while the branch changes a source module.
+After the rebase, a failed file outside the plan SHALL be in the repair scope when the branch changes it, uses a function, class or method whose definition the branch changes, is a test that imports a changed module, or is a snapshot test whose snapshot differs while the branch changes a source module. With no failed file in the scope, a rebased branch SHALL be pushed alone with the result `rebased`, and a branch that needs no rebase SHALL stop.
 
 #### Scenario: A caller of a changed function outside the plan is repaired
 - **WHEN** the plan adds the keyword-only argument `in_runner` to `_run_pr_review_workflow`, and the log names `FAILED tests/git/test_review_worktree_regression.py::test_run_pr_review_workflow_partial_context - TypeError: _run_pr_review_workflow() missing 1 required keyword-only argument: 'in_runner'`, a file that the plan does not list and that calls the function
@@ -53,3 +71,7 @@ After the rebase, a failed file outside the plan SHALL be in the repair scope wh
 #### Scenario: A log that names no file of the checkout stops
 - **WHEN** the log names no failed file that the checkout tracks, such as the end of an ignore of a scanner
 - **THEN** the step stops with 0 model requests, and the reason says that the log names no path of the plan and no file that the change causes
+
+#### Scenario: A failure that only main causes
+- **WHEN** the failed test is a file of main that main fixed after the branch point, and the change of the branch does not cause its failure
+- **THEN** the step returns `rebased`, the new head holds the tip of main, the work of the branch is the one commit after it, and no model request runs

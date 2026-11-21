@@ -24,7 +24,8 @@ Two tiers of repair:
 - Tier 2 (model): run_fix_step within the plan scope and the files outside the plan whose failure
   the change of the branch causes (`fix_checks_cause`, #6116). A failure that the change does not
   cause stops the round with a reason that names each file. A comment names the files of each
-  pushed repair. A branch that is behind the default branch is rebased first (#6639).
+  pushed repair. A branch that is behind the default branch is rebased first (#6639); when only
+  main causes its failure, the round pushes the rebase alone, with the result `rebased`.
 
 The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
 that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
@@ -371,6 +372,8 @@ def check_preconditions(
 _ENDED: Final[frozenset[str]] = frozenset(
     {FixChecksResult.FAILED, FixChecksResult.STOPPED, FixChecksResult.WAIT}
 )
+# The results of a round that pushed a new head: a repair, or the rebased branch with no fix.
+_PUSHED: Final[frozenset[str]] = frozenset({FixChecksResult.REPAIRED, FixChecksResult.REBASED})
 
 
 def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) -> bool:
@@ -389,7 +392,7 @@ def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) 
         return False
     if unit.outcome == OUTCOME_NONE:
         return unit.attempt > extra
-    return unit.outcome != FixChecksResult.REPAIRED
+    return unit.outcome not in _PUSHED
 
 
 def _check_failed_head(facts: FixRound, check: str) -> FixChecksReport | None:
@@ -527,7 +530,7 @@ def takes_ready_path(item: Item) -> bool:
     if record.get(ImplementRecordKey.STOPPED):
         return False
     return (
-        record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+        record.get(FixChecksRecordKey.RESULT) in _PUSHED
         or record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED
     )
 

@@ -28,8 +28,9 @@ The lease is the judged head. A branch that holds the tip of the default branch 
 the base is the judged head, and the fix is one commit on it. A branch that is behind it is rebased
 onto that tip, which `prepare` records as `onto`, so `publish` replaces the branch: the base is
 `onto`, and the patches are the work of the branch up to its archive commit, the archive commit
-alone, the commits after it, and the fix, each one commit. The agent phase needs no network git
-call: the clone of `prepare` holds `onto` (#6601). `repair_round` runs the three phases in one process, which `--phase all`
+alone, the commits after it, and the fix, each one commit. When only main causes the failure, the
+round pushes the rebased branch with no fix, with the result `rebased`, so the new head gets new
+checks. The agent phase needs no network git call: the clone of `prepare` holds `onto` (#6601). `repair_round` runs the three phases in one process, which `--phase all`
 and the current Job template use: the state of `prepare` stays in memory, so `publish` reads no
 file of the run but the outputs of the agent, and the run folder goes when the round ends. #3700
 runs each phase in its own container.
@@ -123,7 +124,17 @@ _BRANCH_PATCHES = (
 _WORK_MESSAGE = "{title} (#{number})"
 # The results that an outcome of the agent phase may give.
 _AGENT_RESULTS = frozenset(
-    {FixChecksResult.REPAIRED, FixChecksResult.FAILED, FixChecksResult.STOPPED}
+    {
+        FixChecksResult.REPAIRED,
+        FixChecksResult.REBASED,
+        FixChecksResult.FAILED,
+        FixChecksResult.STOPPED,
+    }
+)
+# The reason of a round that pushed the rebased branch with no fix (#6639).
+_REBASED = (
+    "Rebased onto main with no fix: the change of the branch does not cause the failure, so the "
+    "new head gets new checks"
 )
 
 
@@ -331,6 +342,11 @@ def _fixers(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -
         )
     verdict = repair.scope(path, number, inputs.log, inputs.is_plan)
     if not verdict.in_scope:
+        if inputs.onto:
+            # Only main causes the failure: the rebase is the repair, as an update of the branch.
+            return AgentOutcome(
+                kind=OutcomeKind.DONE, result=FixChecksResult.REBASED, reason=verdict.stop_reason()
+            )
         return AgentOutcome(
             kind=OutcomeKind.STOPPED, result=FixChecksResult.STOPPED, reason=verdict.stop_reason()
         )
@@ -348,11 +364,13 @@ def _fixers(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -
     )
 
 
-def _write_patches(path: Path, inputs: AgentInput, tip: str, out: Path, repair: Repair) -> None:
+def _write_patches(
+    path: Path, inputs: AgentInput, tip: str, out: Path, repair: Repair, *, fix: bool
+) -> None:
     """The patches of the agent. For a rebased branch: the work from `onto` up to the archive
     commit of the item, the archive commit alone, and the commits after it up to `tip`, the rebased
-    head. Then the fix, from `tip`. A branch that needs no rebase has no work patch, and its fix
-    goes on the judged head."""
+    head. Then the fix from `tip`, or an empty fix when `fix` is False. A branch that needs no
+    rebase has no work patch, and its fix goes on the judged head."""
     if inputs.onto:
         archived = archive_commit(path, inputs.onto, inputs.item_num, operation=_OPERATION)
         ends = [f"{archived}^", archived, tip] if archived else [tip, tip, tip]
@@ -362,7 +380,10 @@ def _write_patches(path: Path, inputs: AgentInput, tip: str, out: Path, repair: 
     else:
         for name in _BRANCH_PATCHES:
             (out / name).write_bytes(b"")
-    repair.patch(path, tip, out / CONST_ROADMAP_PHASE_PATCH_FILE)
+    if fix:
+        repair.patch(path, tip, out / CONST_ROADMAP_PHASE_PATCH_FILE)
+    else:
+        (out / CONST_ROADMAP_PHASE_PATCH_FILE).write_bytes(b"")
 
 
 def agent_phase(folders: RunFolders, repair: Repair) -> None:
@@ -379,7 +400,8 @@ def agent_phase(folders: RunFolders, repair: Repair) -> None:
         process_hardening.end_leftover_processes()
     out = folders.make_out()
     if outcome.kind is OutcomeKind.DONE:
-        _write_patches(path, inputs, tip, out, repair)
+        fix = outcome.result != FixChecksResult.REBASED
+        _write_patches(path, inputs, tip, out, repair, fix=fix)
     write_json(out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
     write_json(out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
 
@@ -528,6 +550,36 @@ def _branch_patches(folders: RunFolders, facts: FixRound, onto: str) -> list[tup
     return [(patch, message) for patch, message in patches if patch.strip()]
 
 
+def _publish_rebase(
+    store: RoadmapStore,
+    client: Any,
+    facts: FixRound,
+    folders: RunFolders,
+    repair: Repair,
+    onto: str,
+) -> FixChecksReport:
+    """The publish of a branch that the agent rebased with no fix (#6639): its work, archive and
+    later commits on `onto`, with a lease on the judged head, as an update of the branch. An
+    outcome that says rebased for a round with no rebase is refused."""
+    if not onto:
+        raise PhaseOutputError("The outcome says rebased, and the round made no rebase")
+    published = _push(store, client, facts, repair, _branch_patches(folders, facts, onto), onto)
+    if isinstance(published, FixChecksReport):
+        return published
+    rounds = facts.rounds + 1
+    record_outcome(
+        store,
+        facts.item,
+        facts.status.head_sha,
+        facts.check,
+        FixChecksResult.REBASED,
+        facts.heads,
+        rounds=rounds,
+        errors=facts.errors,
+    )
+    return facts.report(FixChecksResult.REBASED, _REBASED, head=published.commit, rounds=rounds)
+
+
 def publish_round(
     store: RoadmapStore,
     client: Any,
@@ -542,6 +594,8 @@ def publish_round(
         return facts
     outcome = read_outcome(folders)
     result, tier = _result(outcome)
+    if result is FixChecksResult.REBASED:
+        return _publish_rebase(store, client, facts, folders, repair, judged.onto)
     if tier is None:
         end_round(store, facts, result)
         return facts.report(result, _text(outcome.reason))
