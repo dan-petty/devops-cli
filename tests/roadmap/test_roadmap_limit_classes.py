@@ -704,6 +704,16 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "a policy value (#4448): the overlap of the read of the changed issues; it cuts no work",
     ),
     "DEFAULT_ROADMAP_INTAKE_LIMIT": ("kept", "candidates of one round"),
+    "DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP": (
+        "kept",
+        "GitHub sets it (#4692): a filtered list of Actions runs gives at most 1,000 results; "
+        "the review splits a slice at the cap, so it cuts no run",
+    ),
+    "DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS": (
+        "other",
+        "a policy value (#4692): the workers of the openspec show calls of a review; it cuts "
+        "no work",
+    ),
     "DEFAULT_ROADMAP_REFINE_LIMIT": ("raised", "was 3; items of one round"),
     "DEFAULT_ROADMAP_INBOX_DRAFT_DAYS": (
         "setting",
