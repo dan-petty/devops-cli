@@ -797,7 +797,12 @@ def _write_into_clone(pull: _Pull, checkout: Path, written: str | None) -> None:
 
 
 def _with_pull_request_code(
-    monkeypatch: pytest.MonkeyPatch, pull: _Pull, written: str | None = None, *, valid: bool = True
+    monkeypatch: pytest.MonkeyPatch,
+    pull: _Pull,
+    written: str | None = None,
+    *,
+    valid: bool = True,
+    fails: str | None = None,
 ) -> list[list[str]]:
     """Run the step against `pull`: GitHub gives its status, each `uv` process is the code of the
     pull request, `openspec archive` moves the change folder and `openspec validate` gives
@@ -813,6 +818,8 @@ def _with_pull_request_code(
     def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if cmd[0] == BIN_UV:
             ran.append(cmd)
+            if fails is not None and fails in cmd:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="it failed")
             if "openspec" in cmd and "archive" in cmd:
                 archive(Path(kwargs["cwd"]))
             _write_into_clone(pull, Path(kwargs["cwd"]), written)
@@ -1247,3 +1254,162 @@ def test_the_plan_says_what_a_confirmed_round_does(
     """The plan sorts the conflicted paths by the rules of tier 1, so it says that a confirmed
     round stops where it would stop."""
     assert fix_conflict.plan_reason(conflicts, mode, release).startswith(plan)
+
+
+# ── The phases: the stops and the refusals (#6703) ──
+
+
+@pytest.mark.parametrize(
+    ("fails", "reason"),
+    [("lock", "uv lock failed"), ("generate", "devops docs generate failed")],
+)
+def test_a_program_of_tier_1_that_fails_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fails: str, reason: str
+) -> None:
+    """A program of tier 1 that fails at a stop ends the round as a stop that names it. The rebase
+    is aborted, the round is recorded, and nothing is pushed."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull, fails=fails)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert (report.result, report.reason, report.rounds) == (FixConflictResult.STOPPED, reason, 1)
+    assert (item.job_record.get(FixConflictRecordKey.ROUNDS), pull.pushed()) == ("1", pull.head)
+
+
+def test_an_archive_that_fails_after_the_skip_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rebase skips the archive commit, and the archive again fails: the round stops and
+    pushes nothing."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull, fails="archive")
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert (report.result, report.reason) == (
+        FixConflictResult.STOPPED,
+        "The change could not be archived again",
+    )
+    assert pull.pushed() == pull.head
+
+
+def test_with_tier_1_off_a_conflict_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """With `roadmap.fix_conflict.tier1_mode` off, the rebase settles no stop: the round stops and
+    runs no program of tier 1."""
+    config(roadmap={"fix_conflict": {"tier1_mode": "off"}})
+    pull = _pull_with_docs_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert (report.result, report.reason, ran) == (FixConflictResult.STOPPED, _NOT_SETTLED, [])
+    assert pull.pushed() == pull.head
+
+
+def test_a_soft_cap_with_no_fewer_files_stops_in_prepare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record holds two rounds on the same files, so `prepare` stops on the soft cap before the
+    agent phase, and the round is not counted again."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+    item = pull.store.item(pull.number)
+    assert item is not None
+    pull.store.set_marks(
+        item,
+        {FixConflictRecordKey.ROUNDS: "2", FixConflictRecordKey.FILES: json.dumps([_DOCS, _LOCK])},
+    )
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert report.result == FixConflictResult.STOPPED
+    assert report.reason.startswith("Soft cap reached")
+    assert (ran, pull.pushed(), report.rounds) == ([], pull.head, 2)
+
+
+def test_a_head_that_moved_before_the_clone_fails_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GitHub gives a head that the clone of the head branch does not hold, so `prepare` fails the
+    round and runs no program of tier 1."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+    _fake_github(monkeypatch, _pull_status("2" * 40, pull.branch), pull.upstream)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert report.result == FixConflictResult.FAILED
+    assert report.reason.startswith("The head branch is at")
+    assert ran == []
+
+
+def test_a_claim_during_the_round_refuses_the_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person claims the item while the agent phase runs. `publish` checks the admission bounds
+    again right before the push, so it pushes nothing."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+    agent = fix_conflict_phases.agent_phase
+
+    def agent_then_claim(folders: RunFolders) -> None:
+        agent(folders)
+        pull.store.add_label(pull.number, "owner/agent")
+
+    monkeypatch.setattr(fix_conflict_phases, "agent_phase", agent_then_claim)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert report.result == FixConflictResult.REFUSED
+    assert "owner label" in report.reason
+    assert pull.pushed() == pull.head
+
+
+def test_a_separate_publish_takes_only_the_state_of_its_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A separate `publish` reads the state file as data: a round that `prepare` ended gives no
+    second report, and a state of another pull request or another head raises
+    `PhaseOutputError`. A forged result of the agent raises it too."""
+    from devops_cli.exceptions.roadmap import PhaseOutputError
+    from devops_cli.roadmap.phases.files import AgentOutcome, OutcomeKind, write_json
+
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+    client = fix_conflict.get_github_session().client
+    folders = RunFolders(tmp_path / "run")
+    assert (
+        fix_conflict_phases.prepare_phase(
+            pull.store, client, REPO, pull.number, head=None, folders=folders
+        )
+        is None
+    )
+
+    with pytest.raises(PhaseOutputError, match="another pull request"):
+        fix_conflict_phases.publish_phase(pull.store, client, folders, repo=REPO, pull=99)
+    with pytest.raises(PhaseOutputError, match="another head"):
+        fix_conflict_phases.publish_phase(
+            pull.store, client, folders, repo=REPO, pull=pull.number, head="3" * 40
+        )
+    forged = AgentOutcome(kind=OutcomeKind.DONE, result=FixConflictResult.PLANNED)
+    write_json(folders.make_out() / "outcome.json", forged)
+    with pytest.raises(PhaseOutputError, match="names no result"):
+        fix_conflict_phases.publish_phase(pull.store, client, folders, repo=REPO, pull=pull.number)
+    assert pull.pushed() == pull.head
+
+    ended = RunFolders(tmp_path / "ended")
+    pull.store.add_label(pull.number, "owner/agent")
+    refused = fix_conflict_phases.prepare_phase(
+        pull.store, client, REPO, pull.number, head=None, folders=ended
+    )
+    assert refused is not None
+    assert refused.result == FixConflictResult.REFUSED
+    assert (
+        fix_conflict_phases.publish_phase(pull.store, client, ended, repo=REPO, pull=pull.number)
+        is None
+    )

@@ -113,10 +113,10 @@ def _run(
             require_runner(target)
     if phase is RunPhase.ALL or (not confirm and phase is RunPhase.PREPARE):
         return run_fix_conflict(get_roadmap_store(target), target, pull, head=head, confirm=confirm)
-    if not confirm:
+    # The command refuses a confirmed phase with no `--work`, so a phase with no run folder is a
+    # plan: `agent` and `publish` of a plan do nothing.
+    if not confirm or work is None:
         return None
-    if work is None:
-        raise ValueError("A phase of a round needs --work")
     return _phase(target, pull, head, phase, work)
 
 
