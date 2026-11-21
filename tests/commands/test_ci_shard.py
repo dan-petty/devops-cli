@@ -19,7 +19,12 @@ from devops_cli.ci.cache import resolve_ci_cache_path
 from devops_cli.ci.fail_to_pass import parse_junit_xml
 from devops_cli.commands.ci import app, get_check_spec
 from devops_cli.config.constants import CONST_CI_TEST_DURATIONS_PATH
-from devops_cli.core.test_selection import directory_modules, is_test_module, shard_test_files
+from devops_cli.core.test_selection import (
+    directory_modules,
+    is_test_module,
+    shard_paths,
+    shard_test_files,
+)
 from devops_cli.dry_run import set_dry_run
 from tests.support.fakes.process import ProcessFake
 from tests.support.paths import REPO_ROOT
@@ -219,6 +224,51 @@ def test_a_recorded_module_that_the_tree_no_longer_holds_is_ignored(tmp_path: Pa
     assert [shard_test_files(shard, 2, tmp_path) for shard in (1, 2)] == [
         ["tests/test_a.py"],
         ["tests/test_b.py", "tests/test_c.py"],
+    ]
+
+
+def test_shard_paths_puts_each_given_file_in_one_shard(tmp_path: Path) -> None:
+    """A given list of changed test files splits like the whole suite does: the three shard lists
+    hold each given file exactly once, and the heaviest given file goes to the lightest shard
+    (#6564)."""
+    _tree(
+        tmp_path,
+        {f"tests/test_{name}.py": 10 for name in "abcd"},
+        {
+            "tests/test_a.py": 40.0,
+            "tests/test_b.py": 30.0,
+            "tests/test_c.py": 20.0,
+            "tests/test_d.py": 10.0,
+        },
+    )
+    given = ["tests/test_a.py", "tests/test_b.py", "tests/test_c.py", "tests/test_d.py"]
+
+    lists = [shard_paths(shard, 2, given, tmp_path) for shard in (1, 2)]
+
+    assert (
+        sorted(module for files in lists for module in files),
+        lists,
+    ) == (
+        given,
+        [["tests/test_a.py", "tests/test_d.py"], ["tests/test_b.py", "tests/test_c.py"]],
+    )
+
+
+def test_shard_paths_weighs_a_given_file_that_the_tree_does_not_hold_at_no_second(
+    tmp_path: Path,
+) -> None:
+    """A changed file that the tree no longer holds weighs nothing, so it joins the shard that
+    already holds the fewest seconds and leaves the deal of the files beside it alone (#6564)."""
+    _tree(
+        tmp_path,
+        {"tests/test_a.py": 10, "tests/test_b.py": 10},
+        {"tests/test_a.py": 20.0, "tests/test_b.py": 10.0},
+    )
+    given = ["tests/test_a.py", "tests/test_b.py", "tests/test_gone.py"]
+
+    assert [shard_paths(shard, 2, given, tmp_path) for shard in (1, 2)] == [
+        ["tests/test_a.py"],
+        ["tests/test_b.py", "tests/test_gone.py"],
     ]
 
 

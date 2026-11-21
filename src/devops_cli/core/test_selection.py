@@ -353,30 +353,35 @@ def recorded_durations(root: Path) -> dict[str, float]:
     return _DURATIONS.validate_json(path.read_bytes())
 
 
-def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
-    """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
-
-    A module weighs its recorded seconds (`recorded_durations`, #5247). A module that the record
-    does not hold weighs its lines at the seconds per line of the recorded modules, and with no
-    recorded module every module weighs its lines. The modules go one by one, heaviest first
-    (then by path), to the shard with the least weight so far, and a tie goes to the lower shard.
-    Every runner reads the same tree and the same record, so every runner computes the same lists.
-    A stale record only unbalances the shards: each module of the tree is in one shard, and a
-    recorded module that the tree no longer holds is in none.
-    """
-
-    def line_count(module: str) -> int:
+def _module_lines(root: Path, module: str) -> int | None:
+    """The lines of the module at `module`, a path from `root`, or None when the tree does not
+    hold it, as a changed file that a pull request deleted."""
+    try:
         with (root / module).open("rb") as handle:
             return sum(1 for _ in handle)
+    except OSError:
+        return None
 
-    lines = {module: line_count(module) for module in directory_modules(CONST_TESTS_ROOT_DIR, root)}
-    recorded = {
-        module: seconds for module, seconds in recorded_durations(root).items() if module in lines
-    }
-    recorded_lines = sum(lines[module] for module in recorded)
+
+def shard_paths(shard: int, shards: int, modules: Sequence[str], root: Path) -> list[str]:
+    """The sorted paths of shard `shard` of `shards` over the given test modules (#6564).
+
+    A module weighs its recorded seconds (`recorded_durations`, #5247). A module that the record
+    does not hold weighs its lines at the seconds per line of the recorded modules of the list, and
+    with no recorded module every module weighs its lines. A module that the tree does not hold, as
+    a changed file that a pull request deleted, weighs 0 seconds. The modules go one by one,
+    heaviest first (then by path), to the shard with the least weight so far, and a tie goes to the
+    lower shard. Every runner reads the same list and the same record, so every runner computes the
+    same lists.
+    """
+    lines = {module: _module_lines(root, module) for module in modules}
+    held = {module: count for module, count in lines.items() if count is not None}
+    durations = recorded_durations(root)
+    recorded = {module: durations[module] for module in held if module in durations}
+    recorded_lines = sum(held[module] for module in recorded)
     rate = math.fsum(recorded.values()) / recorded_lines if recorded_lines else 1.0
     weighted = sorted(
-        ((recorded.get(module, count * rate), module) for module, count in lines.items()),
+        ((recorded.get(module, held.get(module, 0) * rate), module) for module in lines),
         key=lambda item: (-item[0], item[1]),
     )
     weights = [0.0] * shards
@@ -386,6 +391,16 @@ def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
         weights[lightest] += weight
         parts[lightest].append(module)
     return sorted(parts[shard - 1])
+
+
+def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:
+    """The sorted repo-relative paths of the test modules of shard `shard` of `shards` (#2371).
+
+    The split weighs each module of the whole suite by its recorded seconds, as `shard_paths`
+    does, so a module of the tree is in one shard, and a recorded module that the tree no longer
+    holds is in none.
+    """
+    return shard_paths(shard, shards, directory_modules(CONST_TESTS_ROOT_DIR, root), root)
 
 
 def forces_full_run(path: str, imports: SuiteImports) -> bool:
