@@ -1,13 +1,17 @@
 """The `openspec` reader of the project review catalog (#4692): the deltas of the changes that the
 window archived, and the requirement totals at the base and at the head.
 
-git names the files that the window added under `openspec/changes/archive/`, and `git cat-file
---batch` gives their text at the head in one read. The reader writes each archived change that
-holds `specs/` into a temporary root as an active change, and `openspec show <change> --json
---deltas-only` reads its deltas there, through `isolated_openspec`, in a few workers. `git grep
--c` counts the `### Requirement:` headings under `openspec/specs` at the base and at the head. The
-reader changes no file of the checkout. The git reads give text, so a test answers them from a
-recorded transcript.
+git names the files that the window added under `openspec/changes/archive/`, and one `git grep`
+of every line gives their text at the head (`<head>:<path>\0<line number>\0<line>`). The reader
+writes each archived change that holds `specs/` into a temporary root as an active change, and
+`openspec show <change> --json --deltas-only` reads its deltas there, through `isolated_openspec`,
+in a few workers. `git grep -c` counts the `### Requirement:` headings under `openspec/specs` at
+the base and at the head. The reader changes no file of the checkout.
+
+The git reads give text, so a test answers them from a recorded transcript. A text read turns CRLF
+and a lone carriage return into one line end and a byte that is not UTF-8 into U+FFFD, so the
+reader counts no bytes: each line carries its own path, and a line with no path continues the line
+before it. An empty file gives no line, and its text is empty.
 """
 
 from __future__ import annotations
@@ -44,9 +48,23 @@ def archived_args(base: str, head: str) -> tuple[str, ...]:
     return ("diff", "--name-only", "-z", "--diff-filter=A", base, head, "--", f"{ARCHIVE}/")
 
 
-def batch_args() -> tuple[str, ...]:
-    """The text of each `<rev>:<path>` on standard input."""
-    return ("cat-file", "--batch")
+def lines_args(head: str, folders: Sequence[str]) -> tuple[str, ...]:
+    """Each line of each text file under `folders` at `head`, with its path and its number. The
+    options override a `grep` setting of the person that would change the form."""
+    return (
+        "grep",
+        "-z",
+        "-n",
+        "-I",
+        "-F",
+        "--no-column",
+        "--no-color",
+        "-e",
+        "",
+        head,
+        "--",
+        *folders,
+    )
 
 
 def requirement_args(rev: str) -> tuple[str, ...]:
@@ -68,23 +86,38 @@ class ArchivedChange:
     files: Mapping[str, str]
 
 
-def _blobs(text: str) -> list[str | None]:
-    """The text of each object of a `git cat-file --batch` answer, in order; None for a missing
-    one. The size of an object is in bytes, so the answer is read as bytes."""
-    data = text.encode("utf-8")
-    found: list[str | None] = []
-    at = 0
-    while at < len(data):
-        end = data.index(b"\n", at)
-        header = data[at:end].split(b" ")
-        at = end + 1
-        if header[-1] == b"missing":
-            found.append(None)
-            continue
-        size = int(header[2])
-        found.append(data[at : at + size].decode("utf-8"))
-        at += size + 1
-    return found
+def _texts(answer: str, head: str) -> dict[str, str]:
+    """The text of each file of a `git grep -z -n` answer at `head`, by path."""
+    lines: dict[str, list[str]] = defaultdict(list)
+    held: list[str] | None = None
+    prefix = f"{head}:"
+    for line in answer.split("\n")[:-1]:
+        name, found, rest = line.partition("\0")
+        if found and name.startswith(prefix):
+            held = lines[name.removeprefix(prefix)]
+            held.append(rest.partition("\0")[2])
+        elif held:
+            held[-1] += "\n" + line
+    return {path: "\n".join(text) + "\n" for path, text in lines.items()}
+
+
+def _lines(checkout: Path, head: str, folders: Sequence[str]) -> str:
+    """The answer of `lines_args`; empty when the folders hold no line."""
+    args = lines_args(head, folders)
+    done = run_subprocess(
+        git_argv(checkout, *args), quiet=True, local_read=True, timeout=_GIT_TIMEOUT_SECONDS
+    )
+    if done.returncode == _NO_MATCH and not (done.stdout or "").strip():
+        return ""
+    if done.returncode != 0:
+        error = (done.stderr or "").strip().splitlines()
+        raise RoadmapReviewError(
+            MESSAGES.roadmap.review_git_failed.format(
+                command=query_text(lines_args(head, [f"{ARCHIVE}/..."])),
+                error=error[0] if error else done.returncode,
+            )
+        )
+    return done.stdout or ""
 
 
 def archived_changes(checkout: Path, base: str, head: str) -> list[ArchivedChange]:
@@ -98,19 +131,18 @@ def archived_changes(checkout: Path, base: str, head: str) -> list[ArchivedChang
             by_change[parts[0]].append("/".join(parts[1:]))
     kept = {
         change: sorted(files)
-        for change, files in by_change.items()
+        for change, files in sorted(by_change.items())
         if any(path.startswith("specs/") for path in files)
     }
-    wanted = [f"{ARCHIVE}/{change}/{path}" for change, files in kept.items() for path in files]
-    if not wanted:
+    if not kept:
         return []
-    stdin = "".join(f"{head}:{path}\n" for path in wanted)
-    texts = iter(_blobs(run_git(checkout, batch_args(), stdin=stdin)))
-    changes: list[ArchivedChange] = []
-    for change, files in sorted(kept.items()):
-        held = {path: text for path in files if (text := next(texts)) is not None}
-        changes.append(ArchivedChange(change, held))
-    return changes
+    texts = _texts(_lines(checkout, head, [f"{ARCHIVE}/{change}/" for change in kept]), head)
+    return [
+        ArchivedChange(
+            change, {path: texts.get(f"{ARCHIVE}/{change}/{path}", "") for path in files}
+        )
+        for change, files in kept.items()
+    ]
 
 
 def requirement_total(checkout: Path, rev: str) -> int:

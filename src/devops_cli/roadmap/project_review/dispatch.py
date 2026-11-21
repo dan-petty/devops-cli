@@ -436,8 +436,9 @@ def plan_catalog(
     """The reads that a run of `catalog` sends, shared reads first, then each fact with its
     reader kind and its rendered query. A value that only a read gives is a named placeholder."""
     from devops_cli.roadmap.project_review.openspec_read import (
+        ARCHIVE,
         archived_args,
-        batch_args,
+        lines_args,
         requirement_args,
         show_args,
     )
@@ -461,7 +462,8 @@ def plan_catalog(
         )
     if ReaderKind.OPENSPEC in kinds:
         when = _condition(catalog.readers.get(ReaderKind.OPENSPEC, ReaderRules()).requires)
-        steps = [archived_args(base, head), batch_args()]
+        folder = f"{ARCHIVE}/{texts['change']}/"
+        steps = [archived_args(base, head), lines_args(head, [folder])]
         totals = [requirement_args(base), requirement_args(head)]
         shared.extend(
             [
