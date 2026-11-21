@@ -18,7 +18,7 @@ Adds: `ChartSource`, `chart_sources`, `_source_trees`
 
 Kind: other. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 2.1 In `k8s/README.md`, state that a row of `HELM_RELEASES_BY_STACK` gives the name, the chart and the namespace of a release, and that deploy-stack takes its version and its values files from the Application of the same name. Remove the table from the step of a Gitea chart update, because the table holds no version
+- [x] 2.1 In `k8s/README.md`, state that a row of `HELM_RELEASES_BY_STACK` gives the name, the chart and the namespace of a release, and that deploy-stack takes its version and its values files from the Application of the same name. Remove the table from the step of a Gitea chart update, because the table holds no version
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
