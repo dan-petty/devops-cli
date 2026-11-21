@@ -20,6 +20,8 @@ and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after it
   no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
   miss: the values are untrusted. So does a sum of expanded records past
   `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB), the total bound of one load.
+- A write of records whose JSON passes the total bound of one load writes nothing and counts
+  `oversize`, so no writer of the store stores a copy that no load accepts.
 - A write is made only when its watermark is not older than the stored one, or when the stored
   copy has another schema key (ADR 0023 section 4). The check and the write are one WATCH and
   MULTI/EXEC; a writer whose EXEC fails writes nothing and does not try again, because the other
@@ -223,9 +225,12 @@ class ValkeySnapshotStore:
     such as by another lane of the process, sends no `HSCAN`. It keeps them by the casefolded
     name of `RepoRef.key`, as `snapshot_key` does, so each spelling of a name uses the one set of
     known records of its one key. One store lives for a process (`shared_snapshot_store`).
+    `load_max_bytes` is the total bound of the expanded records of one load, and of the record
+    JSON of one write.
     """
 
     tier: ValkeyCacheTier
+    load_max_bytes: int = DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES
     _seen: dict[str, _Seen] = field(default_factory=dict, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -249,7 +254,7 @@ class ValkeySnapshotStore:
         if values is None:
             return None
         values.pop(META_FIELD, None)
-        texts = _decompressed(repo, values)
+        texts = _decompressed(repo, values, self.load_max_bytes)
         if texts is None:
             return None
         digests = _digests(texts)
@@ -301,8 +306,18 @@ class ValkeySnapshotStore:
         count_write(BrainStore.SNAPSHOT, self.write(snapshot, self.meta(snapshot.repo)))
 
     def write(self, snapshot: ListingSnapshot, held: HeldMeta | None) -> BrainWrite:
-        """Write `snapshot` over the shared copy whose `meta` was `held`, and return the result."""
+        """Write `snapshot` over the shared copy whose `meta` was `held`, and return the result.
+        Records whose JSON passes `load_max_bytes` in total give `oversize` and write nothing,
+        because no load would accept them."""
         texts = {str(issue.number): issue.model_dump_json().encode() for issue in snapshot.issues}
+        if sum(map(len, texts.values())) > self.load_max_bytes:
+            logger.info(
+                "The records of %s pass the bound of %s bytes of one shared load, so the shared "
+                "tier gets no copy.",
+                snapshot.repo,
+                self.load_max_bytes,
+            )
+            return BrainWrite.OVERSIZE
         records = {number: zlib.compress(text) for number, text in texts.items()}
         if any(
             len(value) > DEFAULT_BRAIN_VALUE_MAX_BYTES
@@ -420,11 +435,13 @@ def _digests(texts: Mapping[str, bytes]) -> dict[str, bytes]:
     return {number: _digest(text) for number, text in texts.items()}
 
 
-def _decompressed(repo: str, values: Mapping[str, bytes]) -> dict[str, bytes] | None:
+def _decompressed(
+    repo: str, values: Mapping[str, bytes], max_bytes: int
+) -> dict[str, bytes] | None:
     """The JSON of each record; None when a value is not whole zlib data or expands past
     `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, or when the sum of the
-    expanded records passes `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES`. The sum is checked after each
-    record, so a load expands at most the total bound and one record."""
+    expanded records passes `max_bytes`. The sum is checked after each record, so a load expands
+    at most the total bound and one record."""
     texts: dict[str, bytes] = {}
     total = 0
     for number, value in values.items():
@@ -442,11 +459,11 @@ def _decompressed(repo: str, values: Mapping[str, bytes]) -> dict[str, bytes] | 
             )
             return None
         total += len(text)
-        if total > DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES:
+        if total > max_bytes:
             logger.info(
                 "The records of the shared snapshot of %s expand past the bound of %s bytes.",
                 repo,
-                DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES,
+                max_bytes,
             )
             return None
         texts[number] = text

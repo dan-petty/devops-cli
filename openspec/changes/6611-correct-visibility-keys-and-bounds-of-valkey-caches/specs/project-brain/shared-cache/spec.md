@@ -1,5 +1,12 @@
 ## MODIFIED Requirements
 
+### Requirement: A load counts the tier that gave the snapshot
+A load of the tiered snapshot store SHALL count `devops_cli_brain_reads_total{store="snapshot"}` with `result="local"` when it gives the fit local copy, `result="shared"` when it gives the shared copy, and `result="source"` only when no tier holds a fit copy, so the run reads the whole listing. A private or an unknown visibility answer, and a failed shared tier, SHALL count `private`, `unknown` or `fallback` in place of `local` or `source`.
+
+#### Scenario: Local and source loads
+- **WHEN** a load runs with no copy in either tier, and a second load runs after a save that put the same snapshot in both tiers
+- **THEN** the first load counts `source`, and the second load returns the local copy and counts `local`
+
 ### Requirement: A read of the shared tier fills the in-process tier
 A `TieredMapping` read that misses the in-process tier and hits the shared tier SHALL read the value and the remaining TTL of its key (`GET` and `PTTL`) in one round trip, and SHALL put the value in the in-process tier until the shared key expires, or until the TTL of the mapping ends when that is sooner. A next read of the key in that time SHALL send no command to Valkey. A failed round trip SHALL count `devops_cli_valkey_cache_errors_total{op="get"}`.
 
@@ -16,10 +23,7 @@ A `TieredMapping` read that misses the in-process tier and hits the shared tier 
 - **THEN** the first read gives the value and a TTL of 5,000 ms, the second gives no value and -2, the third gives no answer, and `devops_cli_valkey_cache_errors_total{op="get",error="connection"}` rises by one
 
 ### Requirement: No key of a private repository
-The visibility check SHALL give one of three answers: public, private or unknown. A failed visibility read SHALL give unknown. The snapshot store SHALL write no key of a repository that the check does not give as public, and SHALL NOT use a shared copy of it.
-- A private answer SHALL count `result="private"`. When the shared tier holds a copy of the repository, the store SHALL remove the key and count `devops_cli_brain_writes_total{result="removed"}`.
-- An unknown answer SHALL count `result="unknown"`, and the store SHALL NOT read the records of, write or remove the shared copy.
-- A process SHALL keep a public or a private answer for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again.
+The visibility check SHALL give public, private or unknown; a failed read SHALL give unknown. The snapshot store SHALL write no key of a repository that the check does not give as public, and SHALL NOT use its shared copy. A private answer SHALL count `result="private"`, and SHALL remove a shared key of the repository and count `result="removed"`. An unknown answer SHALL count `result="unknown"`, and the store SHALL NOT read the records of, write or remove the shared copy.
 
 #### Scenario: Private repository
 - **WHEN** a listing round runs for a repository whose visibility read gives `isPrivate: true`
@@ -28,10 +32,6 @@ The visibility check SHALL give one of three answers: public, private or unknown
 #### Scenario: A failed visibility read leaves the shared copy
 - **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process finds that its visibility read fails with `API rate limit exceeded`
 - **THEN** the snapshot key keeps its `meta` and its records, the second round sends only `HGET` commands to Valkey, GitHub gets one visibility read in the second round, and `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` and `devops_cli_brain_writes_total{store="snapshot",result="unknown"}` each rise by one
-
-#### Scenario: An unknown answer is kept for 60 s
-- **WHEN** the visibility read of a repository fails, the `clock` fixture moves 59 s before a second check, and 2 s more before a third check whose read gives `isPrivate: false`
-- **THEN** the first two checks give unknown with one GitHub read, and the third check reads GitHub once more and gives public
 
 #### Scenario: No visibility read without the shared tier
 - **WHEN** the `valkey_server` fake has `connected = False` and a listing round runs
@@ -54,9 +54,20 @@ The key of a shared snapshot, the visibility answer of a process, and the record
 
 ## ADDED Requirements
 
-### Requirement: A shared load has a bound on its expanded records
-A load of a shared snapshot SHALL expand at most `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB) of record JSON in total, in addition to the bound of 1 MiB for each record. When the sum of the expanded records passes the bound, the load SHALL be a miss, SHALL count `devops_cli_brain_reads_total{store="snapshot",result="fallback"}`, and the reader SHALL take the local copy or read GitHub, as for each other miss.
+### Requirement: A visibility answer is kept for its lifetime
+A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL stay for at most 1 hour after the change plus the time that the visibility reads fail, and for at most the TTL of its key.
+
+#### Scenario: An unknown answer is kept for 60 s
+- **WHEN** the visibility read of a repository fails, the `clock` fixture moves 59 s before a second check, and 2 s more before a third check whose read gives `isPrivate: false`
+- **THEN** the first two checks give unknown with one GitHub read, and the third check reads GitHub once more and gives public
+
+### Requirement: A shared snapshot has a bound on its expanded records
+A load of a shared snapshot SHALL expand at most `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB) of record JSON in total, in addition to the bound of 1 MiB for each record. A load past the bound SHALL be a miss, SHALL count `result="fallback"`, and the reader SHALL take the local copy or read GitHub. A save whose record JSON passes the bound SHALL write no key and SHALL count `devops_cli_brain_writes_total{result="oversize"}`.
 
 #### Scenario: Many small records past the total bound
-- **WHEN** the shared snapshot is newer than the local one and holds two records that each expand to less than 1 MiB of JSON, and the test sets the `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` of the snapshot store below the sum of the two
+- **WHEN** the shared snapshot is newer than the local one and holds two records that each expand to less than 1 MiB of JSON, and the reader snapshot store is built with a total bound below the sum of the two
 - **THEN** the load gives the local snapshot and raises no error, and `devops_cli_brain_reads_total{store="snapshot",result="fallback"}` rises by one
+
+#### Scenario: A save past the total bound
+- **WHEN** a snapshot store built with a total bound of 512 KiB saves a snapshot of two records of about 300,000 bytes of JSON each
+- **THEN** the `valkey_server` fake holds no key, `devops_cli_brain_writes_total{store="snapshot",result="oversize"}` rises by one, and the local file holds the snapshot

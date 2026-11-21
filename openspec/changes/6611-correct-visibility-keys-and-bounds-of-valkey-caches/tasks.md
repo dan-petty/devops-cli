@@ -22,11 +22,16 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/d
 ## 3. Bound the expanded records of one shared load
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/config/defaults.py`, `tests/roadmap/stores/test_listing_shared.py`. Changes: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/config/defaults.py`, `tests/roadmap/stores/test_listing_shared.py`.
-Adds: `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES`.
+Adds: `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES`, `ValkeySnapshotStore.load_max_bytes`.
 
-- [x] 3.1 Add `test_a_shared_load_past_its_total_bound_falls_back` to `tests/roadmap/stores/test_listing_shared.py` (scenario `Many small records past the total bound`): a local snapshot with an older watermark, a shared snapshot of two records whose bodies each expand to about 300,000 bytes of JSON, `monkeypatch.setattr` of `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` in `devops_cli.roadmap.stores.listing_shared` to 524,288, and the OTLP fake; assert the local snapshot and `{("snapshot", "fallback"): 1.0}`
+- [x] 3.1 Add `test_a_shared_load_past_its_total_bound_falls_back` to `tests/roadmap/stores/test_listing_shared.py` (scenario `Many small records past the total bound`): a local snapshot with an older watermark, a shared snapshot of two records whose bodies each expand to about 300,000 bytes of JSON, a reader `ValkeySnapshotStore` built with `load_max_bytes=524_288` (no test patches a module attribute, docs/TESTING.md), and the OTLP fake; assert the local snapshot and `{("snapshot", "fallback"): 1.0}`
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` fails on the base
-- [x] 3.2 Add `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES: int = 134_217_728` (128 MiB) to `src/devops_cli/config/defaults.py`, with a comment that gives the measure of 2026-11-21 (6,616 records, 37,927,266 bytes of JSON) and the reason. Make `_decompressed` add the length of each expanded record to a sum and give None, with one info log line that names the bound, when the sum passes the bound. Give the sizes in the module docstring as 38 MB of JSON and 14 MB with zlib, and name the total bound next to the bound of each record
+- [x] 3.2 Add `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES: int = 134_217_728` (128 MiB) to `src/devops_cli/config/defaults.py`, with a comment that gives the measure of 2026-11-21 (6,616 records, 37,927,266 bytes of JSON) and the reason. Add the field `load_max_bytes: int = DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` to `ValkeySnapshotStore`, and pass it to `_decompressed`. Make `_decompressed` add the length of each expanded record to a sum and give None, with one info log line that names the bound, when the sum passes the bound. Give the sizes in the module docstring as 38 MB of JSON and 14 MB with zlib, and name the total bound next to the bound of each record
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` passes
+
+- [x] 3.3 Add `test_a_save_past_the_total_bound_writes_no_shared_copy` to `tests/roadmap/stores/test_listing_shared.py` (scenario `A save past the total bound`: a writer `ValkeySnapshotStore` built with `load_max_bytes=524_288` saves the two records of 3.1 through `TieredSnapshotStore`; assert no key, `{("snapshot", "oversize"): 1.0}` and the local file)
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` fails on the base
+- [x] 3.4 Make `ValkeySnapshotStore.write` give `BrainWrite.OVERSIZE`, with one info log line that names the bound, and write nothing when the sum of the record JSON passes `load_max_bytes`, so no writer stores a copy that no load accepts
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` passes
 
 ## 4. Expire an in-process fact with its Valkey key
@@ -41,9 +46,11 @@ Adds: `ValkeyCacheTier.get_with_ttl`.
 
 ## 5. Documents
 
-Kind: documents. Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`. Changes: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`.
+Kind: documents. Reads: `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/config/constants.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`, `k8s/README.md`. Changes: `src/devops_cli/telemetry/instruments.py`, `src/devops_cli/config/constants.py`, `docs/TELEMETRY.md`, `docs/roadmap/intake.md`, `k8s/README.md`.
 
 - [x] 5.1 Add `unknown` (a repository whose visibility read failed) to the descriptions of `BRAIN_READS_TOTAL` and `BRAIN_WRITES_TOTAL` in `src/devops_cli/telemetry/instruments.py`, and write `docs/TELEMETRY.md` again with `uv run devops docs generate`. In `docs/roadmap/intake.md`, say that a failed read of the visibility leaves the shared copy and is read again after 60 s, and that only a private answer removes the shared copy
   - Verification: `$ uv run devops ci --check --only docs` passes, and `$ ! git grep -n "counts as private" -- docs src` exits 0
+- [x] 5.2 In `docs/roadmap/intake.md` and `k8s/README.md`, give the bound of a repository that became private as one hour after the change plus the time that the visibility reads fail, at most the 7 days of the key, in place of "at most one hour after the change". In `docs/roadmap/intake.md`, list each result value of the snapshot reads and name the `oversize` write past the total bound. Add the total bound to the `oversize` text of `BRAIN_WRITES_TOTAL` and `BrainWrite`, and write `docs/TELEMETRY.md` again
+  - Verification: `$ ! git grep -n "at most one hour after the change" -- docs k8s` exits 0, and `$ uv run devops ci --check --only docs` passes
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

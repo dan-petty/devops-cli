@@ -13,7 +13,7 @@
 
 - The visibility check gives one of three answers, `Visibility.PUBLIC`, `PRIVATE` or `UNKNOWN`. `repository_visibility` replaces `repository_is_public`, and a failed read gives `UNKNOWN`. Only a private answer removes the shared copy. An unknown answer does not read the records of, write or remove the shared copy, and counts `result="unknown"` on `devops_cli_brain_reads_total` and `devops_cli_brain_writes_total`. A process keeps an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s) and a public or private answer for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour, kept by the owner decision of 2026-11-21), in a `cachetools.TLRUCache`. `TieredSnapshotStore` takes the check as its field `visibility`.
 - `ValkeySnapshotStore._seen` uses `RepoRef(repo).key` in each read, write and removal, as `snapshot_key` does.
-- A load of a shared snapshot expands at most `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB) of record JSON in total. A load past the bound is a miss and counts `result="fallback"`, as each other miss does.
+- A load of a shared snapshot expands at most `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB) of record JSON in total. A load past the bound is a miss and counts `result="fallback"`, as each other miss does. A save whose record JSON passes the bound writes no key and counts `result="oversize"`, so no writer stores a copy that no load accepts.
 - The in-process tier of `TieredMapping` becomes a `cachetools.TLRUCache`. A Valkey hit reads the value and the remaining TTL of its key (`GET` and `PTTL`) in one round trip through the new `ValkeyCacheTier.get_with_ttl`, and the value leaves the in-process tier no later than the Valkey key.
 - The change alters what a consumer observes (the keys in `valkey-devops`, the counters and the commands that the stores send), so it carries a spec delta.
 
@@ -25,13 +25,13 @@ None.
 
 ### Modified Capabilities
 
-- `project-brain/shared-cache`: "No key of a private repository" (a failed read is unknown and leaves the shared copy), "One key for each repository" (the known records of a process use one entry), "A read of the shared tier fills the in-process tier" (the value expires with its Valkey key), and the new requirement "A shared load has a bound on its expanded records".
+- `project-brain/shared-cache`: "No key of a private repository" (a failed read is unknown and leaves the shared copy), "A load counts the tier that gave the snapshot" (a private or unknown answer counts in place of `local`), "One key for each repository" (the known records of a process use one entry), "A read of the shared tier fills the in-process tier" (the value expires with its Valkey key), and the new requirements "A visibility answer is kept for its lifetime" and "A shared snapshot has a bound on its expanded records".
 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/valkey/tiered.py`, `src/devops_cli/valkey/cache.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/telemetry/instruments.py`.
 - Tests: `tests/roadmap/stores/test_listing_shared.py`, `tests/valkey/test_tiered.py`, `tests/valkey/test_valkey_cache_tier.py`.
-- Documents: `docs/TELEMETRY.md` (generated), `docs/roadmap/intake.md`.
+- Documents: `docs/TELEMETRY.md` (generated), `docs/roadmap/intake.md`, `k8s/README.md` (the bound of a repository that became private).
 - Metrics: the `result` label of `devops_cli_brain_reads_total` and `devops_cli_brain_writes_total` gets the value `unknown`. Each value still comes from a fixed enum. No dashboard or alert of the repository queries the two counters (`git grep -n "brain_reads\|brain_writes" k8s/` gives no line).
 - Runtime: no new dependency, no new setting and no manifest change. While the GraphQL quota is out, a process sends at most one visibility read for each repository in each 60 s, and the shared copy stays.
 - The change fits one pull request.

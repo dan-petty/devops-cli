@@ -2928,7 +2928,8 @@ class BrainRead(StrEnum):
 class BrainWrite(StrEnum):
     """The `result` label of `devops_cli_brain_writes_total` (#4668): written to the shared tier,
     not written because the shared copy already holds the same records, skipped while the tier
-    failed, kept local because the value is over its bound, refused because the shared copy is
+    failed, kept local because the value or the records of the snapshot are over their bound
+    (#6611), refused because the shared copy is
     newer, kept local for a private repository, the shared copy of a repository that became
     private removed, or kept local for a repository whose visibility read failed, whose shared
     copy stays as it is (#6611)."""

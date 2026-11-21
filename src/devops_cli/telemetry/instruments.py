@@ -723,7 +723,8 @@ BRAIN_WRITES_TOTAL = Instrument(
     "1",
     "Writes of the project brain to the shared tier (#4668), by store and result: shared, "
     "unchanged when the shared snapshot already holds the same records, skipped while the tier "
-    "failed, oversize for a value over 1 MiB that stays in memory, older when the shared "
+    "failed, oversize for a value over 1 MiB or a snapshot over 128 MiB of record JSON, which "
+    "stays local, older when the shared "
     "snapshot is newer or another writer won, private, removed for the shared snapshot of a "
     "repository that became private, and unknown for a repository whose visibility read failed, "
     "whose shared snapshot stays as it is",
