@@ -9,6 +9,7 @@ import pytest
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
+    FixChecksRecordKey,
     GitHubState,
     ImplementRecordKey,
     Item,
@@ -104,6 +105,56 @@ def _item(
         ),
         # Ready-for-review item with status In Review
         (_item(13, status="In Review"), None, "ready-for-review"),
+        # An implement Job that ended at the draft writes In Review, and with no pull data the
+        # draft is in review, not ready for review (#6559)
+        (
+            _item(17, status="In Review", job_record={ImplementRecordKey.RESULT: "drafted"}),
+            None,
+            "in-review",
+        ),
+        # With no pull data a drafted delivery is in review: a record mark of the ready path can
+        # be stale after the review step makes the pull request a draft again (#6559)
+        (
+            _item(
+                18,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.RESULT: "drafted",
+                    FixChecksRecordKey.RESULT: "ready",
+                },
+            ),
+            None,
+            "in-review",
+        ),
+        # The pull data says the drafted delivery is a draft again, whatever the record says
+        (
+            _item(
+                19,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.PR: "102",
+                    ImplementRecordKey.RESULT: "drafted",
+                    FixChecksRecordKey.RESULT: "ready",
+                },
+            ),
+            {102: PullStatus(state="open", draft=True)},
+            "in-review",
+        ),
+        # A Staged item delivers on its plan pull request, which the plan path marked ready
+        (
+            _item(
+                20,
+                status="In Review",
+                job_record={
+                    ImplementRecordKey.PR: "102",
+                    StageRecordKey.PR: "102",
+                    StageRecordKey.READY: "102",
+                    ImplementRecordKey.RESULT: "drafted",
+                },
+            ),
+            {102: PullStatus(state="open", draft=False)},
+            "ready-for-review",
+        ),
         # Ready-for-review item with ready delivery PR
         (
             _item(14, job_record={ImplementRecordKey.PR: "102"}),

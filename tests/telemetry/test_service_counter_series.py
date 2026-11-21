@@ -20,7 +20,6 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
     CONST_SERVICE_METRIC_JOBS,
-    CONST_SERVICE_METRIC_KEPT_WORK,
     CONST_SERVICE_METRIC_TRIGGERS,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     CONST_SERVICE_OUTCOME_ACCEPTED,
@@ -103,24 +102,6 @@ def test_implement_jobs_counter_exists_at_zero_for_each_item_class_and_result() 
     }
 
     assert {key: series.get(key) for key in expected} == expected
-
-
-def test_kept_work_counter_exists_at_zero_for_each_class_and_outcome() -> None:
-    """The counter of #3650 counts an item with kept work by `repo`, failure `class` and
-    `outcome`, and each of those label sets exists at zero from the start."""
-    _manager(REPOS)
-
-    series = _series(CONST_SERVICE_METRIC_KEPT_WORK)
-    outcomes = ("continued", "finished", "blocked")
-    expected = {
-        frozenset({("repo", repo), ("class", klass.value), ("outcome", outcome)}): 0.0
-        for repo in REPOS
-        for klass in FailureClass
-        for outcome in outcomes
-    }
-
-    assert {key: series.get(key) for key in expected} == expected
-    assert _label_values(CONST_SERVICE_METRIC_KEPT_WORK, "outcome") == set(outcomes)
 
 
 def test_implement_repair_rounds_and_tokens_counters_exist_at_zero_for_each_item_class() -> None:

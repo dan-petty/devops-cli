@@ -40,7 +40,7 @@ def budget(config: Callable[..., Path]) -> None:
 
 
 @pytest.mark.usefixtures("budget")
-def test_the_ready_comment_and_the_record_show_the_extension_of_a_step(
+def test_the_end_comment_and_the_record_show_the_extension_of_a_step(
     job_world: JobWorld,
 ) -> None:
     script = ModelScript(
@@ -56,7 +56,7 @@ def test_the_ready_comment_and_the_record_show_the_extension_of_a_step(
     held = job_world.store.item(1)
     assert held is not None
     spend = json.loads(held.job_record.get(ImplementRecordKey.SPEND) or "{}")
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert EXTENDED in comment
     assert [step.get("extension") for step in spend["steps"]] == [
         {"limit": 220, "budget": 330, "calls": 20, "edits": 2, "refused": 0, "ceiling": False},

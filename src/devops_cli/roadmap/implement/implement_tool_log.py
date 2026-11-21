@@ -46,7 +46,7 @@ import secrets
 import shlex
 import time
 from collections import Counter, deque
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -323,9 +323,7 @@ class ToolCallLog:
     holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
     retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
     only when the checkout holds that path. A log with no root shows no path. With a `trace`, each call is also an event of it (#3032):
-    this log is the one place that knows a refusal by policy from another retry. `before_request` runs
-    before each model request, when the tool calls of the last reply have all returned and the
-    agent is paused: the step uses it to keep the work in progress (#3054). `parser_failures` counts
+    this log is the one place that knows a refusal by policy from another retry. `parser_failures` counts
     the tool calls of the current tier that the provider could not parse (#3053); the tier loop
     of the step sets it to 0 for each tier. `recent` holds the tool name and the outcome of the
     last calls of the step, over all its turns and tiers (#4394). `refused_run` counts the shell
@@ -341,7 +339,6 @@ class ToolCallLog:
     trace: ImplementTrace | None = None
     refusals: set[str] = field(default_factory=set[str])
     refused_run: int = 0
-    before_request: Callable[[], None] | None = None
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
     parser_failures: int = 0
@@ -555,9 +552,7 @@ class ToolCallLog:
     async def _request(
         self, _ctx: RunContext[Any], request_context: ModelRequestContext, /
     ) -> ModelRequestContext:
-        """Run `before_request`, note the time of the request, and pass on the request as it is."""
-        if self.before_request is not None:
-            self.before_request()
+        """Note the time of the request, and pass on the request as it is."""
         self.asked = time.monotonic()
         return request_context
 

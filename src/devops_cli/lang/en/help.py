@@ -1760,9 +1760,13 @@ class RoadmapCommandHelp:
         "6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the "
         "instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass "
         "counts that only the stage, implement and fix_plan lines hold today. For stage and "
-        "implement it also reads the pull requests that the bot of service.github_app.slug "
-        "opened in the window, with one GraphQL search to GitHub for each 100, and gives the "
-        "share of each first verdict label and the verdict score beside p."
+        "implement it also reads the pull requests of the bot of service.github_app.slug that "
+        "changed in the window (updated:>=), with one GraphQL search to GitHub for each 100, and "
+        "gives the share of each first verdict label and the verdict score beside p, for the "
+        "pull requests opened in the window. It scores the drafted lines of implement of each "
+        "pull request once, by its forge state: merged or out of draft gives 1 success and a "
+        "failure for each other line, closed gives a failure for each line, and a draft keeps "
+        "its lines out of the attempts in drafts_pending."
     )
     eval_grades_repo: str = "Report only this repository (owner/name). Default: all repositories."
     eval_grades_window: str = (
@@ -1874,8 +1878,8 @@ class RoadmapCommandHelp:
     retitle_dry_run: str = "Make no request: print the requests a run makes, with placeholders."
     implement: str = (
         "Implement a Staged or Planned item in bounded steps: with --group, run one task group in a "
-        "checkout; without it, run the job, which takes items, runs their steps, and marks the pull "
-        "request ready. Details: docs/roadmap/implement.md."
+        "checkout; without it, run the job, which takes items, runs their steps, and opens or "
+        "updates the draft pull request. Details: docs/roadmap/implement.md."
     )
     implement_item: str = (
         "The issue number of an item. With --group, the item whose change holds the group. "
@@ -2056,7 +2060,7 @@ class RoadmapCommandHelp:
         "roadmap.stage.planned_limit, which is a rule of the stage job only, and the limit of "
         "a run. For refine the reason is the wait of the item, such as a question for a person. "
         "For a stopped item it prints the state of the stop from the job record: the class, the "
-        "attempts of the stopped step, the work that the stop kept and the action left. "
+        "attempts of the stopped step and the action left. "
         "The reasons are the texts of the 'Left out' list of stage --plan and implement "
         "--plan. The command reads "
         "GitHub and git, calls no model and writes nothing. It uses the filter and the limit "

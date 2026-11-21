@@ -2,7 +2,7 @@
 
 Enforces safety bounds:
 - Bot pull requests only.
-- Skip an item that a live implement Job holds: its repair loop owns the check (#5983).
+- Skip an item that a live implement Job holds: the Job owns its branch (#5983).
 - Stop on an owner/* label but the Service's own `owner/service` (`claim_labels`, #5027).
 - Skip when the head commit moved, also when the lease of the push finds that it moved (#5027).
 - Skip a head and check whose last round ended failed, stopped or wait (#5983).
@@ -31,7 +31,8 @@ that it would take, and writes nothing to GitHub, to the store or to the branch.
 caller gives a `Repair`: the checkout of the head of the pull request and the two fixers. The step
 opens the checkout only after the bounds, the checks and the caps, runs the fixers in it, and pushes
 once. The step does not wait for the checks after its push: a later call that finds the draft that
-it repaired with every check passing marks the draft ready when `draft_readiness` allows it.
+it repaired, or a draft that its implement Job left at the draft (#6559), with every check passing
+marks the draft ready when `draft_readiness` allows it.
 """
 
 from __future__ import annotations
@@ -42,7 +43,6 @@ import re
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final, NamedTuple, Protocol
 
@@ -61,6 +61,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.claim import claim_labels
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
+from devops_cli.roadmap.fix_checks_row import OUTCOME_NONE, unit_records
 from devops_cli.roadmap.implement.implement_fix_scope import repair_scope
 from devops_cli.roadmap.implement.implement_pull import (
     Answer,
@@ -84,8 +85,11 @@ from devops_cli.roadmap.steps.fix_checks_cause import (
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
+    FixChecksResult,
     ImplementRecordKey,
+    ImplementResult,
     Item,
+    JobRecord,
     RoadmapStore,
 )
 
@@ -103,18 +107,6 @@ _DOCS_FAILURE: Final = re.compile(
     r"devops docs generate|Documentation is out of date|Missing documentation file"
 )
 _LOCK_FAILURE: Final = re.compile(r"uv\.lock\S*\s+needs to be updated")
-
-
-class FixChecksResult(StrEnum):
-    """The result of the fix-checks step on a pull request (#5023)."""
-
-    REPAIRED = "repaired"
-    STOPPED = "stopped"
-    SKIPPED = "skipped"
-    WAIT = "wait"
-    FAILED = "failed"
-    PLANNED = "planned"
-    READY = "ready"
 
 
 @dataclass(frozen=True)
@@ -206,7 +198,7 @@ def is_bot_author(author: str) -> bool:
     return bool(bot and author == bot)
 
 
-def _has_owner_label(labels: Sequence[str]) -> bool:
+def has_owner_label(labels: Sequence[str]) -> bool:
     """Whether `labels` hold an owner/* label that claims against the Service: `owner/agent`,
     `owner/human` or another of the family, but not `owner/service` (#5027)."""
     return bool(claim_labels(labels))
@@ -336,8 +328,8 @@ def _check_preconditions(
             reason="Author is not a bot",
         )
     if item is not None and job_holds(item):
-        # The repair loop of the implement Job owns the failed check while the Job lives, as for
-        # `fix-plan` (#5983). The record keeps the name of a Job that ended, with its state.
+        # The implement Job owns its branch while the Job lives, as for `fix-plan` (#5983). The
+        # record keeps the name of a Job that ended, with its state.
         return FixChecksReport(
             repo=repo,
             pull=pull,
@@ -345,7 +337,7 @@ def _check_preconditions(
             head=status.head_sha,
             reason=f"A runner Job works on it: `{item.job_record.get(ImplementRecordKey.JOB)}`",
         )
-    if _has_owner_label(status.labels) or (item is not None and _has_owner_label(item.labels)):
+    if has_owner_label(status.labels) or (item is not None and has_owner_label(item.labels)):
         return FixChecksReport(
             repo=repo,
             pull=pull,
@@ -360,6 +352,25 @@ def _check_preconditions(
 _ENDED: Final[frozenset[str]] = frozenset(
     {FixChecksResult.FAILED, FixChecksResult.STOPPED, FixChecksResult.WAIT}
 )
+
+
+def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) -> bool:
+    """Whether the fix unit of `check` on head `head` of pull request `pull` ended with no repair
+    (#6559): the last round of the step on that head and check ended (`_ENDED`), or the unit
+    record holds an outcome that is no repair, or its attempts are spent (more than `extra` more
+    attempts, as `fix_checks_row` counts them). No unit then repairs the check, so the watch row
+    stops the item of a delivery draft."""
+    if (
+        record.get(FixChecksRecordKey.KEY) == f"{head}:{check}"
+        and record.get(FixChecksRecordKey.RESULT) in _ENDED
+    ):
+        return True
+    unit = unit_records(record.get(FixChecksRecordKey.UNITS)).get(f"{pull}:{head}:{check}")
+    if unit is None:
+        return False
+    if unit.outcome == OUTCOME_NONE:
+        return unit.attempt > extra
+    return unit.outcome != FixChecksResult.REPAIRED
 
 
 def _check_failed_head(facts: _Round, check: str) -> FixChecksReport | None:
@@ -528,6 +539,20 @@ def _repair(store: RoadmapStore, client: Any, facts: _Round, repair: Repair) -> 
     return facts.report(FixChecksResult.REPAIRED, done, head=new_head, rounds=rounds)
 
 
+def takes_ready_path(item: Item) -> bool:
+    """Whether the ready path of the step takes the delivery draft of `item`: a fix Job repaired
+    it (#5971), or its implement Job ended at the draft (`drafted`, #6559). A draft whose item
+    holds a stop stays a draft: the implement Job or the watch row stopped it, and only a clear of
+    the stop lets the path take it again."""
+    record = item.job_record
+    if record.get(ImplementRecordKey.STOPPED):
+        return False
+    return (
+        record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+        or record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED
+    )
+
+
 def _ready_after_repair(
     store: RoadmapStore,
     client: Any,
@@ -536,17 +561,17 @@ def _ready_after_repair(
     *,
     confirm: bool,
 ) -> FixChecksReport:
-    """A head with no failed check. A draft that this step repaired, whose checks all pass, is
-    marked ready when `draft_readiness` answers ready (#5971). Only an implement draft gets the
-    mark here: a plan draft keeps the holds of its own ready path. Any other pull request is left
-    to the watch row."""
+    """A head with no failed check. A draft that the ready path takes (`takes_ready_path`), whose
+    checks all pass, is marked ready when `draft_readiness` answers ready (#5971, #6559). Only an
+    implement draft gets the mark here: a plan draft keeps the holds of its own ready path. Any
+    other pull request is left to the watch row."""
     item = facts.item
     skipped = facts.report(FixChecksResult.SKIPPED, "No failed check on head")
     if not (
         facts.status.draft
         and checks.is_passing
         and item is not None
-        and item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+        and takes_ready_path(item)
         and kind_of(item, facts.pull, facts.status.title) is DraftKind.IMPLEMENT
     ):
         return skipped
@@ -557,10 +582,10 @@ def _ready_after_repair(
     if readiness.answer is not Answer.READY:
         return facts.report(FixChecksResult.SKIPPED, f"Draft is not ready: {readiness.reason}")
     if not confirm:
-        return facts.report(FixChecksResult.PLANNED, "Plan: mark the repaired draft ready")
+        return facts.report(FixChecksResult.PLANNED, "Plan: mark the draft ready")
     mark_ready(facts.repo, facts.pull, expected_head=facts.status.head_sha, draft=draft)
     _end(store, facts, FixChecksResult.READY)
-    return facts.report(FixChecksResult.READY, "Marked the repaired draft ready for review")
+    return facts.report(FixChecksResult.READY, "Marked the draft ready for review")
 
 
 def _ready_path(

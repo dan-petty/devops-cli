@@ -194,7 +194,6 @@ def test_a_stopped_item_names_its_stop_for_the_implement_job(job_world: JobWorld
         {
             ImplementRecordKey.STOPPED: "group 2",
             ImplementRecordKey.FAILURE: "check_failed",
-            ImplementRecordKey.WIP: '{"group": "group 2", "done": 3, "of": 5, "sha": "abc123"}',
             ImplementRecordKey.TRACE: trace.encode(),
         },
     )
@@ -206,19 +205,11 @@ def test_a_stopped_item_names_its_stop_for_the_implement_job(job_world: JobWorld
     )
     stop = getattr(explained, "stop", None)
     assert stop is not None, "the explanation gives no stop of the item"
-    assert (
-        stop.step,
-        stop.failure_class,
-        stop.attempts,
-        stop.kept_group,
-        stop.kept_done,
-        stop.kept_total,
-    ) == ("group 2", "check_failed", 2, "group 2", 3, 5)
+    assert (stop.step, stop.failure_class, stop.attempts) == ("group 2", "check_failed", 2)
     lines = render_explanation(explained).splitlines()
     assert "Stop: step group 2." in lines
     assert "Stop class: check_failed." in lines
     assert "Stop attempts: 2." in lines
-    assert "Stop kept work: group 2, 3 of 5 tasks." in lines
     assert "Stop action left: none is recorded." in lines
 
     job_world.store.set_marks(held, {ImplementRecordKey.LEFT_ACTION: "wait"})
@@ -793,6 +784,26 @@ def test_explain_item_prints_phase_and_phase_age(job_world: JobWorld) -> None:
 
     rendered = render_explanation(explained)
     assert "Phase: ready. Phase age: " in rendered
+
+
+@pytest.mark.parametrize(("draft", "expected"), [(True, "in-review"), (False, "ready-for-review")])
+def test_explain_reads_the_draft_state_of_a_drafted_delivery(
+    job_world: JobWorld, draft: bool, expected: str
+) -> None:
+    """The record cannot say whether a drafted delivery is still a draft, so the explanation reads
+    the pull request of `implement.pr` for the phase (#6559)."""
+    number = _seed(job_world)
+    item = job_world.store.item(number)
+    assert item is not None
+    job_world.store.set_field(
+        item,
+        ItemField.STATUS,
+        "In Review",
+        marks={ImplementRecordKey.PR: "77", ImplementRecordKey.RESULT: "drafted"},
+    )
+    route_pull_status(job_world.api, {"state": "open", "draft": draft, "merged": False}, pull=77)
+
+    assert _explain(job_world, number).phase == expected
 
 
 def test_a_new_tracker_gets_the_refine_tracker_text(job_world: JobWorld) -> None:

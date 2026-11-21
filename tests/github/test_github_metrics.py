@@ -57,6 +57,7 @@ from devops_cli.roadmap.stores.store import (
     Change,
     CloseReason,
     GitHubState,
+    ImplementRecordKey,
     ItemField,
     RoadmapStore,
     StageRecordKey,
@@ -1466,6 +1467,29 @@ def test_a_staged_pull_request_sets_staged_phase() -> None:
         _age_of(ages, "staged").number,
         _age_of(ages, "ready").number,
     ) == (with_plan, without_plan)
+
+
+def test_a_drafted_delivery_counts_in_the_phase_of_the_draft_state_of_its_pull_request() -> None:
+    """The record of a drafted delivery cannot say whether its pull request is still a draft, so
+    the round reads the open pull requests once: a delivery out of draft counts as
+    ready-for-review, and a draft as in-review (#6559)."""
+    clock = AgesClock()
+    store = InMemoryRoadmapStore(clock=clock)
+    for draft in (False, True):
+        number = _seeded_item(store, f"draft {draft}")
+        _write_field(store, number, ItemField.STATUS, "In Review")
+        pull = store.seed_pull(f"feat: delivery {draft}", head_ref=f"feat/{number}-x", draft=draft)
+        item = store.item(number)
+        assert item is not None
+        store.set_marks(
+            item, {ImplementRecordKey.PR: str(pull), ImplementRecordKey.RESULT: "drafted"}
+        )
+    clock.at(3600)
+
+    _, _, phases, _ = get_item_age_metrics(store, REPO, clock)
+
+    counts = {metric.phase: metric.count for metric in phases}
+    assert (counts.get("ready-for-review"), counts.get("in-review")) == (1, 1)
 
 
 def test_a_phase_with_no_item_sends_zero_for_its_age_and_its_number() -> None:

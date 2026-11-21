@@ -129,7 +129,7 @@ def test_no_program_that_the_home_folder_names_sees_the_token(
     applied = real_git.run(script)
 
     seen = capture.read_text(encoding="utf-8") if capture.exists() else ""
-    assert (applied.ready, applied.stopped, applied.failed) == ((1,), (), ())
+    assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert real_git.repo.origin_git("rev-parse", "--verify", f"refs/heads/{BRANCH}")
     assert ("pre-commit none" in seen, PINNED_GITHUB_TOKEN in seen) == (True, False)
 

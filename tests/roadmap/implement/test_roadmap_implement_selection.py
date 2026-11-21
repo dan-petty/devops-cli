@@ -651,7 +651,7 @@ def test_a_dry_run_lists_the_requests_of_a_run_and_makes_none(
         any("pulls/<pull request>" in command for command in commands),
         any(command.endswith("pr ready <pull request>") for command in commands),
         any("rebase origin/main" in command for command in commands),
-    ) == (True, (), [], [], True, True, True)
+    ) == (True, (), [], [], True, False, True)
 
 
 @pytest.mark.parametrize(

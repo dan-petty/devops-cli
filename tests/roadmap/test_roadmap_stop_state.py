@@ -1,5 +1,5 @@
-"""The state of a stop of an item (#3648): the step, the class, the attempts, the kept work and
-the action left, read from the job record alone.
+"""The state of a stop of an item (#3648): the step, the class, the attempts and the action left,
+read from the job record alone.
 
 The module that reads the state is imported in each case, so the file collects on a tree that has
 no such module and each case fails in its call phase there (#3648)."""
@@ -20,13 +20,11 @@ def _item(record: dict[str, str]) -> Item:
 
 
 def _stop_record() -> dict[str, str]:
-    """The job record of a stopped item: the step, the class, the work that the stop kept and the
-    action that is left."""
+    """The job record of a stopped item: the step, the class and the action that is left."""
     return {
         ImplementRecordKey.STOPPED: "group 2",
         ImplementRecordKey.FAILURE: "check_failed",
         ImplementRecordKey.LEFT_ACTION: "wait",
-        ImplementRecordKey.WIP: '{"group": "group 2", "done": 3, "of": 5, "sha": "abc123"}',
     }
 
 
@@ -45,7 +43,7 @@ def _attempts_trace(count: int) -> str:
     return trace.encode()
 
 
-def test_stop_state_reads_the_class_the_attempts_the_kept_work_and_the_action_left() -> None:
+def test_stop_state_reads_the_class_the_attempts_and_the_action_left() -> None:
     from devops_cli.roadmap.stop_state import StopState, stop_state_of
 
     item = _item({**_stop_record(), ImplementRecordKey.TRACE: _attempts_trace(2)})
@@ -56,9 +54,6 @@ def test_stop_state_reads_the_class_the_attempts_the_kept_work_and_the_action_le
         step="group 2",
         failure_class="check_failed",
         attempts=2,
-        kept_group="group 2",
-        kept_done=3,
-        kept_total=5,
         action_left="wait",
     )
 

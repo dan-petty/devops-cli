@@ -18,23 +18,17 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.implement.implement_pull import WatchKind, watch_pull
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, decode_job_record
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     BRANCH,
-    FAIL,
-    PASS,
     PULL,
-    RUNNING,
     JobWorld,
-    a_fix,
     group_one_calls,
     group_two_calls,
     two_groups,
 )
-from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -178,6 +172,22 @@ def _kill_in_group_two(world: JobWorld) -> None:
     assert killed.type is PodKilled
 
 
+def _died_before_the_end(world: JobWorld) -> None:
+    """A Job that passed the scoped checks, pushed and commented, and whose pod died before the
+    write that ends the run at the draft (#6559): the record keeps both phase marks at the head."""
+    world.run(two_groups())
+    _mark(world, {Mark.CHECKED: _tip(world), Mark.PUBLISHED: _tip(world)})
+
+
+def _written(world: JobWorld, key: str) -> list[str | None]:
+    """The values other than None that the job wrote to `key` of the record, in order."""
+    return [
+        write.value
+        for write in world.store.job_writes()
+        if write.key == key and write.value is not None
+    ]
+
+
 def _group_two() -> ModelScript:
     return ModelScript(tool_calls(*group_two_calls()), say("Group 2 is done."))
 
@@ -193,108 +203,72 @@ def _spend(world: JobWorld) -> dict[str, object]:
 
 
 def test_checked_sha_is_the_head_that_passed_the_scoped_checks(job_world: JobWorld) -> None:
-    job_world.pull.runs = [[RUNNING]]
+    job_world.run(two_groups())
 
-    applied = job_world.run(two_groups())
-
-    assert applied.stopped == (1,)
-    assert _item(job_world)[1].get(CHECKED) == _tip(job_world)
+    assert _written(job_world, CHECKED) == [_tip(job_world)]
 
 
 def test_checked_sha_a_second_job_at_the_checked_head_runs_no_scoped_check(
     job_world: JobWorld,
 ) -> None:
-    job_world.pull.runs = [[RUNNING]]
-    job_world.run(two_groups())
+    _died_before_the_end(job_world)
     first = _count(job_world, PRE_PUSH)
-    job_world.pull.runs = [[PASS]]
     _continue(job_world)
 
     applied = job_world.run(ModelScript())
 
-    assert (first, applied.ready) == (1, (1,))
+    assert (first, applied.drafted) == (1, (1,))
     assert _count(job_world, PRE_PUSH) == first
 
 
 def test_checked_sha_of_another_head_runs_the_scoped_checks_again(job_world: JobWorld) -> None:
-    job_world.pull.runs = [[RUNNING]]
-    job_world.run(two_groups())
+    _died_before_the_end(job_world)
     first = _count(job_world, PRE_PUSH)
     _mark(job_world, {Mark.CHECKED: "0" * 40})
-    job_world.pull.runs = [[PASS]]
     _continue(job_world)
 
     applied = job_world.run(ModelScript())
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert _count(job_world, PRE_PUSH) == first + 1
-
-
-def test_checked_sha_a_fix_after_a_failed_check_checks_the_new_head(job_world: JobWorld) -> None:
-    job_world.pull.runs = [[FAIL], [PASS]]
-
-    applied = job_world.run(two_groups(*a_fix()))
-
-    assert applied.ready == (1,)
-    assert _count(job_world, PRE_PUSH) == 2
-    assert _item(job_world)[1].get(CHECKED) is None
-
-
-def test_a_repair_round_of_the_job_writes_no_count_of_the_fix_checks_unit(
-    job_world: JobWorld,
-) -> None:
-    """The repair loop of the implement Job counts its rounds in `implement.repair_rounds` only,
-    so the fix-checks unit that the watch row starts after the Job has its own caps (#5027)."""
-    job_world.pull.runs = [[FAIL], [PASS]]
-
-    applied = job_world.run(two_groups(*a_fix()))
-
-    assert applied.ready == (1,)
-    assert [key for key in _item(job_world)[1] if key.startswith("fix_checks.")] == []
 
 
 # ── published_sha ─────────────────────────────────────────────────────────────────────────
 
 
 def test_published_sha_is_the_head_that_the_job_pushed(job_world: JobWorld) -> None:
-    job_world.pull.runs = [[RUNNING]]
-
     job_world.run(two_groups())
 
-    assert _item(job_world)[1].get(PUBLISHED) == _tip(job_world)
+    assert _written(job_world, PUBLISHED) == [_tip(job_world)]
 
 
 def test_published_sha_a_second_job_at_the_published_head_pushes_nothing(
     job_world: JobWorld,
 ) -> None:
-    job_world.pull.runs = [[RUNNING]]
-    job_world.run(two_groups())
+    _died_before_the_end(job_world)
     tip = _tip(job_world)
     pushes = [call for call in job_world.programs.calls if "push" in call.argv]
-    job_world.pull.runs = [[PASS]]
     _continue(job_world)
 
     applied = job_world.run(ModelScript())
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert [call for call in job_world.programs.calls if "push" in call.argv] == pushes
     assert _tip(job_world) == tip
     assert _item(job_world)[1].get(PUBLISHED) is None
 
 
 def test_published_sha_of_a_planned_item_is_the_head_of_its_draft(planned_world: JobWorld) -> None:
-    planned_world.pull.runs = [[RUNNING]]
-
     planned_world.run(two_groups())
 
-    assert _item(planned_world)[1].get(PUBLISHED) == _tip(planned_world)
+    assert _written(planned_world, PUBLISHED) == [_tip(planned_world)]
 
 
-def test_a_ready_item_keeps_neither_phase_mark(job_world: JobWorld) -> None:
+def test_a_drafted_item_keeps_neither_phase_mark(job_world: JobWorld) -> None:
     applied = job_world.run(two_groups())
 
     record = _item(job_world)[1]
-    assert (applied.ready, record.get(CHECKED), record.get(PUBLISHED)) == ((1,), None, None)
+    assert (applied.drafted, record.get(CHECKED), record.get(PUBLISHED)) == ((1,), None, None)
 
 
 def test_the_phase_marks_cost_one_write_each(job_world: JobWorld) -> None:
@@ -329,37 +303,19 @@ def test_pr_comment_marker_a_run_with_no_job_record_has_the_marker_of_a_manual_r
     assert comment.splitlines()[:2] == [MARKER, RUN.format(job="manual")]
 
 
-def test_pr_comment_marker_a_repair_round_updates_the_comment_of_the_run(
-    job_world: JobWorld,
-) -> None:
-    _mark(job_world, {ImplementRecordKey.JOB: JOB})
-    job_world.pull.runs = [[FAIL], [PASS]]
-
-    applied = job_world.run(two_groups(*a_fix()))
-
-    (posted,) = _posted(job_world)
-    (changed,) = _changed(job_world)
-    assert applied.ready == (1,)
-    assert posted.splitlines()[:2] == changed.splitlines()[:2] == [MARKER, RUN.format(job=JOB)]
-    assert "| group 1 | done |" in changed
-    assert "| fix | done |" in changed
-
-
 @pytest.mark.parametrize("same_run", [True, False], ids=["same run", "next run"])
 def test_pr_comment_marker_a_rerun_with_no_new_outcome_posts_no_empty_comment(
     job_world: JobWorld, same_run: bool
 ) -> None:
     _mark(job_world, {ImplementRecordKey.JOB: JOB})
-    job_world.pull.runs = [[RUNNING]]
-    job_world.run(two_groups())
+    _died_before_the_end(job_world)
     (first,) = _posted(job_world)
     job_world.pull.comments({"id": 77, "body": first, "user": {"login": "example-app[bot]"}})
-    job_world.pull.runs = [[PASS]]
     _continue(job_world, JOB if same_run else NEXT_JOB)
 
     applied = job_world.run(ModelScript())
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert _posted(job_world) == [first]
     assert all("| group 1 | done |" in body for body in _changed(job_world, 77))
     assert not any(
@@ -379,7 +335,7 @@ def test_pr_comment_marker_a_next_run_posts_its_own_comment_for_its_own_outcomes
     applied = job_world.run(_group_two())
 
     (comment,) = _posted(job_world)
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert comment.splitlines()[:2] == [MARKER, RUN.format(job=NEXT_JOB)]
     assert ("| group 2 | done |" in comment, "| group 1 |" in comment) == (True, False)
 
@@ -431,7 +387,9 @@ def test_spend_survives_kill_a_stop_writes_the_sum_of_the_jobs(job_world: JobWor
     assert (spend["requests"], spend["input_tokens"]) == (3, GROUP_TOKENS + REQUEST_TOKENS)
 
 
-def test_spend_survives_kill_ready_writes_the_sum_of_the_jobs(job_world: JobWorld) -> None:
+def test_spend_survives_kill_the_drafted_end_writes_the_sum_of_the_jobs(
+    job_world: JobWorld,
+) -> None:
     _kill_in_group_two(job_world)
     _continue(job_world)
 
@@ -440,7 +398,7 @@ def test_spend_survives_kill_ready_writes_the_sum_of_the_jobs(job_world: JobWorl
     spend = _spend(job_world)
     steps = spend["steps"]
     assert isinstance(steps, list)
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert (spend["requests"], spend["input_tokens"]) == (4, 2 * GROUP_TOKENS)
     assert [step["step"] for step in steps] == ["group 1", "group 2"]
     assert "4 model requests" in job_world.issue_comments()[0]
@@ -458,7 +416,7 @@ def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
 
     applied = job_world.run(_group_two())
 
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert (_spend(job_world)["requests"], _spend(job_world)["input_tokens"]) == (2, GROUP_TOKENS)
 
 
@@ -556,70 +514,20 @@ def test_a_return_to_new_keeps_the_counted_spend_for_the_report(job_world: JobWo
     assert _item(job_world)[1].get("implement.spend_counted") == "100"
 
 
-# ── watch_progress_line ───────────────────────────────────────────────────────────────────
-
-
-def test_watch_progress_line_the_watch_writes_a_line_at_each_interval(
-    job_world: JobWorld, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A check runs for the first three waits of 30 seconds, and ends at the fourth poll."""
-    job_world.pull.runs = [[RUNNING]]
-    waits: list[float] = []
-
-    def settle() -> None:
-        waits.append(1)
-        if len(waits) == 3:
-            job_world.pull.runs = [[PASS]]
-
-    job_world.clock.after_each_sleep(settle)
-
-    watch = watch_pull(STAGE_REPO, PULL, _tip(job_world))
-
-    shown = capsys.readouterr()
-    lines = [
-        line for line in (shown.out + shown.err).splitlines() if f"pull request #{PULL}" in line
-    ]
-    assert watch.kind is WatchKind.READY
-    assert lines == [
-        f"The checks of pull request #{PULL} still run after 30 s.",
-        f"The checks of pull request #{PULL} still run after 60 s.",
-    ]
-
-
-def test_watch_progress_line_a_watch_that_ends_at_the_first_poll_writes_none(
-    job_world: JobWorld, capsys: pytest.CaptureFixture[str]
-) -> None:
-    watch = watch_pull(STAGE_REPO, PULL, _tip(job_world))
-
-    shown = capsys.readouterr()
-    assert watch.kind is WatchKind.READY
-    assert f"pull request #{PULL}" not in shown.out + shown.err
-
-
 # ── request_count ─────────────────────────────────────────────────────────────────────────
 
 
 def test_request_count_the_comment_costs_one_read_and_one_write(job_world: JobWorld) -> None:
     job_world.run(two_groups())
 
-    assert _comment_calls(job_world) == ["GET", "POST", "GET", "PATCH"]
-
-
-def test_request_count_a_repair_round_reads_the_comments_once_and_changes_the_comment(
-    job_world: JobWorld,
-) -> None:
-    job_world.pull.runs = [[FAIL], [PASS]]
-
-    job_world.run(two_groups(*a_fix()))
-
-    assert _comment_calls(job_world) == ["GET", "POST", "PATCH", "GET", "PATCH"]
+    assert _comment_calls(job_world) == ["GET", "POST"]
 
 
 def test_request_count_the_marker_and_the_two_phase_marks_cost_at_most_five_requests(
     job_world: JobWorld,
 ) -> None:
-    """One read of the comments for the run comment and one for the evidence comment, and for each
-    phase mark a read of the item and a write."""
+    """One read of the comments for the run comment, and for each phase mark a read of the item and
+    a write. The job posts no evidence comment (#6559)."""
     job_world.run(two_groups())
 
     reads = _comment_calls(job_world).count("GET")
@@ -628,8 +536,8 @@ def test_request_count_the_marker_and_the_two_phase_marks_cost_at_most_five_requ
         for write in job_world.store.job_writes()
         if write.key in (CHECKED, PUBLISHED) and write.value is not None
     ]
-    assert reads + 2 * len(marks) <= 6
-    assert (reads, len(marks)) == (2, 2)
+    assert reads + 2 * len(marks) <= 5
+    assert (reads, len(marks)) == (1, 2)
 
 
 # ── The record ────────────────────────────────────────────────────────────────────────────

@@ -136,13 +136,25 @@ def hold_graphql_quota() -> None:
 
 
 def pull_node(
-    number: int, title: str, labels: Iterable[str], repo: str = GRADES_REPO
+    number: int,
+    title: str,
+    labels: Iterable[str],
+    repo: str = GRADES_REPO,
+    *,
+    head: str = "",
+    state: str = "OPEN",
+    draft: bool = False,
+    created: str | None = None,
 ) -> dict[str, Any]:
     """One pull request of the GraphQL search of the verdicts, with a label event for each of
-    `labels`, in order."""
+    `labels`, in order, its head branch, its state, whether it is a draft, and its creation."""
     return {
         "number": number,
         "title": title,
         "repository": {"nameWithOwner": repo},
+        "headRefName": head,
+        "state": state,
+        "isDraft": draft,
+        "createdAt": created,
         "timelineItems": {"nodes": [{"label": {"name": name}} for name in labels]},
     }

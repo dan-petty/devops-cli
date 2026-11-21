@@ -1177,12 +1177,8 @@ def implement_requests(
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
         *within(store.label_issue(_p("pull")), repeat=each_item),
         *within(store.unlabel_issue(_p("pull")), cond["unlabel"], repeat=each_item),
-        other("process", "watch", "gh", "pr", "checks", _p("pull")),
-        other("process", "run_log", "gh", "run", "view", "--log-failed", when=cond["run_log"]),
-        other("model", "model_fix", "model", when=cond["model_fix"]),
-        other("process", "ready", "gh", "pr", "ready", _p("pull"), when=cond["ready"]),
-        *within(store.write_status(target), cond["ready"], repeat=each_item),
-        *within(store.comment(target), cond["ready"], repeat=each_item),
+        *within(store.write_status(target), cond["drafted"], repeat=each_item),
+        *within(store.comment(target), cond["drafted"], repeat=each_item),
         # A stop comments on the item first, so the comment of the run can link it (#6194).
         *within(store.comment(target), cond["stop"], repeat=each_item),
         other(
@@ -1207,16 +1203,23 @@ def explain_requests(
     (#4629), the open issue that a stage item depends on, and the tracked files of the default
     branch, which keep the files that a wait names (#6444). The command reads the heads of
     `origin` and the plans once and gives them to both jobs, so the list holds each read once.
+    For the phase of a drafted delivery it reads the pull request of `implement.pr` (#6559).
     With `trace` it reads the one issue and nothing else (#3032)."""
     if trace:
         return tuple(StoreRequests(repo).issue(f"#{item}")), ()
     reads, _ = implement_requests(repo, item=item)
     store = StoreRequests(repo)
-    blockers = within(store.issue(_p("blocker")), repeat=MESSAGES.roadmap.plan_repeat["blocker"])
+    texts = MESSAGES.roadmap
+    blockers = within(store.issue(_p("blocker")), repeat=texts.plan_repeat["blocker"])
     refine = [*store.comments_on(f"#{item}"), *_wait_reads(store)]
     clone = "<model-clone>"
     tree = _default_tree_read(clone)
-    return (*reads, _openspec_config_read(clone), *blockers, tree, *refine), ()
+    delivery = planned_session_read(
+        f"/repos/{repo}/pulls/{_p('pull')}",
+        texts.plan_targets["delivery_pull"],
+        condition=texts.plan_conditions["drafted_delivery"],
+    )
+    return (*reads, delivery, _openspec_config_read(clone), *blockers, tree, *refine), ()
 
 
 def plan_recheck_requests(

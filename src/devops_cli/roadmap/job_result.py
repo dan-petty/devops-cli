@@ -78,8 +78,9 @@ class RoadmapJob(StrEnum):
 
 
 # The intended result of each job (owner rule 2026-11-11): a stage attempt opens a plan pull
-# request, an implement attempt reaches a ready pull request, a refine attempt sets the next step
-# of the item, the review approves, the alternatives check writes a verdict, intake places the
+# request, an implement attempt opens or updates its draft pull request with the final title and
+# body (#6559: the watch row and the fix-checks Jobs take the draft to ready), a refine attempt
+# sets the next step of the item, the review approves, the alternatives check writes a verdict, intake places the
 # candidate, and retitle shortens or keeps the title. A fix-plan attempt pushes a repair that its
 # review finds better than the review of the head in the same attempt (#5213): `regated`, `dismissed`,
 # `unchanged`, `stopped`, `failed` and `timeout` (#5363) repair no finding of that review, and
@@ -90,7 +91,7 @@ class RoadmapJob(StrEnum):
 SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
     {
         RoadmapJob.STAGE: frozenset({"staged"}),
-        RoadmapJob.IMPLEMENT: frozenset({"ready"}),
+        RoadmapJob.IMPLEMENT: frozenset({"drafted"}),
         # Each next step of refine that is a wait is a success: `alternatives` waits on the
         # verdict of the alternatives row (#2951), and `edit` on a body edit, because the body
         # stops the design. `retry` and `failed` are failures of the job (#6037).

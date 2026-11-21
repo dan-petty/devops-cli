@@ -8,9 +8,15 @@ holds nothing. After the ledger is written, the row runs the fix-checks units of
 it starts a fix Job for each bot pull request that `due_steps` routes to `fix_checks`, and reports
 the fix Jobs that ended (`fix_checks_row.py`, #5027). A Kubernetes or a configuration error stops
 only that round: the row logs and counts it and gives its result (#6018). A delivery draft that a
-fix Job repaired and whose checks pass gets the ready path of the step `fix-checks` once for each
-head, and only the ready path: a check that fails between the two reads gives `skipped`. The row
-leaves every other delivery draft to its implement Job. A green plan draft is marked ready only
+fix Job repaired, or whose implement Job ended at the draft (#6559), and whose checks pass gets
+the ready path of the step `fix-checks` once for each head, and only the ready path: a check that
+fails between the two reads gives `skipped`. The row leaves a delivery draft whose implement Job
+stopped. A delivery draft (`_delivery_draft`) whose failed or cancelled check, or conflict, has no
+repair owner stops its item, once, through the stop flow of the implement Job: Status Blocked,
+`implement.stopped`, the class, `implement.result` stopped, and one stop comment that names the
+check or the conflict (#6559). A unit owns a failed check only in mode `on`, for a class in
+FIX_CHECK_CLASSES, while the unit of the head and the check has not ended with no repair. The row
+judges the latest run of each check name (#5383). A green plan draft is marked ready only
 when `draft_readiness` answers ready for the draft that `read_ready_draft` reads. The record can
 hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
 as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
@@ -29,7 +35,10 @@ from typing import Any, Final
 from pydantic import BaseModel, Field
 from pydantic import ValidationError as MalformedRecordError
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_COMMENT_MARKER
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_STAGE_COMMENT_MARKER,
+)
 from devops_cli.config.defaults import (
     DEFAULT_GH_GRAPHQL_BUDGET_FLOOR,
 )
@@ -43,9 +52,11 @@ from devops_cli.exceptions import (
 )
 from devops_cli.exceptions.k8s import KubernetesError
 from devops_cli.github.check_verdict import (
+    CheckBucket,
     CheckVerdictSummary,
     PRCheckItem,
     _resolve_bucket,
+    latest_run_of_each_check,
     no_checks_reported,
     read_check_runs,
 )
@@ -53,6 +64,13 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.failure import (
+    FailureClass,
+    FailureEvidence,
+    classify_failure,
+    failure_lines,
+    left_action,
+)
 from devops_cli.roadmap.fix_checks_row import (
     FixChecksRound,
     FixDue,
@@ -67,21 +85,37 @@ from devops_cli.roadmap.jev_completeness import (
 )
 from devops_cli.roadmap.release_feed import closing_numbers
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
-from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
+from devops_cli.roadmap.status_sync import (
+    StatusFacts,
+    facts_of,
+    job_holds,
+    sync_status,
+    write_status,
+)
 from devops_cli.roadmap.steps.comment import Target, post
-from devops_cli.roadmap.steps.fix_checks import FixChecksResult, run_fix_checks
+from devops_cli.roadmap.steps.fix_checks import (
+    has_owner_label,
+    run_fix_checks,
+    takes_ready_path,
+    unit_ended,
+)
 from devops_cli.roadmap.steps.ready import draft_readiness, mark_ready, read_ready_draft
 from devops_cli.roadmap.steps.watch import (
     DueStep,
     PRVerdict,
     WatchState,
+    WatchVerdict,
     due_steps,
     fix_checks_check,
+    unrepaired_check,
     verdict,
 )
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
+    FixChecksResult,
     GitHubState,
+    ImplementRecordKey,
+    ImplementResult,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -126,6 +160,8 @@ query OpenRoadmapPulls($owner: String!, $name: String!, $cursor: String) {
                       name
                       status
                       conclusion
+                      startedAt
+                      completedAt
                     }
                     ... on StatusContext {
                       context
@@ -197,10 +233,35 @@ class WatchRoundResult:
     fix_checks: FixChecksRound = field(default_factory=FixChecksRound)
 
 
+def _latest_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The nodes of the rollup with only the latest run of each check name. Each event of a pull
+    request starts its checks in a new suite, so the rollup can hold an old cancelled run beside
+    the newer run that replaced it; the REST read keeps the latest run alone, by the same rule
+    (`latest_run_of_each_check`, #5383). A StatusContext node stays: the rollup holds the latest
+    status of each context."""
+    runs = [
+        {
+            "name": node.get("name"),
+            "started_at": node.get("startedAt"),
+            "completed_at": node.get("completedAt"),
+            "index": index,
+        }
+        for index, node in enumerate(contexts_nodes)
+        if node.get("__typename") == "CheckRun"
+    ]
+    kept = {run["index"] for run in latest_run_of_each_check(runs)}
+    return [
+        node
+        for index, node in enumerate(contexts_nodes)
+        if node.get("__typename") != "CheckRun" or index in kept
+    ]
+
+
 def _parse_contexts(contexts_nodes: Sequence[Mapping[str, Any]]) -> list[PRCheckItem]:
-    """Parse GraphQL CheckRun and StatusContext nodes into PRCheckItems."""
+    """Parse GraphQL CheckRun and StatusContext nodes into PRCheckItems, the latest run of each
+    check name only (`_latest_contexts`)."""
     items: list[PRCheckItem] = []
-    for node in contexts_nodes:
+    for node in _latest_contexts(contexts_nodes):
         name = node.get("name") or node.get("context") or ""
         status = str(node.get("status") or "").lower()
         conclusion = str(node.get("conclusion") or "").lower()
@@ -353,6 +414,9 @@ def _evaluate_pull(
         ctx.total_conflicted += 1
 
     is_bot = is_plan or (author.endswith("[bot]") if author else False)
+    delivery = is_draft and _delivery_draft(item, pr_number, labels)
+    stopped = _stopped_delivery(item, pr_number)
+    settings = load_settings().roadmap
 
     state = WatchState(
         pull=pr_number,
@@ -368,6 +432,14 @@ def _evaluate_pull(
         is_plan=is_plan,
         has_live_unit=has_live_unit,
         labels=labels,
+        delivery=delivery,
+        repairs=settings.fix_checks.mode == "on",
+        ended_checks=_ended_checks(
+            item, pr_number, head_sha, checks, settings.implement.continuations_per_item
+        )
+        if delivery
+        else frozenset(),
+        stopped=stopped,
     )
 
     v = verdict(state)
@@ -375,6 +447,8 @@ def _evaluate_pull(
     if DueStep.FIX_CHECKS in steps and (check := fix_checks_check(state)) is not None:
         units = item.job_record.get(FixChecksRecordKey.UNITS)
         ctx.fix_due.append(FixDue(pr_number, head_sha, check, item.number, units))
+    if DueStep.STOP in steps and v is not None:
+        _stop_unowned_draft(ctx, item, state, v)
 
     if v is not None:
         if v.verdict is PRVerdict.FAILED:
@@ -403,7 +477,102 @@ def _evaluate_pull(
         steps=steps,
         entry=entry,
         checks=checks,
+        labels=labels,
     )
+
+
+def _delivery_draft(item: Item, pull: int, labels: Sequence[str]) -> bool:
+    """Whether the draft `pull` is the delivery draft of `item` that the row hands off (#6559):
+    the record names it as `implement.pr`, the ready path takes it (`takes_ready_path`: its
+    implement Job ended at the draft or a fix Job repaired it, and no stop holds the item), and no
+    owner label on the pull request or the item claims it, as the step `fix-checks` reads a claim.
+    The record decides, not the kind of the pull request: a Staged item can deliver on its plan
+    pull request."""
+    return (
+        item.job_record.get(ImplementRecordKey.PR) == str(pull)
+        and takes_ready_path(item)
+        and not has_owner_label(labels)
+        and not has_owner_label(item.labels)
+    )
+
+
+def _stopped_delivery(item: Item, pull: int) -> bool:
+    """Whether `pull` is the `implement.pr` of an item that holds a stop (#6559). A person owns
+    such a draft until `implement: retry` clears the stop: it gets no fix-checks unit and no ready
+    mark, as `takes_ready_path` reads the stop."""
+    record = item.job_record
+    return record.get(ImplementRecordKey.PR) == str(pull) and bool(
+        record.get(ImplementRecordKey.STOPPED)
+    )
+
+
+def _ended_checks(
+    item: Item, pull: int, head: str, checks: CheckVerdictSummary, extra: int
+) -> frozenset[str]:
+    """The checks of head `head` whose fix-checks unit ended with no repair (`unit_ended`)."""
+    return frozenset(
+        check.name
+        for check in checks.items
+        if unit_ended(item.job_record, pull, head, check.name, extra)
+    )
+
+
+def _stop_unowned_draft(
+    ctx: _WatchContext, item: Item, state: WatchState, found: WatchVerdict
+) -> None:
+    """Stop the item of a delivery draft that no actor takes (#6559). A failed or cancelled check
+    or a conflict has a repair owner only when mode `on` lets a fix-checks unit repair, the class
+    of the check is one of FIX_CHECK_CLASSES, and the unit of the head and the check has not ended
+    with no repair; `due_steps` gives `stop` in each other case. The implement Job ended at the
+    draft, so the item takes the stop flow that the Job gave it before: one stop comment that
+    names the check or the conflict, Status Blocked, `implement.stopped`, the class and
+    `implement.result` stopped. The stop holds the item, so the ready path no longer takes the
+    draft (`takes_ready_path`) and the row stops it once."""
+    texts = MESSAGES.roadmap
+    check: str | None = None
+    if found.verdict is PRVerdict.CONFLICT:
+        klass = FailureClass.CONFLICT
+        reason = texts.watch_stop_conflict.format(pull=state.pull, base=state.base_ref)
+    else:
+        check = unrepaired_check(state)
+        klass = _stop_class(state, check)
+        reason = texts.watch_stop_check.format(pull=state.pull, check=check)
+    left = left_action(klass, None)
+    step = texts.implement_step_names["pull_request"]
+    ctx.store.comment(
+        item.number,
+        texts.watch_stop_comment.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+            step=step,
+            reason=reason,
+            failure=failure_lines(klass, left=left),
+        ),
+    )
+    held = ctx.store.item(item.number) or item
+    write_status(
+        ctx.store,
+        held,
+        StatusFacts(stopped=True),
+        marks={
+            ImplementRecordKey.STOPPED: step,
+            ImplementRecordKey.FAILURE: klass.value,
+            ImplementRecordKey.LEFT_ACTION: left.value,
+            ImplementRecordKey.CHECK: check,
+            ImplementRecordKey.RESULT: ImplementResult.STOPPED.value,
+        },
+    )
+
+
+def _stop_class(state: WatchState, check: str | None) -> FailureClass:
+    """The class of the stop for `check`: `ci_infra` for a cancelled check, which is no failure of
+    the code, else the class of its name, as the verdict reads it."""
+    cancelled = any(
+        item.name == check and item.bucket is CheckBucket.CANCEL
+        for item in (state.checks.items if isinstance(state.checks, CheckVerdictSummary) else ())
+    )
+    if cancelled or check is None:
+        return FailureClass.CI_INFRA
+    return classify_failure(FailureEvidence(check=check))
 
 
 def _ready_plan(
@@ -413,14 +582,20 @@ def _ready_plan(
     head: str,
     base_ref: str,
     checks: CheckVerdictSummary,
+    labels: Sequence[str] = (),
 ) -> bool:
     """Mark the green plan draft `pull` ready, and record `stage.ready`; True when it marked it.
     A plan that needs a fix stays a draft. Then `draft_readiness` judges the draft that
     `read_ready_draft` reads (#6123): the record can hold one pull request as the plan and as the
     delivery of its item, and `read_draft` takes the kind from the record, so a delivery with a
     task that is not ticked stays a draft. The ledger keeps a refused head in `ready_head`, so the
-    row judges that head once. Last, the Jev completeness check can hold the draft."""
+    row judges that head once. Last, the Jev completeness check can hold the draft. A plan draft
+    that is also the delivery of its item (`implement.pr`) takes the guards of the delivery ready
+    path (`_delivery_held`): no stop, mode `on`, and no owner label on the pull request (`labels`)
+    or the item (#6559)."""
     if item.job_record.get(StageRecordKey.NEEDS_FIX) == str(pull):
+        return False
+    if item.job_record.get(ImplementRecordKey.PR) == str(pull) and _delivery_held(item, labels):
         return False
     entry = ctx.recorded_pulls.get(pull)
     if entry is not None and entry.ready_head == head:
@@ -445,23 +620,40 @@ def _ready_plan(
     return True
 
 
+def _delivery_held(item: Item, labels: Sequence[str]) -> bool:
+    """Whether the delivery ready path leaves the delivery of `item` a draft (#6559): the item
+    holds a stop, the mode of `roadmap.fix_checks.mode` is not `on`, or an owner label on the pull
+    request (`labels`) or the item claims it, as the step `fix-checks` reads a claim."""
+    return (
+        bool(item.job_record.get(ImplementRecordKey.STOPPED))
+        or load_settings().roadmap.fix_checks.mode != "on"
+        or has_owner_label(labels)
+        or has_owner_label(item.labels)
+    )
+
+
 def _ready_after_fix(ctx: _WatchContext, item: Item, pull: int, head: str) -> bool:
-    """Run the ready path of the step `fix-checks` on a delivery draft that a fix Job repaired and
-    whose checks pass, once for each head (#5027). The step marks the draft ready only when
+    """Run the ready path of the step `fix-checks` on a delivery draft that the path takes
+    (`takes_ready_path`: a fix Job repaired it, or its implement Job ended at the draft) and whose
+    checks pass, once for each head (#5027, #6559). The step marks the draft ready only when
     `draft_readiness` answers ready, and only in mode `on`; in mode `plan` it logs the plan. The
     step runs only the ready path: a check that fails after the read of the row gives `skipped`,
-    with no repair and no comment (#6018). A delivery draft that no fix Job repaired is the
-    implement Job's: the row leaves it."""
+    with no repair and no comment (#6018)."""
     entry = ctx.recorded_pulls.get(pull)
     mode = load_settings().roadmap.fix_checks.mode
-    repaired = item.job_record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
-    if mode == "off" or not repaired or (entry is not None and entry.ready_head == head):
+    if (
+        mode == "off"
+        or not takes_ready_path(item)
+        or (entry is not None and entry.ready_head == head)
+    ):
         return False
-    if entry is not None:
-        entry.ready_head = head
     report = run_fix_checks(
         ctx.store, ctx.repo, pull, head=head, confirm=mode == "on", ready_only=True
     )
+    # The head counts as judged only once the path gave a report, so an error leaves it for the
+    # next round (#6559).
+    if entry is not None:
+        entry.ready_head = head
     logger.info("The ready path of fix-checks on %s#%d: %s", ctx.repo, pull, report.to_json())
     return report.result is FixChecksResult.READY
 
@@ -478,13 +670,14 @@ def _apply_due_steps(
     steps: Sequence[DueStep],
     entry: WatchLedgerEntry | None,
     checks: CheckVerdictSummary,
+    labels: Sequence[str] = (),
 ) -> None:
-    """Execute side-effects for active DueSteps."""
+    """Execute side-effects for active DueSteps. `labels` are the labels of the pull request."""
     client = get_github_session().client
 
     if DueStep.READY in steps:
         if is_plan:
-            if _ready_plan(ctx, item, pr_number, head_sha, base_ref, checks):
+            if _ready_plan(ctx, item, pr_number, head_sha, base_ref, checks, labels):
                 ctx.marked_ready.append(pr_number)
         elif is_draft and _ready_after_fix(ctx, item, pr_number, head_sha):
             ctx.marked_ready.append(pr_number)

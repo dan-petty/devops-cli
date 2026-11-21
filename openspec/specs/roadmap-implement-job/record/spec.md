@@ -13,27 +13,16 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 - **THEN** the record of the spend holds 7 requests
 
 #### Scenario: The branch
-- **WHEN** the job takes a Staged item and a Planned item to a ready pull request
+- **WHEN** the job takes a Staged item and a Planned item to a draft pull request
 - **THEN** the record of each holds its branch and its pull request
 
 #### Scenario: The trace
-- **WHEN** the job takes an item to a ready pull request
+- **WHEN** the job takes an item to a draft pull request
 - **THEN** the record holds `implement.trace` with the events of the steps, the scoped checks and the commands of the job
 
 #### Scenario: A record of an older version
 - **WHEN** the record of an item holds no `implement.result`
 - **THEN** the record loads with the key absent and every other key unchanged
-
-### Requirement: The job record keeps the base that a withdraw restores
-The job SHALL write `implement.base` once, in the write that sets the Status In Progress, and keep an existing value. The value SHALL be the sha of `origin/<branch>` for a Staged item and `new` for a Planned item. The job SHALL clear `implement.base` when it marks the pull request ready and when it returns the item to New.
-
-#### Scenario: The base of a Staged item and of a Planned item
-- **WHEN** the job starts a Staged item and a Planned item
-- **THEN** the record of the Staged item holds the sha of its branch on `origin`, and the record of the Planned item holds `new`
-
-#### Scenario: The base is kept by a second Job and cleared at ready
-- **WHEN** a first Job is killed after two groups, a second Job takes the item, and the second Job marks the pull request ready
-- **THEN** the second Job sees the base of the first Job, and the record holds no `implement.base` after the ready mark
 
 ### Requirement: A dry run makes no request
 `--dry-run` SHALL make no request, SHALL return the plan type marked as a dry run, and SHALL list the reads and the writes of a run in order.
@@ -43,7 +32,7 @@ The job SHALL write `implement.base` once, in the write that sets the Status In 
 - **THEN** no git command runs, no GitHub request is made, and the output lists the requests of a run
 
 ### Requirement: The job keeps the trace of its run
-The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the ready mark. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, count them in `dropped`, and keep the sums of their tokens, seconds, repair rounds and outcomes.
+The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the end of the run at the draft. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, count them in `dropped`, and keep the sums of their tokens, seconds, repair rounds and outcomes.
 
 #### Scenario: A trace that is too long
 - **WHEN** a run makes more events than fit in `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters
@@ -109,7 +98,7 @@ The implement job SHALL record in `implement.spend`, under `steps`, the input to
 The roadmap Service SHALL increment `devops_cli_service_implement_jobs_total` with the labels `repo`, `item_class` and `result` once for each runner Job that a round reports. The `result` SHALL be `failed` when the report finds a failure class, and the state of the Job (`succeeded`, `failed` or `gone`) otherwise.
 
 #### Scenario: A reported runner Job counts once
-- **WHEN** A round reports a runner Job for repository `owner/repo` and item class `feat` that ended Complete with the result `ready`.
+- **WHEN** A round reports a runner Job for repository `owner/repo` and item class `feat` that ended Complete with the result `drafted`.
 - **THEN** The series `devops_cli_service_implement_jobs_total{repo="owner/repo",item_class="feat",result="succeeded"}` increases by one.
 
 #### Scenario: A stop that the runner wrote before it exited 0
@@ -210,7 +199,7 @@ The job SHALL read the comments of the pull request once. It SHALL post one comm
 - **THEN** the job posts no comment, and the comment of the first Job keeps its table
 
 ### Requirement: The spend of a killed Job counts toward the item budget
-The job SHALL write `implement.spend` with each passed group. At the start, the job SHALL read the recorded spend and add it to the spend of its own steps, for the item budget and for the spend that a stop or ready writes. A retry that a person asks for SHALL start from zero spend. A return to New SHALL clear `implement.spend`.
+The job SHALL write `implement.spend` with each passed group. At the start, the job SHALL read the recorded spend and add it to the spend of its own steps, for the item budget and for the spend that a stop or the end of a drafted run writes. A retry that a person asks for SHALL start from zero spend. A return to New SHALL clear `implement.spend`.
 
 #### Scenario: A continuation after a kill
 - **WHEN** a Job is killed after group 1 spent 100 input tokens, and the item budget is 150
@@ -224,18 +213,11 @@ The job SHALL write `implement.spend` with each passed group. At the start, the 
 - **WHEN** the record holds `implement.spend` as an earlier version wrote it, and none of the phase marks
 - **THEN** the job starts from that spend and runs the scoped checks
 
-### Requirement: The watch of the checks writes a progress line
-While the checks of the pull request run, the job SHALL write one log line at each poll after the first: `The checks of pull request #<pull> still run after <seconds> s.`. The poll interval SHALL be the interval of the watch.
-
-#### Scenario: A watch of three intervals
-- **WHEN** a check runs for 60 seconds with a poll interval of 30 seconds
-- **THEN** the log holds the lines for 30 s and 60 s, and no line when the checks settle at the first poll
-
 ### Requirement: The comment and the phase marks cost five requests
 A job SHALL send at most 5 requests more than before for the comment and the phase marks: one read of the comments of the pull request, and for each of the two phase marks one read and one write of the item. A repair round SHALL NOT read the comments again.
 
 #### Scenario: A Job that writes both phase marks
-- **WHEN** a job takes an item to a ready pull request
+- **WHEN** a job takes an item to a draft pull request
 - **THEN** it reads the comments once and writes each phase mark once
 
 ### Requirement: A retry and a return to New clear the counted spend
@@ -253,21 +235,6 @@ The job SHALL clear `implement.spend_counted` with `implement.spend` at the star
 - **WHEN** the Service reports a Job that returned the item to New, and its record holds 1,000 tokens in `implement.spend` and `400` in `implement.spend_counted`
 - **THEN** the result line holds `result=returned` and `tokens=600`, and the record holds no `implement.spend` and no `implement.spend_counted`
 
-### Requirement: The comments and the record show the extension of a step budget
-The record `implement.spend` SHALL hold, for each step that got the one extension of its token budget, the old budget, the new budget, the counts that gave it and whether the ceiling cut it. The ready comment and the stop comment of the item SHALL list each such step of the run, the earlier Jobs included, with the budgets and the counts only. A run with no extension SHALL show no such list.
-
-#### Scenario: A ready item with an extended step
-- **WHEN** group 1 got an extension from 100 to 150 input tokens with 2 successful edits and 0 refused commands, and the item reaches a ready pull request
-- **THEN** the ready comment lists group 1 with 100 to 150 input tokens and those counts, and the record holds the extension of group 1 and none for group 2
-
-#### Scenario: A stop after an extension
-- **WHEN** group 1 got an extension and then reached its new budget
-- **THEN** the stop comment names the class `limit_reached`, lists the extension of group 1 and gives the reason that names the extension
-
-#### Scenario: No extension
-- **WHEN** no step of the run got an extension
-- **THEN** the comment of the item lists no budget extension
-
 ### Requirement: The record keeps the tokens of each step
 The implement job SHALL record in `implement.spend`, under `steps`, for each step: its model requests, its input tokens, its output tokens, its repair rounds and the input tokens of its largest model request, from the usage of the replies of the step. The job SHALL write these figures apart from the trace, so the limit of the trace never drops them.
 
@@ -279,25 +246,28 @@ The implement job SHALL record in `implement.spend`, under `steps`, for each ste
 - **WHEN** the lint check of group 1 fails once and one repair turn fixes it
 - **THEN** the entry of group 1 holds 1 repair round and the 4 requests of both turns
 
-### Requirement: Kept work counts its outcome
-The roadmap Service SHALL increment `devops_cli_service_kept_work_total` with the labels `repo`, `class` and `outcome`: `continued` and the class of the stop when it creates a runner Job for an item whose record holds kept work, `finished` when that Job reaches the ready mark, and `blocked` and the class of the new stop when it stops again. Each `class` SHALL be a member of `FailureClass`. It MUST NOT increment the counter for an item with no kept work.
+### Requirement: The job record keeps the base until the run ends
+The job SHALL write `implement.base` once, in the write that sets the Status In Progress, and keep an existing value. The value SHALL be the sha of `origin/<branch>` for a Staged item and `new` for a Planned item. The job SHALL clear `implement.base` when the run ends at the draft and when it returns the item to New.
 
-#### Scenario: A next Job starts from kept work
-- **WHEN** A clear rule takes an item whose record holds `implement.wip` and the class `parser` out of Blocked, and the next round creates its runner Job.
-- **THEN** The record holds `implement.continued` with the class `parser`, and the series with the outcome `continued` and the class `parser` increases by one.
+#### Scenario: The base of a Staged item and of a Planned item
+- **WHEN** the job starts a Staged item and a Planned item
+- **THEN** the record of the Staged item holds the sha of its branch on `origin`, and the record of the Planned item holds `new`
 
-#### Scenario: Kept work reaches the ready mark
-- **WHEN** A round reports a runner Job whose record holds `implement.continued` with the class `parser` and whose result is `ready`.
-- **THEN** The series with the outcome `finished` and the class `parser` increases by one, `devops_cli_service_implement_jobs_total` increases by one only, the record clears `implement.continued`, and a second round adds nothing.
+#### Scenario: The base is kept by a second Job and cleared at the end
+- **WHEN** a first Job is killed after two groups, a second Job takes the item, and the run of the second Job ends at the draft
+- **THEN** the second Job sees the base of the first Job, and the record holds no `implement.base` after the end
 
-#### Scenario: Kept work stops again
-- **WHEN** A round reports a runner Job whose record holds `implement.continued`, and its report finds the new stop with the class `oom`.
-- **THEN** The series with the outcome `blocked` and the class `oom` increases by one, and the record clears `implement.continued`.
+### Requirement: The end comment, the stop comment and the record show the extension of a step budget
+The record `implement.spend` SHALL hold, for each step that got the one extension of its token budget, the old budget, the new budget, the counts that gave it and whether the ceiling cut it. The end comment and the stop comment of the item SHALL list each such step of the run, the earlier Jobs included, with the budgets and the counts only. A run with no extension SHALL show no such list.
 
-#### Scenario: An item with no kept work
-- **WHEN** A round creates and reports a runner Job for an item whose record holds `implement.continued` and no `implement.wip`.
-- **THEN** No series of the kept-work counter changes, the claim clears `implement.continued`, and `devops_cli_service_implement_jobs_total` increases by one.
+#### Scenario: A drafted item with an extended step
+- **WHEN** group 1 got an extension from 100 to 150 input tokens with 2 successful edits and 0 refused commands, and the item reaches a draft pull request
+- **THEN** the end comment lists group 1 with 100 to 150 input tokens and those counts, and the record holds the extension of group 1 and none for group 2
 
-#### Scenario: A yield or a return counts no outcome
-- **WHEN** A round reports a runner Job whose record holds `implement.continued` and whose result is `yielded` or `returned`.
-- **THEN** The record clears `implement.continued`, and no series of the kept-work counter changes.
+#### Scenario: A stop after an extension
+- **WHEN** group 1 got an extension and then reached its new budget
+- **THEN** the stop comment names the class `limit_reached`, lists the extension of group 1 and gives the reason that names the extension
+
+#### Scenario: No extension
+- **WHEN** no step of the run got an extension
+- **THEN** the comment of the item lists no budget extension

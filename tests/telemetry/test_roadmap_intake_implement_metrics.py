@@ -35,8 +35,6 @@ from tests.support.implement_step import command_text, git_for_real
 from tests.support.model_script import say, tool_calls
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
-    FAIL,
-    PASS,
     SHOUT,
     JobWorld,
     two_groups,
@@ -63,7 +61,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 INTAKE_CANDIDATES = "devops_cli_roadmap_intake_candidates_total"
 STEP_SECONDS = "devops_cli_roadmap_step_seconds"
 INTAKE_RESULTS = {"placed", "duplicate", "skipped", "failed"}
-IMPLEMENT_STEPS = {"checks", "publish", "watch"}
+IMPLEMENT_STEPS = {"checks", "publish"}
 CHECK_SECONDS = 10.0
 PUSH_SECONDS = 2.0
 
@@ -331,17 +329,17 @@ def _implement(otlp: FakeCollector) -> dict[tuple[str, str], tuple[int, float]]:
     return {(attrs["step"], attrs["result"]): (count, total) for attrs, count, total in samples}
 
 
-def test_implement_step_a_run_emits_one_sample_for_the_checks_the_publish_and_the_watch(
+def test_implement_step_a_run_emits_one_sample_for_the_checks_and_the_publish(
     hooked_world: JobWorld, otlp: FakeCollector
 ) -> None:
-    """A Staged item with a draft pull request: the scoped checks run once, the branch is pushed
-    once, and the watch of the checks of the pull request runs once."""
+    """A Staged item with a draft pull request: the scoped checks run once, and the branch is
+    pushed once. The job watches no check (#6559)."""
     applied = hooked_world.run(two_groups())
 
     steps = _implement(otlp)
-    assert (applied.ready, {step: count for (step, _), (count, _) in steps.items()}) == (
+    assert (applied.drafted, {step: count for (step, _), (count, _) in steps.items()}) == (
         (1,),
-        {"checks": 1, "publish": 1, "watch": 1},
+        {"checks": 1, "publish": 1},
     )
     assert {result for _, result in steps} == {"ok"}
 
@@ -354,9 +352,9 @@ def test_implement_step_a_planned_item_publishes_its_branch_in_the_publish_sampl
     applied = planned_world.run(two_groups())
 
     steps = _implement(otlp)
-    assert (applied.ready, {step: count for (step, _), (count, _) in steps.items()}) == (
+    assert (applied.drafted, {step: count for (step, _), (count, _) in steps.items()}) == (
         (1,),
-        {"checks": 1, "publish": 1, "watch": 1},
+        {"checks": 1, "publish": 1},
     )
 
 
@@ -379,7 +377,7 @@ def test_implement_step_a_scoped_check_that_no_fix_repairs_sends_one_checks_samp
     hooked_world: JobWorld, otlp: FakeCollector
 ) -> None:
     """One sample covers one call of the scoped checks with its fix rounds, and the stop of the
-    call is an error. The job pushes nothing, so no publish sample and no watch sample follow."""
+    call is an error. The job pushes nothing, so no publish sample follows."""
     _fails(hooked_world, PRE_PUSH)
 
     applied = hooked_world.run(two_groups(*_fix(1), *_fix(2), *_fix(3)))
@@ -391,33 +389,11 @@ def test_implement_step_a_scoped_check_that_no_fix_repairs_sends_one_checks_samp
     )
 
 
-def test_implement_step_a_failed_check_of_the_pull_request_is_a_watch_sample_with_error(
-    hooked_world: JobWorld, otlp: FakeCollector
-) -> None:
-    """The first head fails a check and the repair gives a head that passes. The first watch
-    returns a failed result with no exception, and it is an error all the same. The repair pushes
-    again, so the job makes a second call of the scoped checks and of the publish step."""
-    hooked_world.pull.runs = [[FAIL], [PASS]]
-
-    applied = hooked_world.run(two_groups(*_fix(1)))
-
-    steps = _implement(otlp)
-    assert (applied.ready, {step: count for step, (count, _) in steps.items()}) == (
-        (1,),
-        {
-            ("checks", "ok"): 2,
-            ("publish", "ok"): 2,
-            ("watch", "error"): 1,
-            ("watch", "ok"): 1,
-        },
-    )
-
-
 def test_implement_step_the_stage_samples_and_the_implement_samples_share_the_labels(
     hooked_world: JobWorld, otlp: FakeCollector
 ) -> None:
     """A run of the implement job sends no sample under another row, and the step values are
-    the three new ones."""
+    the two of the implement row."""
     hooked_world.run(two_groups())
 
     samples = _steps(otlp)
@@ -425,30 +401,26 @@ def test_implement_step_the_stage_samples_and_the_implement_samples_share_the_la
     assert {attrs["step"] for attrs, _, _ in samples} == IMPLEMENT_STEPS
 
 
-def test_implement_step_the_instrument_text_states_six_series_for_the_implement_row() -> None:
-    """3 steps and 2 results make 6 series for one repository. The buckets add none. The stage
-    row keeps its 10 series, so one repository holds 16."""
+def test_implement_step_the_instrument_text_states_four_series_for_the_implement_row() -> None:
+    """2 steps and 2 results make 4 series for one repository. The buckets add none. The stage
+    row keeps its 10 series, so one repository holds 14."""
     from devops_cli.telemetry.instruments import INSTRUMENTS
 
     declared = {instrument.name: instrument for instrument in INSTRUMENTS}
     documented = (REPO_ROOT / "docs" / "TELEMETRY.md").read_text(encoding="utf-8")
 
     description = declared[STEP_SECONDS].description
-    assert "6 series" in description
+    assert "4 series" in description
     assert "10 series" in description
     assert "implement" in description
-    assert "6 series" in documented
+    assert "4 series" in documented
 
 
 # ── The step names ────────────────────────────────────────────────────────────
 
 
-def test_step_names_checks_publish_and_watch_are_members_of_step_name() -> None:
-    assert (StepName.CHECKS.value, StepName.PUBLISH.value, StepName.WATCH.value) == (
-        "checks",
-        "publish",
-        "watch",
-    )
+def test_step_names_checks_and_publish_are_members_of_step_name() -> None:
+    assert (StepName.CHECKS.value, StepName.PUBLISH.value) == ("checks", "publish")
 
 
 def test_step_names_the_step_values_of_a_run_are_members_of_step_name(
@@ -466,7 +438,7 @@ def test_step_names_the_step_values_of_a_run_are_members_of_step_name(
 
 
 def test_step_names_the_new_steps_are_one_word_and_come_after_the_steps_that_exist() -> None:
-    assert [step.value for step in StepName][-4:-1] == ["checks", "publish", "watch"]
+    assert [step.value for step in StepName][-3:-1] == ["checks", "publish"]
 
 
 def test_step_names_the_tail_of_step_name_does_not_move_a_stored_step() -> None:

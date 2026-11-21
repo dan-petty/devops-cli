@@ -8,6 +8,9 @@ test of the selector and of the parse of the two forms of a line reads the lines
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+
 import httpx2
 import pytest
 from syrupy.assertion import SnapshotAssertion
@@ -15,6 +18,7 @@ from syrupy.assertion import SnapshotAssertion
 from devops_cli.exceptions import ServiceRequestError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.logql import query_loki_metrics
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.job_grade import EfficiencyWork, JobGrade, grade_policy, measure_grade
 from devops_cli.roadmap.job_grade_report import (
     ClassCount,
@@ -31,8 +35,8 @@ from devops_cli.roadmap.job_grade_report import (
     plan_grade_queries,
     render_grade_report,
 )
-from devops_cli.roadmap.job_result import RoadmapJob
-from devops_cli.roadmap.pr_verdict import BotPull, PullKind, Verdict
+from devops_cli.roadmap.job_result import LINE_PREFIX, RoadmapJob, log_job_result
+from devops_cli.roadmap.pr_verdict import BotPull, PullKind, PullState, Verdict
 from devops_cli.server.json_logs import JsonLogFormatter
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
@@ -283,6 +287,7 @@ def test_a_trend_window_that_is_the_report_window_is_queried_once() -> None:
         "seconds_p90@24h",
         "seconds_max@24h",
         "seconds_sum@24h",
+        "drafted@24h",
         "counts@6h",
     ]
 
@@ -303,7 +308,7 @@ def test_the_report_counts_the_json_line_of_the_service_and_the_plain_lines_of_t
     plain text on stderr (#5556). Each line counts once, in its job."""
     implement, fix_plan, stage = written_records(
         caplog,
-        (RoadmapJob.IMPLEMENT, "ready"),
+        (RoadmapJob.IMPLEMENT, "drafted"),
         (RoadmapJob.FIX_PLAN, "revised"),
         (RoadmapJob.STAGE, "staged"),
     )
@@ -371,6 +376,140 @@ def test_the_table_shows_each_workflow(web: WebFake, snapshot: SnapshotAssertion
     assert render_grade_report(report) == snapshot
 
 
+def _drafted_lines(caplog: pytest.LogCaptureFixture) -> None:
+    """Items 7 to 10 of `GRADES_REPO` ended at the draft, item 7 after a repair round, and item 11
+    stopped."""
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.job_result"):
+        for item in (7, 8, 9, 10):
+            counts = {"repair_rounds": 1 if item == 7 else 0, "tokens": 1000, "seconds": 60}
+            log_job_result(RoadmapJob.IMPLEMENT, GRADES_REPO, item, "drafted", counts=counts)
+        log_job_result(
+            RoadmapJob.IMPLEMENT,
+            GRADES_REPO,
+            11,
+            "stopped",
+            failure=FailureClass.TEST,
+            counts={"repair_rounds": 0, "tokens": 1000, "seconds": 60},
+        )
+
+
+def test_the_implement_row_scores_each_drafted_attempt_by_the_forge_state_of_its_delivery(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A drafted attempt succeeds when its delivery merged or is ready, fails when the delivery
+    closed with no merge, and stays out of the attempts while the delivery is a draft (#6559). A
+    delivery opened before the window gives its forge state, and only the deliveries opened in the
+    window count in the verdicts."""
+    _drafted_lines(caplog)
+    loki = LokiFake()
+    for record in caplog.records:
+        if record.getMessage().startswith(LINE_PREFIX):
+            loki.push(SERVICE_STREAM, JsonLogFormatter().format(record))
+    loki.serve(web)
+    queries = plan_grade_queries(GradeWindow.D7)
+    answers = query_loki_metrics([query.expr for query in queries], LOKI_URL)
+    since = datetime(2026, 11, 2, tzinfo=UTC)
+    before = datetime(2026, 10, 20, tzinfo=UTC)
+    verdicts = VerdictRead(
+        bot="example-bot[bot]",
+        partial_score=0.5,
+        pulls=[
+            BotPull(GRADES_REPO, 21, PullKind.DELIVERY, None, item=7, state=PullState.MERGED),
+            BotPull(GRADES_REPO, 22, PullKind.DELIVERY, None, item=8, created=before),
+            BotPull(GRADES_REPO, 23, PullKind.DELIVERY, None, item=9, state=PullState.CLOSED),
+            BotPull(GRADES_REPO, 24, PullKind.DELIVERY, None, item=10, draft=True),
+        ],
+        opened_since=since,
+    )
+
+    report = build_grade_report(
+        GradeWindow.D7,
+        None,
+        LOKI_URL,
+        {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        verdicts,
+    )
+
+    row = _row(report, "implement", GRADES_REPO)
+    assert row.verdicts is not None
+    assert (
+        row.measure.attempts,
+        row.measure.successes,
+        row.measure.first_pass,
+        row.drafts_pending,
+        row.verdicts.pulls,
+    ) == (4, 2, 1, 1, 3)
+    assert "whose delivery is still a draft, out of the attempts: 1." in render_grade_report(report)
+
+
+def test_the_implement_row_scores_the_drafted_lines_of_each_pull_request_once(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A drafted line names its pull request (`pull`), and the report scores the lines of one pull
+    request once, by that pull request (#6559). With n lines, a success counts 1 success and n - 1
+    failures, because an earlier Job of the same pull request did not reach the outcome alone; a
+    failure counts n failures; a draft keeps the n lines pending. Item 7 had two Jobs on one pull
+    request that merged. Item 8 had a pull request that closed, then one that merged. Item 9 had a
+    pull request that merged, then a new draft."""
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.job_result"):
+        for item, pull in ((7, 30), (7, 30), (8, 31), (8, 32), (9, 33), (9, 34)):
+            counts = {"repair_rounds": 0, "tokens": 1000, "seconds": 60, "pull": pull}
+            log_job_result(RoadmapJob.IMPLEMENT, GRADES_REPO, item, "drafted", counts=counts)
+    loki = LokiFake()
+    for record in caplog.records:
+        if record.getMessage().startswith(LINE_PREFIX):
+            loki.push(SERVICE_STREAM, JsonLogFormatter().format(record))
+    loki.serve(web)
+    queries = plan_grade_queries(GradeWindow.D7)
+    answers = query_loki_metrics([query.expr for query in queries], LOKI_URL)
+    merged, closed = PullState.MERGED, PullState.CLOSED
+    verdicts = VerdictRead(
+        bot="example-bot[bot]",
+        partial_score=0.5,
+        pulls=[
+            BotPull(GRADES_REPO, 30, PullKind.DELIVERY, None, item=7, state=merged),
+            BotPull(GRADES_REPO, 31, PullKind.DELIVERY, None, item=8, state=closed),
+            BotPull(GRADES_REPO, 32, PullKind.DELIVERY, None, item=8, state=merged),
+            BotPull(GRADES_REPO, 33, PullKind.DELIVERY, None, item=9, state=merged),
+            BotPull(GRADES_REPO, 34, PullKind.DELIVERY, None, item=9, draft=True),
+        ],
+    )
+
+    report = build_grade_report(
+        GradeWindow.D7,
+        None,
+        LOKI_URL,
+        {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        verdicts,
+    )
+
+    row = _row(report, "implement", GRADES_REPO)
+    assert (
+        row.measure.attempts,
+        row.measure.successes,
+        row.measure.first_pass,
+        row.drafts_pending,
+    ) == (5, 3, 2, 1)
+
+
+def test_with_no_bot_the_implement_row_counts_the_lines_as_written(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """With no bot the report reads no pull request, so a drafted line counts as its line says."""
+    _drafted_lines(caplog)
+    loki = LokiFake()
+    for record in caplog.records:
+        if record.getMessage().startswith(LINE_PREFIX):
+            loki.push(SERVICE_STREAM, JsonLogFormatter().format(record))
+    loki.serve(web)
+
+    row = _row(grade_report(GradeWindow.D7, None, LOKI_URL), "implement", GRADES_REPO)
+
+    assert (row.measure.attempts, row.measure.successes, row.drafts_pending) == (5, 4, None)
+
+
 def test_a_repository_that_github_spells_in_another_case_joins_the_row_of_loki(
     web: WebFake,
 ) -> None:
@@ -404,3 +543,29 @@ def test_a_repository_that_github_spells_in_another_case_joins_the_row_of_loki(
     assert web_row is not None
     assert (web_row.pulls, web_row.open, web_row.score) == (1, 1, None)
     assert rows["refine", "example/app"] is None
+
+
+def test_a_bot_pull_request_opened_before_the_window_adds_no_row(web: WebFake) -> None:
+    """The search reads the pull requests that changed in the window, and a pull request opened
+    before the window gives only the forge outcome of a drafted line, so a repository whose only
+    pull request is that one gets no row (#6559)."""
+    serve_grade_replies(web)
+    queries = plan_grade_queries(GradeWindow.D7)
+    answers = query_loki_metrics([query.expr for query in queries], LOKI_URL)
+    before = datetime(2026, 10, 20, tzinfo=UTC)
+    verdicts = VerdictRead(
+        bot="example-bot[bot]",
+        partial_score=0.5,
+        pulls=[BotPull("example/old", 3, PullKind.PLAN, Verdict.MERGEABLE, created=before)],
+        opened_since=datetime(2026, 11, 2, tzinfo=UTC),
+    )
+
+    report = build_grade_report(
+        GradeWindow.D7,
+        None,
+        LOKI_URL,
+        {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        verdicts,
+    )
+
+    assert [row.job for row in report.workflows if row.repo == "example/old"] == []

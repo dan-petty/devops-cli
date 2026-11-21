@@ -161,7 +161,7 @@ devops roadmap run [OPTIONS]
 
 ## `devops roadmap implement`
 
-**Implement a Staged or Planned item in bounded steps: with --group, run one task group in a checkout; without it, run the job, which takes items, runs their steps, and marks the pull request ready. Details: docs/roadmap/implement.md.**
+**Implement a Staged or Planned item in bounded steps: with --group, run one task group in a checkout; without it, run the job, which takes items, runs their steps, and opens or updates the draft pull request. Details: docs/roadmap/implement.md.**
 
 ```bash
 devops roadmap implement [OPTIONS]
@@ -237,7 +237,7 @@ devops roadmap plan-recheck [OPTIONS]
 
 ## `devops roadmap explain`
 
-**Say, for one issue, whether the refine job, the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch), the setting roadmap.stage.planned_limit, which is a rule of the stage job only, and the limit of a run. For refine the reason is the wait of the item, such as a question for a person. For a stopped item it prints the state of the stop from the job record: the class, the attempts of the stopped step, the work that the stop kept and the action left. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
+**Say, for one issue, whether the refine job, the stage job and the implement job take it. For each job the answer is yes, or no with the reason of the first rule that fails: the issue is closed or is no item, the filter, the rules of the job (the Status, the owner, the stop on record, the plan and the branch), the setting roadmap.stage.planned_limit, which is a rule of the stage job only, and the limit of a run. For refine the reason is the wait of the item, such as a question for a person. For a stopped item it prints the state of the stop from the job record: the class, the attempts of the stopped step and the action left. The reasons are the texts of the 'Left out' list of stage --plan and implement --plan. The command reads GitHub and git, calls no model and writes nothing. It uses the filter and the limit that the Service uses for each job. A group over the step budget shows only when an earlier run recorded it.**
 
 ```bash
 devops roadmap explain [OPTIONS] <item>
@@ -590,7 +590,7 @@ devops roadmap eval completeness [OPTIONS]
 
 ### `devops roadmap eval grades`
 
-**Print the job grade of each roadmap workflow and repository from its result lines in Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or too few under 30 attempts), the point grade and the range of grades of the interval, the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 failure classes, the owner action of the grade, the tokens and seconds of each attempt and of each success, each version with 10 attempts or more, the attempts in 24 h and in 6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass counts that only the stage, implement and fix_plan lines hold today. For stage and implement it also reads the pull requests that the bot of service.github_app.slug opened in the window, with one GraphQL search to GitHub for each 100, and gives the share of each first verdict label and the verdict score beside p.**
+**Print the job grade of each roadmap workflow and repository from its result lines in Loki (docs/roadmap/job-success.md). For each row: the attempts with no infrastructure cut, the successes, p, the Wilson 95% interval, the grade (100, 90, 80, 70, 60, <60, or too few under 30 attempts), the point grade and the range of grades of the interval, the first-pass ratio, the all-attempts ratio and the infrastructure share, the top 3 failure classes, the owner action of the grade, the tokens and seconds of each attempt and of each success, each version with 10 attempts or more, the attempts in 24 h and in 6 h, and the broken and infrastructure signals. It sends LogQL metric queries to the instant query endpoint of Loki and changes nothing. The 100 grade needs the first-pass counts that only the stage, implement and fix_plan lines hold today. For stage and implement it also reads the pull requests of the bot of service.github_app.slug that changed in the window (updated:>=), with one GraphQL search to GitHub for each 100, and gives the share of each first verdict label and the verdict score beside p, for the pull requests opened in the window. It scores the drafted lines of implement of each pull request once, by its forge state: merged or out of draft gives 1 success and a failure for each other line, closed gives a failure for each line, and a draft keeps its lines out of the attempts in drafts_pending.**
 
 ```bash
 devops roadmap eval grades [OPTIONS]

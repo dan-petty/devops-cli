@@ -278,17 +278,6 @@ In a runner, the implement job SHALL check the git settings of the checkout when
 - **WHEN** the job runs an item in a clone that `git clone` made, with the identity that `ensure_checkout` sets
 - **THEN** the check refuses no key
 
-### Requirement: A refused setting at a push stops the item at once
-A refused setting at the push of a `wip:` commit or of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
-
-#### Scenario: A setting before the push of a `wip:` commit
-- **WHEN** the agent writes `credential.helper` into the configuration of the clone, ticks a task of a group of five, and the job pushes the `wip:` commit before the next model request
-- **THEN** the item stops with the class `git_config`, and the job asks the model for nothing more
-
-#### Scenario: A setting that an exit check writes
-- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
-- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value
-
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.
 
@@ -471,3 +460,14 @@ The shell of the agent of a step, the `pre-commit` runs, the scoped checks, the 
 #### Scenario: The shell of the agent
 - **WHEN** a step builds the shell of its agent for a checkout
 - **THEN** the PATH of the shell starts with `node_modules/.bin` and `.venv/bin` of that checkout
+
+### Requirement: A refused setting at a checkpoint or stop push stops the item at once
+A refused setting at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. A refused setting at the push of a stop SHALL give the stop the class `git_config`.
+
+#### Scenario: A setting before a checkpoint push
+- **WHEN** the agent writes `credential.helper` into the configuration of the clone in group 1 of a change of four groups, and group 1 passes
+- **THEN** the checkpoint before group 2 stops the item with the class `git_config`, and the job asks the model for nothing more
+
+#### Scenario: A setting that an exit check writes
+- **WHEN** an exit check of the step writes `credential.helper` into the configuration of the clone and fails, and no repair round is left
+- **THEN** the item stops with the class `git_config`, and the comment names `credential.helper` and holds no value

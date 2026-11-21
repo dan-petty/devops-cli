@@ -75,12 +75,12 @@ def test_first_pass_table_and_boundary_values() -> None:
     )
 
     # 2. implement: ready, repair_rounds = 0, extensions = 0
-    assert is_fp(roadmap_job.IMPLEMENT, "ready", {"repair_rounds": 0, "extensions": 0}) is True
+    assert is_fp(roadmap_job.IMPLEMENT, "drafted", {"repair_rounds": 0, "extensions": 0}) is True
     assert (
-        is_fp(roadmap_job.IMPLEMENT, "ready", {"repair_rounds": 0}) is True
+        is_fp(roadmap_job.IMPLEMENT, "drafted", {"repair_rounds": 0}) is True
     )  # omitted extensions = 0
-    assert is_fp(roadmap_job.IMPLEMENT, "ready", {"repair_rounds": 1, "extensions": 0}) is False
-    assert is_fp(roadmap_job.IMPLEMENT, "ready", {"repair_rounds": 0, "extensions": 1}) is False
+    assert is_fp(roadmap_job.IMPLEMENT, "drafted", {"repair_rounds": 1, "extensions": 0}) is False
+    assert is_fp(roadmap_job.IMPLEMENT, "drafted", {"repair_rounds": 0, "extensions": 1}) is False
     assert is_fp(roadmap_job.IMPLEMENT, "stopped", {"repair_rounds": 0, "extensions": 0}) is False
 
     # 3. fix_plan: revised or cleared, gate_returns = 0, verify_rounds <= 1, after = 0
@@ -255,7 +255,7 @@ def test_for_each_job_writes_attempt_with_efficiency_counts(
             "staged",
             {"plan_calls": 1, "gate_returns": 0, "verify_rounds": 1},
         ),
-        (roadmap_job.IMPLEMENT, "ready", {"repair_rounds": 0, "extensions": 0}),
+        (roadmap_job.IMPLEMENT, "drafted", {"repair_rounds": 0, "extensions": 0}),
         (
             roadmap_job.FIX_PLAN,
             "revised",

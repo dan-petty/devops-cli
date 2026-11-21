@@ -27,17 +27,11 @@ _SHORT_READ_SECONDS: Final = 0.05
 
 # The chains of bounds around a GitHub session read, each one the innermost first. A call holds
 # the call of the bound before it: the Valkey cache tier in front of a read stops before the read,
-# and the session's read stops before the call that holds it. The watch of the checks of the
-# implement job reads through the session at each poll. The MCP server reads each `resource://gh/`
-# resource with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and `devops gh issue status` reads the issues
-# through the session (#4678). A new call around a GitHub read adds its bound to its chain, or adds
-# its own chain.
+# and the session's read stops before the call that holds it. The MCP server reads each
+# `resource://gh/` resource with `DEFAULT_MCP_TOOL_TIMEOUT_SECONDS`, and `devops gh issue status`
+# reads the issues through the session (#4678). A new call around a GitHub read adds its bound to
+# its chain, or adds its own chain.
 _CHAINS: Final = (
-    (
-        "DEFAULT_VALKEY_TIMEOUT_SECONDS",
-        "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS",
-        "DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS",
-    ),
     (
         "DEFAULT_VALKEY_TIMEOUT_SECONDS",
         "DEFAULT_GH_SESSION_READ_TIMEOUT_SECONDS",

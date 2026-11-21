@@ -7,9 +7,7 @@ in the 20 minutes of a real run, and an effect of the script reads `origin` at t
 
 from __future__ import annotations
 
-import json
 import subprocess
-from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -76,120 +74,19 @@ def _commits_behind(world: JobWorld) -> str:
     return world.repo.origin_git("rev-list", "--count", f"{BRANCH}..main")
 
 
-def _watch(world: JobWorld, seen: list[str]) -> Callable[[], None]:
-    return lambda: seen.append(_commits_behind(world))
-
-
-def test_the_first_wip_push_of_a_planned_item_holds_the_commit_that_main_gained(
-    planned_world: JobWorld,
-) -> None:
-    seen: list[str] = []
-    script = ModelScript(
-        *_task(1),
-        ModelAPIError("example-model", "The pod died."),
-        effects={1: lambda: advance_main(planned_world), 3: _watch(planned_world, seen)},
-    )
-
-    planned_world.run(script)
-
-    assert seen == [BEHIND]
-
-
-def test_a_later_wip_push_holds_the_commit_that_main_gained(planned_world: JobWorld) -> None:
-    seen: list[str] = []
-    script = ModelScript(
-        *_task(1),
-        *_task(2),
-        ModelAPIError("example-model", "The pod died."),
-        effects={
-            3: lambda: advance_main(planned_world),
-            5: _watch(planned_world, seen),
-        },
-    )
-
-    planned_world.run(script)
-
-    assert seen == [BEHIND]
-
-
-def test_a_wip_push_of_a_staged_item_holds_the_commit_that_main_gained(
+def test_a_stop_pushes_a_branch_that_holds_the_commit_that_main_gained(
     job_world: JobWorld,
 ) -> None:
-    seen: list[str] = []
     script = ModelScript(
         *_task(1),
         ModelAPIError("example-model", "The pod died."),
-        effects={1: lambda: advance_main(job_world), 3: _watch(job_world, seen)},
+        effects={3: lambda: advance_main(job_world)},
     )
 
-    job_world.run(script)
-
-    assert seen == [BEHIND]
-
-
-def test_the_wip_push_leaves_the_checkout_of_the_step_alone(planned_world: JobWorld) -> None:
-    """The step holds the sha of its last `wip:` commit, so the push of a rebased copy must not
-    move the branch of the checkout. The step that follows the push still ticks its tasks."""
-    script = ModelScript(
-        *_task(1),
-        *_task(2),
-        *_task(3),
-        *_task(4),
-        *_task(5),
-        say("Group 1 is done."),
-        effects={3: lambda: advance_main(planned_world)},
-    )
-
-    applied = planned_world.run(script)
-
-    subjects = planned_world.origin_log()
-    assert applied.ready == (1,)
-    assert not [subject for subject in subjects if subject.startswith("wip:")]
-    assert _commits_behind(planned_world) == BEHIND
-
-
-def test_a_stop_pushes_a_branch_that_holds_the_commit_that_main_gained(
-    planned_world: JobWorld,
-) -> None:
-    script = ModelScript(
-        *_task(1),
-        ModelAPIError("example-model", "The pod died."),
-        effects={3: lambda: advance_main(planned_world)},
-    )
-
-    applied = planned_world.run(script)
+    applied = job_world.run(script)
 
     assert applied.stopped == (1,)
-    assert _commits_behind(planned_world) == BEHIND
-    held = planned_world.store.item(1)
-    assert held is not None
-    sha = planned_world.repo.origin_git("rev-parse", BRANCH)
-    assert f"The last is `{sha}`." in planned_world.issue_comments()[0]
-
-
-def test_a_conflict_at_a_wip_push_keeps_the_wip_commit_on_the_branch(
-    planned_world: JobWorld, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """A conflict at a wip push aborts the rebase and keeps the wip commit on origin (#5615)."""
-    script = ModelScript(
-        *_task(1),
-        ModelAPIError("example-model", "The pod died."),
-        effects={
-            1: lambda: advance_main(planned_world, "src/devops_cli/f1.py", "VALUE = 99\n"),
-        },
-    )
-
-    applied = planned_world.run(script)
-
-    assert applied.stopped == (1,)
-    subjects = planned_world.origin_log()
-    assert any(subject.startswith("wip:") for subject in subjects)
-    held = planned_world.store.item(1)
-    assert held is not None
-    assert json.loads(held.job_record.get("implement.conflict") or "[]") == ["src/devops_cli/f1.py"]
-    assert "The rebase onto origin/main stopped." in capsys.readouterr().err
-    status = planned_world.repo.git("worktree", "list")
-    assert status.count("\n") == 0
+    assert _commits_behind(job_world) == BEHIND
 
 
 def test_a_conflict_push_that_fails_returns_the_failure_note(

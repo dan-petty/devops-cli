@@ -46,7 +46,7 @@ def test_the_help_of_a_job_command_names_a_page_that_exists(command: str) -> Non
 def test_the_help_of_inbox_and_explain_names_the_state_of_a_stop() -> None:
     assert "class" in HELP.roadmap.inbox
     assert "action left" in HELP.roadmap.inbox
-    for text in ("class", "attempts", "kept", "action left"):
+    for text in ("class", "attempts", "action left"):
         assert text in HELP.roadmap.explain
 
 

@@ -25,9 +25,12 @@ from devops_cli.roadmap.pr_verdict import (
     PLAN_TITLE_PREFIX,
     VERDICT_LABELS,
     BotPull,
+    ForgeOutcome,
     PullKind,
+    PullState,
     Verdict,
     first_verdict_label,
+    forge_outcome,
     grade_verdicts,
     pull_kind,
     read_bot_pulls,
@@ -197,11 +200,11 @@ def test_no_pull_request_gives_no_share_and_no_score() -> None:
 def test_the_search_names_the_bot_the_window_and_the_repository() -> None:
     assert (
         verdict_search(GradeWindow.D7, RepoRef("example/app"), "example-bot", NOW)
-        == "is:pr author:app/example-bot created:>=2026-11-02T12:00:00Z repo:example/app"
+        == "is:pr author:app/example-bot updated:>=2026-11-02T12:00:00Z repo:example/app"
     )
     assert (
         verdict_search(GradeWindow.H6, None, "example-bot", NOW)
-        == "is:pr author:app/example-bot created:>=2026-11-09T06:00:00Z"
+        == "is:pr author:app/example-bot updated:>=2026-11-09T06:00:00Z"
     )
 
 
@@ -255,6 +258,59 @@ def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
         {"search": "is:pr author:app/example-bot", "cursor": None},
         {"search": "is:pr author:app/example-bot", "cursor": "page-2"},
     ]
+
+
+def test_the_read_gives_the_item_the_state_and_the_draft_of_each_pull_request(
+    github_api: GitHubApiFake,
+) -> None:
+    """The head branch gives the item of a delivery, so the grade can link an implement attempt to
+    its pull request (#6559)."""
+    hold_graphql_quota()
+    github_api.route(
+        "POST",
+        "/graphql",
+        _page(
+            [
+                pull_node(
+                    9,
+                    "feat(roadmap): Add x",
+                    [],
+                    head="feat/12-add-x",
+                    state="MERGED",
+                    created="2026-10-20T08:00:00Z",
+                ),
+                pull_node(10, "feat(roadmap): Add y", [], head="not-a-branch", draft=True),
+            ],
+            total=2,
+        ),
+    )
+
+    pulls = read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+
+    assert [(p.number, p.item, p.state, p.draft, p.created) for p in pulls] == [
+        (9, 12, PullState.MERGED, False, datetime(2026, 10, 20, 8, 0, tzinfo=UTC)),
+        (10, None, PullState.OPEN, True, None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("state", "draft", "outcome"),
+    [
+        (PullState.MERGED, False, ForgeOutcome.SUCCESS),
+        (PullState.OPEN, False, ForgeOutcome.SUCCESS),
+        (PullState.CLOSED, False, ForgeOutcome.FAILURE),
+        (PullState.OPEN, True, None),
+    ],
+    ids=["merged", "ready", "closed", "draft"],
+)
+def test_the_forge_state_gives_the_outcome_of_a_delivery(
+    state: PullState, draft: bool, outcome: ForgeOutcome | None
+) -> None:
+    """A merged or ready delivery is a success, a delivery closed with no merge a failure, and a
+    draft has no outcome yet (#6559)."""
+    pull = BotPull("example/app", 1, PullKind.DELIVERY, None, item=3, state=state, draft=draft)
+
+    assert forge_outcome(pull) is outcome
 
 
 def test_a_search_with_more_results_than_github_returns_stops_the_read(

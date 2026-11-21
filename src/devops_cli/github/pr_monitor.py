@@ -35,7 +35,6 @@ from devops_cli.output import print_warning
 logger = logging.getLogger(__name__)
 
 _PASSING_BUCKETS = frozenset({CheckBucket.PASS, CheckBucket.SKIPPING})
-_FAILING_BUCKETS = frozenset({CheckBucket.FAIL, CheckBucket.CANCEL, CheckBucket.UNREAD})
 
 
 class CopilotReviewStatus(BaseModel):
@@ -85,10 +84,6 @@ class PRMonitorStatus(BaseModel):
     @property
     def successful_checks(self) -> int:
         return sum(1 for c in self.checks if c.bucket in _PASSING_BUCKETS)
-
-    @property
-    def failing_checks(self) -> list[PRCheckItem]:
-        return [c for c in self.checks if c.bucket in _FAILING_BUCKETS]
 
     @property
     def settled(self) -> bool:
@@ -527,10 +522,9 @@ def get_pr_monitoring_status(
     require_reviews: bool = True,
     *,
     runner: GhRun = run_gh,
-    commit_statuses: bool = True,
 ) -> PRMonitorStatus:
     """Read pull request `pr_number` once, judge it through the merge-readiness verdict, and add
-    the review gate's blockers. With `commit_statuses` off, the verdict reads check runs only."""
+    the review gate's blockers."""
     repo_name = repo.split("/")[-1]
     pr_data = fetch_pr_details(owner, repo_name, pr_number, runner=runner)
     head_sha = str(pr_data.get("head", {}).get("sha", ""))
@@ -547,9 +541,7 @@ def get_pr_monitoring_status(
     )
     if status.terminal:
         return status
-    verdict = assess_merge_readiness(
-        pr_data, owner, repo_name, pr_number, runner=runner, commit_statuses=commit_statuses
-    )
+    verdict = assess_merge_readiness(pr_data, owner, repo_name, pr_number, runner=runner)
     threads_read = BlockerKind.THREADS_UNREAD not in verdict.kinds
     raw_reviews = fetch_raw_reviews(owner, repo_name, pr_number)
     copilot_status = detect_copilot_status(
@@ -657,7 +649,6 @@ def monitor_pr(
     interval: int = 60,
     settle_timeout: int = 60,
     require_reviews: bool = True,
-    commit_statuses: bool = True,
     status_callback: Callable[[PRMonitorStatus, int], None] | None = None,
 ) -> PRMonitorResult:
     """Poll a pull request until no check runs and no Copilot review is active, then report every
@@ -665,8 +656,7 @@ def monitor_pr(
 
     While a check runs the monitor waits, whatever other blockers it sees, so a blocker that
     comes later is not left for a second run (#998). With `require_reviews`, it also waits out
-    `settle_timeout`, so a Copilot review that starts late is seen. With `commit_statuses` off,
-    each poll reads check runs only, for a token without the `statuses` permission.
+    `settle_timeout`, so a Copilot review that starts late is seen.
     """
     valid_interval = max(1, interval)
     valid_timeout = max(1, timeout)
@@ -686,7 +676,6 @@ def monitor_pr(
                 repo,
                 pr_number,
                 require_reviews=require_reviews,
-                commit_statuses=commit_statuses,
             )
         except GitHubOperationError:
             # One slow read is no verdict: count it, say so, and poll again. A run of failures

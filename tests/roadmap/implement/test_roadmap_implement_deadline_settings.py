@@ -19,7 +19,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
-    DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_SERVICE_POLL_INTERVAL_SECONDS,
 )
@@ -114,7 +113,6 @@ def test_the_default_stall_covers_the_longest_wait_in_which_the_runner_writes_no
     silent = max(
         DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
         DEFAULT_ROADMAP_IMPLEMENT_REQUEST_TIMEOUT_SECONDS,
-        DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
     )
 
     assert DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS >= silent + MARGIN_SECONDS
@@ -150,15 +148,9 @@ def test_the_default_extension_outlasts_the_stall_by_the_delay_of_the_row_and_th
             id="ceiling",
         ),
         pytest.param(
-            r"the watch of the checks of a pull request, (\d+) s\.",
-            DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
-            id="watch",
-        ),
-        pytest.param(
-            r"The stall is (\d+) s above it\.",
-            DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS
-            - DEFAULT_ROADMAP_IMPLEMENT_MONITOR_TIMEOUT_SECONDS,
-            id="margin",
+            r"a command of a step, (\d+) s\.",
+            DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
+            id="command",
         ),
         pytest.param(
             r"ends by its stall after (\d+) minutes",

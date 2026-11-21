@@ -156,8 +156,10 @@ def test_the_third_attempt_sends_the_failure_text_in_a_new_conversation(
     config: Callable[..., Path],
 ) -> None:
     """The new tier gets the repair message of the second failure and not the message of the step,
-    and the work of the failed attempt is discarded before it starts (#3569)."""
+    and the work of the failed attempt is discarded back to the commit where the step started,
+    before it starts (#3569, #6559)."""
     config(roadmap={"implement": {"repair_rounds": 2}})
+    start = (checkout / "src" / "sample.py").read_text("utf-8")
     _lint_answers(programs, (1, f"{UNUSED}\n"), (1, f"{TOO_LONG}\n"), (0, ""))
     seen_at_third: list[str] = []
     coder = ModelScript(
@@ -178,7 +180,7 @@ def test_the_third_attempt_sends_the_failure_text_in_a_new_conversation(
     assert len(reasoning.seen[0]) == 1
     assert TOO_LONG in prompt
     assert UNUSED not in prompt
-    assert seen_at_third == [SHOUT_CODE]
+    assert seen_at_third == [start]
 
 
 def test_an_attempt_after_a_change_tier_failure_names_the_second_tier_and_the_tier_strategy(

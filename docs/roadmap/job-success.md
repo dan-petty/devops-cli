@@ -28,7 +28,7 @@ A line holds no text of an issue, of a model or of a log. Each value is a number
 | Job | Where the line comes from | Results | Intended result | Counts and names |
 | :--- | :--- | :--- | :--- | :--- |
 | `stage` | Each item that a stage Job or a round tried. A stage Job writes the line after its check-in, and the Service writes the line of each failed end that it recovers. A left-out item writes no line. | `staged`, `needs_split`, `failed`, `degenerate` | `staged`: the plan pull request is open. | `plan_calls`, `gate_returns`, `verify_rounds`, `tokens`, `seconds`. `plan_calls` counts the plan calls that the attempt made to the model, also with a client that keeps no trace. An attempt that starts from a kept plan has no `plan_calls`, also when the checks refuse the kept plan and the attempt asks for a new plan: an earlier attempt made the first calls, so the attempt cannot count all of them (#5166). |
-| `implement` | Each runner Job that ended, when the `implement` row reports it. | `ready`, `yielded`, `returned`, `stopped` | `ready`: the pull request is ready. | `repair_rounds`, `extensions`, `tokens`, `seconds` |
+| `implement` | Each runner Job that ended, when the `implement` row reports it. | `drafted`, `yielded`, `returned`, `stopped` | `drafted`: the draft pull request holds the final title and body (#6559). The line is the record of the hand-off: the grade scores it by the forge outcome of the delivery (see [The forge outcome of implement](#the-forge-outcome-of-implement)). | `repair_rounds`, `extensions`, `tokens`, `seconds`, `pull` (the draft) |
 | `refine` | Each item that a round refined. | The next step of the item, or `error` for a failed model call or write | Each next step that is a wait: `ready`, `person`, `split`, `blocked`, `alternatives` (a ready proposal waits on the verdict of the alternatives check, #2951) or `edit` (only a body edit lets refine write a design). `retry` and `failed` are failures of the job (#6037). | `tries` |
 | `refine_judge` | Each review of the proposal for an item that a bot opened that calls the model. A kept approval writes no line. | `approved`, `refused` | `approved` | `round`, `findings` |
 | `alternatives` | Each check that the round wrote, and each failed check. | The verdict, `refused` or `failed` | Each verdict | `searches` (the searches that a provider answered) and `returns` (the replies sent back to the model), also for `refused` and `failed`, `reason` (the skip class, or the code of the error) |
@@ -97,6 +97,16 @@ Each roadmap workflow gets a job grade from its result lines: `100`, `90`, `80`,
 
 The roadmap jobs use [the 80% rule](../guidelines/agentic-jobs.md#the-80-rule) of the guideline with no change. `devops roadmap eval grades` gives its input at each daily check.
 
+## The forge outcome of implement
+
+The implement Job ends at its draft (#6559), so its line `drafted` says only that the Job handed the draft to the watch row and the fix-checks Jobs. The line names the draft in the field `pull`. `devops roadmap eval grades` groups the `drafted` lines by the repository, the item and `pull`, and scores each group once by that pull request, which the search of the bot pull requests finds by its number:
+
+- a pull request that merged, or that is open and out of draft, is a success: with n lines in the group, 1 success and n - 1 failures, because an earlier Job of the same pull request did not reach the outcome alone;
+- a pull request that closed with no merge is a failure: n failures;
+- a pull request that is still a draft has no outcome yet: its n lines stay out of the attempts, and the row counts them in `drafts_pending`.
+
+A line with no `pull`, from a Job before the field, takes the outcome of the newest delivery of its item. The window grade, its first passes and its efficiency per success take this score. The versions, the trend windows and the dashboard count the lines as written, where `drafted` is a success. With no `service.github_app.slug` the report reads no pull request, so a `drafted` line counts as the line says. A Job of the runner image before #6559 wrote `ready`, so a Job that ends during the rollout counts as `stopped`.
+
 ## The verdicts of the bot pull requests
 
 The result line of `stage` and `implement` tells only how the attempt ended. The pull request review gate gives each plan and delivery pull request of the bot one verdict, which tells whether its work can be used (owner, 2026-11-16, #5968). A workflow label records the verdict (`src/devops_cli/roadmap/workflow_labels.py`), and `devops gh label sync` creates the labels. A person or an agent vet sets the label by hand.
@@ -112,7 +122,7 @@ The result line of `stage` and `implement` tells only how the attempt ended. The
 - **One label for each verdict and kind.** `verdict/fix-plan` is the verdict needs fix of a plan: the stage review, the row `plan_drift` and a vet set it, and the step fix-plan repairs the plan and removes it. `verdict/fix-implementation` is the verdict needs fix of a delivery. A first verdict label of the other kind, such as `verdict/fix-plan` on a delivery, leaves the pull request unscored, and the read logs why.
 - **The kind and the job.** A pull request of the bot whose title starts with `docs(openspec): plan #` is a plan and scores `stage`. Each other pull request of the bot is a delivery and scores `implement`.
 - **The first verdict.** The first label event of a verdict label gives the verdict of a pull request. A later verdict, such as `verdict/mergeable` after a fix, keeps the history and does not change the score. A pull request with no verdict is open, and stays out of the score.
-- **The read.** `devops roadmap eval grades` reads the pull requests that the bot of `service.github_app.slug` opened in the window, with one GraphQL search for each 100 pull requests. The same request gives the label events. `--repo` puts the repository in the search, and `--dry-run` prints the search. With no slug, the report reads no verdict and names the setting.
+- **The read.** `devops roadmap eval grades` reads the pull requests of the bot of `service.github_app.slug` that changed in the window (`updated:>=`), with one GraphQL search for each 100 pull requests. The same request gives the label events, the head branch, the state, the draft flag and the creation time. The verdicts count only the pull requests that the bot opened in the window; a delivery opened before the window gives only its forge outcome. `--repo` puts the repository in the search, and `--dry-run` prints the search. With no slug, the report reads no verdict and names the setting.
 - **The report.** For each stage and implement row, the report gives the attempt ratio `p`, the pull requests, the open and the unscored ones, the count of each verdict with its share of the pull requests with a verdict, and the verdict score:
 
   ```text

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import yaml
@@ -23,9 +24,15 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField, StageRecordKey
+from devops_cli.roadmap.stores.store import (
+    FixChecksRecordKey,
+    ImplementRecordKey,
+    ItemField,
+    StageRecordKey,
+)
 from devops_cli.roadmap.watch_row import (
     WatchLedger,
+    WatchRoundResult,
     watch_round,
 )
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -79,11 +86,22 @@ def _graphql_pr_node(
     author: str = "alice",
     check_state: str = "FAILURE",
     check_conclusion: str = "FAILURE",
+    check_name: str = "Tests & Coverage",
     body: str = "",
     title: str = "feat: test",
     base_ref: str = "main",
     labels: tuple[str, ...] = (),
+    contexts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    if contexts is None:
+        contexts = [
+            {
+                "__typename": "CheckRun",
+                "name": check_name,
+                "status": "COMPLETED",
+                "conclusion": check_conclusion,
+            }
+        ]
     return {
         "number": number,
         "title": title,
@@ -102,16 +120,7 @@ def _graphql_pr_node(
                         "message": title,
                         "statusCheckRollup": {
                             "state": check_state,
-                            "contexts": {
-                                "nodes": [
-                                    {
-                                        "__typename": "CheckRun",
-                                        "name": "Tests & Coverage",
-                                        "status": "COMPLETED",
-                                        "conclusion": check_conclusion,
-                                    }
-                                ]
-                            },
+                            "contexts": {"nodes": contexts},
                         },
                     }
                 }
@@ -317,21 +326,33 @@ def test_a_kubernetes_or_configuration_error_of_the_fix_round_does_not_fail_the_
     ) == (1, (pr_num,), (), 1, True, True)
 
 
-@pytest.mark.parametrize(("repaired", "calls"), [(True, 1), (False, 0)])
-def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_for_each_head(
+@pytest.mark.parametrize(
+    ("end", "calls"),
+    [
+        ({FixChecksRecordKey.RESULT: "repaired"}, 1),
+        ({ImplementRecordKey.RESULT: "drafted"}, 1),
+        ({ImplementRecordKey.RESULT: "stopped"}, 0),
+        ({}, 0),
+    ],
+    ids=["repaired", "drafted", "stopped", "no-end"],
+)
+@pytest.mark.parametrize("staged", [False, True], ids=["delivery", "staged"])
+def test_a_green_delivery_draft_gets_the_ready_path_after_a_fix_or_a_drafted_end_once_a_head(
     store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    repaired: bool,
+    end: dict[Any, str],
     calls: int,
+    staged: bool,
 ) -> None:
-    """A delivery draft whose implement Job ended is the implement Job's: the row marks nothing.
-    A draft that a fix Job repaired gets the ready path of the step, in mode `plan` without
-    `--confirm`, once for its head (#5027)."""
+    """A delivery draft that a fix Job repaired, or whose implement Job ended at the draft, gets
+    the ready path of the step, in mode `plan` without `--confirm`, once for its head (#5027,
+    #6559). The row leaves a draft whose Job stopped. A Staged item that delivers on its plan pull
+    request takes the plan ready path, which in mode `plan` reads and marks nothing."""
     from devops_cli.roadmap import watch_row
-    from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
-    from devops_cli.roadmap.stores.store import FixChecksRecordKey
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+    from devops_cli.roadmap.stores.store import FixChecksResult
 
     issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
     held = store.item(issue)
@@ -339,11 +360,12 @@ def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_fo
     marks: dict[Any, str | None] = {
         ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
         ImplementRecordKey.JOB_STATE: "succeeded",
+        **end,
     }
-    if repaired:
-        marks[FixChecksRecordKey.RESULT] = "repaired"
     store.set_marks(held, marks)
     pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    if staged:
+        store.set_marks(held, {ImplementRecordKey.PR: str(pr_num), StageRecordKey.PR: str(pr_num)})
     node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
@@ -354,6 +376,10 @@ def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_fo
         check_conclusion="SUCCESS",
     )
     seen: list[tuple[int, str | None, bool]] = []
+    reads: list[int] = []
+    monkeypatch.setattr(
+        watch_row, "read_ready_draft", lambda repo, pull, **kwargs: reads.append(pull)
+    )
 
     def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
         # The row asks for the ready path only, so a check that fails between the read of the
@@ -370,8 +396,485 @@ def test_a_green_delivery_draft_gets_the_ready_path_only_after_a_fix_and_once_fo
             store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick)
         )
 
-    assert (seen, result.marked_ready) == ([(pr_num, HEAD_PASS, False)] * calls, ())
-    assert [r for r in github_api.sent if r.method != "POST" or r.url.path != "/graphql"] == []
+    assert (seen, reads, result.marked_ready) == (
+        [] if staged else [(pr_num, HEAD_PASS, False)] * calls,
+        [],
+        (),
+    )
+    # A Staged item also gets the read of its plan pull request (`_check_closed_stage_plans`).
+    plan_read = ("GET", f"/repos/{REPO}/pulls/{pr_num}")
+    assert [
+        r
+        for r in github_api.sent
+        if (r.method, r.url.path) != ("POST", "/graphql")
+        and not (staged and (r.method, r.url.path) == plan_read)
+    ] == []
+
+
+def test_a_ready_path_that_raises_runs_again_for_the_same_head(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row records the head as judged only after the ready path returns a report, so a GitHub
+    error in the first round leaves the head for the next round (#6559)."""
+    from devops_cli.exceptions import GitHubOperationError
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+    from devops_cli.roadmap.stores.store import FixChecksResult
+
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    held = store.item(issue)
+    assert held is not None
+    store.set_marks(
+        held,
+        {
+            ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+            ImplementRecordKey.JOB_STATE: "succeeded",
+            ImplementRecordKey.RESULT: "drafted",
+        },
+    )
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    node = _graphql_pr_node(
+        number=pr_num,
+        head=HEAD_PASS,
+        is_draft=True,
+        body=f"Closes #{issue}",
+        author="devops-cli-service",
+        check_state="SUCCESS",
+        check_conclusion="SUCCESS",
+    )
+    calls: list[int] = []
+
+    def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
+        calls.append(pull)
+        if len(calls) == 1:
+            raise GitHubOperationError("502 Bad Gateway", operation="get_pull_status")
+        return FixChecksReport(repo=repo, pull=pull, result=FixChecksResult.PLANNED)
+
+    monkeypatch.setattr(watch_row, "run_fix_checks", ready_path)
+    ledger = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+    for tick in range(3):
+        _route_graphql(github_api, [node])
+        try:
+            watch_round(store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick))
+        except GitHubOperationError:
+            pass
+
+    assert calls == [pr_num, pr_num]
+
+
+def _drafted_delivery(store: InMemoryRoadmapStore, *, staged: bool = False) -> tuple[int, int]:
+    """Seed an item In Review whose implement Job ended at its draft pull request, and that draft:
+    the record holds `implement.result` drafted and `implement.pr` (#6559). A Staged item also
+    holds the draft as its plan pull request (`stage.pr`). Gives the item and the draft."""
+    issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
+    pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
+    held = store.item(issue)
+    assert held is not None
+    marks: dict[Any, str] = {
+        ImplementRecordKey.JOB: f"devops-cli-implement-project-{issue}-abc123",
+        ImplementRecordKey.JOB_STATE: "succeeded",
+        ImplementRecordKey.RESULT: "drafted",
+        ImplementRecordKey.PR: str(pr_num),
+    }
+    if staged:
+        marks[StageRecordKey.PR] = str(pr_num)
+    store.set_field(held, ItemField.STATUS, "In Review", marks=marks)
+    return issue, pr_num
+
+
+def _delivery_node(pr_num: int, issue: int, **fields: Any) -> dict[str, Any]:
+    """The GraphQL node of the draft of `_drafted_delivery`; `fields` change the defaults."""
+    values: dict[str, Any] = {
+        "is_draft": True,
+        "body": f"Closes #{issue}",
+        "author": "devops-cli-service",
+        "head": HEAD_FAIL,
+        **fields,
+    }
+    return _graphql_pr_node(number=pr_num, **values)
+
+
+def _rounds(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    ledger: Path,
+    nodes: Sequence[dict[str, Any]],
+    ticks: Sequence[int] = (0, 31, 62),
+) -> list[WatchRoundResult]:
+    """Run one watch round for each node, at each minute of `ticks` after NOW."""
+    results = []
+    for node, tick in zip(nodes, ticks, strict=False):
+        _route_graphql(github_api, [node])
+        results.append(
+            watch_round(store, repo=REPO, ledger_path=ledger, now=NOW + timedelta(minutes=tick))
+        )
+    return results
+
+
+def _stop_facts(store: InMemoryRoadmapStore, issue: int) -> tuple[Any, ...]:
+    """The Status, the stop, the class and the result of the item, and its count of comments."""
+    held = store.item(issue)
+    assert held is not None
+    record = held.job_record
+    return (
+        held.status,
+        record.get(ImplementRecordKey.STOPPED),
+        record.get(ImplementRecordKey.FAILURE),
+        record.get(ImplementRecordKey.RESULT),
+        len(store.comments_on(issue)),
+    )
+
+
+_NOT_STOPPED: Final = ("In Review", None, None, "drafted", 0)
+
+
+@pytest.mark.parametrize(
+    ("check", "conclusion", "mergeable", "klass", "staged"),
+    [
+        ("Semantic PR title", "FAILURE", "MERGEABLE", "ci_infra", False),
+        ("Tests & Coverage", "CANCELLED", "MERGEABLE", "ci_infra", False),
+        ("Tests & Coverage", "SUCCESS", "CONFLICTING", "conflict", False),
+        ("Tests & Coverage", "CANCELLED", "MERGEABLE", "ci_infra", True),
+        ("Tests & Coverage", "SUCCESS", "CONFLICTING", "conflict", True),
+    ],
+    ids=["ci-infra", "cancelled", "conflict", "staged-cancelled", "staged-conflict"],
+)
+def test_a_drafted_delivery_draft_that_no_unit_takes_stops_its_item_once(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    check: str,
+    conclusion: str,
+    mergeable: str,
+    klass: str,
+    staged: bool,
+) -> None:
+    """A failed check that no fix-checks unit repairs, a cancelled check and a conflict with the
+    base leave a drafted delivery draft with no actor, so the row stops its item through the stop
+    flow, once: Status Blocked, the class, `implement.result` stopped, and one stop comment that
+    names the cause (#6559). A Staged item whose plan pull request is also its delivery draft gets
+    the same stop: the record, not the kind of the pull request, says that it is the delivery."""
+    issue, pr_num = _drafted_delivery(store, staged=staged)
+    node = _delivery_node(
+        pr_num,
+        issue,
+        mergeable=mergeable,
+        check_state="SUCCESS" if conclusion == "SUCCESS" else "FAILURE",
+        check_conclusion=conclusion,
+        check_name=check,
+    )
+    _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, [node] * 3)
+
+    comments = [c.body for c in store.comments_on(issue)]
+    named = "conflict" if klass == "conflict" else check
+    assert (*_stop_facts(store, issue), named in comments[0]) == (
+        "Blocked",
+        "pull request",
+        klass,
+        "stopped",
+        1,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "record"),
+    [
+        ("off", {}),
+        ("plan", {}),
+        ("on", {"result": "failed"}),
+        ("on", {"result": "stopped"}),
+        ("on", {"outcome": "error"}),
+        ("on", {"outcome": "none", "attempt": 9}),
+    ],
+    ids=["mode-off", "mode-plan", "unit-failed", "unit-stopped", "unit-error", "unit-spent"],
+)
+def test_a_failed_test_check_with_no_repair_owner_stops_the_item_of_its_delivery_draft(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    config: Any,
+    mode: str,
+    record: dict[str, Any],
+) -> None:
+    """A failed check of the class test has a repair owner only in mode `on`, and only while the
+    fix-checks unit of the head and the check has not ended with no repair: the last round of the
+    step on them failed or stopped, or the unit record holds an outcome or spent its attempts. In
+    each other case the row stops the item (#6559)."""
+    config(roadmap={"fix_checks": {"mode": mode}})
+    issue, pr_num = _drafted_delivery(store)
+    held = store.item(issue)
+    assert held is not None
+    check = "Tests & Coverage"
+    if "result" in record:
+        store.set_marks(
+            held,
+            {
+                FixChecksRecordKey.KEY: f"{HEAD_FAIL}:{check}",
+                FixChecksRecordKey.RESULT: record["result"],
+            },
+        )
+    if "outcome" in record:
+        unit = {"attempt": record.get("attempt", 1), "outcome": record["outcome"]}
+        units = json.dumps({f"{pr_num}:{HEAD_FAIL}:{check}": unit})
+        store.set_marks(held, {FixChecksRecordKey.UNITS: units})
+
+    _rounds(
+        store,
+        github_api,
+        tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+        [_delivery_node(pr_num, issue)],
+    )
+
+    assert _stop_facts(store, issue) == ("Blocked", "pull request", "test", "stopped", 1)
+
+
+def test_a_failed_test_check_of_a_delivery_draft_in_mode_on_gets_a_fix_unit_and_no_stop(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+) -> None:
+    """In mode `on` a fix-checks unit owns a failed check of the class test while the unit of the
+    head and the check has not ended, so the row hands the unit to the fix round and does not stop
+    the item (#6559)."""
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.fix_checks_row import FixChecksRound
+
+    config(roadmap={"fix_checks": {"mode": "on"}})
+    issue, pr_num = _drafted_delivery(store)
+    handed: list[tuple[int, str, str]] = []
+
+    def fix_round(repo: str, due: Sequence[Any], **kwargs: Any) -> FixChecksRound:
+        handed.extend((unit.pull, unit.head, unit.check) for unit in due)
+        return FixChecksRound()
+
+    monkeypatch.setattr(watch_row, "run_fix_checks_round", fix_round)
+
+    _rounds(
+        store,
+        github_api,
+        tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+        [_delivery_node(pr_num, issue)],
+    )
+
+    assert (handed, _stop_facts(store, issue)) == (
+        [(pr_num, HEAD_FAIL, "Tests & Coverage")],
+        _NOT_STOPPED,
+    )
+
+
+@pytest.mark.parametrize("staged", [False, True], ids=["delivery", "staged"])
+@pytest.mark.parametrize("claim", ["item", "pull"])
+def test_a_claimed_delivery_draft_gets_no_stop_and_no_ready_mark(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+    claim: str,
+    staged: bool,
+) -> None:
+    """An owner label on the item or on its pull request claims the draft, as the step
+    `fix-checks` reads it, so the row leaves a cancelled check of a claimed draft to the claimant,
+    and gives the green draft no ready mark, also when a Staged item delivers on its plan pull
+    request (#6559)."""
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+    from devops_cli.roadmap.stores.store import FixChecksResult
+
+    config(roadmap={"fix_checks": {"mode": "on"}})
+    issue, pr_num = _drafted_delivery(store, staged=staged)
+    if claim == "item":
+        store.add_label(issue, "owner/human")
+    labels = ("owner/agent",) if claim == "pull" else ()
+    reads: list[int] = []
+    monkeypatch.setattr(
+        watch_row, "read_ready_draft", lambda repo, pull, **kwargs: reads.append(pull)
+    )
+    monkeypatch.setattr(
+        watch_row,
+        "run_fix_checks",
+        lambda store, repo, pull, **kwargs: FixChecksReport(
+            repo=repo, pull=pull, result=FixChecksResult.STOPPED
+        ),
+    )
+    nodes = [
+        _delivery_node(pr_num, issue, head=HEAD_PASS, check_conclusion="CANCELLED", labels=labels),
+        _delivery_node(
+            pr_num,
+            issue,
+            head=HEAD_NEW,
+            check_state="SUCCESS",
+            check_conclusion="SUCCESS",
+            labels=labels,
+        ),
+    ]
+
+    results = _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, nodes)
+
+    assert (_stop_facts(store, issue)[1:], results[-1].marked_ready, reads) == (
+        _NOT_STOPPED[1:],
+        (),
+        [],
+    )
+
+
+@pytest.mark.parametrize(("mode", "marked"), [("off", False), ("plan", False), ("on", True)])
+def test_a_staged_delivery_draft_gets_the_ready_mark_only_in_mode_on(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+    mode: str,
+    marked: bool,
+) -> None:
+    """A Staged item that delivers on its plan pull request takes the plan ready path, with the
+    guards of the delivery ready path: only mode `on` of `roadmap.fix_checks.mode` marks the green
+    draft ready (#6559)."""
+    from types import SimpleNamespace
+
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.implement.implement_pull import Answer
+
+    config(roadmap={"fix_checks": {"mode": mode}, "stage": {"jev_completeness": False}})
+    issue, pr_num = _drafted_delivery(store, staged=True)
+    marks: list[int] = []
+    monkeypatch.setattr(watch_row, "read_ready_draft", lambda repo, pull, **kwargs: pull)
+    monkeypatch.setattr(
+        watch_row, "draft_readiness", lambda draft: SimpleNamespace(answer=Answer.READY, reason="")
+    )
+    monkeypatch.setattr(watch_row, "mark_ready", lambda repo, pull, **kwargs: marks.append(pull))
+    node = _delivery_node(
+        pr_num, issue, head=HEAD_PASS, check_state="SUCCESS", check_conclusion="SUCCESS"
+    )
+
+    (result,) = _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, [node])
+
+    assert (marks, result.marked_ready) == (([pr_num], (pr_num,)) if marked else ([], ()))
+
+
+@pytest.mark.parametrize("staged", [False, True], ids=["delivery", "staged"])
+def test_a_stopped_delivery_draft_gets_no_ready_mark_when_its_checks_pass(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+    staged: bool,
+) -> None:
+    """The stop writes `implement.result` stopped, as the stop flow of the Job does, so a person
+    who runs a cancelled check again does not get the stopped draft marked ready: the item stays
+    Blocked and its pull request stays a draft until the stop is cleared (#6559)."""
+    from devops_cli.roadmap import watch_row
+
+    config(roadmap={"fix_checks": {"mode": "on"}})
+    issue, pr_num = _drafted_delivery(store, staged=staged)
+    calls: list[tuple[str, int]] = []
+    monkeypatch.setattr(
+        watch_row, "run_fix_checks", lambda store, repo, pull, **kwargs: calls.append(("fix", pull))
+    )
+    monkeypatch.setattr(
+        watch_row, "read_ready_draft", lambda repo, pull, **kwargs: calls.append(("plan", pull))
+    )
+    nodes = [
+        _delivery_node(pr_num, issue, head=HEAD_PASS, check_conclusion="CANCELLED"),
+        _delivery_node(
+            pr_num, issue, head=HEAD_PASS, check_state="SUCCESS", check_conclusion="SUCCESS"
+        ),
+    ]
+
+    results = _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, nodes)
+
+    assert (calls, results[-1].marked_ready, _stop_facts(store, issue)) == (
+        [],
+        (),
+        ("Blocked", "pull request", "ci_infra", "stopped", 1),
+    )
+
+
+def test_a_new_head_of_a_stopped_delivery_draft_gets_no_fix_unit(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+) -> None:
+    """After the row stops the item, a person works on the draft: a new head whose test check
+    fails gets no fix-checks unit in mode `on`, as the ready path leaves the draft, until
+    `implement: retry` clears the stop (#6559)."""
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.fix_checks_row import FixChecksRound
+
+    config(roadmap={"fix_checks": {"mode": "on"}})
+    issue, pr_num = _drafted_delivery(store)
+    handed: list[int] = []
+
+    def fix_round(repo: str, due: Sequence[Any], **kwargs: Any) -> FixChecksRound:
+        handed.extend(unit.pull for unit in due)
+        return FixChecksRound()
+
+    monkeypatch.setattr(watch_row, "run_fix_checks_round", fix_round)
+    nodes = [
+        _delivery_node(pr_num, issue, head=HEAD_PASS, mergeable="CONFLICTING"),
+        _delivery_node(pr_num, issue, head=HEAD_NEW),
+    ]
+
+    _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, nodes)
+
+    assert (handed, _stop_facts(store, issue)) == (
+        [],
+        ("Blocked", "pull request", "conflict", "stopped", 1),
+    )
+
+
+def test_a_cancelled_run_beside_a_newer_passing_run_of_the_same_check_stops_nothing(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each event of a pull request starts its checks in a new suite, so the rollup can hold an
+    old cancelled run beside the newer run that replaced it. The row judges only the latest run of
+    each check name, as the REST read does (#5383), so the draft gets the ready path and no stop
+    (#6559)."""
+    from devops_cli.roadmap import watch_row
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport
+    from devops_cli.roadmap.stores.store import FixChecksResult
+
+    issue, pr_num = _drafted_delivery(store)
+    calls: list[int] = []
+
+    def ready_path(store: Any, repo: str, pull: int, **kwargs: Any) -> FixChecksReport:
+        calls.append(pull)
+        return FixChecksReport(repo=repo, pull=pull, result=FixChecksResult.PLANNED)
+
+    monkeypatch.setattr(watch_row, "run_fix_checks", ready_path)
+    runs = [
+        ("CANCELLED", "2026-11-20T10:00:00Z", "2026-11-20T10:01:00Z"),
+        ("SUCCESS", "2026-11-20T10:02:00Z", "2026-11-20T10:09:00Z"),
+    ]
+    contexts = [
+        {
+            "__typename": "CheckRun",
+            "name": "Fail-to-Pass Check",
+            "status": "COMPLETED",
+            "conclusion": conclusion,
+            "startedAt": started,
+            "completedAt": completed,
+        }
+        for conclusion, started, completed in runs
+    ]
+    node = _delivery_node(pr_num, issue, head=HEAD_PASS, check_state="SUCCESS", contexts=contexts)
+
+    _rounds(store, github_api, tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME, [node])
+
+    assert (calls, _stop_facts(store, issue)) == ([pr_num], _NOT_STOPPED)
 
 
 def test_watch_row_dry_run_sends_zero_requests(

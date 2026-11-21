@@ -25,7 +25,6 @@ from devops_cli.roadmap.implement.implement_step import (
     run_step,
 )
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEventKind
-from devops_cli.roadmap.implement.implement_wip import WipCommit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
@@ -245,50 +244,6 @@ def test_a_deleted_file_passes_when_the_record_names_each_of_its_tests(
     outcome = _run(store, checkout, script, frozenset(f"{OLD_PATH}::{name}" for name in names))
 
     assert (outcome.status, outcome.reason) == (StepStatus.DONE, "")
-
-
-def test_a_kept_task_makes_its_commit_when_the_record_names_the_lost_test(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """A tick that loses a recorded test must not hold the `wip:` commit of the task (#3054)."""
-    kept: list[WipCommit] = []
-    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
-
-    outcome = run_step(
-        store,
-        item=1,
-        group=1,
-        source=checkout,
-        model=script.model(),
-        window=WINDOW,
-        on_wip=kept.append,
-        recorded_tests=frozenset({f"{OLD_PATH}::test_a"}),
-    )
-
-    assert (outcome.status, len(kept) > 0) == (StepStatus.DONE, True)
-
-
-def test_a_kept_task_makes_no_commit_when_the_lost_test_is_not_in_the_record(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
-    config: Callable[..., Path],
-) -> None:
-    config(roadmap={"implement": {"repair_rounds": 0}})
-    kept: list[WipCommit] = []
-    script = _script(write_call(OLD_PATH, OLD.replace("def test_a", "def helper_a")), SOURCE)
-
-    outcome = run_step(
-        store,
-        item=1,
-        group=1,
-        source=checkout,
-        model=script.model(),
-        window=WINDOW,
-        on_wip=kept.append,
-    )
-
-    assert (outcome.status, kept) == (StepStatus.STOPPED, [])
 
 
 def test_a_fix_step_passes_a_removal_that_the_record_names(

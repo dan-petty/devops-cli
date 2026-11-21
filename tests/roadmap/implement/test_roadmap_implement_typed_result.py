@@ -43,7 +43,6 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import (
-    RUNNING,
     JobWorld,
     group_one_calls,
     route_pull_status,
@@ -148,25 +147,31 @@ def _killed_in_group_two(world: JobWorld) -> ModelScript:
 # ── typed_result: the runner writes how its run ended ─────────────────────────────────────
 
 
-def test_typed_result_a_ready_run_writes_ready_as_its_last_mark(job_world: JobWorld) -> None:
+def test_typed_result_a_drafted_run_writes_drafted_as_its_last_mark(job_world: JobWorld) -> None:
     applied = job_world.run(two_groups())
 
     status, record = _item(job_world)
-    assert (applied.ready, status, record.get(RESULT), _last_mark(job_world)) == (
+    assert (applied.drafted, status, record.get(RESULT), _last_mark(job_world)) == (
         (1,),
         "In Review",
-        "ready",
+        "drafted",
         RESULT,
     )
 
 
 def test_typed_result_a_stopped_run_writes_stopped_after_the_stop(job_world: JobWorld) -> None:
-    job_world.pull.runs = [[RUNNING]]
+    script = ModelScript(
+        tool_calls(*group_one_calls()), say("Group 1 is done."), say("I could not do group 2.")
+    )
 
-    applied = job_world.run(two_groups())
+    applied = job_world.run(script)
 
     status, record = _item(job_world)
-    assert (applied.stopped, status, record.get("implement.stopped")) == ((1,), "Blocked", "checks")
+    assert (applied.stopped, status, record.get("implement.stopped")) == (
+        (1,),
+        "Blocked",
+        "group 2",
+    )
     assert (record.get(RESULT), _last_mark(job_world)) == ("stopped", RESULT)
 
 
@@ -234,7 +239,7 @@ class TestTypedResultOfAReturn:
 
 
 def test_typed_result_a_new_run_clears_the_result_of_the_run_before(job_world: JobWorld) -> None:
-    _mark(job_world, {Mark.RESULT: "ready"})
+    _mark(job_world, {Mark.RESULT: "drafted"})
 
     _killed_in_group_two(job_world)
 
@@ -328,7 +333,7 @@ def _failures(failure_class: str) -> float:
     ("result", "status", "after", "state"),
     [
         ("yielded", "In Progress", "In Progress", "succeeded"),
-        ("ready", "In Progress", "In Progress", "succeeded"),
+        ("drafted", "In Progress", "In Progress", "succeeded"),
         # An item that is Ready and not stopped is eligible, so the same round gives it a new Job.
         ("returned", "Ready", "In Progress", None),
     ],
@@ -438,7 +443,7 @@ def test_handoff_the_first_step_of_a_retry_gets_the_check_log_and_the_conflict_f
     applied = job_world.run(script)
 
     first = _prompt(script, 1)
-    assert applied.ready == (1,)
+    assert applied.drafted == (1,)
     assert (HEADING in first, LOG in first) == (True, True)
     assert all(name in first for name in FILES)
 

@@ -201,7 +201,7 @@ When the job applied an amendment for the group that stops the item with the cla
 The comment of the job on the pull request SHALL show one line for each applied amendment and each split: the group, the kind, the defect, the evidence, and the old and the new text. A stopped item whose pull request exists SHALL get the same lines in a comment.
 
 #### Scenario: An amended run
-- **WHEN** the job applied an amendment and reaches the ready pull request
+- **WHEN** the job applied an amendment and reaches the draft pull request
 - **THEN** the comment on the pull request holds a line with the group, the kind, the defect, the evidence, `old` and `new`
 
 #### Scenario: A stop after an amendment
@@ -365,7 +365,7 @@ When a rebase stops the item on a conflict, the job SHALL read the unmerged file
 - **THEN** the comment and the record hold the masked path and not the token
 
 ### Requirement: The job writes how its run ended
-The job SHALL write `implement.result` as the last mark of the write that ends each run of an item. The value SHALL be `ready` for a pull request marked ready, `stopped` for a stop, `yielded` for a claim, and `returned` for a return to New. The job SHALL clear the key in its first record write of a run.
+The job SHALL write `implement.result` as the last mark of the write that ends each run of an item. The value SHALL be `drafted` for a run that ended at the draft pull request, `stopped` for a stop, `yielded` for a claim, and `returned` for a return to New. The job SHALL clear the key in its first record write of a run.
 
 #### Scenario: A run that a claim ended
 - **WHEN** a person claims the item while group 1 runs
@@ -376,7 +376,7 @@ The job SHALL write `implement.result` as the last mark of the write that ends e
 - **THEN** the record holds `implement.result` equal to `stopped`, written after `implement.stopped`
 
 #### Scenario: A stale result
-- **WHEN** a new Job starts on an item whose record holds `implement.result` equal to `ready`, and the Job is killed in its first group
+- **WHEN** a new Job starts on an item whose record holds `implement.result` equal to `drafted`, and the Job is killed in its first group
 - **THEN** the record holds no `implement.result`
 
 ### Requirement: The first step of a run gets the stop of the earlier Job
@@ -451,7 +451,7 @@ When a run stops and `self.pull` is set after the push, the run SHALL write the 
 - **THEN** the run updates that comment and posts no second one
 
 ### Requirement: The job checks the premise of every open behavior group before the first step
-The job SHALL check the premise of each open behavior group once in a run, at the first group boundary, after the claim check and before the first step. An open group has a task that is not ticked. The check SHALL read the last commit of the checkout that is no `wip:` commit at that boundary. A later group boundary of the run SHALL make no premise check. The comment of the return SHALL say that the run made no model request and wrote no code.
+The job SHALL check the premise of each open behavior group once in a run, at the first group boundary, after the claim check and before the first step. An open group has a task that is not ticked. The check SHALL read the head of the checkout at that boundary. A later group boundary of the run SHALL make no premise check. The comment of the return SHALL say that the run made no model request and wrote no code.
 
 #### Scenario: A false premise of a late group
 - **WHEN** a plan has 3 groups, behavior group 3 adds a guard that the branch defines, and groups 1 and 2 are open
@@ -459,7 +459,7 @@ The job SHALL check the premise of each open behavior group once in a run, at th
 
 #### Scenario: A guard of a group that passed in an earlier Job
 - **WHEN** an earlier Job passed behavior group 1, which added `_delivery_title`, and group 2 is open
-- **THEN** the job checks no premise of group 1, runs group 2, and marks the pull request ready
+- **THEN** the job checks no premise of group 1, runs group 2, and ends the run at the draft
 
 ### Requirement: A command that the process runner refuses stops as a refused tool
 A `SecurityError` that ends an implement run, such as the refusal of the environment of a scoped check command, SHALL give the stop the class `refused_tool`, not `ci_infra`. The action left SHALL be `wait`, and the stop SHALL keep the work of the finished groups on the branch. The rule `digest` SHALL NOT clear the stop.
