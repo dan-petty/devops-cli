@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Final
 
 from devops_cli.config.constants import (
+    CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
     CONST_GIT_NONINTERACTIVE_ENV,
 )
 from devops_cli.config.defaults import DEFAULT_INFRA_GIT_TIMEOUT_SECONDS
@@ -53,9 +54,16 @@ _EXPORT_PREFIX: Final[str] = "devops-infra-"
 _FETCH: Final[tuple[str, ...]] = ("fetch", "--quiet", _REMOTE)
 
 
-# The fetch with no prompt: git fails instead of asking. The process runner gives it the credential
-# of the GitHub session (#6340).
-FETCH_ARGS: Final[tuple[str, ...]] = _FETCH
+def _credential(args: tuple[str, ...]) -> tuple[str, ...]:
+    """`args` with the `-c` values that give git the credential of the GitHub session."""
+    return (
+        *(word for value in CONST_GIT_GITHUB_CREDENTIAL_CONFIG for word in ("-c", value)),
+        *args,
+    )
+
+
+# The fetch, with the credential of the GitHub session and no prompt: git fails instead of asking.
+FETCH_ARGS: Final[tuple[str, ...]] = _credential(_FETCH)
 # The commit of the default branch at origin, then its name (`origin/<branch>`).
 DEFAULT_BRANCH_ARGS: Final[tuple[str, ...]] = (
     "rev-parse",
@@ -98,7 +106,7 @@ def ref_steps(ref: str) -> list[tuple[str, tuple[str, ...]]]:
     number = pull_number(ref)
     if number is not None:
         return [
-            (f"the fetch of {ref} from {_REMOTE}", _pull_fetch(number)),
+            (f"the fetch of {ref} from {_REMOTE}", _credential(_pull_fetch(number))),
             (f"the commit of {ref}", _verify(_FETCH_HEAD)),
         ]
     return [

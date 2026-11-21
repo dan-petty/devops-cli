@@ -3,7 +3,6 @@
 ## Decisions
 
 - **The process runner gives the credential helper to each git child that reaches a remote, in one place.**: One place covers `ls-remote` and `fetch --prune`, and no caller must remember the `-c` values.
-- **The callers that passed the `-c` values themselves (`devops infra` tree fetches and the Argo CD override fetch) drop them.**: The runner gives the same values to the same commands, so a kept copy would put each value twice in the argv and keep a second place that must stay in step with the first.
 - **The runner inserts `-c <key>=<value>` at index 1 of the command, after it computes the pin from the command that the caller built.**: It reuses `CONST_GIT_GITHUB_CREDENTIAL_CONFIG` and does not depend on the filtered `GIT_CONFIG_*` keys, and the guard `git_reaches_remote` reads the caller's own words.
 - **`worktrees add` reads the branches of `origin` once before the reclaim and passes an object that answers `heads` from that read to `add_worktree`.**: A failed read changes nothing, a second read cannot fail after the removals, and `add_worktree` keeps the signature that its three callers already use.
 - **The command reads `origin` before the reclaim only when it reclaims and is no dry run.**: A dry run makes no request to `origin`, and `--no-reclaim` keeps its order, where the local holder refuses the issue before any network read.
