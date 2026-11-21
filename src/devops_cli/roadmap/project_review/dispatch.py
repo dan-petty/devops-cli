@@ -13,6 +13,7 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
+| A row of a `rows` fact holds a namespace label outside `roadmap.project_review.namespaces`, or a workload label and no `namespace` | `error`, the reason names the fact and the label, never a label value | sent |
 | A query gives no series, and the fact names no `base` metric or that metric has no series in the window | `skipped` | sent |
 | A query gives no series, and the `base` metric of the fact has a series in the window | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
@@ -21,6 +22,13 @@ A missing value is never 0, and a fact that is not `ok` has a null value. A read
 answer from the network (a `ServiceRequestError` with no HTTP status) ends the reads of its reader
 kind, so an address that does not answer costs one read and its retries, not one for each fact.
 Each other exception stops the run.
+
+A review gives no name of a workload outside the project namespaces (#6615). The loader reads the
+`by (...)` and `on (...)` clauses of a query. The dispatcher also reads the labels of each series
+of a `rows` fact, so a form that keeps every label (no aggregation, `without (...)`, `topk`, `sort`
+or `label_replace`) cannot keep a label of _NAMESPACE_LABELS or _WORKLOAD_LABELS of another
+project in the review. The dispatcher does not check another label, for example a label that
+`label_replace` writes or the application `name` of Argo CD: a fact must not group by such a label.
 """
 
 from __future__ import annotations
@@ -92,6 +100,34 @@ _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
 _RETENTION_GRACE: Final = timedelta(hours=1)
 # The read that tells whether the base metric of a fact has a series in the window.
 _PROBE: Final = "group(last_over_time({base}[{range}]))"
+# The labels that hold a namespace: `namespace`, the namespace of a target that a scrape keeps as
+# `exported_namespace`, and the destination of an Argo CD application. In a series of a `rows`
+# fact, each of them holds a namespace of roadmap.project_review.namespaces, else the fact gives
+# `error`.
+_NAMESPACE_LABELS: Final = ("namespace", "exported_namespace", "dest_namespace")
+# The labels that name a workload: the labels by which the catalog facts group (pod, container),
+# the workload labels of kube-state-metrics, the labels that a scrape keeps as `exported_*`, the
+# Service of Traefik and kube-state-metrics, and the volume claim of the kubelet. A series of a
+# `rows` fact that holds one of them holds `namespace`, else the fact gives `error`. The guard
+# reads only these labels and those of _NAMESPACE_LABELS: it does not check another label.
+_WORKLOAD_LABELS: Final = frozenset(
+    {
+        "pod",
+        "container",
+        "deployment",
+        "statefulset",
+        "daemonset",
+        "replicaset",
+        "job_name",
+        "cronjob",
+        "created_by_name",
+        "owner_name",
+        "exported_pod",
+        "exported_container",
+        "service",
+        "persistentvolumeclaim",
+    }
+)
 
 
 def _github_session() -> PagedSession:
@@ -232,6 +268,24 @@ def _vector_value(
             rows.append({"labels": dict(labels), "value": value})
     rows.sort(key=lambda row: -float(str(row["value"])))
     return list(rows), len(rows), None
+
+
+def _foreign_workload(result: PrometheusQueryResult, namespaces: Sequence[str]) -> str | None:
+    """The label of the first series of `result` that names a workload outside `namespaces`:
+    the first label of _NAMESPACE_LABELS whose value is not in `namespaces`, else a label of
+    _WORKLOAD_LABELS of a series with no `namespace`; or None. The value of a label never leaves
+    this function."""
+    for series in result.series:
+        labels = series.labels
+        foreign = [
+            key for key in _NAMESPACE_LABELS if key in labels and labels[key] not in namespaces
+        ]
+        if foreign:
+            return foreign[0]
+        named = _WORKLOAD_LABELS.intersection(labels)
+        if named and "namespace" not in labels:
+            return min(named)
+    return None
 
 
 def _program_value(
@@ -384,6 +438,10 @@ def _read_fact(
     if fact.reader in (ReaderKind.PROMETHEUS, ReaderKind.LOKI):
         if not answer.value.series and fact.base is not None:
             return _no_series(fact, query, values, answers)
+        namespaces = answers.context.settings.roadmap.project_review.namespaces
+        if fact.shape is Shape.ROWS and (label := _foreign_workload(answer.value, namespaces)):
+            reason = MESSAGES.roadmap.review_foreign_workload.format(id=fact.id, label=label)
+            return _fact(fact, query, status=FactStatus.ERROR, reason=reason)
         value, n, empty = _vector_value(fact, answer.value)
     else:
         try:
@@ -398,7 +456,9 @@ def _read_fact(
 def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
     """Each fact of `catalog` for the window of `context`, in the catalog order."""
     started = time.monotonic()
-    values = window_placeholders(context.window, context.repo)
+    values = window_placeholders(
+        context.window, context.repo, context.settings.roadmap.project_review.namespaces
+    )
     arguments = {
         "start": int(context.window.start.timestamp()),
         "end": int(context.window.end.timestamp()),

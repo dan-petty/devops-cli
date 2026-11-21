@@ -1,9 +1,16 @@
 # yaml-language-server: $schema=catalog.schema.json
 # The fact catalog of the project review (#4692). Each fact is data: a new fact needs no code.
 # catalog.schema.json defines the form; catalog.py loads and validates it. A query names its
-# window with {start}, {end}, {range}, {base}, {head}, {repo} and {name_slug} (the slug of the
-# repository name in the Job names of the Service); a jq program reads $start and $end (Unix
-# seconds) and $repo. A query gives no host name: no grouping by node or instance.
+# window with {start}, {end}, {range}, {base}, {head}, {repo}, {name_slug} (the slug of the
+# repository name in the Job names of the Service) and {namespaces} (the project namespaces of the
+# setting roadmap.project_review.namespaces, joined with |); a jq program reads $start and $end
+# (Unix seconds) and $repo. A query gives no host name: no grouping by node or instance.
+# A query gives no name of a workload outside the project namespaces (#6615): a rows fact that
+# groups or joins by namespace or pod holds the matcher namespace=~"{namespaces}" in each selector
+# whose metric has a namespace label, in its query and in its base. A row that holds a namespace
+# label outside the setting, or a workload label with no namespace, makes the dispatcher give
+# error for the fact (_NAMESPACE_LABELS and _WORKLOAD_LABELS of dispatch.py). The dispatcher
+# checks only these labels, so a rows fact does not group by another label that names a workload.
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:
@@ -465,8 +472,8 @@ facts:
     reader: prometheus
     section: alerts
     query: >-
-      sum by (container) (increase(kube_pod_container_status_restarts_total{namespace="devops"}[{range}]))
-      > 0
+      sum by (namespace, container) (increase(kube_pod_container_status_restarts_total{
+      namespace="devops"}[{range}])) > 0
     shape: rows
     base: 'kube_pod_container_status_restarts_total{namespace="devops"}'
     unit: restarts
@@ -475,7 +482,7 @@ facts:
     reader: prometheus
     section: alerts
     query: >-
-      count by (container, reason) (max_over_time(
+      count by (namespace, container, reason) (max_over_time(
       kube_pod_container_status_last_terminated_reason{namespace="devops"}[{range}]) == 1)
     shape: rows
     base: 'kube_pod_container_info{namespace="devops"}'
@@ -485,16 +492,17 @@ facts:
     reader: prometheus
     section: alerts
     query: >-
-      sum by (resource) (kube_pod_container_resource_requests{resource=~"cpu|memory"} * on (pod,
-      namespace) group_left() (max by (pod, namespace) (kube_pod_status_phase{phase="Running"}) ==
-      1)) / sum by (resource) (kube_node_status_allocatable{resource=~"cpu|memory"} * on (node)
-      group_left() (kube_node_status_condition{condition="Ready", status="true"} == 1))
+      sum by (resource) (kube_pod_container_resource_requests{resource=~"cpu|memory"} * on (uid)
+      group_left() (max by (uid) (kube_pod_status_phase{phase="Running"}) == 1)) / sum by
+      (resource) (kube_node_status_allocatable{resource=~"cpu|memory"} * on (node) group_left()
+      (kube_node_status_condition{condition="Ready", status="true"} == 1))
     shape: rows
     base: 'kube_node_status_allocatable'
     unit: ratio
     definition: >-
-      The requests of the running pods over the allocatable resources of the Ready nodes, for
-      CPU and memory (SRE Q14, Kubernetes Q11 for the cluster).
+      The requests of the running pods of all namespaces over the allocatable resources of the
+      Ready nodes, for CPU and memory (SRE Q14, Kubernetes Q11 for the cluster). The join reads the
+      pod UID, and each row holds only the resource, so the fact names no workload.
   # ── Kubernetes ────────────────────────────────────────────────────────────
   - id: prometheus.node_oom_kills
     reader: prometheus
@@ -509,13 +517,16 @@ facts:
     section: kubernetes
     query: >-
       max by (namespace, container) (max_over_time(container_memory_working_set_bytes{
-      container!="", container!="POD"}[{range}]) / on (namespace, pod, container) group_left max
-      by (namespace, pod, container) (max_over_time(kube_pod_container_resource_limits{
-      resource="memory"}[{range}]))) > 0.8
+      namespace=~"{namespaces}", container!="", container!="POD"}[{range}]) / on (namespace, pod,
+      container) group_left max by (namespace, pod, container) (max_over_time(
+      kube_pod_container_resource_limits{namespace=~"{namespaces}", resource="memory"}[{range}])))
+      > 0.8
     shape: rows
-    base: 'container_memory_working_set_bytes'
+    base: 'container_memory_working_set_bytes{namespace=~"{namespaces}"}'
     unit: ratio
-    definition: The containers whose peak working set is over 80 % of the memory limit (Kubernetes Q3).
+    definition: >-
+      The containers of the project namespaces whose peak working set is over 80 % of the memory
+      limit (Kubernetes Q3).
   - id: prometheus.no_memory_limit
     reader: prometheus
     section: kubernetes
@@ -541,22 +552,25 @@ facts:
     section: kubernetes
     query: >-
       sum by (namespace, container) (increase(container_cpu_cfs_throttled_periods_total{
-      container!=""}[{range}])) / sum by (namespace, container) (increase(
-      container_cpu_cfs_periods_total{container!=""}[{range}])) > 0.25
+      namespace=~"{namespaces}", container!=""}[{range}])) / sum by (namespace, container)
+      (increase(container_cpu_cfs_periods_total{namespace=~"{namespaces}", container!=""}[{range}]))
+      > 0.25
     shape: rows
-    base: 'container_cpu_cfs_periods_total'
+    base: 'container_cpu_cfs_periods_total{namespace=~"{namespaces}"}'
     unit: ratio
-    definition: The containers throttled in more than 25 % of their CPU periods (Kubernetes Q5).
+    definition: >-
+      The containers of the project namespaces throttled in more than 25 % of their CPU periods
+      (Kubernetes Q5).
   - id: prometheus.restarting_containers
     reader: prometheus
     section: kubernetes
     query: >-
-      sum by (namespace, container) (increase(kube_pod_container_status_restarts_total[{range}]))
-      > 0.5
+      sum by (namespace, container) (increase(kube_pod_container_status_restarts_total{
+      namespace=~"{namespaces}"}[{range}])) > 0.5
     shape: rows
-    base: 'kube_pod_container_status_restarts_total'
+    base: 'kube_pod_container_status_restarts_total{namespace=~"{namespaces}"}'
     unit: restarts
-    definition: The restarts of each container of all namespaces (Kubernetes Q6).
+    definition: The restarts of each container of the project namespaces (Kubernetes Q6).
   - id: prometheus.pending_pods
     reader: prometheus
     section: kubernetes
@@ -659,7 +673,7 @@ facts:
     reader: prometheus
     section: kubernetes
     query: >-
-      max by (container) (max_over_time(container_memory_working_set_bytes{
+      max by (namespace, container) (max_over_time(container_memory_working_set_bytes{
       namespace="argo-workflows", container!=""}[{range}]))
     shape: rows
     base: 'container_memory_working_set_bytes{namespace="argo-workflows"}'
@@ -668,29 +682,33 @@ facts:
   - id: prometheus.valkey_memory
     reader: prometheus
     section: kubernetes
-    query: max by (namespace, pod) (max_over_time(redis_memory_used_bytes[{range}]) / (redis_memory_max_bytes > 0))
+    query: >-
+      max by (namespace, pod) (max_over_time(redis_memory_used_bytes{namespace=~"{namespaces}"}[{range}])
+      / (redis_memory_max_bytes{namespace=~"{namespaces}"} > 0))
     shape: rows
-    base: 'redis_memory_used_bytes'
+    base: 'redis_memory_used_bytes{namespace=~"{namespaces}"}'
     unit: ratio
-    definition: The peak memory of each Valkey over its maxmemory (Kubernetes Q18).
+    definition: The peak memory of each Valkey of the project namespaces over its maxmemory (Kubernetes Q18).
   - id: prometheus.valkey_no_maxmemory
     reader: prometheus
     section: kubernetes
-    query: max by (namespace, pod) (redis_memory_max_bytes == 0)
+    query: max by (namespace, pod) (redis_memory_max_bytes{namespace=~"{namespaces}"} == 0)
     shape: rows
-    base: 'redis_memory_max_bytes'
+    base: 'redis_memory_max_bytes{namespace=~"{namespaces}"}'
     unit: pods
-    definition: The Valkey pods with no maxmemory at the end (Kubernetes Q18).
+    definition: The Valkey pods of the project namespaces with no maxmemory at the end (Kubernetes Q18).
   - id: prometheus.database_memory
     reader: prometheus
     section: kubernetes
     query: >-
       max by (namespace, pod, container) (max_over_time(container_memory_working_set_bytes{
-      container=~"valkey|postgres|qdrant"}[{range}]))
+      namespace=~"{namespaces}", container=~"valkey|postgres|qdrant"}[{range}]))
     shape: rows
-    base: 'container_memory_working_set_bytes{container=~"valkey|postgres|qdrant"}'
+    base: 'container_memory_working_set_bytes{namespace=~"{namespaces}", container=~"valkey|postgres|qdrant"}'
     unit: bytes
-    definition: The peak working set of each Valkey, PostgreSQL and Qdrant container (Kubernetes Q18).
+    definition: >-
+      The peak working set of each Valkey, PostgreSQL and Qdrant container of the project
+      namespaces (Kubernetes Q18).
   - id: prometheus.profiler_memory
     reader: prometheus
     section: kubernetes
@@ -753,12 +771,12 @@ facts:
     reader: loki
     section: kubernetes
     query: >-
-      topk(10, sum by (namespace, container) (count_over_time({namespace=~"devops|llm"} |~
+      topk(10, sum by (namespace, container) (count_over_time({namespace=~"{namespaces}"} |~
       "(?i)error" [{range}])))
     shape: rows
     unit: lines
     definition: >-
-      The 10 containers of namespaces devops and llm with the most log lines that hold "error".
+      The 10 containers of the project namespaces with the most log lines that hold "error".
       The patterns API of Loki returns 404, so the fact uses topk over count_over_time.
   - id: loki.alternatives_checks
     reader: loki

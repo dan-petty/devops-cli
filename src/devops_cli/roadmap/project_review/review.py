@@ -18,7 +18,12 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.git.operations import git_argv
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, utc_text
+from devops_cli.roadmap.project_review.catalog import (
+    Catalog,
+    load_catalog,
+    namespaces_value,
+    utc_text,
+)
 from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewData
 from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from devops_cli.roadmap.project_review.facts import review_facts
@@ -84,11 +89,13 @@ def review_folder(repo: str, window_id: str) -> Path:
 
 def _plan_values(request: WindowRequest, repo: str | None) -> dict[str, str]:
     """The placeholders of a dry run: the times of a period, else a named placeholder for each
-    value that a read gives; the repository and the slug of its name when `repo` is given."""
+    value that a read gives; the repository and the slug of its name when `repo` is given; and the
+    project namespaces of the settings, which a settings load reads from files only."""
     texts = MESSAGES.roadmap.review_placeholders
     values = {name: texts[name] for name in ("start", "end", "range", "base", "head")}
     values["repo"] = repo or texts["repo"]
     values["name_slug"] = RepoRef(repo).name_slug if repo else texts["name_slug"]
+    values["namespaces"] = namespaces_value(load_settings().roadmap.project_review.namespaces)
     if isinstance(request, PeriodRequest):
         seconds = int((request.end - request.start).total_seconds())
         values |= {

@@ -915,6 +915,26 @@ DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # these workers: a 7-day window archived 406 changes at about 0.2 s each.
 DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
+# The project namespaces whose workloads the project review can name (#6615): the 14 objects of
+# `kind: Namespace` in k8s/namespaces.yaml (`git grep -l "kind: Namespace" k8s/`). The `namespace:`
+# of each kustomization of k8s/ is one of them. A `rows` fact that groups or joins by namespace or
+# pod reads only these namespaces.
+DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
+    "agents",
+    "argo-workflows",
+    "argocd",
+    "cert-manager",
+    "cloudflared",
+    "cnpg-system",
+    "devops",
+    "gitea",
+    "llm",
+    "logging",
+    "mattermost",
+    "mattermost-operator",
+    "monitoring",
+    "otel",
+)
 # `devops roadmap consolidate` (#1127): the most members one shortlist holds, and the most open
 # items that may cite one path or one identifier before it counts as common to every item.
 DEFAULT_ROADMAP_CONSOLIDATE_MEMBERS: int = 10
