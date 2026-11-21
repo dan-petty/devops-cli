@@ -9,6 +9,8 @@ are read on the OTLP fake.
 
 from __future__ import annotations
 
+import json
+import zlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from fakeredis import FakeServer, FakeValkey
 
+from devops_cli.config.defaults import DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import (
@@ -132,8 +135,6 @@ def _snapshot(watermark: datetime, *numbers: int, full_at: datetime = STARTED) -
 
 def _shared(server: FakeServer) -> tuple[str | None, list[str]]:
     """The watermark of the shared snapshot and the numbers of its issues, the highest first."""
-    import json
-
     reader = FakeValkey(server=server, decode_responses=True)
     meta = reader.hget(SNAPSHOT_KEY, "meta")
     numbers = sorted((f for f in reader.hkeys(SNAPSHOT_KEY) if f != "meta"), key=int, reverse=True)
@@ -823,6 +824,155 @@ def test_a_save_of_the_records_that_the_shared_copy_holds_writes_no_record(
     )
 
 
+def _compressing_store(
+    tier: ValkeyCacheTier,
+    sent: list[bytes],
+    *,
+    load_max_bytes: int = DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES,
+) -> ValkeySnapshotStore:
+    """A snapshot store over `tier` whose compressor appends each JSON that it gets to `sent`."""
+    from devops_cli.roadmap.stores.listing_shared import ValkeySnapshotStore
+
+    def compress(text: bytes) -> bytes:
+        sent.append(text)
+        return zlib.compress(text)
+
+    return ValkeySnapshotStore(tier, load_max_bytes=load_max_bytes, compress=compress)
+
+
+def _numbers(texts: list[bytes]) -> list[int]:
+    """The issue number of each record JSON of `texts`."""
+    return [json.loads(text)["number"] for text in texts]
+
+
+def test_a_save_with_no_changed_record_compresses_no_record(
+    shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """A store saves 1,200 records, and saves the same records again with the same watermark and
+    full read. The second save counts `unchanged`, and its compressor gets no record."""
+    sent: list[bytes] = []
+    store = _compressing_store(shared_valkey, sent)
+    store.save(_snapshot(STARTED, *range(1200, 0, -1)))
+    sent.clear()
+    otlp.clear()
+
+    store.save(_snapshot(STARTED, *range(1200, 0, -1)))
+
+    assert (_numbers(sent), _writes(otlp)) == ([], {("snapshot", "unchanged"): 1.0})
+
+
+def test_an_older_save_compresses_no_record(
+    valkey_server: FakeServer, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """A store wrote the watermark 10:00, and saves a snapshot with one more record and the
+    watermark 09:00. The save counts `older`, its compressor gets no record, and the shared
+    snapshot keeps the watermark 10:00."""
+    sent: list[bytes] = []
+    store = _compressing_store(shared_valkey, sent)
+    store.save(_snapshot(STARTED, 2, 1))
+    sent.clear()
+    otlp.clear()
+
+    store.save(_snapshot(STARTED - timedelta(hours=1), 3, 2, 1))
+
+    assert (_numbers(sent), _writes(otlp), _shared(valkey_server)) == (
+        [],
+        {("snapshot", "older"): 1.0},
+        ("2026-01-01T10:00:00Z", ["2", "1"]),
+    )
+
+
+def _issue_2_changed() -> ListingSnapshot:
+    snapshot = _snapshot(STARTED, 3, 2, 1)
+    issues = tuple(
+        issue.model_copy(update={"title": "Issue 2, changed"}) if issue.number == 2 else issue
+        for issue in snapshot.issues
+    )
+    return snapshot.model_copy(update={"issues": issues})
+
+
+def _issue_4_new() -> ListingSnapshot:
+    return _snapshot(STARTED, 4, 3, 2, 1)
+
+
+def _issue_1_removed() -> ListingSnapshot:
+    return _snapshot(STARTED, 3, 2)
+
+
+@pytest.mark.parametrize(
+    ("later", "compressed"),
+    [
+        pytest.param(_issue_2_changed, [2], id="changed"),
+        pytest.param(_issue_4_new, [4], id="new"),
+        pytest.param(_issue_1_removed, [], id="removed"),
+    ],
+)
+def test_a_save_compresses_only_the_records_that_it_sends(
+    valkey_server: FakeServer, later: Callable[[], ListingSnapshot], compressed: list[int]
+) -> None:
+    """A store wrote issues 3, 2 and 1 with the watermark 09:00, and saves a snapshot of 10:00
+    with one changed, new or removed record. Its compressor gets only the records that it sends,
+    it writes no temporary key, the shared copy holds the snapshot, and its `meta` is the one that
+    a new store writes for the same snapshot to an empty server."""
+    written: list[str] = []
+
+    def record(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSET":
+            written.append(str(command[1]))
+
+    sent: list[bytes] = []
+    store = _compressing_store(
+        ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)), sent
+    )
+    store.save(_snapshot(STARTED - timedelta(hours=1), 3, 2, 1))
+    sent.clear()
+    written.clear()
+    snapshot = later()
+
+    store.save(snapshot)
+
+    empty = FakeServer(server_type="valkey")
+    _valkey_store(ValkeyCacheTier(valkey_client_on(empty))).save(snapshot)
+    reader = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    assert (
+        _numbers(sent),
+        [key for key in written if ":next:" in key],
+        reader.load(REPO),
+        _meta(valkey_server),
+    ) == (compressed, [], snapshot, _meta(empty))
+
+
+def _with_body(snapshot: ListingSnapshot, size: int) -> ListingSnapshot:
+    """`snapshot` with a body of `size` bytes in each record."""
+    issues = tuple(issue.model_copy(update={"body": "x" * size}) for issue in snapshot.issues)
+    return snapshot.model_copy(update={"issues": issues})
+
+
+def test_a_delta_past_the_total_bound_writes_nothing(
+    valkey_server: FakeServer, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """A store with a total bound of 512 KiB wrote two records of about 200,000 bytes of JSON
+    each. It saves them again with a newer watermark and a new record of about 400,000 bytes. The
+    save counts `oversize`, its compressor gets no record, and the shared copy stays as it was."""
+    sent: list[bytes] = []
+    store = _compressing_store(shared_valkey, sent, load_max_bytes=524_288)
+    store.save(_with_body(_snapshot(STARTED - timedelta(hours=1), 2, 1), 200_000))
+    first = (_meta(valkey_server), _shared(valkey_server))
+    sent.clear()
+    otlp.clear()
+    kept = _with_body(_snapshot(STARTED, 2, 1), 200_000).issues
+    new = _with_body(_snapshot(STARTED, 3), 400_000).issues
+    later = _snapshot(STARTED).model_copy(update={"issues": (*new, *kept)})
+
+    store.save(later)
+
+    assert (_numbers(sent), _writes(otlp), (_meta(valkey_server), _shared(valkey_server))) == (
+        [],
+        {("snapshot", "oversize"): 1.0},
+        first,
+    )
+
+
 def test_a_new_meta_of_the_same_records_during_a_load_keeps_the_shared_copy(
     tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
 ) -> None:
@@ -852,8 +1002,6 @@ def test_a_new_meta_of_the_same_records_during_a_load_keeps_the_shared_copy(
 
 def _naive_meta(server: FakeServer) -> None:
     """Write the times of `meta` with no UTC offset."""
-    import json
-
     writer = FakeValkey(server=server)
     raw = writer.hget(SNAPSHOT_KEY, "meta")
     assert raw is not None
@@ -864,8 +1012,6 @@ def _naive_meta(server: FakeServer) -> None:
 
 def _expanding_record(server: FakeServer) -> None:
     """Write a record whose zlib value expands to more than 1 MiB of JSON."""
-    import zlib
-
     from devops_cli.config.defaults import DEFAULT_BRAIN_VALUE_MAX_BYTES
 
     record = IssueRecord(
