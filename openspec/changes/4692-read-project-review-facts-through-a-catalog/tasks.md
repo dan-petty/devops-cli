@@ -58,15 +58,15 @@
 
 ## 9. Other: the live numbers and the budget
 
-- [ ] 9.1 Run the review read-only from the worktree for `--version v0.111.0..v0.112.1` and for `--since 2026-11-04T14:51:23Z --until 2026-11-11T14:51:23Z`, with `prometheus.url` and `loki.url` set to short port-forwards for the run; compare each acceptance number of #4692 and name each number that differs with its reason; a source past its retention must be `expired`
+- [x] 9.1 Run the review read-only from the worktree for `--version v0.111.0..v0.112.1` and for `--since 2026-11-04T14:51:23Z --until 2026-11-11T14:51:23Z`, with `prometheus.url` and `loki.url` set to short port-forwards for the run; compare each acceptance number of #4692 and name each number that differs with its reason; a source past its retention must be `expired`
   - Verification: `$ uv run devops roadmap review run --version v0.111.0..v0.112.1 --json`
-- [ ] 9.2 Run `--last 7d`, and measure the GitHub requests (the `collection` of `data.json`) and the elapsed time: 45 requests or fewer, and 3 min or less
+- [x] 9.2 Run `--last 7d`, and measure the GitHub requests (the `collection` of `data.json`) and the elapsed time: 45 requests or fewer, and 3 min or less
   - Verification: `$ uv run devops roadmap review run --last 7d --json`
 
 ## 10. Documents
 
-- [ ] 10.1 Update the review line of `docs/ROADMAP_WORKFLOW.md` and each other document that the change makes wrong (`git grep -n -i 'project review\|project_review' -- docs CONTEXT.md README.md`), and regenerate the generated documents
-  - Verification: `$ uv run devops docs generate --sync-readme --check`
+- [x] 10.1 Update the review line of `docs/ROADMAP_WORKFLOW.md`, the Purpose of `openspec/specs/roadmap-project-review/spec.md`, the docstring of `RoadmapReviewError` in `src/devops_cli/exceptions/roadmap.py` (and the generated `docs/ERRORS.md`), the `serve` of the GitHub fake in `docs/TESTING.md` and each other document that the change makes wrong (`git grep -n -i 'project review\|project_review' -- docs CONTEXT.md README.md`), and regenerate the generated documents
+  - Verification: `$ uv run devops docs generate --check`
 
 ## Workflow follow-up
 

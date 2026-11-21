@@ -111,7 +111,7 @@ disagreements:
 ### 11. Live numbers
 
 - The build reproduces the acceptance numbers of #4692 read-only from the worktree, for `--version v0.111.0..v0.112.1` and for `--since 2026-11-04T14:51:23Z --until 2026-11-11T14:51:23Z`. Each number that differs from the body is named with the reason. A source past its retention is `expired`, never 0.
-- The source of the count of alternatives checks (20 in the body) is the source that gives that count live: the `alternatives` row of `devops_cli_service_jobs_total`, or the `alternatives.checked_at` field of the listing records. The build records which one.
+- The source of the count of alternatives checks (20 in the body) is the source that gives that count live: the `alternatives` row of `devops_cli_service_jobs_total`, or the `alternatives.checked_at` field of the listing records. The build read both on 2026-11-21: the listing gives 10, because a later check moves `alternatives.checked_at` out of the window, and the Service row counts rounds (1 for each of 7 repositories), not checks. The catalog keeps both facts, `listing.alternatives_checks` and `prometheus.alternatives_runs`.
 
 ## Rejected alternatives
 

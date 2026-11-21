@@ -1,7 +1,7 @@
 # roadmap-project-review Specification
 
 ## Purpose
-How `devops roadmap review run` resolves a version range or a period to a half-open window of first-parent commits and UTC times, reads the git facts of that window from the local checkout, and writes them with their sources to `data.json`.
+How `devops roadmap review run` resolves a version range or a period to a half-open window of first-parent commits and UTC times, reads the git facts of that window from the local checkout and the facts of its catalog through their readers, and writes them with their sources to `data.json`.
 
 ## Requirements
 
