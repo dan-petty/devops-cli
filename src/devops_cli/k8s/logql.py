@@ -387,9 +387,13 @@ def execute_loki_query(
     )
 
 
-def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[PrometheusQueryResult]:
-    """Run each LogQL metric expression as an instant query at the current time
-    (`/loki/api/v1/query`) and return the vector of each, in order.
+def query_loki_metrics(
+    expressions: Sequence[str], loki_url: str, *, at: str | None = None
+) -> list[PrometheusQueryResult]:
+    """Run each LogQL metric expression as an instant query (`/loki/api/v1/query`) and return the
+    vector of each, in order. The query runs at the time `at` (RFC 3339 or Unix seconds), which
+    is sent as `time`, else at the current time: the project review reads a past window at its
+    end (#4692).
 
     A metric query counts the lines in Loki, so no line limit applies. One client at the private
     level sends all the queries, with the retry policy of a cluster service, so a Loki that starts
@@ -403,7 +407,8 @@ def query_loki_metrics(expressions: Sequence[str], loki_url: str) -> list[Promet
     ) as client:
         for expression in expressions:
             try:
-                resp = client.get(endpoint, params={"query": expression})
+                params = {"query": expression} if at is None else {"query": expression, "time": at}
+                resp = client.get(endpoint, params=params)
                 resp.raise_for_status()
             except httpx2.HTTPError as exc:
                 raise service_error("Loki", exc, setting="loki.url") from exc

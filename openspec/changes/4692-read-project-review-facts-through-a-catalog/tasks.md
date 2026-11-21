@@ -16,9 +16,9 @@
 
 ## 3. Behavior: Loki metric queries at a given time
 
-- [ ] 3.1 Add the failing test in `tests/k8s/test_logql_metrics.py`: `query_loki_metrics(..., at=<time>)` sends `time` with that instant, and a call with no `at` sends no `time`; teach `tests/support/fakes/loki.py` to read `time` when the test needs it
+- [x] 3.1 Add the failing test in `tests/k8s/test_logql_metrics.py`: `query_loki_metrics(..., at=<time>)` sends `time` with that instant, and a call with no `at` sends no `time`; teach `tests/support/fakes/loki.py` to read `time` when the test needs it
   - Verification: `$ uv run devops ci test tests/k8s/test_logql_metrics.py`
-- [ ] 3.2 Add the optional `at` parameter to `query_loki_metrics` in `src/devops_cli/k8s/logql.py`; its caller `src/devops_cli/roadmap/job_grade_report.py` keeps the current time and does not change
+- [x] 3.2 Add the optional `at` parameter to `query_loki_metrics` in `src/devops_cli/k8s/logql.py`; its caller `src/devops_cli/roadmap/job_grade_report.py` keeps the current time and does not change
   - Verification: `$ uv run devops ci test tests/k8s/test_logql_metrics.py tests/roadmap/test_job_grade_report.py`
 
 ## 4. Behavior: the GitHub, listing, Prometheus and Loki readers
