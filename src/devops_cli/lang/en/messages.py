@@ -6984,6 +6984,9 @@ class RoadmapMessages:
     review_no_base_series: str = (
         "No series matched the query, and the metric {base} has no series in the window."
     )
+    review_no_base_series_at_end: str = (
+        "No series matched the query, and the metric {base} has no series at the window end {end}."
+    )
     review_many_series: str = "The scalar query gave {count} series, not one."
     review_not_number: str = "The sample is not a finite number."
     review_foreign_workload: str = (

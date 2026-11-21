@@ -116,8 +116,9 @@ class ReaderRules:
 class CatalogFact:
     """One fact of the catalog. `value` and `n` are jq programs over the answer of the read.
     `base` is a selector of the metric that a `prometheus` fact reads: an answer with no series is
-    none only when that metric has a series in the window. Its metric is a metric of the query,
-    else `base_reason` says why the base is another metric."""
+    none only when that metric has a series in the time scope of the query, the window for a query
+    that holds `{range}`, else the window end. Its metric is a metric of the query, else
+    `base_reason` says why the base is another metric."""
 
     id: str
     reader: ReaderKind

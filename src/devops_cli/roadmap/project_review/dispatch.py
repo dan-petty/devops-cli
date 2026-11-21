@@ -14,9 +14,13 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
 | A row of a `rows` fact holds a namespace label outside `roadmap.project_review.namespaces`, or a workload label and no `namespace` | `error`, the reason names the fact and the label, never a label value | sent |
-| A query gives no series, and the fact names no `base` metric or that metric has no series in the window | `skipped` | sent |
-| A query gives no series, and the `base` metric of the fact has a series in the window | `ok`, no rows or 0 | sent, and the probe of the base |
+| A query gives no series, and the fact names no `base` metric or that metric has no series in the time scope of the query | `skipped` | sent |
+| A query gives no series, and the `base` metric of the fact has a series in the time scope of the query | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
+
+The probe of the base has the time scope of the query (#6612): a query that holds `{range}`
+reads the window, so its probe reads the window; each other query reads only the window end, so
+its probe reads the end.
 
 A missing value is never 0, and a fact that is not `ok` has a null value. A read that gets no
 answer from the network (a `ServiceRequestError` with no HTTP status) ends the reads of its reader
@@ -98,8 +102,11 @@ _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
 # and a `--last` window starts at the whole minute before the time now less its days. So a start
 # up to this grace before the retention limit is still read.
 _RETENTION_GRACE: Final = timedelta(hours=1)
-# The read that tells whether the base metric of a fact has a series in the window.
-_PROBE: Final = "group(last_over_time({base}[{range}]))"
+# The reads that tell whether the base metric of a fact has a series in the time scope of its
+# query: the window for a query that holds `{range}`, else the window end.
+_WINDOW_PROBE: Final = "group(last_over_time({base}[{range}]))"
+_END_PROBE: Final = "group({base})"
+_RANGE: Final = "{range}"
 # The labels that hold a namespace: `namespace`, the namespace of a target that a scrape keeps as
 # `exported_namespace`, and the destination of an Argo CD application. In a series of a `rows`
 # fact, each of them holds a namespace of roadmap.project_review.namespaces, else the fact gives
@@ -403,20 +410,34 @@ class _Answers:
             return _Answer(error=reason)
 
 
+def _reads_window(fact: CatalogFact) -> bool:
+    """Whether the query of `fact` reads the window: a range vector or a subquery of `{range}`.
+    Each other query reads only the window end."""
+    return _RANGE in fact.query
+
+
 def _probe(fact: CatalogFact, values: Mapping[str, str]) -> str:
-    """The read that tells whether the base metric of `fact` has a series in the window."""
-    return _PROBE.format(base=render_query(str(fact.base), values), range=values["range"])
+    """The read that tells whether the base metric of `fact` has a series in the time scope of
+    its query: the window, or the window end."""
+    base = render_query(str(fact.base), values)
+    if _reads_window(fact):
+        return _WINDOW_PROBE.format(base=base, range=values["range"])
+    return _END_PROBE.format(base=base)
 
 
 def _no_series(fact: CatalogFact, query: str, values: Mapping[str, str], answers: _Answers) -> Fact:
     """`fact` when its answer has no series: none, as no rows or 0, when its base metric has a
-    series in the window; else `skipped`, because a missing metric is never 0."""
+    series in the time scope of the query; else `skipped`, because a missing metric is never 0."""
     probe = answers.get(fact, _probe(fact, values))
     if probe.error is not None:
         return _fact(fact, query, status=FactStatus.ERROR, reason=probe.error)
     if not probe.value.series:
-        reason = MESSAGES.roadmap.review_no_base_series.format(
-            base=render_query(str(fact.base), values)
+        base = render_query(str(fact.base), values)
+        texts = MESSAGES.roadmap
+        reason = (
+            texts.review_no_base_series.format(base=base)
+            if _reads_window(fact)
+            else texts.review_no_base_series_at_end.format(base=base, end=values["end"])
         )
         return _fact(fact, query, status=FactStatus.SKIPPED, reason=reason)
     if fact.shape is Shape.ROWS:

@@ -14,8 +14,9 @@
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:
-# an empty answer is none only when that metric has a series in the window. The base metric is a
-# metric of the query, unless `base_reason` says why the base is another metric (#6612).
+# an empty answer is none only when that metric has a series in the time scope of the query: the
+# window for a query that holds {range}, else the window end. The base metric is a metric of the
+# query, unless `base_reason` says why the base is another metric (#6612).
 # "SRE Qn" is query n of the Queries of docs/SRE.md at 6eae4980 (#5567 removed the file):
 # https://github.com/dan-petty/devops-cli/blob/6eae498088b2ff86a06883638e50b1a4fe3ad11a/docs/SRE.md#queries
 # "Kubernetes Qn" is query n of the Queries of docs/K8S_PERFORMANCE.md of PR #5492 at d0f6e42d:
