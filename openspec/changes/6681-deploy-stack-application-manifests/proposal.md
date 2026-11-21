@@ -1,0 +1,39 @@
+# Proposal: #6681
+
+## Why
+Closes #6681. On a cluster without Argo CD, `devops k8s deploy-stack` applies fixed raw paths of the environment tree before the charts: the rows of `MANIFESTS_BY_STACK`. Argo CD applies the build of the path source of each Application. The infra plan builds some of these folders from components and bases of dan-petty/infra at a tag: the default perimeters (dan-petty/homelab#87), the Valkey of Open WebUI (dan-petty/homelab#88) and the NetworkPolicy of Argo CD (dan-petty/homelab#94). A fixed file is then missing, or it holds only some of the objects of the build, and the cluster without Argo CD does not get the objects that Argo CD syncs.
+
+## What Changes
+- The new table `APPLICATIONS_BY_STACK` maps each stack to the Argo CD Applications whose path sources deploy-stack builds and applies before the charts: `infra` to `argocd` and `otel`, `logging` to `logging`, `devops` to `agents`, `gitea` to `gitea-manifests`.
+- deploy-stack builds each path source of these Applications with `render_path_source` of `devops_cli.k8s.app_render`, with the `SourceTrees` of the deploy (#6680). A source of the repository of the tree reads the checkout. A source of another repository is fetched at its `targetRevision` before the deploy touches the cluster. The deploy applies each build with `kubectl apply -f -`, after the ConfigMap and the manifest paths, and before the charts. `teardown-stack` deletes each build with `kubectl delete -f - --ignore-not-found` before the manifest paths.
+- `MANIFESTS_BY_STACK` keeps a path only where the build of its Application holds objects that the path does not hold. The path then stays, and a comment gives the reason: `argo-workflows/networkpolicy.yaml` and `ingress/ingress-routes.yaml` of `infra`, and the full list of `llm`. `PRODUCT_MANIFESTS_BY_STACK` does not change.
+- The dry run builds each path source of the checkout as a local read. Its new key `details.path_sources` gives the Application, the path and the objects (kind, namespace and name) of each build. A source of another repository gets no build in the dry run: its objects are `null`, and `details.source_fetches` lists its fetch. The dry run of `teardown-stack` gives the same entries in `details.path_source_deletes`, in the order of the deletes.
+- An Application that the table names and that the tree does not hold stops the command before it touches the cluster, as a chart with no Application does.
+- `build_manifest_path` and `render_path_source` get the keyword `local_read`. deploy-stack sets it. `devops k8s image-pins` and `devops k8s security-audit` do not change.
+- The objects that deploy-stack applies and its dry run change for a consumer, so the change carries a delta of `k8s-helm-deploy`.
+- The change fits one pull request.
+
+## Capabilities
+- `k8s-helm-deploy`: ADDED requirements "deploy-stack applies the builds of the path sources of the Applications of each stack", "teardown-stack deletes the builds of the path sources", "deploy-stack stops on an Application that the tree does not hold", "The deploy-stack dry run lists the objects of each build" and "The deploy-stack dry run fetches no path source of another repository".
+
+## Impact
+- On the current tree, the stacks apply the same objects as before. Each build of the table holds the objects of the paths that it replaces, and no other object.
+- A tree whose namespace folders take a component or a base of dan-petty/infra gives a cluster without Argo CD the objects of the build. dan-petty/homelab#87 and dan-petty/homelab#94 can then change the folders of `argocd`, `otel`, `logging` and `gitea`. The stack `llm` keeps its fixed list (see Feasibility), so dan-petty/homelab#88 needs a change of that list or of `POST_HELM_BY_STACK`.
+- A dry run and a deploy start `kubectl kustomize` on each folder of the table, as a local read.
+- `k8s/README.md` states which objects deploy-stack applies before the charts.
+
+## Feasibility
+- Code at origin/main `671f24192`: `MANIFESTS_BY_STACK` (`src/devops_cli/commands/k8s/stack_lifecycle.py:270`) lists the raw paths, and `_collect_deploy_targets` (`:1197`) and `_collect_teardown_targets` (`:1259`) read it. `render_path_source` (`src/devops_cli/k8s/app_render.py:42`) builds a path source in the folder that `SourceTrees.tree` gives. `build_manifest_path` (`src/devops_cli/k8s/template.py:139`) starts `kubectl kustomize` with no `local_read`, so a dry run builds nothing: the process runner gives an empty planned result.
+- Census of the path sources, with a PyYAML probe of `k8s/argocd/apps` and kubectl v1.37.2 (Kustomize v5.8.1): 14 Applications have a path source. For each stack, the objects of its rows of `MANIFESTS_BY_STACK` against the builds of the Applications that hold them:
+  - `infra`: the builds of `argocd` and `otel` hold only the NetworkPolicy of their row. The build of `argo-workflows-manifests` also holds the WorkflowTemplate `argo-workflows/devops-cli-version`: `POST_HELM_BY_STACK` applies it after the charts, because the chart installs its CRD. The build of `ingress` (`k8s/overlays/homelab/ingress`) also holds the ConfigMap `llm/open-webui-origins`, which the stack `llm` applies.
+  - `llm`: the build of `llm` also holds the Cluster `llm/llm-gateway-db`, its NetworkPolicy and PodMonitor, and the ServiceMonitor `llm/llm-gateway`. `POST_HELM_BY_STACK` applies them after the charts, because they need the CRDs of the charts, and the gate row `k8s` refuses a ServiceMonitor before the charts. The row `ingress/open-webui-origins.yaml` is in the build of `ingress`.
+  - `logging`, `gitea` and `devops`: the builds of `logging`, `gitea-manifests` and `agents` hold the objects of their rows and no other object.
+- So, as the issue asks, the stack `llm` keeps its fixed list, and each Application of `infra` whose build holds more objects keeps its fixed path. The issue gives this rule for a full stack. The change applies it to each Application, because the builds of `argocd` and `otel` hold the same objects as their rows, and dan-petty/homelab#94 changes the build of `argocd`.
+- Base output: `uv run devops k8s deploy-stack --stack <stack> --no-push-secrets --dry-run` for each of the 6 stacks gives the manifest paths. Their objects are 22 for `infra`, 46 for `llm`, 1 for `logging`, 42 for `devops`, 1 for `gitea` and 0 for `chat`.
+- `ERRORS` holds no message for an Application that the tree does not hold.
+
+## Existing Tool Considered
+- Argo CD builds the path sources, but `argocd app manifests` reads a live Argo CD, and a bootstrap runs before Argo CD exists.
+- Kustomize builds each folder: `render_path_source` starts `kubectl kustomize`, as the issue asks. `kubectl apply -k` would apply a folder of the checkout, but not a folder of a source of another repository after the work folder is gone, and it does not take the domain of the templates.
+- The change reuses `render_path_source`, `SourceTrees` and `application_sources`. It builds about 80 lines; about 150k tokens and 2 hours to build, and a low cost to keep.
+- The change deletes the rows of `MANIFESTS_BY_STACK` that the builds replace (7 paths), and the test `test_manifests_by_stack_includes_agents_manifests`, which asserts a value of the table.
