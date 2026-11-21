@@ -21,8 +21,8 @@ from devops_cli.roadmap.implement.implement_phases import (
     prepare_implement,
     publish_phase,
 )
-from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.phases.files import RunFolders
+from devops_cli.roadmap.phases.rebase import skips_archive_commit
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ImplementResult, ItemField
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import WINDOW

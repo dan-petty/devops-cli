@@ -22,6 +22,7 @@ from devops_cli.ai.client import factory
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.implement.implement_step import ItemReader
+from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE
 from devops_cli.roadmap.steps.fix_checks import Fixed, ModelFixer, run_fix_checks
 from devops_cli.roadmap.steps.fix_checks_repair import (
     job_repair,
@@ -43,12 +44,13 @@ from tests.support.roadmap_implement import (
     STEPS_DECLARATION,
     STEPS_FILE,
     TASKS,
+    TITLE,
     a_fix,
     push_staged_branch,
     seed_staged,
     stale_lock_effect,
 )
-from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, run_git
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, advance_origin, run_git
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -284,23 +286,9 @@ def _route_bot(api: GitHubApiFake) -> None:
     api.route("GET", f"/users/{quote(STAGE_NAME, safe='')}", github_json({"id": 1}))
 
 
-def _failed_draft(
-    stage_repo: StageRepo,
-    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
-    files: dict[str, str],
-) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
-    """Pull request 5 of item 1: a bot draft on the staged branch with `files`, whose
-    `Static Analysis` check failed on its head with a log that names a file of the plan. The store
-    holds the item."""
-    push_staged_branch(stage_repo, files=files)
-    head = stage_repo.origin_git("rev-parse", BRANCH)
-    api, programs = github_api_and_gh
-    programs.answer("git", ProcessAnswer(side_effect=git_for_real))
-    programs.answer(lambda call: command_text(call).startswith("uv "), ProcessAnswer())
-    programs.answer(
-        lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=TYPE_ERROR)
-    )
-    status = {
+def _pull_status(head: str) -> dict[str, object]:
+    """Pull request 5 as GitHub gives it, a bot draft on the staged branch at `head`."""
+    return {
         "state": "open",
         "draft": True,
         "head": {"ref": BRANCH, "sha": head},
@@ -308,7 +296,43 @@ def _failed_draft(
         "user": {"login": STAGE_NAME},
         "labels": [],
     }
-    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(status))
+
+
+def _archive_on_branch(repo: StageRepo) -> None:
+    """Add the archive commit of item 1 to the pushed branch, as implement writes it."""
+    repo.git("switch", "-q", "-c", BRANCH, f"origin/{BRANCH}")
+    change = "openspec/changes/1-the-job-drops-a-comment"
+    (repo.clone / "openspec" / "changes" / "archive").mkdir(parents=True, exist_ok=True)
+    repo.git("mv", change, "openspec/changes/archive/2026-11-21-1-the-job-drops-a-comment")
+    repo.git(
+        "-c", f"user.name={STAGE_NAME}", "commit", "-q", "-m", ARCHIVE_MESSAGE.format(number=1)
+    )
+    repo.git("push", "-q", "origin", BRANCH)
+    repo.git("switch", "-q", "main")
+    repo.git("branch", "-q", "-D", BRANCH)
+
+
+def _failed_draft(
+    stage_repo: StageRepo,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    files: dict[str, str],
+    *,
+    archived: bool = False,
+) -> tuple[StageRepo, InMemoryRoadmapStore, str]:
+    """Pull request 5 of item 1: a bot draft on the staged branch with `files`, whose
+    `Static Analysis` check failed on its head with a log that names a file of the plan. The store
+    holds the item. With `archived`, the branch ends with the archive commit of the item."""
+    push_staged_branch(stage_repo, files=files)
+    if archived:
+        _archive_on_branch(stage_repo)
+    head = stage_repo.origin_git("rev-parse", BRANCH)
+    api, programs = github_api_and_gh
+    programs.answer("git", ProcessAnswer(side_effect=git_for_real))
+    programs.answer(lambda call: command_text(call).startswith("uv "), ProcessAnswer())
+    programs.answer(
+        lambda call: call.argv[1:3] == ("run", "view"), ProcessAnswer(stdout=TYPE_ERROR)
+    )
+    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(_pull_status(head)))
     _route_bot(api)
     api.route(
         "GET",
@@ -435,6 +459,113 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     assert held.job_record.get(FixChecksRecordKey.RESULT) is None
 
 
+def test_a_round_on_a_branch_behind_main_rebases_fixes_the_check_and_pushes_with_a_lease(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str], tmp_path: Path
+) -> None:
+    """Main moved after the branch point (#6639). The agent phase rebases the branch onto the tip
+    of main that `prepare` read, the model fixes the check, and `publish` replaces the branch: its
+    commits sit on that tip, and the push has a lease on the judged head."""
+    repo, store, head = failed_draft
+    advance_origin(repo, tmp_path, {"NEWS.md": "main moved\n"})
+    main = repo.origin_git("rev-parse", "main")
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+
+    report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=job_repair(STAGE_REPO))
+
+    new_head = repo.origin_git("rev-parse", BRANCH)
+    assert (report.result, report.head) == (FixChecksResult.REPAIRED, new_head)
+    assert repo.origin_git("merge-base", main, new_head) == main
+    assert repo.origin_git("merge-base", head, new_head) != head
+    assert (
+        repo.origin_git("show", f"{new_head}:NEWS.md"),
+        "def whisper" in repo.origin_git("show", f"{new_head}:src/devops_cli/shout.py"),
+        repo.origin_git("log", "-1", "--format=%s", new_head),
+        repo.origin_git("rev-list", "--count", f"{main}..{new_head}"),
+    ) == ("main moved", True, "fix: make check Static Analysis pass (#1)", "2")
+
+
+def test_a_rebased_branch_keeps_its_archive_commit_as_its_own_commit(
+    stage_repo: StageRepo,
+    app_slug: None,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """`publish` replaces a rebased branch with the work of the branch, its archive commit and the
+    fix, each one commit on the tip of main, so the archive stays its own commit (#6639)."""
+    repo, store, _head = _failed_draft(stage_repo, github_api_and_gh, SHOUT_FILES, archived=True)
+    advance_origin(repo, tmp_path, {"NEWS.md": "main moved\n"})
+    main = repo.origin_git("rev-parse", "main")
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+
+    report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=job_repair(STAGE_REPO))
+
+    new_head = repo.origin_git("rev-parse", BRANCH)
+    assert report.result == FixChecksResult.REPAIRED
+    assert repo.origin_git("log", "--format=%s", f"{main}..{new_head}").splitlines() == [
+        "fix: make check Static Analysis pass (#1)",
+        ARCHIVE_MESSAGE.format(number=1),
+        f"{TITLE} (#1)",
+    ]
+
+
+def test_a_rebase_conflict_that_no_rule_settles_stops_the_round_and_pushes_nothing(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str], tmp_path: Path
+) -> None:
+    """Main changed a source file of the branch, so the rebase stops on it, and no rule settles a
+    source file. The round stops with the conflicted file, asks the model nothing and pushes
+    nothing (#6639)."""
+    repo, store, head = failed_draft
+    advance_origin(repo, tmp_path, {"src/devops_cli/shout.py": "def shout(text):\n    return 1\n"})
+    script = ModelScript(say("No fix."))
+    factory.set_llm_client_override(script.model())
+
+    report = run_fix_checks(store, STAGE_REPO, PULL, confirm=True, repair=job_repair(STAGE_REPO))
+
+    assert report.result == FixChecksResult.STOPPED
+    assert report.reason.startswith("Conflict: ")
+    assert "`src/devops_cli/shout.py`" in report.reason
+    assert (script.seen, repo.origin_git("rev-parse", BRANCH)) == ([], head)
+
+
+def test_a_push_after_a_rebase_whose_lease_moved_stops_with_head_moved(
+    failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """Another writer moves the head branch after the rebase and before the push. The lease on the
+    judged head refuses the push of the replaced branch, GitHub then gives the moved head, and the
+    round ends with `head_moved`: the commit of the other writer stays (#6639)."""
+    repo, store, head = failed_draft
+    api, _ = github_api_and_gh
+    advance_origin(repo, tmp_path, {"NEWS.md": "main moved\n"})
+    factory.set_llm_client_override(ModelScript(*a_fix()).model())
+    real = job_repair(STAGE_REPO)
+    moved: list[str] = []
+
+    def model_then_another_writer(reader: ItemReader) -> ModelFixer:
+        def fix(path: Path, item: int, check: str, log: str, extra: tuple[str, ...]) -> Fixed:
+            fixed = real.model(reader)(path, item, check, log, extra)
+            tree = repo.git("rev-parse", f"{head}^{{tree}}")
+            moved.append(repo.git("commit-tree", tree, "-p", head, "-m", "work of another writer"))
+            repo.git("push", "-q", "origin", f"{moved[0]}:refs/heads/{BRANCH}")
+            # The live round and the claim check read the judged head; the lease then fails.
+            judged, after = (github_json(_pull_status(sha)) for sha in (head, moved[0]))
+            api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", judged, judged, after)
+            return fixed
+
+        return fix
+
+    report = run_fix_checks(
+        store, STAGE_REPO, PULL, confirm=True, repair=replace(real, model=model_then_another_writer)
+    )
+
+    assert (report.result, report.reason) == (
+        FixChecksResult.SKIPPED,
+        "Head has moved: the lease refused the push",
+    )
+    assert repo.origin_git("rev-parse", BRANCH) == moved[0]
+
+
 # The case of #6114 in a test world: the plan changes the signature of `run_flow`, and a test that
 # the plan does not list calls it without the new argument.
 FLOW = "src/devops_cli/flow.py"
@@ -537,32 +668,6 @@ def test_a_failure_in_a_caller_that_the_plan_does_not_list_is_repaired_and_named
     assert any(f"`{FLOW_TEST}`" in text for text in asked)
     [comment] = _comments(api)
     assert f"\n{FLOW_TEST}: it uses the changed name `run_flow`\n" in comment
-
-
-def test_a_failure_in_a_file_that_main_changed_after_the_branch_point_stops_as_main_skew(
-    caller_draft: tuple[StageRepo, InMemoryRoadmapStore, GitHubApiFake, str],
-) -> None:
-    """Main changed the failed test after the branch point: the change of the branch does not
-    cause the failure, so the round stops with no model request and says why (#6116)."""
-    repo, store, api, head = caller_draft
-    repo.track({FLOW_TEST: FLOW_CALLER + "\n\ndef test_more() -> None:\n    assert True\n"})
-    script = ModelScript(say("No fix."))
-    factory.set_llm_client_override(script.model())
-
-    report = run_fix_checks(
-        store,
-        STAGE_REPO,
-        PULL,
-        confirm=True,
-        repair=job_repair(STAGE_REPO),
-    )
-
-    assert report.result == FixChecksResult.STOPPED
-    assert report.reason.startswith("Failed check log is outside plan scope: ")
-    assert f"`{FLOW_TEST}`" in report.reason
-    assert "main skew" in report.reason
-    assert (script.seen, _comments(api)) == ([], [])
-    assert repo.origin_git("rev-parse", BRANCH) == head
 
 
 @pytest.fixture

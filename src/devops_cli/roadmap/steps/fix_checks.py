@@ -23,8 +23,8 @@ Two tiers of repair:
   starts tier 1 in a check of any class (#5983).
 - Tier 2 (model): run_fix_step within the plan scope and the files outside the plan whose failure
   the change of the branch causes (`fix_checks_cause`, #6116). A failure that the change does not
-  cause, such as main skew, stops the round with a reason that names each file. A comment names the
-  files of each pushed repair.
+  cause stops the round with a reason that names each file. A comment names the files of each
+  pushed repair. A branch that is behind the default branch is rebased first (#6639).
 
 The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
 that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
@@ -239,9 +239,11 @@ class Fixed(NamedTuple):
 @dataclass(frozen=True)
 class PullCheckout:
     """The clone on the head branch of a pull request, at the judged head (#5971, #3702): its
-    path, in the work folder of the run."""
+    path, in the work folder of the run, and `base`, the tip of the default branch that the clone
+    read, or empty when the checkout reads none."""
 
     path: Path
+    base: str = ""
 
 
 # A fixer gets the worktree, the item, the name of the failed check and its log.
@@ -260,9 +262,10 @@ class Repair:
 
     - `prepare`: `checkout` clones the repository into the work folder, on the head branch of the
       pull request.
-    - `agent`: the deterministic fixers of tier 1, the scope check of the log, and `model`, which
-      makes the model fix of tier 2 from the item that `prepare` read. A fixer commits in the
-      checkout and does not push. `patch` writes the patch of the checkout from the judged head.
+    - `agent`: `rebase` rebases a branch that is behind the default branch onto the tip that
+      `prepare` read (#6639), then the deterministic fixers of tier 1, the scope check of the log,
+      and `model`, which makes the model fix of tier 2 from the item that `prepare` read. A fixer
+      commits in the checkout and does not push. `patch` writes the patch of the fix.
     - `publish`: `author` gives the name and the email of the bot, and `workflows` the workflow
       files that the merged plan of an item names on a branch of GitHub, each read by `publish`
       itself. `publish` applies the patch as data, writes one commit, calls the claim check and
@@ -275,6 +278,7 @@ class Repair:
     patch: Callable[[Path, str, Path], None]
     publish: Publisher
     author: Callable[[], tuple[str, str]]
+    rebase: Callable[[Path, str, int], Fixed]
     scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
     workflows: Callable[[str, str, int], tuple[str, ...]] = lambda repo, ref, item: ()
     scratch: Path | None = None

@@ -9,9 +9,10 @@ the run folder:
   A round that needs a repair clones the repository into `work/` on the head branch
   (`Repair.checkout`), and writes the state file (`state/`) and the inputs of the agent
   (`work/input.json`). It runs git and GitHub calls only: no `uv`, no hook and no fixer.
-- `agent` (model key only) reads its inputs, runs tier 1, the scope check and the model fix in the
-  checkout, and writes the patch from the judged head, `outcome.json` and `summary.json`. It makes
-  no GitHub call: the model fix reads the item from the inputs.
+- `agent` (model key only) reads its inputs, rebases a branch that is behind the default branch
+  onto the tip that `prepare` read (#6639), runs tier 1, the scope check and the model fix in the
+  checkout, and writes the patches, `outcome.json` and `summary.json`. It makes no GitHub call: the
+  model fix reads the item from the inputs.
 - `publish` (App key) reads the outputs of the agent as data (`read_run_file`). It checks the
   judged round against the pull request as GitHub holds it: the head branch, the item and the
   judged head. It builds the target of the push from GitHub alone: the head branch and the
@@ -23,8 +24,12 @@ the run folder:
   judged head (`publish_patch`). Then it writes the record of the round and the
   comment that names the files, as the step did before.
 
-The base and the lease are the judged head: fix-checks makes no rebase, so the agent phase needs no
-network git call (#6601). `repair_round` runs the three phases in one process, which `--phase all`
+The lease is the judged head. A branch that holds the tip of the default branch needs no rebase:
+the base is the judged head, and the fix is one commit on it. A branch that is behind it is rebased
+onto that tip, which `prepare` records as `onto`, so `publish` replaces the branch: the base is
+`onto`, and the patches are the work of the branch up to its archive commit, the archive commit
+alone, the commits after it, and the fix, each one commit. The agent phase needs no network git
+call: the clone of `prepare` holds `onto` (#6601). `repair_round` runs the three phases in one process, which `--phase all`
 and the current Job template use: the state of `prepare` stays in memory, so `publish` reads no
 file of the run but the outputs of the agent, and the run folder goes when the round ends. #3700
 runs each phase in its own container.
@@ -33,15 +38,18 @@ runs each phase in its own container.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.config.constants import (
     CONST_GITHUB_CLONE_URL,
+    CONST_ROADMAP_PHASE_AFTER_PATCH_FILE,
+    CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE,
     CONST_ROADMAP_PHASE_INPUT_FILE,
     CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
     CONST_ROADMAP_PHASE_OUTCOME_FILE,
@@ -49,6 +57,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_PATCH_MAX_BYTES,
     CONST_ROADMAP_PHASE_STATE_FILE,
     CONST_ROADMAP_PHASE_SUMMARY_FILE,
+    CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core import process_hardening
@@ -60,6 +69,7 @@ from devops_cli.exceptions.roadmap import (
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.check_verdict import CheckBucket, read_check_runs
 from devops_cli.github.client import PullStatus
+from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.implement.implement_pull import DraftKind, failed_log, kind_of
 from devops_cli.roadmap.phases.files import (
     AgentOutcome,
@@ -72,7 +82,9 @@ from devops_cli.roadmap.phases.files import (
     read_run_file,
     write_json,
 )
+from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget
+from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE, archive_commit, holds
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.fix_checks import (
     MARKER,
@@ -96,6 +108,19 @@ from devops_cli.security.sanitizer import mask_secrets
 # and the tail holds the error line, so a longer reason loses its middle.
 _REASON_HEAD = 500
 _REASON_TAIL = 1500
+# The operation that a failed git call of the step names.
+_OPERATION = "roadmap.fix_checks"
+# A commit, or empty for a branch that needs no rebase.
+_ONTO = r"^([0-9a-f]{40})?$"
+# The patches of the work of a rebased branch, in the order of their commits: the work up to the
+# archive commit, the archive commit alone, and the commits after it. The fix follows them.
+_BRANCH_PATCHES = (
+    CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
+    CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE,
+    CONST_ROADMAP_PHASE_AFTER_PATCH_FILE,
+)
+# The message of a commit of the work of a rebased branch, from the title of the item.
+_WORK_MESSAGE = "{title} (#{number})"
 # The results that an outcome of the agent phase may give.
 _AGENT_RESULTS = frozenset(
     {FixChecksResult.REPAIRED, FixChecksResult.FAILED, FixChecksResult.STOPPED}
@@ -125,12 +150,14 @@ class FixState(_Model):
     ended: bool = False
     status: dict[str, Any] | None = None
     check: str = ""
+    onto: str = Field(default="", pattern=_ONTO)
 
 
 @dataclass(frozen=True)
 class JudgedRound:
     """What `publish` takes from `prepare`: the pull request, the item, the judged status, the
-    failed check and the count of errors of its log. `--phase all` keeps it in memory; a separate
+    failed check, the count of errors of its log, and `onto`, the tip of the default branch that
+    the agent rebased the branch onto, or empty. `--phase all` keeps it in memory; a separate
     `publish` builds it from the state file and checks each part against GitHub
     (`_judged_from_state`)."""
 
@@ -140,14 +167,17 @@ class JudgedRound:
     status: PullStatus
     check: str
     errors: int
+    onto: str = ""
 
 
 class AgentInput(_Model):
-    """`work/input.json`, the inputs of the agent phase: the checkout, the judged head, the item,
-    the failed check and its log, and whether the pull request is a plan."""
+    """`work/input.json`, the inputs of the agent phase: the checkout, the judged head, the tip of
+    the default branch to rebase onto (empty for a branch that holds it), the item, the failed
+    check and its log, and whether the pull request is a plan."""
 
     checkout: str
     base: str
+    onto: str = Field(default="", pattern=_ONTO)
     item_num: int
     item: dict[str, Any] | None
     check: str
@@ -210,17 +240,22 @@ def prepare_round(
     folders.make()
     checkout = repair.checkout(facts.status, facts.item_num, folders.work)
     is_plan = _is_plan(facts.item, facts.pull, facts.status)
+    head = facts.status.head_sha
+    behind = checkout.base and not holds(checkout.path, checkout.base, head, operation=_OPERATION)
+    onto = checkout.base if behind else ""
     state = FixState(
         repo=facts.repo,
         pull=facts.pull,
         item=facts.item_num,
         status=facts.status.model_dump(mode="json"),
         check=facts.check,
+        onto=onto,
     )
     write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
     inputs = AgentInput(
         checkout=str(checkout.path),
-        base=facts.status.head_sha,
+        base=head,
+        onto=onto,
         item_num=facts.item_num,
         item=facts.item.model_dump(mode="json") if facts.item is not None else None,
         check=facts.check,
@@ -235,6 +270,7 @@ def prepare_round(
         facts.status,
         facts.check,
         facts.errors,
+        onto,
     )
 
 
@@ -264,13 +300,34 @@ def prepare_phase(
     return None
 
 
-def _fix(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -> AgentOutcome:
+def _fix(
+    path: Path, inputs: AgentInput, item: Item | None, repair: Repair
+) -> tuple[AgentOutcome, str]:
+    """The rebase of a branch that is behind the default branch, then tier 1, the scope check and
+    the model fix, in the checkout `path`. Gives the outcome and the head of the branch before the
+    fixers: the rebased head, or the judged head."""
+    tip = inputs.base
+    if inputs.onto:
+        rebased = repair.rebase(path, inputs.onto, inputs.item_num)
+        if not rebased.done:
+            stopped = AgentOutcome(
+                kind=OutcomeKind.STOPPED, result=FixChecksResult.STOPPED, reason=rebased.reason
+            )
+            return stopped, tip
+        tip = git(path, "rev-parse", "HEAD", operation=_OPERATION)
+    return _fixers(path, inputs, item, repair), tip
+
+
+def _fixers(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -> AgentOutcome:
     """Tier 1, then the scope check and the model fix, in the checkout `path`."""
     number = inputs.item_num
     tier1 = repair.tier1(path, number, inputs.check, inputs.log)
     if tier1.done:
         return AgentOutcome(
-            kind=OutcomeKind.DONE, result=FixChecksResult.REPAIRED, detail=FixTier.TIER1
+            kind=OutcomeKind.DONE,
+            result=FixChecksResult.REPAIRED,
+            detail=FixTier.TIER1,
+            files=tuple(OutcomeFile(path=name, reason="") for name in tier1.files),
         )
     verdict = repair.scope(path, number, inputs.log, inputs.is_plan)
     if not verdict.in_scope:
@@ -291,6 +348,23 @@ def _fix(path: Path, inputs: AgentInput, item: Item | None, repair: Repair) -> A
     )
 
 
+def _write_patches(path: Path, inputs: AgentInput, tip: str, out: Path, repair: Repair) -> None:
+    """The patches of the agent. For a rebased branch: the work from `onto` up to the archive
+    commit of the item, the archive commit alone, and the commits after it up to `tip`, the rebased
+    head. Then the fix, from `tip`. A branch that needs no rebase has no work patch, and its fix
+    goes on the judged head."""
+    if inputs.onto:
+        archived = archive_commit(path, inputs.onto, inputs.item_num, operation=_OPERATION)
+        ends = [f"{archived}^", archived, tip] if archived else [tip, tip, tip]
+        starts = [inputs.onto, *ends[:2]]
+        for start, end, name in zip(starts, ends, _BRANCH_PATCHES, strict=True):
+            write_patch(path, start, out / name, head=end)
+    else:
+        for name in _BRANCH_PATCHES:
+            (out / name).write_bytes(b"")
+    repair.patch(path, tip, out / CONST_ROADMAP_PHASE_PATCH_FILE)
+
+
 def agent_phase(folders: RunFolders, repair: Repair) -> None:
     """`--phase agent`: the fixers in the checkout, then the patch and the outcome. A run folder
     whose `prepare` ended the round holds no inputs, and the phase writes nothing."""
@@ -300,12 +374,12 @@ def agent_phase(folders: RunFolders, repair: Repair) -> None:
     inputs = AgentInput.model_validate_json(inputs_file.read_text(encoding="utf-8"))
     item = Item.model_validate(inputs.item) if inputs.item is not None else None
     path = Path(inputs.checkout)
-    outcome = _fix(path, inputs, item, repair)
+    outcome, tip = _fix(path, inputs, item, repair)
     if load_settings().roadmap.implement.in_runner:
         process_hardening.end_leftover_processes()
     out = folders.make_out()
     if outcome.kind is OutcomeKind.DONE:
-        repair.patch(path, inputs.base, out / CONST_ROADMAP_PHASE_PATCH_FILE)
+        _write_patches(path, inputs, tip, out, repair)
     write_json(out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
     write_json(out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
 
@@ -377,10 +451,12 @@ def _live_round(
     return facts
 
 
-def _target(repair: Repair, facts: FixRound) -> PublishTarget:
+def _target(repair: Repair, facts: FixRound, base: str) -> PublishTarget:
     """The target of the push, from the pull request as GitHub holds it now and from what
     `publish` reads itself: the repository on GitHub, the bot, and the workflow files that the
-    merged plan of the item names on the default branch. A plan draft writes no workflow file."""
+    merged plan of the item names on the default branch. A plan draft writes no workflow file.
+    `base` is the judged head, or the tip of the default branch of a rebased branch, which the
+    push replaces; the lease is the judged head."""
     status = facts.status
     author, email = repair.author()
     workflows = (
@@ -391,7 +467,7 @@ def _target(repair: Repair, facts: FixRound) -> PublishTarget:
     return PublishTarget(
         url=CONST_GITHUB_CLONE_URL.format(repo=facts.repo),
         branch=status.head_ref,
-        base=status.head_sha,
+        base=base,
         lease=status.head_sha,
         author=author,
         email=email,
@@ -404,17 +480,19 @@ def _push(
     client: Any,
     facts: FixRound,
     repair: Repair,
-    pushed: tuple[bytes, str],
+    patches: Sequence[tuple[bytes, str]],
+    base: str,
 ) -> Published | FixChecksReport:
-    """The publish of the patch, with the claim check right before the push: the commit, or the
-    report of a round that the claim, a refusal, a move of the head or an empty patch ends."""
+    """The publish of the patches on `base`, with the claim check right before the push: the
+    commit, or the report of a round that the claim, a refusal, a move of the head or an empty
+    patch ends."""
 
     def before_push(_tree: NewTree) -> None:
         if report := _claim(client, store, facts):
             raise _ClaimedError(report)
 
     try:
-        published = repair.publish(_target(repair, facts), [pushed], before_push)
+        published = repair.publish(_target(repair, facts, base), patches, before_push)
     except _ClaimedError as claim:
         return claim.report
     except PublishRefusedError as exc:
@@ -428,6 +506,26 @@ def _push(
         end_round(store, facts, FixChecksResult.FAILED)
         return facts.report(FixChecksResult.FAILED, "The repair made no commit to push")
     return published
+
+
+def _read_patch(folders: RunFolders, name: str = CONST_ROADMAP_PHASE_PATCH_FILE) -> bytes:
+    return read_output(folders, name, limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES)
+
+
+def _branch_patches(folders: RunFolders, facts: FixRound, onto: str) -> list[tuple[bytes, str]]:
+    """The patches of the work of a branch that the agent rebased onto `onto`, each with the
+    message of its commit, the empty ones left out. A round with no rebase takes none, whatever
+    the agent wrote."""
+    if not onto:
+        return []
+    title = facts.item.title if facts.item is not None else facts.status.title
+    work = _WORK_MESSAGE.format(title=mask_secrets(" ".join(title.split())), number=facts.item_num)
+    messages = (work, ARCHIVE_MESSAGE.format(number=facts.item_num), work)
+    patches = [
+        (_read_patch(folders, name), message)
+        for name, message in zip(_BRANCH_PATCHES, messages, strict=True)
+    ]
+    return [(patch, message) for patch, message in patches if patch.strip()]
 
 
 def publish_round(
@@ -447,10 +545,12 @@ def publish_round(
     if tier is None:
         end_round(store, facts, result)
         return facts.report(result, _text(outcome.reason))
-    patch = read_output(
-        folders, CONST_ROADMAP_PHASE_PATCH_FILE, limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES
-    )
-    published = _push(store, client, facts, repair, (patch, _message(facts, tier)))
+    patches = [
+        *_branch_patches(folders, facts, judged.onto),
+        (_read_patch(folders), _message(facts, tier)),
+    ]
+    base = judged.onto or facts.status.head_sha
+    published = _push(store, client, facts, repair, patches, base)
     if isinstance(published, FixChecksReport):
         return published
     rounds = facts.rounds + 1
@@ -465,8 +565,10 @@ def publish_round(
         errors=facts.errors,
     )
     tier1 = tier is FixTier.TIER1
+    # A rebased branch pushes its work too, so tier 1 names the files of its own commit.
+    fixed = [held.path for held in outcome.files] if judged.onto else published.paths
     named = (
-        [(path, "") for path in published.paths]
+        [(path, "") for path in fixed]
         if tier1
         else [(held.path, held.reason) for held in outcome.files]
     )
@@ -506,7 +608,7 @@ def _judged_from_state(
             reason="The check of the state file is no failed check of the judged head",
         )
     errors = count_errors(failed_log(repo, failed[0]))
-    return JudgedRound(repo, pull, state.item, judged, failed[0].name, errors)
+    return JudgedRound(repo, pull, state.item, judged, failed[0].name, errors, state.onto)
 
 
 def publish_phase(

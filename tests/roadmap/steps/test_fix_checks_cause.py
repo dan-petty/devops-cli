@@ -153,17 +153,6 @@ def test_a_test_of_a_changed_module_is_in_scope() -> None:
     assert "`devops_cli.commands.review`" in verdict.caused[0].reason
 
 
-def test_a_failure_in_a_file_that_main_changed_after_the_branch_point_stops_as_main_skew() -> None:
-    skew = _change(main_paths=frozenset({REGRESSION}))
-
-    verdict = judge_scope(LOG_6114, _scope(), lambda: skew, _files().get)
-
-    assert (verdict.in_scope, verdict.caused) == (False, ())
-    assert [cause.path for cause in verdict.outside] == [REGRESSION]
-    assert "main skew" in verdict.outside[0].reason
-    assert f"`{REGRESSION}`" in verdict.stop_reason()
-
-
 def test_a_failure_that_the_change_does_not_cause_stops_and_names_the_file() -> None:
     verdict = judge_scope(LOG_6114, _scope(), _change, _files(regression=UNRELATED).get)
 

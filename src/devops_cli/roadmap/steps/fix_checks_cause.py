@@ -15,10 +15,10 @@ A file that the log names is in the repair scope when the change of the branch c
   changed command or tool changes its snapshot. Tier 1 writes the snapshot again first;
 - the branch changes the file itself.
 
-A file that the default branch changed after the branch point is never in the scope: its failure is
-main skew, and a rebase repairs it, not a model. A file that no rule takes, and a log that names no
-file of the checkout (an expired ignore, for example), stop the round with a reason that names each
-file and why.
+The agent phase rebases a branch that is behind the default branch first (#6639), so the change
+of the branch is read from the tip of the default branch. A file that no rule takes, and a log
+that names no file of the checkout (an expired ignore, for example), stop the round with a reason
+that names each file and why.
 
 The log is the evidence: the test IDs of the pytest summary (`FAILED <path>::<test>`), and the
 locations of the errors of ruff and mypy (`<path>:<line>: error:`).
@@ -67,13 +67,11 @@ OUTSIDE_PLAN: Final[str] = "Failed check log is outside plan scope"
 
 @dataclass(frozen=True)
 class BranchChange:
-    """What a branch changes after its branch point on the default branch: `paths`, the names of
-    the definitions that it changes in its Python files, and `main_paths`, the files that the
-    default branch changed after the branch point."""
+    """What a branch changes after its branch point on the default branch: `paths`, and the names
+    of the definitions that it changes in its Python files."""
 
     paths: frozenset[str] = frozenset()
     names: frozenset[str] = frozenset()
-    main_paths: frozenset[str] = frozenset()
 
     @property
     def modules(self) -> frozenset[str]:
@@ -281,11 +279,7 @@ def judge_scope(
     caused: list[FileCause] = []
     outside: list[FileCause] = []
     for path, text in texts.items():
-        if path in branch.main_paths:
-            outside.append(
-                FileCause(path, "main changed it after the branch point (main skew): rebase first")
-            )
-        elif reason := _cause(path, text, branch, snapshots):
+        if reason := _cause(path, text, branch, snapshots):
             caused.append(FileCause(path, reason))
         else:
             outside.append(FileCause(path, "the change of the branch does not cause its failure"))
@@ -308,13 +302,12 @@ def _text_at(worktree: Path, revision: str, path: str) -> str | None:
 
 def read_branch_change(worktree: Path) -> BranchChange:
     """The change of the branch checked out at `worktree`, from its branch point on the default
-    branch of `origin` to `HEAD`, and the files that the default branch changed after the branch
-    point. The text of a changed Python file at the head is the text in the checkout."""
+    branch of `origin` to `HEAD`. The text of a changed Python file at the head is the text in the
+    checkout."""
     main = f"origin/{default_branch(worktree, operation=_OPERATION)}"
     point = git(worktree, "merge-base", main, "HEAD", operation=_OPERATION)
     diff = ("diff", "--name-only", "--no-renames", "-z")
     paths = _names(git(worktree, *diff, point, "HEAD", operation=_OPERATION))
-    main_paths = _names(git(worktree, *diff, point, main, operation=_OPERATION))
     names: set[str] = set()
     for path in sorted(paths):
         if not path.endswith((".py", ".pyi")):
@@ -322,7 +315,7 @@ def read_branch_change(worktree: Path) -> BranchChange:
         head = worktree / path
         text = head.read_text(encoding="utf-8") if head.is_file() else None
         names.update(changed_definitions(_text_at(worktree, point, path), text))
-    return BranchChange(paths=paths, names=frozenset(names), main_paths=main_paths)
+    return BranchChange(paths=paths, names=frozenset(names))
 
 
 def checkout_reader(worktree: Path) -> Callable[[str], str | None]:
