@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx2
+import pytest
 import yaml
 
 from devops_cli.config.settings import load_settings
@@ -252,3 +253,143 @@ def test_three_pairs_that_differ_are_disagreements_and_a_pair_within_the_toleran
         ("b", 12.0, 30.0),
         ("c", 77.22, 118.74),
     ]
+
+
+def test_a_window_as_long_as_the_retention_is_read_not_expired(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """`--last 30d` starts at the whole minute before the time now less 30 days, a few seconds
+    before the retention limit; Prometheus still holds those samples."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(lambda request: _vector(({}, 3)))
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.up", "sum(up)")])
+    now = datetime(2026, 11, 21, 2, 2, 41, tzinfo=UTC)
+    end = now.replace(second=0)
+    window = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=end - timedelta(days=30),
+        end=end,
+        previous_id=None,
+    )
+    context = ReadContext(
+        checkout=tmp_path, repo=REPO, window=window, settings=load_settings(), now=now
+    )
+
+    [fact] = read_catalog(catalog, context).facts
+
+    assert (fact.status, fact.value) == (FactStatus.OK, 3.0)
+
+
+def test_an_unreachable_prometheus_gets_one_read_and_marks_each_of_its_facts_error(
+    tmp_path: Path, web: WebFake, clock: ClockFake, config: Callable[..., Path]
+) -> None:
+    """A network error ends the reads of its reader kind: the later facts take its reason and
+    send no request, so one address that does not answer costs one read, not one for each fact."""
+    config(prometheus={"url": PROMETHEUS})
+
+    def refuse(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("Connection refused", request=request)
+
+    web.serve(refuse)
+    facts = [_prometheus_fact(f"prometheus.f{index}", f"sum(up{index})") for index in range(3)]
+    catalog = _catalog(tmp_path, facts)
+
+    result = read_catalog(catalog, _context(tmp_path))
+
+    assert {request.url.params["query"] for request in web.sent} == {"sum(up0)"}
+    assert [fact.status for fact in result.facts] == [FactStatus.ERROR] * 3
+    assert len({fact.reason for fact in result.facts}) == 1
+    assert result.collection.reads == {"prometheus": 1}
+
+
+def test_a_loki_answer_that_is_not_json_marks_its_fact_error_and_the_review_reads_the_others(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": PROMETHEUS}, loki={"url": LOKI})
+    web.serve(
+        lambda request: (
+            httpx2.Response(200, headers={"content-type": "text/html"}, text="<html>Sign in")
+            if request.url.path.startswith("/loki/")
+            else _vector(({}, 3))
+        )
+    )
+    loki = {
+        **_prometheus_fact("loki.lines", 'sum(count_over_time({app="x"}[{range}]))'),
+        "reader": "loki",
+    }
+    catalog = _catalog(tmp_path, [loki, _prometheus_fact("prometheus.up", "sum(up)")])
+
+    facts = {fact.id: fact for fact in read_catalog(catalog, _context(tmp_path)).facts}
+
+    assert (facts["loki.lines"].status, "loki.url" in facts["loki.lines"].reason) == (
+        FactStatus.ERROR,
+        True,
+    )
+    assert (facts["prometheus.up"].status, facts["prometheus.up"].value) == (FactStatus.OK, 3.0)
+
+
+def _probe(present: bool) -> Callable[[str], httpx2.Response]:
+    """Prometheus that gives no series to each fact query, and a series to the probe of the base
+    metric of a fact when `present`."""
+
+    def answer(query: str) -> httpx2.Response:
+        return _vector(({}, 1)) if present and query.startswith("group(") else _vector()
+
+    return answer
+
+
+def test_a_rows_fact_with_no_series_and_no_base_metric_is_skipped(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(_by_query(_probe(present=True)))
+    fact = _prometheus_fact("prometheus.spend", "sum by (row) (x_total)", "rows")
+    catalog = _catalog(tmp_path, [fact])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, "no series" in read.reason.lower()) == (
+        FactStatus.SKIPPED,
+        None,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("shape", "present", "status", "value", "n"),
+    [
+        ("rows", True, FactStatus.OK, [], 0),
+        ("scalar", True, FactStatus.OK, 0.0, None),
+        ("rows", False, FactStatus.SKIPPED, None, None),
+        ("scalar", False, FactStatus.SKIPPED, None, None),
+    ],
+)
+def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
+    tmp_path: Path,
+    web: WebFake,
+    config: Callable[..., Path],
+    shape: str,
+    present: bool,
+    status: FactStatus,
+    value: object,
+    n: int | None,
+) -> None:
+    """A missing metric is never 0: an empty answer says "none" only when the base metric of the
+    fact has a series in the window (one more read, sent only for an empty answer)."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(_by_query(_probe(present)))
+    fact = {**_prometheus_fact("prometheus.spend", "sum by (row) (x_total) > 0", shape)}
+    fact["base"] = 'x_total{repo="{repo}"}'
+    catalog = _catalog(tmp_path, [fact])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.n) == (status, value, n)
+    assert [request.url.params["query"] for request in web.sent] == [
+        "sum by (row) (x_total) > 0",
+        f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))',
+    ]
+    assert present or "x_total" in read.reason
