@@ -353,6 +353,7 @@ class RunReport:
             ImplementRecordKey.REPAIR_ROUNDS: self.repair_rounds(),
             ImplementRecordKey.CHECKED_SHA: None,
             ImplementRecordKey.PUBLISHED_SHA: None,
+            ImplementRecordKey.BASE: None,
             ImplementRecordKey.RESULT: ImplementResult.DRAFTED.value,
         }
         write_status(self.store, self.fresh(), StatusFacts(pull_ready=True), marks=marks)
@@ -383,10 +384,14 @@ class RunReport:
         )
 
     def return_to_new(self, template: str, evidence: str) -> None:
-        """Return the item to New with a comment of `template`, and clear the record of the run.
-        The spend stays, so the report of the Job counts the tokens of the run (#5881)."""
+        """Return the item to New with a comment of `template`, whose evidence, text of the agent,
+        goes in a fence, and clear the record of the run. The spend stays, so the report of the Job
+        counts the tokens of the run (#5881)."""
         evidence = mask_secrets(evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
-        comment = template.format(marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=evidence)
+        fence = code_fence(evidence)
+        comment = template.format(
+            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=f"{fence}\n{evidence}\n{fence}"
+        )
         apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
         self.store.set_marks(
             self.fresh(),
@@ -395,6 +400,8 @@ class RunReport:
                 ImplementRecordKey.SHA: None,
                 ImplementRecordKey.BRANCH: None,
                 ImplementRecordKey.PR: None,
+                ImplementRecordKey.BASE: None,
+                ImplementRecordKey.PLAN_SUMMARY: None,
                 ImplementRecordKey.SPEND: self.spend(),
                 ImplementRecordKey.CHECKED_SHA: None,
                 ImplementRecordKey.PUBLISHED_SHA: None,

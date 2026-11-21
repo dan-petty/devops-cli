@@ -5034,9 +5034,12 @@ class RoadmapMessages:
             "authors": "the authors of the commits of the staged branch",
             "pull_status": "the state of the draft pull request of the item",
             "pull": "the read of the pull request",
-            "worktree": "the worktree on the staged branch, which the job takes over",
-            "worktree_new": "the worktree on a new branch at the fetched default branch",
-            "rebase": "rebase the staged branch onto the fetched default branch",
+            "clone": "prepare clones the repository into the work folder of the run",
+            "switch": "prepare takes over the staged branch",
+            "switch_new": "prepare makes a new branch at the default branch",
+            "rebase": "the agent phase rebases the branch onto the fetched default branch",
+            "settle": "the agent phase takes the side of the default branch for each generated "
+            "document or lock file at a stop of the rebase",
             "plan_time": "the time at which the plan of the change merged, for the comments of "
             "the step inputs",
             "model_step": "the implement model runs one task group",
@@ -5045,14 +5048,23 @@ class RoadmapMessages:
             "amend": "commit the plan amendment",
             "docs": "regenerate the documentation of the change",
             "archive": "archive the change",
-            "push": "push the branch with a lease on its remote tip",
-            "push_new": "push the new branch, once it holds a commit past the default branch",
+            "patch": "the agent phase writes the patch of the work, of the archive commit or of "
+            "the work after it",
+            "new_repo": "publish makes a new repository, which reads no file of the agent phase",
+            "fetch_base": "publish fetches the base of the patches",
+            "plan_workflows": "the workflow files that the merged plan names",
+            "apply": "publish applies a patch to the index as data",
+            "publish_commit": "publish commits the patch as the bot",
+            "push": "push the branch with a lease on the tip that prepare found, or on no branch "
+            "for a new branch",
             "create_pull": "open the draft pull request of the new branch",
             "body": "set the title and the body of the pull request to close the issue",
             "pull_comment": "comment the outcome of each step on the pull request",
             "pull_comment_stopped": "link the stop comment on the item from the comment of the "
             "run on the pull request",
-            "remove_worktree": "remove the worktree and the local branch",
+            "withdraw": "move the branch back to where it was before the first Job of the item",
+            "withdraw_new": "delete the branch that the first Job of the item made",
+            "close_pull": "close the draft pull request of the deleted branch",
         }
     )
     implement_request_conditions: dict[str, str] = field(
@@ -5069,6 +5081,14 @@ class RoadmapMessages:
             "split": "the inputs of a group measure more than the limit of the step",
             "return": "a step finds the premise false",
             "stop": "a step stops the item",
+            "settle": "the rebase stops on generated documents or lock files only",
+            "plan_summary": "the record holds no summary of the plan",
+            "withdraw": (
+                "a step finds the premise false, and an earlier Job moved the branch that it found"
+            ),
+            "withdraw_new": (
+                "a step finds the premise false, and an earlier Job made the branch and its draft"
+            ),
             "unlabel": "the pull request holds a label that the new title does not give",
             "removal": "the pull request holds a label that the new title does not give",
         }
@@ -5979,9 +5999,11 @@ class RoadmapMessages:
             "paths": "<the rewritten files>",
             "message": "<commit message>",
             "remote_tip": "<remote tip>",
-            "tip": "<tip>",
             "git_folder": "<new git folder>",
             "origin_url": "<URL of origin>",
+            "run_clone": "<clone of the run>",
+            "base": "<base of the patches>",
+            "patch": "<patch>",
         }
     )
     plan_targets: dict[str, str] = field(
@@ -6152,6 +6174,9 @@ class RoadmapMessages:
             "spec_file": "for each spec file of the default branch",
             "implement_item": "for each item the run implements, up to the limit",
             "implement_group": "for each task group that has an unticked task",
+            "implement_patch": (
+                "for each of the three patches: the work, the archive commit and the work after it"
+            ),
             "missing_label": "for each declared label that the repository lacks",
         }
     )

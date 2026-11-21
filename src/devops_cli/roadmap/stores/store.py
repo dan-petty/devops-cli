@@ -423,9 +423,13 @@ class ImplementRecordKey(StrEnum):
     keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
     (#3481); a clear of a stop does not remove them. The Service also keeps the count of the Jobs
     that it started to continue a run that ended without a result (#3721).
+    `implement.base` holds where the item branch stood before the first Job of the item pushed: the
+    sha of the branch, or `new` when there was none. A return to New puts the branch back there
+    (#3677, #6670). `implement.plan_summary` holds the plan title that the first `prepare` read,
+    because `publish` puts the plan commit into a commit of the bot (#5341, #6670).
     `implement.checked_sha` and `implement.published_sha` hold the commit that `publish` pushed
     (#4070, #3702): an agent phase that starts at that head runs no scoped check. The job clears
-    both at the end of a drafted run and at a return to New.
+    them, and `implement.base`, at the end of a drafted run and at a return to New.
     `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
     writes it as the last mark of its end and clears it in its first write, and the Service clears
     it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
@@ -450,6 +454,8 @@ class ImplementRecordKey(StrEnum):
     CHECK = "implement.check"
     CHECK_LOG = "implement.check_log"
     CONFLICT = "implement.conflict"
+    BASE = "implement.base"
+    PLAN_SUMMARY = "implement.plan_summary"
     CHECKED_SHA = "implement.checked_sha"
     PUBLISHED_SHA = "implement.published_sha"
     RESULT = "implement.result"

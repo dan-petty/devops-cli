@@ -6,7 +6,7 @@ rebase to the scoped checks, and the end of the run as data for `publish`.
 which this module holds, has no GitHub credential and makes no GitHub call. `prepare` makes a plain
 clone of the issue branch and records the base and the lease. The agent phase rebases, runs the
 steps, the documents, the archive and the scoped checks, and gives its outcome to `publish`, which
-pushes two commits of the bot, writes the comments and the record, and sets the Status
+pushes the commits of the bot, writes the comments and the record, and sets the Status
 (`implement_report.py`). `apply_implement` runs the three phases in one process (`--phase all`).
 
 **Where it runs.** The job runs a step only when `roadmap.implement.in_runner` is true. The
@@ -19,8 +19,9 @@ process of a step when the step ends.
 **One item.** The agent phase rebases the branch onto the tip of the default branch that `prepare`
 recorded, and settles each stop of the rebase as a developer does: it skips an archive commit,
 which the run makes again, and takes the generated documents and `uv.lock` of the default branch
-and makes them again. Another conflict aborts the rebase and stops the item with the class
-`conflict`; the model step for it is #6640. It runs one step for each group that has an unticked
+and makes them again. Another conflict, or a git command of the settle that fails, aborts the
+rebase and stops the item with the class `conflict` and the action `wait`, with nothing to push;
+the model step for it is #6640. It runs one step for each group that has an unticked
 task, regenerates the documentation, archives the change and runs the scoped checks. It writes the
 why of the body of the pull request, with one rewrite of the model.
 
@@ -80,7 +81,7 @@ from devops_cli.exceptions import (
     ServiceStoppingError,
     ToolExecutionError,
 )
-from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
+from devops_cli.exceptions.roadmap import OverWindowError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
 from devops_cli.output import print_muted
@@ -287,17 +288,6 @@ class _StopError(Exception):
         self.failure_class = failure_class
         self.action_left = action_left
         self.conflict_files = tuple(conflict_files)
-
-
-class _ClaimedError(Exception):
-    """An agent or a person claimed the item: the job's own signal that the run ends at the next
-    group boundary, caught where the item's run ends. `owner` is the claim in lower case and
-    `boundary` says where the run ended."""
-
-    def __init__(self, owner: str, boundary: str) -> None:
-        super().__init__(owner)
-        self.owner = owner
-        self.boundary = boundary
 
 
 @dataclass(frozen=True)
@@ -857,9 +847,14 @@ class _ItemRun:
         while _rebase_in_progress(path):
             try:
                 action = self._settle(path)
-            except _StopError:
+            except _StopError as stop:
+                # A new generation that failed or ran out of time: the rebase is not done, so its
+                # tree must not reach `publish`.
                 self._abort(path)
+                stop.push = False
                 raise
+            except DevOpsCLIError as exc:
+                self._stop_conflict(path, exc)
             if action is None:
                 self._stop_conflict(path, stopped)
             try:
@@ -882,7 +877,14 @@ class _ItemRun:
             is_generated_docs_path(n) or is_lockfile_path(n) for n in unmerged
         ):
             return None
-        git(path, "checkout", "--ours", "--", *unmerged, operation=GIT_OPERATION)
+        # Take the side of the default branch, stage 2 of the index: a file that the default
+        # branch deleted has no stage 2, so it goes.
+        staged = git(path, "ls-files", "-u", "-z", "--", *unmerged, operation=GIT_OPERATION)
+        ours = {entry.split("\t", 1)[1] for entry in staged.split("\0") if " 2\t" in entry}
+        if gone := [name for name in unmerged if name not in ours]:
+            git(path, "rm", "-q", "--", *gone, operation=GIT_OPERATION)
+        if kept := [name for name in unmerged if name in ours]:
+            git(path, "checkout", "--ours", "--", *kept, operation=GIT_OPERATION)
         if any(is_lockfile_path(name) for name in unmerged):
             self._program([BIN_UV, "lock"])
         if self.profile.preset.docs_step and any(is_generated_docs_path(n) for n in unmerged):
@@ -901,9 +903,10 @@ class _ItemRun:
         )
         return "" if aborted.returncode == 0 else _tail(aborted.stderr)
 
-    def _stop_conflict(self, path: Path, exc: GitOperationError) -> NoReturn:
-        """Abort the rebase at a stop that no rule settles, and stop the item with the class
-        `conflict` and the conflicted files."""
+    def _stop_conflict(self, path: Path, exc: DevOpsCLIError) -> NoReturn:
+        """Abort the rebase at a stop that no rule settles, or whose settle failed, and stop the
+        item with the class `conflict` and the conflicted files, with nothing to push. No fix round
+        runs, so a person settles it until the model step of #6640."""
         files = [shown(mask_secrets(name)) for name in _unmerged(path)]
         failed = self._abort(path)
         texts = MESSAGES.roadmap
@@ -917,8 +920,8 @@ class _ItemRun:
             reason,
             push=False,
             failure_class=FailureClass.CONFLICT,
+            action_left=FailureAction.WAIT,
             conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
-            repair_rounds=1,
         ) from exc
 
     def _return_premise(self, request: PlanRequest) -> None:
@@ -1426,15 +1429,15 @@ class _ItemRun:
             return GatewayPullBody(client=self.rewriter).rewrite
         return self.rewriter if callable(self.rewriter) else None
 
-    def archive_split(self, base: str) -> str | None:
-        """The commit before the newest archive commit of the item past `base`, or None when the
-        run holds none. The archive stays its own commit when `publish` pushes (#3702)."""
+    def archive_commit(self, base: str) -> str | None:
+        """The newest archive commit of the item past `base`, or None when the run holds none. The
+        archive stays its own commit when `publish` pushes (#3702)."""
         subject = _ARCHIVE_MESSAGE.format(number=self.number)
         listed = self._git("log", "--format=%H%x1f%s", f"{base}..HEAD")
         for line in listed.splitlines():
             sha, _, title = line.partition("\x1f")
             if title == subject:
-                return self._git("rev-parse", f"{sha}^")
+                return sha
         return None
 
     # ── The end for a claim ──
@@ -1470,32 +1473,20 @@ def _earlier_stop(check_log: str | None, conflict: str | None) -> EarlierStop | 
 
 
 def _failure_class_of(exc: Exception) -> FailureClass | None:
-    """The class of a stop that `exc` causes, when the error knows it: a `shallow` file of the
-    clone that is a link is `git_config` (GHSA), and a command that the process runner refuses
-    before it starts (`SecurityError`) is `refused_tool`, as a new runner image meets the same
-    refusal (#5887). None lets the classifier read the text."""
-    if isinstance(exc, GitSettingsError):
-        return FailureClass.GIT_CONFIG
+    """The class of a stop that `exc` causes, when the error knows it: a command that the process
+    runner refuses before it starts (`SecurityError`) is `refused_tool`, as a new runner image meets
+    the same refusal (#5887). None lets the classifier read the text."""
     if isinstance(exc, SecurityError):
         return FailureClass.REFUSED_TOOL
     return None
 
 
 def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _StopError:
-    """The stop that an error ends the run with: its class and its message, secrets masked. A
-    `shallow` file of the clone that is a link stops with the class `git_config` and pushes
-    nothing: the push would meet the same link."""
+    """The stop that an error ends the run with: its class and its message, secrets masked."""
     reason = MESSAGES.roadmap.implement_stop_error.format(
         error=type(exc).__name__, message=mask_secrets(str(exc))
     )
-    refused = isinstance(exc, GitSettingsError)
-    return _StopError(
-        step,
-        reason,
-        kept_branch=kept_branch,
-        push=not refused,
-        failure_class=_failure_class_of(exc),
-    )
+    return _StopError(step, reason, kept_branch=kept_branch, failure_class=_failure_class_of(exc))
 
 
 def apply_implement(

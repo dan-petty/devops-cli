@@ -6,7 +6,7 @@ The record of an implement run: the job record, the trace, the comment of each r
 ## Requirements
 
 ### Requirement: The job record
-The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch`, `implement.pr`, `implement.checked_sha`, `implement.published_sha`, `implement.stopped`, `implement.result`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL count every step of every Job of the item. `publish` SHALL write the record when the run ends (#3702).
+The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch`, `implement.pr`, `implement.base`, `implement.plan_summary`, `implement.checked_sha`, `implement.published_sha`, `implement.stopped`, `implement.result`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL count every step of every Job of the item that reached `publish`. `publish` SHALL write the record when the run ends (#3702).
 
 #### Scenario: Spend
 - **WHEN** two steps used 3 and 4 requests
@@ -24,6 +24,13 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 - **WHEN** the record of an item holds no `implement.result`
 - **THEN** the record loads with the key absent and every other key unchanged
 
+### Requirement: Prepare clears the marks of the run before
+`prepare` SHALL clear the marks of the run before: `implement.trace`, `implement.result`, `implement.published_sha` and `implement.repair_rounds`.
+
+#### Scenario: The repair rounds of the Job before
+- **WHEN** the record holds 3 repair rounds of the Job before, and a new Job starts
+- **THEN** `prepare` clears `implement.repair_rounds`
+
 ### Requirement: A dry run makes no request
 `--dry-run` SHALL make no request, SHALL return the plan type marked as a dry run, and SHALL list the reads and the writes of a run in order.
 
@@ -32,7 +39,7 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 - **THEN** no git command runs, no GitHub request is made, and the output lists the requests of a run
 
 ### Requirement: The job keeps the trace of its run
-The job SHALL clear `implement.trace` when a run starts, and SHALL write it with each record of a passed group, with a stop and with the end of the run at the draft. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, count them in `dropped`, and keep the sums of their tokens, seconds, repair rounds and outcomes.
+`prepare` SHALL clear `implement.trace` when a run starts, and `publish` SHALL write it once, when the run ends, so the record holds no trace of a Job that runs. The value SHALL be JSON with the events and the count `dropped`. When the value is longer than `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters, the job SHALL drop the oldest `model` events first, then the oldest other events, count them in `dropped`, and keep the sums of their tokens, seconds, repair rounds and outcomes.
 
 #### Scenario: A trace that is too long
 - **WHEN** a run makes more events than fit in `CONST_ROADMAP_IMPLEMENT_TRACE_CHARS` characters
@@ -55,8 +62,8 @@ The job SHALL clear `implement.trace` when a run starts, and SHALL write it with
 - **THEN** the job clears `implement.trace` before its first step, and the record holds only the events of the new run
 
 #### Scenario: A Job that ends after a group
-- **WHEN** the Service ends a Job after the record of group 1 and before the stop
-- **THEN** the record holds the events of group 1
+- **WHEN** the Service ends a Job after group 1 passed and before `publish`
+- **THEN** the record holds no trace and no spend of the Job, and the next Job runs group 1 again
 
 #### Scenario: The sums of dropped events
 - **WHEN** the bound drops model events of 2,030,000 tokens and 400 seconds in all, and no attempt event
@@ -198,12 +205,12 @@ The job SHALL read the comments of the pull request once. It SHALL post one comm
 - **WHEN** a second Job finds every group ticked and runs no step
 - **THEN** the job posts no comment, and the comment of the first Job keeps its table
 
-### Requirement: The spend of a killed Job counts toward the item budget
-The job SHALL write `implement.spend` with each passed group. At the start, the job SHALL read the recorded spend and add it to the spend of its own steps, for the item budget and for the spend that a stop or the end of a drafted run writes. A retry that a person asks for SHALL start from zero spend. A return to New SHALL clear `implement.spend`.
+### Requirement: The spend of an earlier Job counts toward the item budget
+`publish` SHALL write `implement.spend` once, when the run ends. At the start, the job SHALL read the recorded spend and add it to the spend of its own steps, for the item budget and for the spend that a stop, a return or the end of a drafted run writes. A Job that ends before `publish` SHALL write no spend, so the next Job starts from the spend of the last Job that reached `publish`. A retry that a person asks for SHALL start from zero spend. A return to New SHALL clear `implement.spend`.
 
 #### Scenario: A continuation after a kill
-- **WHEN** a Job is killed after group 1 spent 100 input tokens, and the item budget is 150
-- **THEN** the second Job stops with the class `limit_reached` after its first request, and the record of a finished item holds the requests and tokens of both Jobs
+- **WHEN** the Jobs that reached `publish` recorded a spend of 226 new tokens, the item budget is 300, and the Job after them is killed after group 1 and before `publish`
+- **THEN** the record holds the spend of 226 new tokens, the next Job stops with the class `limit_reached` after its first request, and the record of a finished item holds the requests and tokens of each Job that reached `publish`
 
 #### Scenario: A retry of a person
 - **WHEN** a person retries a stopped item
@@ -245,6 +252,17 @@ The implement job SHALL record in `implement.spend`, under `steps`, for each ste
 #### Scenario: A step with a repair round
 - **WHEN** the lint check of group 1 fails once and one repair turn fixes it
 - **THEN** the entry of group 1 holds 1 repair round and the 4 requests of both turns
+
+### Requirement: The job record keeps the base until the run ends
+The job SHALL write `implement.base` once, in the write that sets the Status In Progress, and keep an existing value. The value SHALL be the sha of `origin/<branch>` for a Staged item and `new` for a Planned item. The job SHALL clear `implement.base` when the run ends at the draft and when it returns the item to New.
+
+#### Scenario: The base of a Staged item and of a Planned item
+- **WHEN** the job starts a Staged item and a Planned item
+- **THEN** the record of the Staged item holds the sha of its branch on `origin`, and the record of the Planned item holds `new`
+
+#### Scenario: The base is kept by a second Job and cleared at the end
+- **WHEN** a first Job is killed after two groups, a second Job takes the item, and the run of the second Job ends at the draft
+- **THEN** the second Job sees the base of the first Job, and the record holds no `implement.base` after the end
 
 ### Requirement: The end comment, the stop comment and the record show the extension of a step budget
 The record `implement.spend` SHALL hold, for each step that got the one extension of its token budget, the old budget, the new budget, the counts that gave it and whether the ceiling cut it. The end comment and the stop comment of the item SHALL list each such step of the run, the earlier Jobs included, with the budgets and the counts only. A run with no extension SHALL show no such list.

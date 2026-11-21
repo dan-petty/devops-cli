@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
+from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text, git_for_real
@@ -333,9 +334,13 @@ def test_an_ast_grep_violation_is_repaired_before_the_final_push(job_world: JobW
     applied = job_world.run(script)
 
     assert (applied.drafted, applied.stopped) == ((1,), ())
-    # The fix follows the archive, so the archive commit of the bot holds it (#3702).
-    assert job_world.origin_log() == FINISHED
+    # The fix follows the archive: the archive commit holds only the archive, and the fix goes in a
+    # third commit, so a later rebase can skip the archive commit (#6670).
+    assert job_world.origin_log() == [*FINISHED, WORK_COMMIT]
     assert len(_git_push(job_world)) == 1
+    archive = job_world.repo.origin_git("rev-parse", f"{BRANCH}^")
+    listed = job_world.repo.origin_git("show", "--name-status", "-z", "--format=", archive)
+    assert skips_archive_commit(listed + "\0", 1)
     assert _count(job_world, STATIC) == 2
     fix_prompt = next(str(getattr(p, "content", "")) for p in script.seen[4][-1].parts)
     assert "ast-grep scan....Failed" in fix_prompt

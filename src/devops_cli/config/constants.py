@@ -3828,10 +3828,11 @@ CONST_ROADMAP_PHASE_OUT_DIR: Final[str] = "out"
 CONST_ROADMAP_PHASE_STATE_FILE: Final[str] = "state.json"
 CONST_ROADMAP_PHASE_INPUT_FILE: Final[str] = "input.json"
 CONST_ROADMAP_PHASE_PATCH_FILE: Final[str] = "agent.patch"
-# The two patches of the implement agent phase (#3702): the work of the run, and the archive with
-# what follows it, so that the archive stays its own commit.
+# The patches of the implement agent phase (#3702): the work of the run, the archive commit alone,
+# so that a later rebase can skip it, and the commits that follow the archive.
 CONST_ROADMAP_PHASE_WORK_PATCH_FILE: Final[str] = "work.patch"
 CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE: Final[str] = "archive.patch"
+CONST_ROADMAP_PHASE_AFTER_PATCH_FILE: Final[str] = "after.patch"
 CONST_ROADMAP_PHASE_SUMMARY_FILE: Final[str] = "summary.json"
 CONST_ROADMAP_PHASE_OUTCOME_FILE: Final[str] = "outcome.json"
 # The most bytes that `publish` reads of the patch and of each JSON output of the agent phase.

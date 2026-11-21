@@ -123,7 +123,7 @@ An item whose change folder `openspec/changes/<issue>-<slug>/` is on the default
 _Avoid_: merged plan, orphan
 
 **Claim**:
-The mark that says who works on an item now: one label of `owner/service`, `owner/agent` and `owner/human`. An item has at most one. Any actor may claim a free item with `devops roadmap claim`; `devops repos worktrees add` claims for an agent. A person's claim takes an item from the Service. The Service claims an item for the runner Job it creates, takes no item that an agent or a person holds, and releases its claim when the Job ends. A claim of an agent or a person ends a running Job at its next group boundary. No job removes such a claim.
+The mark that says who works on an item now: one label of `owner/service`, `owner/agent` and `owner/human`. An item has at most one. Any actor may claim a free item with `devops roadmap claim`; `devops repos worktrees add` claims for an agent. A person's claim takes an item from the Service. The Service claims an item for the runner Job it creates, takes no item that an agent or a person holds, and releases its claim when the Job ends. A claim of an agent or a person ends a running Job at `prepare` or at `publish`, before its push. No job removes such a claim.
 _Avoid_: lock, assignment
 
 **Step**:

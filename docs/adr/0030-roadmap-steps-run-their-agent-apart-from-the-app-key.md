@@ -30,16 +30,16 @@ The fix-checks Job is the first step on the phases (#6601), and the implement Jo
 
 ### Addendum: plain git (#6655, 2026-11-21)
 
-The owner asked for a plain issue-branch flow ("it should be relatively straight forward to work an issue branch", #3702 comment 7065393209). The phases use git as a developer does: a full clone, `git switch`, `git apply --index`, `git commit` and `git push --force-with-lease`, with no `read-tree`, `write-tree` or `commit-tree` and no git folder that shares the objects of another. Until #3700, the git calls of `prepare` and `publish` read no global or system configuration, because the home folder is shared with the agent in `--phase all`. No new git hardening comes before #3700.
+The owner asked for a plain issue-branch flow ("it should be relatively straight forward to work an issue branch", #3702 comment 7065393209). The phases use git as a developer does: a full clone, `git switch`, `git apply --index`, `git commit` and `git push --force-with-lease`, with no `read-tree`, `write-tree` or `commit-tree` and no git folder that shares the objects of another. Until #3700, the `git_call` calls of `prepare` and `publish` read no global or system configuration, because the home folder is shared with the agent in `--phase all`. Other git reads of `prepare` use the configuration of the session. No new git hardening comes before #3700.
 
 ### Addendum: the implement Job on the phases (#3702, 2026-11-21)
 
-The implement agent rebases onto the tip of the default branch that `prepare` recorded and settles a stop of the rebase as a developer does: it skips the archive commit of the item and archives again, and takes the generated documents and `uv.lock` of the default branch and makes them again. The model step for a conflict that no rule settles is #6640, and the rebase of fix-checks is #6639. The implement Job publishes the work and the archive as two commits, so a later rebase can skip the archive commit.
+The implement agent rebases onto the tip of the default branch that `prepare` recorded and settles a stop of the rebase as a developer does: it skips the archive commit of the item and archives again, and takes the generated documents and `uv.lock` of the default branch and makes them again. Until the model step of #6640, a conflict that no rule settles stops the item with the action `wait`. The rebase of fix-checks is #6639. The archive commit stays its own commit, so a later rebase can skip it. A return to New takes back what earlier Jobs pushed, with a lease.
 
 ### Consequences
 
 - An agent that writes the settings of its clone reaches no call with the token: `publish` reads no file of the clone and runs no program of the agent.
-- `publish` writes one commit of the bot for each patch: one for fix-checks, the work and the archive for implement. The commits of the agent stay in the agent clone. A killed implement Job loses the groups of its run.
+- `publish` writes one commit of the bot for each patch: one for fix-checks, and for implement the work, the archive and the work after the archive. The commits of the agent stay in the agent clone. A killed implement Job loses the groups of its run.
 - Until #3700, one process mints one token for the three phases, so the token keeps `workflows: write`. `publish` refuses a workflow file that the merged plan does not name.
 
 ### Confirmation

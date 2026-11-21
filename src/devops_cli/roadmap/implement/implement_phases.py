@@ -5,19 +5,22 @@ The phases work the issue branch as a developer does, on the run folder of `road
 - `prepare` (App token, no code of the pull request) checks the claim, makes a plain clone of the
   repository on GitHub in `work/`, switches to the issue branch, sets Status In Progress and
   records the base and the lease: the base is the tip of the default branch, or the lease when
-  the run makes no rebase of a pushed branch. It writes the state file in `state/` and the inputs
-  of the agent in `work/`: the item, its comments and the clone.
+  the run makes no rebase of a pushed branch. It records `implement.base`, where the branch stood
+  before the first Job of the item, and the summary of the plan once. It writes the state file in
+  `state/` and the inputs of the agent in `work/`: the item, its comments, the clone and the
+  rebase choice.
 - `agent` (no GitHub credential) reads its inputs, rebases onto the base and settles each stop as a
   developer does, runs the steps of the open groups, the documents, the archive and the scoped
   checks, and writes the why of the body. It ends its leftover processes and writes the patches
-  from the base: `work.patch` up to the archive commit and `archive.patch` with the archive, so
-  the archive stays its own commit. `outcome.json` holds the end of the run (done, returned,
+  from the base: `work.patch` up to the archive commit, `archive.patch` with the archive commit
+  alone and `after.patch` with the commits after it, so the archive stays its own commit. `outcome.json` holds the end of the run (done, returned,
   question or stopped) and the data of the run for the writes of `publish`.
 - `publish` (App token, no code of the pull request) reads the outputs as data, masks each text of
   them, checks the claim, and makes the GitHub writes of the outcome (`RunReport`). For a run that
   pushes, it applies the patches in a new repository as commits of the bot and pushes with a lease
   on the old tip (`publish_patch`); it reads the title and the body from the new tree. It then
   opens or updates the draft, comments the run and sets the Status. It never marks the draft ready.
+  A return to New first takes back what earlier Jobs of the item pushed (`_withdraw`).
 
 `implement_round` runs the three phases in one process, which `--phase all` and the current Job
 template use: the state of `prepare` stays in memory. #3700 runs each phase in its own container.
@@ -45,6 +48,7 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_IMPLEMENT_RUNS_DIR,
     CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR,
+    CONST_ROADMAP_PHASE_AFTER_PATCH_FILE,
     CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE,
     CONST_ROADMAP_PHASE_INPUT_FILE,
     CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
@@ -115,6 +119,7 @@ from devops_cli.roadmap.phases.publish import (
     delete_branch,
     git_call,
     publish_patch,
+    reset_branch,
 )
 from devops_cli.roadmap.project_profile import ProjectStep, resolve_profile
 from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body, title_problems
@@ -138,6 +143,15 @@ _COMMENTS: TypeAdapter[StepComments] = TypeAdapter(StepComments)
 # The message of the commit of the work of the run, which `publish` writes. The archive keeps
 # its own message (`_ARCHIVE_MESSAGE`).
 _WORK_MESSAGE = "{title} (#{number})"
+# The patches of the agent phase, in the order of their commits: the work, the archive commit
+# alone, and what follows the archive (#6670).
+_PATCH_FILES = (
+    CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
+    CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE,
+    CONST_ROADMAP_PHASE_AFTER_PATCH_FILE,
+)
+# The base of a branch that the first Job of the item made (`implement.base`).
+_NEW_BRANCH = "new"
 
 
 class _Model(BaseModel):
@@ -164,12 +178,14 @@ class ImplementState(_Model):
 
 class AgentInput(_Model):
     """`work/input.json`, the inputs of the agent phase: the clone, the base of the patches, the
-    tip of the default branch that the rebase goes onto, the item and its comments."""
+    tip of the default branch that the rebase goes onto, whether the run rebases, as `prepare`
+    chose it with the base, the item and its comments."""
 
     repo: str
     checkout: str
     base: str
     onto: str
+    rebase: bool = True
     default: str
     target: dict[str, Any]
     comments: dict[str, Any]
@@ -309,9 +325,14 @@ def prepare_implement(
         ImplementRecordKey.CHECK_LOG: None,
         ImplementRecordKey.CONFLICT: None,
         ImplementRecordKey.PUBLISHED_SHA: None,
+        ImplementRecordKey.REPAIR_ROUNDS: None,
     }
     if target.pull is not None:
         marks[ImplementRecordKey.PR] = str(target.pull)
+    record = target.item.job_record
+    if not record.get(ImplementRecordKey.BASE):
+        # Where the branch stood before the first Job of the item pushed, for a return (#3677).
+        marks[ImplementRecordKey.BASE] = clone.lease or _NEW_BRANCH
     if target.retry:
         for key in (
             ImplementRecordKey.STOPPED,
@@ -351,6 +372,9 @@ def prepare_implement(
         )
         return ImplementResult.STOPPED
     base = clone.lease if clone.lease and not rebase else clone.base
+    summary = record.get(ImplementRecordKey.PLAN_SUMMARY) or plan_summary(subject.strip(), number)
+    if summary and not record.get(ImplementRecordKey.PLAN_SUMMARY):
+        store.set_marks(_fresh(store, number), {ImplementRecordKey.PLAN_SUMMARY: summary})
     state = ImplementState(
         repo=repo,
         item=number,
@@ -359,7 +383,7 @@ def prepare_implement(
         base=base,
         lease=clone.lease,
         default=clone.default,
-        plan_summary=plan_summary(subject.strip(), number),
+        plan_summary=summary,
         archive_required=archive,
     )
     write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
@@ -368,6 +392,7 @@ def prepare_implement(
         checkout=str(clone.path),
         base=base,
         onto=clone.base,
+        rebase=rebase,
         default=clone.default,
         target=_TARGET.dump_python(target, mode="json"),
         comments=_COMMENTS.dump_python(comments, mode="json"),
@@ -484,7 +509,7 @@ def agent_implement(folders: RunFolders, tools: AgentTools) -> None:
         model_for_tier=tools.model_for_tier,
         splitter=tools.splitter,
         rewriter=tools.rewriter,
-        rebase=tools.rebase,
+        rebase=inputs.rebase,
         comments=_COMMENTS.validate_python(inputs.comments),
     )
     outcome, push = _agent_outcome(run)
@@ -493,15 +518,16 @@ def agent_implement(folders: RunFolders, tools: AgentTools) -> None:
     if load_settings().roadmap.implement.in_runner:
         process_hardening.end_leftover_processes()
     out = folders.make_out()
-    work = out / CONST_ROADMAP_PHASE_WORK_PATCH_FILE
-    archive = out / CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE
+    patches = [out / name for name in _PATCH_FILES]
     if push:
-        split = run.archive_split(inputs.base)
-        write_patch(run.path, inputs.base, work, head=split or "HEAD")
-        write_patch(run.path, split or "HEAD", archive, head="HEAD")
+        # The work up to the archive commit, the archive commit alone, and what follows it.
+        archived = run.archive_commit(inputs.base)
+        ends = [f"{archived}^", archived, "HEAD"] if archived else ["HEAD", "HEAD", "HEAD"]
+        for start, end, patch in zip([inputs.base, *ends[:2]], ends, patches, strict=True):
+            write_patch(run.path, start, patch, head=end)
     else:
-        work.write_bytes(b"")
-        archive.write_bytes(b"")
+        for patch in patches:
+            patch.write_bytes(b"")
     write_json(out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
     write_json(out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
 
@@ -516,7 +542,8 @@ def _masked(value: Any) -> Any:
     if isinstance(value, list):
         return [_masked(item) for item in value]
     if isinstance(value, dict):
-        return {mask_secrets(str(key)): _masked(item) for key, item in value.items()}
+        # A key names a tool or a tier in a line of a comment, so it goes on one line too.
+        return {safe_text(mask_secrets(str(key))): _masked(item) for key, item in value.items()}
     return value
 
 
@@ -531,6 +558,10 @@ def read_implement_outcome(folders: RunFolders) -> ImplementOutcome:
             decode(outcome.run.trace)
     except (ValueError, ValidationError, TraceDecodeError) as exc:
         raise PhaseOutputError("The output `outcome.json` is not of its model") from exc
+    if outcome.stop is not None:
+        # The step names a line of a comment and the mark `implement.stopped`.
+        stop = replace(outcome.stop, step=safe_text(outcome.stop.step))
+        outcome = outcome.model_copy(update={"stop": stop})
     return outcome
 
 
@@ -570,14 +601,17 @@ def _title(
     store: RoadmapStore, item: Item, summary: str | None, changed: tuple[str, ...], step: str
 ) -> str:
     """The title of the pull request (#2714, #4127, #5341): the type of the changed paths, a
-    declared scope and the summary of the plan; else the summary of the title of the issue. A
-    title that the form refuses stops the item before the push (#3292)."""
+    declared scope and the summary of the plan; else, or when that title holds a closing keyword,
+    the summary of the title of the issue. A title that the form refuses stops the item before the
+    push (#3292)."""
     declared = declared_labels(store, ref=None)
     if summary is not None:
         issue_kind = commit_type(item.title)
         kind = plan_commit_type(changed, issue_kind) if (changed and issue_kind) else issue_kind
         candidate = delivery_title(item.title, declared, summary, kind)
-        if not title_problems(candidate, declared):
+        # The squash merge takes the title as its subject, so a closing keyword would close
+        # another issue (#6670).
+        if not title_problems(candidate, declared) and closing_keyword_in(candidate) is None:
             return candidate
     title = delivery_title(item.title, declared)
     if problems := title_problems(title, declared):
@@ -642,9 +676,9 @@ def _push(
     *,
     metadata: bool,
 ) -> tuple[Published | None, _Facts | None]:
-    """The publish of the patches: the commit and the facts of the new tree. The claim check runs
-    right before the push; for a draft that exists, `metadata` writes its title and body first
-    (#3991)."""
+    """The publish of the patches: the commit and the facts of the new tree.
+    The claim check runs right before the push; for a draft that exists, `metadata` writes its
+    title and body first (#3991)."""
     number = state.item
     item = _fresh(store, number)
     patches = [
@@ -652,9 +686,8 @@ def _push(
             read_output(folders, name, limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES),
             message.format(title=safe_text(item.title), number=number),
         )
-        for name, message in (
-            (CONST_ROADMAP_PHASE_WORK_PATCH_FILE, _WORK_MESSAGE),
-            (CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE, _ARCHIVE_MESSAGE),
+        for name, message in zip(
+            _PATCH_FILES, (_WORK_MESSAGE, _ARCHIVE_MESSAGE, _WORK_MESSAGE), strict=True
         )
     ]
     session = get_github_session()
@@ -678,6 +711,8 @@ def _push(
         held.append(facts)
 
     published = publish_patch(target, patches, before_push=before_push, scratch=folders.root)
+    if published is not None:
+        store.set_marks(_fresh(store, number), {ImplementRecordKey.PUBLISHED_SHA: published.commit})
     return published, (held[0] if held else None)
 
 
@@ -685,7 +720,8 @@ def _open_draft(
     store: RoadmapStore, state: ImplementState, published: Published, title: str
 ) -> int:
     """Open the draft pull request of a new branch and record it. A draft that GitHub refuses
-    takes the branch off `origin` again, so no branch stays without a pull request."""
+    takes the branch off `origin` again when this run made it (`prepare` found no branch), so no
+    branch stays without a pull request."""
     from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
 
     try:
@@ -704,16 +740,17 @@ def _open_draft(
             )
         )
     except DevOpsCLIError as exc:
-        delete_branch(
-            PublishTarget(
-                url=CONST_GITHUB_CLONE_URL.format(repo=state.repo),
-                branch=state.branch,
-                base=published.commit,
-                lease=published.commit,
-                author="",
-                email="",
+        if not state.lease:
+            delete_branch(
+                PublishTarget(
+                    url=CONST_GITHUB_CLONE_URL.format(repo=state.repo),
+                    branch=state.branch,
+                    base=published.commit,
+                    lease=published.commit,
+                    author="",
+                    email="",
+                )
             )
-        )
         raise _PublishStop(
             StopFacts(
                 step=MESSAGES.roadmap.implement_step_names["push"],
@@ -774,12 +811,9 @@ def _publish_done(
                     push=False,
                 )
             )
+        # The pushed tree passed the scoped checks (#4070).
         store.set_marks(
-            _fresh(store, state.item),
-            {
-                ImplementRecordKey.CHECKED_SHA: published.commit,
-                ImplementRecordKey.PUBLISHED_SHA: published.commit,
-            },
+            _fresh(store, state.item), {ImplementRecordKey.CHECKED_SHA: published.commit}
         )
         pull = state.pull
         if pull is None:
@@ -832,30 +866,26 @@ def publish_implement(
     store: RoadmapStore, state: ImplementState, folders: RunFolders
 ) -> ImplementResult | None:
     """`publish` of one item: the GitHub writes of the outcome of the agent phase. A run that
-    `prepare` ended gets none, and a second run of the same state, whose first run ended at the
-    draft, gets none either."""
+    `prepare` ended gets none, and a second `publish` of the same run, whose first one wrote a
+    result, gets none either."""
     if state.ended:
         return None
+    item = _fresh(store, state.item)
+    record = item.job_record
+    # `prepare` cleared the result: a result here is the end of an earlier `publish` of this run.
+    if ended := record.get(ImplementRecordKey.RESULT):
+        return ImplementResult(ended)
+    if state.pull is None and (recorded := record.get(ImplementRecordKey.PR)):
+        # An earlier `publish` of this run opened the draft of the new branch.
+        state = state.model_copy(update={"pull": int(recorded)})
     outcome = read_implement_outcome(folders)
     report = _report(store, state, outcome)
-    item = _fresh(store, state.item)
-    if item.job_record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED.value:
-        return ImplementResult.DRAFTED
-    boundary = (
-        MESSAGES.roadmap.implement_boundary_stop.format(step=outcome.stop.step)
-        if outcome.stop is not None
-        else MESSAGES.roadmap.implement_boundary_end
-    )
     try:
         if (owner := claimed_by(item)) is not None:
             raise _Claimed(owner)
-        if outcome.kind is OutcomeKind.RETURNED:
-            return _publish_return(outcome, report)
-        if outcome.kind is OutcomeKind.DONE:
-            return _publish_done(store, state, outcome, report, folders)
-        return _publish_stop(store, state, outcome, report, folders)
+        return _publish_outcome(store, state, outcome, report, folders)
     except _Claimed as claimed:
-        report.yield_to(claimed.owner, boundary)
+        report.yield_to(claimed.owner, _boundary(outcome))
         return ImplementResult.YIELDED
     except _PublishStop as exc:
         report.stop(exc.stop, "")
@@ -868,8 +898,64 @@ def publish_implement(
         return ImplementResult.STOPPED
 
 
-def _publish_return(outcome: ImplementOutcome, report: RunReport) -> ImplementResult:
-    """The return of the item to New with the evidence of the agent (#5881)."""
+def _publish_outcome(
+    store: RoadmapStore,
+    state: ImplementState,
+    outcome: ImplementOutcome,
+    report: RunReport,
+    folders: RunFolders,
+) -> ImplementResult:
+    """The GitHub writes of each kind of outcome: a return, a draft or a stop."""
+    if outcome.kind is OutcomeKind.RETURNED:
+        return _publish_return(state, outcome, report)
+    if outcome.kind is OutcomeKind.DONE:
+        return _publish_done(store, state, outcome, report, folders)
+    return _publish_stop(store, state, outcome, report, folders)
+
+
+def _boundary(outcome: ImplementOutcome) -> str:
+    """Where the run was when an agent or a person claimed the item: the step of the stop, or the
+    end of the run."""
+    if outcome.stop is None:
+        return MESSAGES.roadmap.implement_boundary_end
+    return MESSAGES.roadmap.implement_boundary_stop.format(step=outcome.stop.step)
+
+
+def _withdraw(state: ImplementState, base: str | None) -> None:
+    """Take back what earlier Jobs of the item pushed, before a return to New (#3677). A branch that
+    the first Job found goes back to `base`; a branch that it made (`new`) goes, with its draft.
+    Each push has a lease on the tip that `prepare` found, so a push of a person stays."""
+    if not base or not state.lease or state.lease == base:
+        return
+    target = PublishTarget(
+        url=CONST_GITHUB_CLONE_URL.format(repo=state.repo),
+        branch=state.branch,
+        base=state.lease if base == _NEW_BRANCH else base,
+        lease=state.lease,
+        author="",
+        email="",
+    )
+    if base != _NEW_BRANCH:
+        reset_branch(target)
+        return
+    delete_branch(target)
+    if state.pull is not None:
+        get_github_session().client.close_pull(state.repo, state.pull)
+
+
+def _publish_return(
+    state: ImplementState, outcome: ImplementOutcome, report: RunReport
+) -> ImplementResult:
+    """The return of the item to New with the evidence of the agent (#5881), after the withdraw
+    of the pushes of earlier Jobs. A withdraw that fails stops the item and returns nothing."""
+    try:
+        _withdraw(state, report.fresh().job_record.get(ImplementRecordKey.BASE))
+    except DevOpsCLIError as exc:
+        reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
+            branch=state.branch, output=mask_secrets(str(exc))
+        )
+        step = MESSAGES.roadmap.implement_step_names["push"]
+        raise _PublishStop(StopFacts(step=step, reason=reason, push=False)) from exc
     texts = MESSAGES.roadmap
     defined = outcome.returned is ReturnKind.PREMISE_DEFINED
     template = (

@@ -642,22 +642,17 @@ def test_the_implement_plan_names_the_comment_endpoint_and_the_lease_that_the_jo
         for request in writes
         if request.argv[:1] == ("POST",) and request.argv[1].endswith("/comments")
     )
-    push = next(
-        request
-        for request in writes
-        if "push" in request.argv
-        and "--force-with-lease=refs/heads/<branch>:<remote tip>" in request.argv
-    )
+    push = next(request for request in writes if request.argv[3:4] == ("push",))
     assert (comment.argv[1], push.argv[1:]) == (
         f"{API}/repos/{REPO}/issues/<pull request>/comments",
         (
-            "--git-dir=<new git folder>",
+            "-C",
+            "<new git folder>",
             "push",
             "--quiet",
-            "--no-verify",
             "--force-with-lease=refs/heads/<branch>:<remote tip>",
-            "<URL of origin>",
-            "<tip>:refs/heads/<branch>",
+            "origin",
+            "HEAD:refs/heads/<branch>",
         ),
     )
 
@@ -691,6 +686,66 @@ def test_the_implement_plan_comments_a_stop_on_the_item_before_it_links_it_on_th
         ["item comment", "pull comment", "status"],
         ["status", "item comment"],
     )
+
+
+def test_the_implement_plan_lists_the_git_calls_of_the_three_phases_in_order() -> None:
+    """`prepare` clones, the agent phase writes the patches, and `publish` applies them in a new
+    repository and pushes. A return first takes back the pushes of earlier Jobs (#3702)."""
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    calls = [
+        (request.argv[3] if request.argv[1:2] == ("-C",) else request.argv[1], request.argv[2:3])
+        for request in writes
+        if request.method == "git"
+    ]
+    run, fresh = ("<clone of the run>",), ("<new git folder>",)
+    assert calls == [
+        ("clone", ("--quiet",)),
+        ("switch", run),
+        ("switch", run),
+        ("log", run),
+        ("rebase", run),
+        ("checkout", run),
+        ("commit", run),
+        ("commit", run),
+        ("commit", run),
+        ("commit", run),
+        ("diff", run),
+        ("init", ("--quiet",)),
+        ("fetch", fresh),
+        ("apply", fresh),
+        ("commit", fresh),
+        ("push", fresh),
+        ("push", fresh),
+        ("push", fresh),
+    ]
+
+
+def test_the_implement_plan_takes_back_the_pushes_of_earlier_jobs_before_a_return() -> None:
+    from devops_cli.roadmap.request_plan import implement_requests
+
+    _, writes = implement_requests(REPO)
+
+    cond = MESSAGES.roadmap.implement_request_conditions
+    withdrawn = (cond["withdraw"], cond["withdraw_new"])
+    withdraws = [
+        (index, " ".join(request.argv[4:]))
+        for index, request in enumerate(writes)
+        if request.condition in withdrawn and request.argv[3:4] == ("push",)
+    ]
+    returned = min(
+        index
+        for index, request in enumerate(writes)
+        if cond["return"] in request.condition and request.condition not in withdrawn
+    )
+    assert [line for _, line in withdraws] == [
+        "--quiet --force-with-lease=refs/heads/<branch>:<remote tip> origin "
+        "<base of the patches>:refs/heads/<branch>",
+        "--quiet --force-with-lease=refs/heads/<branch>:<remote tip> origin :refs/heads/<branch>",
+    ]
+    assert max(index for index, _ in withdraws) < returned
 
 
 def test_the_implement_plan_with_no_rebase_omits_the_rebase_request() -> None:
@@ -825,14 +880,7 @@ def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_p
     write_lines = [" ".join(request.argv) for request in writes]
     assert any("ls-tree --name-only origin/main openspec/changes/" in line for line in read_lines)
     assert any("show origin/main:openspec/changes/<change>/tasks.md" in line for line in read_lines)
-    assert any(
-        "worktree add --no-track -b <new branch> <worktree> origin/main" in line
-        for line in write_lines
-    )
-    assert any(
-        "push --quiet --no-verify <URL of origin> <tip>:refs/heads/<new branch>" in line
-        for line in write_lines
-    )
+    assert any("switch --quiet -c <new branch> origin/main" in line for line in write_lines)
     assert f"POST {API}/repos/{REPO}/pulls" in write_lines
 
 

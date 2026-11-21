@@ -7,7 +7,8 @@ pushed branch must hold only commits of the App past the default branch, apart f
 default branch, and the lease, the tip of the pushed branch or empty for a new branch. No call
 with the token touches the clone after the agent phase starts: `publish` works in a new
 repository. Until #3700, an earlier item of the same Job can have run code of a pull request in
-the home folder, so the git calls read no global or system configuration (`git_call`).
+the home folder, so the `git_call` calls read no global or system configuration. The read of the
+authors (`person_authors`) reaches no `origin` and uses the configuration of the session.
 """
 
 from __future__ import annotations

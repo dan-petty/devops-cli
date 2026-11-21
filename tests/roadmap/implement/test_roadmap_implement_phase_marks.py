@@ -279,7 +279,7 @@ def test_the_phase_marks_cost_one_write_each(job_world: JobWorld) -> None:
         for write in job_world.store.job_writes()
         if write.key in (CHECKED, PUBLISHED) and write.value is not None
     ]
-    assert written == [CHECKED, PUBLISHED]
+    assert written == [PUBLISHED, CHECKED]
 
 
 # ── pr_comment_marker ─────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ def test_pr_comment_marker_a_rerun_with_no_new_outcome_posts_no_empty_comment(
 
 def test_spend_survives_kill_a_job_that_is_killed_keeps_no_spend(job_world: JobWorld) -> None:
     """The agent phase writes no record: a Job whose pod dies before `publish` leaves the spend of
-    the record as it was (#3702)."""
+    the record as it was, and no trace, which `publish` writes once at the end (#3702)."""
 
     def die() -> None:
         raise PodKilled
@@ -339,7 +339,8 @@ def test_spend_survives_kill_a_job_that_is_killed_keeps_no_spend(job_world: JobW
 
     assert killed.type is PodKilled
 
-    assert _item(job_world)[1].get(SPEND) is None
+    record = _item(job_world)[1]
+    assert (record.get(SPEND), record.get(ImplementRecordKey.TRACE)) == (None, None)
 
 
 def test_spend_survives_kill_a_continuation_stops_at_the_item_budget_as_a_sum(

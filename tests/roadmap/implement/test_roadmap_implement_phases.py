@@ -23,15 +23,17 @@ from devops_cli.roadmap.implement.implement_phases import (
 )
 from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.phases.files import RunFolders
-from devops_cli.roadmap.stores.store import ImplementResult
+from devops_cli.roadmap.stores.store import ImplementRecordKey, ImplementResult, ItemField
+from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import WINDOW
-from tests.support.model_script import ModelScript, say
+from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     ARCHIVE_COMMIT,
     BRANCH,
     PULL,
     WORK_COMMIT,
     JobWorld,
+    group_one_calls,
     two_groups,
 )
 from tests.support.roadmap_stage import STAGE_REPO
@@ -41,9 +43,9 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 SECRET = "ghp_" + "a" * 36
 
 
-def _prepare(world: JobWorld, folders: RunFolders) -> ImplementState:
+def _prepare(world: JobWorld, folders: RunFolders, *, rebase: bool = True) -> ImplementState:
     (target,) = world.plan().selected
-    state = prepare_implement(world.store, STAGE_REPO, target, folders)
+    state = prepare_implement(world.store, STAGE_REPO, target, folders, rebase=rebase)
     assert isinstance(state, ImplementState)
     return state
 
@@ -191,3 +193,285 @@ def test_a_rebase_skips_only_the_archive_commit_of_the_item(listed: str, skip: b
     archives again after a skip. The plan commit adds the change folder, so a skip would lose the
     plan, and a commit that changes other files goes to a stop (#3702)."""
     assert skips_archive_commit(listed, 1) is skip
+
+
+# ── The review of #6670 ───────────────────────────────────────────────────────────────────
+
+PREMISE = (
+    "```plan-request\n"
+    '{"kind": "premise", "group": 2, "defect": "the premise is false", '
+    '"evidence": "upstream removed the API"}\n'
+    "```"
+)
+
+
+def _stop_after_group_one() -> ModelScript:
+    return ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say("Stuck."))
+
+
+def _record(world: JobWorld) -> dict[str, str | None]:
+    held = world.store.item(1)
+    assert held is not None
+    return {str(key): value for key, value in held.job_record.items()}
+
+
+def _continue(world: JobWorld) -> None:
+    """What the Service does after a stop: it clears the stop and puts the item back to Ready."""
+    held = world.store.item(1)
+    assert held is not None
+    world.store.set_marks(
+        held, {ImplementRecordKey.STOPPED: None, ImplementRecordKey.FAILURE: None}
+    )
+    held = world.store.item(1)
+    assert held is not None
+    world.store.set_field(held, ItemField.STATUS, "Ready")
+
+
+def _branch_changes_a_doc_that_main_deletes(world: JobWorld, name: str) -> None:
+    """The staged branch changes the generated document `name`, and `main` deletes it, so the
+    rebase stops on a modify/delete conflict whose file has no side of `main`."""
+    repo = world.repo
+    (repo.clone / name).parent.mkdir(parents=True, exist_ok=True)
+    (repo.clone / name).write_text("Main.\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "main adds the document")
+    repo.git("push", "-q", "origin", "main")
+    repo.git("fetch", "-q", "origin", BRANCH)
+    repo.git("switch", "-q", "-c", "stage-side", f"origin/{BRANCH}")
+    repo.git("-c", "user.name=devops-roadmap[bot]", "rebase", "-q", "main")
+    (repo.clone / name).write_text("The branch.\n", encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("-c", "user.name=devops-roadmap[bot]", "commit", "-q", "-m", "fix(roadmap): more")
+    repo.git("push", "-q", "--force", "origin", f"stage-side:{BRANCH}")
+    repo.git("switch", "-q", "main")
+    repo.git("branch", "-q", "-D", "stage-side")
+    repo.git("rm", "-q", name)
+    repo.git("commit", "-q", "-m", "main deletes the document")
+    repo.git("push", "-q", "origin", "main")
+
+
+def test_a_generated_doc_that_main_deleted_follows_main_in_the_rebase(job_world: JobWorld) -> None:
+    """A modify/delete conflict on a generated document has no side of `main`: the rebase takes
+    the delete with `git rm` and goes on (#6670)."""
+    _branch_changes_a_doc_that_main_deletes(job_world, "docs/CLI_REFERENCE.md")
+
+    applied = job_world.run(two_groups())
+
+    assert (applied.drafted, applied.stopped) == ((1,), ())
+
+
+def test_a_git_error_in_the_settle_aborts_the_rebase_and_pushes_nothing(
+    job_world: JobWorld,
+) -> None:
+    """A git command of the settle fails: the rebase is aborted, the item stops with the class
+    `conflict`, and `publish` pushes no tree of a half-done rebase (#6670)."""
+    _branch_changes_a_doc_that_main_deletes(job_world, "docs/CLI_REFERENCE.md")
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    job_world.programs.answer(
+        lambda call: "rm" in call.argv[3:4] or "--ours" in call.argv,
+        ProcessAnswer(returncode=1, stderr="error: the settle failed\n"),
+    )
+
+    applied = job_world.run(two_groups())
+
+    record = _record(job_world)
+    assert (applied.stopped, record.get("implement.failure")) == ((1,), "conflict")
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == before
+
+
+def test_a_second_publish_of_a_stopped_new_branch_posts_and_pushes_nothing(
+    planned_world: JobWorld, tmp_path: Path
+) -> None:
+    """The first `publish` opened the draft and stopped. A second `publish` of the same run finds
+    its result and writes nothing (#6670)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(_stop_after_group_one().model(), WINDOW))
+    assert publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1) is (
+        ImplementResult.STOPPED
+    )
+    comments = len(planned_world.issue_comments())
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert again is ImplementResult.STOPPED
+    assert (len(planned_world.sent("POST", "pulls")), len(planned_world.issue_comments())) == (
+        1,
+        comments,
+    )
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) != ""
+
+
+def test_a_publish_that_died_after_the_draft_takes_the_draft_from_the_record(
+    planned_world: JobWorld, tmp_path: Path
+) -> None:
+    """The first `publish` pushed and opened the draft, and its Job died before the end. The second
+    `publish` takes the draft from `implement.pr`, opens no second one and deletes no branch."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+    publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
+    held = planned_world.store.item(1)
+    assert held is not None
+    planned_world.store.set_marks(
+        held, {ImplementRecordKey.RESULT: None, ImplementRecordKey.PUBLISHED_SHA: tip}
+    )
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert again is ImplementResult.DRAFTED
+    assert len(planned_world.sent("POST", "pulls")) == 1
+    assert planned_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+def test_a_return_takes_back_the_stop_push_of_an_earlier_job(job_world: JobWorld) -> None:
+    """An earlier Job stopped and pushed group 1. A return to New puts the branch back at the tip
+    that the first Job found, with a lease (#6670)."""
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    job_world.run(_stop_after_group_one())
+    assert job_world.repo.origin_git("rev-parse", BRANCH) != before
+    _continue(job_world)
+
+    applied = job_world.run(ModelScript(say(PREMISE)))
+
+    assert applied.returned == (1,)
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == before
+    assert _record(job_world).get("implement.base") is None
+
+
+def test_a_withdraw_keeps_a_push_of_a_person_after_prepare(
+    job_world: JobWorld, tmp_path: Path
+) -> None:
+    """The lease of the withdraw is the tip that `prepare` found, so a push of a person after it
+    stays, and the item stops instead of a return (#6670)."""
+    job_world.run(_stop_after_group_one())
+    _continue(job_world)
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say(PREMISE)).model(), WINDOW))
+    job_world.repo.push_branch(BRANCH)
+    tip = job_world.repo.origin_git("rev-parse", BRANCH)
+
+    result = publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (result, _record(job_world).get("Status")) == (ImplementResult.STOPPED, "Blocked")
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+def test_a_return_deletes_the_new_branch_and_closes_the_draft_of_an_earlier_job(
+    planned_world: JobWorld,
+) -> None:
+    planned_world.run(_stop_after_group_one())
+    _continue(planned_world)
+
+    applied = planned_world.run(ModelScript(say(PREMISE)))
+
+    assert applied.returned == (1,)
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
+    assert {"state": "closed"} in planned_world.sent("PATCH", f"pulls/{PULL}")
+
+
+def test_the_record_holds_the_base_until_the_draft(job_world: JobWorld) -> None:
+    """`prepare` records where the branch stood before the first Job, and the end of the run at the
+    draft clears it, so a later return takes back nothing that a person merged (#6670)."""
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    job_world.run(_stop_after_group_one())
+    assert _record(job_world).get("implement.base") == before
+    _continue(job_world)
+
+    job_world.run(ModelScript(*two_groups().replies[2:]))
+
+    assert _record(job_world).get("implement.base") is None
+
+
+def test_a_stop_push_records_the_published_head(job_world: JobWorld) -> None:
+    job_world.run(_stop_after_group_one())
+
+    tip = job_world.repo.origin_git("rev-parse", BRANCH)
+    assert _record(job_world).get("implement.published_sha") == tip
+
+
+PLAN_SUMMARY = "Keep the last comment of a thread"
+
+
+@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY}"])
+def test_the_plan_title_of_a_staged_item_stays_after_a_stop_push(job_world: JobWorld) -> None:
+    """The first Job pushes the plan of the item inside a commit of the bot. The next Job takes the
+    plan title from the record, so the title stays the plan title (#5341, #6670)."""
+    job_world.run(_stop_after_group_one())
+    _continue(job_world)
+
+    job_world.run(ModelScript(*two_groups().replies[2:]))
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["title"] == f"fix(roadmap): {PLAN_SUMMARY}"
+
+
+@pytest.mark.parametrize("plan_subject", ["docs(openspec): plan #1 Fixes #4 in the job"])
+def test_a_title_with_a_closing_keyword_gives_way_to_the_title_of_the_issue(
+    job_world: JobWorld,
+) -> None:
+    """A squash merge takes the title as the subject, so a closing keyword there would close
+    another issue (#6670)."""
+    job_world.run(two_groups())
+
+    (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["title"] == "fix(roadmap): the job drops a comment"
+
+
+def test_the_agent_takes_the_rebase_choice_of_prepare(job_world: JobWorld, tmp_path: Path) -> None:
+    """`prepare` chose no rebase, so the base of the patches is the old tip: an agent phase that
+    rebased would revert the newer commits of `main` (#6670)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders, rebase=False)
+    before = len(job_world.programs.calls)
+
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW, rebase=True))
+
+    calls = job_world.programs.calls[before:]
+    assert [call.argv for call in calls if call.argv[3:4] == ("rebase",)] == []
+
+
+def test_prepare_clears_the_repair_rounds_of_the_job_before(
+    job_world: JobWorld, tmp_path: Path
+) -> None:
+    held = job_world.store.item(1)
+    assert held is not None
+    job_world.store.set_marks(held, {ImplementRecordKey.REPAIR_ROUNDS: "3"})
+
+    _prepare(job_world, RunFolders(tmp_path / "run"))
+
+    assert _record(job_world).get("implement.repair_rounds") is None
+
+
+def test_publish_writes_no_markdown_of_the_step_or_the_evidence(
+    job_world: JobWorld, tmp_path: Path
+) -> None:
+    """The step name and the evidence of a return are text of the agent: the step goes on one line
+    with its links in code spans, and the evidence goes in a fence (#6670)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say("Stuck.")).model(), WINDOW))
+    outcome = json.loads((folders.out / "outcome.json").read_text(encoding="utf-8"))
+    outcome["stop"]["step"] = "group 1\n# Injected [x](https://example.com)"
+    (folders.out / "outcome.json").write_text(json.dumps(outcome), encoding="utf-8")
+
+    publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert [c for c in job_world.issue_comments() if "\n# Injected" in c] == []
+    assert "\n" not in (_record(job_world).get("implement.stopped") or "")
+
+
+def test_the_evidence_of_a_return_is_fenced(job_world: JobWorld, tmp_path: Path) -> None:
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say(PREMISE)).model(), WINDOW))
+    outcome = json.loads((folders.out / "outcome.json").read_text(encoding="utf-8"))
+    outcome["evidence"] = "line one\n# Injected"
+    (folders.out / "outcome.json").write_text(json.dumps(outcome), encoding="utf-8")
+
+    publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1)
+
+    comment = job_world.issue_comments()[-1]
+    assert "```\nline one\n# Injected\n```" in comment

@@ -1020,28 +1020,34 @@ def implement_requests(
     rebase: bool = True,
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap implement` reads, in order, and the writes `--confirm` makes after
-    them (#2665, #2714). The run updates its clone, reads every issue, the comments of an item
-    with a stop, the branches of `origin` and the change folders of the default branch. For a
+    them (#2665, #2714, #3702). The run updates its clone, reads every issue, the comments of an
+    item with a stop, the branches of `origin` and the change folders of the default branch. For a
     Staged item it reads the commit authors of the branch and the state of its pull request. For a
-    Planned item it reads the tasks of its change. The writes are, for each item, the worktree
-    (on the staged branch, or on a new branch at the default branch), the Status, the rebase, one
-    model step for each task group, the documentation and the archive, the push (for a Planned
-    item the first push, then the draft pull request), the title and the body and the comment of
-    the pull request, the watch of its checks, one fix step when a check fails, `gh pr ready`, the
-    Status and the record, and the comment on the issue. `limit` and `item` change no request:
-    they change how many items the run repeats them for."""
+    Planned item it reads the tasks of its change. Then each item goes through three phases.
+    `prepare` clones the repository into the run folder, takes over the staged branch or makes a
+    new one at the default branch, and sets the Status and the record. The agent phase, with no
+    credential, rebases, settles a stop on generated documents or lock files, runs one model step
+    for each task group, the documentation and the archive, and writes three patches: the work,
+    the archive commit and the work after it. `publish` applies the patches in a new repository,
+    pushes with a lease, opens the draft of a new branch, and writes the title, the body, the
+    labels, the Status and the comments. A return to New first takes back what earlier Jobs
+    pushed. `limit` and `item` change no request: they change how many items the run repeats them
+    for."""
     del limit
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
     req, cond, rep = texts.implement_requests, texts.implement_request_conditions, texts.plan_repeat
-    clone, tree, branch = "<model-clone>", "<worktree>", _p("branch")
-    new_branch = _p("new_branch")
-    each_item, each_group = rep["implement_item"], rep["implement_group"]
+    clone, run, fresh = "<model-clone>", _p("run_clone"), _p("git_folder")
+    branch, new_branch, tip = _p("branch"), _p("new_branch"), _p("remote_tip")
+    each_item, each_group, each_patch = (
+        rep["implement_item"],
+        rep["implement_group"],
+        rep["implement_patch"],
+    )
     pulls = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls/{_p('pull')}"
     issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
     target = f"#{item}" if item is not None else _p("item")
-    # A push of the job runs in a new git folder that reads no configuration of the clone (GHSA).
-    origin_git = ("git", f"--git-dir={_p('git_folder')}", "push", "--quiet", "--no-verify")
+    lease = f"--force-with-lease=refs/heads/{branch}:{tip}"
 
     def git(
         key: str, cwd: str, *args: str, when: str = "", repeat: str = each_item
@@ -1098,39 +1104,37 @@ def implement_requests(
         *store.file(CONST_ROADMAP_LABELS_PATH, None),
     ]
     writes = [
+        # prepare, with the App token.
+        other("git", "clone", "git", "clone", "--quiet", _p("origin_url"), run),
         git(
-            "worktree",
-            clone,
-            "worktree",
-            "add",
-            "--track",
-            "-b",
+            "switch",
+            run,
+            "switch",
+            "--quiet",
+            "-C",
             branch,
-            tree,
-            f"origin/{branch}",
+            f"refs/remotes/origin/{branch}",
             when=cond["staged"],
         ),
         git(
-            "worktree_new",
-            clone,
-            "worktree",
-            "add",
-            "--no-track",
-            "-b",
+            "switch_new",
+            run,
+            "switch",
+            "--quiet",
+            "-c",
             new_branch,
-            tree,
             "origin/main",
             when=cond["planned"],
         ),
         *within(store.write_status(target), repeat=each_item),
         *within(store.set_marks(target), cond["clear_stop"], repeat=each_item),
-        *([git("rebase", tree, "rebase", "origin/main")] if rebase else []),
+        *within(store.set_marks(target), cond["plan_summary"], repeat=each_item),
         # The comments of the item and the time at which its plan merged, for the inputs of each
         # step (#6167).
         *within(store.comments_on(target), repeat=each_item),
         git(
             "plan_time",
-            tree,
+            run,
             "log",
             "-1",
             "--diff-filter=A",
@@ -1139,33 +1143,32 @@ def implement_requests(
             "--",
             f"openspec/changes/{_p('change')}/tasks.md",
         ),
+        # The agent phase, with no credential.
+        *([git("rebase", run, "rebase", "origin/main")] if rebase else []),
+        git("settle", run, "checkout", "--ours", "--", _p("paths"), when=cond["settle"]),
         other("model", "model_step", "model", repeat=each_group),
         other("model", "model_split", "model", when=cond["split"], repeat=each_item),
-        git("commit", tree, "commit", "-m", _p("title"), repeat=each_group),
-        git("amend", tree, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
-        *within(store.comment(target), cond["return"], repeat=each_item),
-        *within(store.write_status(target), cond["return"], repeat=each_item),
+        git("commit", run, "commit", "-m", _p("title"), repeat=each_group),
+        git("amend", run, "commit", "-m", _p("title"), when=cond["amend"], repeat=each_group),
         other("process", "docs", "uv", "run", "devops", "docs", "generate"),
-        git("commit", tree, "commit", "-m", _p("title"), when=cond["docs_commit"]),
+        git("commit", run, "commit", "-m", _p("title"), when=cond["docs_commit"]),
         other("process", "archive", "uv", "run", "devops", "openspec", "archive", _p("change")),
-        git("commit", tree, "commit", "-m", _p("title")),
-        other(
-            "git",
-            "push",
-            *origin_git,
-            f"--force-with-lease=refs/heads/{branch}:{_p('remote_tip')}",
-            _p("origin_url"),
-            f"{_p('tip')}:refs/heads/{branch}",
-            when=cond["staged"],
+        git("commit", run, "commit", "-m", _p("title")),
+        git("patch", run, "diff", "--binary", _p("base"), _p("head"), repeat=each_patch),
+        # publish, with the App token: the outputs of the agent are data.
+        other("git", "new_repo", "git", "init", "--quiet", fresh),
+        git(
+            "fetch_base", fresh, "fetch", "--quiet", "--depth=1", "--no-tags", "origin", _p("base")
         ),
         other(
-            "git",
-            "push_new",
-            *origin_git,
-            _p("origin_url"),
-            f"{_p('tip')}:refs/heads/{new_branch}",
-            when=cond["planned"],
+            "GET",
+            "plan_workflows",
+            "GET",
+            f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/contents/openspec/changes?ref=main",
         ),
+        git("apply", fresh, "apply", "--index", "--binary", _p("patch"), repeat=each_patch),
+        git("publish_commit", fresh, "commit", "--quiet", "-m", _p("message"), repeat=each_patch),
+        git("push", fresh, "push", "--quiet", lease, "origin", f"HEAD:refs/heads/{branch}"),
         other(
             "REST write",
             "create_pull",
@@ -1189,7 +1192,30 @@ def implement_requests(
             when=cond["stop"],
         ),
         *within(store.write_status(target), cond["stop"], repeat=each_item),
-        git("remove_worktree", clone, "worktree", "remove", "--force", tree),
+        # A return takes back what earlier Jobs pushed, then returns the item (#3677).
+        git(
+            "withdraw",
+            fresh,
+            "push",
+            "--quiet",
+            lease,
+            "origin",
+            f"{_p('base')}:refs/heads/{branch}",
+            when=cond["withdraw"],
+        ),
+        git(
+            "withdraw_new",
+            fresh,
+            "push",
+            "--quiet",
+            lease,
+            "origin",
+            f":refs/heads/{branch}",
+            when=cond["withdraw_new"],
+        ),
+        other("REST write", "close_pull", "PATCH", pulls, when=cond["withdraw_new"]),
+        *within(store.comment(target), cond["return"], repeat=each_item),
+        *within(store.write_status(target), cond["return"], repeat=each_item),
     ]
     return tuple(reads), tuple(writes)
 
