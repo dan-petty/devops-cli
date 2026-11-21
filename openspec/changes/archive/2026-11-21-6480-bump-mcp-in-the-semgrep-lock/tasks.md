@@ -4,9 +4,9 @@
 
 Kind: other. Reads: `docs/SDLC.md`, `CHANGELOG.md`. Changes: `docs/SDLC.md`.
 
-- [ ] 1.1 Extend the `audit` row of `docs/SDLC.md` with one sentence: the Semgrep requirement file and the advisories of the tools that the devtools image installs belong to the devtools repository, which audits and bumps them. Keep the sentence of that row that names the devtools repository and issue #4363, and add that this repository therefore holds no Semgrep requirement file and no osv-scanner ignore entry, so GHSA-qx49-fqc8-xw99 needs no entry here
+- [x] 1.1 Extend the `audit` row of `docs/SDLC.md` with one sentence: the Semgrep requirement file and the advisories of the tools that the devtools image installs belong to the devtools repository, which audits and bumps them. Keep the sentence of that row that names the devtools repository and issue #4363, and add that this repository therefore holds no Semgrep requirement file and no osv-scanner ignore entry, so GHSA-qx49-fqc8-xw99 needs no entry here
   - Verification: `$ uv run devops ci --check --only docs` passes
-- [ ] 1.2 Edit `docs/SDLC.md`
+- [x] 1.2 Edit `docs/SDLC.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
