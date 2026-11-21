@@ -1,4 +1,9 @@
-"""`devops roadmap step fix-conflict`: settle merge conflicts on a pull request (#5019)."""
+"""`devops roadmap step fix-conflict`: settle merge conflicts on a pull request (#5019).
+
+Tier 1 runs code of the checkout of the pull request (`devops docs generate`, `uv lock`). So
+`--confirm`, which runs tier 1 and pushes, runs only in a runner Job (`require_runner`). Without it
+the step prints its plan, runs no code of the checkout and writes nothing.
+"""
 
 from __future__ import annotations
 
@@ -39,7 +44,8 @@ def fix_conflict_cmd(
         bool, typer.Option("--dry-run", help=HELP.roadmap.step_fix_conflict_dry_run)
     ] = False,
 ) -> None:
-    """Settle merge conflicts on a pull request with the default branch (#5019)."""
+    """Settle merge conflicts on a pull request with the default branch (#5019). With `--confirm`
+    the command runs only in a runner Job, and hardens its process before the step."""
     if pull is None:
         print_error("Pass --pull <number>.")
         raise typer.Exit(1)
@@ -52,6 +58,15 @@ def fix_conflict_cmd(
     target = _repository(repo)
     store = get_roadmap_store(target)
     try:
+        if confirm:
+            from devops_cli.core import process_hardening
+            from devops_cli.roadmap.implement.implement_run import require_runner
+
+            require_runner(target)
+            # Tier 1 runs code of the pull request as the user of the Job, so the Job makes its
+            # process unreadable and adopts the orphans of that code first, as fix-checks does.
+            process_hardening.deny_environment_reads()
+            process_hardening.adopt_orphans()
         report = run_fix_conflict(store, target, pull, head=head, confirm=confirm)
     except DevOpsCLIError as exc:
         print_error(f"Could not fix conflicts on PR #{pull}: {exc}", safe=True)

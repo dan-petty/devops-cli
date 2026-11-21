@@ -8,6 +8,18 @@ Runs two tiers of resolution:
    base branch and running `uv lock`.
 2. Tier 2 (model): sends remaining conflicted files, both sides, and plan scope to the model.
 
+Tier 1 runs code of the checkout of the pull request: `devops docs generate` and `uv lock` start
+the project and its build hooks. So `run_fix_conflict` rebases and resolves only with `confirm`,
+which the command gives only in a runner Job (`require_runner`), after the Job makes its process
+unreadable and adopts the orphans of that code, as fix-checks does. Without `confirm`, as on a
+workstation, the step finds the conflict and returns `planned`: it runs no code of the checkout,
+pushes nothing and writes no record.
+
+The step reads the URL of `origin` right after its clone, before any other git call. Each fetch
+and each push runs through `OriginGit` at that URL, in a git folder of its own that reads no
+setting, hook or credential helper of the clone. Each local git call turns the hooks of the clone
+off (`CONST_GIT_HOOKS_OFF_CONFIG`).
+
 Stops immediately if a release path (CHANGELOG.md, manifests, version lines) conflicts.
 Enforces safety bounds: bot pull requests only, no human commits after bot push, no human claims
 or owner/* labels, soft cap 2 rounds (extendable to 3 if conflicted files decrease), hard cap 4.
@@ -18,7 +30,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import shutil
 import tempfile
@@ -32,7 +43,9 @@ from devops_cli.config.commands import BIN_DEVOPS, BIN_OPENSPEC, BIN_UV
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
     CONST_GIT_CLI,
+    CONST_GIT_HOOKS_OFF_CONFIG,
     CONST_GIT_MAIN_BRANCH,
+    CONST_GIT_NO_EDITOR_CONFIG,
     CONST_GIT_REMOTE_ORIGIN,
 )
 from devops_cli.config.settings import RoadmapFixConflictConfig, load_settings
@@ -43,6 +56,7 @@ from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.claim import claim_labels, claimed_by
+from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement_step import find_change
 from devops_cli.roadmap.stores.store import (
     FixConflictRecordKey,
@@ -60,6 +74,10 @@ _RELEASE_PATHS: Final[frozenset[str]] = frozenset(
         ".release-please-manifest.json",
         "release-please-config.json",
     }
+)
+_PLAN_REASON: Final[str] = (
+    "Plan: settle the conflicts with tier 1. Tier 1 runs code of the pull request "
+    "(`devops docs generate`, `uv lock`), so it runs only with --confirm in a runner Job."
 )
 _GENERATED_DOC_PATHS: Final[frozenset[str]] = frozenset(
     {
@@ -82,6 +100,7 @@ class FixConflictResult(StrEnum):
 
     RESOLVED = "resolved"
     NO_CONFLICT = "no_conflict"
+    PLANNED = "planned"
     REFUSED = "refused"
     STOPPED = "stopped"
     FAILED = "failed"
@@ -117,8 +136,13 @@ class FixConflictReport:
         return json.dumps(data)
 
 
+def _git_argv(cwd: Path, *args: str) -> list[str]:
+    """`git -C <cwd> <args>` with the hooks of the clone off: the step runs none of them."""
+    return [CONST_GIT_CLI, "-C", str(cwd), "-c", CONST_GIT_HOOKS_OFF_CONFIG, *args]
+
+
 def _git(cwd: Path, *args: str) -> str:
-    proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), *args], check=False, quiet=True)
+    proc = run_subprocess(_git_argv(cwd, *args), check=False, quiet=True)
     if proc.returncode != 0:
         raise GitOperationError(
             f"git {' '.join(args)} failed: {proc.stderr.strip() or proc.stdout.strip()}",
@@ -128,9 +152,7 @@ def _git(cwd: Path, *args: str) -> str:
 
 
 def _abort_rebase(cwd: Path) -> None:
-    proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "rebase", "--abort"], check=False, quiet=True
-    )
+    proc = run_subprocess(_git_argv(cwd, "rebase", "--abort"), check=False, quiet=True)
     if proc.returncode != 0:
         logger.debug("rebase --abort returned %d: %s", proc.returncode, proc.stderr)
 
@@ -165,7 +187,7 @@ def is_lockfile_path(path: str) -> bool:
 def check_merge_tree_conflict(cwd: Path, base_ref: str, head_ref: str) -> tuple[bool, list[str]]:
     """Check whether merging head_ref into base_ref causes merge conflicts (#5019)."""
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "merge-tree", "--write-tree", base_ref, head_ref],
+        _git_argv(cwd, "merge-tree", "--write-tree", base_ref, head_ref),
         check=False,
         quiet=True,
     )
@@ -184,7 +206,7 @@ def check_merge_tree_conflict(cwd: Path, base_ref: str, head_ref: str) -> tuple[
 def conflicted_files(cwd: Path) -> list[str]:
     """The unmerged paths in a repository during a rebase or merge (#5019)."""
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "diff", "--name-only", "--diff-filter=U", "-z"],
+        _git_argv(cwd, "diff", "--name-only", "--diff-filter=U", "-z"),
         check=False,
         quiet=True,
     )
@@ -255,7 +277,7 @@ def _check_no_human_commit_after_bot(cwd: Path, base_ref: str, head_ref: str) ->
 def _find_archive_commit(cwd: Path, base_ref: str) -> str | None:
     """Find the commit on the branch that created or modified openspec archive (#5019)."""
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "rev-list", f"{base_ref}..HEAD"],
+        _git_argv(cwd, "rev-list", f"{base_ref}..HEAD"),
         check=False,
         quiet=True,
     )
@@ -376,10 +398,9 @@ def _resolve_tier1_docs_lockfile(
             regenerate_lock = True
 
     proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(cwd), "rebase", "--continue"],
+        _git_argv(cwd, "-c", CONST_GIT_NO_EDITOR_CONFIG, "rebase", "--continue"),
         check=False,
         quiet=True,
-        env=dict(os.environ, GIT_EDITOR="true"),
     )
     if proc.returncode != 0:
         _abort_rebase(cwd)
@@ -396,7 +417,7 @@ def _resolve_tier1_docs_lockfile(
 
 def _has_release_path_conflict(cwd: Path, conflicts: Sequence[str]) -> bool:
     for c in conflicts:
-        proc = run_subprocess([CONST_GIT_CLI, "-C", str(cwd), "diff", c], check=False, quiet=True)
+        proc = run_subprocess(_git_argv(cwd, "diff", c), check=False, quiet=True)
         diff_text = proc.stdout if proc.returncode == 0 else ""
         if is_release_path(c, diff_text):
             return True
@@ -521,7 +542,15 @@ def _clone_or_reuse_source(repo: str, source: Path | None) -> tuple[Path, Path |
     temp_dir = Path(tempfile.mkdtemp(prefix="fix-conflict-"))
     worktree = temp_dir / "repo"
     proc = run_subprocess(
-        [CONST_GIT_CLI, "clone", "--depth=50", f"https://github.com/{repo}.git", str(worktree)],
+        [
+            CONST_GIT_CLI,
+            "-c",
+            CONST_GIT_HOOKS_OFF_CONFIG,
+            "clone",
+            "--depth=50",
+            f"https://github.com/{repo}.git",
+            str(worktree),
+        ],
         check=False,
         quiet=True,
     )
@@ -557,7 +586,7 @@ def _attempt_rebase_and_tier1(
     settings: RoadmapFixConflictConfig,
 ) -> tuple[bool, list[str]]:
     rebase_proc = run_subprocess(
-        [CONST_GIT_CLI, "-C", str(worktree), "rebase", base_ref],
+        _git_argv(worktree, "rebase", base_ref),
         check=False,
         quiet=True,
     )
@@ -574,6 +603,7 @@ def _attempt_rebase_and_tier1(
 def _settle_rebase_conflict(
     worktree: Path,
     *,
+    origin: OriginGit,
     store: RoadmapStore,
     item: Item | None,
     item_num: int | None,
@@ -584,7 +614,6 @@ def _settle_rebase_conflict(
     base_ref: str,
     default_branch: str,
     current_rounds: int,
-    confirm: bool,
 ) -> FixConflictReport:
     resolved, conflicts = _attempt_rebase_and_tier1(
         worktree,
@@ -612,9 +641,7 @@ def _settle_rebase_conflict(
             head=status.head_sha,
             rounds=new_rounds,
             files=tuple(conflicts),
-            reason="Tier 2 is in plan mode without --confirm"
-            if settings.tier2_mode == "plan" and not confirm
-            else "Conflict could not be resolved by Tier 1",
+            reason="Conflict could not be resolved by Tier 1",
         )
 
     if not validate_strict_specs(worktree):
@@ -630,7 +657,7 @@ def _settle_rebase_conflict(
         )
 
     new_head = _git(worktree, "rev-parse", "HEAD")
-    _git(worktree, "push", "--force-with-lease", CONST_GIT_REMOTE_ORIGIN, f"HEAD:{status.head_ref}")
+    origin.push(status.head_ref, new_head, lease=status.head_sha)
 
     new_rounds = current_rounds + 1
     _record_fix_conflict_marks(
@@ -655,6 +682,7 @@ def _settle_rebase_conflict(
 def _execute_fix_conflict_in_worktree(
     worktree: Path,
     *,
+    origin: OriginGit,
     store: RoadmapStore,
     item: Item | None,
     item_num: int | None,
@@ -667,9 +695,7 @@ def _execute_fix_conflict_in_worktree(
     prev_files: list[str],
     confirm: bool,
 ) -> FixConflictReport:
-    _git(worktree, "fetch", CONST_GIT_REMOTE_ORIGIN, status.head_ref)
-    _git(worktree, "fetch", CONST_GIT_REMOTE_ORIGIN, default_branch)
-    _git(worktree, "checkout", status.head_ref)
+    origin.fetch(status.head_ref, default_branch)
 
     base_ref = f"{CONST_GIT_REMOTE_ORIGIN}/{default_branch}"
     head_ref = f"{CONST_GIT_REMOTE_ORIGIN}/{status.head_ref}"
@@ -706,8 +732,21 @@ def _execute_fix_conflict_in_worktree(
             reason=cap_error,
         )
 
+    if not confirm:
+        return FixConflictReport(
+            repo=repo,
+            pull=pull,
+            result=FixConflictResult.PLANNED,
+            head=status.head_sha,
+            rounds=current_rounds,
+            files=tuple(initial_conflicts),
+            reason=_PLAN_REASON,
+        )
+
+    _git(worktree, "checkout", "-B", status.head_ref, head_ref)
     return _settle_rebase_conflict(
         worktree,
+        origin=origin,
         store=store,
         item=item,
         item_num=item_num,
@@ -718,7 +757,6 @@ def _execute_fix_conflict_in_worktree(
         base_ref=base_ref,
         default_branch=default_branch,
         current_rounds=current_rounds,
-        confirm=confirm,
     )
 
 
@@ -731,7 +769,10 @@ def run_fix_conflict(
     confirm: bool = False,
     source: Path | None = None,
 ) -> FixConflictReport:
-    """Execute the fix-conflict step on pull request `pull` (#5019)."""
+    """Execute the fix-conflict step on pull request `pull` (#5019). Without `confirm` the step
+    returns its plan, runs no code of the checkout and writes nothing. With `confirm` it rebases,
+    runs tier 1, which runs code of the pull request, and pushes: only a runner Job passes it, after
+    `require_runner` and the hardening of its process, as the command does."""
     client = get_github_session().client
     status = client.get_pull_status(repo, pull)
 
@@ -780,8 +821,11 @@ def run_fix_conflict(
         )
 
     try:
+        # The URL of `origin`, read right after the clone, before any code of the pull request runs.
+        origin = OriginGit(worktree, origin_url(worktree))
         return _execute_fix_conflict_in_worktree(
             worktree,
+            origin=origin,
             store=store,
             item=item,
             item_num=item_num,
