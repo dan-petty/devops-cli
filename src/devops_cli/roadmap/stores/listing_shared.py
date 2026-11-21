@@ -218,8 +218,9 @@ class ValkeySnapshotStore:
 
     The store keeps the records of the shared copy of each repository that it last wrote or
     read, so a later write sends only the changed records, and a later load of the same records,
-    such as by another lane of the process, sends no `HSCAN`. One store lives for a process
-    (`shared_snapshot_store`).
+    such as by another lane of the process, sends no `HSCAN`. It keeps them by the casefolded
+    name of `RepoRef.key`, as `snapshot_key` does, so each spelling of a name uses the one set of
+    known records of its one key. One store lives for a process (`shared_snapshot_store`).
     """
 
     tier: ValkeyCacheTier
@@ -239,7 +240,7 @@ class ValkeySnapshotStore:
         if held.meta is None:
             return None
         with self._lock:
-            before = self._seen.get(repo)
+            before = self._seen.get(RepoRef(repo).key)
         if before is not None and before.issues is not None and before.digest == held.meta.digest:
             return _listing(repo, held.meta, before.issues)
         values = self._scan(repo)
@@ -262,7 +263,7 @@ class ValkeySnapshotStore:
             return None
         newest_first = _newest_first(issues)
         with self._lock:
-            self._seen[repo] = _Seen(held.raw, digests, newest_first)
+            self._seen[RepoRef(repo).key] = _Seen(held.raw, digests, newest_first)
         return _listing(repo, held.meta, newest_first)
 
     def _scan(self, repo: str) -> dict[str, bytes] | None:
@@ -333,7 +334,7 @@ class ValkeySnapshotStore:
         if held is None or stored is None:
             return None
         with self._lock:
-            before = self._seen.get(repo)
+            before = self._seen.get(RepoRef(repo).key)
         for known in (mine, before):
             if known is not None and stored.digest == known.digest:
                 return _Seen(held.raw, known.digests)
@@ -392,13 +393,13 @@ class ValkeySnapshotStore:
 
     def _kept(self, repo: str, seen: _Seen, result: BrainWrite = BrainWrite.SHARED) -> BrainWrite:
         with self._lock:
-            self._seen[repo] = seen
+            self._seen[RepoRef(repo).key] = seen
         return result
 
     def remove(self, repo: str) -> bool:
         """Remove the shared snapshot of `repo`; whether Valkey removed a key."""
         with self._lock:
-            self._seen.pop(repo, None)
+            self._seen.pop(RepoRef(repo).key, None)
         return bool(self.tier.unlink(snapshot_key(repo)))
 
 

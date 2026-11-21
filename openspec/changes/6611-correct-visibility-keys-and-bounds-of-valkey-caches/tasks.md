@@ -14,9 +14,9 @@ Adds: `Visibility`, `repository_visibility`, `BrainRead.UNKNOWN`, `BrainWrite.UN
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/stores/listing_shared.py`, `src/devops_cli/github/repo_ref.py`, `tests/roadmap/stores/test_listing_shared.py`, `tests/support/fakes/valkey.py`. Changes: `src/devops_cli/roadmap/stores/listing_shared.py`, `tests/roadmap/stores/test_listing_shared.py`.
 
-- [ ] 2.1 Add `test_two_spellings_in_turn_in_one_process_write_one_temporary_key` to `tests/roadmap/stores/test_listing_shared.py` (scenario `Two spellings in turn in one process`): one `ValkeySnapshotStore` over a client of `valkey_client_on(after_command=...)` that records the key of each `HSET`, six saves in turn as `Dan-Petty/DevOps-CLI` and `dan-petty/devops-cli`, each with one more record and a newer watermark; assert one `HSET` of a `:next:` key, and the records of the last save in the snapshot key
+- [x] 2.1 Add `test_two_spellings_in_turn_in_one_process_write_one_temporary_key` to `tests/roadmap/stores/test_listing_shared.py` (scenario `Two spellings in turn in one process`): one `ValkeySnapshotStore` over a client of `valkey_client_on(after_command=...)` that records the key of each `HSET`, six saves in turn as `Dan-Petty/DevOps-CLI` and `dan-petty/devops-cli`, each with one more record and a newer watermark; assert one `HSET` of a `:next:` key, and the records of the last save in the snapshot key
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` fails on the base
-- [ ] 2.2 Make each use of `self._seen` in `ValkeySnapshotStore` (`records`, `_known`, `_kept` and `remove`, 5 uses) take `RepoRef(repo).key` as its key, and say so in the docstring of the class
+- [x] 2.2 Make each use of `self._seen` in `ValkeySnapshotStore` (`records`, `_known`, `_kept` and `remove`, 5 uses) take `RepoRef(repo).key` as its key, and say so in the docstring of the class
   - Verification: `$ uv run devops ci test tests/roadmap/stores/test_listing_shared.py` passes
 
 ## 3. Bound the expanded records of one shared load
