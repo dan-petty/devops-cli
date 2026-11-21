@@ -751,11 +751,17 @@ jobs:
       - name: Report Outdated Dependencies
         run: uv run devops ci outdated
 
-  # Advisory: reruns the pull request's added or modified test files three times, one run after
-  # another, each in a shuffled order, to catch tests that depend on the order they run in.
-  # Shuffling the whole suite waits for thread-leak isolation.
+  # Advisory: reruns the pull request's added or modified test files three times, each in a
+  # shuffled order with its own seed, to catch tests that depend on the order they run in.
+  # Shuffling the whole suite waits for thread-leak isolation. Each run has a runner of its own,
+  # and each run uses the workers that a narrowed `devops ci test` of the same files gets: one
+  # process for up to 50 tests, else one worker for each of the 4 CPUs of the runner, with all
+  # tests of one file on one worker. Above 50 tests, a leak from one changed file into another
+  # changed file on another worker is not caught (owner decision of 2026-11-21). One serial
+  # job ran 454 s for each run of 1,473 changed tests, and GitHub cancelled it in the second run
+  # (#6564). The job `Changed-Test Independence` below gives the result of the three runs.
   changed-tests:
-    name: Changed-Test Independence
+    name: Changed-Test Independence (run ${{ matrix.run }} of ${{ strategy.job-total }})
     if: >-
       github.event_name == 'pull_request'
       && !(startsWith(github.head_ref, 'release-please--')
@@ -764,6 +770,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    strategy:
+      # Every run goes to its end, so one result shows each seed that fails.
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
 
     steps:
       - name: Check out repository
@@ -787,21 +798,52 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # One tooling cache for each run: three jobs that save one key at the same time race.
       - name: Set up uv toolchain
         if: steps.changed_tests.outputs.changed == 'true'
         uses: ./.github/actions/setup-toolchain
         with:
-          cache-suffix: changed-tests
+          cache-suffix: changed-tests-${{ matrix.run }}
           save-uv-cache: "false"
           compile-bytecode: "false"
           tooling-cache-paths: |
             .pytest_cache
 
+      # The step limit is under the job limit, so a run that is too long fails with a message
+      # that names the step, and the job is not cancelled with no result.
       - name: Run Changed Tests in Shuffled Order
         if: steps.changed_tests.outputs.changed == 'true'
+        timeout-minutes: 12
+        env:
+          RUN: ${{ matrix.run }}
+          RUNS: ${{ strategy.job-total }}
         run: |
           readarray -t CHANGED_TESTS < "$RUNNER_TEMP/changed-tests.txt"
-          uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"
+          uv run devops ci test --repeat "$RUNS" --run "$RUN" -- "${CHANGED_TESTS[@]}"
+
+  # The result of the three runs above, in one check. It fails when a run did not succeed. A pull
+  # request that changes no test file runs no test, and its runs succeed. It runs unless the run
+  # was cancelled.
+  changed-tests-result:
+    name: Changed-Test Independence
+    needs: [changed-tests]
+    if: >-
+      !cancelled()
+      && github.event_name == 'pull_request'
+      && !(startsWith(github.head_ref, 'release-please--')
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions: {}
+
+    steps:
+      - name: Require Passing Changed-Test Runs
+        if: needs.changed-tests.result != 'success'
+        env:
+          RUNS_RESULT: ${{ needs.changed-tests.result }}
+        run: |
+          echo "::error::The changed-test runs ended with the result $RUNS_RESULT."
+          exit 1
 
   # The token build of docs/DESIGN.md: the pinned Style Dictionary builds the token files of
   # design/tokens/ with the configs of design/sd/, `make dashboards` builds the service dashboards

@@ -126,6 +126,11 @@ _BANDIT_SOURCE_SEVERITY: Final[str] = "low"
 # part of the suite and a collection runs no test, so both give this option, which makes that
 # failure a warning (#5606).
 _SNAPSHOT_WARN_UNUSED: Final[str] = "--snapshot-warn-unused"
+# A repeat run on workers replaces addopts' `--dist worksteal`, which splits the tests of one file
+# across workers, with `loadfile`, which runs all tests of one file on one worker in their
+# shuffled order. A test that leaves state behind then meets the tests of its own file, as on one
+# process (#6564).
+_REPEAT_SCHEDULING: Final[tuple[str, ...]] = ("--dist", "loadfile")
 
 # The names of every row in the check registry, in registry order (#5451).
 CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
@@ -2225,16 +2230,25 @@ def _head_seed(root: Path) -> int:
 
 
 def _run_shuffled_repeats(
-    base_cmd: list[str], targets: list[str] | None, runs: int, seed: int | None
+    base_cmd: list[str],
+    targets: list[str] | None,
+    runs: int,
+    seed: int | None,
+    only_run: int | None,
 ) -> None:
     """Run the targets `runs` times, one run after another, shuffled by pytest-randomly with
     seeds `seed` to `seed + runs - 1`, stopping at the first failure with its seed and command.
+    With `only_run`, start that run alone with its own seed, so that CI starts each run of the
+    same set on a runner of its own (#6564).
     """
     if targets is None:
         print_error(MESSAGES.ci.repeat_needs_targets, prefix=False)
         raise typer.Exit(1)
     first = _head_seed(_get_project_root()) if seed is None else seed
-    for run, run_seed in enumerate(range(first, first + runs), start=1):
+    numbered = list(enumerate(range(first, first + runs), start=1))
+    if only_run is not None:
+        numbered = [numbered[only_run - 1]]
+    for run, run_seed in numbered:
         cmd = [*base_cmd, "-p", "randomly", f"--randomly-seed={run_seed}", *targets]
         if not _run(cmd, own_session=True):
             failed = MESSAGES.ci.repeat_failed.format(
@@ -2261,6 +2275,7 @@ def test(
         int, typer.Option("--repeat", min=0, help=HELP.ci.repeat)
     ] = DEFAULT_CI_TEST_REPEAT_RUNS,
     seed: Annotated[int | None, typer.Option("--seed", help=HELP.ci.seed)] = None,
+    only_run: Annotated[int | None, typer.Option("--run", min=1, help=HELP.ci.repeat_run)] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help=HELP.options.dry_run),
@@ -2271,6 +2286,10 @@ def test(
     Passing paths narrows the run to the tests that import or conventionally cover them,
     which is what makes this usable as a pre-commit hook on staged files.
     """
+    if only_run is not None and only_run > repeat:
+        raise typer.BadParameter(
+            MESSAGES.ci.run_above_repeat.format(run=only_run, runs=repeat), param_hint="--run"
+        )
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():
@@ -2286,11 +2305,14 @@ def test(
         print_error("Invalid keyword filter expression.", prefix=False)
         raise typer.Exit(1)
 
+    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets, k)
     if repeat:
-        _run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)
+        base_cmd = _build_test_cmd(workers, verbose, k, x, None)
+        if workers not in (None, "0"):
+            base_cmd.extend(_REPEAT_SCHEDULING)
+        _run_shuffled_repeats(base_cmd, targets, repeat, seed, only_run)
         return
 
-    workers = numprocesses if numprocesses is not None else _narrowed_workers(targets, k)
     cmd = _build_test_cmd(workers, verbose, k, x, targets)
     with _gate_slot(workers is None):
         passed = _run(cmd, own_session=True)

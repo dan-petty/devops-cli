@@ -937,9 +937,15 @@ class CICommandHelp:
         "reporting success without verifying it."
     )
     repeat: str = (
-        "Run the selected test files N times, one run after another on one process (-n is "
-        "ignored), each in a shuffled order, with seeds counting up from --seed. 0 runs them "
-        "once in file order. Refuses the whole suite."
+        "Run the selected test files N times, one run after another, each in a shuffled order, "
+        "with seeds counting up from --seed. Each run uses the workers of -n, or else the "
+        "workers that a narrowed run of the same files gets, with all tests of one file on one "
+        "worker. 0 runs them once in file order. "
+        "Refuses the whole suite."
+    )
+    repeat_run: str = (
+        "Number of the one --repeat run to start, from 1 to --repeat, with the seed of that run. "
+        "CI starts each run on its own runner. Default: all runs, one after another."
     )
     seed: str = (
         "First shuffle seed for --repeat. Defaults to one derived from HEAD's commit hash; "

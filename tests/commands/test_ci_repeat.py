@@ -1,4 +1,4 @@
-"""Tests for `devops ci test --repeat`: shuffled, serial repeat runs of selected test files."""
+"""Tests for `devops ci test --repeat`: shuffled repeat runs of selected test files."""
 
 from __future__ import annotations
 
@@ -14,8 +14,13 @@ from click.testing import CliRunner, Result
 
 from devops_cli.commands import ci as ci_module
 from devops_cli.commands.ci import get_check_specs
-from devops_cli.config.defaults import DEFAULT_CI_TEST_REPEAT_RUNS
+from devops_cli.config.defaults import (
+    DEFAULT_CI_TEST_NARROWED_WORKERS,
+    DEFAULT_CI_TEST_REPEAT_RUNS,
+    DEFAULT_CI_TEST_SERIAL_MAX_TESTS,
+)
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.implement.implement_size import WORKERS_VARIABLE
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 
@@ -28,6 +33,8 @@ CI = typer.main.get_command(ci_module.app)
 runner = CliRunner()
 UV_RUN_PYTEST = ["uv", "--preview-features", "malware-check,check-command", "run", "pytest"]
 HEAD = (0, "deadbeef" + 32 * "0" + "\n")
+# The scheduling that keeps the tests of one file on one xdist worker.
+LOADFILE = ["--dist", "loadfile"]
 
 SHARED_STATE_TESTS = """
 SEEN: list[str] = []
@@ -136,11 +143,11 @@ def test_repeat_stops_at_the_seed_that_breaks_order_dependent_tests(
     ) == ({"passed": 2}, 1, ["--randomly-seed=2", "--randomly-seed=3"], True)
 
 
-def test_each_repeat_runs_the_targets_serially_with_the_next_seed(
+def test_each_repeat_runs_the_targets_on_the_given_workers_with_the_next_seed(
     ci_repeat_project: Path, process_fake: ProcessFake
 ) -> None:
-    """Run i of N runs the targets in the project root on one process (-n gives way to -n 0)
-    with seed S+i, keeping -v, -k and -x ahead of the shuffle options."""
+    """Run i of N runs the targets in the project root on the workers of -n with seed S+i,
+    each file on one worker, keeping -v, -k and -x ahead of the shuffle options (#6564)."""
     result, calls = _invoke(
         process_fake, *"--repeat 3 --seed 10 -n 4 -v -k unit -x -- tests/test_x.py".split()
     )
@@ -149,13 +156,111 @@ def test_each_repeat_runs_the_targets_serially_with_the_next_seed(
         0,
         [
             (
-                [*UV_RUN_PYTEST, "-n", "0", "-v", "-k", "unit", "-x", "-p", "randomly"]
-                + [f"--randomly-seed={seed}", "tests/test_x.py"],
+                [*UV_RUN_PYTEST, "-n", "4", "-v", "-k", "unit", "-x", *LOADFILE]
+                + ["-p", "randomly", f"--randomly-seed={seed}", "tests/test_x.py"],
                 ci_repeat_project,
             )
             for seed in (10, 11, 12)
         ],
     )
+
+
+def test_the_repeat_runs_take_the_workers_of_a_narrowed_run_from_one_collection(
+    ci_repeat_project: Path, process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no -n, the repeat runs take the workers that a narrowed run of the same files takes:
+    a collection of more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS tests gives the worker cap. One
+    collection chooses the workers of all runs, so a large change runs each shuffled run on the
+    CPUs of the runner, and not on one process (#6564)."""
+    monkeypatch.delenv(WORKERS_VARIABLE, raising=False)
+    ids = "".join(
+        f"tests/test_x.py::test_{n}\n" for n in range(DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1)
+    )
+    process_fake.answer(lambda call: "--collect-only" in call.argv, ProcessAnswer(stdout=ids))
+
+    result, calls = _invoke(process_fake, "--repeat", "2", "--seed", "5", "tests/test_x.py")
+
+    workers = str(DEFAULT_CI_TEST_NARROWED_WORKERS)
+    assert (
+        result.exit_code,
+        len([call for call in process_fake.calls if "--collect-only" in call.argv]),
+        calls,
+    ) == (
+        0,
+        1,
+        [
+            (
+                [*UV_RUN_PYTEST, "-n", workers, *LOADFILE, "-p", "randomly"]
+                + [f"--randomly-seed={seed}", "tests/test_x.py"],
+                ci_repeat_project,
+            )
+            for seed in (5, 6)
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("workers", "scheduling"), [("4", LOADFILE), ("0", [])], ids=["workers", "one-process"]
+)
+def test_a_repeat_run_on_workers_keeps_each_file_on_one_worker(
+    ci_repeat_project: Path, process_fake: ProcessFake, workers: str, scheduling: list[str]
+) -> None:
+    """A repeat run on workers gives `--dist loadfile` after addopts' `--dist worksteal`, so all
+    tests of one file run on one worker in their shuffled order, and a test that leaves state
+    behind meets the tests of its own file as on one process. A run on one process gives no
+    `--dist` (#6564)."""
+    result, calls = _invoke(
+        process_fake, "--repeat", "1", "--seed", "3", "-n", workers, "tests/test_x.py"
+    )
+
+    assert (result.exit_code, calls) == (
+        0,
+        [
+            (
+                [*UV_RUN_PYTEST, "-n", workers, *scheduling, "-p", "randomly"]
+                + ["--randomly-seed=3", "tests/test_x.py"],
+                ci_repeat_project,
+            )
+        ],
+    )
+
+
+def test_a_named_run_starts_only_that_run_with_its_own_seed(
+    ci_repeat_project: Path, process_fake: ProcessFake
+) -> None:
+    """--run K of --repeat N starts run K alone, with the seed that run K of the N runs gets, so
+    CI can start each run of one pull request on a runner of its own (#6564)."""
+    result, calls = _invoke(
+        process_fake, *"--repeat 3 --run 2 --seed 10 -n 0 -- tests/test_x.py".split()
+    )
+
+    assert (result.exit_code, calls) == (
+        0,
+        [
+            (
+                [*UV_RUN_PYTEST, "-n", "0", "-p", "randomly", "--randomly-seed=11"]
+                + ["tests/test_x.py"],
+                ci_repeat_project,
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize("args", [("--repeat", "3", "--run", "4"), ("--run", "1")])
+def test_a_run_above_the_repeat_count_is_refused_before_any_process(
+    ci_repeat_project: Path, process_fake: ProcessFake, args: tuple[str, ...]
+) -> None:
+    """--run above --repeat, or --run with no --repeat, exits 2 with the reason and starts no
+    process (#6564)."""
+    result, calls = _invoke(process_fake, *args, "tests/test_x.py")
+
+    runs = int(args[1]) if args[0] == "--repeat" else DEFAULT_CI_TEST_REPEAT_RUNS
+    run = int(args[-1])
+    assert (
+        result.exit_code,
+        calls,
+        MESSAGES.ci.run_above_repeat.format(run=run, runs=runs) in _flat(result.output),
+    ) == (2, [], True)
 
 
 def test_the_first_seed_defaults_to_heads_commit_hash(
