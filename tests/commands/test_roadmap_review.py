@@ -76,6 +76,24 @@ def test_a_dry_run_of_seven_days_lists_each_fact_of_the_catalog_and_sends_no_req
     assert "{range}" not in result.stdout
 
 
+@pytest.mark.usefixtures("refuse_requests")
+def test_a_dry_run_lists_the_path_checks_at_the_base_and_the_head_commits(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """A path condition reads the commits of the window, not the working tree (#6612)."""
+    result = cli(
+        "roadmap", "review", "run", "--last", "7d", "--repo", "example/project", "--dry-run"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    shown = [
+        f"ls-tree --name-only --end-of-options '{commit}' openspec/specs" in result.stdout
+        for commit in ("<base commit>", "<head commit>")
+    ]
+    assert shown == [True, True]
+
+
 def test_a_dry_run_prints_the_project_namespaces_of_the_setting_and_sends_no_request(
     cli: Callable[..., Any],
     process_fake: ProcessFake,

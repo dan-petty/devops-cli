@@ -1,7 +1,9 @@
 """The dispatcher of the project review catalog (#4692): the status of each fact past a retention,
 with an unset address, with no series and after a failed read; the Service SLI of one repository;
-one read for the facts of one query; the disagreements of the catalog; and the guard that keeps
-the rows of a workload outside the project namespaces out of the review (#6615)."""
+one read for the facts of one query; the disagreements of the catalog; the guard that keeps the
+rows of a workload outside the project namespaces out of the review (#6615); and the probe at the
+window end, the first time of a series, the path condition at the commits of the window and the
+reason of a missing series (#6612)."""
 
 from __future__ import annotations
 
@@ -15,10 +17,11 @@ import pytest
 import yaml
 
 from devops_cli.config.settings import load_settings
-from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog
+from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, window_placeholders
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
-from devops_cli.roadmap.project_review.dispatch import ReadContext, read_catalog
+from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
 
@@ -169,7 +172,7 @@ def test_a_failed_loki_read_marks_its_fact_and_the_review_reads_the_others(
     assert (facts["prometheus.up"].status, facts["prometheus.up"].value) == (FactStatus.OK, 3.0)
 
 
-def test_the_stage_sli_is_the_value_of_the_repository_of_the_review(
+def test_the_slo1_of_the_service_is_the_value_of_the_repository_of_the_review(
     tmp_path: Path, web: WebFake, config: Callable[..., Path]
 ) -> None:
     config(prometheus={"url": PROMETHEUS})
@@ -185,7 +188,7 @@ def test_the_stage_sli_is_the_value_of_the_repository_of_the_review(
         'result="success"}[{range}])) / sum(increase(devops_cli_service_jobs_total{row="stage", '
         'repo="{repo}"}[{range}]))'
     )
-    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.stage_sli", query)])
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.service_slo1", query)])
 
     [fact] = read_catalog(catalog, _context(tmp_path)).facts
 
@@ -342,6 +345,20 @@ def _probe(present: bool) -> Callable[[str], httpx2.Response]:
     return answer
 
 
+def test_a_fact_with_no_series_gives_its_own_reason_of_a_missing_series(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """A gauge that no code emits yet is not a gauge that stopped (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(lambda request: _vector())
+    reason = "No code emits this gauge before #4911."
+    fact = {**_prometheus_fact("prometheus.oldest", "max(x_seconds)"), "no_series_reason": reason}
+
+    [read] = read_catalog(_catalog(tmp_path, [fact]), _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.reason) == (FactStatus.SKIPPED, None, reason)
+
+
 def test_a_rows_fact_with_no_series_and_no_base_metric_is_skipped(
     tmp_path: Path, web: WebFake, config: Callable[..., Path]
 ) -> None:
@@ -382,7 +399,8 @@ def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
     fact has a series in the window (one more read, sent only for an empty answer)."""
     config(prometheus={"url": PROMETHEUS})
     web.serve(_by_query(_probe(present)))
-    fact = {**_prometheus_fact("prometheus.spend", "sum by (row) (x_total) > 0", shape)}
+    query = "sum by (row) (increase(x_total[{range}])) > 0"
+    fact = {**_prometheus_fact("prometheus.spend", query, shape)}
     fact["base"] = 'x_total{repo="{repo}"}'
     catalog = _catalog(tmp_path, [fact])
 
@@ -390,10 +408,156 @@ def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
 
     assert (read.status, read.value, read.n) == (status, value, n)
     assert [request.url.params["query"] for request in web.sent] == [
-        "sum by (row) (x_total) > 0",
+        "sum by (row) (increase(x_total[604800s])) > 0",
         f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))',
     ]
     assert present or "x_total" in read.reason
+
+
+@pytest.mark.parametrize("shape", ["scalar", "rows"])
+def test_an_end_instant_fact_whose_base_has_no_series_at_the_end_is_skipped(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path], shape: str
+) -> None:
+    """A query with no `{range}` reads the window end, so its probe reads the end too: a series
+    earlier in the window does not make an empty answer "none" (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    window_probe = f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))'
+    web.serve(_by_query(lambda query: _vector(({}, 1)) if query == window_probe else _vector()))
+    fact = {**_prometheus_fact("prometheus.states", "sum by (state) (x_total)", shape)}
+    fact["base"] = 'x_total{repo="{repo}"}'
+    catalog = _catalog(tmp_path, [fact])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, "x_total" in read.reason) == (FactStatus.SKIPPED, None, True)
+    assert "2026-11-11T14:51:23Z" in read.reason
+    assert [request.url.params["query"] for request in web.sent] == [
+        "sum by (state) (x_total)",
+        f'group(x_total{{repo="{REPO}"}})',
+    ]
+
+
+def test_a_path_that_the_base_commit_does_not_hold_skips_the_fact_whatever_the_working_tree(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    """A window from before the commit that added `openspec/specs` has no requirements to count,
+    though the working tree holds the folder (#6612). The base does not hold the path, so the
+    review reads no head and no other git command."""
+    git_fake.replay("review_spec_path")
+    checkout = tmp_path / "spec-path"
+    (checkout / "openspec" / "specs").mkdir(parents=True)
+    fact = {
+        "id": "openspec.requirements",
+        "reader": "openspec",
+        "section": "service",
+        "query": "git grep -c '^### Requirement:' {base} {head} -- openspec/specs",
+        "value": ".requirements",
+        "unit": "requirements",
+        "definition": "The requirements at the base and at the head.",
+        "requires": ["path:openspec/specs"],
+    }
+    window = ReviewWindow(
+        kind=WindowKind.VERSION,
+        id="v0.9.0..v1.0.0",
+        base_sha="v0.9.0",
+        head_sha="v1.0.0",
+        start=END - timedelta(days=7),
+        end=END,
+        previous_id=None,
+    )
+    context = ReadContext(
+        checkout=checkout, repo=REPO, window=window, settings=load_settings(), now=END
+    )
+
+    [read] = read_catalog(_catalog(tmp_path, [fact]), context).facts
+
+    assert (read.status, read.value) == (FactStatus.SKIPPED, None)
+    assert ("openspec/specs" in read.reason, "v0.9.0" in read.reason) == (True, True)
+    assert [call.argv[3:] for call in git_fake.calls] == [
+        ("ls-tree", "--name-only", "--end-of-options", "v0.9.0", "openspec/specs")
+    ]
+
+
+RENAMED = "2026-11-14T22:29:00Z"
+RENAME_END = datetime(2026, 11, 16, tzinfo=UTC)
+
+
+def _renamed_pair(tmp_path: Path) -> Catalog:
+    """`prometheus.left` and `prometheus.right`, whose series starts at RENAMED, and their pair."""
+    right = {**_prometheus_fact("prometheus.right", "sum(right_total)"), "not_before": RENAMED}
+    pair = {
+        "id": "jobs",
+        "left": "prometheus.left",
+        "right": "prometheus.right",
+        "tolerance": 0.1,
+        "definition": "Two counts of the same Jobs.",
+    }
+    return _catalog(
+        tmp_path, [_prometheus_fact("prometheus.left", "sum(left_total)"), right], [pair]
+    )
+
+
+def _days_to(end: datetime, days: int, tmp_path: Path) -> ReadContext:
+    window = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=end - timedelta(days=days),
+        end=end,
+        previous_id=None,
+    )
+    return ReadContext(
+        checkout=tmp_path,
+        repo=REPO,
+        window=window,
+        settings=load_settings(),
+        now=end + timedelta(hours=1),
+    )
+
+
+def test_a_window_that_starts_before_the_first_time_of_a_series_skips_the_fact_and_its_pair(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """The Jobs had other names before #5739, so a window across the rename counts only the later
+    Jobs: a false disagreement of about 69 % (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    web.serve(lambda request: _vector(({}, 48.43)))
+
+    result = read_catalog(_renamed_pair(tmp_path), _days_to(RENAME_END, 7, tmp_path))
+
+    left, right = result.facts
+    assert (left.status, left.value) == (FactStatus.OK, 48.43)
+    assert (right.status, right.value, RENAMED in right.reason) == (FactStatus.SKIPPED, None, True)
+    assert [request.url.params["query"] for request in web.sent] == ["sum(left_total)"]
+    assert result.disagreements == []
+
+
+def test_a_window_after_the_first_time_of_a_series_reads_the_fact_and_its_pair(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    config(prometheus={"url": PROMETHEUS})
+    answers = {"sum(left_total)": 48.43, "sum(right_total)": 15}
+    web.serve(_by_query(lambda query: _vector(({}, answers[query]))))
+
+    result = read_catalog(_renamed_pair(tmp_path), _days_to(RENAME_END, 1, tmp_path))
+
+    assert [(fact.status, fact.value) for fact in result.facts] == [
+        (FactStatus.OK, 48.43),
+        (FactStatus.OK, 15.0),
+    ]
+    assert [(row.id, row.left_value, row.right_value) for row in result.disagreements] == [
+        ("jobs", 48.43, 15.0)
+    ]
+
+
+def test_the_plan_of_a_fact_with_a_first_time_names_that_time(tmp_path: Path) -> None:
+    values = window_placeholders(_window(RENAME_END), REPO, ("devops",))
+
+    plan = plan_catalog(_renamed_pair(tmp_path), values, tmp_path)
+
+    [right] = [read for read in plan if read.target.startswith("prometheus.right: ")]
+    assert RENAMED in right.condition
 
 
 def test_a_workload_query_reads_only_the_namespaces_of_the_setting(

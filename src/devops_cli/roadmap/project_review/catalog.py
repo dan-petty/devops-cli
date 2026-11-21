@@ -27,6 +27,17 @@ negative matcher still reads every other namespace, so it does not scope the fac
 is one number with no label, so the rule does not apply to it. The rule reads only the clauses;
 the dispatcher also checks the labels of each row that a `rows` fact gives.
 
+The base metric of a fact, the leading metric name of its `base` selector, is a metric of its
+query (#6612): the loader refuses a fact whose query does not name the base metric as a whole
+metric name, unless the fact gives `base_reason`, a text that says why its base is another metric.
+A probe of another metric makes an empty answer `ok` for a window in which the queried metric did
+not exist.
+
+A fact can give `not_before`, the first time of its series, as UTC `YYYY-MM-DDTHH:MM:SSZ`: the
+dispatcher skips the fact for a window that starts before it, for example a count of Jobs by a
+name that a rename brought. A fact with no `base` can give `no_series_reason`, the reason of
+`skipped` when its query matches no series, for example a gauge that no code emits yet.
+
 The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
 in the Job names of the Service (`RepoRef.name_slug`), because kube-state-metrics exports no Job
@@ -67,6 +78,9 @@ _REPO_MATCHER: Final = re.compile(r'(?:^|,)\s*repo\s*=\s*"\{repo\}"\s*(?:,|$)')
 _WORKLOAD_LABELS: Final = frozenset({"namespace", "pod"})
 _GROUPING: Final = re.compile(r"\b(?:by|on)\s*\(([^)]*)\)")
 _NAMESPACE_MATCHER: Final = re.compile(r'\bnamespace\s*=~?\s*"')
+# The leading metric name of a selector, and the characters of a metric name.
+_METRIC_NAME: Final = re.compile(r"[a-zA-Z_:][a-zA-Z0-9_:]*")
+_NAME_CHAR: Final = "[a-zA-Z0-9_:]"
 
 
 class ReaderKind(StrEnum):
@@ -107,7 +121,11 @@ class ReaderRules:
 class CatalogFact:
     """One fact of the catalog. `value` and `n` are jq programs over the answer of the read.
     `base` is a selector of the metric that a `prometheus` fact reads: an answer with no series is
-    none only when that metric has a series in the window."""
+    none only when that metric has a series in the time scope of the query, the window for a query
+    that holds `{range}`, else the window end. Its metric is a metric of the query, else
+    `base_reason` says why the base is another metric. `not_before` is the first time of the series
+    of the fact: a window that starts before it does not read the fact. `no_series_reason` is the
+    reason of an answer with no series of a fact with no `base`."""
 
     id: str
     reader: ReaderKind
@@ -122,6 +140,9 @@ class CatalogFact:
     retention_days: int | None = None
     newest_first: str | None = None
     base: str | None = None
+    base_reason: str | None = None
+    not_before: datetime | None = None
+    no_series_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +175,26 @@ class Catalog:
 
 def _days(text: str | None) -> int | None:
     return None if text is None else int(text.removesuffix("d"))
+
+
+def _first_time(source: Path, entry: Mapping[str, Any]) -> datetime | None:
+    """The UTC time of `not_before` of the fact `entry`. The schema checks the form, and this
+    refuses a date that does not exist, such as February 30."""
+    text = entry.get("not_before")
+    if text is None:
+        return None
+    try:
+        return datetime.strptime(text, _TIME).replace(tzinfo=UTC)
+    except ValueError as error:
+        texts = MESSAGES.roadmap
+        reason = texts.review_catalog_bad_field.format(
+            subject=texts.review_catalog_fact.format(id=entry["id"]),
+            field="not_before",
+            rule=texts.review_catalog_bad_time,
+        )
+        raise RoadmapReviewError(
+            texts.review_catalog_refused.format(path=source, reason=reason)
+        ) from error
 
 
 def _subject(document: Any, path: Sequence[Any]) -> str:
@@ -266,7 +307,17 @@ def unscoped_workload_metric(query: str, base: str | None = None) -> tuple[str, 
     return None
 
 
-def _fact(entry: Mapping[str, Any]) -> CatalogFact:
+def unqueried_base(query: str, base: str) -> str | None:
+    """The base metric, the leading metric name of `base`, when `query` does not name it as a
+    whole metric name; else None. A name inside a longer name, such as `x_total_bucket` for
+    `x_total`, does not count."""
+    found = _METRIC_NAME.match(base)
+    metric = found.group() if found else base
+    whole = re.compile(f"(?<!{_NAME_CHAR}){re.escape(metric)}(?!{_NAME_CHAR})")
+    return None if whole.search(query) else metric
+
+
+def _fact(source: Path, entry: Mapping[str, Any]) -> CatalogFact:
     shape = entry.get("shape")
     return CatalogFact(
         id=entry["id"],
@@ -282,6 +333,9 @@ def _fact(entry: Mapping[str, Any]) -> CatalogFact:
         retention_days=_days(entry.get("retention")),
         newest_first=entry.get("newest_first"),
         base=entry.get("base"),
+        base_reason=entry.get("base_reason"),
+        not_before=_first_time(source, entry),
+        no_series_reason=entry.get("no_series_reason"),
     )
 
 
@@ -303,9 +357,22 @@ def _scope_refusal(fact: CatalogFact) -> str | None:
     return None
 
 
+def _base_refusal(fact: CatalogFact) -> str | None:
+    """The reason to refuse `fact` when its base metric is not a metric of its query and the fact
+    gives no `base_reason`, or None."""
+    if fact.base is None or fact.base_reason is not None:
+        return None
+    if (metric := unqueried_base(fact.query, fact.base)) is None:
+        return None
+    return MESSAGES.roadmap.review_catalog_base_not_queried.format(
+        subject=MESSAGES.roadmap.review_catalog_fact.format(id=fact.id), metric=metric
+    )
+
+
 def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
     """Refuse two facts with one id, an unlisted section, a pair that names no fact, a Service
-    metric of no repository and a `rows` fact of the workloads of all namespaces."""
+    metric of no repository, a `rows` fact of the workloads of all namespaces and a base metric
+    that the query does not read."""
     texts = MESSAGES.roadmap
     sections = {section.id for section in catalog.sections}
     seen: set[str] = set()
@@ -330,7 +397,7 @@ def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
                 )
     for fact in catalog.facts:
         _check_programs(source, fact)
-        if (refusal := _scope_refusal(fact)) is not None:
+        if (refusal := _scope_refusal(fact) or _base_refusal(fact)) is not None:
             raise RoadmapReviewError(
                 texts.review_catalog_refused.format(path=source, reason=refusal)
             )
@@ -353,7 +420,7 @@ def load_catalog(path: Path = CATALOG_FILE) -> Catalog:
             kind: ReaderRules(_days(rules.get("retention")), tuple(rules.get("requires", ())))
             for kind, rules in document["readers"].items()
         },
-        facts=tuple(_fact(entry) for entry in document[_FACTS]),
+        facts=tuple(_fact(path, entry) for entry in document[_FACTS]),
         disagreements=tuple(Agreement(**entry) for entry in document["disagreements"]),
     )
     return _cross_checked(path, catalog)

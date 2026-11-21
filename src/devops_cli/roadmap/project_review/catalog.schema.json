@@ -43,7 +43,7 @@
     },
     "requires": {
       "type": "array",
-      "description": "The conditions of a read: a setting that has a value, a kind of window, or a path that the checkout holds.",
+      "description": "The conditions of a read: a setting that has a value, a kind of window, or a path that the base and the head commits of the window hold.",
       "items": {
         "type": "string",
         "pattern": "^(setting:[a-z_]+(\\.[a-z_]+)+|window:(version|week|period)|path:[A-Za-z0-9_./-]+)$"
@@ -100,7 +100,22 @@
         "base": {
           "type": "string",
           "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*(\\{.*\\})?$",
-          "description": "A selector of the metric that a prometheus fact reads. An answer with no series is none only when this metric has a series in the window; else the fact is skipped."
+          "description": "A selector of the metric that a prometheus fact reads. An answer with no series is none only when this metric has a series in the time scope of the query, the window for a query that holds {range}, else the window end; else the fact is skipped. The metric is a metric of the query, else base_reason says why it is another metric."
+        },
+        "base_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the base metric is not a metric of the query."
+        },
+        "not_before": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "description": "The first time of the series of the fact, a UTC time YYYY-MM-DDTHH:MM:SSZ in quotes. A window that starts before it does not read the fact."
+        },
+        "no_series_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The reason of skipped when the query of a prometheus or loki fact with no base matches no series."
         }
       },
       "allOf": [
@@ -109,7 +124,15 @@
             "required": ["reader"],
             "properties": {"reader": {"enum": ["listing", "github", "github_runs", "openspec"]}}
           },
-          "then": {"required": ["value"]}
+          "then": {
+            "required": ["value"],
+            "properties": {
+              "no_series_reason": {
+                "not": {},
+                "description": "Only a prometheus or loki fact gives `no_series_reason`."
+              }
+            }
+          }
         },
         {
           "if": {
@@ -134,6 +157,25 @@
           "then": {
             "properties": {
               "base": {"not": {}, "description": "Only a prometheus fact names a base metric."}
+            }
+          }
+        },
+        {
+          "if": {"required": ["base"]},
+          "then": {
+            "properties": {
+              "no_series_reason": {
+                "not": {},
+                "description": "A fact with `base` names its base metric in the reason of an empty answer, so it gives no `no_series_reason`."
+              }
+            }
+          }
+        },
+        {
+          "if": {"not": {"required": ["base"]}},
+          "then": {
+            "properties": {
+              "base_reason": {"not": {}, "description": "Only a fact with `base` gives `base_reason`."}
             }
           }
         },

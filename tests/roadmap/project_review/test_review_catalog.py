@@ -1,7 +1,10 @@
 """The fact catalog of the project review and its JSON Schema (#4692): the loader refuses a fact
 with no id or section, an unknown section, placeholder or fact, two facts with one id, a Service
-metric query with no `{repo}`, a query by node and a rows fact by namespace or pod outside the
-project namespaces (#6615), and fills the placeholders of a window."""
+metric query with no `{repo}`, a query by node, a rows fact by namespace or pod outside the
+project namespaces (#6615), a base metric that the query does not read, a `not_before` that is not
+UTC and a `no_series_reason` with a base (#6612); fills the placeholders of a window; gives the
+stage SLI by the outcomes of the stage items; and counts the runner Jobs that start in the window
+(#6612)."""
 
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ from devops_cli.roadmap.project_review.catalog import (
     window_placeholders,
 )
 from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
+from tests.support.promtool import promtool
 
 NAMESPACES = ("devops", "llm")
 WINDOW = ReviewWindow(
@@ -175,12 +179,15 @@ def test_each_service_metric_selector_of_a_query_must_name_the_repository(
     tmp_path: Path, query: str
 ) -> None:
     """A ratio whose numerator has no repository matcher adds the repositories together, the error
-    that gave the stage SLI 0.927 for 0.372 (#4692)."""
+    that gave the SLO 1 of the Service 0.927 for 0.372 (#4692)."""
     text = _refusal(
-        tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.stage_sli", query=query)
+        tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.service_slo1", query=query)
     )
 
-    assert ("prometheus.stage_sli" in text, "devops_cli_service_jobs_total" in text) == (True, True)
+    assert ("prometheus.service_slo1" in text, "devops_cli_service_jobs_total" in text) == (
+        True,
+        True,
+    )
 
 
 def test_a_base_metric_of_the_service_must_name_the_repository(tmp_path: Path) -> None:
@@ -349,6 +356,54 @@ def test_a_rows_fact_whose_base_holds_the_project_namespaces_loads(tmp_path: Pat
     assert catalog.facts[0].base == base
 
 
+def _cuts(query: str = "sum(increase(x_cuts_total[{range}]))", **fields: str) -> Any:
+    """Make the first fact `prometheus.cuts` with `query`, the base `x_calls_total` and `fields`."""
+    return lambda doc: doc["facts"][0].update(
+        id="prometheus.cuts", query=query, base="x_calls_total", **fields
+    )
+
+
+def test_a_base_metric_that_the_query_does_not_read_names_the_fact_and_base_reason(
+    tmp_path: Path,
+) -> None:
+    """A probe of another metric makes an empty answer `ok` for a window in which the queried
+    metric did not exist (#6612)."""
+    text = _refusal(tmp_path, _cuts())
+
+    assert ("prometheus.cuts" in text, "x_calls_total" in text, "`base_reason`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_base_metric_of_another_metric_with_a_reason_loads(tmp_path: Path) -> None:
+    catalog = _load(tmp_path, _cuts(base_reason="The cut counter has no series before a cut."))
+
+    assert (catalog.facts[0].base, catalog.facts[0].base_reason) == (
+        "x_calls_total",
+        "The cut counter has no series before a cut.",
+    )
+
+
+def test_a_base_metric_inside_a_longer_metric_name_of_the_query_is_refused(
+    tmp_path: Path,
+) -> None:
+    text = _refusal(tmp_path, _cuts("sum(increase(x_calls_total_bucket[{range}]))"))
+
+    assert "prometheus.cuts" in text
+
+
+def test_a_base_reason_with_no_base_names_the_fact_and_the_field(tmp_path: Path) -> None:
+    text = _refusal(tmp_path, lambda doc: doc["facts"][0].update(base_reason="A reason."))
+
+    assert ("prometheus.example" in text, "`base_reason`" in text, "`base`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
 def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> None:
     values = window_placeholders(WINDOW, "example/project", ("devops",))
     catalog = load_catalog()
@@ -368,3 +423,154 @@ def test_the_shipped_catalog_scopes_each_rows_fact_that_names_workloads() -> Non
     assert (bool(grouped), unscoped) == (True, [])
     filled = [render_query(fact.query, values) for fact in catalog.facts]
     assert [query for query in filled if "{namespaces}" in query] == []
+
+
+def test_a_first_time_that_is_not_utc_names_the_fact_and_the_field(tmp_path: Path) -> None:
+    text = _refusal(
+        tmp_path, lambda doc: doc["facts"][0].update(not_before="2026-11-14T22:29:00+01:00")
+    )
+
+    assert (
+        "prometheus.example" in text,
+        "`not_before`" in text,
+        "YYYY-MM-DDTHH:MM:SSZ" in text,
+    ) == (
+        True,
+        True,
+        True,
+    )
+
+
+def test_a_reason_of_a_missing_series_with_a_base_names_the_fact(tmp_path: Path) -> None:
+    """A fact with a base names the base metric in the reason of an empty answer."""
+
+    def add(doc: dict[str, Any]) -> None:
+        doc["facts"][0].update(
+            base='devops_cli_service_jobs_total{repo="{repo}"}', no_series_reason="A reason."
+        )
+
+    text = _refusal(tmp_path, add)
+
+    assert ("prometheus.example" in text, "`no_series_reason`" in text, "`base`" in text) == (
+        True,
+        True,
+        True,
+    )
+
+
+def _stage_items(repo: str, result: str, count: int) -> dict[str, str]:
+    """A counter of stage items that adds `count` in the hour to 60m: its first sample in the
+    range is 0 and its last is at the end, so `increase` gives `count` with no extrapolation."""
+    return {
+        "series": f'devops_cli_roadmap_stage_total{{repo="{repo}", result="{result}"}}',
+        "values": f"0 0 {count}x59",
+    }
+
+
+@pytest.mark.live("promtool")
+def test_the_stage_sli_is_the_share_of_good_stage_item_outcomes_of_the_repository(
+    tmp_path: Path,
+) -> None:
+    """SLO 1 of the stage row counts the outcomes of the stage items (owner decision of
+    2026-11-21 on #4692): `staged` and `needs_split` are good, `failed` and `degenerate` are bad,
+    and a `skipped` item is not an outcome. 0 is a measured value; no outcome gives no value."""
+    hour = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 21, tzinfo=UTC),
+        end=datetime(2026, 11, 21, 1, tzinfo=UTC),
+        previous_id=None,
+    )
+    [fact] = [fact for fact in load_catalog().facts if fact.id == "prometheus.stage_sli"]
+    query = render_query(fact.query, window_placeholders(hour, "example/project", NAMESPACES))
+    project = "example/project"
+    groups = [
+        (
+            [
+                _stage_items(project, "staged", 6),
+                _stage_items(project, "needs_split", 2),
+                _stage_items(project, "failed", 1),
+                _stage_items(project, "degenerate", 1),
+                _stage_items(project, "skipped", 5),
+                _stage_items("example/other", "failed", 10),
+            ],
+            [{"labels": "{}", "value": 0.8}],
+        ),
+        ([_stage_items(project, "failed", 3)], [{"labels": "{}", "value": 0}]),
+        ([_stage_items(project, "skipped", 5)], []),
+    ]
+    tests = [
+        {
+            "name": f"stage items {index}",
+            "interval": "1m",
+            "input_series": series,
+            "promql_expr_test": [{"expr": query, "eval_time": "60m", "exp_samples": samples}],
+        }
+        for index, (series, samples) in enumerate(groups)
+    ]
+    unit_tests = tmp_path / "stage_sli.yaml"
+    unit_tests.write_text(yaml.safe_dump({"tests": tests}, sort_keys=False), encoding="utf-8")
+
+    result = promtool("test", "rules", unit_tests)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _job_start(name: str, started: int, first_minute: int) -> dict[str, str]:
+    """The start time gauge of the Job `name` that started at `started` (Unix seconds), as
+    kube-state-metrics gives it from `first_minute` to the minute 120: the series stays after the
+    Job ends, for the `ttlSecondsAfterFinished` of the Job."""
+    return {
+        "series": f'kube_job_status_start_time{{namespace="devops", job_name="{name}"}}',
+        "values": " ".join(["_"] * first_minute + [str(started)] * (121 - first_minute)),
+    }
+
+
+@pytest.mark.live("promtool")
+def test_the_runner_jobs_started_are_the_implement_jobs_that_start_in_the_window(
+    tmp_path: Path,
+) -> None:
+    """`prometheus.runner_jobs_started` counts the implement Jobs of the repository that start in
+    the window. A Job that started before the window still has a series in it for the
+    `ttlSecondsAfterFinished` of the Job (24 h), so a count of the series in the window would
+    count it too (#6612)."""
+    hour = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(1970, 1, 1, 1, tzinfo=UTC),
+        end=datetime(1970, 1, 1, 2, tzinfo=UTC),
+        previous_id=None,
+    )
+    [fact] = [fact for fact in load_catalog().facts if fact.id == "prometheus.runner_jobs_started"]
+    query = render_query(fact.query, window_placeholders(hour, "example/project", NAMESPACES))
+    before = _job_start("devops-cli-implement-project-11-aaaaaa", 1800, 0)
+    groups = [
+        (
+            [
+                before,
+                _job_start("devops-cli-implement-project-12-bbbbbb", 5400, 90),
+                _job_start("devops-cli-implement-other-13-cccccc", 5400, 90),
+            ],
+            [{"labels": "{}", "value": 1}],
+        ),
+        ([before], []),
+    ]
+    tests = [
+        {
+            "name": f"runner jobs {index}",
+            "interval": "1m",
+            "input_series": series,
+            "promql_expr_test": [{"expr": query, "eval_time": "120m", "exp_samples": samples}],
+        }
+        for index, (series, samples) in enumerate(groups)
+    ]
+    unit_tests = tmp_path / "runner_jobs.yaml"
+    unit_tests.write_text(yaml.safe_dump({"tests": tests}, sort_keys=False), encoding="utf-8")
+
+    result = promtool("test", "rules", unit_tests)
+
+    assert result.returncode == 0, result.stdout + result.stderr

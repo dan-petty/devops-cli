@@ -6976,13 +6976,20 @@ class RoadmapMessages:
     review_other_window: str = (
         "The window is a {kind} window, and the fact needs a {needed} window."
     )
-    review_no_path: str = "The checkout holds no {path}."
+    review_no_path: str = "The commit {commit} of the window holds no {path}."
+    review_before_first_time: str = (
+        "The window starts at {start}, before {not_before}, the first time of the series of the "
+        "fact, so the window does not read it."
+    )
     review_past_retention: str = (
         "The source keeps {days} days: the window starts at {start}, before {limit}."
     )
     review_no_series: str = "No series matched the query."
     review_no_base_series: str = (
         "No series matched the query, and the metric {base} has no series in the window."
+    )
+    review_no_base_series_at_end: str = (
+        "No series matched the query, and the metric {base} has no series at the window end {end}."
     )
     review_many_series: str = "The scalar query gave {count} series, not one."
     review_not_number: str = "The sample is not a finite number."
@@ -6995,9 +7002,11 @@ class RoadmapMessages:
         default_factory=lambda: {
             "setting": "{name} is set",
             "window": "the window is a {name} window",
-            "path": "the checkout holds {name}",
+            "path": "the base and the head commits hold {name}",
         }
     )
+    review_plan_first_time: str = "the window starts at or after {time}"
+    review_plan_base_holds: str = "the base commit holds {path}"
     review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
     review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"
@@ -7016,6 +7025,11 @@ class RoadmapMessages:
         'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label in '
         "`query` and `base`."
     )
+    review_catalog_base_not_queried: str = (
+        "{subject}: `query` does not read the `base` metric {metric}, so a series of {metric} "
+        "does not tell whether an empty answer is none. Name a metric of `query` in `base`, or "
+        "say in `base_reason` why the base is another metric."
+    )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"
     review_catalog_root: str = "the catalog"
@@ -7025,6 +7039,7 @@ class RoadmapMessages:
     )
     review_catalog_bad_field: str = "{subject} has a `{field}` that the schema refuses. {rule}"
     review_catalog_see_schema: str = "See catalog.schema.json."
+    review_catalog_bad_time: str = "It is not a UTC time YYYY-MM-DDTHH:MM:SSZ that exists."
     review_catalog_bad_program: str = "{subject} has a `{field}` that jq cannot compile: {error}"
     review_catalog_duplicate: str = "two facts have the id of {subject}."
     review_catalog_unknown_section: str = (

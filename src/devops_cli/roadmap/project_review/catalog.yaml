@@ -14,7 +14,9 @@
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:
-# an empty answer is none only when that metric has a series in the window.
+# an empty answer is none only when that metric has a series in the time scope of the query: the
+# window for a query that holds {range}, else the window end. The base metric is a metric of the
+# query, unless `base_reason` says why the base is another metric (#6612).
 # "SRE Qn" is query n of the Queries of docs/SRE.md at 6eae4980 (#5567 removed the file):
 # https://github.com/dan-petty/devops-cli/blob/6eae498088b2ff86a06883638e50b1a4fe3ad11a/docs/SRE.md#queries
 # "Kubernetes Qn" is query n of the Queries of docs/K8S_PERFORMANCE.md of PR #5492 at d0f6e42d:
@@ -237,16 +239,18 @@ facts:
     reader: prometheus
     section: service
     query: >-
-      sum(increase(devops_cli_service_jobs_total{job="roadmap-service", container="service",
-      row="stage", repo="{repo}", result="success"}[{range}])) / sum(increase(
-      devops_cli_service_jobs_total{job="roadmap-service", container="service", row="stage",
-      repo="{repo}", result=~"success|error"}[{range}]))
+      (sum(increase(devops_cli_roadmap_stage_total{repo="{repo}",
+      result=~"staged|needs_split"}[{range}])) or vector(0)) /
+      sum(increase(devops_cli_roadmap_stage_total{repo="{repo}", result!="skipped"}[{range}]))
     shape: scalar
     unit: ratio
     definition: >-
-      SLO 1 of the stage row of the repository alone, by rounds. A sum over the repositories is
-      not the SLI of one repository. Since #5559 (2026-11-13) a round does not plan, so the value
-      tells whether the round of the Service works, not whether the items were staged.
+      SLO 1 of the stage row of the repository, by the outcomes of the stage items (owner
+      decision of 2026-11-21 on #4692): the items that ended staged or needs_split over the items
+      that ended staged, needs_split, failed or degenerate. needs_split is a correct judgment that
+      an item is too big for one pull request, not a failure. A skipped item is not an outcome.
+      The value is 0 when no item ended well, and the fact is skipped when no item ended. The
+      quality of a plan, the plans that build, is #5603.
   - id: prometheus.stage_peak_hour
     reader: prometheus
     section: service
@@ -374,15 +378,21 @@ facts:
     section: service
     query: >-
       count(max_over_time(kube_job_status_start_time{namespace="devops",
-      job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}]))
+      job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}])
+      >= time() - {range})
     shape: scalar
+    base: 'kube_job_status_start_time{namespace="devops"}'
+    not_before: "2026-11-14T22:29:00Z"
     unit: jobs
     definition: >-
       The implement Jobs of the repository that kube-state-metrics saw start in the window.
+      kube-state-metrics keeps the series of a Job for the ttlSecondsAfterFinished of the Job
+      (24 h), so the query counts only a start time at or after the window start (#6612).
       kube-state-metrics exports no Job label, so the name gives the repository:
-      devops-cli-implement-<name slug>-<item>-<hex> since #5739 (2026-11-14). Before that the
-      Service named the Jobs of all repositories devops-cli-runner-<time>-<hex>, so a window before
-      that date has no series (skipped), and a window across it counts only the later Jobs.
+      devops-cli-implement-<name slug>-<item>-<hex> since #5739, live at 2026-11-14T22:29:00Z
+      (release v0.144.0, #4558). Before that the Service named the Jobs of all repositories
+      devops-cli-runner-<time>-<hex>, so a window that starts before that time would count only
+      the later Jobs: the fact is skipped for it.
   - id: prometheus.implement_failures
     reader: prometheus
     section: service
@@ -416,6 +426,9 @@ facts:
     query: count(count by (__name__) ({__name__=~".+:.+"}))
     shape: scalar
     base: 'prometheus_rule_group_rules'
+    base_reason: >-
+      The query selects the metrics by a name pattern and names no metric.
+      prometheus_rule_group_rules shows that Prometheus loads its rules.
     unit: rules
     definition: The recording rules with a colon in the name, such as the slo rules of Sloth (SRE Q9).
   - id: prometheus.alerts_firing_hours
@@ -424,6 +437,9 @@ facts:
     query: sum by (alertname) (count_over_time(ALERTS{alertstate="firing"}[{range}:5m])) / 12
     shape: rows
     base: 'prometheus_rule_group_rules'
+    base_reason: >-
+      ALERTS has a series only while an alert is pending or firing. prometheus_rule_group_rules
+      shows that Prometheus evaluates the alert rules, so an empty answer is "no alert fired".
     unit: series-hours
     definition: The firing series-hours of each alert, from ALERTS with a step of 5 minutes (SRE Q10).
   - id: prometheus.notifications
@@ -486,6 +502,9 @@ facts:
       kube_pod_container_status_last_terminated_reason{namespace="devops"}[{range}]) == 1)
     shape: rows
     base: 'kube_pod_container_info{namespace="devops"}'
+    base_reason: >-
+      kube-state-metrics gives kube_pod_container_status_last_terminated_reason only for a
+      container that ended. kube_pod_container_info shows that it reads the namespace.
     unit: containers
     definition: The containers of namespace devops by the reason of their last end (SRE Q13).
   - id: prometheus.requests_over_allocatable
@@ -820,17 +839,21 @@ facts:
     section: agentic_jobs
     query: sum by (row, cap) (increase(devops_cli_roadmap_tool_cuts_total[{range}]))
     shape: rows
-    base: 'devops_cli_roadmap_tool_calls_total'
+    base: 'devops_cli_roadmap_tool_cuts_total'
     unit: cuts
-    definition: The tool answers that a limit cut, for each row and limit.
+    definition: >-
+      The tool answers that a limit cut, for each row and limit, of all repositories: the counter
+      has no repo label.
   - id: prometheus.stage_gate_refusals
     reader: prometheus
     section: agentic_jobs
-    query: sum(increase(devops_cli_roadmap_stage_gate_refusals_total[{range}]))
+    query: sum(increase(devops_cli_roadmap_stage_gate_refusals_total{repo="{repo}"}[{range}]))
     shape: scalar
-    base: 'devops_cli_roadmap_stage_total'
+    base: 'devops_cli_roadmap_stage_gate_refusals_total{repo="{repo}"}'
     unit: refusals
-    definition: The plans that the stage gate refused, a decision point of the stage job.
+    definition: >-
+      The replies of the stage model of the repository that a stage gate refused, one for each
+      gate that found a problem in a reply, a decision point of the stage job.
   # ── Dependency updates ────────────────────────────────────────────────────
   - id: listing.renovate_opened
     reader: listing
@@ -857,6 +880,9 @@ facts:
     section: dependencies
     query: max(max_over_time(devops_cli_dependency_update_oldest_pending_seconds{repository="{repo}"}[{range}]))
     shape: scalar
+    no_series_reason: >-
+      No code emits the gauge devops_cli_dependency_update_oldest_pending_seconds before #4911
+      adds it.
     unit: s
     definition: The age of the oldest pending dependency update (the gauge of #4911).
   # ── Spend ─────────────────────────────────────────────────────────────────
@@ -889,7 +915,8 @@ disagreements:
     definition: >-
       The Service counts each implement Job of the repository once, when its round reports the
       Job, and kube-state-metrics sees each implement Job of the repository start, by its name.
-      The right fact has no series before 2026-11-14 (#5739), so the pair compares later windows.
+      The right fact is skipped for a window that starts before 2026-11-14T22:29:00Z (#5739), so
+      the pair compares only later windows.
   - id: spend
     left: prometheus.cli_spend
     right: prometheus.gateway_spend

@@ -816,6 +816,94 @@
    "returncode": 0,
    "stdout": "def side():\n    return 1\n",
    "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/project",
+    "for-each-ref",
+    "--format=%(refname:short)%09%(creatordate:unix)",
+    "refs/tags/v*"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "v1.0.0\t1790330400\nv1.1.0\t1791021600\nv1.1.1\t1791181800\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/project",
+    "log",
+    "-1",
+    "--format=%H%x09%ct",
+    "--end-of-options",
+    "v1.0.0^{commit}"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "4c12ae57cef5955865f2940d87fcd5e06dca476c\t1790330400\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/project",
+    "log",
+    "-1",
+    "--format=%H%x09%ct",
+    "--end-of-options",
+    "v1.1.1^{commit}"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "5687bfd1e878476a5ebb8e4c136e6939754e11d9\t1791181800\n",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/project",
+    "ls-tree",
+    "--name-only",
+    "--end-of-options",
+    "4c12ae57cef5955865f2940d87fcd5e06dca476c",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
+  },
+  {
+   "argv": [
+    "git",
+    "-C",
+    "{root}/project",
+    "ls-tree",
+    "--name-only",
+    "--end-of-options",
+    "5687bfd1e878476a5ebb8e4c136e6939754e11d9",
+    "openspec/specs"
+   ],
+   "cwd": null,
+   "stdin": null,
+   "env": null,
+   "returncode": 0,
+   "stdout": "",
+   "stderr": ""
   }
  ],
  "result": {
@@ -1264,6 +1352,10 @@
     "status": "ok",
     "reason": ""
    }
+  ],
+  "version_spec_path": [
+   false,
+   false
   ]
  }
 }

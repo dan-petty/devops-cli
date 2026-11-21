@@ -97,6 +97,14 @@ def blob_args(rev: str, path: str) -> tuple[str, ...]:
     return ("cat-file", "blob", f"{rev}:{path}")
 
 
+def path_args(commit: str, path: str) -> tuple[str, ...]:
+    """The entry of `path` in the tree of `commit`: its name when the commit holds the path, and
+    no output when it does not. A commit that the checkout does not have exits non-zero. After
+    `--end-of-options`, ls-tree reads each later word as the commit or a path, so no `--`
+    follows: git would read it as a second path."""
+    return ("ls-tree", "--name-only", "--end-of-options", commit, path)
+
+
 def query_text(args: tuple[str, ...]) -> str:
     """The command as a fact names it: `git` and its arguments, with no checkout path."""
     return " ".join(("git", *args))
@@ -127,6 +135,12 @@ def try_git(checkout: Path, args: tuple[str, ...]) -> str | None:
         git_argv(checkout, *args), quiet=True, local_read=True, timeout=_GIT_TIMEOUT_SECONDS
     )
     return done.stdout if done.returncode == 0 else None
+
+
+def holds_path(checkout: Path, commit: str, path: str) -> bool:
+    """Whether the tree of `commit` holds `path`. A git failure raises, so an error is never "the
+    path is not there"."""
+    return bool(run_git(checkout, path_args(commit, path)).strip())
 
 
 def commit_line(text: str) -> tuple[str, datetime] | None:

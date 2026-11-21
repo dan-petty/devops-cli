@@ -51,6 +51,7 @@ from devops_cli.git.worktree import (
     remove_worktree,
     review_worktrees_context,
 )
+from devops_cli.roadmap.project_review import git_read
 from devops_cli.roadmap.project_review.facts import review_facts
 from devops_cli.roadmap.project_review.openspec_read import archived_changes, requirement_total
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
@@ -562,7 +563,8 @@ def review_window(ws: Workspace) -> Any:
     `pkg/new_name.py` (tag `v1.1.0`, at +02:00), a merge of a branch that adds `side.py`, and a
     change of `pkg/new_name.py`, `a.py` and `uv.lock` (tag `v1.1.1`, at -07:00). The
     `.gitattributes` marks `uv.lock` as generated. The review resolves version, period and week
-    windows, and reads the facts of `v1.0.0..v1.1.1` and of the period."""
+    windows, reads the facts of `v1.0.0..v1.1.1` and of the period, and checks `openspec/specs`
+    at the base and the head of `v1.0.0..v1.1.1`, which do not hold it."""
     repo = ws.path("project")
     ws.git("project", "init", "--quiet", "-b", "main")
     ws.git("project", "remote", "add", "origin", "https://example.com/example/project.git")
@@ -608,6 +610,11 @@ def review_window(ws: Workspace) -> Any:
             for fact in review_facts(repo, resolved, tags)
         ]
 
+    def spec_path(**options: str) -> list[bool]:
+        resolved = resolve_window(repo, parse_window(now=now, **options), read_tags(repo))
+        commits = (resolved.base_sha, resolved.head_sha)
+        return [git_read.holds_path(repo, commit, "openspec/specs") for commit in commits]
+
     period = {"since": "2026-10-03T10:00:00Z", "until": "2026-10-05T06:30:00Z"}
     with ws.environment():
         return {
@@ -621,6 +628,34 @@ def review_window(ws: Workspace) -> Any:
             "before_history": outcome(lambda: window(week="2026-W38"), ws),
             "version_facts": facts(version="v1.0.0..v1.1.1"),
             "period_facts": facts(**period),
+            "version_spec_path": spec_path(version="v1.0.0..v1.1.1"),
+        }
+
+
+@scenario
+def review_spec_path(ws: Workspace) -> Any:
+    """`spec-path` has a first commit (tag `v0.9.0`) with no `openspec/specs` and a second commit
+    (tag `v1.0.0`) that adds it. The first commit holds a file named `--` at its root, which a
+    path argument of git must not match. The review checks the path at both tags and at a commit
+    that the checkout does not have."""
+    repo = ws.path("spec-path")
+    ws.git("spec-path", "init", "--quiet", "-b", "main")
+    ws.write("spec-path/README.md", "# Project\n")
+    ws.write("spec-path/--", "A file whose name is a git separator.\n")
+    ws.git("spec-path", "add", ".")
+    ws.git("spec-path", "commit", "--quiet", "-m", "feat: start")
+    ws.git("spec-path", "tag", "v0.9.0")
+    ws.write("spec-path/openspec/specs/cap/spec.md", "# cap\n")
+    ws.git("spec-path", "add", ".")
+    ws.git("spec-path", "commit", "--quiet", "-m", "feat: add the specs")
+    ws.git("spec-path", "tag", "v1.0.0")
+    with ws.environment():
+        return {
+            "v0.9.0": git_read.holds_path(repo, "v0.9.0", "openspec/specs"),
+            "v1.0.0": git_read.holds_path(repo, "v1.0.0", "openspec/specs"),
+            "unknown_commit": outcome(
+                lambda: git_read.holds_path(repo, "v9.9.9", "openspec/specs"), ws
+            ),
         }
 
 

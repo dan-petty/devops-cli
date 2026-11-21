@@ -2,21 +2,33 @@
 value and the status of each fact, the disagreements, and the plan of a dry run.
 
 For each fact in the catalog order the dispatcher fills the placeholders of the window, checks
-the `requires` conditions and the retention, and reads the query once: the facts on one answer
+the `requires` conditions, the first time of the series and the retention, and reads the query
+once: the facts on one answer
 share the read. A jq program of the fact gives the value of a listing, GitHub or OpenSpec answer,
 with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer gives one sample
 (`scalar`) or a row of each sample (`rows`, the largest value first).
 
 | Condition | Status | Request |
 | :--- | :--- | :--- |
-| A `requires` condition is false | `skipped`, the reason names it | none |
+| A `requires` condition is false | `skipped`, the reason names it | none; a `path:` condition reads git |
+| The window starts before `not_before`, the first time of the series of the fact | `skipped`, the reason names that time | none |
 | The window start is older than the retention, less a grace of 1 hour | `expired`, the reason names the retention | none |
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
 | A row of a `rows` fact holds a namespace label outside `roadmap.project_review.namespaces`, or a workload label and no `namespace` | `error`, the reason names the fact and the label, never a label value | sent |
-| A query gives no series, and the fact names no `base` metric or that metric has no series in the window | `skipped` | sent |
-| A query gives no series, and the `base` metric of the fact has a series in the window | `ok`, no rows or 0 | sent, and the probe of the base |
+| A query gives no series, and the fact names no `base` metric or that metric has no series in the time scope of the query | `skipped`, with the `no_series_reason` of a fact with no base | sent |
+| A query gives no series, and the `base` metric of the fact has a series in the time scope of the query | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
+
+A `path:<path>` condition holds when the base and the head commits of the window hold the path
+(#6612), not the working tree: a window from before the commit that added the path has nothing
+to read there. `git ls-tree` reads the base first and the head only when the base holds the path,
+once for each path of a review. A git failure stops the review, as each other git read of the
+review does.
+
+The probe of the base has the time scope of the query (#6612): a query that holds `{range}`
+reads the window, so its probe reads the window; each other query reads only the window end, so
+its probe reads the end.
 
 A missing value is never 0, and a fact that is not `ok` has a null value. A read that gets no
 answer from the network (a `ServiceRequestError` with no HTTP status) ends the reads of its reader
@@ -45,7 +57,7 @@ from typing import Any, Final
 from pydantic import JsonValue
 
 from devops_cli.config.settings import Settings
-from devops_cli.dry_run.requests import PlannedRequest
+from devops_cli.dry_run.requests import PlannedRequest, both
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.http import ServiceRequestError
 from devops_cli.git.operations import git_argv
@@ -59,6 +71,7 @@ from devops_cli.roadmap.project_review.catalog import (
     ReaderRules,
     Shape,
     render_query,
+    utc_text,
     window_placeholders,
 )
 from devops_cli.roadmap.project_review.data import (
@@ -68,6 +81,7 @@ from devops_cli.roadmap.project_review.data import (
     FactStatus,
     ReviewWindow,
 )
+from devops_cli.roadmap.project_review.git_read import holds_path, path_args
 from devops_cli.roadmap.project_review.readers import (
     PagedSession,
     Reads,
@@ -98,8 +112,11 @@ _READ_ERRORS: Final = (DevOpsCLIError, PrometheusContentTypeError)
 # and a `--last` window starts at the whole minute before the time now less its days. So a start
 # up to this grace before the retention limit is still read.
 _RETENTION_GRACE: Final = timedelta(hours=1)
-# The read that tells whether the base metric of a fact has a series in the window.
-_PROBE: Final = "group(last_over_time({base}[{range}]))"
+# The reads that tell whether the base metric of a fact has a series in the time scope of its
+# query: the window for a query that holds `{range}`, else the window end.
+_WINDOW_PROBE: Final = "group(last_over_time({base}[{range}]))"
+_END_PROBE: Final = "group({base})"
+_RANGE: Final = "{range}"
 # The labels that hold a namespace: `namespace`, the namespace of a target that a scrape keeps as
 # `exported_namespace`, and the destination of an Argo CD application. In a series of a `rows`
 # fact, each of them holds a namespace of roadmap.project_review.namespaces, else the fact gives
@@ -182,7 +199,26 @@ def _setting(settings: Settings, dotted: str) -> Any:
     return value
 
 
-def _unmet(requires: Sequence[str], context: ReadContext) -> str | None:
+def _missing_path(path: str, context: ReadContext, paths: dict[str, str | None]) -> str | None:
+    """The reason when the base or the head commit of the window does not hold `path`, or None.
+    `paths` keeps the reason of each path that the review read, so git reads each path once."""
+    if path not in paths:
+        window = context.window
+        commits = (window.base_sha, window.head_sha)
+        missing = next(
+            (commit for commit in commits if not holds_path(context.checkout, commit, path)), None
+        )
+        paths[path] = (
+            None
+            if missing is None
+            else MESSAGES.roadmap.review_no_path.format(path=path, commit=missing)
+        )
+    return paths[path]
+
+
+def _unmet(
+    requires: Sequence[str], context: ReadContext, paths: dict[str, str | None]
+) -> str | None:
     """The reason of the first condition that does not hold, or None."""
     texts = MESSAGES.roadmap
     for condition in requires:
@@ -195,10 +231,20 @@ def _unmet(requires: Sequence[str], context: ReadContext) -> str | None:
             if context.window.kind != kind:
                 return texts.review_other_window.format(kind=context.window.kind, needed=kind)
         elif condition.startswith(_PATH):
-            path = condition.removeprefix(_PATH)
-            if not (context.checkout / path).exists():
-                return texts.review_no_path.format(path=path)
+            reason = _missing_path(condition.removeprefix(_PATH), context, paths)
+            if reason is not None:
+                return reason
     return None
+
+
+def _too_early(fact: CatalogFact, context: ReadContext) -> str | None:
+    """The reason when the window starts before the first time of the series of `fact`, or
+    None."""
+    if fact.not_before is None or context.window.start >= fact.not_before:
+        return None
+    return MESSAGES.roadmap.review_before_first_time.format(
+        start=utc_text(context.window.start), not_before=utc_text(fact.not_before)
+    )
 
 
 def _expired(days: int | None, context: ReadContext) -> str | None:
@@ -254,7 +300,7 @@ def _vector_value(
     """The value, the sample size and the reason of a fact with no value, from a vector."""
     texts = MESSAGES.roadmap
     if not result.series:
-        return None, None, texts.review_no_series
+        return None, None, fact.no_series_reason or texts.review_no_series
     if fact.shape is Shape.SCALAR:
         if len(result.series) > 1:
             return None, None, texts.review_many_series.format(count=len(result.series))
@@ -403,20 +449,34 @@ class _Answers:
             return _Answer(error=reason)
 
 
+def _reads_window(fact: CatalogFact) -> bool:
+    """Whether the query of `fact` reads the window: a range vector or a subquery of `{range}`.
+    Each other query reads only the window end."""
+    return _RANGE in fact.query
+
+
 def _probe(fact: CatalogFact, values: Mapping[str, str]) -> str:
-    """The read that tells whether the base metric of `fact` has a series in the window."""
-    return _PROBE.format(base=render_query(str(fact.base), values), range=values["range"])
+    """The read that tells whether the base metric of `fact` has a series in the time scope of
+    its query: the window, or the window end."""
+    base = render_query(str(fact.base), values)
+    if _reads_window(fact):
+        return _WINDOW_PROBE.format(base=base, range=values["range"])
+    return _END_PROBE.format(base=base)
 
 
 def _no_series(fact: CatalogFact, query: str, values: Mapping[str, str], answers: _Answers) -> Fact:
     """`fact` when its answer has no series: none, as no rows or 0, when its base metric has a
-    series in the window; else `skipped`, because a missing metric is never 0."""
+    series in the time scope of the query; else `skipped`, because a missing metric is never 0."""
     probe = answers.get(fact, _probe(fact, values))
     if probe.error is not None:
         return _fact(fact, query, status=FactStatus.ERROR, reason=probe.error)
     if not probe.value.series:
-        reason = MESSAGES.roadmap.review_no_base_series.format(
-            base=render_query(str(fact.base), values)
+        base = render_query(str(fact.base), values)
+        texts = MESSAGES.roadmap
+        reason = (
+            texts.review_no_base_series.format(base=base)
+            if _reads_window(fact)
+            else texts.review_no_base_series_at_end.format(base=base, end=values["end"])
         )
         return _fact(fact, query, status=FactStatus.SKIPPED, reason=reason)
     if fact.shape is Shape.ROWS:
@@ -465,11 +525,13 @@ def read_catalog(catalog: Catalog, context: ReadContext) -> CatalogResult:
         "repo": context.repo,
     }
     answers = _Answers(context, Reads())
+    paths: dict[str, str | None] = {}
     facts: list[Fact] = []
     for fact in catalog.facts:
         rules = catalog.rules(fact)
         query = render_query(fact.query, values)
-        if (reason := _unmet(rules.requires, context)) is not None:
+        reason = _unmet(rules.requires, context, paths) or _too_early(fact, context)
+        if reason is not None:
             facts.append(_fact(fact, query, status=FactStatus.SKIPPED, reason=reason))
         elif (reason := _expired(rules.retention_days, context)) is not None:
             facts.append(_fact(fact, query, status=FactStatus.EXPIRED, reason=reason))
@@ -520,6 +582,25 @@ def plan_catalog(
                 (values["start"], MESSAGES.roadmap.review_plan_no_snapshot),
             )
         )
+    checked = dict.fromkeys(
+        condition.removeprefix(_PATH)
+        for fact in catalog.facts
+        for condition in catalog.rules(fact).requires
+        if condition.startswith(_PATH)
+    )
+    for path in checked:
+        shared.extend(
+            PlannedRequest(
+                "git",
+                str(checkout),
+                tuple(git_argv(checkout, *path_args(commit, path))),
+                condition=condition,
+            )
+            for commit, condition in (
+                (base, ""),
+                (head, MESSAGES.roadmap.review_plan_base_holds.format(path=path)),
+            )
+        )
     if ReaderKind.OPENSPEC in kinds:
         when = _condition(catalog.readers.get(ReaderKind.OPENSPEC, ReaderRules()).requires)
         folder = f"{ARCHIVE}/{texts['change']}/"
@@ -551,6 +632,9 @@ def plan_catalog(
     each: list[PlannedRequest] = []
     for fact in catalog.facts:
         condition = _condition(catalog.rules(fact).requires)
+        if fact.not_before is not None:
+            first = MESSAGES.roadmap.review_plan_first_time.format(time=utc_text(fact.not_before))
+            condition = both(condition, first)
         each.append(
             PlannedRequest(
                 method=fact.reader,
