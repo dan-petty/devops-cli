@@ -3837,6 +3837,11 @@ class RoadmapMessages:
     implement_round_effort: str = "The round selected an item in effort pass {effort}."
     implement_round_fallback: str = "The round uses the fallback pass."
     implement_boundary_group: str = "the start of group {group}"
+    implement_boundary_start: str = "the start of the run"
+    implement_phase_options: str = (
+        "A phase other than all runs only with --item, --confirm and --work <folder>."
+    )
+    implement_stop_publish_empty: str = "The run made no change to push."
     implement_boundary_end: str = "the end of the last group"
     implement_boundary_stop: str = "the stop of {step}"
     implement_comment_claimed: str = (

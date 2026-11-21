@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import pytest
 from pydantic_ai.messages import ModelResponse
@@ -349,8 +350,27 @@ PASS: dict[str, Any] = {
 FAIL: dict[str, Any] = {**PASS, "conclusion": "failure"}
 RUNNING: dict[str, Any] = {**PASS, "status": "in_progress", "conclusion": None}
 _PULL_API = f"api repos/{STAGE_REPO}/pulls/{PULL}"
-# The login of the session that the job acts as.
-_LOGIN = "test-bot"
+
+
+def run_clone() -> Path:
+    """The clone that `prepare` made for the run that is going on, in the run folder of the data
+    folder (#3702)."""
+    from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_RUNS_DIR
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    runs = resolve_data_path(load_settings().data.dir) / CONST_ROADMAP_IMPLEMENT_RUNS_DIR
+    (clone,) = runs.glob("*/work/model-clone")
+    return clone
+
+
+# The login of the session that the job acts as: the bot of the App, which writes the commits of
+# `publish` (#3702).
+_LOGIN = STAGE_NAME
+# The commits of the bot that `publish` puts on the branch of a drafted run: the work of the run,
+# and the archive (#3702).
+WORK_COMMIT = "fix(roadmap): the job drops a comment (#1)"
+ARCHIVE_COMMIT = "docs(openspec): archive the change (#1)"
 
 
 class PullFake:
@@ -391,6 +411,9 @@ class PullFake:
             github_json({"id": 1}, status=201),
         )
         api.route("GET", "/user", github_json({"login": _LOGIN}))
+        api.route(
+            "GET", f"/users/{quote(_LOGIN, safe='')}", github_json({"id": 1, "login": _LOGIN})
+        )
         api.route("PATCH", f"/repos/{STAGE_REPO}/issues/comments/1", github_json({"id": 1}))
         self.comments()
 
@@ -606,6 +629,11 @@ def _world(
     # The runner Job acts as the App, with a token for the one repository. The test mints no token.
     monkeypatch.setattr(
         "devops_cli.roadmap.implement.implement_run.acts_as_github_app", lambda: True
+    )
+    # The local `origin` stands for the repository on GitHub, which `prepare` clones and `publish`
+    # pushes to (#3702).
+    monkeypatch.setattr(
+        "devops_cli.roadmap.implement.implement_phases.CONST_GITHUB_CLONE_URL", str(repo.origin)
     )
     api, programs = github_api_and_gh
     # A full quota, so no request of the job waits for the reset of the quota.

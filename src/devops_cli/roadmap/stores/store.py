@@ -422,13 +422,10 @@ class ImplementRecordKey(StrEnum):
     named when it made the Job (#2912): the digest of the stop that the Job leaves. The Service
     keeps the digest clears of an item as a JSON list, and the time of the last comment of a clear
     (#3481); a clear of a stop does not remove them. The Service also keeps the count of the Jobs
-    that it started to continue a run that ended without a result (#3721). `implement.base`
-    holds where the item branch stood before the job pushed a checkpoint (#3677): the sha of the
-    branch for a Staged item, `new` for a Planned item. The job writes it once, and clears it at
-    the end of a drafted run and at a return to New. `implement.checked_sha` and
-    `implement.published_sha` hold the head that passed the scoped checks and the head that the job
-    pushed (#4070): a Job that starts at the same head skips that phase. The job clears both at the
-    end of a drafted run and at a return to New.
+    that it started to continue a run that ended without a result (#3721).
+    `implement.checked_sha` and `implement.published_sha` hold the commit that `publish` pushed
+    (#4070, #3702): an agent phase that starts at that head runs no scoped check. The job clears
+    both at the end of a drafted run and at a return to New.
     `implement.result` holds how the run of the job ended (`ImplementResult`, #4071). The job
     writes it as the last mark of its end and clears it in its first write, and the Service clears
     it when it records a new Job. `implement.check_log` and `implement.conflict` hold the stop of
@@ -453,7 +450,6 @@ class ImplementRecordKey(StrEnum):
     CHECK = "implement.check"
     CHECK_LOG = "implement.check_log"
     CONFLICT = "implement.conflict"
-    BASE = "implement.base"
     CHECKED_SHA = "implement.checked_sha"
     PUBLISHED_SHA = "implement.published_sha"
     RESULT = "implement.result"

@@ -243,8 +243,10 @@ def test_typed_result_a_new_run_clears_the_result_of_the_run_before(job_world: J
 
     _killed_in_group_two(job_world)
 
+    # `prepare` clears the result when it sets Status In Progress; the killed run wrote no mark
+    # of a group (#3702).
     status, record = _item(job_world)
-    assert (status, record.get("implement.group")) == ("In Progress", "1")
+    assert (status, record.get("implement.group")) == ("In Progress", None)
     assert _raw_record(job_world.store).get(RESULT) is None
 
 

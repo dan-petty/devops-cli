@@ -1,8 +1,8 @@
-"""The implement job keeps the phases that passed and the spend of a Job that was killed (#4070).
+"""The implement job keeps the phases that passed and the spend of the earlier Jobs (#4070).
 
 Git runs for real on a clone with an `origin`. The model is scripted, so the steps are real. GitHub's
-REST API and `gh` are faked at their edges. A Job that is killed raises a `BaseException` from the
-model: the pod is gone, so the job writes no stop and no comment.
+REST API and `gh` are faked at their edges. `publish` writes the record at the end of a run, so a
+Job that is killed keeps neither its groups nor its spend (#3702): an earlier spend is seeded.
 
 The keys of the record are written as text here, so that a module without the keys still collects
 and each test fails on its own assertion.
@@ -56,6 +56,18 @@ OLD_SPEND = json.dumps(
         "requests": 2,
         "input_tokens": CACHED + GROUP_TOKENS,
         "output_tokens": 0,
+        "steps": [{"step": "group 1", "first_request_tokens": REQUEST_TOKENS}],
+        "tiers": {},
+    }
+)
+
+# The spend of an earlier Job that ran group 1 with 2 requests.
+EARLIER_SPEND = json.dumps(
+    {
+        "requests": 2,
+        "input_tokens": GROUP_TOKENS,
+        "output_tokens": GROUP_NEW_TOKENS - GROUP_TOKENS,
+        "new_tokens": GROUP_NEW_TOKENS,
         "steps": [{"step": "group 1", "first_request_tokens": REQUEST_TOKENS}],
         "tiers": {},
     }
@@ -158,18 +170,6 @@ def _count(world: JobWorld, prefix: str) -> int:
 
 def _tip(world: JobWorld) -> str:
     return world.repo.origin_git("rev-parse", BRANCH)
-
-
-def _kill_in_group_two(world: JobWorld) -> None:
-    """Group 1 passes. The pod dies at the first request of group 2."""
-
-    def die() -> None:
-        raise PodKilled
-
-    script = ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), effects={3: die})
-    with pytest.raises(PodKilled) as killed:
-        world.run(script)
-    assert killed.type is PodKilled
 
 
 def _died_before_the_end(world: JobWorld) -> None:
@@ -323,47 +323,33 @@ def test_pr_comment_marker_a_rerun_with_no_new_outcome_posts_no_empty_comment(
     )
 
 
-def test_pr_comment_marker_a_next_run_posts_its_own_comment_for_its_own_outcomes(
-    job_world: JobWorld,
-) -> None:
-    """Group 1 passes in the first Job, which is killed. The second Job runs group 2 and posts
-    one comment with the marker of its own run, which holds the row of group 2 only."""
-    _mark(job_world, {ImplementRecordKey.JOB: JOB})
-    _kill_in_group_two(job_world)
-    _continue(job_world)
-
-    applied = job_world.run(_group_two())
-
-    (comment,) = _posted(job_world)
-    assert applied.drafted == (1,)
-    assert comment.splitlines()[:2] == [MARKER, RUN.format(job=NEXT_JOB)]
-    assert ("| group 2 | done |" in comment, "| group 1 |" in comment) == (True, False)
-
-
 # ── spend_survives_kill ───────────────────────────────────────────────────────────────────
 
 
-def test_spend_survives_kill_the_mark_of_a_passed_group_holds_the_spend(
-    job_world: JobWorld,
-) -> None:
-    _kill_in_group_two(job_world)
+def test_spend_survives_kill_a_job_that_is_killed_keeps_no_spend(job_world: JobWorld) -> None:
+    """The agent phase writes no record: a Job whose pod dies before `publish` leaves the spend of
+    the record as it was (#3702)."""
 
-    spend = _spend(job_world)
+    def die() -> None:
+        raise PodKilled
 
-    assert (spend["requests"], spend["input_tokens"]) == (2, GROUP_TOKENS)
-    assert spend["new_tokens"] == GROUP_NEW_TOKENS
+    script = ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), effects={3: die})
+    with pytest.raises(PodKilled) as killed:
+        job_world.run(script)
+
+    assert killed.type is PodKilled
+
+    assert _item(job_world)[1].get(SPEND) is None
 
 
 def test_spend_survives_kill_a_continuation_stops_at_the_item_budget_as_a_sum(
     job_world: JobWorld, config: Callable[..., Path]
 ) -> None:
-    """The budget is 300 new tokens. Group 1 spent 226 in the killed Job. A Job that starts from
-    zero would spend 208 on group 2 and finish. A Job that starts from the recorded 226 has spent
-    379 after its first request, so it makes no second request."""
+    """The budget is 300 new tokens, and an earlier Job spent 226. A Job that starts from the
+    recorded 226 is over the budget after its first request, so it makes no second request."""
     config(roadmap={"implement": {"item_token_budget": 300}})
-    _kill_in_group_two(job_world)
-    _continue(job_world)
-    script = _group_two()
+    _mark(job_world, {ImplementRecordKey.SPEND: EARLIER_SPEND})
+    script = two_groups()
 
     applied = job_world.run(script)
 
@@ -377,10 +363,9 @@ def test_spend_survives_kill_a_continuation_stops_at_the_item_budget_as_a_sum(
 
 
 def test_spend_survives_kill_a_stop_writes_the_sum_of_the_jobs(job_world: JobWorld) -> None:
-    _kill_in_group_two(job_world)
-    _continue(job_world)
+    _mark(job_world, {ImplementRecordKey.SPEND: EARLIER_SPEND})
 
-    applied = job_world.run(ModelScript(say("I could not do group 2.")))
+    applied = job_world.run(ModelScript(say("I could not do group 1.")))
 
     spend = _spend(job_world)
     assert applied.stopped == (1,)
@@ -390,18 +375,17 @@ def test_spend_survives_kill_a_stop_writes_the_sum_of_the_jobs(job_world: JobWor
 def test_spend_survives_kill_the_drafted_end_writes_the_sum_of_the_jobs(
     job_world: JobWorld,
 ) -> None:
-    _kill_in_group_two(job_world)
-    _continue(job_world)
+    _mark(job_world, {ImplementRecordKey.SPEND: EARLIER_SPEND})
 
-    applied = job_world.run(_group_two())
+    applied = job_world.run(two_groups())
 
     spend = _spend(job_world)
     steps = spend["steps"]
     assert isinstance(steps, list)
     assert applied.drafted == (1,)
-    assert (spend["requests"], spend["input_tokens"]) == (4, 2 * GROUP_TOKENS)
-    assert [step["step"] for step in steps] == ["group 1", "group 2"]
-    assert "4 model requests" in job_world.issue_comments()[0]
+    assert (spend["requests"], spend["input_tokens"]) == (6, 3 * GROUP_TOKENS)
+    assert [step["step"] for step in steps] == ["group 1", "group 1", "group 2"]
+    assert "6 model requests" in job_world.issue_comments()[0]
 
 
 def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(

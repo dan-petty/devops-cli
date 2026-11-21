@@ -1934,9 +1934,15 @@ class RoadmapCommandHelp:
         "misses, under 'Matched no filter'. Without it, the plan does not list them."
     )
     implement_rebase: str = (
-        "Rebase the staged branch onto origin/<default> before the first step and before the "
-        "push. --no-rebase skips the fetch and the rebase."
+        "Rebase the branch onto the tip of the default branch that prepare recorded, before the "
+        "first step. --no-rebase skips the rebase, and publish puts the work on the old tip."
     )
+    implement_phase: str = (
+        "The phase of the run, with --confirm and --item: prepare (the claim, the clone and the "
+        "Status, with no code of the pull request), agent (the steps, with no GitHub call), "
+        "publish (the patches, the draft and the record), or all (the three in one process)."
+    )
+    implement_work: str = "Run folder of a phase other than all: state/, work/ and out/."
     stage: str = (
         "Make Ready items Staged: for each item, push a branch with its OpenSpec change in one commit "
         "and open a draft plan pull request. The Service marks the draft ready when its checks pass. "

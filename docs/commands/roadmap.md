@@ -182,10 +182,12 @@ devops roadmap implement [OPTIONS]
 | `--dry-run` | `boolean` | - | Make no request and start no run: print the requests a step or a job makes, with placeholders. |
 | `--plan` | `boolean` | - | Read GitHub and git, and write nothing: print the items the job takes and those it leaves out. This is the mode when no flag is given. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then run the items. It runs steps only when roadmap.implement.in_runner is true. Outside a runner, with --item, it starts the runner Job for that item instead; without --item it refuses. |
-| `--rebase` / `--no-rebase` | `boolean` | `True` | Rebase the staged branch onto origin/\<default\> before the first step and before the push. --no-rebase skips the fetch and the rebase. |
+| `--rebase` / `--no-rebase` | `boolean` | `True` | Rebase the branch onto the tip of the default branch that prepare recorded, before the first step. --no-rebase skips the rebase, and publish puts the work on the old tip. |
 | `--why` | `boolean` | - | Also list the open items that the filter does not name, each with the family it misses, under 'Matched no filter'. Without it, the plan does not list them. |
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--wait` / `--no-wait` | `boolean` | `True` | Outside a runner: follow the Job's log and exit with its exit code. --no-wait prints the Job's name. |
+| `--phase` | `choice (prepare|agent|publish|all)` | `all` | The phase of the run, with --confirm and --item: prepare (the claim, the clone and the Status, with no code of the pull request), agent (the steps, with no GitHub call), publish (the patches, the draft and the record), or all (the three in one process). |
+| `--work` | `path` | - | Run folder of a phase other than all: state/, work/ and out/. |
 
 ---
 

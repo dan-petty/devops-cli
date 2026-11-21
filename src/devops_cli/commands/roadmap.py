@@ -83,6 +83,7 @@ from devops_cli.roadmap.intake.intake import (
 )
 from devops_cli.roadmap.intake.intake_model import build_intake_model
 from devops_cli.roadmap.intake.intake_requests import SpendMeter
+from devops_cli.roadmap.phases.names import RunPhase
 from devops_cli.roadmap.request_plan import render_dry_run
 from devops_cli.roadmap.stores import store as roadmap_store
 from devops_cli.roadmap.stores.listing_snapshot import intake_listing
@@ -788,10 +789,18 @@ def _implement_job(
     why: bool,
     context: str | None = None,
     wait: bool = True,
+    phase: RunPhase = RunPhase.ALL,
+    work: Path | None = None,
 ) -> None:
-    """Take the Staged and Planned items that the filter names to a ready pull request. Outside a
-    runner, `--confirm` and `--dry-run` with `--item` start the runner Job instead (#2913)."""
+    """Take the Staged and Planned items that the filter names to a draft pull request. Outside a
+    runner, `--confirm` and `--dry-run` with `--item` start the runner Job instead (#2913). A
+    phase other than `all` runs that phase of one item (#3702)."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if phase is not RunPhase.ALL:
+        if not confirm or work is None or item is None:
+            _refuse(MESSAGES.roadmap.implement_phase_options)
+        _implement_phase(repo, source, item, phase, work, rebase=rebase)
+        return
     from devops_cli.config.settings import load_settings
     from devops_cli.roadmap.implement.implement import (
         dry_run_implement,
@@ -835,6 +844,12 @@ def _implement_job(
     if confirm:
         with _exit_on_failure("Could not run the job"):
             require_runner(target)
+        from devops_cli.core import process_hardening
+
+        # The run starts the code of a pull request as the user of the Job, so the process is
+        # unreadable to its children before the plan starts one (#2667, #3702).
+        process_hardening.deny_environment_reads()
+        process_hardening.adopt_orphans()
     elif not plan_only:
         print_info(MESSAGES.roadmap.implement_job_plain_note)
     from devops_cli.roadmap.run import model_clone
@@ -887,6 +902,65 @@ def _implement_job(
         raise_for_failed(applied.failed)
 
 
+def _implement_phase(
+    repo: str | None,
+    source: Path | None,
+    item: int,
+    phase: RunPhase,
+    work: Path,
+    *,
+    rebase: bool,
+) -> None:
+    """One phase of the run of `item` on the run folder `work` (#3702). The process is unreadable
+    to its children before anything else. The agent phase holds the model key only, so it reads no
+    store and gets no plan; the other phases act as the App."""
+    from devops_cli.core import process_hardening
+
+    process_hardening.deny_environment_reads()
+    process_hardening.adopt_orphans()
+    from devops_cli.roadmap.implement import implement_phases as phases
+    from devops_cli.roadmap.implement.implement_run import require_agent_runner, require_runner
+    from devops_cli.roadmap.phases.files import RunFolders
+
+    folders = RunFolders(work)
+    target = _target(repo)
+    with _exit_on_failure("Could not run the phase"):
+        if phase is RunPhase.AGENT:
+            require_agent_runner()
+            from devops_cli.ai.client import get_llm_client
+            from devops_cli.ai.client.factory import get_task_model, get_tier_model
+            from devops_cli.config.settings import load_settings
+
+            tools = phases.AgentTools(
+                get_task_model("implement"),
+                load_settings().ai.for_task("implement").context_window,
+                get_tier_model,
+                get_llm_client(task="implement_split"),
+                get_llm_client(task="analysis"),
+                rebase,
+            )
+            phases.agent_implement(folders, tools)
+            return
+        require_runner(target)
+        _, store = _open_store(target)
+        if phase is RunPhase.PUBLISH:
+            phases.publish_phase(store, folders, repo=target, item=item)
+            return
+        from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
+        from devops_cli.roadmap.run import model_clone
+
+        plan = plan_implement(
+            store,
+            repo=target,
+            source=source or model_clone(target),
+            filters=parse_implement_filters(()),
+            item_number=item,
+            limit=1,
+        )
+        for selected in plan.selected:
+            phases.prepare_implement(store, target, selected, folders, rebase=rebase)
+
+
 @app.command("implement", help=HELP.roadmap.implement)
 def implement_cmd(
     repo: RepoOption = None,
@@ -924,6 +998,10 @@ def implement_cmd(
     wait: Annotated[
         bool, typer.Option("--wait/--no-wait", help=HELP.roadmap.implement_wait)
     ] = True,
+    phase: Annotated[
+        RunPhase, typer.Option("--phase", help=HELP.roadmap.implement_phase)
+    ] = RunPhase.ALL,
+    work: Annotated[Path | None, typer.Option("--work", help=HELP.roadmap.implement_work)] = None,
 ) -> None:
     """Run one task group of a Staged item's change (--group), or the job that implements items."""
     if group is None:
@@ -940,9 +1018,11 @@ def implement_cmd(
             why=why,
             context=context,
             wait=wait,
+            phase=phase,
+            work=work,
         )
         return
-    if filters or plan_only or confirm or why or not rebase:
+    if filters or plan_only or confirm or why or not rebase or phase is not RunPhase.ALL:
         _refuse(MESSAGES.roadmap.implement_step_job_options)
 
     from devops_cli.output.serialization import resolve_format

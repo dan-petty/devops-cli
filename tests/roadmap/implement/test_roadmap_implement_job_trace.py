@@ -127,18 +127,6 @@ def test_a_stopped_group_leaves_the_events_of_the_stop(job_world: JobWorld) -> N
     assert steps.count("group 1") > 0
 
 
-def test_the_record_after_group_one_holds_the_events_of_group_one(
-    job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    writes = _writes(job_world, monkeypatch)
-
-    job_world.run(two_groups())
-
-    first = next(w for w in writes if w.get(ImplementRecordKey.GROUP) == "1")
-    steps = {event.step for event in decode(first[ImplementRecordKey.TRACE] or "").events}
-    assert steps == {"group 1"}
-
-
 def test_a_new_run_clears_the_trace_of_the_last_run_before_its_first_step(
     job_world: JobWorld, monkeypatch: pytest.MonkeyPatch
 ) -> None:

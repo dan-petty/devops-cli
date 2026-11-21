@@ -1,68 +1,53 @@
-"""The writes of the implement job (#2665): the run of one Staged item from its first task group
-to a draft pull request with the final title and body, and the stop of an item that cannot get
-there.
+"""The agent phase of the implement job (#2665, #3702): the run of one item in its clone, from the
+rebase to the scoped checks, and the end of the run as data for `publish`.
+
+**The phases.** The job runs each item on three phases (`implement_phases.py`, ADR 0030):
+`prepare` and `publish` hold the App token and run no code of the pull request; the agent phase,
+which this module holds, has no GitHub credential and makes no GitHub call. `prepare` makes a plain
+clone of the issue branch and records the base and the lease. The agent phase rebases, runs the
+steps, the documents, the archive and the scoped checks, and gives its outcome to `publish`, which
+pushes two commits of the bot, writes the comments and the record, and sets the Status
+(`implement_report.py`). `apply_implement` runs the three phases in one process (`--phase all`).
 
 **Where it runs.** The job runs a step only when `roadmap.implement.in_runner` is true. The
 step's shell checks the first word of a command and is no security boundary, so the pod of a
 runner Job is the sandbox. The job clears the dumpable flag of its own process, so that the shell,
-a child of the same user, cannot read the job's environment (#2667). Every `git` command, every
-GitHub call and every `gh` call of the job runs in this process, never in the agent's shell. The
-process runner gives the session's token only to a `gh` child, in a private configuration folder,
-and to a `git` child that reaches a remote; a local `git` child (`git add`, `git commit`) and any
-other child (`uv`, `ruff`) get none. Each git call that reaches `origin` runs through `OriginGit`
-(`git_isolation.py`, GHSA): in a new git folder, with no configuration, hook or attribute file that
-the agent can write, after the job ends every leftover process (`end_leftover_processes`). The job
-also ends every process of a step when the step ends. A `shallow` file of the clone that is a link
-stops the item with the class `git_config`.
+a child of the same user, cannot read the job's environment (#2667). Every `git` command and every
+model call of the agent phase runs in this process, never in the agent's shell. The job ends every
+process of a step when the step ends.
 
-**One item.** The job takes over the staged branch in a worktree, sets Status In Progress and
-rebases onto the fetched default branch. It runs one step for each group that has an unticked
-task, regenerates the documentation, archives the change, rebases again and pushes with a lease.
-Each other push (the first push of a Planned item, a checkpoint and the push of a stop) also sends
-a commit that holds the default branch (`_current_tip`, #4380). Each push sends a commit
-(`<sha>:refs/heads/<branch>`) and moves the remote-tracking ref of the branch.
-Then it sets the title and the body of the draft pull request, comments the outcome of each step,
-records the result `drafted` and sets Status In Review. The run ends there (#6559): the job
-watches no check and never marks the pull request ready. The watch row of the Service marks the
-draft ready when its checks pass, and the fix-checks Jobs repair a failed check. It never merges.
+**One item.** The agent phase rebases the branch onto the tip of the default branch that `prepare`
+recorded, and settles each stop of the rebase as a developer does: it skips an archive commit,
+which the run makes again, and takes the generated documents and `uv.lock` of the default branch
+and makes them again. Another conflict aborts the rebase and stops the item with the class
+`conflict`; the model step for it is #6640. It runs one step for each group that has an unticked
+task, regenerates the documentation, archives the change and runs the scoped checks. It writes the
+why of the body of the pull request, with one rewrite of the model.
 
-**A Planned item** (#2714) has its plan on the default branch and no branch. The job makes the
-branch `<type>/<issue>-<slug>` at the fetched default branch, and goes on as above. A pull request
-needs a commit past its base, so the job publishes the branch at its first push (`_publish`): it
-pushes the branch, opens the draft, and records `implement.branch` and `implement.pr`. A stop before
-the first commit pushes nothing. A stop after it publishes what passed, so a retry finds the branch
-and the draft and takes them over as a Staged item.
+**A stop.** A step that stops, a conflict or a failed command stops the item: the agent phase
+drops the files that no commit holds (#4487), and `publish` pushes the commits that passed (also a
+stop in the scoped checks, #3645), comments the step, the reason and the last message of the agent,
+sets Status Blocked, and records `implement.stopped`. The comment starts with the class of the
+failure, the action taken and the action left (`failure.py`, #3065). It does not run the item again
+until a clear rule of the Service removes the stop: a person's comment `implement: retry`, a new
+runner image (`stop_clear.py`), or, for a Job that ended with no result, a continuation (#3721).
 
-**A stop.** A step that stops, a conflict or a failed command stops the item: the job drops the
-files that no commit holds (#4487) and pushes the commits that passed (also a stop in the scoped
-checks, #3645: the finished groups stay on the branch, and the draft stays a draft), comments the
-step, the reason and the last message of the agent, sets Status Blocked, and records
-`implement.stopped`. The comment starts with the class of the failure, the action taken and the
-action left (`failure.py`, #3065), and the class is recorded in `implement.failure`. It does not run the item again until a clear rule of the Service removes the
-stop: a person's comment `implement: retry`, a new runner image (`stop_clear.py`), or, for a Job
-that ended with no result, a continuation (#3721).
-
-**A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. The job
-reads the item before each unticked task group, when a step stops, and before the push. When an
-agent or a person holds it by then, the job ends the item at once: it pushes nothing, opens no
-pull request, comments why, and changes neither the Status nor the owner. The groups that passed stay in the
-worktree, which the job removes; the new owner starts from the branch on `origin`.
+**A claim** (#2910). The Service holds the item with `owner/service` while the Job runs. `prepare`
+reads the item before it clones, and `publish` before it writes and again right before the push.
+When an agent or a person holds it by then, the job ends the item at once: it pushes nothing,
+opens no pull request, comments why, and changes neither the Status nor the owner.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
-import textwrap
 import time
-from collections import Counter
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any, Final, NoReturn
+from typing import TYPE_CHECKING, Any, Final, NoReturn
 
 from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as ModelValidationError
@@ -74,23 +59,20 @@ from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
+    CONST_OPENSPEC_SPECS_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
     CONST_ROADMAP_IMPLEMENT_DIFF_CHARS,
-    CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS,
     CONST_ROADMAP_IMPLEMENT_OUTPUT_TAIL_LINES,
     CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
-    CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR,
-    CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app, run_subprocess
 from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
-    GitHubOperationError,
     GitHubUnauthenticatedError,
     GitOperationError,
     RoadmapImplementError,
@@ -99,26 +81,16 @@ from devops_cli.exceptions import (
     ToolExecutionError,
 )
 from devops_cli.exceptions.roadmap import GitSettingsError, OverWindowError
-from devops_cli.git.worktree_add import add_worktree
-from devops_cli.github.client import PullRequestFile
-from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
 from devops_cli.output import print_muted
-from devops_cli.roadmap.claim import claimed_by
-from devops_cli.roadmap.clone_git import default_branch, git
-from devops_cli.roadmap.commit_title import commit_type
+from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.failure import (
     FailureAction,
     FailureClass,
-    FailureEvidence,
     StepName,
-    classify_failure,
-    failure_lines,
-    left_action,
 )
 from devops_cli.roadmap.fence import code_fence
-from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
 from devops_cli.roadmap.implement.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement.implement_amend import (
     Amendment,
@@ -130,20 +102,12 @@ from devops_cli.roadmap.implement.implement_amend import (
 )
 from devops_cli.roadmap.implement.implement_base_replay import BaseStatus
 from devops_cli.roadmap.implement.implement_comments import StepComments
-from devops_cli.roadmap.implement.implement_disk import log_disk_use
 from devops_cli.roadmap.implement.implement_hooks import (
     commit_stage,
     install_hook_environments,
     trusted_config,
 )
 from devops_cli.roadmap.implement.implement_limits import BudgetExtension, ItemSpend, new_tokens
-from devops_cli.roadmap.implement.implement_pull import (
-    Answer,
-    ChangeFacts,
-    Draft,
-    DraftKind,
-    draft_readiness,
-)
 from devops_cli.roadmap.implement.implement_scoped_ci import (
     ScopedResult,
     ScopedTests,
@@ -152,9 +116,13 @@ from devops_cli.roadmap.implement.implement_scoped_ci import (
     scoped_checks,
 )
 from devops_cli.roadmap.implement.implement_shell_policy import shown
+
+if TYPE_CHECKING:
+    from devops_cli.roadmap.implement.implement_report import StopFacts
 from devops_cli.roadmap.implement.implement_step import (
     EarlierStop,
     FixRequest,
+    ItemReader,
     StepOutcome,
     StepStatus,
     TierSpend,
@@ -164,58 +132,42 @@ from devops_cli.roadmap.implement.implement_step import (
 )
 from devops_cli.roadmap.implement.implement_strength import (
     StrengthReport,
-    report_lines,
     scoped_result,
     strength_report,
 )
 from devops_cli.roadmap.implement.implement_trace import (
     ImplementTrace,
-    SummaryRow,
-    last_failing_command,
-    summary_table,
 )
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.premise import false_premises
 from devops_cli.roadmap.project_profile import ProjectProfile, ProjectStep, resolve_profile
-from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body, title_problems
-from devops_cli.roadmap.pull_labels import (
-    add_pull_labels,
-    declared_labels,
-    remove_pull_labels,
-    stale_labels,
-)
+from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, build_body
 from devops_cli.roadmap.pull_retry import GatewayPullBody, RefusedPullReply, retried_body
-from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
 from devops_cli.roadmap.stage.stage_change import (
     closing_keyword_in,
     criteria_section,
-    delivery_title,
     group_text,
     measure_groups,
-    plan_summary,
     safe_text,
 )
 from devops_cli.roadmap.stage.stage_criteria import StageCriterion, criterion_problems
 from devops_cli.roadmap.stage.stage_form import form_problems
 from devops_cli.roadmap.stage.stage_paths import StagedTree, path_problems
 from devops_cli.roadmap.stage.stage_split import ask_split
-from devops_cli.roadmap.status_sync import StatusFacts, write_status
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_text
 from devops_cli.roadmap.step_metrics import observe_implement
-from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ImplementResult,
-    Item,
-    OwnerQuestionRecordKey,
     RoadmapStore,
 )
-from devops_cli.roadmap.title_labels import title_labels
 from devops_cli.security.sanitizer import mask_secrets
 
 _WHY_HEADINGS = frozenset({"why"})
+# The message of the commit of the archive. `publish` keeps that commit apart (#3702).
+_ARCHIVE_MESSAGE: Final[str] = "docs(openspec): archive the change (#{number})"
 _SUMMARY_HEADINGS: Final[frozenset[str]] = frozenset({"summary"})
 _WHAT_CHANGES_HEADINGS: Final[frozenset[str]] = frozenset({"what changes"})
 _DOCS_EXTENSIONS: Final[frozenset[str]] = frozenset({".md"})
@@ -247,13 +199,13 @@ def plan_commit_type(paths: Iterable[str], issue_type: str | None) -> str | None
     return issue_type
 
 
-def proposal_summary(proposal_file: Path, section: str = "all") -> str | None:
-    """The summary from `proposal_file`: the first non-empty line of `## Summary` when
-    `section` is 'summary' or 'all', else the first bullet of `## What Changes` when
-    `section` is 'changes' or 'all', else None (#4127)."""
-    if not proposal_file.is_file():
+def proposal_summary(text: str | None, section: str = "all") -> str | None:
+    """The summary from `text`, the text of a `proposal.md`, or None when there is none: the first
+    non-empty line of `## Summary` when `section` is 'summary' or 'all', else the first bullet of
+    `## What Changes` when `section` is 'changes' or 'all', else None (#4127). `publish` reads the
+    text from the git objects of the new tree (#3702)."""
+    if text is None:
         return None
-    text = proposal_file.read_text(encoding="utf-8")
     if section in ("summary", "all") and (sec := section_text(text, _SUMMARY_HEADINGS)):
         body = sec.partition("\n")[2]
         first_line = next((line.strip() for line in body.splitlines() if line.strip()), None)
@@ -389,10 +341,24 @@ def _stopped_by(step: str, outcome: StepOutcome, *, check: str = "", log: str = 
     )
 
 
-def _conflict_files(output: str) -> list[str]:
-    """The paths that `git diff --name-only -z` lists, masked and escaped so that a secret or a
-    control character in a path does not leave the job (#3646)."""
-    return [shown(mask_secrets(path)) for path in output.split("\0") if path]
+def _unmerged(path: Path) -> list[str]:
+    """The paths that a stopped rebase left unmerged in the checkout `path`."""
+    listed = git(path, "diff", "--name-only", "--diff-filter=U", "-z", operation=GIT_OPERATION)
+    return [name for name in listed.split("\0") if name]
+
+
+def _made_again(status: str, path: str) -> bool:
+    """Whether the run makes the change of `path` again after a rebase: a file of the archive or
+    of the specs, which the archive writes, the removal of a file of a change folder, which the
+    archive moves, or a generated document. A rebase skips a commit that holds only such changes
+    (#3702): an archive commit, but not the plan commit, which adds the change folder."""
+    from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path
+
+    if path.startswith((f"{CONST_OPENSPEC_ARCHIVE_DIR}/", f"{CONST_OPENSPEC_SPECS_DIR}/")):
+        return True
+    if path.startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/"):
+        return status == "D"
+    return is_generated_docs_path(path)
 
 
 def _rebase_in_progress(path: Path) -> bool:
@@ -465,7 +431,7 @@ def _check_log_end(log: str) -> str:
     return text[-CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS:]
 
 
-def _diff_section(stop: _StopError) -> str:
+def _diff_section(stop: _StopError | StopFacts) -> str:
     """The diff of the discarded work of a stopped step as a fenced block of the stop comment, or
     nothing when there is none. The diff is text of the agent, so it is masked here again, at the
     point where it leaves for GitHub. The fence is `code_fence` of the diff."""
@@ -566,29 +532,6 @@ def _outcome_label(outcome: StepOutcome) -> str:
     return _step_label(outcome.group) if outcome.group else MESSAGES.roadmap.implement_step_fix
 
 
-@contextmanager
-def _worktree(source: Path, target: ImplementTarget, url: str) -> Iterator[Path]:
-    """The worktree on the staged branch, taken over from `origin`, or for a Planned item on the new
-    branch at the fetched default branch. Its reads of `origin` run through `OriginGit` at `url`.
-    The worktree and the local branch go when the block ends, so the clone keeps its HEAD and holds
-    no issue."""
-    parts = target.new_branch
-    report = add_worktree(
-        source,
-        issue=target.item.number,
-        type_=parts.type if parts else None,
-        slug=parts.slug if parts else None,
-        origin=OriginGit(source, url),
-    )
-    path = Path(report.path)
-    (path / CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR).mkdir(parents=True, exist_ok=True)
-    try:
-        yield path
-    finally:
-        git(source, "worktree", "remove", "--force", str(path), operation=GIT_OPERATION)
-        git(source, "branch", "-D", target.branch, operation=GIT_OPERATION)
-
-
 def _parse_tasks_criteria(tasks_md: str) -> list[StageCriterion]:
     if "## Criteria" not in tasks_md:
         return []
@@ -634,17 +577,19 @@ def _replace_criteria_section(tasks_md: str, new_criteria_sec: str) -> str:
 
 @dataclass
 class _ItemRun:
-    """The run of one item in its worktree."""
+    """The agent phase of one item in the clone that `prepare` made (#3702): the rebase, the steps,
+    the documents, the archive and the scoped checks. It holds no GitHub credential: it reads the
+    item from `store`, the item of the inputs, and writes nothing to GitHub. `onto` is the tip of
+    the default branch that `prepare` recorded."""
 
-    store: RoadmapStore
+    store: ItemReader
     repo: str
     path: Path
     target: ImplementTarget
     model: Any
     window: int
     default: str
-    # The network git calls of the item, at the URL of `origin` that the job read first (GHSA).
-    origin: OriginGit
+    onto: str = ""
     model_for_tier: Callable[[str], Any] | None = None
     splitter: Any = None
     rewriter: Any = None
@@ -664,40 +609,32 @@ class _ItemRun:
     trace: ImplementTrace = field(default_factory=ImplementTrace)
     _step: str = field(default="", init=False, repr=False)
     _profile: ProjectProfile | None = field(default=None, init=False, repr=False)
-    # The draft pull request: the target's, or for a Planned item the one `_publish` opens.
-    pull: int | None = field(init=False)
     # The spend of the earlier Jobs of the item, from `implement.spend` (#4070).
     earlier: _RecordedSpend = field(default_factory=_RecordedSpend, init=False)
-    # The heads that earlier Jobs and this Job checked and pushed (#4070), from the record.
+    # The head that an earlier Job checked (#4070), from the record.
     checked_sha: str | None = field(default=None, init=False)
-    published_sha: str | None = field(default=None, init=False)
-    # The comment of this run on the pull request: its id once it is posted or found, and whether
-    # the comments were listed already (#4070).
-    _comment_target: Target | None = field(default=None, init=False)
-    # The pull request that holds the delivery title, body and labels (#3991), so a second call
-    # writes nothing.
-    metadata_written: int | None = field(default=None, init=False)
     # The stop of the earlier Job, which the first step of the run gets once (#4071).
     handoff: EarlierStop | None = field(default=None, init=False)
-    returned: bool = False
-    checkpoints_off: bool = False
-    passed: bool = False
+    # The template of the comment of a return to New and its evidence (#5881): `publish` returns
+    # the item.
+    returned: str = ""
+    evidence: str = ""
+    # The why of the body of the pull request, with the rewrite of the model (#3215).
+    why: str = ""
     conflict_files: tuple[str, ...] = ()
     # The time at which the run of the item began, for the time limit of the item (#3053).
     started: float = field(default_factory=time.monotonic)
     # The strength report of the new tests of the item (#3051).
     strength: StrengthReport | None = None
-    # The comments of the item and the time at which its plan merged, read once for the steps of
-    # the run (#6167).
-    _comments: StepComments | None = field(default=None, init=False, repr=False)
+    # The comments of the item and the time at which its plan merged, which `prepare` read for the
+    # steps of the run (#6167).
+    comments: StepComments = field(default_factory=StepComments)
 
     def __post_init__(self) -> None:
-        self.pull = self.target.pull
         held = self.target.item.job_record
         if not self.target.retry and (recorded := held.get(ImplementRecordKey.SPEND)):
             self.earlier = _RecordedSpend.model_validate_json(recorded)
         self.checked_sha = held.get(ImplementRecordKey.CHECKED_SHA)
-        self.published_sha = held.get(ImplementRecordKey.PUBLISHED_SHA)
 
     # ── Small helpers ──
 
@@ -731,13 +668,6 @@ class _ItemRun:
     def _head(self) -> str:
         return self._git("rev-parse", "HEAD")
 
-    def _fresh(self) -> Item:
-        """The item as it is now: a field write refuses an item read before an earlier write."""
-        held = self.store.item(self.number)
-        if held is None:
-            raise RoadmapImplementError(MESSAGES.roadmap.item_left_not_item)
-        return held
-
     def _item_spend(self) -> ItemSpend:
         """What the steps of this run spent so far, for the budgets of the next step (#3053): the
         new tokens of the earlier Jobs and of the steps of this Job (#4387)."""
@@ -746,50 +676,6 @@ class _ItemRun:
     def _new_tokens(self) -> int:
         """The new tokens that the record of the earlier Jobs counts, and those of this Job."""
         return self.earlier.new_tokens + sum(new_tokens(o) for o in self.outcomes)
-
-    def _spend(self) -> str:
-        """The spend of every step of the item, itemized under the tier that served it (#3060), and
-        the input tokens of the first request of each step (#3499). The trace drops its oldest
-        events when it is long, so the size of a first request is kept here. It is the sum of the
-        earlier Jobs of the item and this Job (#4070)."""
-        tiers: dict[str, dict[str, int]] = {
-            tier: spend.model_dump() for tier, spend in self.earlier.tiers.items()
-        }
-        for outcome in self.outcomes:
-            for tier, spend in outcome.tier_spend.items():
-                held = tiers.setdefault(tier, TierSpend().model_dump())
-                held["requests"] += spend.requests
-                held["input_tokens"] += spend.input_tokens
-                held["cache_read_tokens"] += spend.cache_read_tokens
-                held["output_tokens"] += spend.output_tokens
-        return json.dumps(
-            {
-                "requests": self.earlier.requests + sum(o.requests for o in self.outcomes),
-                "input_tokens": self.earlier.input_tokens
-                + sum(o.input_tokens for o in self.outcomes),
-                "cache_read_tokens": self.earlier.cache_read_tokens
-                + sum(o.cache_read_tokens for o in self.outcomes),
-                "output_tokens": self.earlier.output_tokens
-                + sum(o.output_tokens for o in self.outcomes),
-                "new_tokens": self._new_tokens(),
-                "steps": [
-                    *self.earlier.steps,
-                    *(_step_spend(o) for o in self.outcomes),
-                ],
-                "tiers": tiers,
-            }
-        )
-
-    def _record(self, **marks: str | int | None) -> None:
-        keys = {
-            "group": ImplementRecordKey.GROUP,
-            "sha": ImplementRecordKey.SHA,
-            "spend": ImplementRecordKey.SPEND,
-            "repair_rounds": ImplementRecordKey.REPAIR_ROUNDS,
-        }
-        written: dict[Any, str | int | None] = {keys[name]: value for name, value in marks.items()}
-        written[ImplementRecordKey.TRACE] = self.trace.encode()
-        self.store.set_marks(self._fresh(), written)
 
     def _program(self, argv: Sequence[str]) -> None:
         """Run a command of the project in the worktree, outside any agent shell. Raises
@@ -843,13 +729,6 @@ class _ItemRun:
         if self._git("status", "--porcelain"):
             self._git("commit", "-q", "-m", message)
 
-    def _item_comments(self) -> StepComments:
-        """The comments of the item for each step of the run, read once: the first step reads
-        them, and the later steps and the fix steps get the same comments (#6167)."""
-        if self._comments is None:
-            self._comments = StepComments.read(self.store, self.number, self.path)
-        return self._comments
-
     def _active_change(self) -> Path | None:
         """The change folder of the item in the worktree, or None once it is archived."""
         folder = self.path / CONST_OPENSPEC_CHANGES_DIR
@@ -860,53 +739,25 @@ class _ItemRun:
     # ── The sequence ──
 
     def execute(self) -> None:
-        """Run the item from the first step to a draft pull request with the final title and body.
-        Raises `_StopError`."""
+        """Run the item from the rebase to the scoped checks and the why of the body of the pull
+        request. Raises `_StopError`."""
         self._start()
         self._groups()
         if self.returned:
             return
         self._finish_change()
-        self._require_unclaimed(MESSAGES.roadmap.implement_boundary_end)
-        self._delivery_metadata()
-        pull = self._push()
-        self._pull_request(pull)
-        self._require_complete(pull)
-        self._end_drafted(pull)
+        self._checks()
+        self.why = self._why()
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]
-        marks: dict[Any, str | None] = {
-            ImplementRecordKey.BRANCH: self.branch,
-            ImplementRecordKey.TRACE: None,
-        }
-        if self.pull is not None:
-            marks[ImplementRecordKey.PR] = str(self.pull)
-        if not self.target.item.job_record.get(ImplementRecordKey.BASE):
-            marks[ImplementRecordKey.BASE] = self._base()
         record = self.target.item.job_record
         self.handoff = _earlier_stop(
             record.get(ImplementRecordKey.CHECK_LOG), record.get(ImplementRecordKey.CONFLICT)
         )
-        marks[ImplementRecordKey.RESULT] = None
-        marks[ImplementRecordKey.CHECK_LOG] = None
-        marks[ImplementRecordKey.CONFLICT] = None
-        if self.target.retry:
-            marks[ImplementRecordKey.STOPPED] = None
-            marks[ImplementRecordKey.FAILURE] = None
-            marks[ImplementRecordKey.LEFT_ACTION] = None
-            marks[ImplementRecordKey.CHECK] = None
-            marks[ImplementRecordKey.SPEND] = None
-            marks[ImplementRecordKey.SPEND_COUNTED] = None
-        write_status(self.store, self._fresh(), StatusFacts(job_active=True), marks=marks)
         self._sync()
         self._bootstrap()
         self._install_hooks()
-
-    def _base(self) -> str:
-        if self.target.pull is None and not self.origin.heads(self.branch):
-            return "new"
-        return self._git("rev-parse", f"origin/{self.branch}")
 
     def _hooks_config(self) -> Path | None:
         """The configuration of the hooks as the default branch has it, or None when it has none.
@@ -956,21 +807,31 @@ class _ItemRun:
             raise _StopError(self.step, failure, push=False)
 
     def _sync(self) -> None:
-        """Fetch the default branch and rebase onto it. A conflict aborts the rebase, which puts the
-        branch back on its tip, and stops the item."""
+        """Rebase onto the tip of the default branch that `prepare` recorded. It makes no network
+        call: the clone of `prepare` holds that commit."""
         if not self.rebase:
             return
-        self.origin.fetch(self.default)
         self._rebase(self.path)
 
     def _rebase(self, path: Path) -> None:
-        """Rebase the checkout `path` onto `origin/<default>`. The conflict path of `_sync`. A
+        """Rebase the checkout `path` onto `onto`, the tip of `origin/<default>` that `prepare`
+        recorded, and settle each stop as a developer does (#3702): `git rebase --skip` for a
+        commit whose every path the run makes again (`_made_again`), and `git checkout --ours`
+        with a new generation for conflicts only in the generated documents and `uv.lock`. A
         rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
-        abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new worktree
-        (#4487). A rebase conflict aborts the rebase and raises `_StopError` with class `conflict`
-        and the conflicted files (#5615)."""
+        abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new clone
+        (#4487). A conflict that the rules do not settle aborts the rebase and raises `_StopError`
+        with class `conflict` and the conflicted files (#5615); the model step that settles it is
+        #6640."""
         try:
-            git(path, "rebase", f"origin/{self.default}", operation=GIT_OPERATION)
+            git(
+                path,
+                "rebase",
+                "--quiet",
+                self.onto or f"origin/{self.default}",
+                operation=GIT_OPERATION,
+            )
+            return
         except GitOperationError as exc:
             if not _rebase_in_progress(path):
                 raise _StopError(
@@ -981,70 +842,81 @@ class _ItemRun:
                     push=False,
                     failure_class=FailureClass.CI_INFRA,
                 ) from exc
-            timeout = load_settings().roadmap.implement.command_timeout_seconds
-            unmerged = run_subprocess(
-                [BIN_GIT, "-C", str(path), "diff", "--name-only", "--diff-filter=U", "-z"],
-                check=False,
-                quiet=True,
-                timeout=timeout,
-            )
-            files = _conflict_files(unmerged.stdout) if unmerged.returncode == 0 else []
-            from devops_cli.roadmap.steps.fix_conflict import fix_rebase_conflict
-
+            stopped = exc
+        while _rebase_in_progress(path):
             try:
-                settled = fix_rebase_conflict(
-                    path,
-                    repo=self.repo,
-                    item=self.number,
-                    default_branch=self.default,
-                    store=self.store,
-                )
-            except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
+                action = self._settle(path)
+            except _StopError:
+                self._abort(path)
                 raise
-            except (DevOpsCLIError, subprocess.TimeoutExpired) as error:
-                # The round gave the branch back its tip and recorded itself. A stop that pushes
-                # would rebase again and run tier 1, the code of the branch, a second time.
-                timed_out = isinstance(error, subprocess.TimeoutExpired)
-                raise _StopError(
-                    self.step,
-                    _error_stop(self.step, error).reason,
-                    push=False,
-                    failure_class=FailureClass.TIMEOUT if timed_out else _failure_class_of(error),
-                ) from error
-            if settled:
-                return
-            # The round of tier 1 aborts the rebase that it does not settle.
-            aborted = (
-                run_subprocess(
-                    [BIN_GIT, "-C", str(path), "rebase", "--abort"],
-                    check=False,
-                    quiet=True,
-                    timeout=timeout,
-                )
-                if _rebase_in_progress(path)
-                else None
-            )
-            texts = MESSAGES.roadmap
-            reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
-            if files:
-                reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
-            if aborted is not None and aborted.returncode != 0:
-                reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
-            raise _StopError(
-                self.step,
-                reason,
-                push=False,
-                failure_class=FailureClass.CONFLICT,
-                conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
-                repair_rounds=1,
-            ) from exc
+            if action is None:
+                self._stop_conflict(path, stopped)
+            try:
+                git(path, *action, operation=GIT_OPERATION)
+            except GitOperationError as exc:
+                stopped = exc
 
-    def _require_unclaimed(self, boundary: str) -> None:
-        """Raise `_ClaimedError` when an agent or a person holds the item now (#2910). The
-        Service's own claim holds nothing against the job."""
-        owner = claimed_by(self._fresh())
-        if owner is not None:
-            raise _ClaimedError(owner, boundary)
+    def _settle(self, path: Path) -> tuple[str, ...] | None:
+        """The git command that goes on with the rebase at its stop, or None when no rule settles
+        the stop."""
+        from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path, is_lockfile_path
+
+        listed = git(
+            path,
+            "show",
+            "--name-status",
+            "--no-renames",
+            "-z",
+            "--format=",
+            "REBASE_HEAD",
+            operation=GIT_OPERATION,
+        ).split("\0")
+        changes = list(zip(listed[0::2], listed[1::2], strict=False))
+        if changes and all(_made_again(status, name) for status, name in changes):
+            return ("rebase", "--skip")
+        unmerged = _unmerged(path)
+        if not unmerged or not all(
+            is_generated_docs_path(n) or is_lockfile_path(n) for n in unmerged
+        ):
+            return None
+        git(path, "checkout", "--ours", "--", *unmerged, operation=GIT_OPERATION)
+        if any(is_lockfile_path(name) for name in unmerged):
+            self._program([BIN_UV, "lock"])
+        if self.profile.preset.docs_step and any(is_generated_docs_path(n) for n in unmerged):
+            self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate"])
+        git(path, "add", "-A", operation=GIT_OPERATION)
+        return ("-c", "core.editor=true", "rebase", "--continue")
+
+    def _abort(self, path: Path) -> str:
+        """Abort the rebase: the output of a failed abort, or empty."""
+        timeout = load_settings().roadmap.implement.command_timeout_seconds
+        aborted = run_subprocess(
+            [BIN_GIT, "-C", str(path), "rebase", "--abort"],
+            check=False,
+            quiet=True,
+            timeout=timeout,
+        )
+        return "" if aborted.returncode == 0 else _tail(aborted.stderr)
+
+    def _stop_conflict(self, path: Path, exc: GitOperationError) -> NoReturn:
+        """Abort the rebase at a stop that no rule settles, and stop the item with the class
+        `conflict` and the conflicted files."""
+        files = [shown(mask_secrets(name)) for name in _unmerged(path)]
+        failed = self._abort(path)
+        texts = MESSAGES.roadmap
+        reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
+        if files:
+            reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
+        if failed:
+            reason += texts.implement_stop_abort_failed.format(output=failed)
+        raise _StopError(
+            self.step,
+            reason,
+            push=False,
+            failure_class=FailureClass.CONFLICT,
+            conflict_files=files[:CONST_ROADMAP_IMPLEMENT_REASON_PATHS],
+            repair_rounds=1,
+        ) from exc
 
     def _return_premise(self, request: PlanRequest) -> None:
         self._return_to_new(MESSAGES.roadmap.implement_comment_premise_failed, request.evidence)
@@ -1070,28 +942,10 @@ class _ItemRun:
         return True
 
     def _return_to_new(self, template: str, evidence: str) -> None:
-        """Return the item to New with a comment of `template`, and clear the record of the run.
-        The spend stays, so the report of the Job counts the tokens of the run. The report clears
-        the spend and its count (#5881)."""
-        self._withdraw()
-        evidence = mask_secrets(evidence.strip())[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS]
-        comment = template.format(marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=evidence)
-        apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
-        self.store.set_marks(
-            self._fresh(),
-            {
-                ImplementRecordKey.GROUP: None,
-                ImplementRecordKey.SHA: None,
-                ImplementRecordKey.BRANCH: None,
-                ImplementRecordKey.PR: None,
-                ImplementRecordKey.BASE: None,
-                ImplementRecordKey.SPEND: self._spend(),
-                ImplementRecordKey.CHECKED_SHA: None,
-                ImplementRecordKey.PUBLISHED_SHA: None,
-                ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,
-            },
-        )
-        self.returned = True
+        """End the run with a return of the item to New, with a comment of the template `template`
+        and `evidence`: `publish` returns the item (#5881)."""
+        self.returned = template
+        self.evidence = evidence
 
     def _raise_question(self, outcome: StepOutcome, reason: str) -> NoReturn:
         raise _StopError(
@@ -1306,14 +1160,10 @@ class _ItemRun:
             if group is None:
                 break
             self.step = _step_label(group.number)
-            self._require_unclaimed(
-                MESSAGES.roadmap.implement_boundary_group.format(group=group.number)
-            )
             if not premise_checked:
                 premise_checked = True
                 if self._check_premise(tasks):
                     return
-            self._checkpoint()
             try:
                 outcome = run_step(
                     self.store,
@@ -1329,7 +1179,7 @@ class _ItemRun:
                     spend=self._item_spend(),
                     recorded_tests=self._recorded_tests(),
                     earlier=self._take_earlier(),
-                    comments=self._item_comments(),
+                    comments=self.comments,
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)
@@ -1345,65 +1195,12 @@ class _ItemRun:
                         return
                     continue
                 raise _stopped_by(self.step, outcome)
-            self._record(
-                group=str(group.number),
-                sha=outcome.commit,
-                spend=self._spend(),
-                repair_rounds=sum(o.repair_rounds for o in self.outcomes),
-            )
-            self.passed = True
 
     def _take_earlier(self) -> EarlierStop | None:
         """The stop of the earlier Job for the step that runs now, and none for the steps after
         it: the first step either fixes the cause or stops (#4071)."""
         earlier, self.handoff = self.handoff, None
         return earlier
-
-    def _checkpoint(self) -> None:
-        """Push the groups that passed in this run, so that a killed runner loses none (#3677).
-        A rebase conflict pushes the head with a lease, and the run keeps its checkpoints (#5615).
-        A failed push goes to the log, and the run makes no more checkpoint pushes."""
-        if self.checkpoints_off or not self.passed:
-            return
-        if failed := self._push_passed():
-            self.checkpoints_off = True
-            print_muted(failed.strip(), to_stderr=True, safe=True)
-
-    def _withdraw(self) -> None:
-        """Take the groups that the checkpoints pushed off the item branch, before a return to New
-        (#3677). A Staged item gets the tip of `implement.base` back; a Planned item loses its
-        branch and its draft. Both pushes carry a lease on the tip that the job saw, so a push of a
-        person stays. A push that fails stops the item as Blocked and returns nothing."""
-        base = self._fresh().job_record.get(ImplementRecordKey.BASE)
-        if not base:
-            return
-        try:
-            if base == "new" and not self.origin.heads(self.branch):
-                return
-            tip = self._git("rev-parse", f"origin/{self.branch}")
-            if base == "new":
-                self.origin.push(self.branch, None, lease=tip)
-                if self.pull is not None:
-                    get_github_session().client.close_pull(self.repo, self.pull)
-            elif tip != base:
-                self.origin.push(self.branch, base, lease=tip)
-        except (GitOperationError, DevOpsCLIError) as exc:
-            reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
-                branch=self.branch, output=mask_secrets(str(exc))
-            )
-            raise _StopError(
-                self.step, reason, push=False, failure_class=_failure_class_of(exc)
-            ) from exc
-
-    def _kept_note(self, *, branch: bool = False) -> str:
-        """The part of the stop comment that says what the job kept and where: when `branch` says
-        that the groups finished, the branch and its last commit (#3645). Empty when the job kept
-        nothing to name."""
-        if not (branch and self._has_new_commits()):
-            return ""
-        return MESSAGES.roadmap.implement_stop_kept_branch.format(
-            branch=self.branch, sha=self._head()
-        )
 
     def _runs(self, step: ProjectStep) -> bool:
         """Whether the job runs `step`: the profile declares it. A step that it does not
@@ -1456,36 +1253,7 @@ class _ItemRun:
             ):
                 stop.failure_class = FailureClass.PLAN_DEFECT
             raise
-        self._commit_if_changed(f"docs(openspec): archive the change (#{self.number})")
-
-    def _push(self) -> int:
-        """Rebase onto the default branch again, run the scoped checks, rebase onto the default
-        branch to take the current tip, then push with a lease on the remote tip that the job has
-        seen (#4957), so a push of anyone else is never overwritten. A Planned item has no remote
-        tip yet: its first push publishes the branch. The job skips the checks at a head that
-        `implement.checked_sha` holds and the push at a head that `implement.published_sha` holds,
-        and writes each mark when its phase passes, so a Job that was killed does not repeat it
-        (#4070). The number of the pull request."""
-        self.step = MESSAGES.roadmap.implement_step_names["push"]
-        self._sync()
-        if self.checked_sha != self._head():
-            with observe_implement(self.repo, StepName.CHECKS):
-                self._scoped_checks()
-            self.checked_sha = self._head()
-            self.store.set_marks(self._fresh(), {ImplementRecordKey.CHECKED_SHA: self.checked_sha})
-        self.step = MESSAGES.roadmap.implement_step_names["push"]
-        tip = self._current_tip()
-        if self.pull is not None and self.published_sha == tip:
-            return self.pull
-        with observe_implement(self.repo, StepName.PUBLISH):
-            if self.pull is None:
-                pull = self._publish(tip)
-            else:
-                self._push_with_lease(tip)
-                pull = self.pull
-        self.published_sha = tip
-        self.store.set_marks(self._fresh(), {ImplementRecordKey.PUBLISHED_SHA: self.published_sha})
-        return pull
+        self._commit_if_changed(_ARCHIVE_MESSAGE.format(number=self.number))
 
     def _scoped_run(self) -> ScopedResult | None:
         """Run the scoped checks for the paths the item changed, and keep their results for the
@@ -1567,387 +1335,11 @@ class _ItemRun:
             self._fix(failed.name, failed.log)
             self._generate_docs()
 
-    def _push_with_lease(self, tip: str | None = None) -> None:
-        """Push `tip` (the head by default) with a lease on the remote tip that the job has seen."""
-        tip = tip or self._head()
-        remote = self._git("rev-parse", f"origin/{self.branch}")
-        if remote != tip:
-            self.origin.push(self.branch, tip, lease=remote)
-
-    def _current_tip(self) -> str:
-        """The commit to push, which holds `origin/<default>` (#4380). A run takes minutes, and the
-        default branch moves in that time. Between steps the checkout is clean, and a stop drops
-        what no commit holds first (`_drop_uncommitted`), so the job rebases it as `_sync` does. A
-        conflict aborts the rebase and raises `_StopError`, so `_push_passed` pushes the head with a
-        lease (#5615). The sync of `_push` stops the item with the same conflict."""
-        self._sync()
-        return self._head()
-
-    def _has_new_commits(self) -> bool:
-        return self._head() != self._git("rev-parse", f"origin/{self.default}")
-
-    def _publish(self, tip: str | None = None) -> int:
-        """The first push of a Planned item: push the new branch, open its draft pull request, and
-        record both. The first body already closes the delivered issue, so a stop
-        leaves a grounded draft (#3273); the final body comes after the archive. A draft that GitHub
-        refuses takes the branch off `origin` again, so no branch stays without a pull request, and
-        stops the item with nothing left to push."""
-        texts = MESSAGES.roadmap
-        title = self._delivery_title()
-        self.origin.push(self.branch, tip or self._head())
-        try:
-            from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
-
-            res = open_or_update(
-                OpenRequest(
-                    repo=self.repo,
-                    head=self.branch,
-                    base=self.default,
-                    title=title,
-                    body=texts.implement_pull_body_draft.format(number=self.number),
-                    kind="delivery",
-                    item=self.number,
-                    store=self.store,
-                    lookup_existing=False,
-                    retry_refused=False,
-                )
-            )
-            created_number = res.number
-        except DevOpsCLIError as exc:
-            self.origin.push(self.branch, None)
-            reason = texts.implement_stop_draft_failed.format(
-                branch=self.branch, output=mask_secrets(str(exc))
-            )
-            raise _StopError(self.step, reason, push=False) from exc
-        self.pull = created_number
-        self.store.set_marks(self._fresh(), {ImplementRecordKey.PR: str(created_number)})
-        return created_number
-
-    def _plan_summary(self) -> str | None:
-        """The summary of the plan of the item (#5341), from the subject of the newest commit of
-        the branch that adds the `proposal.md` of its change folder: the commit of the stage job
-        on a staged branch, or the squash commit of the plan pull request on the default branch.
-        None when that subject holds no plan title of the item, or no commit adds the file."""
-        proposal = f":(glob){CONST_OPENSPEC_CHANGES_DIR}/{self.number}-*/proposal.md"
-        subject = self._git("log", "-1", "--diff-filter=A", "--format=%s", "HEAD", "--", proposal)
-        return plan_summary(subject, self.number)
-
-    def _changed_paths(self) -> list[str]:
-        """The paths changed on the branch past the default branch."""
-        listed = self._git(
-            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
-        )
-        return [name for name in listed.split("\0") if name]
-
-    def _proposal_file(self) -> Path | None:
-        """The path to proposal.md in the archived change folder or the active change folder (#4127)."""
-        archived = self._archived_name()
-        if archived:
-            proposal = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "proposal.md"
-            if proposal.is_file():
-                return proposal
-        active = self._active_change()
-        if active is not None:
-            proposal = active / "proposal.md"
-            if proposal.is_file():
-                return proposal
-        return None
-
-    def _derived_delivery_title(self, declared: Collection[str]) -> str | None:
-        """The candidate title with type from changed paths and summary from proposal or plan (#4127)."""
-        prop = self._proposal_file()
-        summary = proposal_summary(prop, "summary") if prop is not None else None
-        if summary is None:
-            summary = self._plan_summary()
-        if summary is None and prop is not None:
-            summary = proposal_summary(prop, "changes")
-        if summary is None:
-            return None
-        changed = self._changed_paths()
-        issue_kind = commit_type(self.target.item.title)
-        kind = plan_commit_type(changed, issue_kind) if (changed and issue_kind) else issue_kind
-        return delivery_title(self.target.item.title, declared, summary, kind)
-
-    def _delivery_title(self) -> str:
-        """The title of the pull request: the type derived from the changed paths (#4127), with a
-        scope that `.github/labels.yml` declares on the default branch and no other (#2800), and
-        the summary of the proposal or plan (#4127, #5341). The summary of the title of the issue
-        stands in when the item has no plan title, or when the form refuses the derived title.
-        The check `Semantic PR title` counts the summary in UTF-16 units, so a long summary stops
-        the item before the job writes a title that the check refuses (#3292)."""
-        declared = declared_labels(self.store, ref=None)
-        candidate = self._derived_delivery_title(declared)
-        if candidate is not None and not title_problems(candidate, declared):
-            return candidate
-        title = delivery_title(self.target.item.title, declared)
-        problems = title_problems(title, declared)
-        if problems:
-            raise _StopError(
-                self.step,
-                MESSAGES.roadmap.implement_stop_title_refused.format(
-                    problems=" ".join(problems), title=title
-                ),
-                push=False,
-            )
-        return title
-
     def _archived_name(self) -> str:
         """The folder `openspec archive` made for the change: `<date>-<issue>-<slug>`."""
         folder = self.path / CONST_OPENSPEC_ARCHIVE_DIR
         pattern = f"[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-{self.number}-*"
         return next((p.name for p in sorted(folder.glob(pattern)) if p.is_dir()), "")
-
-    def _why(self, change: str, room: int) -> str:
-        """The "why" of the proposal in the folder `change` on one line, at most `room` characters
-        long. The title of the item stands in when the proposal has none, when its text is longer
-        than `room`, or when it holds a closing keyword for an issue, which would close that issue
-        when the pull request merges. The text is never cut: a cut text ends with `...` and reads
-        as a mistake."""
-        proposal = self.path / change / "proposal.md"
-        text = ""
-        if proposal.is_file():
-            section = section_text(proposal.read_text(encoding="utf-8"), _WHY_HEADINGS)
-            text = safe_text(section.partition("\n")[2])
-        if not text or len(text) > room or closing_keyword_in(text) is not None:
-            text = safe_text(self.target.item.title)
-        return text
-
-    def _body(self, change: str) -> str:
-        """The body of the pull request, in the form of `pull_form`: the why, `Closes #<issue>` and
-        the `Change:` line for the folder `change`. A body that breaks the form stops the item
-        before the job writes it."""
-        room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
-        why = self._why(change, room)
-
-        def _build(w: str) -> str:
-            return build_body(why=w, issue=self.number, change=change)
-
-        rewrite_fn = None
-        if self.rewriter is not None:
-            if hasattr(self.rewriter, "rewrite"):
-                rewrite_fn = self.rewriter.rewrite
-            elif hasattr(self.rewriter, "chat_structured"):
-                rewrite_fn = GatewayPullBody(client=self.rewriter).rewrite
-            elif callable(self.rewriter):
-                rewrite_fn = self.rewriter
-
-        try:
-            return retried_body(text=why, build=_build, rewrite=rewrite_fn)
-        except RefusedPullReply as exc:
-            problems = " ".join(exc.problems)
-            raise _StopError(
-                self.step,
-                MESSAGES.roadmap.implement_stop_body_refused.format(problems=problems),
-                failure_class=FailureClass.REFUSED_REPLY,
-                push=False,
-            ) from exc
-
-    def _delivery_metadata(self) -> None:
-        """Set the title and the body of the pull request, and replace its labels. The title has
-        the type of the issue and the summary of the plan (`_delivery_title`): the staging pull
-        request of a Staged item has the type `docs(openspec)` (#2714). The body is built with
-        `build_body`, so a body that breaks the form stops the item (#3215). The call follows the
-        archive and comes before every push of the archived change, so a stop in the scoped checks
-        never pushes the staging form (#3991). One pull request takes one write."""
-        pull = self.pull
-        if pull is None or self.metadata_written == pull:
-            return
-        self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
-        texts = MESSAGES.roadmap
-        archived = self._archived_name()
-        active = self._active_change()
-        if archived:
-            change = f"{CONST_OPENSPEC_ARCHIVE_DIR}/{archived}"
-        elif active is not None:
-            # A project that declares no archive step keeps the active folder.
-            change = f"{CONST_OPENSPEC_CHANGES_DIR}/{active.name}"
-        else:
-            # No folder: the body has no `Change:` line to name, and the step `ready` stops the
-            # item and says that the change is missing.
-            return
-        body = self._body(change)
-        client = get_github_session().client
-        before = client.get_pull(self.repo, pull)
-        delivery_title = self._delivery_title()
-        client.update_pull(self.repo, pull, title=delivery_title, body=body)
-        try:
-            declared = declared_labels(self.store, ref=None)
-            old = title_labels(before.title, declared)
-            new = title_labels(delivery_title, declared)
-            stale = list(stale_labels(before.labels, old, new))
-            if new.type_label:
-                for label in before.labels:
-                    if label.startswith("type/") and label != new.type_label and label not in stale:
-                        stale.append(label)
-            add_pull_labels(self.store, pull, new.labels)
-            remove_pull_labels(self.store, pull, tuple(stale))
-        except GitHubUnauthenticatedError:
-            raise
-        except GitHubOperationError as exc:
-            post(
-                Target(self.repo, pull, client=client),
-                CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-                f"labels-failed-{pull}",
-                f"{CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER}\nlabels-failed-{pull}\n\n{texts.implement_pull_labels_failed.format(error=exc)}",
-            )
-        self.metadata_written = pull
-
-    def _pull_request(self, pull: int) -> None:
-        """Write the delivery metadata (`_delivery_metadata`) and then the comment of the steps on
-        the pull request."""
-        self._delivery_metadata()
-        self._comment(pull)
-
-    def _comment(self, pull: int, *, stopped: str = "") -> None:
-        """Write the comment of this run on the pull request: the table of the steps of this Job,
-        the amendments, the skipped steps, the scoped runs, the strength and check lines, and the
-        notes. A stop gives `stopped`, the line that links the stop comment on the issue (#3997),
-        in place of the table: the stop comment holds the table and the rest of the stop report,
-        once (#6194). A run has one comment, that the second line marks with the run id (#4070).
-        The first write posts it, and a later write changes it, so a repair round shows in the
-        same comment. A Job with nothing to show writes nothing, so a rerun does not post an empty
-        comment and does not hide the table of the run before."""
-        texts = MESSAGES.roadmap
-        table = "" if stopped else summary_table(self._row(outcome) for outcome in self.outcomes)
-        amend_lines = [amendment.line() for amendment in self.amendments]
-        scoped_lines = self._scoped_lines()
-        strength_lines = report_lines(self.strength) if self.strength is not None else []
-        skipped_lines = [
-            texts.implement_pull_comment_skipped.format(
-                step=step.value, file=CONST_ROADMAP_IMPLEMENT_STEPS_FILE
-            )
-            for step in self.skipped_steps
-        ]
-        lines = "\n".join(
-            [
-                *self._tool_lines(),
-                *amend_lines,
-                *skipped_lines,
-                *scoped_lines,
-                *strength_lines,
-                *self._check_lines(),
-                *self._comment_lines(),
-            ]
-        )
-        body = "\n\n".join(part for part in (stopped, table, lines) if part)
-        if not body:
-            return
-        run = texts.implement_pull_comment_run.format(
-            run=self.target.item.job_record.get(ImplementRecordKey.JOB) or _MANUAL_RUN
-        )
-        comment = texts.implement_pull_comment.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, run=run, lines=body
-        )
-        client = get_github_session().client
-        if self._comment_target is None or self._comment_target.number != pull:
-            self._comment_target = Target(self.repo, pull, client=client)
-        post(
-            self._comment_target,
-            CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-            run,
-            comment,
-        )
-
-    def _tool_lines(self) -> list[str]:
-        """The line of the comment that names each tool that the steps of this run called, with its count
-        (#3148). A run whose steps called none has no line."""
-        totals: Counter[str] = Counter()
-        for outcome in self.outcomes:
-            totals.update(outcome.tool_counts)
-        if not totals:
-            return []
-        tools = ", ".join(f"{tool} {count}" for tool, count in totals.most_common())
-        return [MESSAGES.roadmap.implement_pull_comment_tools.format(tools=tools)]
-
-    def _comment_lines(self) -> list[str]:
-        """The line that names each comment of the item that the inputs of a step of this run held
-        whole, each once, in the order of the steps (#6167). A run whose inputs held none has no
-        line."""
-        names = dict.fromkeys(name for outcome in self.outcomes for name in outcome.comments)
-        if not names:
-            return []
-        return [MESSAGES.roadmap.implement_pull_comments_used.format(names=", ".join(names))]
-
-    def _check_lines(self) -> list[str]:
-        """The lines of the checks of the outcomes (#3042): the fail-to-pass result of
-        each behavior group, and the output of each verify command of a group of kind `other`."""
-        texts = MESSAGES.roadmap
-        lines: list[str] = []
-        for outcome in self.outcomes:
-            if (replay := outcome.fail_to_pass) is not None:
-                lines.append(
-                    texts.implement_pull_fail_to_pass.format(
-                        group=outcome.group,
-                        status=_base_status_text(replay.status),
-                        failed=", ".join(replay.failed) or texts.implement_pull_fail_to_pass_none,
-                    )
-                )
-                continue
-            lines.extend(
-                texts.implement_pull_verified.format(
-                    group=outcome.group,
-                    command=check.command,
-                    status=check.status,
-                    fence=code_fence(check.output),
-                    output=check.output,
-                )
-                for check in outcome.verified
-            )
-        return lines
-
-    def _scoped_lines(self) -> list[str]:
-        """One line for each run of a scoped check: its name, its result and its
-        seconds. Then one line for each note on the tests check."""
-        texts = MESSAGES.roadmap
-        runs = [
-            texts.implement_pull_comment_scoped.format(
-                name=result.name,
-                result=texts.implement_scoped_passed
-                if result.passed
-                else texts.implement_scoped_failed,
-                seconds=result.seconds,
-            )
-            for result in self.scoped
-        ]
-        notes = [
-            texts.implement_pull_comment_scoped_note.format(note=note) for note in self.scoped_notes
-        ]
-        return [*runs, *notes]
-
-    def _row(self, outcome: StepOutcome) -> SummaryRow:
-        """The row of the table for a step: its attempts are the first turn and the repair
-        rounds, and its last failing command is in the trace."""
-        step = _outcome_label(outcome)
-        return SummaryRow(
-            step=step,
-            status=outcome.status.value,
-            attempts=1 + outcome.repair_rounds,
-            tokens_in=outcome.input_tokens,
-            tokens_out=outcome.output_tokens,
-            command=last_failing_command(self.trace.events, step),
-        )
-
-    def _stop_table(self, stop: _StopError) -> str:
-        """The table of every step of the run for the stop comment. The step that stopped is in
-        it, with the name of the failed check of the pull request when no command failed. A stop
-        that has no outcome, as a command of the job, a push or the checks, gets a row of its
-        own, with the repair rounds of the stop as its attempts."""
-        rows = [self._row(outcome) for outcome in self.outcomes]
-        failing = last_failing_command(self.trace.events, stop.step, stop.check)
-        if rows and rows[-1].step == stop.step and self.outcomes[-1].status is StepStatus.STOPPED:
-            rows[-1] = replace(rows[-1], command=failing)
-        else:
-            rows.append(
-                SummaryRow(
-                    step=stop.step,
-                    status=StepStatus.STOPPED.value,
-                    attempts=1 + stop.repair_rounds,
-                    tokens_in=0,
-                    tokens_out=0,
-                    command=failing,
-                )
-            )
-        return summary_table(rows)
 
     def _fix(self, check: str, log: str) -> None:
         self.step = MESSAGES.roadmap.implement_step_fix
@@ -1964,236 +1356,87 @@ class _ItemRun:
             trace=self.trace,
             spend=self._item_spend(),
             recorded_tests=self._recorded_tests(),
-            comments=self._item_comments(),
+            comments=self.comments,
         )
         self.outcomes.append(outcome)
         if outcome.status is StepStatus.STOPPED:
             raise _stopped_by(self.step, outcome, check=check, log=log)
 
-    def _require_complete(self, pull: int) -> None:
-        """Stop the item when `draft_readiness` refuses the draft `pull` with no check runs, as the
-        step `ready` did before the run ended at the draft (#6559): the change is present, each
-        group is ticked, it is archived where the target requires it, and a change of the stage
-        prompt holds its eval scores. The checks of the pull request stay with the watch row."""
-        self.step = MESSAGES.roadmap.implement_step_names["ready"]
-        status = get_github_session().client.get_pull_status(self.repo, pull)
+    def _checks(self) -> None:
+        """Run the scoped checks, unless an earlier Job checked this head (`implement.checked_sha`,
+        #4070)."""
+        if self.checked_sha == self._head():
+            return
+        with observe_implement(self.repo, StepName.CHECKS):
+            self._scoped_checks()
+
+    def _why(self) -> str:
+        """The why of the body of the pull request (#3215): the "why" of the proposal on one line,
+        or the title of the item when the proposal has none, when it is too long, or when it holds
+        a closing keyword. A why that breaks the form of the body gets one rewrite of the model.
+        `publish` checks the why again, and builds the body itself. A change with no folder has no
+        body, and the step `ready` of `publish` stops the item."""
         archived = self._archived_name()
         active = self._active_change()
-        change: ChangeFacts | None = None
         if archived:
-            tasks_path = self.path / CONST_OPENSPEC_ARCHIVE_DIR / archived / "tasks.md"
-            tasks_text = tasks_path.read_text(encoding="utf-8") if tasks_path.is_file() else ""
-            change = ChangeFacts(archived=True, tasks_text=tasks_text)
+            change = f"{CONST_OPENSPEC_ARCHIVE_DIR}/{archived}"
         elif active is not None:
-            active_tasks = active / "tasks.md"
-            tasks_text = active_tasks.read_text(encoding="utf-8") if active_tasks.is_file() else ""
-            change = ChangeFacts(
-                archived=False,
-                tasks_text=tasks_text,
-                archive_required=bool(
-                    self.profile.preset.archive_argv
-                    and uses_openspec(self.path, f"origin/{self.default}", operation=GIT_OPERATION)
-                ),
-            )
-        listed = self._git(
-            "diff", "--name-only", "--diff-filter=ACMR", "-z", f"origin/{self.default}", "HEAD"
-        )
-        changed = tuple(
-            PullRequestFile(filename=name, status="modified") for name in listed.split("\0") if name
-        )
-        draft = Draft(
-            kind=DraftKind.IMPLEMENT,
-            pull=status,
-            item=self.target.item,
-            change=change,
-            files=changed,
-        )
-        readiness = draft_readiness(draft)
-        if readiness.answer is not Answer.READY:
-            raise _StopError(self.step, readiness.reason)
+            change = f"{CONST_OPENSPEC_CHANGES_DIR}/{active.name}"
+        else:
+            return ""
+        self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
+        room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
+        proposal = self.path / change / "proposal.md"
+        text = ""
+        if proposal.is_file():
+            section = section_text(proposal.read_text(encoding="utf-8"), _WHY_HEADINGS)
+            text = safe_text(section.partition("\n")[2])
+        if not text or len(text) > room or closing_keyword_in(text) is not None:
+            text = safe_text(self.target.item.title)
+        accepted: list[str] = []
 
-    def _end_drafted(self, pull: int) -> None:
-        """End the run at the draft pull request `pull` (#6559): record the result `drafted`, set
-        Status In Review and comment the spend on the item. The job watches no check and marks
-        nothing ready. In mode `on` of `roadmap.fix_checks.mode`, the watch row marks the draft
-        ready when its checks pass, and a fix-checks Job repairs a failed check of a class in
-        FIX_CHECK_CLASSES; in each other case the row stops the item."""
-        marks: dict[Any, str | int | None] = {
-            ImplementRecordKey.SHA: self._head(),
-            ImplementRecordKey.PR: str(pull),
-            ImplementRecordKey.SPEND: self._spend(),
-            ImplementRecordKey.TRACE: self.trace.encode(),
-            ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes),
-            ImplementRecordKey.BASE: None,
-            ImplementRecordKey.CHECKED_SHA: None,
-            ImplementRecordKey.PUBLISHED_SHA: None,
-            ImplementRecordKey.RESULT: ImplementResult.DRAFTED.value,
-        }
-        write_status(self.store, self._fresh(), StatusFacts(pull_ready=True), marks=marks)
-        spend = json.loads(self._spend())
-        self.store.comment(
-            self.number,
-            MESSAGES.roadmap.implement_comment_finished.format(
-                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-                pull=pull,
-                extensions=_extension_section(spend["steps"]),
-                **spend,
-            ),
-        )
+        def _build(why: str) -> str:
+            body = build_body(why=why, issue=self.number, change=change)
+            accepted.append(why)
+            return body
+
+        try:
+            retried_body(text=text, build=_build, rewrite=self._rewrite())
+        except RefusedPullReply as exc:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.implement_stop_body_refused.format(
+                    problems=" ".join(exc.problems)
+                ),
+                failure_class=FailureClass.REFUSED_REPLY,
+                push=False,
+            ) from exc
+        return accepted[-1]
+
+    def _rewrite(self) -> Callable[[str, Sequence[str]], str] | None:
+        """The rewrite of a why that breaks the form, from the rewriter of the run."""
+        if self.rewriter is None:
+            return None
+        if hasattr(self.rewriter, "rewrite"):
+            return self.rewriter.rewrite  # type: ignore[no-any-return]
+        if hasattr(self.rewriter, "chat_structured"):
+            return GatewayPullBody(client=self.rewriter).rewrite
+        return self.rewriter if callable(self.rewriter) else None
+
+    def archive_split(self, base: str) -> str | None:
+        """The commit before the newest archive commit of the item past `base`, or None when the
+        run holds none. The archive stays its own commit when `publish` pushes (#3702)."""
+        subject = _ARCHIVE_MESSAGE.format(number=self.number)
+        listed = self._git("log", "--format=%H%x1f%s", f"{base}..HEAD")
+        for line in listed.splitlines():
+            sha, _, title = line.partition("\x1f")
+            if title == subject:
+                return self._git("rev-parse", f"{sha}^")
+        return None
 
     # ── The end for a claim ──
 
-    def yield_to(self, claimed: _ClaimedError) -> None:
-        """Tell the item why the run ended. Nothing is pushed and no pull request is opened, and
-        the Status and the owner stay as the new owner has them."""
-        self.store.comment(
-            self.number,
-            MESSAGES.roadmap.implement_comment_claimed.format(
-                marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-                owner=claimed.owner,
-                boundary=claimed.boundary,
-            ),
-        )
-        self.store.set_marks(
-            self._fresh(), {ImplementRecordKey.RESULT: ImplementResult.YIELDED.value}
-        )
-
-    def end_stopped(self, stop: _StopError) -> ImplementResult:
-        """End a run that a step stopped. A claim that came while the step ran is the end of the
-        run at this boundary: the stop pushes nothing then, opens no pull request and sets no
-        Status (#2910)."""
-        try:
-            self._require_unclaimed(MESSAGES.roadmap.implement_boundary_stop.format(step=stop.step))
-        except _ClaimedError as claimed:
-            self.yield_to(claimed)
-            return ImplementResult.YIELDED
-        self.stop(stop)
-        return ImplementResult.STOPPED
-
     # ── The stop ──
-
-    def stop(self, stop: _StopError) -> None:
-        """Push what passed, tell the item why, set it Blocked, and record the step. A `shallow` file
-        of the clone that is a link stops the push, and the class of the stop is `git_config`.
-        First it writes the disk use of the home volume at the step to the Job log (#6076). The
-        stop comment on the issue is the one copy of the stop report; the comment of the run on
-        the pull request links it (#6194)."""
-        log_disk_use(self.path, stop.step)
-        texts = MESSAGES.roadmap
-        try:
-            note = self._push_passed(at_stop=True) if stop.push else ""
-        except GitSettingsError as exc:
-            note = texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
-            stop.failure_class = FailureClass.GIT_CONFIG
-        if stop.push and not note:
-            note = self._kept_note(branch=stop.kept_branch)
-        last = safe_text(mask_secrets(stop.last_message))[
-            :CONST_ROADMAP_IMPLEMENT_LAST_MESSAGE_CHARS
-        ]
-        reason = textwrap.indent(
-            mask_secrets(stop.reason).strip()[:CONST_ROADMAP_IMPLEMENT_REASON_CHARS], "    "
-        )
-        klass = (
-            stop.failure_class
-            if stop.failure_class is not None
-            else classify_failure(
-                FailureEvidence(
-                    text=stop.reason,
-                    exit_status=stop.status,
-                    check=stop.check,
-                    log=stop.check_log,
-                )
-            )
-        )
-        check = shown(
-            mask_secrets(stop.check or last_failing_command(self.trace.events, stop.step) or ""),
-            CONST_ROADMAP_IMPLEMENT_REASON_CHARS,
-        )
-        check_log = _check_log_end(stop.check_log)
-        question = (
-            _plan_defect_question(stop.step, check, self.target.item.url)
-            if klass is FailureClass.PLAN_DEFECT
-            else None
-        )
-        taken: FailureAction | None = None
-        if stop.tier_changes:
-            taken = FailureAction.CHANGE_TIER
-        elif stop.repair_rounds:
-            taken = FailureAction.REPAIR
-        elif any(_step_label(a.group) == stop.step for a in self.amendments):
-            taken = FailureAction.AMEND
-        left = stop.action_left if stop.action_left is not None else left_action(klass, taken)
-        spend = self._spend()
-        print_muted(
-            texts.implement_failure_trace.format(
-                failure_class=klass.value,
-                left=left.value,
-            )
-        )
-        question_marks = self._ask(question)
-        stopped = texts.implement_comment_stopped.format(
-            marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
-            step=stop.step,
-            check=_check_section(check, check_log),
-            failure=failure_lines(
-                klass,
-                repair_rounds=stop.repair_rounds,
-                taken=taken,
-                left=left,
-                tier_changes=stop.tier_changes,
-            ),
-            table=self._stop_table(stop),
-            extensions=_extension_section(json.loads(spend)["steps"]),
-            reason=reason,
-            last=last or texts.implement_comment_last_none,
-            diff=_diff_section(stop),
-            note=note,
-        )
-        # The issue comment comes first, so the comment of the run can link it (#6194).
-        posted = self.store.comment(self.number, stopped)
-        if self.pull is not None:
-            self._comment(
-                self.pull,
-                stopped=texts.implement_pull_comment_stopped.format(
-                    step=stop.step, issue=self.number, url=posted.url or self.target.item.url
-                ),
-            )
-        marks: dict[Any, str | int | None] = {
-            ImplementRecordKey.STOPPED: stop.step,
-            ImplementRecordKey.FAILURE: klass.value,
-            ImplementRecordKey.LEFT_ACTION: left.value,
-            ImplementRecordKey.CHECK: check or None,
-            ImplementRecordKey.CHECK_LOG: check_log or None,
-            ImplementRecordKey.CONFLICT: json.dumps(
-                list(stop.conflict_files or self.conflict_files)
-            )
-            if (stop.conflict_files or self.conflict_files)
-            else None,
-            ImplementRecordKey.SPEND: spend,
-            ImplementRecordKey.TRACE: self.trace.encode(),
-            ImplementRecordKey.REPAIR_ROUNDS: sum(o.repair_rounds for o in self.outcomes)
-            + stop.repair_rounds,
-        }
-        if self.pull is not None:
-            marks[ImplementRecordKey.PR] = str(self.pull)
-        marks.update(question_marks)
-        marks[ImplementRecordKey.RESULT] = ImplementResult.STOPPED.value
-        write_status(self.store, self._fresh(), StatusFacts(stopped=True), marks=marks)
-
-    def _ask(self, question: OwnerQuestion | None) -> dict[Any, str | int | None]:
-        """Post the owner-question frame of a stop that needs an owner decision, and give the marks
-        that record it (#3077): the hash, the question and no answer, so the inbox lists the
-        question as open and a trusted reply resumes the item. No question gives no mark, so a stop
-        of another class leaves the question that the item already asks as it is. The step asks one
-        question and ends, so the run posts one frame."""
-        if question is None:
-            return {}
-        self.store.comment(self.number, question.render())
-        return {
-            OwnerQuestionRecordKey.HASH: question.hash,
-            OwnerQuestionRecordKey.TEXT: question.question,
-            OwnerQuestionRecordKey.ANSWER: None,
-        }
 
     def _drop_uncommitted(self) -> None:
         """Put the checkout back at its head, before the push of a stop (#4487). A project program
@@ -2202,55 +1445,6 @@ class _ItemRun:
         and git does not rebase a checkout that holds changes."""
         self._git("reset", "-q", "--hard", "HEAD")
         self._git("clean", "-fdq")
-
-    def _push_head_after_conflict(self, exc: _StopError) -> str:
-        """Push the head of the checkout after a rebase conflict (#5615). It keeps every passed
-        group on origin behind a lease, records the conflicting paths in `implement.conflict`,
-        and prints the conflict to stderr."""
-        texts = MESSAGES.roadmap
-        self.conflict_files = exc.conflict_files
-        self.store.set_marks(
-            self._fresh(),
-            {ImplementRecordKey.CONFLICT: json.dumps(list(exc.conflict_files))},
-        )
-        print_muted(mask_secrets(exc.reason).strip(), to_stderr=True, safe=True)
-        try:
-            if self.pull is not None:
-                self._push_with_lease()
-            else:
-                self._publish()
-        except (GitOperationError, _StopError) as err:
-            output = err.reason if isinstance(err, _StopError) else str(err)
-            return texts.implement_stop_push_failed.format(output=mask_secrets(output))
-        return ""
-
-    def _push_passed(self, *, at_stop: bool = False) -> str:
-        """Push the commits of the steps that passed, on a branch that holds the default branch
-        (`_current_tip`). A Planned item with a commit publishes its branch and opens its draft;
-        with none, nothing is pushed. A rebase conflict aborts the rebase, pushes the head with a
-        lease, records the conflicting paths in `implement.conflict`, and returns an empty text
-        (#5615). `at_stop` is true for the push of a stop, which drops what no commit holds first.
-        The text to add to the comment when the push fails, else empty. A `shallow` file of the
-        clone that is a link raises `GitSettingsError`: the item stops with the class `git_config`,
-        and the job writes no record of the push first."""
-        texts = MESSAGES.roadmap
-        try:
-            if self.pull is None and not self._has_new_commits():
-                return ""
-            if at_stop:
-                self._drop_uncommitted()
-            tip = self._current_tip()
-            if self.pull is not None:
-                self._push_with_lease(tip)
-            else:
-                self._publish(tip)
-        except GitOperationError as exc:
-            return texts.implement_stop_push_failed.format(output=mask_secrets(str(exc)))
-        except _StopError as exc:
-            if exc.failure_class is FailureClass.CONFLICT:
-                return self._push_head_after_conflict(exc)
-            return texts.implement_stop_push_failed.format(output=mask_secrets(exc.reason))
-        return ""
 
 
 def _earlier_stop(check_log: str | None, conflict: str | None) -> EarlierStop | None:
@@ -2301,53 +1495,6 @@ def _error_stop(step: str, exc: Exception, *, kept_branch: bool = False) -> _Sto
     )
 
 
-def _implement_item(
-    store: RoadmapStore,
-    repo: str,
-    source: Path,
-    target: ImplementTarget,
-    *,
-    url: str,
-    model: Any,
-    window: int,
-    rebase: bool = True,
-    model_for_tier: Callable[[str], Any] | None = None,
-    splitter: Any = None,
-    rewriter: Any = None,
-) -> ImplementResult:
-    """Run one item: how its run ended (`ImplementResult`). `url` is the URL of `origin`."""
-    default = default_branch(source, operation=GIT_OPERATION)
-    with _worktree(source, target, url) as path:
-        run = _ItemRun(
-            store,
-            repo,
-            path,
-            target,
-            model,
-            window,
-            default,
-            OriginGit(path, url),
-            model_for_tier=model_for_tier,
-            splitter=splitter,
-            rewriter=rewriter,
-            rebase=rebase,
-        )
-        try:
-            run.execute()
-        except _ClaimedError as claimed:
-            run.yield_to(claimed)
-            return ImplementResult.YIELDED
-        except _StopError as stop:
-            return run.end_stopped(stop)
-        except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
-            raise
-        except (DevOpsCLIError, AIClientError, subprocess.TimeoutExpired) as exc:
-            return run.end_stopped(_error_stop(run.step, exc))
-        if run.returned:
-            return ImplementResult.RETURNED
-    return ImplementResult.DRAFTED
-
-
 def apply_implement(
     store: RoadmapStore,
     plan: ImplementPlan,
@@ -2360,37 +1507,27 @@ def apply_implement(
     splitter: Any = None,
     rewriter: Any = None,
 ) -> ImplementApplied:
-    """Run each selected item of the plan, one after the other. A stopped item does not stop the
-    run, and an item whose writes fail is reported while the others still run. Rejected GitHub or
-    model credentials stop the run. Raises `RoadmapImplementError` before anything runs unless
-    the process is a runner Job for the plan's repository (`require_runner`). It then makes its
-    own process unreadable by the shell of an agent, which runs as the same user
-    (`deny_environment_reads`), and adopts the orphans of a step (`adopt_orphans`). It reads the
-    URL of `origin` before the first step, so that no later edit of the clone moves the remote of
-    a network git call (GHSA)."""
+    """Run each selected item of the plan on the three phases in one process (`--phase all`),
+    one item after the other. A stopped item does not stop the run, and an item whose writes fail
+    is reported while the others still run. Rejected GitHub or model credentials stop the run.
+    Raises `RoadmapImplementError` before anything runs unless the process is a runner Job for
+    the plan's repository (`require_runner`). It then makes its own process unreadable by the shell
+    of an agent, which runs as the same user (`deny_environment_reads`), and adopts the orphans of a
+    step (`adopt_orphans`). `prepare` makes a new clone for each item, so `source`, the clone of the
+    plan, holds no work of an agent."""
+    from devops_cli.roadmap.implement.implement_phases import AgentTools, implement_round
+
     require_runner(plan.repo)
     deny_environment_reads()
     adopt_orphans()
-    checkout = Path(source)
-    url = origin_url(checkout) if plan.selected else ""
+    del source
+    tools = AgentTools(model, window, model_for_tier, splitter, rewriter, rebase)
     ended: dict[ImplementResult, list[int]] = {kind: [] for kind in ImplementResult}
     failed: list[ImplementFailure] = []
     for target in plan.selected:
         item = target.item
         try:
-            how = _implement_item(
-                store,
-                plan.repo,
-                checkout,
-                target,
-                url=url,
-                model=model,
-                window=window,
-                rebase=rebase,
-                model_for_tier=model_for_tier,
-                splitter=splitter,
-                rewriter=rewriter,
-            )
+            how = implement_round(store, plan.repo, target, tools)
         except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
             raise
         except (DevOpsCLIError, AIClientError) as exc:

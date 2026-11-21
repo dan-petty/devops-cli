@@ -17,11 +17,13 @@ from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
+    ARCHIVE_COMMIT,
     BRANCH,
     CHANGE,
     PULL,
     TASKS_PATH,
     TICKED_FIRST,
+    WORK_COMMIT,
     JobWorld,
     group_one_calls,
     group_two_calls,
@@ -53,12 +55,7 @@ def test_two_groups_make_a_new_branch_a_draft_and_a_closing_body(
     applied = planned_world.run(two_groups())
 
     assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
-    assert planned_world.origin_log() == [
-        "fix(roadmap): The first group (#1)",
-        "fix(roadmap): The second group (#1)",
-        "docs: regenerate the documentation (#1)",
-        "docs(openspec): archive the change (#1)",
-    ]
+    assert planned_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
     (created,) = planned_world.sent("POST", "pulls")
     assert (created["draft"], created["head"], created["base"], created["title"]) == (
         True,
@@ -84,7 +81,8 @@ def test_two_groups_make_a_new_branch_a_draft_and_a_closing_body(
 
 
 def _pushes(world: JobWorld) -> list[tuple[str, ...]]:
-    """The words after `push` of each push of the job, which runs in a new git folder (GHSA)."""
+    """The words after `push` of each push of the job, which runs in the new repository of
+    `publish` (#3702)."""
     return [
         call.argv[call.argv.index("push") + 1 :]
         for call in world.programs.calls
@@ -97,14 +95,11 @@ def test_the_branch_is_published_once_and_the_clone_keeps_no_branch_or_worktree(
 ) -> None:
     planned_world.run(two_groups())
 
-    pushes = _pushes(planned_world)
-    origin, ref = str(planned_world.repo.origin), f"refs/heads/{BRANCH}"
-    # The first checkpoint (#3677) publishes the branch. The final push holds a lease on its tip.
-    assert len(pushes) == 2
-    assert pushes[0][:3] == ("--quiet", "--no-verify", origin)
-    assert pushes[0][3].endswith(f":{ref}")
-    assert pushes[1][2].startswith(f"--force-with-lease={ref}:")
-    assert (pushes[1][3], pushes[1][4].endswith(f":{ref}")) == (origin, True)
+    ref = f"refs/heads/{BRANCH}"
+    # `publish` makes the branch with one push, with an empty lease: the branch must not exist.
+    assert _pushes(planned_world) == [
+        ("--quiet", f"--force-with-lease={ref}:", "origin", f"HEAD:{ref}")
+    ]
     assert planned_world.repo.git("worktree", "list").count("\n") == 0
     assert planned_world.repo.git("branch", "--format=%(refname:short)") == "main"
 
@@ -113,12 +108,10 @@ def test_the_final_push_of_the_new_branch_carries_a_lease(planned_world: JobWorl
     applied = planned_world.run(two_groups())
 
     pushes = _pushes(planned_world)
-    origin, ref = str(planned_world.repo.origin), f"refs/heads/{BRANCH}"
-    # The checkpoint publishes the branch, and the final push follows with a lease (#6559: no push
-    # after the final one).
-    assert (applied.drafted, len(pushes)) == ((1,), 2)
-    assert pushes[0][:3] == ("--quiet", "--no-verify", origin)
-    assert pushes[1][2].startswith(f"--force-with-lease={ref}:")
+    ref = f"refs/heads/{BRANCH}"
+    # One push, with a lease that says the branch must not exist yet (#3702).
+    assert (applied.drafted, len(pushes)) == ((1,), 1)
+    assert pushes[0][1] == f"--force-with-lease={ref}:"
     assert len(planned_world.sent("POST", "pulls")) == 1
 
 
@@ -132,7 +125,7 @@ def test_a_group_that_is_ticked_on_main_is_not_run_again(planned_world: JobWorld
     applied = planned_world.run(script)
 
     assert (applied.drafted, len(script.seen)) == ((1,), 2)
-    assert planned_world.origin_log()[0] == "fix(roadmap): The second group (#1)"
+    assert planned_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
 
 
 def test_a_stop_before_the_first_commit_pushes_nothing_and_opens_no_pull_request(
@@ -161,7 +154,7 @@ def test_a_stop_after_a_commit_pushes_the_branch_and_opens_a_draft_that_closes_i
 
     (created,) = planned_world.sent("POST", "pulls")
     status, record = _item(planned_world)
-    assert planned_world.origin_log() == ["fix(roadmap): The first group (#1)"]
+    assert planned_world.origin_log() == [WORK_COMMIT]
     assert (created["draft"], created["body"].startswith("Closes #1")) == (True, True)
     assert (status, record["implement.stopped"], record["implement.pr"]) == (
         "Blocked",
@@ -191,12 +184,7 @@ def test_a_retry_takes_over_the_branch_and_the_draft_that_the_stop_left(
         "In Review",
         None,
     )
-    assert planned_world.origin_log() == [
-        "fix(roadmap): The first group (#1)",
-        "fix(roadmap): The second group (#1)",
-        "docs: regenerate the documentation (#1)",
-        "docs(openspec): archive the change (#1)",
-    ]
+    assert planned_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
     assert len(planned_world.sent("POST", "pulls")) == 1
     assert len(script.seen) == 2
 
@@ -233,11 +221,8 @@ def test_a_failed_archive_stops_a_planned_item_and_pushes_what_passed(
     _, record = _item(planned_world)
     assert (applied.stopped, record.get("implement.stopped")) == ((1,), "archive")
     assert len(planned_world.sent("POST", "pulls")) == 1
-    assert planned_world.origin_log() == [
-        "fix(roadmap): The first group (#1)",
-        "fix(roadmap): The second group (#1)",
-        "docs: regenerate the documentation (#1)",
-    ]
+    # The work commit holds the groups and the documents, and no archive commit follows (#3702).
+    assert planned_world.origin_log() == [WORK_COMMIT]
 
 
 def test_the_plan_alone_runs_nothing_for_a_planned_item(planned_world: JobWorld) -> None:
