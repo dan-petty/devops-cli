@@ -51,7 +51,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli
 
 Kind: other. Reads: `k8s/llm/valkey-devops.yaml`, `openspec/specs/llm-valkey/spec.md`. Changes: `k8s/llm/valkey-devops.yaml`.
 
-- [ ] 6.1 Set `--maxmemory 256mb` in place of `--maxmemory 96mb` and the memory limit of the valkey container to `384Mi` in place of `128Mi` in `k8s/llm/valkey-devops.yaml`. Change the comment above `command`: Valkey keeps at most 256 MiB of data, two thirds of the 384Mi limit, which keeps the three-quarters rule of the llm Valkeys (#711); the embeddings, the listing snapshots of the public repositories and the tool facts share the bound, and at the bound Valkey evicts the least recently used key. Change the header comment to name the snapshots and the facts beside the embeddings and the threat-intelligence reads
+- [x] 6.1 Set `--maxmemory 256mb` in place of `--maxmemory 96mb` and the memory limit of the valkey container to `384Mi` in place of `128Mi` in `k8s/llm/valkey-devops.yaml`. Change the comment above `command`: Valkey keeps at most 256 MiB of data, two thirds of the 384Mi limit, which keeps the three-quarters rule of the llm Valkeys (#711); the embeddings, the listing snapshots of the public repositories and the tool facts share the bound, and at the bound Valkey evicts the least recently used key. Change the header comment to name the snapshots and the facts beside the embeddings and the threat-intelligence reads
   - Verification: `$ uv run devops ci --check --only k8s` passes
   - Verification: `$ ! git grep -n -F 96mb k8s/llm/valkey-devops.yaml` passes
 
