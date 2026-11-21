@@ -457,8 +457,9 @@ def _round_after_a_failed_visibility_read(
     the copy. Then a round in a new process `age` later finds that its visibility read fails with
     `error`. The result is the commands that the second round sent alone for the key (and its
     temporary keys), and the count of its visibility reads. A command of a pipeline is not sent
-    alone. The `clock` fixture moves the TTL of the key with the round, and the quota of the
-    rate limiter is fresh again after the move."""
+    alone, and a script names its key after the script and the count of keys. The `clock`
+    fixture moves the TTL of the key with the round, and the quota of the rate limiter is fresh
+    again after the move."""
     from devops_cli.roadmap.stores.listing_shared import repository_visibility
 
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
@@ -470,7 +471,8 @@ def _round_after_a_failed_visibility_read(
     sent: set[str] = set()
 
     def record(command: tuple[Any, ...]) -> None:
-        if len(command) > 1 and str(command[1]).startswith(SNAPSHOT_KEY):
+        key = command[3] if command[0] == "EVAL" else command[1] if len(command) > 1 else ""
+        if str(key).startswith(SNAPSHOT_KEY):
             sent.add(command[0])
 
     store = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server, after_command=record)))
@@ -492,18 +494,18 @@ def _round_after_a_failed_visibility_read(
 
 
 @pytest.mark.usefixtures("shared_valkey")
-def test_a_failed_visibility_read_leaves_a_shared_copy_saved_in_the_last_hour(
+def test_a_failed_visibility_read_leaves_a_shared_copy_saved_in_the_last_half_hour(
     github_api: GitHubApiFake,
     tmp_path: Path,
     valkey_server: FakeServer,
     otlp: FakeCollector,
     clock: ClockFake,
 ) -> None:
-    """A round of a public repository writes its shared copy. 30 min later, in a new process,
-    the visibility read fails with the quota error of GitHub. A process saw the repository as
-    public in the last hour, so the round keeps the shared copy as it is. It reads `meta` and the
-    TTL of the key in one pipeline and sends no command alone for the key, reads the visibility
-    once and counts `unknown` on each counter."""
+    """A round of a public repository writes its shared copy. 20 min later, in a new process,
+    the visibility read fails with the quota error of GitHub. The last save is younger than
+    30 min, so the round keeps the shared copy as it is. It reads `meta` and the TTL of the key
+    in one pipeline and sends no command alone for the key, reads the visibility once and counts
+    `unknown` on each counter."""
     saved: list[dict[bytes, bytes]] = []
 
     sent, reads = _round_after_a_failed_visibility_read(
@@ -512,7 +514,7 @@ def test_a_failed_visibility_read_leaves_a_shared_copy_saved_in_the_last_hour(
         valkey_server,
         otlp,
         clock,
-        age=timedelta(minutes=30),
+        age=timedelta(minutes=20),
         change=lambda client: saved.append(client.hgetall(SNAPSHOT_KEY)),
     )
 
@@ -534,30 +536,31 @@ def test_a_failed_visibility_read_leaves_a_shared_copy_saved_in_the_last_hour(
 
 
 @pytest.mark.usefixtures("shared_valkey")
-def test_a_failed_visibility_read_removes_a_shared_copy_saved_more_than_an_hour_ago(
+def test_a_failed_visibility_read_removes_a_shared_copy_saved_more_than_half_an_hour_ago(
     github_api: GitHubApiFake,
     tmp_path: Path,
     valkey_server: FakeServer,
     otlp: FakeCollector,
     clock: ClockFake,
 ) -> None:
-    """A round of a public repository writes its shared copy. 61 min later, in a new process,
+    """A round of a public repository writes its shared copy. 31 min later, in a new process,
     the visibility read fails as for a token that cannot see the repository. A save comes only
-    after a public answer, so no process saw the repository as public in the last hour: the
-    round removes the key with one `UNLINK`, uses no shared copy, and counts `removed`."""
+    after a public answer, which a process keeps for at most 30 min, so no process saw the
+    repository as public in the last hour: the round removes the key with one script, uses no
+    shared copy, and counts `removed`."""
     sent, reads = _round_after_a_failed_visibility_read(
         github_api,
         tmp_path,
         valkey_server,
         otlp,
         clock,
-        age=timedelta(minutes=61),
+        age=timedelta(minutes=31),
         error=f"Could not resolve to a Repository with the name '{REPO}'.",
     )
 
     assert (_keys(valkey_server), sent, reads, _reads(otlp), _writes(otlp)) == (
         [],
-        {"UNLINK"},
+        {"EVAL"},
         1,
         {("snapshot", "unknown"): 1.0},
         {("snapshot", "removed"): 1.0, ("snapshot", "unknown"): 1.0},
@@ -583,11 +586,11 @@ def test_a_failed_visibility_read_with_no_ttl_to_read_removes_nothing(
     change: Callable[[FakeValkey], object],
     keys: list[str],
 ) -> None:
-    """The shared copy of a public repository goes, or its key loses its TTL. 61 min later, in
+    """The shared copy of a public repository goes, or its key loses its TTL. 31 min later, in
     a new process, the visibility read fails. The round has no age of a save to read, so it
     removes nothing: it sends no command alone for the key and counts `unknown` only."""
     sent, reads = _round_after_a_failed_visibility_read(
-        github_api, tmp_path, valkey_server, otlp, clock, age=timedelta(minutes=61), change=change
+        github_api, tmp_path, valkey_server, otlp, clock, age=timedelta(minutes=31), change=change
     )
 
     assert (_keys(valkey_server), sent, reads, _reads(otlp), _writes(otlp)) == (
@@ -596,6 +599,67 @@ def test_a_failed_visibility_read_with_no_ttl_to_read_removes_nothing(
         1,
         {("snapshot", "unknown"): 1.0},
         {("snapshot", "unknown"): 1.0},
+    )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_save_during_a_failed_visibility_read_keeps_the_shared_copy(
+    tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector, clock: ClockFake
+) -> None:
+    """A process saves the shared copy of a public repository, and 61 min pass. A new process
+    loads the repository, and while its visibility read fails, another process with a public
+    answer saves the same records, which sets the TTL of the key again. The copy is fresh when
+    the load would remove it, so the key stays: only the save counts a write."""
+    from devops_cli.roadmap.stores.listing_shared import Visibility
+
+    snapshot = _snapshot(STARTED, 2, 1)
+    _tiered(tmp_path / "first").save(snapshot)
+    clock.shift(timedelta(minutes=61))
+    later = STARTED + timedelta(minutes=61)
+    _new_process()
+    writer = _tiered(tmp_path / "writer", at=later)
+
+    def unknown_after_a_save(repo: str) -> Visibility:
+        writer.save(snapshot)
+        return Visibility.UNKNOWN
+
+    otlp.clear()
+
+    loaded = _tiered(tmp_path / "reader", at=later, visibility=unknown_after_a_save).load(REPO)
+
+    assert (loaded, _keys(valkey_server), _reads(otlp), _writes(otlp)) == (
+        None,
+        [SNAPSHOT_KEY],
+        {("snapshot", "unknown"): 1.0},
+        {("snapshot", "unchanged"): 1.0},
+    )
+
+
+def test_a_public_answer_is_kept_for_half_an_hour(clock: ClockFake) -> None:
+    """A public answer is kept for 30 min: a check after 29 min gives public with no new read,
+    and a check after 31 min reads GitHub again and gives private. A save comes only with a
+    public answer, and an unknown answer removes a copy older than 30 min, so the shared copy of
+    a repository that became private goes at most 1 hour after the change, the bound that the
+    owner accepted on 2026-11-21."""
+    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
+
+    replies = iter(
+        [
+            {"data": {"repository": {"isPrivate": False}}},
+            {"data": {"repository": {"isPrivate": True}}},
+        ]
+    )
+    runner = RecordedGh({"isPrivate": lambda args: next(replies)})
+
+    first = repository_visibility(REPO, runner=runner)
+    clock.shift(timedelta(minutes=29))
+    second = repository_visibility(REPO, runner=runner)
+    clock.shift(timedelta(minutes=2))
+    third = repository_visibility(REPO, runner=runner)
+
+    assert ((first, second, third), len(runner.calls)) == (
+        (Visibility.PUBLIC, Visibility.PUBLIC, Visibility.PRIVATE),
+        2,
     )
 
 

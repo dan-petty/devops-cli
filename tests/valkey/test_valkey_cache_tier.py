@@ -369,6 +369,33 @@ def test_the_cache_tier_reads_a_hash_field_and_its_ttl_in_one_round_trip(
     )
 
 
+@pytest.mark.usefixtures("clock")
+def test_the_cache_tier_removes_a_key_only_when_it_expires_within_a_bound(
+    valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
+) -> None:
+    """The tier reads the TTL of a key and removes the key in one script on the server, only
+    when the key has less time left than the bound: under a bound of 6,000 ms a key with a TTL
+    of 5 s goes, and a key with a TTL of 10 s, a key with no TTL and a missing key stay. A
+    removal while Valkey is down gives no answer and counts a failed `unlink`."""
+    writer = FakeValkey(server=valkey_server)
+    writer.set("soon", "value", ex=5)
+    writer.set("later", "value", ex=10)
+    writer.set("kept", "value")
+    tier = _tier(valkey_client)
+
+    removed = [tier.unlink_if_expiring(key, 6000) for key in ("soon", "later", "kept", "missing")]
+    left = sorted(writer.keys("*"))
+    valkey_server.connected = False
+    down = tier.unlink_if_expiring("later", 60_000)
+
+    assert (removed, left, down, _errors(otlp)) == (
+        [1, 0, 0, 0],
+        [b"kept", b"later"],
+        None,
+        {("unlink", "connection"): 1.0},
+    )
+
+
 def test_a_writer_whose_watched_key_changed_writes_nothing(
     valkey_server: FakeServer, valkey_client: ValkeyClient
 ) -> None:
