@@ -26,6 +26,8 @@ Changes: `docs/SERVICE_PATTERNS.md`, `SECURITY.md`, `docs/guidelines/production-
 
 - [x] 3.1 Name the `ExternalSecret` path of a service Secret in CF4, CF5, principle 1 and ACC-1
   - Verification: `$ grep -n ExternalSecret docs/SERVICE_PATTERNS.md SECURITY.md docs/guidelines/production-readiness.md`
+- [x] 3.2 Limit REL-9, Table 12 and steps 5 and 9 of Table 13 of the production readiness guideline to platform Secrets, and add the ESO path of a new service
+  - Verification: `$ grep -c "Add a row to the Secret table\|pushes the Secrets and merges" docs/guidelines/production-readiness.md` prints 0
 
 ## Criteria
 
