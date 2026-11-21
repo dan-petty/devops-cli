@@ -4,7 +4,8 @@ A model writes the plan, and a repair round can leave the text of that round in 
 section: a line that refers to an earlier reply, or that corrects the model. The section holds
 system facts, file citations and the quotation of a probe, so the stage job refuses such a line
 before it commits the proposal. A fenced code block and a block quotation carry evidence, and a
-probe can quote the same words, so their lines are no violation.
+probe can quote the same words, so their lines are no violation. A code span quotes a line in the
+same way, so the words inside a code span are no violation either.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from collections.abc import Iterator, Sequence
 from typing import Final
 
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.step_files import code_spans
 
 # The bounded phrases that name an earlier reply or a self-correction. The list covers the defect
 # that #4111 reports; a phrase that a later reply shows needs a case here and in the tests.
@@ -52,7 +54,11 @@ def _prose_lines(lines: Sequence[str]) -> Iterator[tuple[int, str]]:
 
 
 def _matched_phrase(line: str) -> str | None:
-    """The first phrase of `META_PHRASES` that `line` holds, or `None`."""
+    """The first phrase of `META_PHRASES` that `line` holds outside a code span, or `None`.
+
+    A code span quotes a probe line or names the phrase, so it is evidence and no repair text."""
+    for span in code_spans(line):
+        line = line.replace(f"`{span}`", "")
     folded = line.casefold()
     return next((phrase for phrase in META_PHRASES if phrase.casefold() in folded), None)
 

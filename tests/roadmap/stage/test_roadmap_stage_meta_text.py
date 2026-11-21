@@ -31,3 +31,11 @@ def test_a_repair_phrase_in_a_feasibility_line_is_refused() -> None:
     assert meta_text_problems([FENCE, DEFECT, FENCE]) == []
 
     assert meta_text_problems([f"> {DEFECT}"]) == []
+
+    assert (
+        meta_text_problems(["- The probe line `The earlier reply was wrong` is the defect."]) == []
+    )
+
+    assert meta_text_problems(["- `a` shows nothing. The earlier reply was wrong."]) == [
+        _problem(1, "earlier reply")
+    ]
