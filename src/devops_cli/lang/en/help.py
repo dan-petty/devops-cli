@@ -1631,6 +1631,17 @@ class RoadmapCommandHelp:
     step_fix_conflict_confirm: str = (
         "Settle and push in a runner Job. Without it, the step prints its plan and writes nothing."
     )
+    step_fix_conflict_phase: str = (
+        "The phase of the round, with --confirm: prepare (the GitHub reads, the bounds, the clone "
+        "and the conflicts, with no code of the pull request), agent (the rebase and tier 1, with "
+        "no GitHub call), publish (the push with a lease and the record), or all, the three in "
+        "one process. Without --confirm, prepare and all print the plan, and agent and publish do "
+        "nothing."
+    )
+    step_fix_conflict_work: str = (
+        "The run folder of a phase other than all: state/ for prepare and publish, work/ for the "
+        "clone and the inputs of the agent, and out/ for its outputs."
+    )
     step_open: str = "Open, update, or recover the draft pull request of an item (#5020)."
     step_open_item: str = "Number of the item to open or update a pull request for."
     step_open_head: str = "Branch to open the pull request from."

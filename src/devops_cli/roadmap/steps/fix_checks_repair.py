@@ -68,7 +68,7 @@ from devops_cli.roadmap.implement.implement_strays import plan_paths
 from devops_cli.roadmap.phases.checkout import clone_branch
 from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget, publish_patch
-from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE, rebase_onto, unmerged
+from devops_cli.roadmap.phases.rebase import archive_change, commit_changed, rebase_onto, unmerged
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
@@ -268,30 +268,6 @@ def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
     return Fixed(done=True, files=written)
 
 
-def _commit_changed(path: Path, message: str) -> None:
-    """Commit every change of the checkout with `message`, when there is one."""
-    git(path, "add", "-A", operation=_OPERATION)
-    if git(path, "status", "--porcelain", operation=_OPERATION):
-        git(path, "commit", "-q", "-m", message, operation=_OPERATION)
-
-
-def _archive_again(
-    path: Path, item: int, preset: ToolchainPreset, generate: Callable[[Sequence[str]], None]
-) -> None:
-    """Archive the change of `item` again after the rebase skipped its archive commit, as
-    implement archives it: the documents, then the archive command of the target, each in a
-    commit of its own. A target with no archive command, or no active change folder, has
-    nothing to archive."""
-    changes = sorted((path / CONST_OPENSPEC_CHANGES_DIR).glob(f"{item}-*"))
-    if preset.archive_argv is None or not changes:
-        return
-    if preset.docs_step:
-        generate((BIN_UV, "run", BIN_DEVOPS, "docs", "generate"))
-        _commit_changed(path, f"docs: regenerate the documentation (#{item})")
-    generate(tuple(part.replace("<change>", changes[0].name) for part in preset.archive_argv))
-    _commit_changed(path, ARCHIVE_MESSAGE.format(number=item))
-
-
 def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
     """Rebase the checkout `path` onto `onto`, the tip of the default branch that `prepare` read,
     and settle each stop as implement does (`rebase_onto`, #6639). Done when the branch sits on
@@ -324,8 +300,12 @@ def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
             "which no rule settles",
         )
     if ended.skipped:
+
+        def commit(message: str) -> None:
+            commit_changed(path, message, operation=_OPERATION)
+
         try:
-            _archive_again(path, item, preset, generate)
+            archive_change(path, item, preset, generate, commit, docs=preset.docs_step)
         except DevOpsCLIError as exc:
             output = mask_secrets(str(exc))
             return Fixed(done=False, reason=f"The change was not archived again: {output}")

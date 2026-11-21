@@ -11,39 +11,53 @@ branch that `prepare` recorded, and settle each stop as a developer does:
   deleted. Then `uv lock` and `devops docs generate` run again (`generate`).
 
 A stop that no rule settles ends the rebase with its error, and the rebase stays in progress: the
-caller aborts it and stops with the class `conflict`. The conflict fixer of #6620 holds the same
-rules; #6640 makes them one.
+caller aborts it and stops with the class `conflict`. implement, fix-checks and fix-conflict use
+these rules (#6703). A rebase that skipped the archive commit leaves the change folder active, and
+`archive_change` archives it again: implement at the end of its run, fix-checks and fix-conflict
+right after the rebase.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from devops_cli.config.commands import BIN_DEVOPS, BIN_UV
-from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR, CONST_OPENSPEC_DIR
+from devops_cli.config.constants import (
+    CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
+    CONST_OPENSPEC_CHANGE_FOLDER_RE,
+    CONST_OPENSPEC_CHANGES_DIR,
+    CONST_OPENSPEC_DIR,
+)
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.toolchains import ToolchainPreset
 
 # The subject of the archive commit of an item, which the step finds by it (`archive_commit`).
 ARCHIVE_MESSAGE: Final[str] = "docs(openspec): archive the change (#{number})"
 
 # Runs a program in the checkout, and raises when it fails or runs out of time.
 Generate = Callable[[Sequence[str]], None]
+# Commits every change of the checkout with the message, when there is one.
+Commit = Callable[[str], None]
 
 
 @dataclass(frozen=True)
 class RebaseEnd:
     """How a rebase ended. `started` is False when git refused to start it, as in a checkout that
     holds changes: no rebase is in progress then. `error` is the error of git when it refused to
-    start, or of the stop that no rule settles, with the rebase still in progress. `skipped` says
-    that the rebase skipped the archive commit of the item."""
+    start, or of the stop that no rule settles, with the rebase still in progress. `stuck` says
+    that git refused the `--skip` or `--continue` of a settled stop and left the rebase on the same
+    commit, so `error` is that refusal. `skipped` says that the rebase skipped the archive commit
+    of the item."""
 
     started: bool = True
     error: GitOperationError | None = None
     skipped: bool = False
+    stuck: bool = False
 
 
 def unmerged(path: Path, *, operation: str) -> list[str]:
@@ -56,7 +70,9 @@ def skips_archive_commit(listed: str, number: int) -> bool:
     """Whether a rebase skips the commit that `listed` gives, the output of `git show --name-status
     -z` of `REBASE_HEAD`: the archive commit of item `number`. It removes or moves a file out of
     `openspec/changes/<number>-`, and every path is an OpenSpec path or a generated document, which
-    the step makes again (#3702). The plan commit adds its change folder, so the rule keeps it."""
+    the step makes again (#3702). A path under `openspec/changes/` must be in the change folder of
+    the item, active or archived: the step does not make the archive of another change again
+    (#6703). The plan commit adds its change folder, so the rule keeps it."""
     from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path
 
     fields = listed.split("\0")
@@ -71,9 +87,19 @@ def skips_archive_commit(listed: str, number: int) -> bool:
         paths.extend(names)
         index += 1 + width
     made_again = all(
-        name.startswith(f"{CONST_OPENSPEC_DIR}/") or is_generated_docs_path(name) for name in paths
+        (name.startswith(f"{CONST_OPENSPEC_DIR}/") or is_generated_docs_path(name))
+        and (not name.startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/") or _change_of(name) == number)
+        for name in paths
     )
     return moved and made_again
+
+
+def _change_of(path: str) -> int | None:
+    """The item of the change folder, active or archived, that holds `path`, or None."""
+    for pattern in (CONST_OPENSPEC_ARCHIVED_FOLDER_RE, CONST_OPENSPEC_CHANGE_FOLDER_RE):
+        if found := re.fullmatch(pattern, path):
+            return int(found["issue"])
+    return None
 
 
 def rebase_in_progress(path: Path, *, operation: str) -> bool:
@@ -142,11 +168,54 @@ def rebase_onto(
         if action is None:
             return RebaseEnd(error=stopped, skipped=skipped)
         skipped = skipped or action == ("rebase", "--skip")
+        at = _rebase_head(path, operation=operation)
         try:
             git(path, *action, operation=operation)
         except GitOperationError as exc:
+            if _rebase_head(path, operation=operation) == at:
+                # git refused to go on and stays on the same commit: no rule moves it on.
+                return RebaseEnd(error=exc, skipped=skipped, stuck=True)
             stopped = exc
     return RebaseEnd(skipped=skipped)
+
+
+def _rebase_head(path: Path, *, operation: str) -> str:
+    """The commit that the rebase stopped on, or empty when it stopped on none."""
+    try:
+        return git(path, "rev-parse", "-q", "--verify", "REBASE_HEAD", operation=operation)
+    except GitOperationError:
+        return ""
+
+
+def commit_changed(path: Path, message: str, *, operation: str) -> None:
+    """Commit every change of the checkout `path` with `message`, when there is one."""
+    git(path, "add", "-A", operation=operation)
+    if git(path, "status", "--porcelain", operation=operation):
+        git(path, "commit", "-q", "-m", message, operation=operation)
+
+
+def archive_change(
+    path: Path,
+    number: int,
+    preset: ToolchainPreset,
+    generate: Generate,
+    commit: Commit,
+    *,
+    docs: bool,
+) -> bool:
+    """Archive the active change of item `number` with the archive command of the target, in a
+    commit of its own (`ARCHIVE_MESSAGE`). With `docs`, the documents are generated first, in a
+    commit of their own. False when there is nothing to archive: the target has no archive
+    command, or the item has no active change folder."""
+    changes = sorted((path / CONST_OPENSPEC_CHANGES_DIR).glob(f"{number}-*"))
+    if preset.archive_argv is None or not changes:
+        return False
+    if docs:
+        generate((BIN_UV, "run", BIN_DEVOPS, "docs", "generate"))
+        commit(f"docs: regenerate the documentation (#{number})")
+    generate(tuple(part.replace("<change>", changes[0].name) for part in preset.archive_argv))
+    commit(ARCHIVE_MESSAGE.format(number=number))
+    return True
 
 
 def archive_commit(path: Path, base: str, number: int, *, operation: str) -> str | None:
@@ -172,9 +241,12 @@ def holds(path: Path, commit: str, tip: str, *, operation: str) -> bool:
 
 __all__ = [
     "ARCHIVE_MESSAGE",
+    "Commit",
     "Generate",
     "RebaseEnd",
+    "archive_change",
     "archive_commit",
+    "commit_changed",
     "holds",
     "rebase_in_progress",
     "rebase_onto",

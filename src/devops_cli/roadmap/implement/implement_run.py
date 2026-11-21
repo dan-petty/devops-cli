@@ -115,7 +115,13 @@ from devops_cli.roadmap.implement.implement_scoped_ci import (
     scoped_checks,
 )
 from devops_cli.roadmap.implement.implement_shell_policy import shown
-from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE, archive_commit, rebase_onto, unmerged
+from devops_cli.roadmap.phases.rebase import (
+    ARCHIVE_MESSAGE,
+    archive_change,
+    archive_commit,
+    rebase_onto,
+    unmerged,
+)
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.implement.implement_report import StopFacts
@@ -1156,12 +1162,15 @@ class _ItemRun:
         if change is None or not self._runs(ProjectStep.ARCHIVE):
             return
         self.step = names["archive"]
-        preset = self.profile.preset
-        if not preset.archive_argv:
-            return
-        archive_cmd = [part.replace("<change>", change.name) for part in preset.archive_argv]
         try:
-            self._program(archive_cmd)
+            archive_change(
+                self.path,
+                self.number,
+                self.profile.preset,
+                self._program,
+                self._commit_if_changed,
+                docs=False,
+            )
         except _StopError as stop:
             # An archive that moved the change folder and then exited 1 failed the strict
             # validation of the specs: a spec of the plan is the cause. The output counts specs
@@ -1173,7 +1182,6 @@ class _ItemRun:
             ):
                 stop.failure_class = FailureClass.PLAN_DEFECT
             raise
-        self._commit_if_changed(_ARCHIVE_MESSAGE.format(number=self.number))
 
     def _scoped_run(self) -> ScopedResult | None:
         """Run the scoped checks for the paths the item changed, and keep their results for the
