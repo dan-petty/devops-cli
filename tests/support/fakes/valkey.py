@@ -10,7 +10,9 @@ Its contract suite, `tests/valkey/test_valkey_contract.py`, runs each scenario o
 `valkey-server` (#4557). fakeredis runs Lua through its `lua` extra (`lupa`), and holds its
 server to Valkey's behaviour in its own test suite. It answers no INFO, and
 holds a silent or slow server only as a connection that fails; a test of a timeout binds a
-loopback listener that never answers, as the floor's `refusing_port` does for a refused port.
+loopback listener that never answers (`silent_valkey`), as the floor's `refusing_port` does for a
+refused port. `shared_valkey` installs a cache tier over the fake as the one tier of the process,
+which the shared tier of the project brain reads (#4668).
 The pool is the fake's own, so a test of what the client's own password, the database of its
 endpoint and its decoding send and read binds a loopback listener that records the commands it
 receives. That
@@ -35,6 +37,7 @@ from devops_cli.valkey.client import ValkeyClient
 from tests.support.waits import POLL_INTERVAL_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
+    from devops_cli.valkey.cache import ValkeyCacheTier
     from devops_cli.valkey.endpoint import ValkeyEndpoint
 
 
@@ -87,6 +90,76 @@ def valkey(valkey_server: Any) -> Iterator[Any]:
     finally:
         reset_valkey_client()
         client.close()
+
+
+@pytest.fixture
+def shared_valkey(valkey_server: FakeServer) -> Iterator[ValkeyCacheTier]:
+    """A cache tier over `valkey_server`, installed as the one tier of the process.
+
+    `shared_cache_tier()` gives it, so each cache of the process reads and writes the fake. The
+    imports are local, so the fail-to-pass replay can load this plugin on a base without the seam.
+    """
+    from devops_cli.valkey.cache import (
+        ValkeyCacheTier,
+        install_shared_cache_tier,
+        reset_shared_cache_tier,
+    )
+
+    client = valkey_client_on(valkey_server)
+    tier = ValkeyCacheTier(client)
+    install_shared_cache_tier(tier)
+    try:
+        yield tier
+    finally:
+        reset_shared_cache_tier()
+        client.close()
+
+
+class SilentValkey:
+    """A loopback listener that accepts each connection and never answers: a silent Valkey host.
+
+    `port` is its port, and `connections` counts the connections that it accepted.
+    """
+
+    def __init__(self, listener: socket.socket) -> None:
+        self._listener = listener
+        self._held: list[socket.socket] = []
+        self._ended = threading.Event()
+        self.port: int = listener.getsockname()[1]
+        self._thread = threading.Thread(target=self._accept, daemon=True)
+        self._thread.start()
+
+    @property
+    def connections(self) -> int:
+        return len(self._held)
+
+    def _accept(self) -> None:
+        self._listener.settimeout(POLL_INTERVAL_SECONDS)
+        while not self._ended.is_set():
+            try:
+                connection, _ = self._listener.accept()
+            except TimeoutError:
+                continue
+            self._held.append(connection)
+
+    def close(self) -> None:
+        self._ended.set()
+        self._thread.join(timeout=THREAD_HANDOFF_BOUND_SECONDS)
+        for connection in self._held:
+            connection.close()
+
+
+@pytest.fixture
+def silent_valkey() -> Iterator[SilentValkey]:
+    """A loopback Valkey host that accepts a connection and answers no command."""
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(8)
+        silent = SilentValkey(listener)
+        try:
+            yield silent
+        finally:
+            silent.close()
 
 
 def bulk_reply(payload: bytes) -> bytes:
