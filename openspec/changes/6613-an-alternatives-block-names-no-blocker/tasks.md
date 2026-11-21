@@ -11,6 +11,8 @@ Adds: `_JOB_BLOCK_MARKERS`
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_questions.py` fails on the base
 - [x] 1.3 In `src/devops_cli/roadmap/refine/refine.py`, add the module-level `_JOB_BLOCK_MARKERS: Final[frozenset[str]]` that holds `CONST_ROADMAP_REFINE_START_MARKER`, `CONST_ROADMAP_REFINE_END_MARKER`, `CONST_ROADMAP_ALTERNATIVES_START_MARKER` and `CONST_ROADMAP_ALTERNATIVES_END_MARKER`. Change `_section_tokens` to end the section also at an `html_block` token whose stripped content is in `_JOB_BLOCK_MARKERS`. Keep the search for the heading as it is, so a heading inside a job block still starts a section. Change the docstrings of `_section_tokens`, `body_dependencies` and `body_questions` to state the new end of the section
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_dependencies.py tests/roadmap/refine/test_roadmap_refine_questions.py` passes
+- [x] 1.4 Add the case `refine-part-then-person-text` to `test_a_job_block_marker_ends_the_dependencies_section`: a refine block whose last part `### Dependencies` holds `- #4989`, then, with no alternatives block, the paragraph `Depends on #8888.`, gives `[4989]`. The case fails when `_JOB_BLOCK_MARKERS` does not hold `CONST_ROADMAP_REFINE_END_MARKER`, which gives `[4989, 8888]`
+  - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_dependencies.py` passes
 
 ## 2. Set a new version of the rules
 

@@ -195,6 +195,13 @@ def test_the_hold_line_names_its_hold_issue_and_not_the_tracker() -> None:
             id="refine-part-then-alternatives",
         ),
         pytest.param(
+            f"Body\n\n{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\n\n"
+            f"### Dependencies\n- #4989\n{CONST_ROADMAP_REFINE_END_MARKER}\n\n"
+            "Depends on #8888.\n",
+            [4989],
+            id="refine-part-then-person-text",
+        ),
+        pytest.param(
             _alternatives_block("A tool that #5506 adds") + "\n## Dependencies\n\n- #4989\n",
             [4989],
             id="section-after-alternatives",
@@ -211,6 +218,7 @@ def test_the_hold_line_names_its_hold_issue_and_not_the_tracker() -> None:
 def test_a_job_block_marker_ends_the_dependencies_section(body: str, blockers: list[int]) -> None:
     """The Dependencies section ends at the start or the end marker of a job block, so the Lacks
     list of an alternatives block after it names no blocker. The `### Dependencies` part of the
-    refine block ends at the refine end marker, a heading after an alternatives block still starts
-    a section, and a marker in a code span ends no section (#6613)."""
+    refine block ends at the refine end marker, also when no other job block follows it, a heading
+    after an alternatives block still starts a section, and a marker in a code span ends no section
+    (#6613)."""
     assert body_dependencies(body) == blockers

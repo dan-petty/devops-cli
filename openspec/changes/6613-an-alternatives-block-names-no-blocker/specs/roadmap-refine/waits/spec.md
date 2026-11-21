@@ -11,6 +11,10 @@ Refine SHALL read the Dependencies section of the body up to the next heading of
 - **WHEN** `body_dependencies` reads a body with no Dependencies heading outside the refine block, the `### Dependencies` part of the refine block holds `- #4989` and is the last part of the block, and an alternatives block whose Lacks list holds `- A tool that #5506 adds` follows the refine end marker
 - **THEN** `body_dependencies` returns `[4989]`
 
+#### Scenario: Person text after the refine end marker
+- **WHEN** `body_dependencies` reads a body with no alternatives block, the `### Dependencies` part of the refine block holds `- #4989` and is the last part of the block, and the paragraph `Depends on #8888.` follows the refine end marker
+- **THEN** `body_dependencies` returns `[4989]`
+
 #### Scenario: A Dependencies section after the end marker of an alternatives block
 - **WHEN** `body_dependencies` reads a body that holds an alternatives block whose Lacks list holds `- A tool that #5506 adds`, and after its end marker the heading `## Dependencies` and the list item `- #4989`
 - **THEN** `body_dependencies` returns `[4989]`
