@@ -564,28 +564,50 @@ def test_a_shared_load_past_its_budget_falls_back(
     )
 
 
+def _large(snapshot: ListingSnapshot) -> ListingSnapshot:
+    """`snapshot` with a body of 300,000 bytes in each record: each record is under the bound of
+    a record, and two records pass a total bound of 512 KiB."""
+    large = tuple(issue.model_copy(update={"body": "x" * 300_000}) for issue in snapshot.issues)
+    return snapshot.model_copy(update={"issues": large})
+
+
 def test_a_shared_load_past_its_total_bound_falls_back(
-    tmp_path: Path,
-    shared_valkey: ValkeyCacheTier,
-    otlp: FakeCollector,
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
 ) -> None:
     """The shared snapshot is newer than the local one and holds two records of about 300,000
-    bytes of JSON each, each under the bound of a record. With a total bound of 512 KiB, the
-    load stops, raises no error and takes the local snapshot."""
-    import devops_cli.roadmap.stores.listing_shared as listing_shared
+    bytes of JSON each, each under the bound of a record. A reader store built with a total bound
+    of 512 KiB stops the load, raises no error and takes the local snapshot."""
+    from devops_cli.roadmap.stores.listing_shared import ValkeySnapshotStore
 
     local = _snapshot(STARTED - timedelta(hours=1), 1)
     FileSnapshotStore(tmp_path).save(local)
-    shared = _snapshot(STARTED, 2, 1)
-    large = tuple(issue.model_copy(update={"body": "x" * 300_000}) for issue in shared.issues)
-    _valkey_store(shared_valkey).save(shared.model_copy(update={"issues": large}))
-    monkeypatch.setattr(listing_shared, "DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES", 524_288)
+    _valkey_store(shared_valkey).save(_large(_snapshot(STARTED, 2, 1)))
+    reader = ValkeySnapshotStore(shared_valkey, load_max_bytes=524_288)
     otlp.clear()
 
-    loaded = _tiered(tmp_path).load(REPO)
+    loaded = _tiered(tmp_path, shared=lambda: reader).load(REPO)
 
     assert (loaded, _reads(otlp)) == (local, {("snapshot", "fallback"): 1.0})
+
+
+def test_a_save_past_the_total_bound_writes_no_shared_copy(
+    tmp_path: Path, valkey_server: FakeServer, shared_valkey: ValkeyCacheTier, otlp: FakeCollector
+) -> None:
+    """A snapshot of two records of about 300,000 bytes of JSON each passes the total bound of
+    512 KiB of its writer store. The save writes no key that no load accepts, counts
+    `oversize`, and writes the local file."""
+    from devops_cli.roadmap.stores.listing_shared import ValkeySnapshotStore
+
+    snapshot = _large(_snapshot(STARTED, 2, 1))
+    writer = ValkeySnapshotStore(shared_valkey, load_max_bytes=524_288)
+
+    _tiered(tmp_path, shared=lambda: writer).save(snapshot)
+
+    assert (_keys(valkey_server), _writes(otlp), FileSnapshotStore(tmp_path).load(REPO)) == (
+        [],
+        {("snapshot", "oversize"): 1.0},
+        snapshot,
+    )
 
 
 def _meta(server: FakeServer) -> bytes | None:
