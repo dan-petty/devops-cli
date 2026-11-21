@@ -14,7 +14,7 @@
 
 ## 3. Documents
 
-- [ ] 3.1 In `k8s/README.md`, add the two rows of `danielpetty-com/event-stream` to the Cluster Secrets table, a note on the rows of the detached stack `danielpetty-com`, and the repository Secret `repo-danielpetty-com` to the GitOps section; in `src/devops_cli/config/defaults.py`, say in the comment of `DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES` that namespace `danielpetty-com` holds the workloads of another project and is not in the list
+- [x] 3.1 In `k8s/README.md`, add the two rows of `danielpetty-com/event-stream` to the Cluster Secrets table, a note on the rows of the detached stack `danielpetty-com`, and the repository Secret `repo-danielpetty-com` to the GitOps section; in `src/devops_cli/config/defaults.py`, say in the comment of `DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES` that namespace `danielpetty-com` holds the workloads of another project and is not in the list
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up

@@ -915,9 +915,10 @@ DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # these workers: a 7-day window archived 406 changes at about 0.2 s each.
 DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
-# The project namespaces whose workloads the project review can name (#6615): the 14 objects of
-# `kind: Namespace` in k8s/namespaces.yaml (`git grep -l "kind: Namespace" k8s/`). The `namespace:`
-# of each kustomization of k8s/ is one of them. A `rows` fact that groups or joins by namespace or
+# The project namespaces whose workloads the project review can name (#6615): the objects of
+# `kind: Namespace` in k8s/namespaces.yaml (`git grep -l "kind: Namespace" k8s/`), except
+# `danielpetty-com`, which holds the workloads of the site project (#6642). The `namespace:` of
+# each kustomization of k8s/ is one of them. A `rows` fact that groups or joins by namespace or
 # pod reads only these namespaces.
 DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
     "agents",
