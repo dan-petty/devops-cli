@@ -10,6 +10,7 @@ are read on the OTLP fake.
 from __future__ import annotations
 
 import json
+import threading
 import zlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -36,6 +37,7 @@ from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.valkey import valkey_client_on
 from tests.support.gh_process import fresh_quota
 from tests.support.roadmap_github_store import REPO, RecordedGh, issue_payload
+from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stores.listing_shared import (
@@ -1185,3 +1187,62 @@ def test_the_lanes_of_one_process_scan_the_records_of_a_shared_copy_once(
         None if loaded is None else ([issue.number for issue in loaded.issues], loaded.watermark),
         sent,
     ) == (([3, 2, 1], STARTED), [])
+
+
+def _two_loads_at_once(
+    server: FakeServer, clock: ClockFake, *, shift: float = 0.0
+) -> tuple[int, list[ListingSnapshot | None], list[bool]]:
+    """Thread A and thread B of one store load the shared snapshot whose `meta` the main thread
+    read. The first `HSCAN`, of thread A, waits until thread B reads the clock to start the
+    budget of its load, and then moves the clock `shift` seconds. Gives the number of `HSCAN`
+    commands, the snapshot that each thread gave, and whether each wait saw its event."""
+    scans: list[tuple[Any, ...]] = []
+    scanning = threading.Event()
+    waiting = threading.Event()
+    waits: list[bool] = []
+
+    def hold_the_first_scan(command: tuple[Any, ...]) -> None:
+        if command[0] != "HSCAN":
+            return
+        scans.append(command)
+        if len(scans) == 1:
+            scanning.set()
+            waits.append(waiting.wait(THREAD_HANDOFF_BOUND_SECONDS))
+            clock.shift(shift)
+
+    def free_the_scan() -> None:
+        if threading.current_thread().name == "lane-b":
+            waiting.set()
+
+    reader = _valkey_store(
+        ValkeyCacheTier(valkey_client_on(server, after_command=hold_the_first_scan))
+    )
+    held = reader.meta(REPO)
+    assert held is not None
+    clock.after_each_reading(free_the_scan)
+    loads: dict[str, ListingSnapshot | None] = {}
+
+    def load() -> None:
+        loads[threading.current_thread().name] = reader.records(REPO, held)
+
+    lane_a = threading.Thread(target=load, name="lane-a")
+    lane_b = threading.Thread(target=load, name="lane-b")
+    lane_a.start()
+    waits.append(scanning.wait(THREAD_HANDOFF_BOUND_SECONDS))
+    lane_b.start()
+    for lane in (lane_a, lane_b):
+        lane.join(THREAD_HANDOFF_BOUND_SECONDS)
+    return len(scans), [loads.get("lane-a"), loads.get("lane-b")], waits
+
+
+def test_two_lanes_that_load_one_repository_at_the_same_time_send_one_hscan(
+    valkey_server: FakeServer, shared_valkey: ValkeyCacheTier, clock: ClockFake
+) -> None:
+    """Thread A of a process loads a shared snapshot of 3 records, and its `HSCAN` waits until
+    thread B of the same store starts the budget of its load of the same `meta`. B waits for the
+    scan of A and takes its records: the server gets one `HSCAN`, and both loads give the
+    snapshot."""
+    snapshot = _snapshot(STARTED, 3, 2, 1)
+    _valkey_store(shared_valkey).save(snapshot)
+
+    assert _two_loads_at_once(valkey_server, clock) == (1, [snapshot, snapshot], [True, True])
