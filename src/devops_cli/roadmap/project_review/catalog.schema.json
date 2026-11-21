@@ -100,7 +100,12 @@
         "base": {
           "type": "string",
           "pattern": "^[a-zA-Z_:][a-zA-Z0-9_:]*(\\{.*\\})?$",
-          "description": "A selector of the metric that a prometheus fact reads. An answer with no series is none only when this metric has a series in the window; else the fact is skipped."
+          "description": "A selector of the metric that a prometheus fact reads. An answer with no series is none only when this metric has a series in the window; else the fact is skipped. The metric is a metric of the query, else base_reason says why it is another metric."
+        },
+        "base_reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the base metric is not a metric of the query."
         }
       },
       "allOf": [
@@ -134,6 +139,14 @@
           "then": {
             "properties": {
               "base": {"not": {}, "description": "Only a prometheus fact names a base metric."}
+            }
+          }
+        },
+        {
+          "if": {"not": {"required": ["base"]}},
+          "then": {
+            "properties": {
+              "base_reason": {"not": {}, "description": "Only a fact with `base` gives `base_reason`."}
             }
           }
         },

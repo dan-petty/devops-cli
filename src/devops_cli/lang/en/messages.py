@@ -7016,6 +7016,11 @@ class RoadmapMessages:
         'projects. Add namespace=~"{{namespaces}}" to each selector with a namespace label in '
         "`query` and `base`."
     )
+    review_catalog_base_not_queried: str = (
+        "{subject}: `query` does not read the `base` metric {metric}, so a series of {metric} "
+        "does not tell whether an empty answer is none. Name a metric of `query` in `base`, or "
+        "say in `base_reason` why the base is another metric."
+    )
     review_catalog_fact: str = "the fact {id}"
     review_catalog_fact_index: str = "fact {index}"
     review_catalog_root: str = "the catalog"

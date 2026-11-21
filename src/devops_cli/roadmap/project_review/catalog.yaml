@@ -14,7 +14,8 @@
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:
-# an empty answer is none only when that metric has a series in the window.
+# an empty answer is none only when that metric has a series in the window. The base metric is a
+# metric of the query, unless `base_reason` says why the base is another metric (#6612).
 # "SRE Qn" is query n of the Queries of docs/SRE.md at 6eae4980 (#5567 removed the file):
 # https://github.com/dan-petty/devops-cli/blob/6eae498088b2ff86a06883638e50b1a4fe3ad11a/docs/SRE.md#queries
 # "Kubernetes Qn" is query n of the Queries of docs/K8S_PERFORMANCE.md of PR #5492 at d0f6e42d:
@@ -416,6 +417,9 @@ facts:
     query: count(count by (__name__) ({__name__=~".+:.+"}))
     shape: scalar
     base: 'prometheus_rule_group_rules'
+    base_reason: >-
+      The query selects the metrics by a name pattern and names no metric.
+      prometheus_rule_group_rules shows that Prometheus loads its rules.
     unit: rules
     definition: The recording rules with a colon in the name, such as the slo rules of Sloth (SRE Q9).
   - id: prometheus.alerts_firing_hours
@@ -424,6 +428,9 @@ facts:
     query: sum by (alertname) (count_over_time(ALERTS{alertstate="firing"}[{range}:5m])) / 12
     shape: rows
     base: 'prometheus_rule_group_rules'
+    base_reason: >-
+      ALERTS has a series only while an alert is pending or firing. prometheus_rule_group_rules
+      shows that Prometheus evaluates the alert rules, so an empty answer is "no alert fired".
     unit: series-hours
     definition: The firing series-hours of each alert, from ALERTS with a step of 5 minutes (SRE Q10).
   - id: prometheus.notifications
@@ -486,6 +493,9 @@ facts:
       kube_pod_container_status_last_terminated_reason{namespace="devops"}[{range}]) == 1)
     shape: rows
     base: 'kube_pod_container_info{namespace="devops"}'
+    base_reason: >-
+      kube-state-metrics gives kube_pod_container_status_last_terminated_reason only for a
+      container that ended. kube_pod_container_info shows that it reads the namespace.
     unit: containers
     definition: The containers of namespace devops by the reason of their last end (SRE Q13).
   - id: prometheus.requests_over_allocatable
@@ -820,17 +830,21 @@ facts:
     section: agentic_jobs
     query: sum by (row, cap) (increase(devops_cli_roadmap_tool_cuts_total[{range}]))
     shape: rows
-    base: 'devops_cli_roadmap_tool_calls_total'
+    base: 'devops_cli_roadmap_tool_cuts_total'
     unit: cuts
-    definition: The tool answers that a limit cut, for each row and limit.
+    definition: >-
+      The tool answers that a limit cut, for each row and limit, of all repositories: the counter
+      has no repo label.
   - id: prometheus.stage_gate_refusals
     reader: prometheus
     section: agentic_jobs
-    query: sum(increase(devops_cli_roadmap_stage_gate_refusals_total[{range}]))
+    query: sum(increase(devops_cli_roadmap_stage_gate_refusals_total{repo="{repo}"}[{range}]))
     shape: scalar
-    base: 'devops_cli_roadmap_stage_total'
+    base: 'devops_cli_roadmap_stage_gate_refusals_total{repo="{repo}"}'
     unit: refusals
-    definition: The plans that the stage gate refused, a decision point of the stage job.
+    definition: >-
+      The replies of the stage model of the repository that a stage gate refused, one for each
+      gate that found a problem in a reply, a decision point of the stage job.
   # ── Dependency updates ────────────────────────────────────────────────────
   - id: listing.renovate_opened
     reader: listing
