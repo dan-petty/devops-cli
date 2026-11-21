@@ -144,6 +144,42 @@ def test_a_service_metric_query_with_no_repo_names_the_fact(tmp_path: Path) -> N
     assert "{repo}" in text
 
 
+@pytest.mark.parametrize(
+    "query",
+    [
+        'sum(increase(devops_cli_service_jobs_total{row="stage", result="success"}[{range}])) / '
+        'sum(increase(devops_cli_service_jobs_total{repo="{repo}", row="stage"}[{range}]))',
+        'sum(devops_cli_service_jobs_total) / sum(devops_cli_service_jobs_total{repo="{repo}"})',
+        'sum(devops_cli_service_jobs_total{repo="x", row="{repo}"})',
+    ],
+)
+def test_each_service_metric_selector_of_a_query_must_name_the_repository(
+    tmp_path: Path, query: str
+) -> None:
+    """A ratio whose numerator has no repository matcher adds the repositories together, the error
+    that gave the stage SLI 0.927 for 0.372 (#4692)."""
+    text = _refusal(
+        tmp_path, lambda doc: doc["facts"][0].update(id="prometheus.stage_sli", query=query)
+    )
+
+    assert ("prometheus.stage_sli" in text, "devops_cli_service_jobs_total" in text) == (True, True)
+
+
+def test_a_base_metric_of_the_service_must_name_the_repository(tmp_path: Path) -> None:
+    text = _refusal(
+        tmp_path,
+        lambda doc: doc["facts"][0].update(base='devops_cli_service_jobs_total{row="stage"}'),
+    )
+
+    assert ("prometheus.example" in text, "`base`" in text) == (True, True)
+
+
+def test_a_github_fact_with_a_base_metric_is_refused(tmp_path: Path) -> None:
+    text = _refusal(tmp_path, lambda doc: doc["facts"][1].update(base="up"))
+
+    assert ("github.example" in text, "`base`" in text) == (True, True)
+
+
 def test_a_query_by_node_names_the_fact(tmp_path: Path) -> None:
     query = 'sum by (node) (kube_pod_container_resource_requests{resource="memory"})'
 
@@ -181,3 +217,21 @@ def test_the_placeholders_of_a_seven_day_window_keep_the_label_braces() -> None:
     assert render_query("{start}..{end} {base} {head}", window_placeholders(window, "x/y")) == (
         f"2026-11-04T14:51:23Z..2026-11-11T14:51:23Z {'a' * 40} {'b' * 40}"
     )
+
+
+def test_the_name_slug_placeholder_matches_the_job_names_of_the_repository() -> None:
+    """kube-state-metrics gives a Job by its name only, `devops-cli-<row>-<name slug>-...`."""
+    window = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 4, 14, 51, 23, tzinfo=UTC),
+        end=datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC),
+        previous_id=None,
+    )
+    template = 'kube_job_status_start_time{job_name=~"devops-cli-implement-{name_slug}-.+"}'
+
+    sent = render_query(template, window_placeholders(window, "Example/My.Project"))
+
+    assert sent == 'kube_job_status_start_time{job_name=~"devops-cli-implement-my-project-.+"}'
