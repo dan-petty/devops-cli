@@ -17,15 +17,15 @@ For each selected item the job SHALL set Status to In Progress and rebase the st
 - **THEN** no step runs, the item is stopped with the step `rebase`, and the clone holds no rebase in progress
 
 ### Requirement: The job commits the documentation and the archive, and pushes
-After the last group the job SHALL run `uv run devops docs generate` and commit its changes, then `uv run devops openspec archive <change>` and commit its changes, then rebase, run the scoped checks, then push. The job SHALL run each of these outside the agent shell. When one of them fails, the job SHALL drop the files that no commit holds before the push of the stop, so the rebase of that push finds a clean checkout.
+After the last group the agent phase SHALL run `uv run devops docs generate` and commit its changes, then `uv run devops openspec archive <change>` and commit its changes, then run the scoped checks, each outside the agent shell. `publish` SHALL push the work and the archive as two commits of the bot on the base. A stop SHALL drop the files that no commit holds before the agent writes its patches.
 
 #### Scenario: Two groups
 - **WHEN** a Staged low-effort P1 bug has a change with two unticked groups, and both steps pass
-- **THEN** the branch holds the commit of the stage job, one commit for each group, one commit for the documentation and one commit for the archive, in that order, and `origin` holds the same branch
+- **THEN** the branch on `origin` holds one commit of the bot with the work of the run and one commit of the bot with the archive, on the tip of the default branch
 
 #### Scenario: An archive that fails after it moved the change folder
-- **WHEN** `main` gains a commit, and then the archive moves the change folder and exits 1
-- **THEN** the item stops, `origin` holds the commit of the group and the commit of the documentation, and `main` has no commit that the branch on `origin` lacks
+- **WHEN** the archive moves the change folder and exits 1
+- **THEN** the item stops, and the branch on `origin` holds the work of the groups and of the documentation, and no moved change folder
 
 ### Requirement: Commit stage runs before docs and archive commits
 The job SHALL run the trusted commit stage on the staged changes of each commit that `_commit_if_changed` makes before `git commit`. When a fixer hook rewrites a file, the job SHALL stage the file, run the stage once more, and commit the rewritten file. When the stage fails on the second run, the job SHALL stop the item with the hook output, and make no docs or archive commit. When the commit holds no change, the job SHALL make no commit and run the stage zero times.
@@ -85,7 +85,7 @@ For a Planned item the job SHALL make the branch `<type>/<issue>-<slug>` at `ori
 - **THEN** the job runs a step for group 2 only
 
 ### Requirement: A Planned item gets a draft pull request at its first push
-The job SHALL push the branch of a Planned item with `-u origin` when it first holds a commit past the default branch, and SHALL open a draft pull request into the default branch at once. The first body SHALL hold the closing keyword of the delivered issue once (`Closes #<issue>`) and no other closing keyword, so a stop leaves a grounded draft. The job SHALL record the branch and the pull request, and then go on as it does for a Staged item. A stop before the first commit SHALL push nothing.
+`publish` SHALL push the new branch of a Planned item with an empty lease, so the push fails when the branch exists, and SHALL open a draft pull request into the default branch at once. The first body SHALL hold the closing keyword of the delivered issue once (`Closes #<issue>`) and no other closing keyword, so a stop leaves a grounded draft. `publish` SHALL record the pull request. A stop whose run made no commit SHALL push nothing.
 
 #### Scenario: A stop in the first group
 - **WHEN** the step of group 1 reports stopped before any commit
@@ -93,7 +93,7 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 
 #### Scenario: A stop in the second group
 - **WHEN** the step of group 2 reports stopped after group 1 passed
-- **THEN** `origin` holds the new branch with the commit of group 1, a draft pull request is open with a body that holds `Closes #<issue>` once, the job writes no later body to it, and the record holds its number
+- **THEN** `origin` holds the new branch with the work of group 1, a draft pull request is open with a body that holds `Closes #<issue>` once, the job writes no later body to it, and the record holds its number
 
 #### Scenario: A retry
 - **WHEN** a comment `implement: retry` follows that stop
@@ -101,7 +101,7 @@ The job SHALL push the branch of a Planned item with `-u origin` when it first h
 
 #### Scenario: A draft that GitHub refuses
 - **WHEN** GitHub refuses the draft pull request after the push
-- **THEN** the job removes the branch from `origin`, stops the item, and the record holds no pull request
+- **THEN** `publish` removes the branch from `origin` with a lease on its push, stops the item, and the record holds no pull request
 
 ### Requirement: The pull request that delivers the code has the type of the issue
 The job SHALL set the delivery pull request title using the Conventional Commit type selected by the changed paths. The summary SHALL come from the proposal `## Summary` section, `## What Changes`, or the issue summary. Before writing the title, the job SHALL check it with the pull request form and fall back to the issue title when invalid. The job SHALL drop undeclared scopes, and SHALL set the title when setting `Closes #<issue>`.
@@ -248,53 +248,16 @@ The implement job SHALL keep the title of the archive commit in the form `docs(o
 - **WHEN** The implement job archives the change for issue 2670.
 - **THEN** The archive commit title is `docs(openspec): archive the change (#2670)`.
 
-### Requirement: The job checkpoints each passed group on the item branch
-At each group boundary, after the claim check and the premise check and before the step of the group, the job SHALL push the item branch with the push of a stop (a push with a lease, or the publish of a Planned item), when a group passed in this run. The end boundary SHALL push nothing: only the final push, which follows the scoped checks, pushes after the last group.
-
-#### Scenario: A runner is killed after two of four groups
-- **WHEN** an item has four groups of one task each, and the runner is killed in group 3
-- **THEN** `origin` holds the item branch with the commits of groups 1 and 2
-
-#### Scenario: A second Job runs only the groups that are left
-- **WHEN** a first Job is killed after two of four groups, and a second Job takes the item
-- **THEN** the second Job runs groups 3 and 4 only, and the item reaches the draft
-
-#### Scenario: The first boundary pushes nothing
-- **WHEN** the job reaches the boundary of group 1
-- **THEN** the job makes no checkpoint push
-
-#### Scenario: The end boundary pushes nothing
-- **WHEN** all four groups pass
-- **THEN** the job made one push at each of the boundaries of groups 2, 3 and 4, and one final push, and no push at the end boundary
-
-### Requirement: A Planned item gets its draft at the first checkpoint
-The first checkpoint of a Planned item SHALL publish the branch and open the draft pull request. A later Job SHALL take the branch as a Staged item. GitHub SHALL be asked for the draft once when it refuses it, and the run SHALL make no more checkpoint pushes after the refusal.
-
-#### Scenario: A Planned item is killed after two of four groups
-- **WHEN** a Planned item has four groups of one task each, and the runner is killed in group 3
-- **THEN** `origin` holds the item branch with the commits of groups 1 and 2, and GitHub received one request to open a draft pull request
-
-#### Scenario: GitHub refuses the draft
-- **WHEN** GitHub refuses the draft at the first checkpoint of a Planned item
-- **THEN** the job asked for the draft once, `origin` holds no item branch, the run makes no more checkpoint pushes, and the final push stops the item as it does without a checkpoint
-
-### Requirement: A failed checkpoint does not stop the run
-A checkpoint push that fails SHALL NOT stop the run. The job SHALL log the failure, SHALL make no more checkpoint pushes in the run, and SHALL still make the final push.
-
-#### Scenario: A checkpoint push fails
-- **WHEN** the push at the boundary of group 2 fails
-- **THEN** the run goes on, makes no checkpoint push at the boundaries of groups 3 and 4, and makes the final push
-
 ### Requirement: The job skips a phase that passed at the same head
-The job SHALL write `implement.checked_sha` with the head after the scoped checks pass, and `implement.published_sha` with the head after it pushes the item branch. A job whose head equals `implement.checked_sha` SHALL run no scoped check. A job whose head equals `implement.published_sha` SHALL push nothing. The job SHALL clear both keys when the run ends at the draft and when it returns the item to New.
+`publish` SHALL write `implement.checked_sha` and `implement.published_sha` with the pushed commit after the push. An agent phase whose head equals `implement.checked_sha` SHALL run no scoped check. `publish` SHALL push no commit when the lease holds the new tree already. `prepare` SHALL clear `implement.published_sha`, and `publish` SHALL take it as the lease when it holds a value. The job SHALL clear both keys when the run ends at the draft and when it returns the item to New.
 
 #### Scenario: A second Job at a checked head
-- **WHEN** a first Job passes the scoped checks, pushes, and stops before the end of the run, and a second Job starts at the same head
-- **THEN** the second Job runs no scoped check and pushes nothing, and the record holds both keys until the run ends at the draft
+- **WHEN** a first Job pushes and is killed before the end of the run, and a second Job starts on the pushed branch
+- **THEN** the agent phase of the second Job runs no scoped check, and `publish` pushes nothing
 
 #### Scenario: A head that moved
 - **WHEN** `implement.checked_sha` holds a sha that is not the head
-- **THEN** the job runs the scoped checks and writes the new head
+- **THEN** the agent phase runs the scoped checks
 
 ### Requirement: A pull request answer holds the title and the body
 `PullStatus` SHALL hold the `title` and the `body` of the pull request, with empty defaults, and `get_pull_status` SHALL fill them from the answer of the pull request.
@@ -340,13 +303,6 @@ The summary of the plan SHALL be the text after `docs(openspec): plan #<issue>` 
 #### Scenario: A change without the prompt file
 - **WHEN** the changed files hold no stage prompt path and the body holds no score
 - **THEN** the score rule answers no reason, and the other rules decide
-
-### Requirement: The option skips the fetch and the rebase
-`devops roadmap implement` SHALL accept a `--no-rebase` option that skips the fetch of the default branch and the rebase of the branch before the first step and before the push.
-
-#### Scenario: The option skips both syncs
-- **WHEN** a runner Job runs `roadmap implement --repo <owner/name> --item 7 --confirm --no-rebase` in a real repository whose `origin/main` holds a commit that the branch lacks
-- **THEN** the worktree gets no `git fetch -q origin main` and no `git rebase` at the start or before the push, the branch keeps its commits, and the job pushes them with the lease
 
 ### Requirement: A refused body is rebuilt once
 The job SHALL send every problem of a refused pull request body to the model one time, and SHALL rebuild the body from the reply. A rebuilt body that passes `body_problems` SHALL be written to the pull request. A rebuilt body that fails SHALL stop the item with the class `refused_reply`, and the job SHALL make no third model call.
@@ -395,36 +351,24 @@ After the job sets the title and the body of the draft and comments each step, i
 - **WHEN** the archive leaves a task of group 2 unticked
 - **THEN** the item is Blocked at the step `ready` with the class `plan_defect`, and the record holds no `implement.result` equal to `drafted`
 
-### Requirement: A push rebases the checkout onto the default branch
-The job SHALL fetch `origin/<default>` before each push of the item branch, including after the scoped checks of the final push, and SHALL push a commit that holds it. Between steps, after the scoped checks, and at a stop the job SHALL rebase the checkout.
+### Requirement: The agent phase rebases once and settles each stop
+The agent phase SHALL rebase onto the tip of the default branch that `prepare` recorded, once, before the first step. It SHALL skip only the archive commit of the item, and make the generated documents and `uv.lock` again. Another stop SHALL abort the rebase and stop the item with the class `conflict`. The job SHALL NOT call `fix_rebase_conflict`.
 
-#### Scenario: The first push of a Planned item
-- **WHEN** `main` gains a commit while the first step runs, and the step of group 2 then stops
-- **THEN** `main` has no commit that the branch on `origin` lacks
+#### Scenario: A main that moved
+- **WHEN** `main` gains a commit before the Job starts
+- **THEN** the pushed branch on `origin` holds that commit
 
-#### Scenario: A checkpoint
-- **WHEN** `main` gains a commit while group 2 runs
-- **THEN** after the checkpoint of group 2 the branch on `origin` holds that commit
+#### Scenario: An archive commit that conflicts
+- **WHEN** the branch holds an archive commit and `main` changes a spec that the archive changed
+- **THEN** the rebase skips the archive commit, the run archives the change again, and the item reaches the draft
 
-#### Scenario: The final push
-- **WHEN** `main` gains a commit while the scoped checks run
-- **THEN** after the scoped checks the pushed branch on `origin` holds that commit
+#### Scenario: A conflict that no rule settles
+- **WHEN** `main` changes a source file that the branch changed
+- **THEN** the item stops with the class `conflict`, the comment names the conflicting path, and `origin` keeps the item branch as it was
 
-#### Scenario: A conflict after scoped checks
-- **WHEN** `main` gains a conflicting commit while the scoped checks run
-- **THEN** the job stops with status Blocked, and the job pushes nothing
+### Requirement: The option skips the rebase of the agent phase
+`devops roadmap implement` SHALL accept a `--no-rebase` option. With it, the agent phase makes no rebase, and the base of the patches is the tip of the pushed branch, or the tip of the default branch for a new branch.
 
-#### Scenario: A stop
-- **WHEN** `main` gains a commit and the step stops
-- **THEN** the push of the stop holds that commit
-
-### Requirement: A conflicting checkpoint or stop push keeps the head on the item branch
-A checkpoint or stop push whose rebase conflicts SHALL abort the rebase, push the head of the checkout to the item branch with a lease, and record the conflicting paths in `implement.conflict`. The run SHALL make its next checkpoint push. The final push whose rebase conflicts MUST push nothing, MUST keep the item branch on `origin`, and SHALL stop the item with the class `conflict`, naming the conflicting paths in its comment.
-
-#### Scenario: A conflict at a checkpoint
-- **WHEN** `main` gains a commit that changes `CONTEXT.md` after group 1 passed, and the checkpoint push before group 2 conflicts
-- **THEN** the checkpoint push before group 3 puts the commit of group 2 on the item branch, and `implement.conflict` names `CONTEXT.md`
-
-#### Scenario: A conflict at the final push
-- **WHEN** the final push rebases onto a `main` that conflicts with the branch after a checkpoint kept the passed groups
-- **THEN** the item stops with the class `conflict`, the comment names the conflicting path, and `origin` keeps the item branch
+#### Scenario: The option skips the rebase
+- **WHEN** a runner Job runs `roadmap implement --repo <owner/name> --item 7 --confirm --no-rebase` in a real repository whose `origin/main` holds a commit that the branch lacks
+- **THEN** the agent phase runs no `git rebase`, and `publish` puts the work of the run on the old tip of the branch with a lease on it

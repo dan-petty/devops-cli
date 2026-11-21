@@ -124,6 +124,25 @@ def test_publish_refuses_a_state_that_names_another_branch(
         publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1)
 
 
+def test_the_agent_phase_writes_its_outputs_into_a_new_folder(
+    job_world: JobWorld, tmp_path: Path
+) -> None:
+    """The agent can write the run folder, so a link that it leaves at `out/outcome.json` would turn
+    the write of the job to another file. The agent phase makes `out/` after the sweep, and
+    refuses an `out/` that is there already (#6655, #3702)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders)
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text("untouched", encoding="utf-8")
+    folders.out.mkdir()
+    (folders.out / "outcome.json").symlink_to(elsewhere)
+
+    with pytest.raises(PhaseOutputError, match="output folder"):
+        agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+
+    assert elsewhere.read_text(encoding="utf-8") == "untouched"
+
+
 class TestPrepareRunsGitOnly:
     @pytest.fixture
     def staged_files(self) -> dict[str, str]:
@@ -143,8 +162,11 @@ class TestPrepareRunsGitOnly:
 
         _prepare(job_world, RunFolders(tmp_path / "run"))
 
-        names = {Path(call.argv[0]).name for call in job_world.programs.calls[before:]}
-        assert names == {"git"}
+        calls = job_world.programs.calls[before:]
+        assert {Path(call.argv[0]).name for call in calls} == {"git"}
+        # The read of the plan title gets a home folder of the run, as `publish` does (#6655).
+        (log,) = [call for call in calls if "log" in call.argv and "--format=%s" in call.argv]
+        assert (log.env or {}).get("HOME", "").startswith(str(tmp_path))
 
 
 ARCHIVE_MOVE = (

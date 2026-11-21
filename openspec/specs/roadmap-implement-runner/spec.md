@@ -206,37 +206,6 @@ The policy SHALL refuse a Job of the Service unless the CPU request of its conta
 - **WHEN** the Job of a row sets a memory limit of 12Gi
 - **THEN** the policy admits the Job
 
-### Requirement: A network git call of the implement job reads no file that the agent can write
-The implement job SHALL run each git call that reaches `origin`, also the calls of `add_worktree`, through `OriginGit`: in a new bare git folder whose `objects` folder links the object folder of the clone, with `CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`, an empty home folder, and the URL of `origin` that the job read before its first item. It SHALL end every leftover process before it makes the folder and again just before the call.
-
-#### Scenario: The options and the environment of the call
-- **WHEN** the job fetches a branch
-- **THEN** the fetch gets `-c credential.helper=`, `-c credential.https://github.com.helper=`, `-c 'credential.https://github.com.helper=!gh auth git-credential'` and `-c core.hooksPath=/dev/null`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1`, and a `HOME` that is gone after the call
-
-#### Scenario: A push sends a commit
-- **WHEN** the job pushes the commit `<sha>` to its branch
-- **THEN** the push gets `--no-verify` and the refspec `<sha>:refs/heads/<branch>`, runs outside the clone, and the remote-tracking ref of the branch in the clone is `<sha>` after it
-
-#### Scenario: Programs that the home folder of the Job names
-- **WHEN** a turn of the agent writes into the git configuration of the home folder a hook folder with a `pre-commit`, `post-commit`, `pre-push` and `reference-transaction` hook and a credential helper, each of which writes the `GH_TOKEN` that it sees, and the job runs a Planned item to its pull request
-- **THEN** the branch of the item is on `origin`, the `pre-commit` hook ran with no token, and no program wrote the session's token
-
-#### Scenario: A server that asks for credentials
-- **WHEN** a credential helper is in the home folder and in the configuration of the clone, an `http.proxy` with `http.sslVerify=false` is in both, and the job pushes to a loopback server that answers 401 with a Basic challenge
-- **THEN** no helper runs, no request reaches the proxy, the server receives no `Authorization` header, and the push fails
-
-#### Scenario: A pre-push hook of the clone
-- **WHEN** the configuration of the clone sets `core.hooksPath` to a folder with a `pre-push` hook, and the job pushes to a bare repository on disk
-- **THEN** the branch is on the bare repository, and the hook did not run
-
-#### Scenario: A pre-push hook in the hooks folder of the clone
-- **WHEN** the hooks folder of the clone holds a `pre-push` hook, no `core.hooksPath` is set, and the job pushes to a bare repository on disk
-- **THEN** the branch is on the bare repository, and the hook did not run
-
-#### Scenario: A URL that the home folder or the clone names
-- **WHEN** the home folder and the configuration of the clone hold an `insteadOf` or a `pushInsteadOf` that names a loopback server that asks for credentials, and the job pushes to a bare repository on disk
-- **THEN** the branch is on the bare repository, and the server receives no request
-
 ### Requirement: The leftover processes end before each part of a network git call
 `OriginGit` SHALL end every leftover process before it makes the new folder, and again just before the call with the token.
 
@@ -446,17 +415,6 @@ The shell of the agent of a step, the `pre-commit` runs, the scoped checks, the 
 - **WHEN** a step builds the shell of its agent for a checkout
 - **THEN** the PATH of the shell starts with `node_modules/.bin` and `.venv/bin` of that checkout
 
-### Requirement: A link at the shallow file at a checkpoint or stop push stops the item at once
-A `shallow` file of the clone that is a link, or is not a regular file, at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. Such a file at the push of a stop SHALL give the stop the class `git_config`.
-
-#### Scenario: A link before a checkpoint push
-- **WHEN** the agent makes the `shallow` file of the clone a link in group 1 of a change of four groups, and group 1 passes
-- **THEN** the checkpoint before group 2 stops the item with the class `git_config`, and the job asks the model for nothing more
-
-#### Scenario: A link that an exit check writes
-- **WHEN** an exit check of the step makes the `shallow` file of the clone a link and fails, and no repair round is left
-- **THEN** the item stops with the class `git_config`, and the comment names `shallow`
-
 ### Requirement: The runner image holds the scanners of a review
 The runner image SHALL hold Gitleaks, Pluto, osv-scanner, golangci-lint and Semgrep from the devtools image, at the versions of the installed tools. Each of the five SHALL be an entry of `RUNNER_TOOLS` with the source `ToolSource.DEVTOOLS` and SHALL NOT be an entry of `NOT_IN_RUNNER`. Each binary of the analyzer table of the review SHALL be an entry of `RUNNER_TOOLS`.
 
@@ -467,3 +425,29 @@ The runner image SHALL hold Gitleaks, Pluto, osv-scanner, golangci-lint and Semg
 #### Scenario: Each analyzer binary in the table
 - **WHEN** the runner tool table is read after the change
 - **THEN** each binary of `STATIC_ANALYZERS` is an entry of `RUNNER_TOOLS`
+
+### Requirement: The implement job runs on three phases
+`devops roadmap implement --confirm` SHALL take `--phase prepare|agent|publish|all` and `--work <folder>` (#3702). `prepare` and `publish` SHALL hold the App token and run no code of the pull request; `agent` SHALL hold the model key only. `all`, the default, SHALL run the three phases in one process. Each phase SHALL first make the process unreadable to its children.
+
+#### Scenario: All runs the phases in order
+- **WHEN** the runner Job runs `roadmap implement --item 1 --confirm`
+- **THEN** `prepare`, then `agent`, then `publish` run in one process, and the item reaches the draft
+
+#### Scenario: The phases in separate calls
+- **WHEN** `prepare`, `agent` and `publish` run in three calls on one run folder
+- **THEN** the item reaches the draft as it does with `all`
+
+#### Scenario: The agent phase with a GitHub token
+- **WHEN** `--phase agent` starts in an environment that holds `GH_TOKEN`
+- **THEN** the command refuses before it reads the inputs
+
+### Requirement: A network git call of the implement job runs in a folder that no agent wrote
+Each git call of the implement job that reaches `origin` SHALL run in a folder that no agent wrote: the new clone of `prepare` in the run folder, before the agent phase, or the new repository of `publish`. Until #3700 these calls SHALL set `CONST_GIT_ISOLATED_CONFIG_ENV`, get the credential helper of `gh` from `-c` values and a home folder of the run, and `publish` SHALL end every leftover process first. No call with the token SHALL touch the clone of the agent phase.
+
+#### Scenario: Programs that the home folder of the Job names
+- **WHEN** a turn of the agent writes into the git configuration of the home folder a hook folder with a `pre-commit`, `post-commit`, `pre-push` and `reference-transaction` hook and a credential helper, each of which writes the `GH_TOKEN` that it sees, and the job runs a Planned item to its pull request
+- **THEN** the branch of the item is on `origin`, and no program wrote the session's token
+
+#### Scenario: A credential helper in the clone
+- **WHEN** a turn of the agent adds a credential helper and a `pre-push` hook to the configuration of its clone
+- **THEN** `publish` pushes from its own repository, and neither program runs

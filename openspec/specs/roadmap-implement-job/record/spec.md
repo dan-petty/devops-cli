@@ -6,7 +6,7 @@ The record of an implement run: the job record, the trace, the comment of each r
 ## Requirements
 
 ### Requirement: The job record
-The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch` (the branch of the pull request), `implement.pr` (the pull request), `implement.base`, `implement.checked_sha`, `implement.published_sha`, `implement.stopped`, `implement.result`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL be the requests, input tokens and output tokens of every step that the Jobs of the item ran.
+The job SHALL keep `implement.group` (the last group that passed), `implement.sha` (the commit it ended on), `implement.branch`, `implement.pr`, `implement.checked_sha`, `implement.published_sha`, `implement.stopped`, `implement.result`, `implement.spend` and `implement.trace` in the job record of the item. The spend SHALL count every step of every Job of the item. `publish` SHALL write the record when the run ends (#3702).
 
 #### Scenario: Spend
 - **WHEN** two steps used 3 and 4 requests
@@ -245,17 +245,6 @@ The implement job SHALL record in `implement.spend`, under `steps`, for each ste
 #### Scenario: A step with a repair round
 - **WHEN** the lint check of group 1 fails once and one repair turn fixes it
 - **THEN** the entry of group 1 holds 1 repair round and the 4 requests of both turns
-
-### Requirement: The job record keeps the base until the run ends
-The job SHALL write `implement.base` once, in the write that sets the Status In Progress, and keep an existing value. The value SHALL be the sha of `origin/<branch>` for a Staged item and `new` for a Planned item. The job SHALL clear `implement.base` when the run ends at the draft and when it returns the item to New.
-
-#### Scenario: The base of a Staged item and of a Planned item
-- **WHEN** the job starts a Staged item and a Planned item
-- **THEN** the record of the Staged item holds the sha of its branch on `origin`, and the record of the Planned item holds `new`
-
-#### Scenario: The base is kept by a second Job and cleared at the end
-- **WHEN** a first Job is killed after two groups, a second Job takes the item, and the run of the second Job ends at the draft
-- **THEN** the second Job sees the base of the first Job, and the record holds no `implement.base` after the end
 
 ### Requirement: The end comment, the stop comment and the record show the extension of a step budget
 The record `implement.spend` SHALL hold, for each step that got the one extension of its token budget, the old budget, the new budget, the counts that gave it and whether the ceiling cut it. The end comment and the stop comment of the item SHALL list each such step of the run, the earlier Jobs included, with the budgets and the counts only. A run with no extension SHALL show no such list.

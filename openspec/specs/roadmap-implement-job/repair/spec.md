@@ -12,29 +12,6 @@ Before the first step of an item, the job SHALL run `pre-commit install-hooks` i
 - **WHEN** `pre-commit install-hooks` exits 1
 - **THEN** no step runs, no model request is made, the item is stopped with the step `hooks`, and the reason holds the output
 
-### Requirement: The job runs the scoped checks before it pushes
-After the final rebase and before the push, the job SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, `devops ci test` with test modules, and the strength check of the new tests. It SHALL run each outside the agent shell and without a GitHub token. The job SHALL push a finished item only after all of them pass, except for a checkpoint.
-
-#### Scenario: All checks pass
-- **WHEN** an item changes `src/devops_cli/shout.py`, a test module imports it, and every scoped check exits 0
-- **THEN** `devops ci test` ran with the path of that test module, the job pushed, and no repair step ran
-
-#### Scenario: A change with no Python file
-- **WHEN** the item changes only documents
-- **THEN** the job runs no test command, and pushes after the other checks pass
-
-#### Scenario: The pre-push stage runs
-- **WHEN** the job runs the scoped checks
-- **THEN** one call is `pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD` in the worktree
-
-#### Scenario: A checkpoint comes before the scoped checks
-- **WHEN** group 1 of two groups passes its step, and the job reaches the boundary of group 2
-- **THEN** `origin` holds the commit of group 1 before any scoped check runs, and the final push still follows only after the scoped checks pass
-
-#### Scenario: The strength check follows the tests check
-- **WHEN** the tests check passes
-- **THEN** the strength check runs on the changed files, and the push follows only after it passes or reaches its bound
-
 ### Requirement: The scoped tests check stays small
 The test modules of the scoped tests check SHALL be those that the selector of `devops ci test` picks for the changed Python files of `src/` and `tests/`. The job SHALL run no test command when no test covers the change. It SHALL run only the changed test modules when the selection holds more than `CONST_ROADMAP_IMPLEMENT_SCOPED_TEST_MODULES` modules. The comment on the pull request SHALL say so.
 
@@ -215,3 +192,26 @@ When no active changed file of the strength check is a Python file under `src/`,
 #### Scenario: A change of a test, a manifest and a prompt
 - **WHEN** the changed files are `tests/test_sample.py`, `k8s/runner.yaml` and `src/devops_cli/ai/tasks/step.md`, and the new test asserts
 - **THEN** the strength check passes, no `pytest`, `coverage` or `mutmut` command starts, and the report holds the note
+
+### Requirement: The agent phase runs the scoped checks before publish pushes
+After the archive and before `publish`, the agent phase SHALL run, in this order, the `pre-push` stage of the hooks over the commits past the default branch, `devops ci --check --only constructs,docs,openspec`, `devops ci test` with test modules, and the strength check of the new tests. It SHALL run each outside the agent shell and without a GitHub token. `publish` SHALL push a finished item only after all of them pass.
+
+#### Scenario: All checks pass
+- **WHEN** an item changes `src/devops_cli/shout.py`, a test module imports it, and every scoped check exits 0
+- **THEN** `devops ci test` ran with the path of that test module, the job pushed, and no repair step ran
+
+#### Scenario: A change with no Python file
+- **WHEN** the item changes only documents
+- **THEN** the job runs no test command, and pushes after the other checks pass
+
+#### Scenario: The pre-push stage runs
+- **WHEN** the job runs the scoped checks
+- **THEN** one call is `pre-commit run --hook-stage pre-push --from-ref origin/main --to-ref HEAD` in the clone
+
+#### Scenario: No push before the scoped checks
+- **WHEN** group 1 of two groups passes its step
+- **THEN** `origin` holds no new commit before the scoped checks pass and `publish` runs
+
+#### Scenario: The strength check follows the tests check
+- **WHEN** the tests check passes
+- **THEN** the strength check runs on the changed files, and the push follows only after it passes or reaches its bound

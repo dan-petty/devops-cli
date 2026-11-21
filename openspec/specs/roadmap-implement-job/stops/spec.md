@@ -208,40 +208,6 @@ The comment of the job on the pull request SHALL show one line for each applied 
 - **WHEN** the job applied an amendment and a later step stops the item, and the pull request exists
 - **THEN** the pull request gets a comment with the line of the amendment
 
-### Requirement: A false premise returns the item to New
-When a step stops with a `premise` request whose evidence is not empty, the job SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. Before it returns the item, it SHALL withdraw the checkpoints that it pushed, as the requirement on the withdraw says. A return SHALL remove the worktree and SHALL clear `implement.group`, `implement.sha`, `implement.branch`, `implement.pr` and `implement.base`. It SHALL NOT set `implement.stopped`.
-
-#### Scenario: A false premise on a Planned item
-- **WHEN** the first step of a Planned item ends with a `premise` request and evidence
-- **THEN** the Status is New, the comment holds the evidence, `origin` has no branch for the item, no worktree is left, and the record has no `implement.stopped`
-
-#### Scenario: A false premise on a Planned item after a checkpoint
-- **WHEN** groups 1 and 2 of a Planned item passed, the checkpoints opened one draft pull request, and the step of group 3 ends with a `premise` request and evidence
-- **THEN** the Status is New, `origin` has no branch for the item, the draft pull request is closed, and the record holds no `implement.base`
-
-#### Scenario: A false premise on a Staged item
-- **WHEN** the step of group 2 of a Staged item ends with a `premise` request, and group 1 passed in this run
-- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` and `implement.base` are cleared
-
-#### Scenario: A premise request with no evidence
-- **WHEN** the `premise` request has an empty `evidence`
-- **THEN** the item is stopped as a question and its Status is Blocked
-
-### Requirement: A return withdraws the checkpoints first
-Before the job returns an item to New, it SHALL withdraw the checkpoints that it pushed. For a Staged item, the withdraw SHALL push the sha of `implement.base` back to the item branch with a lease on the last tip that the job pushed. For a Planned item, the withdraw SHALL delete the item branch with the same lease and close the recorded draft pull request, and SHALL do nothing when `origin` holds no item branch. A withdraw that fails SHALL stop the item as Blocked and SHALL NOT return it.
-
-#### Scenario: A person pushed after the last checkpoint
-- **WHEN** a person pushes to the item branch after a checkpoint, and a `premise` request with evidence follows
-- **THEN** the lease of the withdraw fails, the item is Blocked and is not returned, and the push of the person stays on the branch
-
-#### Scenario: A withdraw that fails
-- **WHEN** the push of the withdraw fails with an error that is not a failed lease
-- **THEN** the item is Blocked and is not returned, and `origin` keeps the checkpoints
-
-#### Scenario: A withdraw after a refused draft
-- **WHEN** GitHub refused the draft of a Planned item at its first checkpoint, and a `premise` request with evidence follows
-- **THEN** the withdraw finds no branch on `origin` and does nothing, and the Status is New
-
 ### Requirement: A group over the limit of the step is split once for each item
 When the inputs of a group measure more than the limit of the step, the job SHALL ask the split step of the stage job for the groups that replace it, once for each item. It SHALL write them in place of the group, number the later groups after them, give the lines of `## Criteria` the new numbers with the same criterion text, add an amendment bullet, commit, and run the new groups. A new group over the limit, or a second group over the limit in the same item, SHALL stop the item.
 
@@ -524,3 +490,18 @@ A comment `implement: retry` of a trusted person SHALL clear one stop. The comme
 #### Scenario: A second stop after a retry
 - **WHEN** the runner stops an item, the owner comments `implement: retry`, the round clears the stop and creates a Job, and the runner of that Job stops the item again
 - **THEN** the item stays Blocked, the round created two Jobs in all, and one comment names the retry rule
+
+### Requirement: A false premise returns the item to New with no push
+When a step stops with a `premise` request whose evidence is not empty, the agent phase SHALL end the run with the outcome `returned` and the evidence, and `publish` SHALL return the item to New through `apply_return`, with a comment that holds the evidence masked and cut. The run SHALL push nothing. A return SHALL clear `implement.group`, `implement.sha`, `implement.branch` and `implement.pr`. It SHALL NOT set `implement.stopped`.
+
+#### Scenario: A false premise on a Planned item
+- **WHEN** the first step of a Planned item ends with a `premise` request and evidence
+- **THEN** the Status is New, the comment holds the evidence, `origin` has no branch for the item, and the record has no `implement.stopped`
+
+#### Scenario: A false premise on a Staged item
+- **WHEN** the step of group 2 of a Staged item ends with a `premise` request, and group 1 passed in this run
+- **THEN** the Status is New, `origin` holds the staged branch at the commit it had before the run, and `implement.group` is cleared
+
+#### Scenario: A premise request with no evidence
+- **WHEN** the `premise` request has an empty `evidence`
+- **THEN** the item is stopped as a question and its Status is Blocked

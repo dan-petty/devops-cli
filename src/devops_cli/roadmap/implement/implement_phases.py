@@ -326,7 +326,15 @@ def prepare_implement(
     try:
         proposal = f":(glob){CONST_OPENSPEC_CHANGES_DIR}/{number}-*/proposal.md"
         subject = git_call(
-            clone.path, "log", "-1", "--diff-filter=A", "--format=%s", "HEAD", "--", proposal
+            clone.path,
+            "log",
+            "-1",
+            "--diff-filter=A",
+            "--format=%s",
+            "HEAD",
+            "--",
+            proposal,
+            home=folders.state,
         )
         preset = resolve_profile(clone.path, f"origin/{clone.default}").preset
         archive = bool(
@@ -484,8 +492,9 @@ def agent_implement(folders: RunFolders, tools: AgentTools) -> None:
         run._drop_uncommitted()
     if load_settings().roadmap.implement.in_runner:
         process_hardening.end_leftover_processes()
-    work = folders.out / CONST_ROADMAP_PHASE_WORK_PATCH_FILE
-    archive = folders.out / CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE
+    out = folders.make_out()
+    work = out / CONST_ROADMAP_PHASE_WORK_PATCH_FILE
+    archive = out / CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE
     if push:
         split = run.archive_split(inputs.base)
         write_patch(run.path, inputs.base, work, head=split or "HEAD")
@@ -493,8 +502,8 @@ def agent_implement(folders: RunFolders, tools: AgentTools) -> None:
     else:
         work.write_bytes(b"")
         archive.write_bytes(b"")
-    write_json(folders.out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
-    write_json(folders.out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
+    write_json(out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
+    write_json(out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
 
 
 # ── publish ──
