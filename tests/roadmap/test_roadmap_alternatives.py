@@ -820,6 +820,45 @@ def test_a_pypi_read_answers_with_the_latest_upload_and_remembers_it(
     )
 
 
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_second_pypi_read_of_one_package_sends_no_request(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    """PyPI fact reuse across processes (#4668): `Scanner`, then `scanner` with the memory tier of
+    the process empty, as in a new process. The second read comes from the shared tier."""
+    from devops_cli.valkey.tiered import reset_tiered_mappings
+
+    _pypi(web, "Scanner", uploads=[NOW.isoformat()], license_expression="MIT")
+
+    first = AlternativesTools(store=store).pypi_package("Scanner")
+    reset_tiered_mappings()
+    second = AlternativesTools(store=store).pypi_package("scanner")
+
+    assert (first == second, web.requested) == (
+        True,
+        [DEFAULT_PYPI_PACKAGE_URL.format(name="Scanner")],
+    )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_failed_pypi_read_keeps_nothing(store: InMemoryRoadmapStore, web: WebFake) -> None:
+    """PyPI answers 503 and then 200: the failure is not kept, so the second call reads PyPI and
+    gives the facts (#4668)."""
+    url = DEFAULT_PYPI_PACKAGE_URL.format(name="scanner")
+    web.respond("GET", url, 503)
+    failed = AlternativesTools(store=store).pypi_package("scanner")
+    web.method_routes.clear()
+    _pypi(web, "scanner", uploads=[NOW.isoformat()], license_expression="MIT")
+
+    answer = AlternativesTools(store=store).pypi_package("scanner")
+
+    assert (failed, "License: MIT" in answer.splitlines(), web.requested) == (
+        "The read failed: HTTPStatusError.",
+        True,
+        [url, url],
+    )
+
+
 @pytest.mark.parametrize(
     ("fields", "license_name"),
     [
