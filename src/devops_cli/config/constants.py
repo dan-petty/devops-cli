@@ -3825,6 +3825,14 @@ CONST_ROADMAP_FIX_CHECKS_RETRY_CAP_SECONDS: Final[int] = 7200
 CONST_ROADMAP_PHASE_STATE_DIR: Final[str] = "state"
 CONST_ROADMAP_PHASE_WORK_DIR: Final[str] = "work"
 CONST_ROADMAP_PHASE_OUT_DIR: Final[str] = "out"
+# The containers of a runner Job on the phases (#3700, #6690), named as the phase that each runs,
+# in the order that they run: the init containers `prepare` and `agent`, then the container
+# `publish`. Each runs its `--phase` on the run folder at the fixed path, where the template mounts
+# the volumes of the run.
+CONST_RUNNER_PHASE_PREPARE: Final[str] = "prepare"
+CONST_RUNNER_PHASE_AGENT: Final[str] = "agent"
+CONST_RUNNER_PHASE_PUBLISH: Final[str] = "publish"
+CONST_RUNNER_PHASE_RUN_DIR: Final[str] = "/run/roadmap"
 CONST_ROADMAP_PHASE_STATE_FILE: Final[str] = "state.json"
 CONST_ROADMAP_PHASE_INPUT_FILE: Final[str] = "input.json"
 CONST_ROADMAP_PHASE_PATCH_FILE: Final[str] = "agent.patch"

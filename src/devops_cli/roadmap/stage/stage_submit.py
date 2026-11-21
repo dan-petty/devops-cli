@@ -205,10 +205,12 @@ def _evictions(item: Item) -> Evictions:
 
 
 def _log_tail(api: ClusterJobs, name: str) -> str:
-    """The tail of the log of the pod of Job `name`, or empty when the API refuses it: a pod that
-    was evicted or never started has no log."""
+    """The tail of the log of the container of the stage template in the pod of Job `name`, or
+    empty when the API refuses it: a pod that was evicted or never started has no log."""
     try:
-        return api.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES)
+        return api.log_tail(
+            name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES, container=STAGE_TEMPLATE.container
+        )
     except ClusterJobError:
         return ""
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,6 +38,19 @@ def runner_cronjob_manifest() -> dict[str, Any]:
     return cronjob
 
 
+def phase_runner_cronjob_manifest() -> dict[str, Any]:
+    """CronJob devops-cli-runner on the phases (#3700): the runner container as the init
+    containers `prepare` and `agent` and the container `publish`."""
+    cronjob = runner_cronjob_manifest()
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    (runner,) = pod_spec["containers"]
+    pod_spec["initContainers"] = [
+        {**copy.deepcopy(runner), "name": n} for n in ("prepare", "agent")
+    ]
+    pod_spec["containers"] = [{**copy.deepcopy(runner), "name": "publish"}]
+    return cronjob
+
+
 def stage_cronjob_manifest() -> dict[str, Any]:
     """CronJob roadmap-stage as the manifest names it (#5483)."""
     loaded: dict[str, Any] = yaml.safe_load(
@@ -55,6 +69,9 @@ class FakeJobs:
     stage_cronjob: dict[str, Any] | None = None
     phases: list[str] = field(default_factory=lambda: ["Pending", "Running"])
     exit_code: str = "0"
+    # The answer to a read of the pod that names a container: its exit code, which also says
+    # that it started. A container that the map does not hold has not started.
+    container_exit_codes: dict[str, str] = field(default_factory=dict)
     listed: list[dict[str, Any]] = field(default_factory=list)
     calls: list[list[str]] = field(default_factory=list)
     created: list[dict[str, Any]] = field(default_factory=list)
@@ -78,6 +95,9 @@ class FakeJobs:
             return "job.batch/created\n"
         if verb == ["get", "pods"] and "phase" in argv[-1]:
             return self.phases.pop(0) if len(self.phases) > 1 else self.phases[0]
+        if verb == ["get", "pods"] and (named := re.search(r'@\.name=="([^"]+)"', argv[-1])):
+            if self.container_exit_codes:
+                return self.container_exit_codes.get(named.group(1), "")
         if verb == ["get", "pods"]:
             return self.exit_code
         return ""

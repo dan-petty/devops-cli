@@ -312,7 +312,9 @@ def _comment(
 
 def _log_of(jobs: ClusterJobs, name: str) -> str:
     """The tail of the log of Job `name`, or empty when the API refuses it: a pod that was evicted
-    or never started has no log, and the report of the Job must not wait for one."""
+    or never started has no log, and the report of the Job must not wait for one. On the phases
+    (#3700), the log is of the container that ended the pod: the one that failed, else
+    `publish`."""
     try:
         return jobs.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES)
     except ClusterJobError:

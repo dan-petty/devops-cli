@@ -71,6 +71,8 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_FIX_CHECKS_RETRY_SECONDS,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
     CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
 )
 from devops_cli.config.settings import load_settings
@@ -121,6 +123,11 @@ ROUND_ERROR: Final[str] = "round_error"
 _ERROR_EXIT: Final[int] = 1
 # The reason of the condition Failed of a Job that its `activeDeadlineSeconds` ended.
 _DEADLINE_REASON: Final[str] = "DeadlineExceeded"
+# The containers of a Job on the phases that print the result line, in the order that it is read.
+_RESULT_CONTAINERS: Final[tuple[str, ...]] = (
+    CONST_RUNNER_PHASE_PUBLISH,
+    CONST_RUNNER_PHASE_PREPARE,
+)
 # The `job` value of the result line of the step (`FixChecksReport.to_json`).
 _STEP_JOB: Final[str] = "fix_checks"
 _LARGE = RUNNER_SIZES[-1]
@@ -324,20 +331,30 @@ def _retry_at(ended: datetime | None, attempt: int) -> int:
     return int((ended + timedelta(seconds=wait)).timestamp()) if ended else 0
 
 
-def _log_tail(api: ClusterJobs, name: str) -> str:
-    """The tail of the log of the pod of Job `name`, or empty when the API refuses it: a pod that
-    an eviction ended or that never started has no log."""
+def _log_tail(api: ClusterJobs, name: str, container: str) -> str:
+    """The tail of the log of `container` in the pod of Job `name`, or empty when the API refuses
+    it: a pod that an eviction ended or that never started has no log."""
     try:
-        return api.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES)
+        return api.log_tail(name, CONST_ROADMAP_IMPLEMENT_JOB_LOG_LINES, container=container)
     except ClusterJobError:
         return ""
+
+
+def _result_line(api: ClusterJobs, name: str) -> str | None:
+    """The result of the result line of Job `name`. On the phases (#3700), `publish` prints it,
+    and `prepare` prints it when it ended the round itself. A pod with one container holds both."""
+    for container in _RESULT_CONTAINERS:
+        found = result_of(_log_tail(api, name, container))
+        if found is not None:
+            return found
+    return None
 
 
 def _outcome(api: ClusterJobs, job: ClusterJob) -> str:
     """The outcome of the ended Job `job`: the result of its result line, else `deadline` when its
     deadline ended it, else `error` for a command that exited 1, else `none`. A read of the pod
     that the API refuses gives no exit."""
-    found = result_of(_log_tail(api, job.name))
+    found = _result_line(api, job.name)
     if found is not None:
         return found
     if job.reason == _DEADLINE_REASON:

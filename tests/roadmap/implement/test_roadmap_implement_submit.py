@@ -55,6 +55,7 @@ from tests.support.fakes.kubernetes import (
     running,
     status,
     terminated,
+    waiting,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.job_templates import cronjob_template
@@ -839,6 +840,42 @@ def test_a_pod_killed_for_memory_with_no_log_stops_the_item_as_oom(
         )
     ]
     kube.core.answers["read_namespaced_pod_log"] = b""
+
+    _round(store, staged_repo)
+    _round(store, staged_repo)
+
+    assert (
+        _record(store, number)["implement.failure"],
+        _record(store, number)["implement.stopped"],
+        len(_creates(kube)),
+    ) == ("oom", "job", 1)
+
+
+@pytest.mark.usefixtures("no_continuation")
+def test_an_agent_container_killed_for_memory_stops_the_item_as_oom(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """On the phases (#3700), the init container `agent` ends the pod with exit status 137, and
+    `publish` never starts. The report reads the init containers first (#6690)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            f"{name}-x1",
+            namespace="devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[
+                status("prepare", terminated(0)),
+                status("agent", terminated(137, "OOMKilled")),
+            ],
+            statuses=[status("publish", waiting("PodInitializing"))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = {("devops", f"{name}-x1", "agent"): b""}
 
     _round(store, staged_repo)
     _round(store, staged_repo)

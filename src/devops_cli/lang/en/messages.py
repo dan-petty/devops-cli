@@ -972,6 +972,10 @@ class K8sMessages:
     job_no_exit_code: str = (
         "Job {name} reported no exit code. Inspect it: kubectl -n devops describe job/{name}"
     )
+    job_container_not_started: str = (
+        "Container {container} of Job {name} did not start within {seconds:g} s. Inspect it: "
+        "kubectl -n devops describe job/{name}"
+    )
     table_title_configured_services: str = "Configured Service Targets ({stack})"
     table_title_policy_violations: str = "Kubernetes Policy Violations ({engine})"
     table_title_rbac_audit: str = "Kubernetes RBAC Security Audit"

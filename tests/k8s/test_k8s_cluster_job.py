@@ -18,13 +18,19 @@ from devops_cli.k8s.cluster_job import (
     STAGE_TEMPLATE,
     TemplateName,
     build_job,
+    image_digest,
     runner_job_labels,
     runner_job_name,
     stage_job_env,
     stage_job_labels,
     stage_job_name,
+    template_container,
 )
-from tests.support.job_templates import cronjob_template
+from tests.support.job_templates import (
+    PHASE_RESOURCES,
+    cronjob_template,
+    phase_cronjob_template,
+)
 
 REPO = RepoRef("Example/Project")
 DEADLINE = datetime(2026, 11, 13, 15, 0, tzinfo=UTC)
@@ -172,3 +178,82 @@ def test_a_planner_job_keeps_the_planner_name_label_on_the_job_and_pod() -> None
         job["metadata"]["labels"]["app.kubernetes.io/name"],
         job["spec"]["template"]["metadata"]["labels"]["app.kubernetes.io/name"],
     ) == ("devops-cli-planner-run", "devops-cli-planner-run")
+
+
+RUN_ARGS = ["roadmap", "implement", "--repo", "Example/Project", "--item", "42"]
+TRACE = {"TRACEPARENT": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}
+SIZE = {"limits": {"memory": "4Gi"}}
+
+
+def _runner_job(cronjob: dict[str, Any]) -> dict[str, Any]:
+    return build_job(
+        cronjob, RUN_ARGS, "job-x", template=RUNNER_TEMPLATE, env=TRACE, resources=SIZE
+    )
+
+
+def _containers(job: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    pod_spec = job["spec"]["template"]["spec"]
+    listed = [*pod_spec.get("initContainers", []), *pod_spec["containers"]]
+    return {container["name"]: container for container in listed}
+
+
+def _env(container: dict[str, Any]) -> dict[str, str]:
+    return {entry["name"]: entry.get("value", "") for entry in container.get("env", [])}
+
+
+def test_the_one_container_runner_template_runs_the_command_with_its_trace_and_size() -> None:
+    """The runner template of today keeps its one container `runner`, and the command runs every
+    phase in it (#6690)."""
+    (runner,) = _containers(_runner_job(cronjob_template(RUNNER_TEMPLATE))).values()
+    assert (
+        runner["name"],
+        runner["args"],
+        _env(runner)["TRACEPARENT"],
+        runner["resources"]["limits"]["memory"],
+    ) == ("runner", RUN_ARGS, TRACE["TRACEPARENT"], "4Gi")
+
+
+def test_each_phase_container_runs_its_phase_on_the_run_folder_with_one_trace() -> None:
+    """On the phases, each container runs the command with its own `--phase` on the run folder,
+    and all three get the same trace context. Only `agent` gets the size of the unit; `prepare`
+    and `publish` keep the small row of the template (#3700, #6690)."""
+    containers = _containers(_runner_job(phase_cronjob_template(RUNNER_TEMPLATE)))
+    assert {
+        name: (
+            container["args"],
+            _env(container)["TRACEPARENT"],
+            container["resources"]["limits"]["memory"],
+        )
+        for name, container in containers.items()
+    } == {
+        phase: (
+            [*RUN_ARGS, "--phase", phase, "--work", "/run/roadmap"],
+            TRACE["TRACEPARENT"],
+            "4Gi" if phase == "agent" else PHASE_RESOURCES["limits"]["memory"],
+        )
+        for phase in ("prepare", "agent", "publish")
+    }
+
+
+@pytest.mark.parametrize(
+    ("cronjob", "name", "found"),
+    [
+        (cronjob_template(RUNNER_TEMPLATE), None, "runner"),
+        (phase_cronjob_template(RUNNER_TEMPLATE), "agent", "agent"),
+        (phase_cronjob_template(RUNNER_TEMPLATE), "publish", "publish"),
+    ],
+    ids=["one-container", "init-container", "app-container"],
+)
+def test_the_template_container_is_found_by_its_name(
+    cronjob: dict[str, Any], name: str | None, found: str
+) -> None:
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    assert template_container(pod_spec, RUNNER_TEMPLATE, name)["name"] == found
+
+
+@pytest.mark.parametrize(
+    "make", [cronjob_template, phase_cronjob_template], ids=["one-container", "phases"]
+)
+def test_the_image_digest_is_read_from_either_template(make: Any) -> None:
+    cronjob = make(RUNNER_TEMPLATE, image="registry.example.com/runner@sha256:abc")
+    assert image_digest(cronjob, RUNNER_TEMPLATE) == "sha256:abc"

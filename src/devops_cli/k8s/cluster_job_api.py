@@ -133,6 +133,57 @@ def job_state(job: Mapping[str, Any]) -> JobState:
     return JobState.FAILED if "Failed" in true else JobState.RUNNING
 
 
+def _one_container(job_pod: Any) -> bool:
+    """Whether the pod has one container and no init container, as of the one-container runner
+    template."""
+    spec = getattr(job_pod, "spec", None)
+    containers = getattr(spec, "containers", None) or []
+    return not getattr(spec, "init_containers", None) and len(containers) <= 1
+
+
+def _statuses(status: Any) -> list[Any]:
+    """The container statuses of a pod in the order that its containers run: the init
+    containers, then the app containers."""
+    return [
+        *(getattr(status, "init_container_statuses", None) or []),
+        *(getattr(status, "container_statuses", None) or []),
+    ]
+
+
+def _terminated(container: Any) -> tuple[int, str] | None:
+    """The exit status and the reason of a container that ended, read from `state` and then from
+    `lastState` (#3727), or None for a container that has not ended."""
+    for state in (getattr(container, "state", None), getattr(container, "last_state", None)):
+        terminated = getattr(state, "terminated", None) if state is not None else None
+        code = getattr(terminated, "exit_code", None) if terminated is not None else None
+        if code is not None:
+            return int(code), str(getattr(terminated, "reason", None) or "")
+    return None
+
+
+def _ended_by(status: Any) -> tuple[str, int, str] | None:
+    """The name, the exit status and the reason of the container that ended the pod: the first
+    that failed, in the order that the containers ran, else the last one that ended. None when no
+    container ended."""
+    ends = [
+        (str(getattr(container, "name", "") or ""), *end)
+        for container in _statuses(status)
+        if (end := _terminated(container)) is not None
+    ]
+    return next((end for end in ends if end[1] != 0), ends[-1] if ends else None)
+
+
+def _running_or_ended(status: Any) -> str | None:
+    """The name of the container that runs, else of the container that ended the pod, else None
+    for a pod that has started no container."""
+    for container in _statuses(status):
+        state = getattr(container, "state", None)
+        if getattr(state, "running", None) is not None:
+            return str(getattr(container, "name", "") or "")
+    ended = _ended_by(status)
+    return ended[0] if ended is not None else None
+
+
 class ClusterJobs:
     """Create, list, read and delete the Jobs of namespace `devops` through the Kubernetes API."""
 
@@ -287,9 +338,16 @@ class ClusterJobs:
                 return
             raise self._refused("delete Job", error) from error
 
-    def log_tail(self, name: str, lines: int) -> str:
-        """The last `lines` lines of the log of Job `name`'s pod as text, or "" when the Job has no
-        pod. The text is what the pod wrote, decoded as UTF-8 (`read_pod_log_text`)."""
+    def log_tail(self, name: str, lines: int, *, container: str | None = None) -> str:
+        """The last `lines` lines of the log of a container of Job `name`'s pod as text, or ""
+        when the Job has no pod or the pod has started no container. The text is what the
+        container wrote, decoded as UTF-8 (`read_pod_log_text`).
+
+        A pod with one container, as of the one-container runner template, runs every phase in
+        it, so the read takes that container whatever `container` names. In a pod on the phases
+        (#3700), the read takes `container`, else the container that runs, else the container
+        that ended the pod (`_ended_by`).
+        """
         core = self._service.core_api()
         try:
             pods = core.list_namespaced_pod(
@@ -297,8 +355,16 @@ class ClusterJobs:
             )
             if not pods.items:
                 return ""
+            job_pod = pods.items[0]
+            if _one_container(job_pod):
+                return read_pod_log_text(
+                    core, job_pod.metadata.name, JOB_NAMESPACE, tail_lines=lines
+                )
+            read = container or _running_or_ended(getattr(job_pod, "status", None))
+            if read is None:
+                return ""
             return read_pod_log_text(
-                core, pods.items[0].metadata.name, JOB_NAMESPACE, tail_lines=lines
+                core, job_pod.metadata.name, JOB_NAMESPACE, tail_lines=lines, container=read
             )
         except api_error_type() as error:
             raise self._refused("read the log of a Job", error) from error
@@ -306,7 +372,9 @@ class ClusterJobs:
     def pod_end(self, name: str) -> PodEnd:
         """The end of Job `name`'s pod: the terminated container, read from `state` and then from
         `lastState` (#3727), and the reason and the message of the pod (#5960). A Job with no pod,
-        or a pod with no terminated container, gives the fields that it has.
+        or a pod with no terminated container, gives the fields that it has. In a pod on the
+        phases (#3700), the init containers come first, so the end is the container that failed,
+        else the last one that ended (`_ended_by`): an OOM kill of `agent` keeps its class.
 
         Raises ClusterJobError when the API refuses the read.
         """
@@ -322,17 +390,11 @@ class ClusterJobs:
         status = getattr(pods.items[0], "status", None)
         reason = str(getattr(status, "reason", None) or "")
         message = str(getattr(status, "message", None) or "")
-        for container in getattr(status, "container_statuses", None) or []:
-            for state in (
-                getattr(container, "state", None),
-                getattr(container, "last_state", None),
-            ):
-                terminated = getattr(state, "terminated", None) if state is not None else None
-                code = getattr(terminated, "exit_code", None) if terminated is not None else None
-                if code is not None:
-                    ended = str(getattr(terminated, "reason", None) or "")
-                    return PodEnd(int(code), ended, reason, message)
-        return PodEnd(reason=reason, message=message)
+        ended = _ended_by(status)
+        if ended is None:
+            return PodEnd(reason=reason, message=message)
+        _, code, ended_reason = ended
+        return PodEnd(code, ended_reason, reason, message)
 
     def cronjob(self, template: JobTemplate) -> dict[str, Any]:
         """The CronJob of `template`, as the API returns it.

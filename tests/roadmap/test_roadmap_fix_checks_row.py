@@ -318,6 +318,34 @@ def test_an_ended_job_is_reported_once_with_the_result_of_its_result_line(
     ) == ({job["metadata"]["name"]: "planned"}, {}, "planned", 1, 1, True, 1)
 
 
+@pytest.mark.parametrize("printed_by", ["publish", "prepare"])
+def test_the_result_line_of_a_job_on_the_phases_is_read_from_publish_then_prepare(
+    kube: FakeCluster, printed_by: str
+) -> None:
+    """`publish` prints the result of the round, and `prepare` prints it when it ended the round
+    itself (#3700, #6690)."""
+    _round()
+    (job,) = _jobs(kube)
+    _end(job)
+    name = f"{job['metadata']['name']}-x1"
+    kube.core.answers["list_namespaced_pod"] = [
+        pod(
+            name,
+            "devops",
+            init_containers=("prepare", "agent"),
+            containers=("publish",),
+            init_statuses=[status("prepare", terminated(0)), status("agent", terminated(0))],
+            statuses=[status("publish", terminated(0))],
+        )
+    ]
+    kube.core.answers["read_namespaced_pod_log"] = {
+        ("devops", name, phase): f"{PLANNED_LINE}\n" if phase == printed_by else "a phase\n"
+        for phase in ("prepare", "agent", "publish")
+    }
+
+    assert _round().reported == {job["metadata"]["name"]: "planned"}
+
+
 def test_a_job_with_no_result_line_is_none_and_gets_the_next_attempt_after_its_wait(
     kube: FakeCluster,
 ) -> None:

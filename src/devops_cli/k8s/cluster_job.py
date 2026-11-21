@@ -27,6 +27,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_JOB_LABEL,
     CONST_ROADMAP_STAGE_JOB_DEADLINE_SETTING,
     CONST_ROADMAP_STAGE_JOB_SETTING,
+    CONST_RUNNER_PHASE_AGENT,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
+    CONST_RUNNER_PHASE_RUN_DIR,
 )
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.github.repo_ref import RepoRef, ServiceRow
@@ -61,6 +65,9 @@ class JobTemplate:
     cronjob: str
     container: str
 
+
+# The init containers of a runner Job on the phases, in the order that they run (#3700).
+_PHASE_INITS = (CONST_RUNNER_PHASE_PREPARE, CONST_RUNNER_PHASE_AGENT)
 
 DEFAULT_TEMPLATE = JobTemplate(cronjob="devops-cli", container="devops-cli")
 RUNNER_TEMPLATE = JobTemplate(cronjob="devops-cli-runner", container="runner")
@@ -203,26 +210,64 @@ def _with_resources(
         held[kind] = {**held.get(kind, {}), **values}
 
 
-def template_container(pod_spec: dict[str, Any], template: JobTemplate) -> dict[str, Any]:
-    """The container of `pod_spec` that the template names. Raises ClusterJobError when the pod
-    spec has none."""
-    for container in pod_spec["containers"]:
-        if container.get("name") == template.container:
+def template_container(
+    pod_spec: dict[str, Any], template: JobTemplate, name: str | None = None
+) -> dict[str, Any]:
+    """The container `name` of `pod_spec`, an init container included, or the container that the
+    template names when `name` is None. Raises ClusterJobError when the pod spec has none."""
+    wanted = name or template.container
+    for container in [*pod_spec.get("initContainers", []), *pod_spec["containers"]]:
+        if container.get("name") == wanted:
             found: dict[str, Any] = container
             return found
-    raise ClusterJobError(
-        f"CronJob {JOB_NAMESPACE}/{template.cronjob} has no container {template.container}"
-    )
+    raise ClusterJobError(f"CronJob {JOB_NAMESPACE}/{template.cronjob} has no container {wanted}")
+
+
+def phase_containers(pod_spec: dict[str, Any]) -> tuple[str, ...]:
+    """The containers of a pod spec on the phases (#3700), in the order that they run: the init
+    containers `prepare` and `agent` and the container `publish`. Empty for any other pod spec,
+    such as the one-container runner template, which runs every phase in one container."""
+    inits = [container.get("name") for container in pod_spec.get("initContainers", [])]
+    apps = [container.get("name") for container in pod_spec["containers"]]
+    if (inits, apps) != (list(_PHASE_INITS), [CONST_RUNNER_PHASE_PUBLISH]):
+        return ()
+    return (*_PHASE_INITS, CONST_RUNNER_PHASE_PUBLISH)
 
 
 def image_digest(cronjob: dict[str, Any], template: JobTemplate) -> str | None:
     """The digest in the image of the template's container in `cronjob`: the text after the `@`,
     as `sha256:<hex>`, or None when the image names no digest. Image Updater writes the digest
-    there, and a Job made from `cronjob` runs it. Raises ClusterJobError when the CronJob has no
-    such container."""
+    there, and a Job made from `cronjob` runs it. On the phases, the container is `agent`: the
+    admission policy gives the three containers one image. Raises ClusterJobError when the
+    CronJob has no such container."""
     pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
-    image = str(template_container(pod_spec, template).get("image", ""))
+    name = CONST_RUNNER_PHASE_AGENT if phase_containers(pod_spec) else None
+    image = str(template_container(pod_spec, template, name).get("image", ""))
     return image.partition("@")[2] or None
+
+
+def _with_command(
+    pod_spec: dict[str, Any],
+    template: JobTemplate,
+    args: list[str],
+    env: Mapping[str, str] | None,
+    resources: Mapping[str, Mapping[str, str]] | None,
+) -> None:
+    """Give the container of the template `args`, `env` and `resources`. On the phases (#3700),
+    each container runs `args` with its own `--phase` on the run folder, all three get `env`, and
+    only `agent` gets `resources`: `prepare` and `publish` keep the small row of the template."""
+    phases = phase_containers(pod_spec)
+    if not phases:
+        container = template_container(pod_spec, template)
+        container["args"] = list(args)
+        _with_env(container, env)
+        _with_resources(container, resources)
+        return
+    for phase in phases:
+        container = template_container(pod_spec, template, phase)
+        container["args"] = [*args, "--phase", phase, "--work", CONST_RUNNER_PHASE_RUN_DIR]
+        _with_env(container, env)
+    _with_resources(template_container(pod_spec, template, CONST_RUNNER_PHASE_AGENT), resources)
 
 
 def build_job(
@@ -291,10 +336,7 @@ def build_job(
             **merged_annotations,
         }
 
-    container = template_container(pod_template["spec"], template)
-    container["args"] = list(args)
-    _with_env(container, env)
-    _with_resources(container, resources)
+    _with_command(pod_template["spec"], template, args, env, resources)
 
     metadata = _labelled(job_template.get("metadata"), merged_labels)
     metadata.update(name=name, namespace=JOB_NAMESPACE)

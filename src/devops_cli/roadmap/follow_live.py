@@ -14,5 +14,6 @@ __all__ = ["live_lines"]
 
 
 def live_lines(jobs: ClusterJobs, name: str, lines: int) -> list[str]:
-    """The last `lines` lines of the log of the pod of Job `name`, each masked as a secret."""
+    """The last `lines` lines of the log of the pod of Job `name`, each masked as a secret. On the
+    phases (#3700), the log is of the container that runs."""
     return [mask_secrets(line) for line in jobs.log_tail(name, lines).splitlines()]

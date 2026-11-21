@@ -56,3 +56,33 @@ def cronjob_template(template: JobTemplate, *, image: str = TEMPLATE_IMAGE) -> d
             },
         },
     }
+
+
+PHASE_RESOURCES: dict[str, dict[str, str]] = {
+    "requests": {"cpu": "100m", "memory": "256Mi"},
+    "limits": {"cpu": "500m", "memory": "512Mi"},
+}
+
+
+def phase_cronjob_template(template: JobTemplate, *, image: str = TEMPLATE_IMAGE) -> dict[str, Any]:
+    """The CronJob of `template` on the phases (#3700): the init containers `prepare` and `agent`
+    and the container `publish`, each with `image`. `agent` has the resources of the template,
+    and `prepare` and `publish` a small fixed row."""
+    cronjob = cronjob_template(template, image=image)
+    pod_spec = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    (container,) = pod_spec["containers"]
+
+    def phase(name: str, resources: dict[str, dict[str, str]]) -> dict[str, Any]:
+        return {
+            **container,
+            "name": name,
+            "env": [dict(entry) for entry in TEMPLATE_ENV],
+            "resources": {part: dict(values) for part, values in resources.items()},
+        }
+
+    pod_spec["initContainers"] = [
+        phase("prepare", PHASE_RESOURCES),
+        phase("agent", TEMPLATE_RESOURCES),
+    ]
+    pod_spec["containers"] = [phase("publish", PHASE_RESOURCES)]
+    return cronjob

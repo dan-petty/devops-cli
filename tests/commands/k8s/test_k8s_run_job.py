@@ -13,7 +13,13 @@ from click.testing import CliRunner
 from devops_cli.commands.k8s.cluster_jobs import run_job
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE, build_job, job_name
-from tests.support.fakes.cluster_jobs import CRONJOB, FakeJobs, listed_job, runner_cronjob_manifest
+from tests.support.fakes.cluster_jobs import (
+    CRONJOB,
+    FakeJobs,
+    listed_job,
+    phase_runner_cronjob_manifest,
+    runner_cronjob_manifest,
+)
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
@@ -261,6 +267,35 @@ def test_the_runner_template_reads_its_own_cronjob_and_follows_its_container(
         container["args"],
         '@.name=="runner"' in exit_code_read[-1],
     ) == (0, True, True, "runner", ["roadmap", "implement", "--item", "7"], True)
+
+
+def test_the_runner_template_on_the_phases_follows_each_container_in_turn(
+    cluster_jobs: FakeJobs,
+) -> None:
+    """Each container runs its phase, and run-job follows `prepare`, `agent` and `publish` in
+    turn and reads the exit code of each by its name (#3700, #6690)."""
+    cluster_jobs.runner_cronjob = phase_runner_cronjob_manifest()
+    cluster_jobs.container_exit_codes = {"prepare": "0", "agent": "0", "publish": "0"}
+    result = _run(
+        "--template", "runner", "--repo", REPO, "--", "roadmap", "implement", "--item", "7"
+    )
+    name = cluster_jobs.created[0]["metadata"]["name"]
+    followed = [c[3:] for c in cluster_jobs.calls if c[3:5] == ["logs", "-f"]]
+    assert (result.exit_code, followed) == (
+        0,
+        [["logs", "-f", f"job/{name}", "-c", phase] for phase in ("prepare", "agent", "publish")],
+    )
+
+
+def test_a_phase_that_fails_ends_the_follow_with_its_exit_code(cluster_jobs: FakeJobs) -> None:
+    """`publish` does not start after `agent` failed, so run-job follows no more containers."""
+    cluster_jobs.runner_cronjob = phase_runner_cronjob_manifest()
+    cluster_jobs.container_exit_codes = {"prepare": "0", "agent": "137"}
+    result = _run(
+        "--template", "runner", "--repo", REPO, "--", "roadmap", "implement", "--item", "7"
+    )
+    followed = [c[-1] for c in cluster_jobs.calls if c[3:5] == ["logs", "-f"]]
+    assert (result.exit_code, followed) == (137, ["prepare", "agent"])
 
 
 def test_a_missing_runner_cronjob_names_it(cluster_jobs: FakeJobs) -> None:
