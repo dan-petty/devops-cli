@@ -89,7 +89,7 @@ helm uninstall example-app -n example
 ## 5. Security Recommendations & Zero-Trust Policies
 
 - **Provenance Verification**: Enable chart verification (`--verify`) with GPG keyrings when consuming third-party Helm charts.
-- **Sensitive Values**: Never commit plaintext passwords or API keys in `values.yaml` files. Inject sensitive values at deployment time using OS Keyring or sealed secrets.
+- **Sensitive Values**: Never commit plaintext passwords or API keys in `values.yaml` files. A platform Secret comes from `devops k8s push-secrets` (OS keyring), and a service Secret comes from an `ExternalSecret` of the External Secrets Operator (ADR 0033). Do not inject a secret into a manifest at render time.
 - **Namespace Isolation**: Always deploy charts into dedicated namespaces (`--namespace <name> --create-namespace`) with restricted Pod Security Standards.
 
 ---

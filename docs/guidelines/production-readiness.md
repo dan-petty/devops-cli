@@ -82,7 +82,7 @@ The scope `Repo` applies to each repository, `Service` to each workload in the c
 | REL-6 | A GitOps tool deploys the service from the default branch with prune and self-heal. | Service | Required | `devops argo cd apps status <app>` | The README of the environment tree | K8S-PE; SRE-E Automation |
 | REL-7 | The rollout strategy fits the volume and the SLO. The readiness probe gates the traffic, and SIGTERM drains in a limited time. | Service | Required | kube-linter `no-rolling-update-strategy`, `no-readiness-probe`; the drain limit of the product | [SRE guideline](sre.md#change-safety); the nested time limits of the architecture document | 12F IX; WB-16 |
 | REL-8 | A change that removes, renames or tightens a setting changes the live configuration first. | Service | Required | `manual`: the go-live check record of the pull request | The product document | WB-16 |
-| REL-9 | A new Secret is in the cluster before the merge of the manifest that reads it. | Service | Required | `devops k8s push-secrets --only <namespace>/<name> --plan` shows `unchanged` | The README of the environment tree | WB-16 |
+| REL-9 | A new platform Secret, or a typed value of a service in its store namespace, is in the cluster before the merge of the manifest that reads it. A sync wave applies each generated value of a service before the object that reads it ([ADR 0033](../adr/0033-service-secrets-come-from-external-secrets-operator.md)). | Service | Required | `devops k8s push-secrets --only <namespace>/<name> --plan` shows `unchanged`; `kubectl get externalsecret -A` shows `SecretSynced` | The README of the environment tree | WB-16 |
 | REL-10 | A go-live check runs after the rollout, with the stop steps ready. | Service | Required for a new service or a new rollout path | The check results in a pull request comment | The product document | SRE-32 Onboarding; WB-16 |
 | REL-11 | The steps that go back to the last good version are written and tested. | Service | Required | `manual`: the steps; a record of their test | The release document of the project; the product document | WB-16; DORA |
 | REL-12 | Each live change outside git has a record: the key, the reason and the time. | Both | Recommended | A comment on the issue of the change | The README of the environment tree | - |
@@ -120,7 +120,7 @@ The scope `Repo` applies to each repository, `Service` to each workload in the c
 
 | ID | Item | Scope | Level | Measured by | Owner | Standard |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| ACC-1 | Each Secret comes from the keyring through `devops k8s push-secrets`, and the Secret table lists each reference. | Service | Required | `devops k8s push-secrets --plan`; the test of the Secret table | The README of the environment tree | CIS 5.4; K8S-SC Secrets; 12F III |
+| ACC-1 | Each platform Secret comes from the keyring through `devops k8s push-secrets`, and the Secret table lists each reference. Each service Secret comes from an `ExternalSecret` ([ADR 0033](../adr/0033-service-secrets-come-from-external-secrets-operator.md)). | Service | Required | `devops k8s push-secrets --plan`; the test of the Secret table; `kubectl get externalsecret -A` shows `SecretSynced` | The README of the environment tree | CIS 5.4; K8S-SC Secrets; 12F III |
 | ACC-2 | Only a person changes a Secret, a repository or organization setting, a ruleset or an App installation. | Both | Required | `manual`: the code that refuses an agent write to the settings routes | [AGENTS.md](../../AGENTS.md) | SSDF PO.2 |
 | ACC-3 | The repository and organization settings are OpenTofu code that the owner applies. | Repo | Later, before a move into an organization | The OpenTofu code; `devops tf plan` shows no change | This guideline | SSDF PO.5 |
 | ACC-4 | Each credential has rotation steps and leak steps. | Service | Required | `devops k8s push-secrets --rotate`; `manual`: the steps | The README of the environment tree | K8S-SC Secrets |
@@ -208,7 +208,7 @@ The review follows the PRR of SRE-32 and WB-18. An agent prepares the evidence. 
 | An SLO objective and the error budget policy | The owner | The merge of the Sloth spec |
 | A required row that is not met | The owner | An owner comment and an end date on the issue of the row |
 | A change of a security or quality threshold | The owner | [SECURITY.md](../../SECURITY.md#a-finding-with-no-fix) |
-| A Secret, a setting, a ruleset, an App installation or hardware | The owner | The `devops k8s push-secrets` run; the settings as code |
+| A Secret, a setting, a ruleset, an App installation or hardware | The owner | The `devops k8s push-secrets` run; the merge of the pull request that declares a `Password` generator; the settings as code |
 | The merge of each other pull request | A person | `merged_by`; the release document of the project for the release pull request |
 | The evidence, the checks, the gap issues and the go-live checks | An agent | The readiness report; the results in a pull request comment |
 
@@ -235,13 +235,13 @@ This is the path from an empty repository to a service in production. Each step 
 | 4. Code | Serve `/healthz` and `/readyz`, drain on SIGTERM, and put each time limit inside the limit of its caller. | The health routes of the devops-cli Service as the model | REL-7, DEP-2, CAP-2 |
 | 4. Code | Write the logs to stdout. Send the metrics and the spans over OTLP. Turn off the telemetry of third-party tools. | The OpenTelemetry SDK | SLO-5, SEC-12, DATA-7 |
 | 5. Deliver | Add the namespace at `restricted`, the manifests with requests, limits and probes, the ServiceAccount, and a NetworkPolicy that refuses all traffic first. | The namespace list of the environment tree; Kustomize or Helm; `devops k8s lint`; `devops k8s validate` | ACC-5, ACC-7, ACC-8, CAP-1, CAP-2 |
-| 5. Deliver | Add a row to the Secret table with a generator. The owner pushes the Secret before the merge. | The Secret table of devops-cli; `devops k8s push-secrets` | ACC-1, REL-9 |
+| 5. Deliver | Add an `ExternalSecret` for each Secret, in a sync wave before the object that reads it. For a value that nobody types, also add a `Password` generator and a `PushSecret` before that object. A person writes each typed value into the store namespace of the service before the merge. | External Secrets Operator ([ADR 0033](../adr/0033-service-secrets-come-from-external-secrets-operator.md)) | ACC-1, REL-9 |
 | 5. Deliver | Add the GitOps application, and an Image Updater entry for an image that the project builds. | The applications of the environment tree | REL-6 |
 | 5. Deliver | Limit the pods that the service makes, and run untrusted code under gVisor. | A ValidatingAdmissionPolicy with a test; RuntimeClass `gvisor` | ACC-6, SEC-11 |
 | 6. Observe | Add the entry of the service dashboard table and its query cases. Write the Sloth spec. Add the cause alerts with their runbook rows. | The service dashboard table; Sloth | SLO-1 to SLO-8 |
 | 7. Data | Back up the owned state off its node, alert on the age of the backup, and run the first restore test. The owner sets the RTO. | The Barman Cloud plugin; k8up for a volume | DATA-2 to DATA-6 |
 | 8. Review | Post the readiness report, get the independent review, and prepare the person steps. | [Production readiness review](#production-readiness-review) | SEC-13, EVD-1 |
-| 9. Launch | The owner pushes the Secrets and merges, and the GitOps tool syncs. Run the go-live check. | The go-live check of the product | REL-10, INC-4, EVD-2 |
+| 9. Launch | The owner writes the typed values into the store namespace and merges, and the GitOps tool syncs. Run the go-live check. | The go-live check of the product | REL-10, INC-4, EVD-2 |
 | 10. First window | Read the SLO each week. At the end of the first window, compare the SLI with the objective. Tune the alerts, and set the requests from the measured use. | The service dashboard; the tuning loop of the Kubernetes guideline | SLO-1, CAP-1, EVD-3 |
 
 ## Sources

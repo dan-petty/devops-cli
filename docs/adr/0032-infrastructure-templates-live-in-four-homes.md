@@ -1,9 +1,10 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-21
 decision-makers: [owner]
 issue: 6674
 amends: ["0026", "0027"]
+body-hash: "552c4ed9e8a6a119ae8724c36dbc0ea07836d6fbb10bf1ff837247b83994a927"
 ---
 
 # Infrastructure templates live in four homes
@@ -89,3 +90,7 @@ The private-data check of the infra CI refuses a private value in infra (dan-pet
 - The plan items: dan-petty/infra#4, dan-petty/infra#5, dan-petty/infra#6, #6676, #6677, dan-petty/homelab#74 and dan-petty/danielpetty.com#39.
 - The Argo CD page: [best practices](https://argo-cd.readthedocs.io/en/stable/user-guide/best_practices/).
 - The change: `openspec/changes/archive/2026-11-21-6674-four-homes-adr/`.
+
+## Status History
+
+2026-11-21: Accepted by the owner, the merge of #6683.
