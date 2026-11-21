@@ -24,6 +24,7 @@ from devops_cli.config.env import (
 from devops_cli.config.settings import ArgoCDConfig, reset_settings_cache
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
+    DETACHED_STACKS,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     LLM_GATEWAY_MASTER_KEY,
     ClusterSecret,
@@ -37,6 +38,7 @@ from devops_cli.k8s.cluster_secrets import (
     secrets_by_ref,
 )
 from devops_cli.k8s.secret_push import (
+    EntryState,
     PushMode,
     PushOptions,
     PushResult,
@@ -80,6 +82,10 @@ NOTIFIER_KEYRING = "argocd_github_app_private_key"
 NOTIFIER_PEM = "-----BEGIN TEST KEY-----\nnotifier-key-body-0001\n-----END TEST KEY-----\n"
 NOTIFIER_APP_ID = "123456"
 NOTIFIER_INSTALLATION_ID = "7890123"
+
+SITE = "danielpetty-com/event-stream"
+SITE_NOTE_KEY = "danielpetty_com_note_api_key"
+SITE_GITHUB_KEY = "danielpetty_com_github_token"
 
 DB_KEY = "example_db_password"
 DB_USER = "app/user"
@@ -504,6 +510,24 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             (),
         ),
         ("mattermost/mattermost-db", "DB_CONNECTION_STRING", "chat", True, None, None, ()),
+        (
+            SITE,
+            "NOTE_API_KEY",
+            "danielpetty-com",
+            True,
+            SecretGenerator("urlsafe", 32),
+            None,
+            ("deployment/event-stream",),
+        ),
+        (
+            SITE,
+            "GITHUB_TOKEN",
+            "danielpetty-com",
+            False,
+            None,
+            None,
+            ("deployment/event-stream",),
+        ),
     ]
 
 
@@ -670,6 +694,66 @@ def test_the_gitea_dry_run_lists_its_secret_and_restart_with_no_value() -> None:
         '"password": "<base64 of keyring gitea_admin_password>"' in output,
         "no request was made" in output,
     ) == (0, False, True, True, True), output
+
+
+def test_the_site_row_generates_the_note_key_and_skips_the_github_token(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    """With an empty keyring and no live Secret, the push of the event-stream Secret of the site
+    makes `NOTE_API_KEY` for the keyring and the Secret, and skips the optional `GITHUB_TOKEN`."""
+    cluster.namespaces.add("danielpetty-com")
+    _install(monkeypatch, cluster, keyring_store, values={})
+    selected, unknown = secrets_by_ref([SITE])
+    (site,) = plan_push(selected, PushOptions(context="test-ctx")).secrets
+    note, token = site.entries
+    assert (
+        unknown,
+        site.secret.stack,
+        "danielpetty-com" in DETACHED_STACKS,
+        [str(workload) for workload in site.secret.restarts],
+        [
+            (plan.entry.key, plan.entry.source, plan.entry.required, plan.state, plan.store_key)
+            for plan in site.entries
+        ],
+        len(note.value or ""),
+        token.value,
+        sorted(site.data()),
+    ) == (
+        [],
+        "danielpetty-com",
+        True,
+        ["deployment/event-stream"],
+        [
+            (
+                "NOTE_API_KEY",
+                KeyringSource(SITE_NOTE_KEY),
+                True,
+                EntryState.GENERATED,
+                SITE_NOTE_KEY,
+            ),
+            ("GITHUB_TOKEN", KeyringSource(SITE_GITHUB_KEY), False, EntryState.SKIPPED, None),
+        ],
+        # `token_urlsafe(32)`: 32 bytes give 43 base64url characters with no padding.
+        43,
+        None,
+        ["NOTE_API_KEY"],
+    )
+
+
+def test_the_site_dry_run_names_both_keys_with_placeholders_and_runs_nothing(
+    cluster: FakeCluster,
+) -> None:
+    result = _push("--stack", "danielpetty-com", "--dry-run")
+    output = result.output
+    assert (
+        result.exit_code,
+        f'"NOTE_API_KEY": "<base64 of keyring {SITE_NOTE_KEY}>"' in output,
+        f'"GITHUB_TOKEN": "<base64 of keyring {SITE_GITHUB_KEY}, left out when it has none>"'
+        in output,
+        "kubectl rollout restart deployment/event-stream -n danielpetty-com" in output,
+        "no request was made" in output,
+        cluster.calls,
+    ) == (0, True, True, True, True, []), output
 
 
 def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None:

@@ -376,8 +376,8 @@ class K8sCommandHelp:
         "nobody types, and never replaces a live value without --rotate."
     )
     push_stack: str = (
-        f"Push the Secrets of one stack: base, {', '.join(CONST_K8S_STACKS)}, or "
-        f"{CONST_K8S_ALL_STACKS} (default)."
+        f"Push the Secrets of one stack: base, {', '.join(CONST_K8S_STACKS)}, danielpetty-com, "
+        f"or {CONST_K8S_ALL_STACKS} (default)."
     )
     push_only: str = "Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack."
     push_rotate: str = "Replace live values that differ from the keyring's."

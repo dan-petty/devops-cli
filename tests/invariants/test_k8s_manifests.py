@@ -15,6 +15,8 @@ import pytest
 from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
+    DANIELPETTY_COM_GITHUB_TOKEN_KEY,
+    DANIELPETTY_COM_NOTE_KEY,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
     GRAFANA_RENDERER_AUTH_KEY,
     GRAFANA_SECURITY_KEY,
@@ -55,6 +57,8 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 SEARXNG_SERVER_KEY,
                 GRAFANA_RENDERER_AUTH_KEY,
                 GRAFANA_SECURITY_KEY,
+                DANIELPETTY_COM_NOTE_KEY,
+                DANIELPETTY_COM_GITHUB_TOKEN_KEY,
             }
         ),
     )

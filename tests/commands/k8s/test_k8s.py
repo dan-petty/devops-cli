@@ -258,6 +258,7 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
             "monitoring/grafana-image-renderer: token",
             "monitoring/alertmanager-mattermost: url",
             "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey, mattermost-deploys-url",
+            "danielpetty-com/event-stream: NOTE_API_KEY, GITHUB_TOKEN (if namespace danielpetty-com exists)",
         ],
         [],
     )

@@ -289,7 +289,7 @@ devops k8s push-secrets [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, chat, or all (default). |
+| `--stack`, `-s` | `string` | `all` | Push the Secrets of one stack: base, infra, llm, logging, devops, gitea, chat, danielpetty-com, or all (default). |
 | `--only` | `string` | - | Push only this Secret, as NAMESPACE/NAME. Repeatable; replaces --stack. |
 | `--rotate` | `boolean` | - | Replace live values that differ from the keyring's. |
 | `--restart` / `--no-restart` | `boolean` | `True` | Restart the workloads of each existing Secret whose data changed; --no-restart prints the commands instead. |

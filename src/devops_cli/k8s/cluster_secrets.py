@@ -30,8 +30,9 @@ FIELD_MANAGER = "devops-cli"
 
 # Rows of `base` belong to the root kustomization, which every deploy-stack run applies.
 BASE_STACK = "base"
-# Stacks deploy-stack never deploys. Their rows are pushed wherever their namespace exists.
-DETACHED_STACKS: tuple[str, ...] = ("devops",)
+# Stacks deploy-stack never deploys. Their rows are pushed wherever their namespace exists, so
+# each such stack has the name of its namespace.
+DETACHED_STACKS: tuple[str, ...] = ("devops", "danielpetty-com")
 
 # Generated values nobody types live under keyring-only keys; no Settings option reads them.
 LLM_GATEWAY_MASTER_KEY = "llm_gateway_master_key"
@@ -50,6 +51,10 @@ SEARXNG_SERVER_KEY = "searxng_secret_key"
 GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
 # The secret_key that Grafana uses to sign session cookies and CSRF tokens (#5697).
 GRAFANA_SECURITY_KEY = "grafana_secret_key"
+# The bearer key of `POST /api/notes` of the event-stream of the site danielpetty.com (#6642), and
+# the optional GitHub token of its harvester. No Settings option reads them: only the pod does.
+DANIELPETTY_COM_NOTE_KEY = "danielpetty_com_note_api_key"
+DANIELPETTY_COM_GITHUB_TOKEN_KEY = "danielpetty_com_github_token"
 
 
 @dataclass(frozen=True)
@@ -664,6 +669,28 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
             ),
         ),
         labels={"app.kubernetes.io/name": "mattermost-db"},
+    ),
+    # The event-stream of the site danielpetty.com (#6642). The site repository holds the
+    # manifests that read the Secret; AppProject `danielpetty-com` ignores it as an orphan. A
+    # person makes the GitHub token; without it the harvester has the anonymous rate limit.
+    ClusterSecret(
+        namespace="danielpetty-com",
+        name="event-stream",
+        stack="danielpetty-com",
+        entries=(
+            SecretEntry(
+                "NOTE_API_KEY",
+                KeyringSource(DANIELPETTY_COM_NOTE_KEY),
+                generator=SecretGenerator("urlsafe", 32),
+            ),
+            SecretEntry(
+                "GITHUB_TOKEN",
+                KeyringSource(DANIELPETTY_COM_GITHUB_TOKEN_KEY),
+                required=False,
+            ),
+        ),
+        restarts=(Workload("deployment", "event-stream"),),
+        labels={"app.kubernetes.io/name": "event-stream"},
     ),
 )
 
