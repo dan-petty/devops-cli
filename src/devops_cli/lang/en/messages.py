@@ -4184,6 +4184,10 @@ class RoadmapMessages:
     implement_stop_body_refused: str = (
         "The body of the pull request does not pass the form check: {problems}"
     )
+    implement_title_closing_keyword: str = (
+        "The title holds the closing keyword `{keyword}`, and a squash merge puts the title in the "
+        "subject on the default branch."
+    )
     implement_stop_title_refused: str = (
         "The title of the pull request does not pass the check `Semantic PR title`: {problems} "
         "The title is `{title}`."
@@ -5051,17 +5055,23 @@ class RoadmapMessages:
             "patch": "the agent phase writes the patch of the work, of the archive commit or of "
             "the work after it",
             "new_repo": "publish makes a new repository, which reads no file of the agent phase",
-            "fetch_base": "publish fetches the base of the patches",
+            "remote_add": "publish names the repository on GitHub as origin of the new repository",
+            "fetch_base": "publish fetches the base of the patches and the lease",
             "plan_workflows": "the workflow files that the merged plan names",
             "apply": "publish applies a patch to the index as data",
             "publish_commit": "publish commits the patch as the bot",
             "push": "push the branch with a lease on the tip that prepare found, or on no branch "
             "for a new branch",
+            "find_draft": "the open draft of the new branch, which an earlier publish of the run "
+            "opened",
             "create_pull": "open the draft pull request of the new branch",
+            "delete_refused": "delete the new branch with a lease on its push, when GitHub refuses "
+            "its draft",
             "body": "set the title and the body of the pull request to close the issue",
             "pull_comment": "comment the outcome of each step on the pull request",
             "pull_comment_stopped": "link the stop comment on the item from the comment of the "
             "run on the pull request",
+            "fetch_record_base": "fetch implement.base with its full history",
             "withdraw": "move the branch back to where it was before the first Job of the item",
             "withdraw_new": "delete the branch that the first Job of the item made",
             "close_pull": "close the draft pull request of the deleted branch",
@@ -5089,6 +5099,7 @@ class RoadmapMessages:
             "withdraw_new": (
                 "a step finds the premise false, and an earlier Job made the branch and its draft"
             ),
+            "draft_refused": "GitHub refuses the draft of a branch that the run made",
             "unlabel": "the pull request holds a label that the new title does not give",
             "removal": "the pull request holds a label that the new title does not give",
         }
@@ -6002,6 +6013,8 @@ class RoadmapMessages:
             "git_folder": "<new git folder>",
             "origin_url": "<URL of origin>",
             "run_clone": "<clone of the run>",
+            "record_base": "<implement.base>",
+            "pushed_tip": "<pushed tip>",
             "base": "<base of the patches>",
             "patch": "<patch>",
         }

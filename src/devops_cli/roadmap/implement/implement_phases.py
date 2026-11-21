@@ -326,9 +326,9 @@ def prepare_implement(
         ImplementRecordKey.CONFLICT: None,
         ImplementRecordKey.PUBLISHED_SHA: None,
         ImplementRecordKey.REPAIR_ROUNDS: None,
+        # The draft of this run: a draft of an earlier Job that the plan did not find open goes.
+        ImplementRecordKey.PR: str(target.pull) if target.pull is not None else None,
     }
-    if target.pull is not None:
-        marks[ImplementRecordKey.PR] = str(target.pull)
     record = target.item.job_record
     if not record.get(ImplementRecordKey.BASE):
         # Where the branch stood before the first Job of the item pushed, for a return (#3677).
@@ -602,8 +602,9 @@ def _title(
 ) -> str:
     """The title of the pull request (#2714, #4127, #5341): the type of the changed paths, a
     declared scope and the summary of the plan; else, or when that title holds a closing keyword,
-    the summary of the title of the issue. A title that the form refuses stops the item before the
-    push (#3292)."""
+    the summary of the title of the issue. A title that the form refuses, or a title of the issue
+    with a closing keyword, which a squash merge would put in the subject, stops the item before
+    the push (#3292, #6670)."""
     declared = declared_labels(store, ref=None)
     if summary is not None:
         issue_kind = commit_type(item.title)
@@ -614,7 +615,10 @@ def _title(
         if not title_problems(candidate, declared) and closing_keyword_in(candidate) is None:
             return candidate
     title = delivery_title(item.title, declared)
-    if problems := title_problems(title, declared):
+    problems = title_problems(title, declared)
+    if (keyword := closing_keyword_in(title)) is not None:
+        problems.append(MESSAGES.roadmap.implement_title_closing_keyword.format(keyword=keyword))
+    if problems:
         raise _PublishStop(
             StopFacts(
                 step=step,
@@ -735,7 +739,6 @@ def _open_draft(
                 kind="delivery",
                 item=state.item,
                 store=store,
-                lookup_existing=False,
                 retry_refused=False,
             )
         )
@@ -947,15 +950,20 @@ def _publish_return(
     state: ImplementState, outcome: ImplementOutcome, report: RunReport
 ) -> ImplementResult:
     """The return of the item to New with the evidence of the agent (#5881), after the withdraw
-    of the pushes of earlier Jobs. A withdraw that fails stops the item and returns nothing."""
+    of the pushes of earlier Jobs. A withdraw that fails stops the item and returns nothing. A
+    withdraw that ran clears `implement.base` at once, so a `publish` that runs again after a kill
+    withdraws nothing a second time."""
+    base = report.fresh().job_record.get(ImplementRecordKey.BASE)
     try:
-        _withdraw(state, report.fresh().job_record.get(ImplementRecordKey.BASE))
+        _withdraw(state, base)
     except DevOpsCLIError as exc:
         reason = MESSAGES.roadmap.implement_stop_withdraw_failed.format(
             branch=state.branch, output=mask_secrets(str(exc))
         )
         step = MESSAGES.roadmap.implement_step_names["push"]
         raise _PublishStop(StopFacts(step=step, reason=reason, push=False)) from exc
+    if base:
+        report.store.set_marks(report.fresh(), {ImplementRecordKey.BASE: None})
     texts = MESSAGES.roadmap
     defined = outcome.returned is ReturnKind.PREMISE_DEFINED
     template = (

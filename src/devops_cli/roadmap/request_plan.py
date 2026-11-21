@@ -1048,6 +1048,8 @@ def implement_requests(
     issues = f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/issues"
     target = f"#{item}" if item is not None else _p("item")
     lease = f"--force-with-lease=refs/heads/{branch}:{tip}"
+    owner = repo.split("/", 1)[0]
+    withdrawn = (cond["withdraw"], cond["withdraw_new"])
 
     def git(
         key: str, cwd: str, *args: str, when: str = "", repeat: str = each_item
@@ -1060,6 +1062,13 @@ def implement_requests(
         method: str, key: str, *argv: str, when: str = "", repeat: str = each_item
     ) -> PlannedRequest:
         return PlannedRequest(method, req[key], argv=argv, condition=when, repeat=repeat)
+
+    def new_repo(when: str = "") -> list[PlannedRequest]:
+        """The new repository of a git call of `publish` that reaches `origin`."""
+        return [
+            other("git", "new_repo", "git", "init", "--quiet", fresh, when=when),
+            git("remote_add", fresh, "remote", "add", "origin", _p("origin_url"), when=when),
+        ]
 
     reads = [
         PlannedRequest(
@@ -1156,9 +1165,17 @@ def implement_requests(
         git("commit", run, "commit", "-m", _p("title")),
         git("patch", run, "diff", "--binary", _p("base"), _p("head"), repeat=each_patch),
         # publish, with the App token: the outputs of the agent are data.
-        other("git", "new_repo", "git", "init", "--quiet", fresh),
+        *new_repo(),
         git(
-            "fetch_base", fresh, "fetch", "--quiet", "--depth=1", "--no-tags", "origin", _p("base")
+            "fetch_base",
+            fresh,
+            "fetch",
+            "--quiet",
+            "--depth=1",
+            "--no-tags",
+            "origin",
+            _p("base"),
+            tip,
         ),
         other(
             "GET",
@@ -1170,11 +1187,29 @@ def implement_requests(
         git("publish_commit", fresh, "commit", "--quiet", "-m", _p("message"), repeat=each_patch),
         git("push", fresh, "push", "--quiet", lease, "origin", f"HEAD:refs/heads/{branch}"),
         other(
+            "GET",
+            "find_draft",
+            "GET",
+            f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls?head={owner}:{branch}&state=open",
+            when=cond["planned"],
+        ),
+        other(
             "REST write",
             "create_pull",
             "POST",
             f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls",
             when=cond["planned"],
+        ),
+        *new_repo(cond["draft_refused"]),
+        git(
+            "delete_refused",
+            fresh,
+            "push",
+            "--quiet",
+            f"--force-with-lease=refs/heads/{branch}:{_p('pushed_tip')}",
+            "origin",
+            f":refs/heads/{branch}",
+            when=cond["draft_refused"],
         ),
         other("REST write", "body", "PATCH", pulls),
         other("REST write", "pull_comment", "POST", f"{issues}/{_p('pull')}/comments"),
@@ -1193,6 +1228,17 @@ def implement_requests(
         ),
         *within(store.write_status(target), cond["stop"], repeat=each_item),
         # A return takes back what earlier Jobs pushed, then returns the item (#3677).
+        *[request for when in withdrawn for request in new_repo(when)],
+        git(
+            "fetch_record_base",
+            fresh,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "origin",
+            _p("record_base"),
+            when=cond["withdraw"],
+        ),
         git(
             "withdraw",
             fresh,
@@ -1200,7 +1246,7 @@ def implement_requests(
             "--quiet",
             lease,
             "origin",
-            f"{_p('base')}:refs/heads/{branch}",
+            f"{_p('record_base')}:refs/heads/{branch}",
             when=cond["withdraw"],
         ),
         git(
@@ -1214,6 +1260,7 @@ def implement_requests(
             when=cond["withdraw_new"],
         ),
         other("REST write", "close_pull", "PATCH", pulls, when=cond["withdraw_new"]),
+        *[request for when in withdrawn for request in within(store.set_marks(target), when)],
         *within(store.comment(target), cond["return"], repeat=each_item),
         *within(store.write_status(target), cond["return"], repeat=each_item),
     ]

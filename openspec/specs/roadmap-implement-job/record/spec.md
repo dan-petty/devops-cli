@@ -25,11 +25,15 @@ The job SHALL keep `implement.group` (the last group that passed), `implement.sh
 - **THEN** the record loads with the key absent and every other key unchanged
 
 ### Requirement: Prepare clears the marks of the run before
-`prepare` SHALL clear the marks of the run before: `implement.trace`, `implement.result`, `implement.published_sha` and `implement.repair_rounds`.
+`prepare` SHALL clear the marks of the run before: `implement.trace`, `implement.result`, `implement.published_sha` and `implement.repair_rounds`. It SHALL write `implement.pr` with the pull request of the target, or clear it for a new branch.
 
 #### Scenario: The repair rounds of the Job before
 - **WHEN** the record holds 3 repair rounds of the Job before, and a new Job starts
 - **THEN** `prepare` clears `implement.repair_rounds`
+
+#### Scenario: A draft that a person closed
+- **WHEN** the first Job opened draft 5 and stopped, a person deleted the branch, and the next Job runs
+- **THEN** the next Job opens a new draft for its branch and writes nothing to draft 5
 
 ### Requirement: A dry run makes no request
 `--dry-run` SHALL make no request, SHALL return the plan type marked as a dry run, and SHALL list the reads and the writes of a run in order.
