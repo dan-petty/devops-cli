@@ -15,7 +15,7 @@ from devops_cli.core.repo import find_repo_root
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
 from devops_cli.dry_run.state import is_dry_run
-from devops_cli.exceptions.git import GitHubUnauthenticatedError
+from devops_cli.exceptions.git import GitHubUnauthenticatedError, GitHubUnreadError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_table, write_stdout
 from devops_cli.output.serialization import emit_serialized, resolve_format
@@ -142,7 +142,7 @@ def _optional_github_token() -> str | None:
     works within the lower rate limit of GitHub."""
     try:
         return github_token()
-    except GitHubUnauthenticatedError:
+    except GitHubUnauthenticatedError, GitHubUnreadError:
         return None
 
 

@@ -67,6 +67,9 @@ class GitErrorMessages:
         "GitHub App {login} has no installation token: {reason}. Check the App ID, the "
         "installation ID and the private key in {key_env}."
     )
+    github_app_token_unanswered: str = (
+        "GitHub App {login} has no installation token: {reason}. The next call asks GitHub again."
+    )
     github_app_permissions_not_granted: str = (
         "{reason} The installation must grant each permission that the token asks for: "
         "{permissions}"

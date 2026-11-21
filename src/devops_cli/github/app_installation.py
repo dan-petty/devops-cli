@@ -115,12 +115,15 @@ def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, dat
     it never holds the key or a token. GitHub refuses with HTTP 422 a permission that the
     installation does not grant, and its reply does not say which, so the reason then names each
     permission that the token asks for. GitHub also refuses with HTTP 401, and the error message
-    includes GitHub's reason.
+    includes GitHub's reason. An exchange that GitHub does not answer, with a 5xx or with no
+    connection, is no refusal of the App: it raises `GitHubUnreadError`, and the next call mints
+    again (#6671).
     """
     import httpx2
     from gidgethub import HTTPException
 
     from devops_cli.exceptions.base import DevOpsCLIError
+    from devops_cli.exceptions.git import GitHubUnreadError
     from devops_cli.github.error_classifier import classify_http_error
 
     app = app or configured_app()
@@ -132,6 +135,11 @@ def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, dat
         return "", _token_failed(app, refusal.message), None
     except (HTTPException, httpx2.HTTPError, ValueError, LookupError) as error:
         failure = classify_http_error(error, method="POST", path=_token_path(app))
+        if isinstance(failure, GitHubUnreadError):
+            message = ERRORS.git.github_app_token_unanswered.format(
+                login=app.bot_login, reason=failure.message
+            )
+            raise GitHubUnreadError(message, details=failure.details) from error
         reason = failure.message
         if failure.details.get("status") == HTTPStatus.UNPROCESSABLE_ENTITY:
             reason = _not_granted(app, reason)

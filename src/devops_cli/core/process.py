@@ -7,6 +7,7 @@ import contextlib
 import errno
 import fnmatch
 import json
+import logging
 import os
 import shutil
 import signal
@@ -59,10 +60,12 @@ from devops_cli.config.defaults import (
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubUnauthenticatedError
+from devops_cli.exceptions.git import GitHubUnauthenticatedError, GitHubUnreadError
 from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.telemetry.instruments import SUBPROCESS_DURATION, emit
 from devops_cli.telemetry.tracer import get_tracer, trace_span
+
+logger = logging.getLogger(__name__)
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
     {
@@ -401,20 +404,39 @@ def _renewal_due(expires_at: datetime | None) -> bool:
     return left <= timedelta(seconds=DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS)
 
 
+def _kept_token() -> str:
+    """The kept installation token while it has not expired, else "". The caller holds
+    `_GITHUB_TOKEN_LOCK`."""
+    expires_at = _github_token_expires_at
+    if _github_token and expires_at is not None and expires_at > datetime.now(UTC):
+        return _github_token
+    return ""
+
+
 def _session_github_token() -> tuple[str, str]:
     """The session's token, looked up on first use; or "" and why there is none.
 
     gh's token is kept for the life of the process, and an App's installation token until its
-    renewal is due. A lookup that finds none is not kept, so the next call looks again (#6671).
+    renewal is due. A lookup that finds none is not kept, so the next call looks again. When the
+    renewal fails, the kept token serves until it expires, and the next call mints again (#6671).
     """
     global _github_token, _github_token_expires_at
     with _GITHUB_TOKEN_LOCK:
         if _github_token and not _renewal_due(_github_token_expires_at):
             return _github_token, ""
-        token, why, expires_at = _lookup_session_token()
+        try:
+            token, why, expires_at = _lookup_session_token()
+        except GitHubUnreadError as unread:
+            if not _kept_token():
+                raise
+            token, why, expires_at = "", unread.message, None
         if token:
             _github_token, _github_token_expires_at = token, expires_at
-        return token, why
+            return token, ""
+        if kept := _kept_token():
+            logger.warning("The kept GitHub token serves until it expires: %s", why)
+            return kept, ""
+        return "", why
 
 
 def github_token() -> str:

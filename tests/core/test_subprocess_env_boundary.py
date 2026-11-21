@@ -896,8 +896,8 @@ def test_a_network_git_child_of_the_app_fails_at_once_when_the_mint_fails(
     unresolved_identity: None, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
 ) -> None:
     """When devops-cli acts as the GitHub App, a failed mint is an error of the git child that
-    needs the token, as it is of a gh call, and the child never starts. So a round fails with the
-    real cause, and the next round mints again (#6671)."""
+    needs the token, as it is of a gh call, and the child never starts. A key that cannot sign is
+    a refusal of the App, so the error names the mint as the cause (#6671)."""
     config(
         service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
     )

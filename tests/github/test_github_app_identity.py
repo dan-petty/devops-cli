@@ -23,13 +23,20 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from pydantic import ValidationError
 
+from devops_cli.commands.research import _optional_github_token
 from devops_cli.config.constants import CONST_GH_CLI, CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.config.settings import GitHubAppConfig, load_settings
 from devops_cli.core.process import github_token, run_subprocess
 from devops_cli.exceptions import ConfigurationError
-from devops_cli.exceptions.git import GitHubUnauthenticatedError
+from devops_cli.exceptions.git import (
+    GitHubOperationError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session, reset_github_session
+from devops_cli.roadmap.run import identity_refused
+from devops_cli.server.service import RoundPause
 from devops_cli.telemetry.instruments import GITHUB_REQUESTS_TOTAL
 from tests.support.fakes.github import API, GitHubApiFake, github_json, quota_headers
 from tests.support.fakes.otlp import FakeCollector
@@ -385,6 +392,69 @@ def test_a_key_that_is_no_rsa_key_fails_before_any_request(
         "details": {"operation": "gh_auth_token"},
     }
     assert app_identity.requested == []
+
+
+@pytest.mark.parametrize(
+    ("status", "error", "halted"),
+    [(502, GitHubUnreadError, False), (401, GitHubUnauthenticatedError, True)],
+    ids=["no-answer", "refused"],
+)
+def test_a_lane_fetch_halts_the_service_only_when_github_refuses_the_mint(
+    app_identity: GitHubApiFake, status: int, error: type[GitHubOperationError], halted: bool
+) -> None:
+    """A mint that GitHub does not answer fails the round of the lane, and the next round mints
+    again. Only a refusal of the App's JWT halts every lane of the Service (#6671)."""
+    app_identity.route("POST", MINT, github_json({"message": "No answer"}, status=status))
+    pause = RoundPause(
+        clock=lambda: datetime.now(UTC), refusal=identity_refused, identity="devops-roadmap[bot]"
+    )
+    with faked_children(side_effect=_finished) as run:
+        with pytest.raises(GitHubOperationError, match="has no installation token") as raised:
+            run_subprocess(["git", "fetch", "origin"])
+    pause.after(raised.value, "example-org/repo1")
+    assert (type(raised.value), pause.halted(), run.call_args_list) == (error, halted, [])
+
+
+def test_research_reads_the_advisories_with_no_token_when_github_does_not_answer_the_mint(
+    app_identity: GitHubApiFake,
+) -> None:
+    """The advisories are public, so research goes on with no token, as it does after a refusal
+    (#6671)."""
+    app_identity.route("POST", MINT, github_json({"message": "No answer"}, status=502))
+    assert _optional_github_token() is None
+
+
+@pytest.mark.parametrize(
+    ("left", "second"),
+    [(timedelta(minutes=5), "ghs_first"), (timedelta(seconds=-1), "raised")],
+    ids=["kept-token-valid", "kept-token-expired"],
+)
+def test_a_failed_renewal_uses_the_kept_token_until_it_expires(
+    app_identity: GitHubApiFake, left: timedelta, second: str
+) -> None:
+    """The first token is due for renewal at once. GitHub does not answer the renewal, so the
+    second fetch gets the kept token while it is valid, and fails when it expired. Renewal stays
+    due, so the third fetch mints again (#6671)."""
+    app_identity.route(
+        "POST",
+        MINT,
+        _installation_token("ghs_first", left),
+        github_json({"message": "No answer"}, status=502),
+        _installation_token("ghs_second", timedelta(hours=1)),
+    )
+    tokens: list[str | None] = []
+
+    def child(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        tokens.append(token_seen(kwargs["env"]))
+        return _finished()
+
+    with faked_children(side_effect=child):
+        for _ in range(3):
+            try:
+                run_subprocess(["git", "fetch", "origin"])
+            except GitHubUnreadError:
+                tokens.append("raised")
+    assert (tokens, len(app_identity.requested)) == (["ghs_first", second, "ghs_second"], 3)
 
 
 def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
