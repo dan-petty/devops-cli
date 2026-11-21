@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.188.3](https://github.com/dan-petty/devops-cli/compare/v0.188.2...v0.188.3) (2026-11-21)
+
+
+### Bug Fixes
+
+* **roadmap:** correct the facts and the stage SLI of the review ([#6656](https://github.com/dan-petty/devops-cli/issues/6656)) ([b5dbcee](https://github.com/dan-petty/devops-cli/commit/b5dbcee312217220f5c88928f22cea7c3e9770e2))
+
+
+### Performance Improvements
+
+* **roadmap:** encode only changed records and scan once per repo ([#6657](https://github.com/dan-petty/devops-cli/issues/6657)) ([04b46ec](https://github.com/dan-petty/devops-cli/commit/04b46ecaf84e2255bda3334c224c9fa28f1d8487))
+
+
+### Code Refactoring
+
+* **roadmap:** delete the unused scaffold step ([#6664](https://github.com/dan-petty/devops-cli/issues/6664)) ([90cf4f6](https://github.com/dan-petty/devops-cli/commit/90cf4f62b9991940bc91cb6974d94c86212774a2)), closes [#6654](https://github.com/dan-petty/devops-cli/issues/6654)
+* **roadmap:** publish applies the agent patch with plain git ([#6658](https://github.com/dan-petty/devops-cli/issues/6658)) ([e8217f4](https://github.com/dan-petty/devops-cli/commit/e8217f459f3ed5b15e541c3175a4f76bad361e7f)), closes [#6655](https://github.com/dan-petty/devops-cli/issues/6655)
+
 ## [0.188.2](https://github.com/dan-petty/devops-cli/compare/v0.188.1...v0.188.2) (2026-11-21)
 
 
