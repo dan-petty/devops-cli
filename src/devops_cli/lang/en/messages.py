@@ -3791,11 +3791,10 @@ class RoadmapMessages:
         "job runs no program with the GitHub token while such a process lives, so it stops the item."
     )
     implement_git_settings_refused: str = (
-        "The git settings of the checkout hold {settings}, which the implement job does not allow. "
-        "The job runs no more git commands in the checkout and pushes nothing. A person removes "
-        "the setting and its cause, and then retries the item."
+        "The git folder of the clone holds {settings} as a link or as a file that is not a regular "
+        "file, which the implement job does not allow. The job pushes nothing. A person removes "
+        "the file and its cause, and then retries the item."
     )
-    implement_git_attribute_refused: str = "the attribute {attribute} ({path}, {more} more paths)"
     implement_agent_phase_key_refused: str = (
         "The agent phase holds the model key only, and this environment holds {names}. Run the "
         "agent phase in a container with no App key and no GitHub token. This process ran no step."

@@ -117,7 +117,6 @@ from devops_cli.roadmap.failure import (
     classify_failure,
 )
 from devops_cli.roadmap.fence import code_fence
-from devops_cli.roadmap.implement.git_isolation import check_settings
 from devops_cli.roadmap.implement.implement_base_replay import (
     BaseReplay,
     BaseStatus,
@@ -1947,8 +1946,8 @@ def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bo
 
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes. The commit, and why the step stops when git refuses it. The
-    hooks of the repository ran as an exit check (`_hooks_failure`), and the job installs no git
-    hook, so the commit runs none."""
+    hooks of the repository ran as an exit check (`_hooks_failure`). A hook that the agent wrote
+    runs at the commit, and it gets no token."""
     done = _git(source, "commit", "-m", message)
     if done.returncode != 0:
         return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=_tail(done))
@@ -1973,19 +1972,14 @@ def _turn(
     message: str,
     conversation: Conversation | None = None,
     *,
-    source: Path,
     usage_limits: UsageLimits,
 ) -> _Run:
     """One turn of the agent under `usage_limits`. When it ends, so does every process of the
-    agent's shell, before the job runs a program that gets the session's token. Then, in a runner,
-    the git settings of the checkout `source` are checked before the job runs git there again: a
-    setting that the job does not allow raises `GitSettingsError` (GHSA)."""
+    agent's shell, before the job runs a program that gets the session's token."""
     try:
-        run = _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
+        return _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
     finally:
         _end_agent_processes()
-    check_settings(source)
-    return run
 
 
 def _tree(source: Path) -> str:
@@ -2099,7 +2093,6 @@ def _extra_turn(
             log,
             ask.message,
             first.conversation,
-            source=source,
             usage_limits=usage_limits,
         )
     )
@@ -2336,7 +2329,7 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _turn(agent, tier_model, log, message, source=source, usage_limits=usage_limits)
+            run = _turn(agent, tier_model, log, message, usage_limits=usage_limits)
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)

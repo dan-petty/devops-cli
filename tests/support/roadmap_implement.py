@@ -505,6 +505,14 @@ def advance_main(world: JobWorld, name: str = "main-moved.txt", text: str = "Mai
     world.repo.git("push", "-q", "origin", "main")
 
 
+def link_shallow(repo: StageRepo) -> None:
+    """What the agent can do and no git command does: make the `shallow` file of the clone a link,
+    here to no file. A network git call of the job refuses it (`GitSettingsError`)."""
+    shallow = repo.clone / ".git" / "shallow"
+    if not shallow.is_symlink():
+        shallow.symlink_to(repo.clone.parent / "absent")
+
+
 @dataclass
 class JobWorld:
     """A Staged item, its repository, GitHub and the process edge, ready for a run."""

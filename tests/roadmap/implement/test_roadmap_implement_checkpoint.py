@@ -23,6 +23,7 @@ from tests.support.roadmap_implement import (
     TASKS_PATH,
     JobWorld,
     advance_main,
+    link_shallow,
 )
 from tests.support.roadmap_stage import STAGE_REPO, run_git
 
@@ -509,16 +510,13 @@ def test_a_withdraw_after_a_refused_draft_finds_no_branch_and_does_nothing(
     assert planned_world.sent("PATCH", f"pulls/{PULL}") == []
 
 
-def test_a_checkpoint_that_meets_a_refused_setting_stops_the_item_at_once(
+def test_a_checkpoint_that_meets_a_link_at_the_shallow_file_stops_the_item_at_once(
     job_world: JobWorld,
 ) -> None:
-    """The agent writes a git setting that the job refuses in group 1. The checkpoint before
+    """The agent makes the `shallow` file of the clone a link in group 1. The checkpoint before
     group 2 stops the item with the class `git_config`, and the job asks the model for nothing
     more (#6559: the checkpoint is the push between the steps)."""
-    script = _script(
-        *_passes(1, GROUPS),
-        at1=lambda: job_world.repo.git("config", "credential.helper", "example-value-7"),
-    )
+    script = _script(*_passes(1, GROUPS), at1=lambda: link_shallow(job_world.repo))
 
     applied = job_world.run(script)
 

@@ -68,8 +68,8 @@ class RoadmapImplementError(DevOpsCLIError):
 
 
 class GitSettingsError(RoadmapImplementError):
-    """Raised when the git settings of the checkout of the implement job hold a key, an attribute
-    or a file that the job does not allow. `settings` names each one, and holds no value."""
+    """Raised when the `shallow` file of the clone of the implement job is a link or is not a
+    regular file. `settings` names the file, and holds no value."""
 
     def __init__(self, message: str, *, settings: tuple[str, ...]) -> None:
         self.settings = settings

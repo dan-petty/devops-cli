@@ -10,7 +10,7 @@ table of defaults: each class has exactly one `FailureAction`.
 
 **Typed classes.** A stop site that knows its cause passes the class itself: `no_change_in_fix`,
 `tests_lost`, `head_moved`, `output_cap`, `limit_reached` and `outside_plan` come from the step, and
-`git_config` from the check of the git settings of the implement job; no rule below makes them,
+`git_config` from a `shallow` file of the clone that is a link; no rule below makes them,
 except the rule of an evicted pod, which gives `limit_reached` (#5960). A command of the implement
 job that the process runner refuses (`SecurityError`) gives `refused_tool`, which a rule below also
 reads from the text. A pull request title or body that breaks a form rule two times gives
