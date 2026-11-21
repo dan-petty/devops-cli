@@ -319,9 +319,9 @@ def _cross_checked(source: Path, catalog: Catalog) -> Catalog:
                 )
     for fact in catalog.facts:
         _check_programs(source, fact)
-        if (reason := _scope_refusal(fact)) is not None:
+        if (refusal := _scope_refusal(fact)) is not None:
             raise RoadmapReviewError(
-                texts.review_catalog_refused.format(path=source, reason=reason)
+                texts.review_catalog_refused.format(path=source, reason=refusal)
             )
     return catalog
 
