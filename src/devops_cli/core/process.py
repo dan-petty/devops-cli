@@ -60,7 +60,11 @@ from devops_cli.config.defaults import (
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubUnauthenticatedError, GitHubUnreadError
+from devops_cli.exceptions.git import (
+    GitHubRateLimitError,
+    GitHubUnauthenticatedError,
+    GitHubUnreadError,
+)
 from devops_cli.exceptions.tools import SubprocessError
 from devops_cli.telemetry.instruments import SUBPROCESS_DURATION, emit
 from devops_cli.telemetry.tracer import get_tracer, trace_span
@@ -426,7 +430,7 @@ def _session_github_token() -> tuple[str, str]:
             return _github_token, ""
         try:
             token, why, expires_at = _lookup_session_token()
-        except GitHubUnreadError:
+        except GitHubUnreadError, GitHubRateLimitError:
             if not _kept_token():
                 raise
             token, why, expires_at = "", "", None

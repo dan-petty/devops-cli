@@ -5,19 +5,19 @@ A git child that reaches a remote gets the session's token. When the App mint fa
 
 ## What Changes
 - When the process acts as the GitHub App, a git child that reaches a remote raises the error of a failed mint before it starts, as a gh call does.
-- A refusal (HTTP 401, a suspended account, a key that cannot sign) stays `GitHubUnauthenticatedError`, and the Service halts. A mint that GitHub does not answer (5xx or no connection) raises `GitHubUnreadError`: the round fails, and the next round mints again. This also stops the halt that such a mint caused for a gh call.
+- A refusal (HTTP 401, a suspended account, a key that cannot sign) stays `GitHubUnauthenticatedError`, and the Service halts. A mint that GitHub does not answer (5xx or no connection) raises `GitHubUnreadError`, and a rate-limited mint raises `GitHubRateLimitError`: the round fails, and the next round mints again. This also stops the halt that such a mint caused for a gh call.
 - When a renewal fails, the kept installation token serves until it expires.
 - A person's git child runs with no token when the lookup finds none, and the remote gives its own error.
 - A lookup that finds no token is not kept, so the next call looks again. The 60 second window and `DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS` are removed.
 
 ## Capabilities
 - `subprocess-environment`: adds the requirement for a network git child when no token resolves.
-- `github-app-identity`: adds the requirement for a mint that GitHub does not answer.
+- `github-app-identity`: adds the requirement for a mint that GitHub does not answer or rate-limits.
 
 ## Impact
 - `src/devops_cli/core/process.py`: `_session_github_token` and `_github_pin`.
 - `src/devops_cli/config/defaults.py`: removes `DEFAULT_GH_AUTH_TOKEN_RETRY_SECONDS`.
-- `src/devops_cli/github/app_installation.py`: `mint_installation_token` raises `GitHubUnreadError` when GitHub does not answer.
+- `src/devops_cli/github/app_installation.py`: `mint_installation_token` raises `GitHubUnreadError` when GitHub does not answer, and `GitHubRateLimitError` when it rate-limits the exchange.
 - `src/devops_cli/commands/research.py`: goes on with no token after that error too.
 - No setting, command or output changes for a person who is logged in.
 

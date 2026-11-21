@@ -30,6 +30,7 @@ from devops_cli.core.process import github_token, run_subprocess
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.git import (
     GitHubOperationError,
+    GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitHubUnreadError,
 )
@@ -395,16 +396,48 @@ def test_a_key_that_is_no_rsa_key_fails_before_any_request(
 
 
 @pytest.mark.parametrize(
-    ("status", "error", "halted"),
-    [(502, GitHubUnreadError, False), (401, GitHubUnauthenticatedError, True)],
-    ids=["no-answer", "refused"],
+    ("answer", "error", "halted"),
+    [
+        (github_json({"message": "No answer"}, status=502), GitHubUnreadError, False),
+        (
+            github_json({"message": "Too many"}, status=429, headers={"retry-after": "30"}),
+            GitHubRateLimitError,
+            False,
+        ),
+        (
+            github_json(
+                {"message": "You have exceeded a secondary rate limit"},
+                status=403,
+                headers={**quota_headers(4999), "retry-after": "60"},
+            ),
+            GitHubRateLimitError,
+            False,
+        ),
+        (
+            github_json(
+                {"message": "API rate limit exceeded"}, status=403, headers=quota_headers(0)
+            ),
+            GitHubRateLimitError,
+            False,
+        ),
+        (github_json({"message": "Bad credentials"}, status=401), GitHubUnauthenticatedError, True),
+        (
+            github_json({"message": "Sorry. Your account was suspended."}, status=403),
+            GitHubUnauthenticatedError,
+            True,
+        ),
+    ],
+    ids=["no-answer", "429", "secondary-limit", "no-quota", "refused", "suspended"],
 )
 def test_a_lane_fetch_halts_the_service_only_when_github_refuses_the_mint(
-    app_identity: GitHubApiFake, status: int, error: type[GitHubOperationError], halted: bool
+    app_identity: GitHubApiFake,
+    answer: httpx2.Response,
+    error: type[GitHubOperationError],
+    halted: bool,
 ) -> None:
-    """A mint that GitHub does not answer fails the round of the lane, and the next round mints
-    again. Only a refusal of the App's JWT halts every lane of the Service (#6671)."""
-    app_identity.route("POST", MINT, github_json({"message": "No answer"}, status=status))
+    """A mint that GitHub does not answer, or that it rate-limits, fails the round of the lane, and
+    the next round mints again. Only a refusal of the App halts every lane of the Service (#6671)."""
+    app_identity.route("POST", MINT, answer)
     pause = RoundPause(
         clock=lambda: datetime.now(UTC), refusal=identity_refused, identity="devops-roadmap[bot]"
     )
@@ -415,31 +448,37 @@ def test_a_lane_fetch_halts_the_service_only_when_github_refuses_the_mint(
     assert (type(raised.value), pause.halted(), run.call_args_list) == (error, halted, [])
 
 
-def test_research_reads_the_advisories_with_no_token_when_github_does_not_answer_the_mint(
-    app_identity: GitHubApiFake,
+_NO_ANSWER = github_json({"message": "No answer"}, status=502)
+_RATE_LIMITED = github_json({"message": "Too many"}, status=429, headers={"retry-after": "30"})
+
+
+@pytest.mark.parametrize("answer", [_NO_ANSWER, _RATE_LIMITED], ids=["no-answer", "429"])
+def test_research_reads_the_advisories_with_no_token_when_github_gives_no_token(
+    app_identity: GitHubApiFake, answer: httpx2.Response
 ) -> None:
     """The advisories are public, so research goes on with no token, as it does after a refusal
     (#6671)."""
-    app_identity.route("POST", MINT, github_json({"message": "No answer"}, status=502))
+    app_identity.route("POST", MINT, answer)
     assert _optional_github_token() is None
 
 
+@pytest.mark.parametrize("answer", [_NO_ANSWER, _RATE_LIMITED], ids=["no-answer", "429"])
 @pytest.mark.parametrize(
     ("left", "second"),
     [(timedelta(minutes=5), "ghs_first"), (timedelta(seconds=-1), "raised")],
     ids=["kept-token-valid", "kept-token-expired"],
 )
 def test_a_failed_renewal_uses_the_kept_token_until_it_expires(
-    app_identity: GitHubApiFake, left: timedelta, second: str
+    app_identity: GitHubApiFake, left: timedelta, second: str, answer: httpx2.Response
 ) -> None:
-    """The first token is due for renewal at once. GitHub does not answer the renewal, so the
+    """The first token is due for renewal at once. GitHub gives no renewal, so the
     second fetch gets the kept token while it is valid, and fails when it expired. Renewal stays
     due, so the third fetch mints again (#6671)."""
     app_identity.route(
         "POST",
         MINT,
         _installation_token("ghs_first", left),
-        github_json({"message": "No answer"}, status=502),
+        answer,
         _installation_token("ghs_second", timedelta(hours=1)),
     )
     tokens: list[str | None] = []
@@ -452,7 +491,7 @@ def test_a_failed_renewal_uses_the_kept_token_until_it_expires(
         for _ in range(3):
             try:
                 run_subprocess(["git", "fetch", "origin"])
-            except GitHubUnreadError:
+            except GitHubUnreadError, GitHubRateLimitError:
                 tokens.append("raised")
     assert (tokens, len(app_identity.requested)) == (["ghs_first", second, "ghs_second"], 3)
 
