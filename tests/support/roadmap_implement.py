@@ -23,6 +23,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse
 
 from devops_cli.github.rate_limiter import get_github_rate_limiter
+from devops_cli.roadmap.implement import implement_phases
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
 from devops_cli.roadmap.implement.implement_run import ImplementApplied, apply_implement
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace
@@ -632,9 +633,7 @@ def _world(
     )
     # The local `origin` stands for the repository on GitHub, which `prepare` clones and `publish`
     # pushes to (#3702).
-    monkeypatch.setattr(
-        "devops_cli.roadmap.implement.implement_phases.CONST_GITHUB_CLONE_URL", str(repo.origin)
-    )
+    monkeypatch.setattr(implement_phases, "CONST_GITHUB_CLONE_URL", str(repo.origin))
     api, programs = github_api_and_gh
     # A full quota, so no request of the job waits for the reset of the quota.
     for resource in ("core", "graphql"):

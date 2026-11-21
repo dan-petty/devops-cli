@@ -41,9 +41,11 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
     runner or a file of the run (#2667, #3702). The agent phase checks that it holds no App key,
     and the other phases that they act as the App. The spies replace the kernel calls, which would
     change the test run."""
+    from devops_cli import ai
     from devops_cli.ai.client import factory
     from devops_cli.core import process_hardening
     from devops_cli.exceptions.roadmap import RoadmapImplementError
+    from devops_cli.roadmap import run
     from devops_cli.roadmap.implement import implement, implement_phases, implement_run
 
     seen: list[str] = []
@@ -54,9 +56,9 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
     )
     monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
     monkeypatch.setattr(factory, "get_task_model", lambda _task: None)
-    monkeypatch.setattr("devops_cli.ai.client.get_llm_client", lambda **_: None)
+    monkeypatch.setattr(ai.client, "get_llm_client", lambda **_: None)
     monkeypatch.setattr(implement, "plan_implement", lambda *_, **__: _OnePlan())
-    monkeypatch.setattr("devops_cli.roadmap.run.model_clone", lambda _repo: tmp_path)
+    monkeypatch.setattr(run, "model_clone", lambda _repo: tmp_path)
 
     def step(*_: Any, **__: Any) -> Any:
         seen.append("step")

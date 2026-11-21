@@ -405,15 +405,14 @@ def test_the_comment_shows_the_strength_report_and_the_skip_reason(
     """`publish` writes the comment of the run from the data of the agent phase (#3702)."""
     from unittest.mock import MagicMock
 
+    from devops_cli.roadmap.implement import implement_report
     from devops_cli.roadmap.implement.implement_report import RunReport
     from devops_cli.roadmap.implement.implement_strength import StrengthReport
 
     client = MagicMock()
     client.list_issue_comments.return_value = []
     session = MagicMock(client=client)
-    monkeypatch.setattr(
-        "devops_cli.roadmap.implement.implement_report.get_github_session", lambda: session
-    )
+    monkeypatch.setattr(implement_report, "get_github_session", lambda: session)
 
     target = MagicMock()
     target.item.job_record = {}
