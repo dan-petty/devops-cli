@@ -16,7 +16,7 @@ Adds: `_JOB_BLOCK_MARKERS`
 
 Kind: other. Reads: `src/devops_cli/config/constants.py`, `tests/roadmap/refine/test_roadmap_refine_person_wait.py`. Changes: `src/devops_cli/config/constants.py`.
 
-- [ ] 2.1 Set `CONST_ROADMAP_REFINE_RULES_SINCE` in `src/devops_cli/config/constants.py` to the UTC time of the commit of this task, and change its comment so that it names the rule of this change: a job block marker ends the Dependencies section (#6613), which removes false dependencies
+- [x] 2.1 Set `CONST_ROADMAP_REFINE_RULES_SINCE` in `src/devops_cli/config/constants.py` to the UTC time of the commit of this task, and change its comment so that it names the rule of this change: a job block marker ends the Dependencies section (#6613), which removes false dependencies
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_person_wait.py` passes
 
 ## 3. State the end of the section in the refine page
