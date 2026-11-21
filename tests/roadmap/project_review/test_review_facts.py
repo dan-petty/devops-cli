@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from devops_cli.roadmap.project_review.catalog import load_catalog
 from devops_cli.roadmap.project_review.data import (
+    Disagreement,
     Fact,
     FactStatus,
     ReviewData,
@@ -26,7 +27,7 @@ from devops_cli.roadmap.project_review.data import (
 )
 from devops_cli.roadmap.project_review.facts import Hotspot, hotspots, review_facts
 from devops_cli.roadmap.project_review.git_read import Commit, FileChange, commits, numstat
-from devops_cli.roadmap.project_review.review import run_review
+from devops_cli.roadmap.project_review.review import render_review, run_review
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
@@ -271,3 +272,47 @@ def test_the_facts_of_a_catalog_follow_the_git_facts_with_their_section(
     ]
     assert {fact.section for fact in data.facts[:-2]} == {"changes"}
     assert data.collection.reads == {"prometheus": 2}
+
+
+def test_the_summary_shows_each_fact_that_is_not_ok_and_each_disagreement(tmp_path: Path) -> None:
+    window = ReviewWindow(
+        kind=WindowKind.WEEK,
+        id="2026-W45",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 2, tzinfo=UTC),
+        end=datetime(2026, 11, 9, tzinfo=UTC),
+        previous_id="2026-W44",
+    )
+    expired = Fact(
+        id="prometheus.up",
+        section="service",
+        value=None,
+        unit="count",
+        n=None,
+        source="prometheus",
+        query="sum(up)",
+        definition="d",
+        read_at=NOW,
+        status=FactStatus.EXPIRED,
+        reason="The source keeps 30 days.",
+    )
+    pair = Disagreement(
+        id="spend",
+        left="prometheus.cli_spend",
+        right="prometheus.gateway_spend",
+        left_value=77.22,
+        right_value=118.74,
+        difference=0.3497,
+        tolerance=0.1,
+        definition="d",
+    )
+    data = ReviewData(repo="example/project", window=window, facts=[expired], disagreements=[pair])
+
+    text = render_review(data, tmp_path / "data.json")
+
+    assert "  prometheus.up: expired: The source keeps 30 days." in text
+    assert (
+        "Disagreement spend: prometheus.cli_spend 77.22 and prometheus.gateway_spend 118.74 "
+        "differ by 35%, more than 10%."
+    ) in text
