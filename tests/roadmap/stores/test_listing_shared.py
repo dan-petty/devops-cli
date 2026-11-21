@@ -564,6 +564,30 @@ def test_a_shared_load_past_its_budget_falls_back(
     )
 
 
+def test_a_shared_load_past_its_total_bound_falls_back(
+    tmp_path: Path,
+    shared_valkey: ValkeyCacheTier,
+    otlp: FakeCollector,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shared snapshot is newer than the local one and holds two records of about 300,000
+    bytes of JSON each, each under the bound of a record. With a total bound of 512 KiB, the
+    load stops, raises no error and takes the local snapshot."""
+    import devops_cli.roadmap.stores.listing_shared as listing_shared
+
+    local = _snapshot(STARTED - timedelta(hours=1), 1)
+    FileSnapshotStore(tmp_path).save(local)
+    shared = _snapshot(STARTED, 2, 1)
+    large = tuple(issue.model_copy(update={"body": "x" * 300_000}) for issue in shared.issues)
+    _valkey_store(shared_valkey).save(shared.model_copy(update={"issues": large}))
+    monkeypatch.setattr(listing_shared, "DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES", 524_288)
+    otlp.clear()
+
+    loaded = _tiered(tmp_path).load(REPO)
+
+    assert (loaded, _reads(otlp)) == (local, {("snapshot", "fallback"): 1.0})
+
+
 def _meta(server: FakeServer) -> bytes | None:
     """The `meta` field of the shared snapshot as Valkey holds it."""
     value: bytes | None = FakeValkey(server=server).hget(SNAPSHOT_KEY, "meta")
