@@ -26,6 +26,7 @@ NAME = "outcome.json"
 
 def test_an_output_of_the_agent_phase_is_read_as_bytes(tmp_path: Path) -> None:
     folders = RunFolders(tmp_path).make()
+    folders.make_out()
     (folders.out / NAME).write_bytes(b"{}")
 
     assert read_output(folders, NAME, limit=10) == b"{}"
@@ -47,7 +48,7 @@ def test_publish_refuses_an_output_that_is_not_a_plain_file_in_a_plain_folder(
     """A link to `/proc/self/environ` would give the environment of `publish`, a FIFO would hold
     the read, and a folder that is a link would point the read at another file (#3702)."""
     folders = RunFolders(tmp_path / "run").make()
-    target = folders.out / NAME
+    target = folders.make_out() / NAME
     if plant == "link":
         target.symlink_to("/proc/self/environ")
     elif plant == "fifo":
@@ -69,7 +70,7 @@ def test_the_outcome_is_read_with_its_model_and_refuses_another_key(tmp_path: Pa
     """`publish` takes the enums and the numbers of the outcome; text that is not of the model
     stops the read."""
     folders = RunFolders(tmp_path).make()
-    write_json(folders.out / NAME, AgentOutcome(kind=OutcomeKind.DONE, result="repaired"))
+    write_json(folders.make_out() / NAME, AgentOutcome(kind=OutcomeKind.DONE, result="repaired"))
 
     read = read_outcome(folders)
     (folders.out / NAME).write_text('{"kind": "done", "result": "repaired", "token": "x"}')

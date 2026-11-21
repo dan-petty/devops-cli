@@ -15,10 +15,6 @@
 - **WHEN** the pushed branch holds a commit of a person
 - **THEN** `prepare` refuses the branch and names the author
 
-#### Scenario: The settings of the clone
-- **WHEN** `prepare` made the clone
-- **THEN** the clone holds no git setting that the check of the steps refuses
-
 ### Requirement: The patch of the agent phase has a fixed format
 The agent phase SHALL write each patch with `git diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/`, from the base to a commit, or after `git add -A` from the base to every file of the checkout. It SHALL check the exit status of git. No diff setting of the clone or of the home folder SHALL change the patch.
 

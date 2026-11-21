@@ -30,12 +30,12 @@ The fix-checks Job is the first step on the phases (#6601). `--phase all` runs t
 
 ### Addendum: plain git (#6655, 2026-11-21)
 
-The owner asked for a plain issue-branch flow ("it should be relatively straight forward to work an issue branch", #3702 comment 7065393209). The phases use git as a developer does: a full clone, `git switch`, `git apply --index`, `git commit` and `git push --force-with-lease`, with no plumbing and no git folder that shares the objects of another. Until #3700, the git calls of `prepare` and `publish` read no global or system configuration, because the home folder is shared with the agent in `--phase all`. No new git hardening comes before #3700.
+The owner asked for a plain issue-branch flow ("it should be relatively straight forward to work an issue branch", #3702 comment 7065393209). The phases use git as a developer does: a full clone, `git switch`, `git apply --index`, `git commit` and `git push --force-with-lease`, with no `read-tree`, `write-tree` or `commit-tree` and no git folder that shares the objects of another. Until #3700, the git calls of `prepare` and `publish` read no global or system configuration, because the home folder is shared with the agent in `--phase all`. No new git hardening comes before #3700.
 
 ### Consequences
 
 - An agent that writes the settings of its clone reaches no call with the token: `publish` reads no file of the clone and runs no program of the agent.
-- A run writes one commit for each publish. The commits of the fixers stay in the agent clone.
+- `publish` writes one commit of the bot for each patch. The commits of the fixers stay in the agent clone.
 - Until #3700, one process mints one token for the three phases, so the token keeps `workflows: write`. `publish` refuses a workflow file that the merged plan does not name.
 
 ### Confirmation

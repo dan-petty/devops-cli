@@ -303,10 +303,11 @@ def agent_phase(folders: RunFolders, repair: Repair) -> None:
     outcome = _fix(path, inputs, item, repair)
     if load_settings().roadmap.implement.in_runner:
         process_hardening.end_leftover_processes()
+    out = folders.make_out()
     if outcome.kind is OutcomeKind.DONE:
-        repair.patch(path, inputs.base, folders.out / CONST_ROADMAP_PHASE_PATCH_FILE)
-    write_json(folders.out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
-    write_json(folders.out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
+        repair.patch(path, inputs.base, out / CONST_ROADMAP_PHASE_PATCH_FILE)
+    write_json(out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
+    write_json(out / CONST_ROADMAP_PHASE_SUMMARY_FILE, AgentSummary())
 
 
 def _result(outcome: AgentOutcome) -> tuple[FixChecksResult, FixTier | None]:

@@ -309,3 +309,23 @@ def test_a_branch_that_publish_made_is_deleted_with_a_lease(
     delete_branch(_target(stage_repo, branch))
 
     assert stage_repo.origin_git("branch", "--list", BRANCH) == ""
+
+
+def test_each_git_call_of_publish_has_its_new_folder_as_home(
+    stage_repo: StageRepo, branch: str, real_git: ProcessFake
+) -> None:
+    """In `--phase all` the agent can write the home folder, and git still reads files there with
+    no configuration file, as `.config/git/attributes` and `.netrc`. Each git call of `publish` gets
+    the new empty folder of the publish as its home (#6655)."""
+    patch = _patch(stage_repo, branch, _write("a.txt"))
+    before = len(real_git.calls)
+
+    publish_patch(_target(stage_repo, branch), [(patch, "fix: x")], before_push=_none)
+
+    calls = [call for call in real_git.calls[before:] if call.argv[0] == "git"]
+    homes = {(call.env or {}).get("HOME") for call in calls}
+    assert len(homes) == 1
+    (home,) = homes
+    assert home is not None
+    assert Path(home).name.startswith("devops-publish-")
+    assert {(call.env or {}).get("XDG_CONFIG_HOME") for call in calls} == {home}

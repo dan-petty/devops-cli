@@ -919,7 +919,7 @@ def test_a_round_that_prepare_ends_is_reported_by_prepare(world: PullWorld, tmp_
         "Item holds an owner label",
         None,
     )
-    assert list(folders.out.iterdir()) == []
+    assert not folders.out.exists()
 
 
 @pytest.mark.parametrize("when", ["publish", "push"])
@@ -978,7 +978,7 @@ def test_publish_refuses_an_outcome_outside_the_enums_of_the_step(
     prepare_phase(
         world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
     )
-    (folders.out / "outcome.json").write_text(outcome, encoding="utf-8")
+    (folders.make_out() / "outcome.json").write_text(outcome, encoding="utf-8")
 
     with pytest.raises(PhaseOutputError, match=reason):
         publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
@@ -1256,3 +1256,30 @@ def test_a_state_file_that_says_ended_while_a_repair_is_due_is_refused(
         publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
 
     assert repair.pushes == 0
+
+
+def test_the_agent_phase_writes_its_outputs_into_a_new_folder(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The agent can write the run folder, so a link that it leaves at `out/outcome.json` would turn
+    the write of the job to another file, and a FIFO would hold it. The job writes the outputs
+    into a folder that it makes after the sweep, and refuses an `out/` that is there already
+    (#6655)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text("untouched", encoding="utf-8")
+    folders.out.mkdir(exist_ok=True)
+    (folders.out / "outcome.json").symlink_to(elsewhere)
+
+    with pytest.raises(PhaseOutputError, match="output folder"):
+        agent_phase(folders, built)
+
+    assert elsewhere.read_text(encoding="utf-8") == "untouched"

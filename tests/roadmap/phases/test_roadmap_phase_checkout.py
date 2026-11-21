@@ -10,7 +10,6 @@ from urllib.parse import quote
 import pytest
 
 from devops_cli.exceptions import GitOperationError
-from devops_cli.roadmap.implement.git_isolation import refused_settings
 from devops_cli.roadmap.phases.checkout import clone_branch
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -71,11 +70,3 @@ def test_a_branch_with_a_commit_of_a_person_is_not_taken(world: StageRepo, tmp_p
 
     with pytest.raises(GitOperationError, match="a-person"):
         clone_branch(tmp_path / "work", url=str(world.origin), issue=1, branch=BRANCH)
-
-
-def test_the_clone_holds_no_setting_that_the_job_refuses(world: StageRepo, tmp_path: Path) -> None:
-    """The steps check the git settings of the clone after each turn of the agent, so the clone of
-    `prepare` holds none that the check refuses: no `remote.origin.tagopt` of `--no-tags`."""
-    clone = clone_branch(tmp_path / "work", url=str(world.origin), issue=1, branch=BRANCH)
-
-    assert refused_settings(clone.path) == []

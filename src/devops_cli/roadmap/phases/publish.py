@@ -90,13 +90,18 @@ class _Change:
     path: str
 
 
-def git_call(repo: Path, *args: str, config: Sequence[str] = ()) -> str:
+def git_call(repo: Path, *args: str, config: Sequence[str] = (), home: Path | None = None) -> str:
     """The output of `git <args>` in `repo`, with no global or system configuration and the
-    credential helper of `gh` (#3702). `prepare` and `publish` use it until #3700."""
+    credential helper of `gh` (#3702). `prepare` and `publish` use it until #3700. With `home`,
+    git reads no other file of the home folder either, as `.config/git/attributes` and `.netrc`:
+    `publish` gives its own new folder (#6655). The helper gets the token from the environment."""
     values = [part for value in (*_CREDENTIAL, *config) for part in ("-c", value)]
+    env = dict(CONST_GIT_ISOLATED_CONFIG_ENV)
+    if home is not None:
+        env |= {"HOME": str(home), "XDG_CONFIG_HOME": str(home)}
     proc = run_subprocess(
         [BIN_GIT, "-C", str(repo), *values, *args],
-        env=dict(CONST_GIT_ISOLATED_CONFIG_ENV),
+        env=env,
         check=False,
         quiet=True,
     )
@@ -115,23 +120,27 @@ class NewTree:
 
     repo: Path
     changed: tuple[str, ...]
+    home: Path | None = None
 
     def names(self, folder: str) -> tuple[str, ...]:
         """The names of the entries of `folder` in the tree, in order, or none."""
-        listed = git_call(self.repo, "ls-tree", "--name-only", "-z", "HEAD", "--", f"{folder}/")
+        listed = git_call(
+            self.repo, "ls-tree", "--name-only", "-z", "HEAD", "--", f"{folder}/", home=self.home
+        )
         return tuple(sorted(PurePosixPath(name).name for name in listed.split("\0") if name))
 
     def text(self, path: str) -> str | None:
         """The text of the file `path` of the tree, or None when the tree holds no such file."""
         try:
-            return git_call(self.repo, "cat-file", "blob", f"HEAD:{path}")
+            return git_call(self.repo, "cat-file", "blob", f"HEAD:{path}", home=self.home)
         except GitOperationError:
             return None
 
 
-def _changes(repo: Path) -> list[_Change]:
+def _changes(repo: Path, home: Path) -> list[_Change]:
     """Each change of the index from `HEAD`, as `git diff --cached --raw -z` lists it."""
-    fields = git_call(repo, "diff", "--cached", "--raw", "-z", "--no-renames").split("\0")
+    listed = git_call(repo, "diff", "--cached", "--raw", "-z", "--no-renames", home=home)
+    fields = listed.split("\0")
     changes: list[_Change] = []
     for head, path in zip(fields[0::2], fields[1::2], strict=False):
         if not head.startswith(":"):
@@ -160,19 +169,20 @@ def _refusals(changes: Sequence[_Change], workflow_paths: Sequence[str]) -> list
 
 
 def _commit(repo: Path, target: PublishTarget, patch: Path, message: str) -> list[str]:
+    home = repo.parent
     """Apply `patch` to the index and commit it as the bot: the changed paths, or none when the
     patch changes nothing."""
     try:
-        git_call(repo, "apply", "--index", "--binary", str(patch))
+        git_call(repo, "apply", "--index", "--binary", str(patch), home=home)
     except GitOperationError as exc:
         raise PublishRefusedError(f"git apply refused the patch: {exc}") from exc
-    changes = _changes(repo)
+    changes = _changes(repo, home)
     if refused := _refusals(changes, target.workflow_paths):
         raise PublishRefusedError("The patch is refused: " + "; ".join(refused))
     if not changes:
         return []
     identity = (f"user.name={target.author}", f"user.email={target.email}")
-    git_call(repo, "commit", "--quiet", "-m", message, config=identity)
+    git_call(repo, "commit", "--quiet", "-m", message, config=identity, home=home)
     return [change.path for change in changes]
 
 
@@ -197,11 +207,11 @@ def publish_patch(
     parent = Path(tempfile.mkdtemp(prefix="devops-publish-", dir=scratch))
     try:
         repo = parent / "repo"
-        git_call(parent, "init", "--quiet", str(repo))
-        git_call(repo, "remote", "add", "origin", target.url)
+        git_call(parent, "init", "--quiet", str(repo), home=parent)
+        git_call(repo, "remote", "add", "origin", target.url, home=parent)
         wanted = [target.base, *([target.lease] if target.lease not in ("", target.base) else [])]
-        git_call(repo, "fetch", "--quiet", "--depth=1", "--no-tags", "origin", *wanted)
-        git_call(repo, "switch", "--quiet", "--detach", target.base)
+        git_call(repo, "fetch", "--quiet", "--depth=1", "--no-tags", "origin", *wanted, home=parent)
+        git_call(repo, "switch", "--quiet", "--detach", target.base, home=parent)
         paths: list[str] = []
         for index, (patch, message) in enumerate(work):
             patch_file = parent / f"{index}.patch"
@@ -218,14 +228,26 @@ def publish_patch(
             "-z",
             target.base,
             "HEAD",
+            home=parent,
         )
-        before_push(NewTree(repo, tuple(name for name in changed.split("\0") if name)))
-        tree = git_call(repo, "rev-parse", "HEAD^{tree}").strip()
-        if target.lease and git_call(repo, "rev-parse", f"{target.lease}^{{tree}}").strip() == tree:
+        before_push(NewTree(repo, tuple(name for name in changed.split("\0") if name), parent))
+        tree = git_call(repo, "rev-parse", "HEAD^{tree}", home=parent).strip()
+        if (
+            target.lease
+            and git_call(repo, "rev-parse", f"{target.lease}^{{tree}}", home=parent).strip() == tree
+        ):
             return Published(target.lease, tuple(paths))
-        head = git_call(repo, "rev-parse", "HEAD").strip()
+        head = git_call(repo, "rev-parse", "HEAD", home=parent).strip()
         lease = f"--force-with-lease=refs/heads/{target.branch}:{target.lease}"
-        git_call(repo, "push", "--quiet", lease, "origin", f"HEAD:refs/heads/{target.branch}")
+        git_call(
+            repo,
+            "push",
+            "--quiet",
+            lease,
+            "origin",
+            f"HEAD:refs/heads/{target.branch}",
+            home=parent,
+        )
         return Published(head, tuple(paths))
     finally:
         shutil.rmtree(parent, ignore_errors=True)
@@ -237,10 +259,12 @@ def delete_branch(target: PublishTarget) -> None:
     parent = Path(tempfile.mkdtemp(prefix="devops-publish-"))
     try:
         repo = parent / "repo"
-        git_call(parent, "init", "--quiet", str(repo))
-        git_call(repo, "remote", "add", "origin", target.url)
+        git_call(parent, "init", "--quiet", str(repo), home=parent)
+        git_call(repo, "remote", "add", "origin", target.url, home=parent)
         lease = f"--force-with-lease=refs/heads/{target.branch}:{target.lease}"
-        git_call(repo, "push", "--quiet", lease, "origin", f":refs/heads/{target.branch}")
+        git_call(
+            repo, "push", "--quiet", lease, "origin", f":refs/heads/{target.branch}", home=parent
+        )
     finally:
         shutil.rmtree(parent, ignore_errors=True)
 

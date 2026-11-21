@@ -3,8 +3,9 @@
 The agent phase works in its own clone, as a developer does, and holds no GitHub credential. The
 patch is the only data that goes from it to `publish`, so its format does not depend on a setting
 of the clone or of the home folder: the flags turn off an external diff program, a textconv
-driver, color and a change of the path prefixes. `git add -A` stages every file of the checkout,
-so a commit of a fixer and a file that no commit holds are both in the patch. The phase ends its
+driver and color, and fix the context lines to 3 and the path prefixes. `git add -A` stages every
+file of the checkout, so a commit of a fixer and a file that no commit holds are both in the
+patch. The phase ends its
 leftover processes before it writes the patch (`end_leftover_processes`, in a runner).
 """
 
@@ -23,6 +24,7 @@ _OPERATION = "roadmap.phases.patch"
 _FORMAT = (
     "--binary",
     "--full-index",
+    "--unified=3",
     "--no-color",
     "--no-ext-diff",
     "--no-textconv",

@@ -403,8 +403,8 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
 ) -> None:
     """Another writer moves the head branch on `origin` after the judgment and before the push.
-    The lease on the judged head refuses the push: the commit of the other writer stays, the round
-    records no repair, and the worktree goes (#5983)."""
+    The lease on the judged head refuses the push: the commit of the other writer stays, and the
+    round records no repair (#5983)."""
     repo, store, head = failed_draft
     factory.set_llm_client_override(ModelScript(*a_fix()).model())
     real = job_repair(STAGE_REPO)
@@ -433,7 +433,6 @@ def test_a_push_whose_lease_breaks_is_refused_and_keeps_the_other_writer(
     held = store.item(1)
     assert held is not None
     assert held.job_record.get(FixChecksRecordKey.RESULT) is None
-    assert repo.git("worktree", "list").count("\n") == 0
 
 
 # The case of #6114 in a test world: the plan changes the signature of `run_flow`, and a test that
@@ -585,13 +584,13 @@ def staged(
         ("fix/1-another-branch", "", "not at the judged head"),
         (BRANCH, "0" * 40, "not at the judged head"),
     ],
-    ids=["branch", "sha"],
+    ids=["missing-head-branch", "sha"],
 )
-def test_the_checkout_refuses_another_branch_or_head(
+def test_the_checkout_refuses_a_missing_head_branch_or_another_head(
     staged: tuple[StageRepo, str], ref: str, sha: str, error: str
 ) -> None:
-    """The checkout opens only on the head branch of the pull request at the judged head (#5983):
-    a branch that origin does not hold is new, so it is at no judged head either (#3702)."""
+    """The checkout opens only at the judged head of the head branch of the pull request (#5983): a
+    head branch that `origin` does not hold is new, so it is at no judged head either (#6655)."""
     repo, head = staged
     status = PullStatus(state="open", head_ref=ref, head_sha=sha or head)
 
@@ -818,16 +817,16 @@ def test_publish_reads_the_workflow_files_of_the_merged_plan_from_github(
 
 
 @pytest.mark.parametrize("phases", ["all", "separate"])
-def test_a_fixer_that_rewrites_the_origin_of_the_source_clone_changes_no_push(
+def test_a_fixer_that_rewrites_the_origin_of_the_clone_changes_no_push(
     failed_draft: tuple[StageRepo, InMemoryRoadmapStore, str],
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
     tmp_path: Path,
     phases: str,
 ) -> None:
-    """`prepare` reads the URL of `origin` before any agent code runs, and `publish` pushes to that
-    URL: a fixer that points `remote.origin.url` of the clone at another repository changes
+    """`publish` fetches from and pushes to the repository on GitHub, and reads no origin of the
+    clone: a fixer that points `remote.origin.url` of the clone at another repository changes
     neither the repository that `publish` fetches from and pushes to nor where git sends the
-    token (#6601)."""
+    token (#6601, #6655)."""
     from devops_cli.github.session import get_github_session
     from devops_cli.roadmap.phases.files import RunFolders
     from devops_cli.roadmap.steps.fix_checks_phases import (

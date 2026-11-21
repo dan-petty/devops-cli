@@ -16,7 +16,7 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a
 - **THEN** the push fails, the commit of the other writer stays, and the step records no repair
 
 #### Scenario: The checkout refuses another branch or another head
-- **WHEN** the branch of the item is not the head branch of the pull request, or its tip is not the judged head
+- **WHEN** `origin` holds no head branch of the pull request, or its tip is not the judged head
 - **THEN** the checkout raises an error before any fixer runs
 
 ### Requirement: Publish builds the target of its push from GitHub

@@ -32,13 +32,21 @@ def test_the_patch_holds_the_commits_and_the_new_files_in_a_fixed_format(
     stage_repo: StageRepo, real_git: ProcessFake, tmp_path: Path
 ) -> None:
     """A commit of a fixer and a file that no commit holds are both in the patch. An external diff
-    program, a path with no prefix and color in the config of the clone do not change the patch,
-    so `publish` applies it (#3702)."""
+    program, a path with no prefix, color and no context lines in the config of the clone do not
+    change the patch, so `publish` applies a change in the middle of a file (#3702)."""
     clone = stage_repo.clone
+    lines = [f"line {number}\n" for number in range(1, 11)]
+    (clone / "long.txt").write_text("".join(lines), encoding="utf-8")
+    run_git(clone, "add", "long.txt")
+    run_git(clone, "commit", "-q", "-m", "a long file")
+    run_git(clone, "push", "-q", "origin", "HEAD:main")
     base = run_git(clone, "rev-parse", "HEAD")
     run_git(clone, "config", "diff.external", "false")
     run_git(clone, "config", "diff.noprefix", "true")
     run_git(clone, "config", "color.ui", "always")
+    run_git(clone, "config", "diff.context", "0")
+    lines[5] = "line six, changed\n"
+    (clone / "long.txt").write_text("".join(lines), encoding="utf-8")
     (clone / "fixed.py").write_text("print('fixed')\n", encoding="utf-8")
     run_git(clone, "add", "fixed.py")
     run_git(clone, "commit", "-q", "-m", "fix")
@@ -49,6 +57,7 @@ def test_the_patch_holds_the_commits_and_the_new_files_in_a_fixed_format(
 
     text = patch.read_text(encoding="utf-8")
     assert ("b/fixed.py" in text, "b/new.txt" in text, "\x1b[" in text) == (True, True, False)
+    assert " line 5\n" in text
     _applies(stage_repo, tmp_path, patch)
 
 
