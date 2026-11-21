@@ -122,7 +122,7 @@ dev = [
     "h11==0.16.0",
     "deptry==0.25.1",
     "mutmut==3.8.1",
-    "syrupy==7.0.2",
+    "syrupy==7.0.3",
     "ast-grep-cli==0.51.3",
     "time-machine==3.6.0",
     "fakeredis[lua,valkey]==2.40.0",
