@@ -12,11 +12,18 @@ The command `devops k8s deploy-stack --stack devops` SHALL render and apply Conf
 - **THEN** the command applies devops-cli-config-sandbox from the active config before it leaves the manifests to Argo CD
 
 ### Requirement: The sandbox ConfigMap drops every credential key at any depth
-The rendered `devops-cli-config-sandbox` SHALL omit every key of its `devops-cli.yaml` value whose lower-case name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS`, at any depth of maps and lists, and SHALL keep every other key with its value.
+The rendered `devops-cli-config-sandbox` SHALL omit every key of its `devops-cli.yaml` value whose lower-case name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS` and whose value is not a number or a boolean, at any depth of maps and lists, and SHALL keep every other key with its value.
 
 #### Scenario: Credential keys at the top level and nested
 - **WHEN** the template config holds github_token, api_key, db_password and a secret key beside non-credential keys
 - **THEN** the rendered devops-cli.yaml value holds none of those four keys and still holds the non-credential keys with their values
+
+### Requirement: The sandbox ConfigMap keeps a number under a credential-like name
+The rendered `devops-cli-config-sandbox` MUST keep a key whose name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS` when its value is a number or a boolean, because such a value is a count and not a credential.
+
+#### Scenario: Token budgets of the template
+- **WHEN** the sandbox ConfigMap is rendered from the template k8s/devops/configmap.example.yaml
+- **THEN** roadmap.stage.step_tokens, roadmap.review.token_budget, roadmap.implement.step_token_budget and roadmap.implement.item_token_budget keep their template values
 
 ### Requirement: The sandbox ConfigMap keeps the name and the data key the run Job mounts
 The rendered ConfigMap MUST keep the name `devops-cli-config-sandbox` and the single data key `devops-cli.yaml`, so the planner run Job mounts it at `/config` with `DEVOPS_CLI_CONFIG` unchanged.
@@ -40,7 +47,7 @@ The commands `devops k8s deploy-stack --stack devops --dry-run` and `devops k8s 
 - **THEN** the details name devops/devops-cli-config-sandbox and hold none of its content
 
 ### Requirement: A test names each credential key of the rendered config
-A test SHALL parse the rendered ConfigMap, walk every key of the `devops-cli.yaml` value at any depth, and name each key whose lower-case name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS`.
+A test SHALL parse the rendered ConfigMap, walk every key of the `devops-cli.yaml` value at any depth, and name each key whose lower-case name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS` and whose value is not a number or a boolean.
 
 #### Scenario: The walk names a credential key
 - **WHEN** the walk runs on a hand-built config that holds github_token at the top level and ai.api_key nested
