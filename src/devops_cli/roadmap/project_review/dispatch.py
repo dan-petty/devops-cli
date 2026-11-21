@@ -16,7 +16,7 @@ with `$start` and `$end` (Unix seconds) and `$repo`. A Prometheus or Loki answer
 | An earlier read of the reader kind got no answer from the network | `error`, the reason of that read | none |
 | The read raises a project error | `error`, the first line of the error | sent |
 | A row of a `rows` fact holds a namespace label outside `roadmap.project_review.namespaces`, or a workload label and no `namespace` | `error`, the reason names the fact and the label, never a label value | sent |
-| A query gives no series, and the fact names no `base` metric or that metric has no series in the time scope of the query | `skipped` | sent |
+| A query gives no series, and the fact names no `base` metric or that metric has no series in the time scope of the query | `skipped`, with the `no_series_reason` of a fact with no base | sent |
 | A query gives no series, and the `base` metric of the fact has a series in the time scope of the query | `ok`, no rows or 0 | sent, and the probe of the base |
 | A program gives no value | `skipped` | sent |
 
@@ -300,7 +300,7 @@ def _vector_value(
     """The value, the sample size and the reason of a fact with no value, from a vector."""
     texts = MESSAGES.roadmap
     if not result.series:
-        return None, None, texts.review_no_series
+        return None, None, fact.no_series_reason or texts.review_no_series
     if fact.shape is Shape.SCALAR:
         if len(result.series) > 1:
             return None, None, texts.review_many_series.format(count=len(result.series))

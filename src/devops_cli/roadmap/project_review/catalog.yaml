@@ -874,6 +874,9 @@ facts:
     section: dependencies
     query: max(max_over_time(devops_cli_dependency_update_oldest_pending_seconds{repository="{repo}"}[{range}]))
     shape: scalar
+    no_series_reason: >-
+      No code emits the gauge devops_cli_dependency_update_oldest_pending_seconds before #4911
+      adds it.
     unit: s
     definition: The age of the oldest pending dependency update (the gauge of #4911).
   # ── Spend ─────────────────────────────────────────────────────────────────

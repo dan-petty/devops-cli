@@ -35,7 +35,8 @@ not exist.
 
 A fact can give `not_before`, the first time of its series, as UTC `YYYY-MM-DDTHH:MM:SSZ`: the
 dispatcher skips the fact for a window that starts before it, for example a count of Jobs by a
-name that a rename brought.
+name that a rename brought. A fact with no `base` can give `no_series_reason`, the reason of
+`skipped` when its query matches no series, for example a gauge that no code emits yet.
 
 The dispatcher replaces only the eight placeholders, with a regular expression: PromQL and LogQL
 hold braces, so `str.format` cannot fill them. `{name_slug}` is the slug of the repository name
@@ -123,7 +124,8 @@ class CatalogFact:
     none only when that metric has a series in the time scope of the query, the window for a query
     that holds `{range}`, else the window end. Its metric is a metric of the query, else
     `base_reason` says why the base is another metric. `not_before` is the first time of the series
-    of the fact: a window that starts before it does not read the fact."""
+    of the fact: a window that starts before it does not read the fact. `no_series_reason` is the
+    reason of an answer with no series of a fact with no `base`."""
 
     id: str
     reader: ReaderKind
@@ -140,6 +142,7 @@ class CatalogFact:
     base: str | None = None
     base_reason: str | None = None
     not_before: datetime | None = None
+    no_series_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -332,6 +335,7 @@ def _fact(source: Path, entry: Mapping[str, Any]) -> CatalogFact:
         base=entry.get("base"),
         base_reason=entry.get("base_reason"),
         not_before=_first_time(source, entry),
+        no_series_reason=entry.get("no_series_reason"),
     )
 
 
