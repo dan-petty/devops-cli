@@ -690,8 +690,8 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert rep_spec.result == FixConflictResult.FAILED
     assert "strict failed" in rep_spec.reason
 
-    # 5. Clean Tier 1 resolution with lease push
-    item.job_record.clear()
+    # 5. Clean Tier 1 resolution with lease push; the failed round of 4 counted too
+    store.set_marks(item, {FixConflictRecordKey.ROUNDS: "0"})
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda *args: True)
     rep_ok = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=True)
     assert rep_ok.result == FixConflictResult.RESOLVED
@@ -962,12 +962,14 @@ def _pull_with_archive_conflict(
     spec_fix: bool = False,
     docs: bool = False,
     archived: bool = True,
+    other_item: bool = False,
 ) -> _Pull:
     """A bot pull request whose archive commit conflicts with main on `_SPEC`. With `after`, a bot
     commit follows the archive commit. With `squashed`, one commit holds the code, the change and
     its archive. With `spec_fix`, a bot commit after the archive changes only the spec. With
     `docs`, the archive commit and main also change a generated document. With no `archived`, a
-    commit that changes only the spec takes the place of the archive commit."""
+    commit that changes only the spec takes the place of the archive commit. With `other_item`, the
+    archive commit also archives the change of another item."""
     parts = _repositories(tmp_path)
     seed, number = parts[3], parts[5]
     _commit_files(seed, {**_spec(), _DOCS: "# v1\n"}, "chore: initial specs")
@@ -975,9 +977,14 @@ def _pull_with_archive_conflict(
     branch = f"feat/{number}-test-cap"
     _git(seed, "checkout", "-q", "-b", branch)
     change = f"openspec/changes/{number}-test-cap/tasks.md"
-    _commit_files(seed, {change: "- [x] task done\n", "src/a.py": "A = 1\n"}, f"feat: {number}")
+    other = {"openspec/changes/41-other/tasks.md": "- [x] other\n"} if other_item else {}
+    feat = {change: "- [x] task done\n", "src/a.py": "A = 1\n", **other}
+    _commit_files(seed, feat, f"feat: {number}")
     moved = f"openspec/changes/archive/2026-11-16-{number}-test-cap/tasks.md"
     files = {**_spec(f"Added req {number}.\n"), change: None, moved: "- [x] task done\n"}
+    if other_item:
+        files["openspec/changes/41-other/tasks.md"] = None
+        files["openspec/changes/archive/2026-11-16-41-other/tasks.md"] = "- [x] other\n"
     if not archived:
         files = _spec(f"Added req {number}.\n")
     _commit_files(seed, {**files, **({_DOCS: "# v1\narchive\n"} if docs else {})}, "docs: specs")
@@ -1101,7 +1108,7 @@ def test_without_confirm_the_step_runs_no_code_of_the_pull_request(
     assert ran == []
     assert pull.written() == []
     assert (report.result, report.files) == (FixConflictResult.PLANNED, (_SPEC,))
-    assert report.reason.startswith("Plan: drop an archive commit")
+    assert report.reason.startswith("Plan: drop the archive commit of the item")
     assert "runner Job" in report.reason
     assert pull.pushed() == pull.head
     item = pull.store.item(pull.number)
@@ -1166,15 +1173,16 @@ def test_an_archive_commit_that_holds_other_paths_stops_the_round(
 
 @pytest.mark.parametrize(
     "variant",
-    [{"spec_fix": True}, {"archived": False}],
-    ids=["a spec fix after the archive", "a spec commit with no archive"],
+    [{"spec_fix": True}, {"archived": False}, {"other_item": True}],
+    ids=["a spec fix after the archive", "a spec commit with no archive", "two items archived"],
 )
 def test_a_conflicting_spec_commit_that_is_no_archive_commit_stops_the_round(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: dict[str, bool]
 ) -> None:
     """The round drops only the archive commit of the item, which moves its change folder into the
-    archive. Another commit with only OpenSpec paths, such as a fix of the spec after the archive,
-    or a spec commit of a pull request that never archived, stops the round when it conflicts."""
+    archive and touches no other change. Another commit with only OpenSpec paths, such as a fix of
+    the spec after the archive, a spec commit of a pull request that never archived, or a commit
+    that also archives another item, stops the round when it conflicts."""
     pull = _pull_with_archive_conflict(tmp_path, **variant)
     _with_pull_request_code(monkeypatch, pull)
 
@@ -1193,8 +1201,10 @@ def test_an_archive_commit_whose_generated_document_conflicts_too_is_dropped(
     pull = _pull_with_archive_conflict(tmp_path, docs=True)
     _with_pull_request_code(monkeypatch, pull)
 
+    plan = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
     report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
 
+    assert plan.reason.startswith("Plan: drop the archive commit of the item")
     assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
     subject = _git(pull.upstream, "log", "-1", "--format=%s", pull.branch)
     assert subject == f"docs(openspec): archive the change (#{pull.number})"
@@ -1241,6 +1251,82 @@ def test_a_round_that_git_refuses_stops_and_counts(
     item = pull.store.item(pull.number)
     assert item is not None
     assert item.job_record.get(FixConflictRecordKey.ROUNDS) == "1"
+
+
+def test_a_skip_that_git_refuses_stops_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each `--skip` or `--continue` moves the rebase on or stops the round. A call that fails and
+    leaves the rebase on the same commit is a stop of git, which the round records."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+    code = fix_conflict.run_subprocess
+    skips: list[int] = []
+
+    def refused(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[-2:] == ["rebase", "--skip"]:
+            skips.append(1)
+            if len(skips) > 3:
+                raise RuntimeError("the round skips again and again")
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: could not discard changes")
+        return code(cmd, **kwargs)
+
+    monkeypatch.setattr(fix_conflict, "run_subprocess", refused)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (
+        FixConflictResult.STOPPED,
+        "git rebase --skip failed: fatal: could not discard changes",
+    )
+    assert (len(skips), pull.pushed()) == (1, pull.head)
+
+
+@pytest.mark.parametrize("ending", ["validation fails", "the remote refuses", "nothing past main"])
+def test_each_round_that_ends_unsettled_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: str
+) -> None:
+    """A round that runs and does not settle the pull request, for any cause, adds one to the
+    rounds of the record, so the caps hold."""
+    only = {_DOCS: "# v1\nbranch only\n", _LOCK: "version = 1\nbranch only\n"}
+    pull = _pull_with_docs_conflict(
+        tmp_path, **({"branch_files": only} if ending == "nothing past main" else {})
+    )
+    _with_pull_request_code(monkeypatch, pull, valid=ending != "validation fails")
+    if ending == "the remote refuses":
+        hook = pull.upstream / "hooks" / "pre-receive"
+        hook.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        hook.chmod(0o755)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert report.result in (FixConflictResult.FAILED, FixConflictResult.STOPPED)
+    assert (item.job_record.get(FixConflictRecordKey.ROUNDS), report.rounds) == ("1", 1)
+    assert pull.pushed() == pull.head
+
+
+def test_a_generated_document_that_both_sides_renamed_takes_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Main renames a generated page to one name and the pull request to another. The stop holds
+    the page with no version of main (`UA`); tier 1 removes it, as it removes a page that main
+    deleted, and keeps the page of main."""
+    page = "# page\n" + "".join(f"line {n}\n" for n in range(20))
+    pull = _pull_with_docs_conflict(
+        tmp_path,
+        base={"docs/commands/x.md": page},
+        branch_files={"docs/commands/x.md": None, "docs/commands/z.md": page, "src/a.py": "1\n"},
+        main={"docs/commands/x.md": None, "docs/commands/y.md": page},
+    )
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    pages = [pull.pushed_file(f"docs/commands/{name}.md") for name in "xyz"]
+    assert (pages, pull.pushed_file("src/a.py")) == (["", page, ""], "1\n")
 
 
 def test_a_docs_and_lockfile_round_completes_with_no_environment_override(
@@ -1415,6 +1501,40 @@ def test_a_tier_1_round_that_cannot_generate_again_stops_the_rebase_of_the_imple
     assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
 
 
+def test_a_timeout_of_tier_1_gives_the_implement_branch_back_its_tip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Any error of a round, also a timeout of `devops docs generate`, gives the implement branch
+    back its tip and records the round before the error goes on to the job."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
+    item = store.item(num)
+    assert item is not None
+    store.set_marks(item, {FixConflictRecordKey.ROUNDS: "3"})
+    repo, tip = _stopped_implement_rebase(tmp_path)
+
+    def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == BIN_UV:
+            raise subprocess.TimeoutExpired(cmd, 1800)
+        return run_subprocess(cmd, **kwargs)
+
+    monkeypatch.setattr(fix_conflict, "run_subprocess", run)
+
+    with pytest.raises(subprocess.TimeoutExpired, match="timed out after 1800 seconds"):
+        fix_rebase_conflict(repo, repo=REPO, item=num, default_branch="main", store=store)
+
+    assert (_git(repo, "symbolic-ref", "HEAD"), _git(repo, "rev-parse", "HEAD")) == (
+        "refs/heads/feat/branch",
+        tip,
+    )
+    record = store.item(num)
+    assert record is not None
+    assert (
+        record.job_record.get(FixConflictRecordKey.ROUNDS),
+        record.job_record.get(FixConflictRecordKey.RESULT),
+    ) == ("4", FixConflictResult.FAILED.value)
+
+
 def test_a_failed_round_gives_the_implement_branch_back_its_tip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1463,7 +1583,8 @@ def test_a_git_failure_in_the_implement_rebase_gives_back_the_tip(
 @pytest.mark.parametrize(
     ("conflicts", "mode", "release", "plan"),
     [
-        ((_SPEC,), "on", False, "Plan: drop an archive commit"),
+        ((_SPEC,), "on", False, "Plan: drop the archive commit of the item"),
+        ((_DOCS, _SPEC), "on", False, "Plan: drop the archive commit of the item"),
         ((_DOCS, _LOCK), "on", False, "Plan: take the default branch for these files"),
         ((_LOCK,), "on", True, "Plan: stop on the release path"),
         (("src/feature.py",), "on", False, "Plan: stop, because tier 1 settles only"),

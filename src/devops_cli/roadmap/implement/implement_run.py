@@ -999,17 +999,22 @@ class _ItemRun:
                 store=self.store,
             ):
                 return
-            aborted = run_subprocess(
-                [BIN_GIT, "-C", str(path), "rebase", "--abort"],
-                check=False,
-                quiet=True,
-                timeout=timeout,
+            # The round of tier 1 aborts the rebase that it does not settle.
+            aborted = (
+                run_subprocess(
+                    [BIN_GIT, "-C", str(path), "rebase", "--abort"],
+                    check=False,
+                    quiet=True,
+                    timeout=timeout,
+                )
+                if _rebase_in_progress(path)
+                else None
             )
             texts = MESSAGES.roadmap
             reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
             if files:
                 reason += texts.implement_stop_rebase_files.format(files=_files_lines(files))
-            if aborted.returncode != 0:
+            if aborted is not None and aborted.returncode != 0:
                 reason += texts.implement_stop_abort_failed.format(output=_tail(aborted.stderr))
             raise _StopError(
                 self.step,

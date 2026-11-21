@@ -1384,6 +1384,20 @@ def test_a_conflict_on_the_rebase_at_the_start_names_the_conflicted_files(
     ) == (True, True, ["docs/a.md", "docs/b.md"])
 
 
+def test_a_conflict_that_tier_1_aborts_claims_no_failed_abort(job_world: JobWorld) -> None:
+    """The round of tier 1 aborts the rebase that it does not settle, so the job runs no second
+    abort, and the stop comment does not say that an abort failed."""
+    _conflict_on_main(job_world, ["src/x.py"])
+
+    job_world.run(two_groups())
+
+    comment = job_world.issue_comments()[0]
+    assert ("Failure class: `conflict`" in comment, "abort of the rebase" in comment) == (
+        True,
+        False,
+    )
+
+
 def test_a_conflict_on_the_rebase_before_the_push_names_the_conflicted_files(
     job_world: JobWorld,
 ) -> None:
