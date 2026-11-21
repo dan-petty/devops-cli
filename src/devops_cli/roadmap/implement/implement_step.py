@@ -1946,8 +1946,8 @@ def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bo
 
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes. The commit, and why the step stops when git refuses it. The
-    hooks of the repository ran as an exit check (`_hooks_failure`), and the job installs no git
-    hook, so the commit runs none."""
+    hooks of the repository ran as an exit check (`_hooks_failure`). A hook that the agent wrote
+    runs at the commit, and it gets no token."""
     done = _git(source, "commit", "-m", message)
     if done.returncode != 0:
         return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=_tail(done))

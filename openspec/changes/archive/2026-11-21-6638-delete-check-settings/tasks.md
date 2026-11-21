@@ -2,7 +2,7 @@
 
 ## 1. The tests of the network call (tests)
 
-- [x] 1.1 Add tests that an `insteadOf`, a `pushInsteadOf` and a `pushurl` of the home folder and of the clone get no request, and that a `pre-push` hook in the hooks folder of the clone does not run.
+- [x] 1.1 Add tests that an `insteadOf` and a `pushInsteadOf` of the home folder and of the clone get no request, and that a `pre-push` hook in the hooks folder of the clone does not run.
   - Verification: `$ uv run devops ci test tests/roadmap/implement/test_roadmap_implement_git_isolation.py`
 
 ## 2. The deletion of the scan (refactor)

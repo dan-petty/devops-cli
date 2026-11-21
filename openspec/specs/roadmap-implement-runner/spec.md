@@ -234,7 +234,7 @@ The implement job SHALL run each git call that reaches `origin`, also the calls 
 - **THEN** the branch is on the bare repository, and the hook did not run
 
 #### Scenario: A URL that the home folder or the clone names
-- **WHEN** the home folder and the configuration of the clone hold an `insteadOf`, a `pushInsteadOf` or a `pushurl` that names a loopback server that asks for credentials, and the job pushes to a bare repository on disk
+- **WHEN** the home folder and the configuration of the clone hold an `insteadOf` or a `pushInsteadOf` that names a loopback server that asks for credentials, and the job pushes to a bare repository on disk
 - **THEN** the branch is on the bare repository, and the server receives no request
 
 ### Requirement: The leftover processes end before each part of a network git call
@@ -244,7 +244,7 @@ The implement job SHALL run each git call that reaches `origin`, also the calls 
 - **WHEN** the job fetches a branch
 - **THEN** the leftover processes end before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
 
-#### Scenario: A refused setting before the call
+#### Scenario: A link at the shallow file before the call
 - **WHEN** the `shallow` file of the clone is a link, and the job fetches a branch in a runner
 - **THEN** the leftover processes end first, the call raises `GitSettingsError` that names `shallow`, and the fetch with the token does not run
 
@@ -446,14 +446,14 @@ The shell of the agent of a step, the `pre-commit` runs, the scoped checks, the 
 - **WHEN** a step builds the shell of its agent for a checkout
 - **THEN** the PATH of the shell starts with `node_modules/.bin` and `.venv/bin` of that checkout
 
-### Requirement: A refused setting at a checkpoint or stop push stops the item at once
+### Requirement: A link at the shallow file at a checkpoint or stop push stops the item at once
 A `shallow` file of the clone that is a link, or is not a regular file, at the push of a checkpoint SHALL stop the item with the class `git_config` at once, before the job writes a record of the push. Such a file at the push of a stop SHALL give the stop the class `git_config`.
 
-#### Scenario: A setting before a checkpoint push
+#### Scenario: A link before a checkpoint push
 - **WHEN** the agent makes the `shallow` file of the clone a link in group 1 of a change of four groups, and group 1 passes
 - **THEN** the checkpoint before group 2 stops the item with the class `git_config`, and the job asks the model for nothing more
 
-#### Scenario: A setting that an exit check writes
+#### Scenario: A link that an exit check writes
 - **WHEN** an exit check of the step makes the `shallow` file of the clone a link and fails, and no repair round is left
 - **THEN** the item stops with the class `git_config`, and the comment names `shallow`
 

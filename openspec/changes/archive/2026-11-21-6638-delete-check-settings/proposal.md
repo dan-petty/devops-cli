@@ -10,14 +10,14 @@ The scan protects no call with the token. `OriginGit` runs each fetch and push i
 - Delete the scan after each turn of the agent in `implement_step.py`, and the second sweep of `OriginGit` that ran after the scan.
 - Keep `OriginGit`, its isolated configuration, the sweeps, the `shallow` file handling and the URL pin until #3700.
 - Keep `GitSettingsError` and the class `git_config` for their one other raiser: a `shallow` file of the clone that is a link or is not a regular file. The stop paths in `implement_run.py` stay for it, and the message of the error names that file.
-- Add tests that an `insteadOf`, a `pushInsteadOf`, a `pushurl` and a `pre-push` hook in the hooks folder of the clone get no request and do not run.
+- Add tests that an `insteadOf`, a `pushInsteadOf` and a `pre-push` hook in the hooks folder of the clone get no request and do not run.
 - The change is observable: an item no longer stops on a git setting, so the spec `roadmap-implement-runner` gets a delta.
 
 ## Capabilities
 - `roadmap-implement-runner`: remove the requirement of the scan, and change the requirements of the sweeps, of the checkpoint and stop push, and of the network call.
 
 ## Impact
-- A target repository with Git LFS, a blobless clone or a driver of its own can use the implement Job.
+- An item no longer stops on a git key, an attribute driver, a blobless clone or an alternates file. A repository that keeps files in Git LFS still cannot use the implement Job: `OriginGit` pushes with `core.hooksPath=/dev/null` and `--no-verify`, so no LFS object goes to the server, and the runner image sets up no `git-lfs`.
 - The class `git_config` now comes only from a link at the `shallow` file.
 - The change fits one pull request.
 

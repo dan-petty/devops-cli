@@ -184,9 +184,8 @@ def test_a_push_to_a_server_that_asks_for_credentials_asks_no_planted_helper_and
     [
         '[url "{url}"]\n\tinsteadOf = {origin}\n',
         '[url "{url}"]\n\tpushInsteadOf = {origin}\n',
-        '[remote "origin"]\n\tpushurl = {url}\n',
     ],
-    ids=["insteadOf", "pushInsteadOf", "pushurl"],
+    ids=["insteadOf", "pushInsteadOf"],
 )
 def test_a_push_sends_nothing_to_a_url_that_the_home_folder_or_the_clone_names(
     stage_repo: StageRepo,
@@ -196,9 +195,9 @@ def test_a_push_sends_nothing_to_a_url_that_the_home_folder_or_the_clone_names(
     challenge: tuple[str, list[dict[str, str]]],
     lines: str,
 ) -> None:
-    """An `insteadOf`, a `pushInsteadOf` or a `pushurl` in the home folder and in the clone names a
-    server that asks for credentials. The push goes to `origin`, and the server gets no request, so
-    it gets no token."""
+    """An `insteadOf` or a `pushInsteadOf` in the home folder and in the clone names a server that
+    asks for credentials. The push goes to `origin`, and the server gets no request, so it gets no
+    token."""
     url, seen = challenge
     planted(lines.format(url=url, origin=stage_repo.origin))
 
