@@ -8,9 +8,9 @@ The fix-checks Job runs the agent shell in the runner container, next to the App
 
 - New package `roadmap/phases`: the run folder (`state/`, `work/`, `out/`), the read of an agent output as data, the patch of the agent phase in a new git folder, and `publish_patch`, which #6528 uses for stage.
 - `devops roadmap step fix-checks --confirm` takes `--phase prepare|agent|publish|all` and `--work`. `all` runs the three phases in one process, so the Job template stays as it is until #3700.
-- `prepare` judges the round with no agent code, clones into `work/` and leaves no credential there, and records the workflow files that the merged plan names.
-- `agent` runs tier 1, the scope check and the model fix (`run_fix_step`, as before), and makes no GitHub call.
-- `publish` reads the outputs as data, checks the claim, applies the patch with `git apply --cached`, writes one commit of the bot, checks the claim again and pushes with a lease on the judged head.
+- `prepare` judges the round with no agent code, and clones into `work/` with no credential in the clone.
+- `agent` runs tier 1, the scope check and the model fix (`run_fix_step`, as before), makes no GitHub call, and starts only with no App key and no GitHub token.
+- `publish` reads the state and the outputs as data and takes the target of its push from GitHub: the head branch, the judged head, the bot and the workflow files of the merged plan. It checks the claim, applies the patch with `git apply --cached`, writes one commit of the bot, checks the claim again and pushes with a lease on the judged head.
 
 ## Capabilities
 

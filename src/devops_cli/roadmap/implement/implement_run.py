@@ -52,6 +52,7 @@ worktree, which the job removes; the new owner starts from the branch on `origin
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import textwrap
@@ -70,6 +71,7 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
+    CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
@@ -515,6 +517,20 @@ def require_runner(repo: str) -> None:
     if (scoped or "").casefold() != repo.casefold():
         raise RoadmapImplementError(
             texts.implement_job_token_scope_refused.format(repo=repo, scoped=scoped or "unset")
+        )
+
+
+def require_agent_runner() -> None:
+    """Raise `RoadmapImplementError` unless the process is the agent phase of a runner Job: the
+    agent phase holds the model key only, so `roadmap.implement.in_runner` is true and the
+    environment holds no App private key and no GitHub token (#2695, #6601)."""
+    texts = MESSAGES.roadmap
+    if not load_settings().roadmap.implement.in_runner:
+        raise RoadmapImplementError(texts.implement_job_runner_refused)
+    held = [name for name in CONST_GITHUB_AGENT_REFUSED_ENV if os.environ.get(name, "").strip()]
+    if held:
+        raise RoadmapImplementError(
+            texts.implement_agent_phase_key_refused.format(names=", ".join(sorted(held)))
         )
 
 

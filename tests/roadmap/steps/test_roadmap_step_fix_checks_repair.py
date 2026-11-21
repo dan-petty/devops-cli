@@ -9,6 +9,7 @@ a ruff fix rewrites the file it names.
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 from dataclasses import replace
@@ -44,7 +45,6 @@ from tests.support.roadmap_implement import (
     STEPS_FILE,
     TASKS,
     a_fix,
-    merge_plan,
     push_staged_branch,
     seed_staged,
     stale_lock_effect,
@@ -742,8 +742,7 @@ def test_prepare_clones_into_the_work_folder_with_git_only_and_leaves_no_credent
     """`prepare` holds the App key and runs no agent code: on a head branch with a hostile build
     hook it starts only git, and gh for the log of the failed run. Its clone in `work/` and the
     worktree hold no credential, so the agent phase gets none: no token, no credential helper and
-    no extra header (#3702). It records the workflow
-    files that the merged plan names, read from the default branch (#2695)."""
+    no extra header (#3702)."""
     from devops_cli.github.session import get_github_session
     from devops_cli.roadmap.phases.files import RunFolders
     from devops_cli.roadmap.steps import fix_checks_repair
@@ -751,7 +750,6 @@ def test_prepare_clones_into_the_work_folder_with_git_only_and_leaves_no_credent
 
     token = "ghs_" + "a" * 36
     monkeypatch.setenv("GH_TOKEN", token)
-    merge_plan(stage_repo, tasks=WORKFLOW_TASKS)
     repo, store, head = _failed_draft(stage_repo, github_api_and_gh, {**SHOUT_FILES, **HATCH_HOOK})
     real_clone = fix_checks_repair.ensure_checkout
     monkeypatch.setattr(
@@ -788,4 +786,32 @@ def test_prepare_clones_into_the_work_folder_with_git_only_and_leaves_no_credent
     text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in held)
     assert (token in text, "extraheader" in text, "credential" in text) == (False, False, False)
     state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
-    assert (state["target"]["lease"], state["target"]["workflow_paths"]) == (head, [WORKFLOW])
+    assert (state["status"]["head_sha"], "target" in state) == (head, False)
+
+
+def test_publish_reads_the_workflow_files_of_the_merged_plan_from_github(
+    github_api: GitHubApiFake,
+) -> None:
+    """`publish` reads with the App key the workflow files that the merged plan of the item names
+    on the default branch, where the agent cannot change them; another item names none (#2695,
+    #6601)."""
+    from devops_cli.roadmap.steps.fix_checks_repair import merged_workflows
+
+    folders = [
+        {"name": "1-the-job-drops-a-comment", "type": "dir"},
+        {"name": "archive", "type": "dir"},
+    ]
+    github_api.route(
+        "GET", f"/repos/{STAGE_REPO}/contents/openspec/changes?ref=main", github_json(folders)
+    )
+    tasks = base64.b64encode(WORKFLOW_TASKS.encode()).decode()
+    github_api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/contents/openspec/changes/1-the-job-drops-a-comment/tasks.md?ref=main",
+        github_json({"type": "file", "encoding": "base64", "content": tasks}),
+    )
+
+    assert (merged_workflows(STAGE_REPO, "main", 1), merged_workflows(STAGE_REPO, "main", 2)) == (
+        (WORKFLOW,),
+        (),
+    )

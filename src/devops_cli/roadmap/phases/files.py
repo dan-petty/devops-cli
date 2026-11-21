@@ -7,10 +7,12 @@ A run has one root folder with three folders:
 - `work/`: the clone and the inputs of the agent phase, which `prepare` writes.
 - `out/`: the outputs of the agent phase: the patch, `summary.json` and `outcome.json`.
 
-`publish` holds the App key, and the agent controls each output. So `read_output` checks the root,
-`out/` and the file with `lstat`, opens the file with `O_NOFOLLOW | O_NONBLOCK`, refuses a file that
-is not a regular file, and reads at most the limit after `fstat`. A link to `/proc/self/environ`, a
-FIFO or a file over the limit raises `PhaseOutputError` (#3702). The models take enums and numbers;
+`publish` holds the App key, and the agent can write each file of the run in a container that it
+shares with `publish`. So `read_run_file` checks the root, the folder and the file with `lstat`,
+opens the file with `O_NOFOLLOW | O_NONBLOCK`, refuses a file that is not a regular file, and reads
+at most the limit after `fstat`. A link to `/proc/self/environ`, a FIFO or a file over the limit
+raises `PhaseOutputError`, whose message names the file and never its text (#3702). `publish` reads
+the state file and each output of the agent this way. The models take enums and numbers;
 each text of an output is for `publish` to mask and fence before GitHub sees it.
 """
 
@@ -123,28 +125,33 @@ def _plain_folder(path: Path) -> None:
         raise PhaseOutputError(f"The folder `{path.name}` of the run is not a plain folder")
 
 
-def read_output(folders: RunFolders, name: str, *, limit: int) -> bytes:
-    """The bytes of the output `name` of `out/`, read as data: the root and `out/` must be plain
-    folders and the file a regular file of at most `limit` bytes."""
+def read_run_file(folders: RunFolders, folder: Path, name: str, *, limit: int) -> bytes:
+    """The bytes of the file `name` of `folder`, a folder of the run, read as data: the root and
+    `folder` must be plain folders and the file a regular file of at most `limit` bytes."""
     _plain_folder(folders.root)
-    _plain_folder(folders.out)
-    path = folders.out / name
+    _plain_folder(folder)
+    path = folder / name
     try:
         handle = os.open(path, _OPEN_FLAGS)
     except OSError as exc:
-        raise PhaseOutputError(f"Cannot open the output `{name}`: {exc.strerror}") from exc
+        raise PhaseOutputError(f"Cannot open the file `{name}`: {exc.strerror}") from exc
     try:
         held = os.fstat(handle)
         if not stat.S_ISREG(held.st_mode):
-            raise PhaseOutputError(f"The output `{name}` is not a regular file")
+            raise PhaseOutputError(f"The file `{name}` is not a regular file")
         if held.st_size > limit:
-            raise PhaseOutputError(f"The output `{name}` holds more than {limit} bytes")
+            raise PhaseOutputError(f"The file `{name}` holds more than {limit} bytes")
         data = os.read(handle, limit + 1)
     finally:
         os.close(handle)
     if len(data) > limit:
-        raise PhaseOutputError(f"The output `{name}` holds more than {limit} bytes")
+        raise PhaseOutputError(f"The file `{name}` holds more than {limit} bytes")
     return data
+
+
+def read_output(folders: RunFolders, name: str, *, limit: int) -> bytes:
+    """The bytes of the output `name` of `out/`, read as data (`read_run_file`)."""
+    return read_run_file(folders, folders.out, name, limit=limit)
 
 
 def _read_model[T: OutputModel](folders: RunFolders, name: str, model: type[T]) -> T:
@@ -175,6 +182,7 @@ __all__ = [
     "RunFolders",
     "read_outcome",
     "read_output",
+    "read_run_file",
     "read_summary",
     "write_json",
 ]

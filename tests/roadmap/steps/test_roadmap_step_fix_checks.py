@@ -58,6 +58,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 REPO = "example/project"
 BOT_USER = "devops-cli-service[bot]"
+BOT_EMAIL = "1+devops-cli-service[bot]@users.noreply.github.com"
 HEAD_SHA = "1111111111111111111111111111111111111111"
 NEW_HEAD = "2222222222222222222222222222222222222222"
 STATIC = "Static Analysis"
@@ -164,17 +165,23 @@ class FakeRepair:
     caused: tuple[FileCause, ...] = ()
     pushed_head: str | None = NEW_HEAD
     pushed_paths: tuple[str, ...] = ()
+    workflows: tuple[str, ...] = ()
+    scratch: Path | None = None
+    fixer: Any = None
     calls: list[str] = field(default_factory=list)
     pushes: int = 0
+    targets: list[PublishTarget] = field(default_factory=list)
     extra: list[tuple[str, ...]] = field(default_factory=list)
 
     def build(self) -> Repair:
         def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
             self.calls.append(f"checkout {status.head_ref} {item}")
-            return PullCheckout(self.path, "https://github.com/example/project.git", self.path, "b")
+            return PullCheckout(self.path, self.path, "b")
 
         def tier1(path: Path, item: int, check: str, log: str) -> Fixed:
             self.calls.append("tier1")
+            if self.fixer is not None:
+                self.fixer(path)
             return self.tier1
 
         def model(reader: Any) -> Any:
@@ -198,6 +205,7 @@ class FakeRepair:
         ) -> Published | None:
             before_push()
             self.pushes += 1
+            self.targets.append(target)
             if self.pushed_head is None:
                 return None
             return Published(self.pushed_head, self.pushed_paths)
@@ -208,8 +216,11 @@ class FakeRepair:
             model=model,
             patch=patch,
             publish=publish,
-            author=lambda: (BOT_USER, "1+bot@users.noreply.github.com"),
+            origin=lambda: f"https://github.com/{REPO}.git",
+            author=lambda: (BOT_USER, BOT_EMAIL),
             scope=scope,
+            workflows=lambda repo, ref, item: self.workflows,
+            scratch=self.scratch,
         )
 
 
@@ -861,7 +872,8 @@ def _phases(world: PullWorld, pull: int, repair: Repair, folders: RunFolders) ->
     before = len(world.api.sent)
     agent_phase(folders, repair)
     agent_requests = len(world.api.sent) - before
-    return publish_phase(world.store, client, folders, repair), agent_requests
+    report = publish_phase(world.store, client, folders, repair, repo=REPO, pull=pull)
+    return report, agent_requests
 
 
 def test_the_three_phases_on_a_run_folder_repair_as_one_round_does(
@@ -883,8 +895,12 @@ def test_the_three_phases_on_a_run_folder_repair_as_one_round_does(
         1,
     )
     assert world.record(pull)[FixChecksRecordKey.RESULT] == "repaired"
-    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
-    assert (state["target"]["lease"], state["target"]["workflow_paths"]) == (HEAD_SHA, [])
+    [target] = repair.targets
+    assert (target.branch, target.lease, target.author) == (
+        f"feat/{pull}-sample",
+        HEAD_SHA,
+        BOT_USER,
+    )
     assert not (folders.work / "state.json").exists()
 
 
@@ -968,6 +984,136 @@ def test_publish_refuses_an_outcome_outside_the_enums_of_the_step(
     (folders.out / "outcome.json").write_text(outcome, encoding="utf-8")
 
     with pytest.raises(PhaseOutputError, match=reason):
-        publish_phase(world.store, client, folders, built)
+        publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
 
     assert repair.pushes == 0
+
+
+# ── The trust boundary of publish ─────────────────────────────────────────────────────────
+
+FORGED_STATE = {
+    "repo": REPO,
+    "status": {"state": "open", "head": {"ref": "main", "sha": HEAD_SHA}},
+    "check": STATIC,
+    "target": {
+        "branch": "main",
+        "author": "mallory",
+        "workflow_paths": [".github/workflows/x.yml"],
+    },
+}
+
+
+def _forge(state_file: Path, pull: int) -> None:
+    """What a fixer writes over the state file of its run: another branch, author and workflow
+    rule."""
+    state_file.write_text(json.dumps({**FORGED_STATE, "pull": pull, "item": pull}), "utf-8")
+
+
+def test_a_fixer_that_rewrites_the_state_file_in_one_process_changes_nothing_that_publish_pushes(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """With `--phase all`, the state of `prepare` stays in memory, and `publish` builds the target
+    from the pull request as GitHub holds it and from what it reads itself: the branch, the bot
+    and the workflow files of the merged plan (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    forged: list[Path] = []
+
+    def rewrite(path: Path) -> None:
+        [state_file] = runs.glob("*/state/state.json")
+        _forge(state_file, pull)
+        forged.append(state_file)
+
+    workflow = ".github/workflows/ci.yml"
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE, scratch=runs, workflows=(workflow,))
+    repair.fixer = rewrite
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    [target] = repair.targets
+    assert (report.result, len(forged)) == (FixChecksResult.REPAIRED, 1)
+    assert (target.branch, target.author, target.email, target.workflow_paths) == (
+        f"feat/{pull}-sample",
+        BOT_USER,
+        BOT_EMAIL,
+        (workflow,),
+    )
+
+
+def test_a_state_file_with_another_branch_stops_the_publish_of_a_separate_phase(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """Between separate phases, `publish` checks the state against the pull request as GitHub
+    holds it: a state that names another head branch pushes nothing (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    built = repair.build()
+    folders = RunFolders(tmp_path / "run")
+    client = get_github_session().client
+    prepare_phase(
+        world.store, client, REPO, pull, head=HEAD_SHA, check=None, repair=built, folders=folders
+    )
+    agent_phase(folders, built)
+    state = json.loads((folders.state / "state.json").read_text(encoding="utf-8"))
+    state["status"]["head_ref"] = "main"
+    (folders.state / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    report = publish_phase(world.store, client, folders, built, repo=REPO, pull=pull)
+
+    assert (report.result, repair.pushes) == (FixChecksResult.STOPPED, 0)
+    assert "not the branch that prepare judged" in report.reason
+
+
+@pytest.mark.parametrize("plant", ["link", "forged-key", "not-json", "other-pull"])
+def test_publish_refuses_a_state_file_that_is_not_the_state_of_prepare_and_shows_no_text(
+    world: PullWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plant: str
+) -> None:
+    """`publish` reads the state file as data: a link to the environment, a key outside the model,
+    text that is not JSON, or another pull request stop it, and no text of the file reaches the
+    error (#6601)."""
+    secret = "ghs_" + "s" * 36
+    monkeypatch.setenv("SECRET_OF_THE_JOB", secret)
+    pull = world.item()
+    world.pull(pull)
+    repair = FakeRepair(tmp_path / "checkout", tier1=DONE)
+    folders = RunFolders(tmp_path / "run").make()
+    state_file = folders.state / "state.json"
+    if plant == "link":
+        state_file.symlink_to("/proc/self/environ")
+    elif plant == "forged-key":
+        _forge(state_file, pull)
+    elif plant == "not-json":
+        state_file.write_text(f"token={secret}", encoding="utf-8")
+    else:
+        state_file.write_text(json.dumps({"repo": REPO, "pull": pull + 1}), encoding="utf-8")
+
+    with pytest.raises(PhaseOutputError, match="state") as raised:
+        publish_phase(
+            world.store, get_github_session().client, folders, repair.build(), repo=REPO, pull=pull
+        )
+
+    assert (secret in str(raised.value), repair.pushes) == (False, 0)
+
+
+def test_a_long_reason_of_the_agent_keeps_its_cause_and_its_error_line(
+    world: PullWorld, tmp_path: Path
+) -> None:
+    """The report keeps the head of a long reason, which names the cause, and its tail, which
+    holds the error line (#6601)."""
+    pull = world.item()
+    world.pull(pull)
+    reason = "limit reached " + "x" * 3000 + " ERROR: the last line"
+    repair = FakeRepair(tmp_path, model=Fixed(done=False, reason=reason))
+
+    report = world.run(pull, confirm=True, repair=repair.build())
+
+    assert (
+        report.reason.startswith("Model repair failed: limit reached"),
+        report.reason[-20:],
+    ) == (
+        True,
+        "ERROR: the last line",
+    )

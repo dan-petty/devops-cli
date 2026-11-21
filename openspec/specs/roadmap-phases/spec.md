@@ -6,7 +6,7 @@ A roadmap step that runs an agent splits its run into three phases, so the agent
 ## Requirements
 
 ### Requirement: Publish reads an output of the agent phase as data
-`publish` SHALL read each output of the agent phase only when the root of the run and `out/` are plain folders, the file opens with `O_NOFOLLOW | O_NONBLOCK`, `fstat` shows a regular file and the size is within the limit. Each other case SHALL raise `PhaseOutputError`. An outcome or a summary with a key outside its model SHALL raise it too.
+`publish` SHALL read the state file and each output of the agent phase only when the root of the run and the folder of the file are plain folders, the file opens with `O_NOFOLLOW | O_NONBLOCK`, `fstat` shows a regular file and the size is within the limit. Each other case SHALL raise `PhaseOutputError`. An outcome or a summary with a key outside its model SHALL raise it too.
 
 #### Scenario: A link to the environment
 - **WHEN** `out/outcome.json` is a link to `/proc/self/environ`

@@ -1617,7 +1617,7 @@ class RoadmapCommandHelp:
     step_fix_checks_pull: str = "Number of the pull request to repair."
     step_fix_checks_head: str = "Expected commit SHA of the pull request head."
     step_fix_checks_check: str = "Name of the failed check to repair (default: the first failed check). A check that does not fail on the head gives skipped."
-    step_fix_checks_source: str = "Clone of the repository that the repair works in (default: the clone model-clone of the data folder)."
+    step_fix_checks_source: str = "Clone of the repository that the repair works in (default: a new clone model-clone in the work folder of the run, which --phase all makes in the data folder)."
     step_fix_checks_confirm: str = (
         "Repair and push in a runner Job. Without it, the step prints its plan and writes nothing."
     )

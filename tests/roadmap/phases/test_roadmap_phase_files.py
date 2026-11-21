@@ -34,11 +34,11 @@ def test_an_output_of_the_agent_phase_is_read_as_bytes(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("plant", "reason"),
     [
-        ("link", "Cannot open the output"),
+        ("link", "Cannot open the file"),
         ("fifo", "not a regular file"),
         ("large", "more than 10 bytes"),
         ("linked-folder", "not a plain folder"),
-        ("missing", "Cannot open the output"),
+        ("missing", "Cannot open the file"),
     ],
 )
 def test_publish_refuses_an_output_that_is_not_a_plain_file_in_a_plain_folder(

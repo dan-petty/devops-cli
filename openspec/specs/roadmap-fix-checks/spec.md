@@ -85,7 +85,7 @@ When the failure is classified as `ci_infra` and its log shows no docs or lockfi
 - **THEN** the command exits 0 and makes zero requests
 
 ### Requirement: The command repairs a failed check in a runner Job
-With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a runner Job. In a runner Job it SHALL give the step a worktree on the head branch of the pull request in the run folder, the tier 1 fixers, and the model fix on the task `ai.tasks.fix_checks`. `publish` SHALL push the patch of the fixers as one commit of the bot to the head branch with a lease on the judged head, and SHALL return `repaired` with the new head.
+With `--confirm`, `devops roadmap step fix-checks` SHALL refuse to run outside a runner Job. In a runner Job it SHALL give the step a clone in the run folder, a worktree of it on the head branch in the agent worktree folder of the data folder, the tier 1 fixers, and the model fix of `ai.tasks.fix_checks`. `publish` SHALL push the patch as one commit of the bot with a lease on the judged head, and return `repaired` with the new head.
 
 #### Scenario: A failed check whose log names a file of the plan ends repaired
 - **WHEN** the command runs with `--confirm` on a bot pull request whose `Static Analysis` check failed with a log that names a file of the plan, and the model fix commits a change
@@ -351,7 +351,7 @@ With `--confirm` in a runner Job, each phase of `devops roadmap step fix-checks`
 
 #### Scenario: A confirmed round hardens its process first
 - **WHEN** the command runs with `--confirm` in a runner Job, with each value of `--phase`
-- **THEN** it calls `deny_environment_reads`, then `adopt_orphans`, then the runner check, and only then the phase
+- **THEN** it calls `deny_environment_reads`, then `adopt_orphans`, then the runner check, or the check of the agent phase for `--phase agent`, and only then the phase
 
 ### Requirement: The step marks an implement draft ready only by the readiness rule
 When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), whose item holds no stop, with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.
@@ -393,6 +393,28 @@ With `--confirm`, `devops roadmap step fix-checks` SHALL take `--phase prepare|a
 #### Scenario: A claim after the agent phase
 - **WHEN** an owner label appears on the pull request after the agent phase, before `publish` starts or before its push
 - **THEN** `publish` returns `stopped` with the reason, pushes nothing and writes no record
+
+### Requirement: Publish builds the target of its push from GitHub
+`publish` SHALL check the state of `prepare` against the pull request as GitHub holds it: the repository, the pull request, the head branch, the item and the judged head. It SHALL push to the live head branch with a lease on the judged head, as the bot of the App, with the workflow files that it reads itself from the merged plan on the default branch. `--phase all` SHALL keep the state of `prepare` in memory.
+
+#### Scenario: A fixer that rewrites the state file in one process
+- **WHEN** a fixer of `--phase all` writes another branch, author and workflow rule over the state file of its run
+- **THEN** `publish` pushes to the head branch of the pull request as the bot, with the workflow files of the merged plan
+
+#### Scenario: A state file with another branch between separate phases
+- **WHEN** the state file names a head branch other than the head branch of the pull request
+- **THEN** `publish` returns `stopped` and pushes nothing
+
+#### Scenario: A state file that is not the state of prepare
+- **WHEN** the state file is a link to `/proc/self/environ`, holds a key outside its model or text that is not JSON, or names another pull request
+- **THEN** `publish` raises `PhaseOutputError`, pushes nothing, and its message holds no text of the file
+
+### Requirement: The agent phase holds no App key
+With `--confirm`, `--phase agent` SHALL run only when `roadmap.implement.in_runner` is true and the environment holds no App private key, `GH_TOKEN` or `GITHUB_TOKEN`. It SHALL not ask for the runner check of the App.
+
+#### Scenario: The agent phase with an App key
+- **WHEN** `--phase agent` starts with the App private key or a GitHub token in its environment
+- **THEN** it raises an error that names the variable and runs no step
 
 ### Requirement: Publish takes only the enums of the outcome
 `publish` SHALL take the result and the tier of `outcome.json` from the enums of the step only: `repaired` with a tier, or `failed` or `stopped` with none. Each other outcome SHALL raise `PhaseOutputError` and push nothing. The reason of the agent SHALL reach the report masked and on one line.

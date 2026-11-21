@@ -237,12 +237,10 @@ class Fixed(NamedTuple):
 
 @dataclass(frozen=True)
 class PullCheckout:
-    """A worktree on the head branch of a pull request, at the judged head (#5971): its path, the
-    URL of `origin` that the clone held before any fixer ran, and the clone and the branch that
-    the release of the worktree removes."""
+    """A worktree on the head branch of a pull request, at the judged head (#5971): its path, and
+    the clone and the branch that the release of the worktree removes."""
 
     path: Path
-    url: str
     clone: Path
     branch: str
 
@@ -259,14 +257,16 @@ Publisher = Callable[[PublishTarget, bytes, str, Callable[[], None]], Published 
 class Repair:
     """What a confirmed round of the step uses, by phase (#5971, #6601).
 
-    - `prepare`: `checkout` clones the head of the pull request into the work folder and gives the
-      worktree; `workflows` reads the workflow files that the merged plan of the item names, from
-      the default branch; `author` gives the name and the email of the bot.
+    - `prepare`: `checkout` clones the repository into the work folder and gives the worktree on
+      the head branch of the pull request.
     - `agent`: the deterministic fixers of tier 1, the scope check of the log, and `model`, which
       makes the model fix of tier 2 from the item that `prepare` read. A fixer commits in the
       checkout and does not push. `patch` writes the patch of the checkout from the judged head.
-    - `publish`: `publish` applies the patch as data, writes one commit, calls the claim check and
-      pushes with a lease on the judged head. `release` removes the worktree when the round ends.
+    - `publish`: `origin` gives the URL of `origin`, `author` the name and the email of the bot,
+      and `workflows` the workflow files that the merged plan of an item names on a branch of
+      GitHub, each read by `publish` itself. `publish` applies the patch as data, writes one
+      commit, calls the claim check and pushes with a lease on the judged head. `release`
+      removes the worktree when the round ends. `scratch` holds the run folder of `--phase all`.
     """
 
     checkout: Callable[[PullStatus, int, Path], PullCheckout]
@@ -274,10 +274,12 @@ class Repair:
     model: Callable[[ItemReader], ModelFixer]
     patch: Callable[[Path, str, Path], None]
     publish: Publisher
+    origin: Callable[[], str]
     author: Callable[[], tuple[str, str]]
     scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
-    workflows: Callable[[Path, int], tuple[str, ...]] = lambda path, item: ()
+    workflows: Callable[[str, str, int], tuple[str, ...]] = lambda repo, ref, item: ()
     release: Callable[[PullCheckout], None] = lambda checkout: None
+    scratch: Path | None = None
 
 
 @dataclass(frozen=True)

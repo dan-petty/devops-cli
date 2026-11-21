@@ -52,9 +52,10 @@ _DELETED = "D"
 
 
 class PublishTarget(BaseModel):
-    """Where `publish` pushes, as `prepare` records it: the URL of `origin`, the head branch, the
-    base commit of the patch, the tip that `origin` must still hold (the lease), the name and the
-    email of the bot, and the workflow files that the merged plan names."""
+    """Where `publish` pushes, as the step builds it in `publish` from GitHub and the settings: the
+    URL of `origin`, the head branch, the base commit of the patch, the tip that `origin` must
+    still hold (the lease), the name and the email of the bot, and the workflow files that the
+    merged plan names."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -141,16 +142,21 @@ def _apply(stage: Path, base: str, patch: Path) -> str:
 
 
 def publish_patch(
-    target: PublishTarget, patch: bytes, message: str, *, before_push: Callable[[], None]
+    target: PublishTarget,
+    patch: bytes,
+    message: str,
+    *,
+    before_push: Callable[[], None],
+    scratch: Path | None = None,
 ) -> Published | None:
     """Apply `patch` to the base of `target` as data, write one commit of the bot with `message`,
-    call `before_push`, and push the commit with a lease on the tip of `target`. None, with no
-    push, when the patch changes nothing. Raises `PublishRefusedError` for a patch that git
-    refuses or that holds a refused change, and `GitOperationError` when the branch moved or the
-    push fails."""
+    call `before_push`, and push the commit with a lease on the tip of `target`. The fresh clone is
+    in a new folder of `scratch`, or of the temporary folder. None, with no push, when the patch
+    changes nothing. Raises `PublishRefusedError` for a patch that git refuses or that holds a
+    refused change, and `GitOperationError` when the branch moved or the push fails."""
     if not patch.strip():
         return None
-    parent = Path(tempfile.mkdtemp(prefix="devops-publish-"))
+    parent = Path(tempfile.mkdtemp(prefix="devops-publish-", dir=scratch))
     try:
         fresh = parent / "fresh"
         _git([], "init", "--quiet", str(fresh))

@@ -117,10 +117,17 @@ def _run(
         process_hardening.adopt_orphans()
     target = _repository(repo)
     if confirm:
-        from devops_cli.roadmap.implement.implement_run import require_runner
+        from devops_cli.roadmap.implement.implement_run import (
+            require_agent_runner,
+            require_runner,
+        )
         from devops_cli.roadmap.steps.fix_checks_repair import job_repair
 
-        require_runner(target)
+        # The agent phase holds the model key only; the other phases act as the App (#6601).
+        if phase is RunPhase.AGENT:
+            require_agent_runner()
+        else:
+            require_runner(target)
         repair = job_repair(target, source=source)
     if phase is RunPhase.ALL:
         return run_fix_checks(
@@ -168,4 +175,4 @@ def _phase(
             store, client, target, pull, head=head, check=check, repair=repair, folders=folders
         )
         return None
-    return publish_phase(store, client, folders, repair)
+    return publish_phase(store, client, folders, repair, repo=target, pull=pull)

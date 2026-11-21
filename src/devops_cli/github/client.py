@@ -645,6 +645,22 @@ class GitHubClient:
                 details={"path": endpoint[:CONST_MAX_ERROR_DETAIL_LENGTH]},
             ) from exc
 
+    def folder_names_at(self, repo: str, path: str, ref: str) -> tuple[str, ...]:
+        """The names of the folders in the folder `path` at a commit; none when GitHub has no
+        folder there (#6601)."""
+        endpoint = _repo_path(repo, f"contents/{quote(path, safe='/')}?{urlencode({'ref': ref})}")
+        try:
+            answer = self._session.rest("GET", endpoint)
+        except GitHubNotFoundError:
+            return ()
+        if not isinstance(answer, list):
+            return ()
+        return tuple(
+            str(entry["name"])
+            for entry in answer
+            if isinstance(entry, dict) and entry.get("type") == "dir" and entry.get("name")
+        )
+
     def get_compare_files(self, repo: str, base: str, head: str) -> CompareFiles:
         """The files that `head` changes since its merge base with `base`, and that merge base,
         from the compare endpoint.
