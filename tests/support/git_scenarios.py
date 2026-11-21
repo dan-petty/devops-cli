@@ -51,8 +51,8 @@ from devops_cli.git.worktree import (
     remove_worktree,
     review_worktrees_context,
 )
+from devops_cli.roadmap.project_review import git_read
 from devops_cli.roadmap.project_review.facts import review_facts
-from devops_cli.roadmap.project_review.git_read import holds_path
 from devops_cli.roadmap.project_review.openspec_read import archived_changes, requirement_total
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 
@@ -613,7 +613,7 @@ def review_window(ws: Workspace) -> Any:
     def spec_path(**options: str) -> list[bool]:
         resolved = resolve_window(repo, parse_window(now=now, **options), read_tags(repo))
         commits = (resolved.base_sha, resolved.head_sha)
-        return [holds_path(repo, commit, "openspec/specs") for commit in commits]
+        return [git_read.holds_path(repo, commit, "openspec/specs") for commit in commits]
 
     period = {"since": "2026-10-03T10:00:00Z", "until": "2026-10-05T06:30:00Z"}
     with ws.environment():
@@ -649,9 +649,11 @@ def review_spec_path(ws: Workspace) -> Any:
     ws.git("spec-path", "tag", "v1.0.0")
     with ws.environment():
         return {
-            "v0.9.0": holds_path(repo, "v0.9.0", "openspec/specs"),
-            "v1.0.0": holds_path(repo, "v1.0.0", "openspec/specs"),
-            "unknown_commit": outcome(lambda: holds_path(repo, "v9.9.9", "openspec/specs"), ws),
+            "v0.9.0": git_read.holds_path(repo, "v0.9.0", "openspec/specs"),
+            "v1.0.0": git_read.holds_path(repo, "v1.0.0", "openspec/specs"),
+            "unknown_commit": outcome(
+                lambda: git_read.holds_path(repo, "v9.9.9", "openspec/specs"), ws
+            ),
         }
 
 
