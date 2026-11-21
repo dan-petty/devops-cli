@@ -324,22 +324,19 @@ def test_a_trial_after_the_cooldown_lets_the_newer_snapshot_replace_the_older(
     )
 
 
-class _RacingTier(ValkeyCacheTier):
-    """A cache tier whose WATCH transaction lets another writer write before its EXEC."""
+def _between_watch_and_exec(action: Callable[[], None]) -> Callable[[tuple[Any, ...]], None]:
+    """An `after_command` hook of the fake that runs `action` once, after the read of the first
+    WATCH transaction and before its EXEC."""
+    watched: list[tuple[Any, ...]] = []
 
-    def __init__(self, server: FakeServer, race: Callable[[], None]) -> None:
-        super().__init__(valkey_client_on(server))
-        self._race = race
+    def hook(command: tuple[Any, ...]) -> None:
+        if command[0] == "WATCH":
+            watched.append(command)
+        elif command[0] == "HGET" and len(watched) == 1:
+            watched.append(command)
+            action()
 
-    def watch_and_write(
-        self, key: str, field: str, decide: Callable[[bytes | None], Any]
-    ) -> bool | None:
-        def racing(meta: bytes | None) -> Any:
-            commands = decide(meta)
-            self._race()
-            return commands
-
-        return super().watch_and_write(key, field, racing)
+    return hook
 
 
 def test_an_older_writer_loses_its_watch_transaction(
@@ -350,8 +347,13 @@ def test_an_older_writer_loses_its_watch_transaction(
     leaves no temporary key."""
     _valkey_store(shared_valkey).save(_snapshot(STARTED, 1))
     other = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
-    racing = _RacingTier(
-        valkey_server, lambda: other.save(_snapshot(STARTED + timedelta(minutes=30), 3, 1))
+    racing = ValkeyCacheTier(
+        valkey_client_on(
+            valkey_server,
+            after_command=_between_watch_and_exec(
+                lambda: other.save(_snapshot(STARTED + timedelta(minutes=30), 3, 1))
+            ),
+        )
     )
     otlp.clear()
 
@@ -465,22 +467,6 @@ def test_no_visibility_read_without_the_shared_tier(
     assert runner.calls == []
 
 
-class _SlowTier(ValkeyCacheTier):
-    """A cache tier whose second `HSCAN` takes 21 s on the `clock` fixture."""
-
-    def __init__(self, server: FakeServer, clock: ClockFake) -> None:
-        super().__init__(valkey_client_on(server))
-        self._clock = clock
-        self.scans = 0
-
-    def hscan(self, key: str, cursor: int, count: int) -> tuple[int, dict[str, bytes]] | None:
-        self.scans += 1
-        step = super().hscan(key, cursor, count)
-        if self.scans == 2:
-            self._clock.shift(21)
-        return step
-
-
 def test_a_shared_load_past_its_budget_falls_back(
     tmp_path: Path,
     valkey_server: FakeServer,
@@ -493,14 +479,228 @@ def test_a_shared_load_past_its_budget_falls_back(
     local = _snapshot(STARTED - timedelta(hours=1), 1)
     FileSnapshotStore(tmp_path).save(local)
     _valkey_store(shared_valkey).save(_snapshot(STARTED, *range(1200, 0, -1)))
-    slow = _SlowTier(valkey_server, clock)
+    scans: list[tuple[Any, ...]] = []
+
+    def slow(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSCAN":
+            scans.append(command)
+            if len(scans) == 2:
+                clock.shift(21)
+
+    slow_tier = ValkeyCacheTier(valkey_client_on(valkey_server, after_command=slow))
     otlp.clear()
 
-    loaded = _tiered(tmp_path, shared=lambda: _valkey_store(slow)).load(REPO)
+    loaded = _tiered(tmp_path, shared=lambda: _valkey_store(slow_tier)).load(REPO)
 
-    assert (loaded, slow.scans, _errors(otlp), _reads(otlp)) == (
+    assert (loaded, len(scans), _errors(otlp), _reads(otlp)) == (
         local,
         2,
         {("hscan", "budget"): 1.0},
         {("snapshot", "fallback"): 1.0},
+    )
+
+
+def _meta(server: FakeServer) -> bytes | None:
+    """The `meta` field of the shared snapshot as Valkey holds it."""
+    value: bytes | None = FakeValkey(server=server).hget(SNAPSHOT_KEY, "meta")
+    return value
+
+
+def test_a_save_of_the_records_that_the_shared_copy_holds_writes_no_record(
+    tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
+) -> None:
+    """Two lanes of one process hold the same 1,200 records and watermark, with full reads at
+    08:00 and 09:00, and a new process holds them too. After the first save of each lane, a save
+    sends no record and no transaction, keeps `meta` as it is, and counts `unchanged`."""
+    sent: list[str] = []
+    lanes = _valkey_store(
+        ValkeyCacheTier(
+            valkey_client_on(valkey_server, after_command=lambda command: sent.append(command[0]))
+        )
+    )
+    records = range(1200, 0, -1)
+    older = _snapshot(STARTED, *records, full_at=STARTED - timedelta(hours=2))
+    newer = _snapshot(STARTED, *records, full_at=STARTED - timedelta(hours=1))
+    lane_a = _tiered(tmp_path / "a", shared=lambda: lanes)
+    lane_b = _tiered(tmp_path / "b", shared=lambda: lanes)
+    lane_a.save(older)
+    lane_b.save(newer)
+    first = _meta(valkey_server)
+    sent.clear()
+    otlp.clear()
+
+    for _ in range(2):
+        lane_a.save(older)
+        lane_b.save(newer)
+    new_process = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    _tiered(tmp_path / "c", shared=lambda: new_process).save(older)
+
+    assert (set(sent), _meta(valkey_server) == first, _writes(otlp), _keys(valkey_server)) == (
+        {"HGET", "EXPIRE"},
+        True,
+        {("snapshot", "unchanged"): 5.0},
+        [SNAPSHOT_KEY],
+    )
+
+
+def test_a_new_meta_of_the_same_records_during_a_load_keeps_the_shared_copy(
+    tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
+) -> None:
+    """A writer saves the same 1,200 records with a newer full read while a cold process scans
+    them. The reader still takes the shared copy, because the records that it read are the ones
+    that the new `meta` names."""
+    writer = _valkey_store(ValkeyCacheTier(valkey_client_on(valkey_server)))
+    records = range(1200, 0, -1)
+    writer.save(_snapshot(STARTED, *records, full_at=STARTED - timedelta(hours=2)))
+
+    def write_during_the_scan(command: tuple[Any, ...]) -> None:
+        if command[0] == "HSCAN" and command[2] == 0:
+            writer.save(_snapshot(STARTED, *records, full_at=STARTED - timedelta(hours=1)))
+
+    reader = _valkey_store(
+        ValkeyCacheTier(valkey_client_on(valkey_server, after_command=write_during_the_scan))
+    )
+    otlp.clear()
+
+    loaded = _tiered(tmp_path, shared=lambda: reader).load(REPO)
+
+    assert (None if loaded is None else len(loaded.issues), _reads(otlp)) == (
+        1200,
+        {("snapshot", "shared"): 1.0},
+    )
+
+
+def _naive_meta(server: FakeServer) -> None:
+    """Write the times of `meta` with no UTC offset."""
+    import json
+
+    writer = FakeValkey(server=server)
+    raw = writer.hget(SNAPSHOT_KEY, "meta")
+    assert raw is not None
+    meta = json.loads(raw)
+    meta |= {"full_at": "2026-01-01T09:00:00", "watermark": "2026-01-01T10:00:00"}
+    writer.hset(SNAPSHOT_KEY, "meta", json.dumps(meta))
+
+
+def _expanding_record(server: FakeServer) -> None:
+    """Write a record whose zlib value expands to more than 1 MiB of JSON."""
+    import zlib
+
+    from devops_cli.config.defaults import DEFAULT_BRAIN_VALUE_MAX_BYTES
+
+    record = IssueRecord(
+        number=2,
+        title="Issue 2",
+        url=f"https://github.com/{REPO}/issues/2",
+        body="x" * DEFAULT_BRAIN_VALUE_MAX_BYTES,
+        updated_at=STARTED,
+    )
+    FakeValkey(server=server).hset(
+        SNAPSHOT_KEY, "2", zlib.compress(record.model_dump_json().encode())
+    )
+
+
+def _no_change(server: FakeServer) -> None:
+    """Leave the shared copy as the writer wrote it."""
+
+
+@pytest.mark.parametrize(
+    ("spoil", "naive_record"),
+    [
+        pytest.param(_naive_meta, False, id="naive-meta"),
+        pytest.param(_no_change, True, id="naive-record"),
+        pytest.param(_expanding_record, False, id="record-past-the-bound"),
+    ],
+)
+def test_a_shared_copy_with_a_time_with_no_offset_or_a_record_past_the_bound_is_a_miss(
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    shared_valkey: ValkeyCacheTier,
+    spoil: Callable[[FakeServer], None],
+    naive_record: bool,
+) -> None:
+    """The shared copy is newer than the local one, but its `meta` or a record holds a time with
+    no UTC offset, or a record expands past 1 MiB. The load takes the local copy, and the next
+    save replaces the shared copy."""
+    local = _snapshot(STARTED - timedelta(hours=1), 1)
+    FileSnapshotStore(tmp_path).save(local)
+    shared = _snapshot(STARTED, 2, 1)
+    if naive_record:
+        naive_time = STARTED.replace(tzinfo=None) - timedelta(hours=1)
+        naive = shared.issues[0].model_copy(update={"updated_at": naive_time})
+        shared = shared.model_copy(update={"issues": (naive, *shared.issues[1:])})
+    _valkey_store(shared_valkey).save(shared)
+    spoil(valkey_server)
+
+    loaded = _tiered(tmp_path).load(REPO)
+    _tiered(tmp_path).save(_snapshot(STARTED + timedelta(hours=1), 3, 2, 1))
+
+    assert (loaded, _shared(valkey_server)) == (local, ("2026-01-01T11:00:00Z", ["3", "2", "1"]))
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_repository_that_became_private_leaves_the_shared_tier(
+    github_api: GitHubApiFake, tmp_path: Path, valkey_server: FakeServer, otlp: FakeCollector
+) -> None:
+    """A round of a public repository writes its shared copy. A round after the repository
+    became private removes the key, uses no shared copy and counts `removed`."""
+    github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
+    github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
+    _round(_tiered(tmp_path))
+    public_round = _keys(valkey_server)
+    _new_process()
+    otlp.clear()
+    later = STARTED + timedelta(hours=1)
+
+    _round(_tiered(tmp_path, at=later, is_public=lambda repo: False), at=later)
+
+    assert (public_round, _keys(valkey_server), _reads(otlp), _writes(otlp)) == (
+        [SNAPSHOT_KEY],
+        [],
+        {("snapshot", "private"): 1.0},
+        {("snapshot", "removed"): 1.0, ("snapshot", "private"): 1.0},
+    )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelling(
+    tmp_path: Path, valkey_server: FakeServer
+) -> None:
+    """GitHub names ignore case: a save as `Dan-Petty/DevOps-CLI` and a load as
+    `dan-petty/devops-cli` use one key, and the visibility of the two is read once."""
+    from devops_cli.roadmap.stores.listing_shared import repository_is_public
+
+    spelled = "Dan-Petty/DevOps-CLI"
+    runner = RecordedGh({"isPrivate": {"data": {"repository": {"isPrivate": False}}}})
+    _tiered(tmp_path / "a").save(_snapshot(STARTED, 2, 1).model_copy(update={"repo": spelled}))
+    _new_process()
+
+    loaded = _tiered(tmp_path / "b").load(REPO)
+    answers = (
+        repository_is_public(spelled, runner=runner),
+        repository_is_public(REPO, runner=runner),
+    )
+
+    assert (
+        _keys(valkey_server),
+        None if loaded is None else [issue.number for issue in loaded.issues],
+        answers,
+        len(runner.calls),
+    ) == ([SNAPSHOT_KEY], [2, 1], (True, True), 1)
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_load_counts_the_tier_that_gave_the_snapshot(tmp_path: Path, otlp: FakeCollector) -> None:
+    """With no copy in either tier the load counts `source`. With the same watermark in both
+    tiers, the local copy wins and the load counts `local`, not `source`."""
+    snapshot = _snapshot(STARTED, 2, 1)
+    empty = _tiered(tmp_path).load(REPO)
+    _tiered(tmp_path).save(snapshot)
+
+    loaded = _tiered(tmp_path).load(REPO)
+
+    assert (empty, loaded, _reads(otlp)) == (
+        None,
+        snapshot,
+        {("snapshot", "source"): 1.0, ("snapshot", "local"): 1.0},
     )

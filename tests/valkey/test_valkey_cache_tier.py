@@ -352,6 +352,40 @@ def test_a_writer_whose_watched_key_changed_writes_nothing(
     ) == (False, b"other", False, True, b"mine", [b"first", b"other"])
 
 
+@pytest.mark.parametrize(
+    "last_command",
+    [
+        pytest.param("WATCH", id="the-watched-read-fails"),
+        pytest.param("HGET", id="the-exec-fails"),
+    ],
+)
+def test_a_valkey_that_goes_away_in_a_watch_transaction_opens_the_breaker(
+    valkey_server: FakeServer, otlp: FakeCollector, last_command: str
+) -> None:
+    """valkey-py gives a `WatchError` for a connection that fails while the client watches a
+    key. The tier tells it from a lost race: it counts `error="connection"`, opens the breaker
+    and gives None, as for each other command that fails."""
+
+    def go_away(command: tuple[object, ...]) -> None:
+        if command[0] == last_command:
+            valkey_server.connected = False
+
+    client = valkey_client_on(valkey_server, after_command=go_away)
+    tier = _tier(client)
+    try:
+        written = tier.watch_and_write(
+            "snapshot", "meta", lambda meta: [("HSET", "snapshot", "meta", "mine")]
+        )
+    finally:
+        client.close()
+
+    assert (written, tier.is_open, _errors(otlp)) == (
+        None,
+        True,
+        {("watch", "connection"): 1.0},
+    )
+
+
 def test_a_failed_tier_command_counts_its_command_and_error(
     valkey_server: FakeServer, valkey_client: ValkeyClient, otlp: FakeCollector
 ) -> None:
