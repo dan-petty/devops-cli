@@ -2930,9 +2930,9 @@ class BrainWrite(StrEnum):
     not written because the shared copy already holds the same records, skipped while the tier
     failed, kept local because the value or the records of the snapshot are over their bound
     (#6611), refused because the shared copy is
-    newer, kept local for a private repository, the shared copy of a repository that became
-    private removed, or kept local for a repository whose visibility read failed, whose shared
-    copy stays as it is (#6611)."""
+    newer, kept local for a private repository, the shared copy removed of a repository that
+    became private or whose visibility read failed and whose last save is older than one hour,
+    or kept local for a repository whose visibility read failed (#6611)."""
 
     SHARED = "shared"
     UNCHANGED = "unchanged"

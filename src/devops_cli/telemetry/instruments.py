@@ -726,8 +726,9 @@ BRAIN_WRITES_TOTAL = Instrument(
     "failed, oversize for a value over 1 MiB or a snapshot over 128 MiB of record JSON, which "
     "stays local, older when the shared "
     "snapshot is newer or another writer won, private, removed for the shared snapshot of a "
-    "repository that became private, and unknown for a repository whose visibility read failed, "
-    "whose shared snapshot stays as it is",
+    "repository that became private or of a repository whose visibility read failed and whose "
+    "last save is older than 1 hour, and unknown for a repository whose visibility read failed, "
+    "which writes nothing",
 )
 VALKEY_CACHE_ERRORS_TOTAL = Instrument(
     "devops_cli_valkey_cache_errors_total",

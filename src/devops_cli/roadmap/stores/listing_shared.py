@@ -41,9 +41,14 @@ local file only. Until `valkey-devops` has role ACL users (#4704), the shared ti
 of a private repository (ADR 0023 section 8): the store reads the visibility of a repository only
 after Valkey answered, and uses and writes the shared copy only for a public answer. A private
 answer removes the shared copy of a repository that became private. A failed visibility read
-gives an unknown answer, which leaves the shared copy as it is: the store does not read, write
-or remove it, and reads the visibility again after
-`DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`.
+gives an unknown answer: the store does not read or write the shared copy, and reads the
+visibility again after `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`. A save comes only after a
+public answer, so the age of the last save, which the TTL of the key gives, is the time since a
+process last saw the repository as public. An unknown answer removes a copy whose last save is
+older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and leaves a fresher copy (#6611). Thus a short
+failure keeps a fresh copy, and a failure that goes on, such as a token that cannot see a
+repository that became private, removes the copy at most about 2 hours after the change, at the
+first run after that.
 """
 
 from __future__ import annotations
@@ -136,10 +141,20 @@ class _RecordTimes(BaseModel):
 
 @dataclass(frozen=True)
 class HeldMeta:
-    """The `meta` of a shared snapshot as Valkey gave it: its bytes, and its facts when they parse."""
+    """The `meta` of a shared snapshot as Valkey gave it: its bytes, its facts when they parse,
+    and the time that its key had left in milliseconds (`PTTL`), read in the same round trip."""
 
     raw: bytes
     meta: SharedMeta | None
+    pttl: int
+
+    @property
+    def saved_seconds_ago(self) -> float | None:
+        """The time since a save last set the TTL of the key: the TTL of a snapshot less the
+        time that the key has left. None for a key with no TTL (-1) and a key that went (-2)."""
+        if self.pttl < 0:
+            return None
+        return DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS - self.pttl / 1000
 
 
 @dataclass(frozen=True)
@@ -235,10 +250,12 @@ class ValkeySnapshotStore:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def meta(self, repo: str) -> HeldMeta | None:
-        """The `meta` of the shared snapshot of `repo`; None when there is none or the read
-        fails. `tier.is_open` after the call tells a failure."""
-        raw = self.tier.hget(snapshot_key(repo), META_FIELD)
-        return None if raw is None else HeldMeta(raw, _parsed(raw))
+        """The `meta` of the shared snapshot of `repo` and the TTL of its key, in one round trip;
+        None when there is none or the read fails. `tier.is_open` after the call tells a
+        failure."""
+        read = self.tier.hget_with_ttl(snapshot_key(repo), META_FIELD)
+        raw, pttl = (None, -2) if read is None else read
+        return None if raw is None else HeldMeta(raw, _parsed(raw), pttl)
 
     def records(self, repo: str, held: HeldMeta) -> ListingSnapshot | None:
         """The shared snapshot whose `meta` is `held`; None when the read fails, passes its
@@ -557,6 +574,15 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _stale(held: HeldMeta) -> bool:
+    """Whether the last save of the shared copy whose `meta` is `held` is older than
+    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`. A save comes only after a public answer, so no
+    process saw the repository as public in that time. A key with no TTL gives no age and is not
+    stale."""
+    age = held.saved_seconds_ago
+    return age is not None and age > DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS
+
+
 @dataclass(frozen=True)
 class TieredSnapshotStore:
     """The local snapshot store of a process and the shared one in Valkey, as one store.
@@ -624,11 +650,20 @@ class TieredSnapshotStore:
 
     def _checked(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> Visibility:
         """The visibility of `repo`. A private answer removes the shared copy, so the shared tier
-        keeps no copy of a repository that became private. An unknown answer leaves the shared
-        copy as it is."""
+        keeps no copy of a repository that became private. An unknown answer removes a copy that
+        no process saw as public for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and
+        leaves a fresher copy as it is."""
         visibility = self.visibility(repo)
-        if visibility is Visibility.PRIVATE and held is not None and shared.remove(repo):
-            logger.info("The shared tier held the listing of %s, which is private now.", repo)
+        private = visibility is Visibility.PRIVATE
+        stale = visibility is Visibility.UNKNOWN and held is not None and _stale(held)
+        if held is not None and (private or stale) and shared.remove(repo):
+            logger.info(
+                "The shared tier held the listing of %s, which %s.",
+                repo,
+                "is private now"
+                if private
+                else "no process saw as public in the last hour, and its visibility is not known",
+            )
             count_write(BrainStore.SNAPSHOT, BrainWrite.REMOVED)
         return visibility
 

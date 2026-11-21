@@ -131,6 +131,15 @@ class ValkeyCacheTier:
         value: bytes | None = self._send("hget", self.client.hget, key, field)
         return value
 
+    def hget_with_ttl(self, key: str, field: str) -> tuple[bytes | None, int] | None:
+        """The bytes of one field of the hash at `key` and the time that its key has left in
+        milliseconds (see `ValkeyClient.hget_with_ttl`), in one round trip; None for an open
+        breaker and a read that fails. A failure counts with `op` `hget`, as a plain read does."""
+        held: tuple[bytes | None, int] | None = self._send(
+            "hget", self.client.hget_with_ttl, key, field
+        )
+        return held
+
     def hset(self, key: str, values: Mapping[str, bytes | str]) -> int | None:
         """Set fields of the hash at `key`: the number of new fields, or None on a failure."""
         written: int | None = self._send("hset", self.client.hset, key, values)
