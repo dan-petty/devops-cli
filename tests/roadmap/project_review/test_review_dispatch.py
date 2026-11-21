@@ -19,6 +19,7 @@ from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, win
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
 from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from tests.support.fakes.clock import ClockFake
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
 
@@ -417,6 +418,47 @@ def test_an_end_instant_fact_whose_base_has_no_series_at_the_end_is_skipped(
     assert [request.url.params["query"] for request in web.sent] == [
         "sum by (state) (x_total)",
         f'group(x_total{{repo="{REPO}"}})',
+    ]
+
+
+def test_a_path_that_the_base_commit_does_not_hold_skips_the_fact_whatever_the_working_tree(
+    tmp_path: Path, git_fake: GitFake
+) -> None:
+    """A window from before the commit that added `openspec/specs` has no requirements to count,
+    though the working tree holds the folder (#6612). The base does not hold the path, so the
+    review reads no head and no other git command."""
+    git_fake.replay("review_spec_path")
+    checkout = tmp_path / "spec-path"
+    (checkout / "openspec" / "specs").mkdir(parents=True)
+    fact = {
+        "id": "openspec.requirements",
+        "reader": "openspec",
+        "section": "service",
+        "query": "git grep -c '^### Requirement:' {base} {head} -- openspec/specs",
+        "value": ".requirements",
+        "unit": "requirements",
+        "definition": "The requirements at the base and at the head.",
+        "requires": ["path:openspec/specs"],
+    }
+    window = ReviewWindow(
+        kind=WindowKind.VERSION,
+        id="v0.9.0..v1.0.0",
+        base_sha="v0.9.0",
+        head_sha="v1.0.0",
+        start=END - timedelta(days=7),
+        end=END,
+        previous_id=None,
+    )
+    context = ReadContext(
+        checkout=checkout, repo=REPO, window=window, settings=load_settings(), now=END
+    )
+
+    [read] = read_catalog(_catalog(tmp_path, [fact]), context).facts
+
+    assert (read.status, read.value) == (FactStatus.SKIPPED, None)
+    assert ("openspec/specs" in read.reason, "v0.9.0" in read.reason) == (True, True)
+    assert [call.argv[3:] for call in git_fake.calls] == [
+        ("ls-tree", "--name-only", "--end-of-options", "v0.9.0", "--", "openspec/specs")
     ]
 
 
