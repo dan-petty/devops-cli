@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.190.0](https://github.com/dan-petty/devops-cli/compare/v0.189.0...v0.190.0) (2026-11-21)
+
+
+### Features
+
+* **infra:** list the roles of the pinned collections in onboard ([#6699](https://github.com/dan-petty/devops-cli/issues/6699)) ([6ad9f17](https://github.com/dan-petty/devops-cli/commit/6ad9f17b8ca56361aa350e29a5c952dec51bc7b8))
+* **k8s:** run a three-node SeaweedFS object store ([#6689](https://github.com/dan-petty/devops-cli/issues/6689)) ([3f81cdb](https://github.com/dan-petty/devops-cli/commit/3f81cdb1d5e24ecc3533e311edf0051382128192))
+* **k8s:** take deploy-stack values files from the Applications ([#6700](https://github.com/dan-petty/devops-cli/issues/6700)) ([11fee3f](https://github.com/dan-petty/devops-cli/commit/11fee3f4edb983571bf4a2b557ff36aa6bf88af1))
+* **roadmap:** the Service reads each runner container by name ([#6695](https://github.com/dan-petty/devops-cli/issues/6695)) ([84c0627](https://github.com/dan-petty/devops-cli/commit/84c0627e7aea95295dc5a3a760f0e0fb19cbcc56)), closes [#6690](https://github.com/dan-petty/devops-cli/issues/6690)
+
+
+### Bug Fixes
+
+* **roadmap:** a new-branch run takes no closed draft ([#6693](https://github.com/dan-petty/devops-cli/issues/6693)) ([9ae7d7b](https://github.com/dan-petty/devops-cli/commit/9ae7d7b79e588f04e9ddfbf729f070c368b89898))
+* **roadmap:** the base replay of a step runs the checkout Python ([#6692](https://github.com/dan-petty/devops-cli/issues/6692)) ([db5de9b](https://github.com/dan-petty/devops-cli/commit/db5de9b84f0a26b21de9e20c4ecb3086cc7a1ca8))
+
+
+### Code Refactoring
+
+* **roadmap:** fix-checks rebases onto main in its agent phase ([#6694](https://github.com/dan-petty/devops-cli/issues/6694)) ([a2092bd](https://github.com/dan-petty/devops-cli/commit/a2092bdf2061293b6b9d9149222503830978b14c)), closes [#6639](https://github.com/dan-petty/devops-cli/issues/6639)
+
 ## [0.189.0](https://github.com/dan-petty/devops-cli/compare/v0.188.4...v0.189.0) (2026-11-21)
 
 
