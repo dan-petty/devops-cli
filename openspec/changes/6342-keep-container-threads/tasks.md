@@ -4,9 +4,9 @@
 
 Kind: other. Reads: `k8s/monitoring/k8s-monitoring-values.yaml`, `k8s/argocd/apps/k8s-monitoring.yaml`. Changes: `k8s/monitoring/k8s-monitoring-values.yaml`.
 
-- [ ] 1.1 Render the pinned chart with the values of the base, and record that the `keep` rule of `prometheus.relabel "cadvisor"` holds no thread metric
+- [x] 1.1 Render the pinned chart with the values of the base, and record that the `keep` rule of `prometheus.relabel "cadvisor"` holds no thread metric
   - Verification: `$ helm template k8s-monitoring k8s-monitoring --repo https://grafana.github.io/helm-charts --version 4.6.1 -n monitoring -f k8s/monitoring/k8s-monitoring-values.yaml | grep -c 'container_threads|container_threads_max'` gives 0 on the base
-- [ ] 1.2 Add `container_threads` and `container_threads_max`, in this order, at the end of `clusterMetrics.cadvisor.metricsTuning.includeMetrics`, with a comment that gives the reason and names #6342
+- [x] 1.2 Add `container_threads` and `container_threads_max`, in this order, at the end of `clusterMetrics.cadvisor.metricsTuning.includeMetrics`, with a comment that gives the reason and names #6342
   - Verification: `$ helm template k8s-monitoring k8s-monitoring --repo https://grafana.github.io/helm-charts --version 4.6.1 -n monitoring -f k8s/monitoring/k8s-monitoring-values.yaml | grep -c 'container_threads|container_threads_max'` gives 1
   - Verification: `$ uv run devops ci --check --only k8s` passes
 
