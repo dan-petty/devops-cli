@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.187.1](https://github.com/dan-petty/devops-cli/compare/v0.187.0...v0.187.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **ci:** run each changed-test run on workers and its own runner ([#6568](https://github.com/dan-petty/devops-cli/issues/6568)) ([ce73902](https://github.com/dan-petty/devops-cli/commit/ce73902c847f9ee95d82c03a54ca463802f0ac82))
+
 ## [0.187.0](https://github.com/dan-petty/devops-cli/compare/v0.186.0...v0.187.0) (2026-11-21)
 
 
