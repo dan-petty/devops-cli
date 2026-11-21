@@ -3,14 +3,19 @@
 The command `devops roadmap step fix-checks --confirm` gives the step `job_repair`:
 
 - The checkout (`prepare`): a plain clone of the repository on GitHub in the work folder of the
-  run, on the head branch of the pull request (`clone_branch`, #3702). The App must have written
-  every commit of the branch past main, and the branch must be at the judged head. The clone holds
-  no credential: git gets the token of each call that reaches `origin` from its environment. The
-  run folder of `--phase all` is in the data folder, on the home volume of the Job, and goes when
-  the round ends.
-- The publish (`publish`): the patch of the checkout (`write_patch`), applied as one commit of the
-  bot and pushed to the head branch with a lease on the judged head (`publish_patch`), so it never
-  overwrites a push of another writer. `publish` reads the workflow files that the merged plan of
+  run, on the head branch of the pull request (`clone_branch`, #3702), with the tip of the default
+  branch that the clone read. The App must have written every commit of the branch past main, and
+  the branch must be at the judged head. The clone holds no credential: git gets the token of
+  each call that reaches `origin` from its environment. The run folder of `--phase all` is in the
+  data folder, on the home volume of the Job, and goes when the round ends.
+- The rebase (`agent`, #6639): a branch that is behind the default branch is rebased onto the
+  tip that `prepare` read, as implement rebases it (`rebase_onto`). A rebase that skipped the
+  archive commit of the item archives the change again, in a commit of its own. A stop that no
+  rule settles aborts the rebase and stops the round with the conflicted files.
+- The publish (`publish`): the patches of the checkout (`write_patch`), each that is not empty
+  applied as one commit of the bot on the base, the judged head or the `onto` that `prepare`
+  recorded for a rebased branch, and pushed to the head branch with a lease on the judged head
+  (`publish_patch`), so it never overwrites a push of another writer. `publish` reads the workflow files that the merged plan of
   the item names on the default branch of GitHub (`merged_workflows`).
 - Tier 1, with no model: for a lint failure, `ruff check --fix` and `ruff format` on the Python
   files that the pull request changes (a toolchain with the ruff gates); for a snapshot failure,
@@ -45,7 +50,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import resolve_data_path
-from devops_cli.exceptions import ToolExecutionError
+from devops_cli.exceptions import DevOpsCLIError, ToolExecutionError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
@@ -63,6 +68,7 @@ from devops_cli.roadmap.implement.implement_strays import plan_paths
 from devops_cli.roadmap.phases.checkout import clone_branch
 from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget, publish_patch
+from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE, rebase_onto, unmerged
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
@@ -76,6 +82,7 @@ from devops_cli.roadmap.steps.fix_checks import (
     tier1_causes,
 )
 from devops_cli.roadmap.toolchains import ToolchainPreset
+from devops_cli.security.sanitizer import mask_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +110,7 @@ def open_checkout(repo: str, status: PullStatus, item: int, work: Path) -> PullC
             f"{status.head_sha[:12]}."
         )
     (clone.path / ".data" / "agent" / "scratch").mkdir(parents=True, exist_ok=True)
-    return PullCheckout(clone.path)
+    return PullCheckout(clone.path, clone.base)
 
 
 def merged_workflows(repo: str, ref: str, item: int) -> tuple[str, ...]:
@@ -261,6 +268,70 @@ def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
     return Fixed(done=True, files=written)
 
 
+def _commit_changed(path: Path, message: str) -> None:
+    """Commit every change of the checkout with `message`, when there is one."""
+    git(path, "add", "-A", operation=_OPERATION)
+    if git(path, "status", "--porcelain", operation=_OPERATION):
+        git(path, "commit", "-q", "-m", message, operation=_OPERATION)
+
+
+def _archive_again(
+    path: Path, item: int, preset: ToolchainPreset, generate: Callable[[Sequence[str]], None]
+) -> None:
+    """Archive the change of `item` again after the rebase skipped its archive commit, as
+    implement archives it: the documents, then the archive command of the target, each in a
+    commit of its own. A target with no archive command, or no active change folder, has
+    nothing to archive."""
+    changes = sorted((path / CONST_OPENSPEC_CHANGES_DIR).glob(f"{item}-*"))
+    if preset.archive_argv is None or not changes:
+        return
+    if preset.docs_step:
+        generate((BIN_UV, "run", BIN_DEVOPS, "docs", "generate"))
+        _commit_changed(path, f"docs: regenerate the documentation (#{item})")
+    generate(tuple(part.replace("<change>", changes[0].name) for part in preset.archive_argv))
+    _commit_changed(path, ARCHIVE_MESSAGE.format(number=item))
+
+
+def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
+    """Rebase the checkout `path` onto `onto`, the tip of the default branch that `prepare` read,
+    and settle each stop as implement does (`rebase_onto`, #6639). Done when the branch sits on
+    `onto`; else not done, with the reason: the rebase is aborted, and a conflict that no rule
+    settles names each conflicted file."""
+    preset = resolve_profile(path, onto).preset
+    limit = load_settings().roadmap.implement.command_timeout_seconds
+
+    def generate(argv: Sequence[str]) -> None:
+        if _exit_status(path, argv, limit) != 0:
+            raise RoadmapImplementError(f"`{shlex.join(argv[:5])}` failed after the rebase")
+
+    def abort() -> list[str]:
+        files = unmerged(path, operation=_OPERATION)
+        git(path, "rebase", "--abort", operation=_OPERATION)
+        return files
+
+    try:
+        ended = rebase_onto(path, onto, item, generate, docs=preset.docs_step, operation=_OPERATION)
+    except DevOpsCLIError as exc:
+        abort()
+        return Fixed(done=False, reason=f"The rebase onto main stopped: {mask_secrets(str(exc))}")
+    if not ended.started:
+        return Fixed(done=False, reason="git refused to start the rebase onto main")
+    if ended.error is not None:
+        files = ", ".join(f"`{mask_secrets(name)}`" for name in abort())
+        return Fixed(
+            done=False,
+            reason=f"Conflict: the rebase onto main stops on {files or 'no file'}, "
+            "which no rule settles",
+        )
+    if ended.skipped:
+        try:
+            _archive_again(path, item, preset, generate)
+        except DevOpsCLIError as exc:
+            output = mask_secrets(str(exc))
+            return Fixed(done=False, reason=f"The change was not archived again: {output}")
+    return Fixed(done=True)
+
+
 def model_fix(store: ItemReader) -> ModelFixer:
     """Tier 2: the fix step of the implement job on the model of the task `fix_checks`, with no
     ladder, so a model trial moves this job alone (#5903). The step gets the hooks and the
@@ -320,9 +391,10 @@ def _bot() -> tuple[str, str]:
 
 def job_repair(repo: str) -> Repair:
     """The repair of a runner Job for `repo`, by phase (#6601): the clone in the work folder; tier
-    1; the model fix, which reads the item that `prepare` gave it; the patch of the checkout; and
-    the publish of the patch as one commit of the bot. `publish` reads the bot and the workflow
-    files of the plan itself, and pushes to the repository on GitHub."""
+    1; the model fix, which reads the item that `prepare` gave it; the patches of the checkout; and
+    the publish of each patch that is not empty as one commit of the bot on the base. `publish`
+    reads the bot and the workflow files of the plan itself, and pushes to the repository on
+    GitHub."""
     scratch = _runs()
 
     def checkout(status: PullStatus, item: int, work: Path) -> PullCheckout:
@@ -339,6 +411,7 @@ def job_repair(repo: str) -> Repair:
         checkout=checkout,
         tier1=tier1_fix,
         model=model_fix,
+        rebase=rebase_branch,
         patch=write_patch,
         publish=publish,
         author=_bot,

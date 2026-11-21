@@ -219,6 +219,7 @@ class FakeRepair:
             patch=patch,
             publish=publish,
             author=lambda: (BOT_USER, BOT_EMAIL),
+            rebase=lambda path, onto, item: Fixed(done=True),
             scope=scope,
             workflows=lambda repo, ref, item: self.workflows,
             scratch=self.scratch,

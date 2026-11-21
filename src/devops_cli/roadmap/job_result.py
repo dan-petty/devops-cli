@@ -104,7 +104,7 @@ SUCCESS_RESULTS: Final[Mapping[RoadmapJob, frozenset[str]]] = MappingProxyType(
         ),
         RoadmapJob.INTAKE: frozenset({"placed", "duplicate"}),
         RoadmapJob.FIX_PLAN: frozenset({"revised", "cleared"}),
-        RoadmapJob.FIX_CHECKS: frozenset({"repaired", "ready"}),
+        RoadmapJob.FIX_CHECKS: frozenset({"repaired", "rebased", "ready"}),
         RoadmapJob.RETITLE: frozenset({"retitled", "kept"}),
         RoadmapJob.REVIEW: frozenset({"judged"}),
     }

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
-from devops_cli.roadmap.implement.implement_run import skips_archive_commit
+from devops_cli.roadmap.phases.rebase import skips_archive_commit
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ItemField
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text, git_for_real

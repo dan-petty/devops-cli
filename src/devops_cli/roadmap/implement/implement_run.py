@@ -60,7 +60,6 @@ from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
-    CONST_OPENSPEC_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
@@ -75,7 +74,6 @@ from devops_cli.core.process_hardening import adopt_orphans, deny_environment_re
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
-    GitOperationError,
     RoadmapImplementError,
     SecurityError,
     ServiceStoppingError,
@@ -117,6 +115,7 @@ from devops_cli.roadmap.implement.implement_scoped_ci import (
     scoped_checks,
 )
 from devops_cli.roadmap.implement.implement_shell_policy import shown
+from devops_cli.roadmap.phases.rebase import ARCHIVE_MESSAGE, archive_commit, rebase_onto, unmerged
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.implement.implement_report import StopFacts
@@ -168,7 +167,7 @@ from devops_cli.security.sanitizer import mask_secrets
 
 _WHY_HEADINGS = frozenset({"why"})
 # The message of the commit of the archive. `publish` keeps that commit apart (#3702).
-_ARCHIVE_MESSAGE: Final[str] = "docs(openspec): archive the change (#{number})"
+_ARCHIVE_MESSAGE: Final[str] = ARCHIVE_MESSAGE
 _SUMMARY_HEADINGS: Final[frozenset[str]] = frozenset({"summary"})
 _WHAT_CHANGES_HEADINGS: Final[frozenset[str]] = frozenset({"what changes"})
 _DOCS_EXTENSIONS: Final[frozenset[str]] = frozenset({".md"})
@@ -329,53 +328,6 @@ def _stopped_by(step: str, outcome: StepOutcome, *, check: str = "", log: str = 
         tier_changes=max(0, len(outcome.tiers) - 1),
         failure_class=outcome.failure_class,
     )
-
-
-def _unmerged(path: Path) -> list[str]:
-    """The paths that a stopped rebase left unmerged in the checkout `path`."""
-    listed = git(path, "diff", "--name-only", "--diff-filter=U", "-z", operation=GIT_OPERATION)
-    return [name for name in listed.split("\0") if name]
-
-
-def skips_archive_commit(listed: str, number: int) -> bool:
-    """Whether a rebase skips the commit that `listed` gives, the output of `git show --name-status
-    -z` of `REBASE_HEAD`: the archive commit of item `number`. It removes or moves a file out of
-    `openspec/changes/<number>-`, and every path is an OpenSpec path or a generated document, which
-    the run makes again (#3702). The plan commit adds its change folder, so the rule keeps it.
-    The conflict fixer of #6620 holds the same rule; #6640 makes them one function."""
-    from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path
-
-    fields = listed.split("\0")
-    moved, paths, index = False, [], 0
-    while index < len(fields) and fields[index]:
-        status = fields[index][:1]
-        width = 2 if status in ("R", "C") else 1
-        names = fields[index + 1 : index + 1 + width]
-        moved = moved or (
-            status in ("D", "R") and names[0].startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/{number}-")
-        )
-        paths.extend(names)
-        index += 1 + width
-    made_again = all(
-        name.startswith(f"{CONST_OPENSPEC_DIR}/") or is_generated_docs_path(name) for name in paths
-    )
-    return moved and made_again
-
-
-def _rebase_in_progress(path: Path) -> bool:
-    """Whether a rebase stopped in the checkout `path` and waits: git keeps the state of the rebase
-    in the directory `rebase-merge`, or `rebase-apply` for the apply backend, until it ends. A
-    rebase that git refused to start has neither."""
-    names = git(
-        path,
-        "rev-parse",
-        "--git-path",
-        "rebase-merge",
-        "--git-path",
-        "rebase-apply",
-        operation=GIT_OPERATION,
-    )
-    return any((path / name).is_dir() for name in names.splitlines())
 
 
 def _files_lines(files: Sequence[str]) -> str:
@@ -816,81 +768,43 @@ class _ItemRun:
 
     def _rebase(self, path: Path) -> None:
         """Rebase the checkout `path` onto `onto`, the tip of `origin/<default>` that `prepare`
-        recorded, and settle each stop as a developer does (#3702): `git rebase --skip` for a
-        commit whose every path the run makes again (`skips_archive_commit`), and `git checkout --ours`
-        with a new generation for conflicts only in the generated documents and `uv.lock`. A
-        rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
+        recorded, and settle each stop as a developer does (`rebase_onto`, #3702): `git rebase
+        --skip` for a commit whose every path the run makes again (`skips_archive_commit`), and
+        `git checkout --ours` with a new generation for conflicts only in the generated documents
+        and `uv.lock`. A rebase that git refuses to start, as in a checkout that holds changes, is
+        no conflict: no
         abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new clone
         (#4487). A conflict that the rules do not settle aborts the rebase and raises `_StopError`
         with class `conflict` and the conflicted files (#5615); the model step that settles it is
         #6640."""
         try:
-            git(
+            ended = rebase_onto(
                 path,
-                "rebase",
-                "--quiet",
                 self.onto or f"origin/{self.default}",
+                self.number,
+                self._program,
+                docs=self.profile.preset.docs_step,
                 operation=GIT_OPERATION,
             )
-            return
-        except GitOperationError as exc:
-            if not _rebase_in_progress(path):
-                raise _StopError(
-                    self.step,
-                    MESSAGES.roadmap.implement_stop_rebase_not_started.format(
-                        branch=self.default, output=str(exc)
-                    ),
-                    push=False,
-                    failure_class=FailureClass.CI_INFRA,
-                ) from exc
-            stopped = exc
-        while _rebase_in_progress(path):
-            try:
-                action = self._settle(path)
-            except _StopError as stop:
-                # A new generation that failed or ran out of time: the rebase is not done, so its
-                # tree must not reach `publish`.
-                self._abort(path)
-                stop.push = False
-                raise
-            except DevOpsCLIError as exc:
-                self._stop_conflict(path, exc)
-            if action is None:
-                self._stop_conflict(path, stopped)
-            try:
-                git(path, *action, operation=GIT_OPERATION)
-            except GitOperationError as exc:
-                stopped = exc
-
-    def _settle(self, path: Path) -> tuple[str, ...] | None:
-        """The git command that goes on with the rebase at its stop, or None when no rule settles
-        the stop."""
-        from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path, is_lockfile_path
-
-        listed = git(
-            path, "show", "--name-status", "-z", "--format=", "REBASE_HEAD", operation=GIT_OPERATION
-        )
-        if skips_archive_commit(listed, self.number):
-            return ("rebase", "--skip")
-        unmerged = _unmerged(path)
-        if not unmerged or not all(
-            is_generated_docs_path(n) or is_lockfile_path(n) for n in unmerged
-        ):
-            return None
-        # Take the side of the default branch, stage 2 of the index: a file that the default
-        # branch deleted has no stage 2, so it goes.
-        staged = git(path, "ls-files", "-u", "-z", "--", *unmerged, operation=GIT_OPERATION)
-        ours = {entry.split("\t", 1)[1] for entry in staged.split("\0") if " 2\t" in entry}
-        if gone := [name for name in unmerged if name not in ours]:
-            git(path, "rm", "-q", "--", *gone, operation=GIT_OPERATION)
-        if kept := [name for name in unmerged if name in ours]:
-            git(path, "checkout", "--ours", "--", *kept, operation=GIT_OPERATION)
-        if any(is_lockfile_path(name) for name in unmerged):
-            self._program([BIN_UV, "lock"])
-        if self.profile.preset.docs_step and any(is_generated_docs_path(n) for n in unmerged):
-            self._program([BIN_UV, "run", BIN_DEVOPS, "docs", "generate"])
-        git(path, "add", "-A", operation=GIT_OPERATION)
-        return ("-c", "core.editor=true", "rebase", "--continue")
+        except _StopError as stop:
+            # A new generation that failed or ran out of time: the rebase is not done, so its
+            # tree must not reach `publish`.
+            self._abort(path)
+            stop.push = False
+            raise
+        except DevOpsCLIError as exc:
+            self._stop_conflict(path, exc)
+        if not ended.started:
+            raise _StopError(
+                self.step,
+                MESSAGES.roadmap.implement_stop_rebase_not_started.format(
+                    branch=self.default, output=str(ended.error)
+                ),
+                push=False,
+                failure_class=FailureClass.CI_INFRA,
+            ) from ended.error
+        if ended.error is not None:
+            self._stop_conflict(path, ended.error)
 
     def _abort(self, path: Path) -> str:
         """Abort the rebase: the output of a failed abort, or empty."""
@@ -907,7 +821,7 @@ class _ItemRun:
         """Abort the rebase at a stop that no rule settles, or whose settle failed, and stop the
         item with the class `conflict` and the conflicted files, with nothing to push. No fix round
         runs, so a person settles it until the model step of #6640."""
-        files = [shown(mask_secrets(name)) for name in _unmerged(path)]
+        files = [shown(mask_secrets(name)) for name in unmerged(path, operation=GIT_OPERATION)]
         failed = self._abort(path)
         texts = MESSAGES.roadmap
         reason = texts.implement_stop_rebase.format(branch=self.default, output=str(exc))
@@ -1432,13 +1346,7 @@ class _ItemRun:
     def archive_commit(self, base: str) -> str | None:
         """The newest archive commit of the item past `base`, or None when the run holds none. The
         archive stays its own commit when `publish` pushes (#3702)."""
-        subject = _ARCHIVE_MESSAGE.format(number=self.number)
-        listed = self._git("log", "--format=%H%x1f%s", f"{base}..HEAD")
-        for line in listed.splitlines():
-            sha, _, title = line.partition("\x1f")
-            if title == subject:
-                return sha
-        return None
+        return archive_commit(self.path, base, self.number, operation=GIT_OPERATION)
 
     # ── The end for a claim ──
 

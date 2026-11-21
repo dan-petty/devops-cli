@@ -389,9 +389,12 @@ class ReviewRecordKey(StrEnum):
 
 
 class FixChecksResult(StrEnum):
-    """The result of the fix-checks step on a pull request (#5023), in `fix_checks.result`."""
+    """The result of the fix-checks step on a pull request (#5023), in `fix_checks.result`.
+    `rebased` is a round that pushed the branch rebased onto main with no fix: only main caused
+    the failure, and the new head gets new checks (#6639)."""
 
     REPAIRED = "repaired"
+    REBASED = "rebased"
     STOPPED = "stopped"
     SKIPPED = "skipped"
     WAIT = "wait"

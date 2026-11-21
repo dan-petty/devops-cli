@@ -23,15 +23,20 @@ Two tiers of repair:
   starts tier 1 in a check of any class (#5983).
 - Tier 2 (model): run_fix_step within the plan scope and the files outside the plan whose failure
   the change of the branch causes (`fix_checks_cause`, #6116). A failure that the change does not
-  cause, such as main skew, stops the round with a reason that names each file. A comment names the
-  files of each pushed repair.
+  cause stops the round with a reason that names each file. A comment names the files of each
+  pushed repair. A branch that is behind the default branch is rebased first (#6639); when only
+  main causes its failure, the round pushes the rebase alone, with the result `rebased`.
 
 The step writes only with `confirm` (#5971). Without it, the step returns `planned` with the action
 that it would take, and writes nothing to GitHub, to the store or to the branch. With it, the
 caller gives a `Repair`, and the round runs on the phases `prepare`, `agent` and `publish`
 (`fix_checks_phases.py`, #6601): `judge_round` judges the bounds, the checks and the caps with no
-agent code; the fixers run in the checkout with no GitHub call; and `publish` applies their patch
-as one commit of the bot and pushes it once, with a lease on the judged head. The step does not wait for the checks after its push: a later call that finds the draft that
+agent code; the fixers run in the checkout with no GitHub call; and `publish` writes one commit of
+the bot for each patch that is not empty, on the base, and pushes once with a lease on the judged
+head. The base is the judged head, or the tip of main (`onto`) that `prepare` recorded for a
+rebased branch, whose patches are the work, the archive commit, the later commits and then the fix,
+or no fix for a round that is `rebased`. The step does not wait for the checks after its push: a
+later call that finds the draft that
 it repaired, or a draft that its implement Job left at the draft (#6559), with every check passing
 marks the draft ready when `draft_readiness` allows it.
 """
@@ -239,9 +244,11 @@ class Fixed(NamedTuple):
 @dataclass(frozen=True)
 class PullCheckout:
     """The clone on the head branch of a pull request, at the judged head (#5971, #3702): its
-    path, in the work folder of the run."""
+    path, in the work folder of the run, and `base`, the tip of the default branch that the clone
+    read, or empty when the checkout reads none."""
 
     path: Path
+    base: str = ""
 
 
 # A fixer gets the worktree, the item, the name of the failed check and its log.
@@ -260,13 +267,16 @@ class Repair:
 
     - `prepare`: `checkout` clones the repository into the work folder, on the head branch of the
       pull request.
-    - `agent`: the deterministic fixers of tier 1, the scope check of the log, and `model`, which
-      makes the model fix of tier 2 from the item that `prepare` read. A fixer commits in the
-      checkout and does not push. `patch` writes the patch of the checkout from the judged head.
+    - `agent`: `rebase` rebases a branch that is behind the default branch onto the tip that
+      `prepare` read (#6639), then the deterministic fixers of tier 1, the scope check of the log,
+      and `model`, which makes the model fix of tier 2 from the item that `prepare` read. A fixer
+      commits in the checkout and does not push. `patch` writes the patch of the fix.
     - `publish`: `author` gives the name and the email of the bot, and `workflows` the workflow
       files that the merged plan of an item names on a branch of GitHub, each read by `publish`
-      itself. `publish` applies the patch as data, writes one commit, calls the claim check and
-      pushes with a lease on the judged head. `scratch` holds the run folder of `--phase all`.
+      itself. `publish` applies the patches as data, writes one commit for each patch that is not
+      empty on the base (the judged head, or the `onto` that `prepare` recorded), calls the claim
+      check and pushes with a lease on the judged head. `scratch` holds the run folder of
+      `--phase all`.
     """
 
     checkout: Callable[[PullStatus, int, Path], PullCheckout]
@@ -275,6 +285,7 @@ class Repair:
     patch: Callable[[Path, str, Path], None]
     publish: Publisher
     author: Callable[[], tuple[str, str]]
+    rebase: Callable[[Path, str, int], Fixed]
     scope: Callable[[Path, int, str, bool], ScopeVerdict] = check_scope
     workflows: Callable[[str, str, int], tuple[str, ...]] = lambda repo, ref, item: ()
     scratch: Path | None = None
@@ -367,6 +378,8 @@ def check_preconditions(
 _ENDED: Final[frozenset[str]] = frozenset(
     {FixChecksResult.FAILED, FixChecksResult.STOPPED, FixChecksResult.WAIT}
 )
+# The results of a round that pushed a new head: a repair, or the rebased branch with no fix.
+_PUSHED: Final[frozenset[str]] = frozenset({FixChecksResult.REPAIRED, FixChecksResult.REBASED})
 
 
 def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) -> bool:
@@ -385,7 +398,7 @@ def unit_ended(record: JobRecord, pull: int, head: str, check: str, extra: int) 
         return False
     if unit.outcome == OUTCOME_NONE:
         return unit.attempt > extra
-    return unit.outcome != FixChecksResult.REPAIRED
+    return unit.outcome not in _PUSHED
 
 
 def _check_failed_head(facts: FixRound, check: str) -> FixChecksReport | None:
@@ -523,7 +536,7 @@ def takes_ready_path(item: Item) -> bool:
     if record.get(ImplementRecordKey.STOPPED):
         return False
     return (
-        record.get(FixChecksRecordKey.RESULT) == FixChecksResult.REPAIRED
+        record.get(FixChecksRecordKey.RESULT) in _PUSHED
         or record.get(ImplementRecordKey.RESULT) == ImplementResult.DRAFTED
     )
 
