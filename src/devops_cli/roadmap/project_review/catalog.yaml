@@ -378,12 +378,16 @@ facts:
     section: service
     query: >-
       count(max_over_time(kube_job_status_start_time{namespace="devops",
-      job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}]))
+      job_name=~"devops-cli-implement-{name_slug}(-[0-9]+)?-[0-9a-f]{6}"}[{range}])
+      >= time() - {range})
     shape: scalar
+    base: 'kube_job_status_start_time{namespace="devops"}'
     not_before: "2026-11-14T22:29:00Z"
     unit: jobs
     definition: >-
       The implement Jobs of the repository that kube-state-metrics saw start in the window.
+      kube-state-metrics keeps the series of a Job for the ttlSecondsAfterFinished of the Job
+      (24 h), so the query counts only a start time at or after the window start (#6612).
       kube-state-metrics exports no Job label, so the name gives the repository:
       devops-cli-implement-<name slug>-<item>-<hex> since #5739, live at 2026-11-14T22:29:00Z
       (release v0.144.0, #4558). Before that the Service named the Jobs of all repositories
