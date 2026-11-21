@@ -3534,9 +3534,10 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # records it as `refine.rules`. A wait on a person that older rules set gets one new round: the
 # record holds an older version, or, when it holds none, refine's last comment is older (#4795). A
 # change to a rule that sets a next step sets a later time in its pull request. This one is the
-# blocker rule of the Dependencies section (#6451): it removes false dependencies, so a wait on a
-# person that a false dependency set, such as a dependency cycle, gets one new round.
-CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 20, 14, 3, 8, tzinfo=UTC)
+# end of the Dependencies section at the marker of a job block (#6613): it removes false
+# dependencies, so a wait on a person that a false dependency set, such as a dependency cycle, gets
+# one new round.
+CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 21, 13, 2, 6, tzinfo=UTC)
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two

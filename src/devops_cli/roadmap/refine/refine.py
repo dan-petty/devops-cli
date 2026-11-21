@@ -1158,22 +1158,38 @@ _DEPENDENCIES_TITLE_RE = re.compile(r"Dependencies\b", re.IGNORECASE)
 _REFERENCE_PUNCTUATION: Final[str] = ".,;:()[]"
 # A text in straight or curly double quotes, such as the title of a dependency (#4803).
 _QUOTED_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
+# The start and the end markers of the blocks that the jobs write in the body. Each one ends a
+# section of the body, because the text of a job block is not text of the section (#6613).
+_JOB_BLOCK_MARKERS: Final[frozenset[str]] = frozenset(
+    {
+        CONST_ROADMAP_REFINE_START_MARKER,
+        CONST_ROADMAP_REFINE_END_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    }
+)
+
+
+def _ends_section(token: Token, level: int) -> bool:
+    """Whether `token` ends a section under a heading of `level`: a heading of the same or a
+    higher level, or an HTML block that is the start or the end marker of a job block (#6613). A
+    marker in a code span or inside a paragraph is inline text and ends no section."""
+    if token.type == "heading_open":
+        return int(token.tag[1:]) <= level
+    return token.type == "html_block" and token.content.strip() in _JOB_BLOCK_MARKERS
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
     """The tokens under the first heading whose title `title_re` matches, up to the next heading
-    of the same or a higher level; a lower heading stays inside the section."""
+    of the same or a higher level or up to the start or the end marker of a job block, whichever
+    comes first; a lower heading stays inside the section. A heading inside a job block, such as
+    a part of the refine block, still starts a section (#6613)."""
     for index, token in enumerate(tokens[:-1]):
         if token.type == "heading_open" and title_re.match(tokens[index + 1].content.strip()):
             level = int(token.tag[1:])
             rest = tokens[index + 3 :]
             end = next(
-                (
-                    i
-                    for i, other in enumerate(rest)
-                    if other.type == "heading_open" and int(other.tag[1:]) <= level
-                ),
-                len(rest),
+                (i for i, other in enumerate(rest) if _ends_section(other, level)), len(rest)
             )
             return list(rest[:end])
     return []
@@ -1210,10 +1226,11 @@ def _unanswered_question(item: Sequence[Token]) -> str | None:
 def body_questions(body: str) -> list[str]:
     """The key questions the body leaves unanswered, in order (#2398).
 
-    Under the person's "Key questions" heading, outside refine's own section, each top-level
-    list item that asks a question (its first paragraph holds a question mark) and that nothing
-    answers (`_unanswered_question`) is a question. A list item with no question mark, and a
-    paragraph or a code block outside the list, is not. The body is parsed as CommonMark, so a
+    Under the person's "Key questions" heading, outside refine's own section and up to the next
+    heading of the same or a higher level or the marker of a job block (`_section_tokens`), each
+    top-level list item that asks a question (its first paragraph holds a question mark) and that
+    nothing answers (`_unanswered_question`) is a question. A list item with no question mark, and
+    a paragraph or a code block outside the list, is not. The body is parsed as CommonMark, so a
     question that wraps to a second line stays one question, and a heading in a code block is
     not a heading.
     """
@@ -1227,9 +1244,11 @@ def body_dependencies(body: str) -> list[int]:
     """The issues the body names as a blocker under a "Dependencies" heading, in order (#2654).
 
     The section is the one refine writes (`render_proposal_section`) or a person writes: the
-    text under the heading, up to the next heading of the same or a higher level. Each block of
-    the section, a paragraph or the text of a list item, names its blockers (`_block_blockers`);
-    the body is parsed as CommonMark, so a heading in a code block is not a heading.
+    text under the heading, up to the next heading of the same or a higher level or up to the
+    start or the end marker of a job block (#6613), so the Lacks list of an alternatives block
+    names no blocker. Each block of the section, a paragraph or the text of a list item, names its
+    blockers (`_block_blockers`); the body is parsed as CommonMark, so a heading in a code block is
+    not a heading.
     """
     section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
     return [

@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
 import pytest
 
+from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+)
 from devops_cli.roadmap.refine.refine import (
     QuestionAnswer,
     body_questions,
@@ -78,6 +82,12 @@ def test_a_bodys_answered_key_questions_and_its_statements_open_no_question(
         ),
         ("- Which format does the export use?\n\n  It is JSON today.\n", []),
         ("- Which store?\n## Next\n- Not this one?\n", ["Which store?"]),
+        (
+            f"- *Which store holds the record?*\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+            "Alternatives check of 2026-11-21: build.\n\n"
+            f"Lacks:\n- Which parser reads the marker?\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n",
+            ["*Which store holds the record?*"],
+        ),
     ],
     ids=[
         "wrapped-indented",
@@ -87,12 +97,14 @@ def test_a_bodys_answered_key_questions_and_its_statements_open_no_question(
         "code-fence",
         "indented-answer",
         "next-section",
+        "alternatives-block",
     ],
 )
 def test_the_body_questions_follow_markdown(section: str, questions: list[str]) -> None:
     """A wrapped question stays one question, a paragraph or a code block after the list answers
-    nothing, a lower heading stays inside the section and a heading of its level ends it, and a
-    paragraph indented under the item answers it."""
+    nothing, a lower heading stays inside the section and a heading of its level ends it, a paragraph
+    indented under the item answers it, and the start marker of a job block ends the section
+    (#6613)."""
     assert body_questions(f"Body\n\n## Key questions\n{section}") == questions
 
 
