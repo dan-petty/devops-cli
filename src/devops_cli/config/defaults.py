@@ -902,8 +902,8 @@ DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP: int = 1000
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
 # The project namespaces whose workloads the project review can name (#6615): the 14 objects of
 # `kind: Namespace` in k8s/namespaces.yaml (`git grep -l "kind: Namespace" k8s/`). The `namespace:`
-# of each kustomization of k8s/ is one of them. A fact that groups by namespace or pod reads only
-# these namespaces, so the review never names a workload of another project.
+# of each kustomization of k8s/ is one of them. A `rows` fact that groups or joins by namespace or
+# pod reads only these namespaces.
 DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
     "agents",
     "argo-workflows",
