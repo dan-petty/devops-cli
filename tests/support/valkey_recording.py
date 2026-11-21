@@ -61,6 +61,7 @@ from tests.support.valkey_replay import (
     LOOPBACK,
     RECORD,
     SHUTDOWN_POLL_SECONDS,
+    TEXT_ERRORS,
     pack_command,
     read_command,
     read_reply,
@@ -116,7 +117,9 @@ class _ProxyHandler(socketserver.StreamRequestHandler):
                 reply = read_reply(replies)
                 # The exchange is kept before the client reads the reply, so the record is
                 # complete once the client has its last reply.
-                self.server.exchanges.append({"command": command, "reply": reply.decode()})
+                self.server.exchanges.append(
+                    {"command": command, "reply": reply.decode(errors=TEXT_ERRORS)}
+                )
                 self.wfile.write(reply)
 
 

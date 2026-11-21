@@ -733,6 +733,29 @@ DEFAULT_VALKEY_CACHE_BREAKER_COOLDOWN_SECONDS: float = 60.0
 # 2026-10-29: a loopback connect took at most 0.6 ms, and a connect to a Service on another node
 # of the homelab took at most 0.4 ms, so the bound is more than 400 times the slowest connect.
 DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS: float = 0.25
+# The project brain in the cache Valkey (#4668, ADR 0023 section 2). A value whose encoded form is
+# over this bound stays in the in-process tier: ADR 0023 section 2 sets 1 MiB. A record of a
+# shared snapshot keeps both its JSON and its zlib form under it, so a reader expands no value
+# past it.
+DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
+# The entries of the in-process tier of one tiered mapping. A PyPI fact holds about 1 KB, so a
+# full tier holds about 1 MB.
+DEFAULT_BRAIN_MEMORY_ENTRIES: int = 1024
+# How long a tool fact of PyPI or deps.dev is kept, in memory and in Valkey: 24 hours.
+DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
+# The shared listing snapshot of a repository lives 7 days after its last write (#4668).
+DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
+# A load of a shared snapshot stops after this time and the reader takes the local copy or reads
+# GitHub (#4668). Each command keeps the shorter bound of `valkey.timeout`.
+DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS: float = 20.0
+# The fields that one `HSCAN` of a shared snapshot asks for, and that one `HSET` of a full write
+# sends. 500 records are about 1 MB with zlib.
+DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT: int = 500
+# The temporary key of a full write lives this long, so a killed writer leaves no key without an
+# end.
+DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS: int = 600
+# A process reads the visibility of a repository again after this time (#4668).
+DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS: float = 3600.0
 # Commands wait at most this long on the run index before keeping a run locally only.
 DEFAULT_RUNS_INDEX_TIMEOUT_SECONDS: float = 2.0
 

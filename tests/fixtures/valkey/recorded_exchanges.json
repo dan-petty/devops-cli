@@ -731,6 +731,341 @@
     ],
     "reply": ":1\r\n"
    }
+  ],
+  "watch_lost": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:watch_lost:hash",
+     "meta",
+     "first"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "WATCH",
+     "devops-contract:watch_lost:hash"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HGET",
+     "devops-contract:watch_lost:hash",
+     "meta"
+    ],
+    "reply": "$5\r\nfirst\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:watch_lost:hash",
+     "meta",
+     "other"
+    ],
+    "reply": ":0\r\n"
+   },
+   {
+    "command": [
+     "MULTI"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:watch_lost:hash",
+     "meta",
+     "mine"
+    ],
+    "reply": "+QUEUED\r\n"
+   },
+   {
+    "command": [
+     "EXEC"
+    ],
+    "reply": "*-1\r\n"
+   },
+   {
+    "command": [
+     "HGET",
+     "devops-contract:watch_lost:hash",
+     "meta"
+    ],
+    "reply": "$5\r\nother\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:watch_lost:hash"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "hscan_bytes": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:hscan_bytes:hash",
+     "1",
+     "x\udc9c\udcabV\udcca+\udccdMJ-R\udcb2R0\udcd4QP*\udcc9,\udcc9I\u0005\udcb2\udc95RR\udccb\udcf2\u000b\udc8a\u0015\udc92\udcf3\udcf3J\udc8a\u0012\udc93K\udc94j\udcab\u0007N!\u0000u\u00116\udcbd",
+     "2",
+     "x\udc9c\udcabV\udcca+\udccdMJ-R\udcb2R0\udcd4QP*\udcc9,\udcc9I\u0005\udcb2\udc95RR\udccb\udcf2\u000b\udc8a\u0015\udc92\udcf3\udcf3J\udc8a\u0012\udc93K\udc94j\udcab\u0007N!\u0000u\u00116\udcbd"
+    ],
+    "reply": ":2\r\n"
+   },
+   {
+    "command": [
+     "HSCAN",
+     "devops-contract:hscan_bytes:hash",
+     "0",
+     "COUNT",
+     "500"
+    ],
+    "reply": "*2\r\n$1\r\n0\r\n*4\r\n$1\r\n1\r\n$51\r\nx\udc9c\udcabV\udcca+\udccdMJ-R\udcb2R0\udcd4QP*\udcc9,\udcc9I\u0005\udcb2\udc95RR\udccb\udcf2\u000b\udc8a\u0015\udc92\udcf3\udcf3J\udc8a\u0012\udc93K\udc94j\udcab\u0007N!\u0000u\u00116\udcbd\r\n$1\r\n2\r\n$51\r\nx\udc9c\udcabV\udcca+\udccdMJ-R\udcb2R0\udcd4QP*\udcc9,\udcc9I\u0005\udcb2\udc95RR\udccb\udcf2\u000b\udc8a\u0015\udc92\udcf3\udcf3J\udc8a\u0012\udc93K\udc94j\udcab\u0007N!\u0000u\u00116\udcbd\r\n"
+   },
+   {
+    "command": [
+     "HGET",
+     "devops-contract:hscan_bytes:hash",
+     "1"
+    ],
+    "reply": "$51\r\nx\udc9c\udcabV\udcca+\udccdMJ-R\udcb2R0\udcd4QP*\udcc9,\udcc9I\u0005\udcb2\udc95RR\udccb\udcf2\u000b\udc8a\u0015\udc92\udcf3\udcf3J\udc8a\u0012\udc93K\udc94j\udcab\u0007N!\u0000u\u00116\udcbd\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:hscan_bytes:hash"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "rename_hash_ttl": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:rename_hash_ttl:hash",
+     "1",
+     "old",
+     "2",
+     "old"
+    ],
+    "reply": ":2\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:rename_hash_ttl:next",
+     "1",
+     "new"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "EXPIRE",
+     "devops-contract:rename_hash_ttl:next",
+     "600"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "RENAME",
+     "devops-contract:rename_hash_ttl:next",
+     "devops-contract:rename_hash_ttl:hash"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "TTL",
+     "devops-contract:rename_hash_ttl:hash"
+    ],
+    "reply": ":600\r\n"
+   },
+   {
+    "command": [
+     "HGETALL",
+     "devops-contract:rename_hash_ttl:hash"
+    ],
+    "reply": "*2\r\n$1\r\n1\r\n$3\r\nnew\r\n"
+   },
+   {
+    "command": [
+     "EXISTS",
+     "devops-contract:rename_hash_ttl:next"
+    ],
+    "reply": ":0\r\n"
+   },
+   {
+    "command": [
+     "DEL",
+     "devops-contract:rename_hash_ttl:hash"
+    ],
+    "reply": ":1\r\n"
+   }
+  ],
+  "expire_hdel_unlink": [
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-NAME",
+     "valkey-py"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "CLIENT",
+     "SETINFO",
+     "LIB-VER",
+     "6.2.0"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "HSET",
+     "devops-contract:expire_hdel_unlink:hash",
+     "meta",
+     "m",
+     "1",
+     "a",
+     "2",
+     "b"
+    ],
+    "reply": ":3\r\n"
+   },
+   {
+    "command": [
+     "SET",
+     "devops-contract:expire_hdel_unlink:other",
+     "x"
+    ],
+    "reply": "+OK\r\n"
+   },
+   {
+    "command": [
+     "EXPIRE",
+     "devops-contract:expire_hdel_unlink:hash",
+     "60"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "TTL",
+     "devops-contract:expire_hdel_unlink:hash"
+    ],
+    "reply": ":60\r\n"
+   },
+   {
+    "command": [
+     "HDEL",
+     "devops-contract:expire_hdel_unlink:hash",
+     "2",
+     "3"
+    ],
+    "reply": ":1\r\n"
+   },
+   {
+    "command": [
+     "HKEYS",
+     "devops-contract:expire_hdel_unlink:hash"
+    ],
+    "reply": "*2\r\n$4\r\nmeta\r\n$1\r\n1\r\n"
+   },
+   {
+    "command": [
+     "UNLINK",
+     "devops-contract:expire_hdel_unlink:hash",
+     "devops-contract:expire_hdel_unlink:other",
+     "devops-contract:expire_hdel_unlink:missing"
+    ],
+    "reply": ":2\r\n"
+   },
+   {
+    "command": [
+     "EXISTS",
+     "devops-contract:expire_hdel_unlink:hash"
+    ],
+    "reply": ":0\r\n"
+   }
   ]
  }
 }
