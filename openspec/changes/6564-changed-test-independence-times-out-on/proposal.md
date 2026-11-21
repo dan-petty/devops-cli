@@ -2,19 +2,17 @@
 
 ## Why
 
-The check `Changed-Test Independence` runs each changed test file three times in one process, so its time grows with the number of changed test files. On pull request #6562 one pass took 454 s and GitHub cancelled the second pass at the job limit, so the check gave no result at all. Issue #6564 asks for a pass or fail result under the 5 min + 1 min bound of AGENTS.md rule 5, with the same tests, the same three shuffled passes and no higher timeout.
+The check `Changed-Test Independence` runs the changed test files of a pull request three times, one run after another, each in a shuffled order. Each run used one process (`-n 0`), so the time of the job grows with the number of changed tests. On pull request #6562, one run of 1,473 tests took 454 s, and one run of 1,805 tests took 594 s. GitHub cancelled the job at its limit of 15 minutes in the second run, on each head. A cancelled job gives no result. Issue #6564 asks for a pass or fail result under the 5 min + 1 min bound of AGENTS.md rule 5, with the same tests, the same three shuffled runs and no higher timeout.
 
 ## What Changes
 
-- `devops ci test` takes the options `--shard` and `--shards` and passes only the files of its shard to pytest, weighed by the recorded seconds that `devops ci durations` writes.
-- The new `shard_paths` splits a given list of test files across the shards, and `shard_test_files` calls it for the whole suite, so both splits weigh the same recorded seconds.
-- A sharded `--repeat` run passes only its shard's files to each of its passes.
-- A shard that holds no file exits 0 and starts no pytest, so an empty shard never runs the whole suite.
-- The job `changed-tests` is a matrix of eight shard jobs named `Changed-Test Independence (shard <n> of <total>)`, each with its own tooling cache key and a 12-minute test step under the 15-minute job limit.
-- The new job `changed-tests-result`, named `Changed-Test Independence`, needs the matrix and ends red when the matrix does not succeed.
-- The workflow parity allowlist of `tests/commands/test_ci.py` holds the row of the aggregate step.
-- The generated page `docs/commands/ci.md` holds the two new options of `devops ci test`.
-- The check keeps the same three shuffled passes over the same changed test files, and raises no timeout.
+- A `--repeat` run of `devops ci test` uses the workers that a narrowed run of the same files gets: one process for up to 50 collected tests, else the worker cap (4 workers, or fewer when `PYTEST_XDIST_AUTO_NUM_WORKERS` is smaller). A given `-n` applies to each run. The command chooses the workers one time for all of its runs.
+- The new option `--run <k>` of `devops ci test` starts only run `<k>` of the `--repeat` runs, with the seed of that run. It refuses a run above `--repeat` with exit 2.
+- The job `changed-tests` of `ci.yml` is a matrix of three jobs, `Changed-Test Independence (run <k> of 3)`. Each job runs `devops ci test --repeat 3 --run <k>` on the changed test files. Its test step has a limit of 12 minutes under the job limit of 15 minutes, so a run that is too long fails with a message, and the job is not cancelled.
+- The new job `changed-tests-result`, named `Changed-Test Independence`, needs the three runs and fails when one of them did not succeed.
+- The workflow parity allowlist of `tests/commands/test_ci.py` holds the step of the new job.
+- `docs/TESTING.md` and the generated page `docs/commands/ci.md` state the new worker rule and the option `--run`.
+- The option and the worker choice are observable behavior of a command, so the change has deltas of `ci-test-workers` and `ci-test-shards`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -25,43 +23,28 @@ None.
 
 ### Modified Capabilities
 
-- `ci-test-shards`: The test command runs one shard of the files it selects, Each repeat pass of a shard runs the files of that shard, The workflow runs Changed-Test Independence in shards
+- `ci-test-workers`: Repeat runs take the workers of a narrowed run (it replaces Repeat runs make no collection).
+- `ci-test-shards`: One repeat run starts alone.
 
 ## Impact
 
-- Code: `src/devops_cli/core/test_selection.py`, `src/devops_cli/commands/ci.py`, `.github/workflows/ci.yml`
-- Documents: `docs/commands/ci.md`
-- Tests: `tests/commands/test_ci_shard.py`, `tests/commands/test_ci_repeat.py`, `tests/commands/test_ci.py`
+- Code: `src/devops_cli/commands/ci.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`
+- Workflow: `.github/workflows/ci.yml`
+- Documents: `docs/TESTING.md`, `docs/commands/ci.md`
+- Tests: `tests/commands/test_ci_repeat.py`, `tests/commands/test_test_selection.py`, `tests/commands/test_ci.py`
 
 ## Feasibility
 
-- The probes say "The path `.github/workflows/ci.yml` is a file of the staging commit.", so the workflow that holds the check is in the staged tree.
-- `read_file` read lines 750-835 of that workflow, and the range holds `.github/workflows/ci.yml:757:changed-tests:`, `.github/workflows/ci.yml:758:name: Changed-Test Independence`, `.github/workflows/ci.yml:764:timeout-minutes: 15`, `.github/workflows/ci.yml:775:- name: Detect Changed Test Files` and `.github/workflows/ci.yml:804:uv run devops ci test --repeat 3 -- "${CHANGED_TESTS[@]}"`, so one job holds the check, one step lists the changed test files, and one step runs them.
-- That range also holds `.github/workflows/ci.yml:794:cache-suffix: changed-tests` and `.github/workflows/ci.yml:796:compile-bytecode: "false"`, so one process runs every changed file three times and its time grows with the number of changed files.
-- `read_file` read lines 2250-2345 of the test command module, and the range holds `src/devops_cli/commands/ci.py:2284:def test(`, `src/devops_cli/commands/ci.py:2296:int, typer.Option("--repeat", min=0, help=HELP.ci.repeat)` and `src/devops_cli/commands/ci.py:2325:_run_shuffled_repeats(_build_test_cmd("0", verbose, k, x, None), targets, repeat, seed)`, so the command takes no shard option and runs every pass over all of its targets.
-- That range also holds `src/devops_cli/commands/ci.py:2268:if targets is None:` and `src/devops_cli/commands/ci.py:2269:print_error(MESSAGES.ci.repeat_needs_targets, prefix=False)`, so a repeat run refuses no target and a shard's file list is the one argument that narrows each pass.
-- `read_file` read lines 1815-1865 of the gate command, and the range holds `src/devops_cli/commands/ci.py:1826:typer.Option("--shard", min=1, help=HELP.ci.shard),`, `src/devops_cli/commands/ci.py:1840:if shard > shards:` and `src/devops_cli/commands/ci.py:1842:MESSAGES.ci.shard_above_total.format(shard=shard, shards=shards), param_hint="--shard"`, so the gate refuses a shard above the total and the test command reuses that refusal and its help text.
-- `read_file` read lines 320-400 of the selection module, and the range holds `src/devops_cli/core/test_selection.py:330:def directory_modules(directory: str, root: Path) -> list[str]:`, `src/devops_cli/core/test_selection.py:345:def recorded_durations(root: Path) -> dict[str, float]:` and `src/devops_cli/core/test_selection.py:356:def shard_test_files(shard: int, shards: int, root: Path) -> list[str]:`, so the splitter weighs the modules of the whole suite and takes no given list.
-- That range also holds `src/devops_cli/core/test_selection.py:350:path = root / CONST_CI_TEST_DURATIONS_PATH` and `src/devops_cli/core/test_selection.py:372:lines = {module: line_count(module) for module in directory_modules(CONST_TESTS_ROOT_DIR, root)}`, so the recorded seconds come from the record under the root and the split covers the tests tree.
-- `read_file` read lines 815-855 of the gate command, and the range holds `src/devops_cli/commands/ci.py:825:from devops_cli.core.test_selection import shard_test_files` and `src/devops_cli/commands/ci.py:843:*shard_test_files(shard, shards, _get_project_root()),`, so the gate's test row already splits the whole suite and no function splits a given list.
-- `search_code` for `shard_paths` gave "No match.", so the function that splits a given list is new.
-- `read_file` read lines 1-45 of the shard test module, and the range holds `tests/commands/test_ci_shard.py:22:from devops_cli.core.test_selection import directory_modules, is_test_module, shard_test_files` and `tests/commands/test_ci_shard.py:29:_SPLIT_OPTIONS = ("--splits", "--group", "--splitting-algorithm")`, so the shard cases and their imports sit in that module.
-- `read_file` read lines 100-140 of the repeat test module, and the range holds `tests/commands/test_ci_repeat.py:127:result = runner.invoke(CI, ["test", "--repeat", "3", "--seed", "2", "tests/test_shared.py"])`, so a repeat case of the command goes in that module.
-- `read_file` read lines 1856-1990 of the parity test module, and the range holds `tests/commands/test_ci.py:1868:allowlist: dict[tuple[str, str], str] = {`, `tests/commands/test_ci.py:1922:"Require Passing Test Shards",` and `tests/commands/test_ci.py:1966:assert len(rows) > 0, (`, so a new run step needs an allowlist row of its own.
-- `read_file` read lines 30-120 of the workflow contract test module, and the range holds `tests/invariants/test_workflow_contracts.py:45:SUITE_STEP_LIMIT_MINUTES = {` and `tests/invariants/test_workflow_contracts.py:110:if "timeout-minutes" in step and not step["timeout-minutes"] < limit`, so every job needs a limit and each step limit stays under its own job limit.
-- The probes say "`e78252815` has no definition at the staging commit. No commit in the history added or removed its text.", so the head of pull request #6562 is no fact of the staged tree: the 454 s pass, the 1,473 changed tests and the cancel at 21:15 are the report of that pull request, and this plan reads them as such.
-- The set that the new guard covers is the changed test files of a pull request, whose count no tool of this run can read for a future head, so the count is unverified; the guard is `shard_paths`, its test `test_shard_paths_puts_each_given_file_in_one_shard` decides every file of a fixed list as in exactly one shard, and that test is the verify of the first group.
-- `shard_paths` reads the given test modules and the duration record under the root, so a checkout of the repository is its precondition.
-- `shard_test_files`, `recorded_durations` and `directory_modules` walk the tests tree and read the record under the root, so a checkout of the repository is their precondition.
-- `_resolve_test_targets` and `_head_seed` read the checkout, and `_head_seed` runs `git rev-parse HEAD`, so a checkout of the repository is their precondition.
-- `_run_shuffled_repeats` starts pytest over the checkout, so a checkout of the repository with `uv` and pytest is its precondition.
-- `uv run devops docs generate` reads the checkout, so a checkout of the repository is its precondition; no call of the plan needs a client of a service or a network.
-- The plan introduces no program of its own: each verify runs `uv run devops ci test` or `uv run devops ci --check`, whose rows start `uv`, `python`, `pytest`, `devops`, `actionlint` and `zizmor` from the runner image, each in the image tools list and none `NOT_IN_RUNNER`; the failure classes of a step are `test`, `lint`, `types` and `ci_infra`, and the pod settings are `readOnlyRootFilesystem: true`, `runAsNonRoot: true` and `capabilities.drop: ALL`.
-- The first checks against the real system are `uv run devops ci test tests/commands/test_ci_shard.py`, `uv run devops ci test tests/commands/test_ci_repeat.py`, `uv run devops ci test tests/commands/test_ci.py tests/invariants/test_workflow_contracts.py` and `uv run devops ci --check --only actionlint,zizmor`.
+- The job log of #6562 at head `e78252815` (job 136565700410) shows `collected 1473 items` and `1473 passed in 454.18s`, then `The operation was canceled` at 21:15:31. The job log at head `399500f09` (job 136670779803) shows `collected 1805 items`, `1805 passed in 594.22s`, and the cancel at 01:16:16. Each job used 26 s to 31 s before pytest started.
+- `src/devops_cli/commands/ci.py` on `origin/main` builds each repeat run with `_build_test_cmd("0", ...)`, so each run used one process and ignored `-n`.
+- The five shard jobs of `Tests & Coverage` of the same run ran 4,847 to 5,852 tests each in 139 s to 193 s, with 4 xdist workers on the 4 CPUs of the runner (`created: 4/4 workers`).
+- `tests/module_durations.json` records 3,372 s for the 1,327 test modules. The 53 changed files of `e78252815` record 988 s, and one file, `tests/roadmap/implement/test_roadmap_implement_job.py`, records 191.8 s of it.
+- The changed test files of the 1,118 commits of `main` in the 21 days to 2026-11-21 record a median of 8.7 s, 72 s at the 90th percentile, 296 s at the 99th percentile, and 1,318 s at most (`git log --name-only` against `tests/module_durations.json`).
+- pytest-xdist 3.8.0 and pytest-randomly 5.1.0 are in the dev group of `pyproject.toml`. pytest-randomly gives the same `--randomly-seed` to each xdist worker, so each worker collects the same shuffled order.
 
 ## Existing Tool Considered
 
-The open, maintained library `pytest-xdist` runs tests in parallel workers inside one job, so it gives a shard no own time bound and no matrix that GitHub shows as separate jobs. The change builds its own split instead and reuses the shard mechanism that the project keeps in `devops ci` and the GitHub Actions matrix. Written cost of the code that the project keeps: about 40k tokens to build, keep and fix, and about 2 hours of elapsed time. The change deletes no internal code.
+pytest-xdist runs each shuffled run on the CPUs of the runner, and the matrix of GitHub Actions runs the three runs on three runners. Both are open, maintained tools, and the project uses both already: the test row runs on xdist workers, and `Tests & Coverage` is a matrix of shards. pytest-repeat (`--count`) repeats each test in one session with one seed, so it gives no new shuffle for each run and no parallel run. pytest-split splits files by recorded time, as the `--shard` option of `devops ci` does already, and a split by file keeps the slowest file in one process. The change builds only the option `--run` and the worker choice of a repeat run, which reuses `_narrowed_workers`: about 30k tokens to build, keep and fix, and about 1 hour of elapsed time. The change deletes the fixed `-n 0` of the repeat runs.
 
 ## Dependencies
 

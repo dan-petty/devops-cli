@@ -2208,6 +2208,7 @@ class CIMessages:
         "supported yet."
     )
     repeat_seed_unavailable: str = "Could not read HEAD to derive a shuffle seed; pass --seed."
+    run_above_repeat: str = "Run {run} is above the {runs} runs that --repeat asked for."
     test_collection_failed: str = (
         "Could not collect the selected tests, so the workers follow the number of test files: "
         "{command} failed with {reason}."

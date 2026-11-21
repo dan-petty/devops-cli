@@ -937,14 +937,17 @@ def test_a_dry_run_plans_the_workers_without_collecting(
     [
         pytest.param((), id="full-suite"),
         pytest.param(("-n", "2", "tests/test_secrets.py"), id="workers-given"),
-        pytest.param(("--repeat", "2", "--seed", "1", "tests/test_secrets.py"), id="repeat"),
+        pytest.param(
+            ("--repeat", "2", "--seed", "1", "-n", "2", "tests/test_secrets.py"),
+            id="repeat-workers-given",
+        ),
     ],
 )
 def test_a_run_that_chooses_its_workers_by_other_means_makes_no_collection(
     process_fake: ProcessFake, project: Path, args: tuple[str, ...]
 ) -> None:
-    """A run with no paths keeps addopts' `-n logical`, a given `-n` is kept as it is, and a
-    `--repeat` run is serial, so none of them starts a collection (#4472, #5606)."""
+    """A run with no paths keeps addopts' `-n logical`, and a given `-n` is kept as it is, also
+    for the runs of `--repeat`, so none of them starts a collection (#4472, #5606, #6564)."""
     result = runner.invoke(ci_app, ["test", *args])
 
     assert (result.exit_code, _collection_calls(process_fake)) == (0, [])

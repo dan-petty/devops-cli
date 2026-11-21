@@ -2,41 +2,28 @@
 
 ## Decisions
 
-- **Run the changed test files in a matrix of eight shard jobs with one aggregate job.**: `openspec/specs/ci-test-shards/spec.md` records this pattern for long test work, and the job `test-shard` of the workflow already uses it for the suite.
-- **Give the check name `Changed-Test Independence` to the aggregate job.**: A person reads one check with one result, as with `Tests & Coverage`, and the check is not required, so no ruleset reads the name.
-- **Keep the job id `changed-tests` on the matrix job and give the aggregate the id `changed-tests-result`.**: The requirement `The test jobs skip the bytecode compile` of `ci-job-time` names the `changed-tests` job, and the matrix job keeps the toolchain step with `compile-bytecode: "false"`, so that requirement stays true.
-- **Balance the changed files across eight shards by the recorded seconds of the duration record.**: The reported 454 s for one pass over 1,473 tests gives about 57 s per pass in a shard, about 170 s for three passes and about one minute of setup, under the 300 s bound; four shards leave no margin.
-- **Fail the aggregate job when the matrix does not succeed.**: The step `Require Passing Test Shards` of the job `Tests & Coverage` does the same, and one red check names the failed shard.
-- **Give the aggregate job the pull request condition, the release skip and `!cancelled()` in its `if`.**: The matrix job runs only on a pull request, so a push to `main` would otherwise run the aggregate and fail it on a skipped need; `!cancelled()` keeps it running after a failed shard, whose default `if` is `success()`.
-- **Keep the job limit of the matrix at 15 minutes and give the test step 12 minutes.**: The issue forbids a higher timeout, and a step limit under the job limit fails a slow shard with a message that names the step; the invariant test compares a step limit with its own job limit, so 12 under 15 passes.
-- **Exit 0 and start no pytest when a shard holds no file, and print no new message for it.**: `devops ci test` passes no target to pytest when its list is empty, and pytest would then collect the whole suite; seven of eight shards are empty for a pull request that changes one test file, and the step `Detect Changed Test Files` already prints the file list that a reader compares with the shard count.
-- **Let a changed-file shard be empty, while the suite split keeps every shard non-empty.**: The base requirement `Each shard collects only its own test files` covers the split of the whole suite, whose modules fill every shard; a changed-file list can hold fewer files than the shards, so its own requirement states the empty-shard rule for that list alone.
-- **Reuse the splitter, the refusal and the help texts of `devops ci` for a given list of test files.**: The recorded seconds already weigh the split of the suite, and `HELP.ci.shard`, `HELP.ci.shards` and `MESSAGES.ci.shard_above_total` stay true of a sharded test run, so a second wording would drift from them.
-- **Read no cached verdict and write none in a sharded changed-test run.**: The base requirement `A sharded run reads and writes no cached verdict` of `ci-test-shards` requires it, and a shard's verdict is not the verdict of the whole changed set.
-- **Give each shard job its own tooling cache key and let it list the changed test files itself.**: Eight jobs that save one key at the same time race, as the comment of `test-shard` says, and one git diff per job costs seconds and needs no artifact.
-- **Update the workflow parity allowlist in the same group as the workflow change.**: The parity check refuses a run step that runs no gate row, so the aggregate step and its allowlist row are one change and the group never fixes a test that only breaks.
-- **Verify the workflow group with the two test modules that pin the workflow.**: The parity test module reads the file and checks the allowlist, and the workflow contract test module checks each job limit and each step limit, so one command catches a broken edit before the group ends.
-- **Add no `devops ci job-time` alarm for the changed-test check.**: The check runs only on a pull request, and `devops ci job-time` reads push runs of `main`, where the job is skipped.
+- **Run each shuffled run on the xdist workers that a narrowed run gets.**: A run of the 1,473 tests of #6562 took 454 s on one process. `Tests & Coverage` runs about 5,000 tests in each shard in 139 s to 193 s on 4 workers. `_narrowed_workers` already chooses the workers of a narrowed run: one process for up to 50 collected tests, where the start of the workers costs more than it saves, else 4 workers. A one-file change thus stays on one process.
+- **Choose the workers one time for all runs of a repeat.**: The collection is a second pytest session, and the runs select the same files with the same `-k` filter, so one count is true for each run.
+- **Start each of the three runs on a runner of its own, with the new option `--run`.**: Each run already was a pytest session of its own with its own seed, so three jobs give the same three runs. The job time is then the time of one run, not of three. The option keeps the seed rule in the command: run `<k>` gets the seed `first + k - 1`, where `first` is `--seed` or the value from the commit hash of HEAD.
+- **Keep the set of each run whole.**: Each run gets each changed test file, so a test can meet each other changed test in its process, as before. pytest-randomly keeps the tests of one module together in its order, and xdist with `--dist worksteal` gives each worker one part of that order, so most tests of one module run in one worker.
+- **Give the check name `Changed-Test Independence` to an aggregate job.**: A person reads one check with one result, as with `Tests & Coverage` and its shards. The aggregate fails when the matrix result is not `success`, as the step `Require Passing Test Shards` does, because a skipped job would show as a pass.
+- **Keep the job id `changed-tests` on the matrix job.**: The requirement `The test jobs skip the bytecode compile` of `ci-job-time` names that job, and the matrix job keeps `compile-bytecode: "false"`.
+- **Give each run its own tooling cache key.**: Three jobs that save one key at the same time race, as the comment of `test-shard` says.
+- **Give the test step a limit of 12 minutes under the job limit of 15 minutes.**: The limits nest: the 600 s bound of one test < 720 s of the step < 900 s of the job. A step that passes its limit fails with a message that names the step, so the job gives a result and is not cancelled.
+- **Let `-n` apply to a repeat run.**: The help said that a repeat run ignored `-n`. A caller who gives `-n` now gets those workers, as in each other narrowed run.
 
 ## Rejected alternatives
 
-- **Three jobs, one for each repeat pass.**: It gives a 3x gain only, so a larger changed set still reaches the limit, and it needs a new option for the pass seed.
-- **Parallel workers of `pytest-xdist` in one job.**: It keeps one job and one time bound, and the workers share the state of one process, so the job still reaches its limit.
-- **A higher job timeout.**: The issue forbids it, and the job still gives no result before the cancel.
-- **Four shard jobs.**: The reported 454 s per pass gives about 341 s for three passes, which leaves no margin under the 300 s bound.
-- **A matrix that a prepare job computes from the recorded seconds.**: It needs a prepare job and a new command output, and the fixed matrix meets the proof of the issue.
-- **Each shard job holds the check name.**: A matrix makes the name of the check unstable in the checks list.
-- **A new name for the check.**: It loses the history of the check, and no reason asks for it.
-- **Pass the aggregate job when the first shard passes.**: It hides a failed shard and gives a wrong result.
-- **Retry a failed shard once.**: A retry hides a flaky test that the check exists to find.
-- **Reuse one cached verdict for each shard, or write one for each shard.**: `devops ci test` reads and writes no cached verdict at all, and a shard of a changed set is not stable between runs.
-- **Split the changed file list in the workflow with a shell one-liner.**: The project keeps the gate as the one entry point of every workflow step, and the split needs the recorded seconds, which only the Python splitter reads.
-- **Give the changed-tests test step a limit of 5 minutes.**: The reported 454 s of one pass over 1,473 tests gives about 170 s for three passes in a shard plus setup, so 5 minutes leaves too little margin for the slowest runner.
+- **Eight file shards, each with three serial runs (the first plan of this change).**: The split keeps each file in one process, and `test_roadmap_implement_job.py` records 191.8 s of the 988 s of the 53 files of #6562, so its shard runs it three times on one process. It also starts eight runners for each pull request that changes a test file, seven of them with no file for a one-file change. The first plan also said that xdist workers share one process; they are separate processes.
+- **xdist workers in one job with the three runs one after another.**: One run of 1,473 tests on 4 workers takes about 454 s / 4 = 114 s at best, so three runs and the setup take more than 360 s.
+- **A prepare job that computes the number of shards from the recorded seconds.**: It adds a job of about 30 s before each run of the check, and a new command output. The three runs cover each change of the last 21 days: the largest recorded 1,318 s, about 1.3 times the 988 s of #6562.
+- **pytest-repeat with `--count 3`.**: It repeats each test in one session with one seed, so the three runs get no new shuffle and run in one process.
+- **A higher job timeout.**: The issue forbids it, and the job gives no result before the cancel.
+- **Pass the check when one run passes, or retry a failed run.**: Both hide a test that depends on the order, which the check exists to find.
 
 ## Unchanged references
 
 - `openspec/specs/ci-job-time/spec.md` (spec): The job id `changed-tests` stays on the matrix job, which still passes `compile-bytecode: "false"` to `setup-toolchain`.
-- `docs/adr/0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md` (document): It says the `changed-tests` job finds nothing to do on the release pull request; the matrix job keeps its release skip.
-- `tests/fixtures/github/ci_runs_main.json` (fixture): It records runs of past heads of `main`, where the job was skipped; a recorded run is not rewritten.
-- `tests/fixtures/github/check_runs_pr_5357_head.json` (fixture): It records the check runs of one past head; a recorded run is not rewritten.
-- `CHANGELOG.md` (document): Released history; release-please writes the next line from the pull request title.
+- `docs/adr/0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md` (document): It says that the `changed-tests` job finds nothing to do on the release pull request. The matrix job and the aggregate job keep the release skip.
+- `tests/fixtures/github/ci_runs_main.json` and `tests/fixtures/github/check_runs_pr_5357_head.json` (fixtures): They record runs of past heads. A recorded run is not written again.
+- `CHANGELOG.md` (document): Released history. release-please writes the next line from the pull request title.

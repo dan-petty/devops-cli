@@ -1860,6 +1860,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Detect Changed Test Files",
         ): "Git diff to list the pull request's changed test files",
         (
+            "changed-tests-result",
+            "Require Passing Changed-Test Runs",
+        ): "Fails the check when a changed-test run did not succeed, as a skipped job would pass (#6564)",
+        (
             "static",
             "Security Scan",
         ): "Runs devops scan report to generate SARIF findings for GitHub code scanning",
