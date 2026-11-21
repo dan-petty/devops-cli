@@ -43,26 +43,26 @@ vulnerabilities:
       - usr/local/bin/kubectl
     purls:
       - pkg:golang/golang.org/x/text@v0.40.0
-    statement: x/text v0.40.0 in kubectl v1.37.2, the newest release; fixed in 0.41.0 (#6084)
-    expired_at: 2026-11-22
+    statement: x/text v0.40.0 in kubectl v1.37.2, the newest stable release on 2026-11-21; fixed in 0.41.0; the owner extended the entry to 2026-12-15, past the 14-day limit (#6084)
+    expired_at: 2026-12-15
   - id: CVE-2026-78669
     paths:
       - usr/local/bin/kubectl
     purls:
       - pkg:golang/golang.org/x/net@v0.57.0
-    statement: x/net v0.57.0 in kubectl v1.37.2, the newest release; fixed in 0.60.0 (#6084)
-    expired_at: 2026-11-21
+    statement: x/net v0.57.0 in kubectl v1.37.2, the newest stable release on 2026-11-21; fixed in 0.60.0; the owner extended the entry to 2026-12-15, past the 14-day limit (#6084)
+    expired_at: 2026-12-15
   - id: CVE-2026-78661
     paths:
       - usr/local/bin/kubectl
     purls:
       - pkg:golang/golang.org/x/net@v0.57.0
-    statement: x/net v0.57.0 in kubectl v1.37.2, the newest release; fixed in 0.62.0 (#6084)
-    expired_at: 2026-11-21
+    statement: x/net v0.57.0 in kubectl v1.37.2, the newest stable release on 2026-11-21; fixed in 0.62.0; the owner extended the entry to 2026-12-15, past the 14-day limit (#6084)
+    expired_at: 2026-12-15
   - id: CVE-2026-97054
     paths:
       - usr/local/bin/kubectl
     purls:
       - pkg:golang/stdlib@v1.26.10
-    statement: Go stdlib v1.26.10 in kubectl v1.37.2, the newest release; fixed in Go 1.26.11 (#6084)
-    expired_at: 2026-11-22
+    statement: Go stdlib v1.26.10 in kubectl v1.37.2, the newest stable release on 2026-11-21; fixed in Go 1.26.11; the owner extended the entry to 2026-12-15, past the 14-day limit (#6084)
+    expired_at: 2026-12-15
