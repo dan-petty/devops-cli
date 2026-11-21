@@ -14,12 +14,24 @@ import yaml
 
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.roadmap.project_review.catalog import (
+    Catalog,
     load_catalog,
     render_query,
     window_placeholders,
 )
 from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
 
+NAMESPACES = ("devops", "llm")
+WINDOW = ReviewWindow(
+    kind=WindowKind.PERIOD,
+    id="w",
+    base_sha="a" * 40,
+    head_sha="b" * 40,
+    start=datetime(2026, 11, 4, 14, 51, 23, tzinfo=UTC),
+    end=datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC),
+    previous_id=None,
+)
+VALKEY_PODS = 'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"{namespaces}"} == 0)'
 STAGE = 'sum(increase(devops_cli_service_jobs_total{{row="stage"{repo}}}[{{range}}]))'
 VALID: dict[str, Any] = {
     "version": 1,
@@ -49,13 +61,13 @@ VALID: dict[str, Any] = {
 }
 
 
-def _load(tmp_path: Path, change: Any) -> None:
+def _load(tmp_path: Path, change: Any) -> Catalog:
     """Load `VALID` after `change` edits a copy of it."""
     document = copy.deepcopy(VALID)
     change(document)
     path = tmp_path / "catalog.yaml"
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
-    load_catalog(path)
+    return load_catalog(path)
 
 
 def _refusal(tmp_path: Path, change: Any) -> str:
@@ -211,12 +223,12 @@ def test_the_placeholders_of_a_seven_day_window_keep_the_label_braces() -> None:
     )
     template = 'sum(increase(devops_cli_service_jobs_total{repo="{repo}"}[{range}]))'
 
-    sent = render_query(template, window_placeholders(window, "example/project"))
+    sent = render_query(template, window_placeholders(window, "example/project", NAMESPACES))
 
     assert sent == ('sum(increase(devops_cli_service_jobs_total{repo="example/project"}[604800s]))')
-    assert render_query("{start}..{end} {base} {head}", window_placeholders(window, "x/y")) == (
-        f"2026-11-04T14:51:23Z..2026-11-11T14:51:23Z {'a' * 40} {'b' * 40}"
-    )
+    assert render_query(
+        "{start}..{end} {base} {head}", window_placeholders(window, "x/y", NAMESPACES)
+    ) == (f"2026-11-04T14:51:23Z..2026-11-11T14:51:23Z {'a' * 40} {'b' * 40}")
 
 
 def test_the_name_slug_placeholder_matches_the_job_names_of_the_repository() -> None:
@@ -232,6 +244,21 @@ def test_the_name_slug_placeholder_matches_the_job_names_of_the_repository() -> 
     )
     template = 'kube_job_status_start_time{job_name=~"devops-cli-implement-{name_slug}-.+"}'
 
-    sent = render_query(template, window_placeholders(window, "Example/My.Project"))
+    sent = render_query(template, window_placeholders(window, "Example/My.Project", NAMESPACES))
 
     assert sent == 'kube_job_status_start_time{job_name=~"devops-cli-implement-my-project-.+"}'
+
+
+def test_a_rows_fact_in_the_project_namespaces_loads(tmp_path: Path) -> None:
+    def add(doc: dict[str, Any]) -> None:
+        doc["facts"][0].update(id="prometheus.valkey_pods", query=VALKEY_PODS, shape="rows")
+
+    catalog = _load(tmp_path, add)
+
+    assert catalog.facts[0].query == VALKEY_PODS
+
+
+def test_the_namespaces_placeholder_gives_the_project_namespaces_as_one_alternation() -> None:
+    sent = render_query(VALKEY_PODS, window_placeholders(WINDOW, "example/project", NAMESPACES))
+
+    assert sent == 'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"devops|llm"} == 0)'

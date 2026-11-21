@@ -393,3 +393,22 @@ def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
         f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))',
     ]
     assert present or "x_total" in read.reason
+
+
+def test_a_workload_query_reads_only_the_namespaces_of_the_setting(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """The names of the workloads of other projects never reach the review (#6615)."""
+    config(
+        prometheus={"url": PROMETHEUS},
+        roadmap={"project_review": {"namespaces": ["devops", "llm"]}},
+    )
+    web.serve(_by_query(lambda _query: _vector(({"namespace": "devops", "pod": "valkey-0"}, 1.0))))
+    query = 'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"{namespaces}"} == 0)'
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.valkey_pods", query, "rows")])
+
+    read_catalog(catalog, _context(tmp_path))
+
+    assert [request.url.params["query"] for request in web.sent] == [
+        'max by (namespace, pod) (redis_memory_max_bytes{namespace=~"devops|llm"} == 0)'
+    ]
