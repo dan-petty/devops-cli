@@ -83,7 +83,7 @@ A save whose records, schema key and watermark the shared snapshot already holds
 
 #### Scenario: Two lanes and a new process with the same records
 - **WHEN** two lanes of one process save the same 1,200 records and watermark with full reads at 08:00 and 09:00, and then each saves them again twice, and a new process saves them once
-- **THEN** after the first save of each lane, the lanes send only `HGET` and `EXPIRE` commands, the stored `meta` does not change, `devops_cli_brain_writes_total{result="unchanged"}` rises by five, and no temporary key stays
+- **THEN** after the first save of each lane, the lanes send only `EXPIRE` alone, beside the read of `meta` and its `PTTL` in one pipeline, the stored `meta` does not change, `devops_cli_brain_writes_total{result="unchanged"}` rises by five, and no temporary key stays
 
 ### Requirement: A load uses only the records that its meta names
 A load SHALL use the records of the shared snapshot only when their digest is the digest of the `meta` that the load read first. A new `meta` of the same records during the scan SHALL NOT make the load a miss. A value of the shared tier is untrusted: a `meta` or a record with a time with no UTC offset, and a record that expands past 1 MiB, SHALL make the shared copy a miss, and the next save SHALL replace it.
@@ -111,15 +111,11 @@ A reader SHALL treat a shared value under an older key version, or with another 
 - **THEN** each read returns the value of the source, and the shared tier then holds the source value under the current key with the current schema key
 
 ### Requirement: No key of a private repository
-The visibility check SHALL give public, private or unknown; a failed read SHALL give unknown. The snapshot store SHALL write no key of a repository that the check does not give as public, and SHALL NOT use its shared copy. A private answer SHALL count `result="private"`, and SHALL remove a shared key of the repository and count `result="removed"`. An unknown answer SHALL count `result="unknown"`, and the store SHALL NOT read the records of, write or remove the shared copy.
+The visibility check SHALL give public, private or unknown; a failed read SHALL give unknown. The snapshot store SHALL write no key of a repository that the check does not give as public, and SHALL NOT use its shared copy. A private answer SHALL count `result="private"`, and SHALL remove a shared key of the repository and count `result="removed"`. An unknown answer SHALL count `result="unknown"`, and the store SHALL NOT read the records of or write the shared copy.
 
 #### Scenario: Private repository
 - **WHEN** a listing round runs for a repository whose visibility read gives `isPrivate: true`
 - **THEN** the `valkey_server` fake holds no key that names the repository, the round reads GitHub, GitHub gets one visibility read, and `devops_cli_brain_reads_total{store="snapshot",result="private"}` and `devops_cli_brain_writes_total{store="snapshot",result="private"}` each rise by one
-
-#### Scenario: A failed visibility read leaves the shared copy
-- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process finds that its visibility read fails with `API rate limit exceeded`
-- **THEN** the snapshot key keeps its `meta` and its records, the second round sends only `HGET` commands to Valkey, GitHub gets one visibility read in the second round, and `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` and `devops_cli_brain_writes_total{store="snapshot",result="unknown"}` each rise by one
 
 #### Scenario: No visibility read without the shared tier
 - **WHEN** the `valkey_server` fake has `connected = False` and a listing round runs
@@ -128,6 +124,21 @@ The visibility check SHALL give public, private or unknown; a failed read SHALL 
 #### Scenario: A repository that became private
 - **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process finds that the repository is private
 - **THEN** the `valkey_server` fake holds no key, the round uses no shared copy, and `devops_cli_brain_writes_total{result="removed"}` rises by one
+
+### Requirement: An unknown answer removes a stale shared copy
+An unknown answer SHALL remove the shared copy of a repository and count `devops_cli_brain_writes_total{result="removed"}` when the last save of the copy is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour). A save comes only after a public answer. The age of the last save SHALL be the TTL of a snapshot less the `PTTL` of its key, read with `meta` in one round trip. A fresher copy, a key with no TTL and a missing key SHALL stay.
+
+#### Scenario: A failed visibility read leaves a fresh shared copy
+- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 30 min later finds that its visibility read fails with `API rate limit exceeded`
+- **THEN** the snapshot key keeps its `meta` and its records, the second round sends no command alone for the key because it reads `meta` and its `PTTL` in one pipeline, GitHub gets one visibility read in the second round, and `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` and `devops_cli_brain_writes_total{store="snapshot",result="unknown"}` each rise by one
+
+#### Scenario: A failed visibility read removes a stale shared copy
+- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process 61 min later finds that its visibility read fails with `Could not resolve to a Repository`
+- **THEN** the `valkey_server` fake holds no key, the second round sends `UNLINK` and no other command alone for the key, `devops_cli_brain_reads_total{store="snapshot",result="unknown"}` rises by one, and `devops_cli_brain_writes_total{store="snapshot"}` counts one `removed` and one `unknown`
+
+#### Scenario: No age of a save to read
+- **WHEN** the shared key of a public repository is removed or loses its TTL, and a round in a new process 61 min later finds that its visibility read fails
+- **THEN** the round removes nothing, sends no command alone for the key, and counts only `unknown` on `devops_cli_brain_reads_total{store="snapshot"}` and `devops_cli_brain_writes_total{store="snapshot"}`
 
 ### Requirement: One key for each repository
 The key of a shared snapshot, the visibility answer of a process, and the records of the shared copy that the snapshot store of a process knows SHALL use the casefolded name of `RepoRef.key`, so each spelling of a repository name gives one key, one visibility read and one set of known records.
@@ -181,7 +192,7 @@ The valkey container of the Deployment `valkey-devops` SHALL start valkey-server
 - **THEN** the command holds `--maxmemory 256mb` and the limit is `384Mi`, and the metric is 268435456
 
 ### Requirement: A visibility answer is kept for its lifetime
-A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL stay for at most 1 hour after the change plus the time that the visibility reads fail, and for at most the TTL of its key.
+A process SHALL keep a public or a private answer of the visibility check for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour), and an unknown answer for `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` (60 s), before it reads the visibility again. Thus the shared copy of a repository that became private SHALL go at most about 2 hours after the change, at the first run after that time.
 
 #### Scenario: An unknown answer is kept for 60 s
 - **WHEN** the visibility read of a repository fails, the `clock` fixture moves 59 s before a second check, and 2 s more before a third check whose read gives `isPrivate: false`

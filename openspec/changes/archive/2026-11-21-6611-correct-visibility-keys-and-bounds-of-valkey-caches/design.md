@@ -8,7 +8,7 @@
 
 - `PUBLIC`: the load and the save use the shared copy, as before.
 - `PRIVATE`: the load counts `BrainRead.PRIVATE` and gives the local copy. The save counts `BrainWrite.PRIVATE` and writes no key. When the shared tier holds a copy (`meta` was read), the store sends `UNLINK` and counts `BrainWrite.REMOVED`.
-- `UNKNOWN`: the load counts `BrainRead.UNKNOWN` and gives the local copy. The save counts `BrainWrite.UNKNOWN` and writes nothing. The store sends no `HSCAN`, `HSET`, `HDEL`, `RENAME`, `EXPIRE` or `UNLINK` for the key. The `HGET` of `meta` before the check stays: the store reads the visibility only after Valkey answered, so a round with Valkey down sends no visibility read.
+- `UNKNOWN`: the load counts `BrainRead.UNKNOWN` and gives the local copy. The save counts `BrainWrite.UNKNOWN` and writes nothing. The store sends no `HSCAN`, `HSET`, `HDEL`, `RENAME` or `EXPIRE` for the key, and sends `UNLINK` only for a stale copy (decision 2a). The read of `meta` before the check stays: the store reads the visibility only after Valkey answered, so a round with Valkey down sends no visibility read.
 
 ### 2. The answers live in a TLRUCache with two lifetimes
 
@@ -16,7 +16,15 @@ The visibility answers move from a `dict` with a hand-written age check to a `ca
 
 The owner decision of 2026-11-21 (comment on the pull request of #4668) accepts up to 1 hour for a repository that becomes private, so `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` stays 3,600 s.
 
-Trade-off: before this change, a failed read removed the shared copy, so the copy of a repository that became private stayed at most 1 hour. Now an unknown answer leaves the copy, so the bound is 1 hour after the change plus the time that the visibility reads fail. The TTL of the key (7 days) is the upper limit. A GraphQL quota that is out ends at its reset, at most 1 hour later. A read that fails for good, such as `Could not resolve to a Repository` for a token that cannot see the repository, keeps the copy until its key expires. During an unknown answer no process writes the copy, so the copy holds only records that a process wrote while it had a public answer. The pull request asks the owner to accept this longer window. `docs/roadmap/intake.md`, `k8s/README.md` and the requirement "A visibility answer is kept for its lifetime" give the bound.
+Trade-off: before this change, a failed read removed the shared copy, so the copy of a repository that became private stayed at most 1 hour. An unknown answer that leaves each copy would keep the copy of a repository that became private for as long as the reads fail. A read that fails for good, such as `Could not resolve to a Repository` for a token that cannot see the repository, would keep it until its key expires (7 days). Decision 2a bounds that case.
+
+### 2a. An unknown answer removes a stale shared copy
+
+The coordinator decided this on 2026-11-21, in place of an owner answer on the pull request (owner rule: decide open design questions with the best-practice answer and report them). A save comes only after a public answer: each write, and the `EXPIRE` of an unchanged save, sets the TTL of the key to `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS`. Thus the age of the last save, `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` less the `PTTL` of the key, is the time since a process last saw the repository as public. An unknown answer removes the copy, sends one `UNLINK` and counts the existing `BrainWrite.REMOVED` when that age is more than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (1 hour). A fresher copy stays, and the process with the unknown answer does not use it. A key with no TTL (`PTTL` -1) and a key that went (`PTTL` -2, or no `meta`) give no age, and the store removes nothing.
+
+`ValkeySnapshotStore.meta` reads `meta` and the `PTTL` of the key in one pipeline with no MULTI/EXEC, through the new `ValkeyCacheTier.hget_with_ttl` and `ValkeyClient.hget_with_ttl`, so a load and a save send no extra round trip. `HeldMeta` holds the `PTTL`. The client method builds the valkey-py pipeline itself, because `ValkeyClient.pipeline` sends no per-command option and the `HGET` needs `NEVER_DECODE` to give the bytes of `meta` that the WATCH read of a write compares. A failure counts with `op="hget"`, as the plain read did.
+
+Thus a short failure, such as a GraphQL quota that is out until its reset, keeps a fresh copy, which is the reason for this change. A process keeps a public answer for at most 1 hour, so the last save of a repository that became private comes at most 1 hour after the change. Its copy goes at most about 2 hours after the change, at the first run after that, and not after 7 days. The store matches no error text: a failure that goes on, of each kind, gives the same bound. `docs/roadmap/intake.md`, `k8s/README.md` and the requirements "An unknown answer removes a stale shared copy" and "A visibility answer is kept for its lifetime" give the bound.
 
 ### 3. Two new label values
 
@@ -56,7 +64,9 @@ The tests assert each requirement offline on the `valkey_server` fake, the `cloc
 - **Keep a failed read until the reset time that the error gives:** rejected. The `DevOpsCLIError` of a failed `gh` GraphQL read carries the text of the error, not a reset time, and a failure that is not a quota failure (HTTP 502 in the existing tests) has none. A fixed 60 s needs no parse.
 - **Keep no failed read:** rejected. The issue measured one more GraphQL request for each lane round while the quota is out.
 - **A bound for each record only:** rejected. The issue measured a tracemalloc peak of 151 MiB for 150 fields of 1,040 bytes of zlib each.
-- **Treat a GraphQL `NOT_FOUND` answer of the visibility read as private:** not in this change. It needs a new class of gh failure in the GitHub error classifier, which every gh command shares. A follow-up item can add it.
+- **Treat a GraphQL `NOT_FOUND` answer of the visibility read as private:** rejected. It needs a new class of gh failure in the GitHub error classifier, which every gh command shares, or a match of the error text. Decision 2a bounds each failure that goes on with no match of the error text.
+- **Ask the owner to accept the 7-day window:** rejected. Decision 2a gives a bound of about 2 hours from data that Valkey already keeps.
+- **A save time in `meta`:** rejected. `meta` has no save time, and an unchanged save sends only `EXPIRE`, so a time in `meta` would not move. The `PTTL` moves with each save.
 - **Remove the shared copy when a save passes the total bound:** rejected. A copy that a writer of this version stored is under the bound, so a load still accepts it, and a removal costs each cold process a full listing read. A copy past the bound from an older writer gets no new TTL and expires.
 - **64 MiB (the design of the issue):** rejected. It was sized against the zlib size. Against the 36.2 MiB of JSON, it leaves 1.8 times the snapshot.
 - **256 MiB (four times the measure, rounded up):** rejected. The design of the issue rejected it because a few lanes that load at the same time come near 1 GiB of JSON, plus the parsed records, under the 3Gi limit of `roadmap-service`.
