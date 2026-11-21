@@ -10,15 +10,16 @@ again in full.
 `valkey:roadmap:v1:snapshot:<owner>/<name>` with the casefolded name of `RepoRef.key`, with the
 field `meta` (the schema key, the time of the last full read, the watermark, and a digest of the
 records) and one zlib JSON `IssueRecord` for each issue number. One field for each record keeps
-each value far under the bound of 1 MiB; the whole snapshot of devops-cli is about 14 MB. The key
-lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last save.
+each value far under the bound of 1 MiB; the whole snapshot of devops-cli is about 38 MB of JSON
+and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after its last save.
 
 - A load reads `meta`, then the records with `HSCAN`, and stops when it passes
   `DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS`. It uses the records only when their digest is the
   one of `meta`, so a copy that another writer changed during the scan is not used, and a new
   `meta` of the same records does not spoil the scan. A value that does not parse, a time with
   no UTC offset and a record that expands past `DEFAULT_BRAIN_VALUE_MAX_BYTES` make the copy a
-  miss: the values are untrusted.
+  miss: the values are untrusted. So does a sum of expanded records past
+  `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES` (128 MiB), the total bound of one load.
 - A write is made only when its watermark is not older than the stored one, or when the stored
   copy has another schema key (ADR 0023 section 4). The check and the write are one WATCH and
   MULTI/EXEC; a writer whose EXEC fails writes nothing and does not try again, because the other
@@ -72,6 +73,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_BRAIN_MEMORY_ENTRIES,
     DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
+    DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES,
     DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT,
     DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS,
     DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS,
@@ -420,8 +422,11 @@ def _digests(texts: Mapping[str, bytes]) -> dict[str, bytes]:
 
 def _decompressed(repo: str, values: Mapping[str, bytes]) -> dict[str, bytes] | None:
     """The JSON of each record; None when a value is not whole zlib data or expands past
-    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes."""
+    `DEFAULT_BRAIN_VALUE_MAX_BYTES`, which no writer of the store writes, or when the sum of the
+    expanded records passes `DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES`. The sum is checked after each
+    record, so a load expands at most the total bound and one record."""
     texts: dict[str, bytes] = {}
+    total = 0
     for number, value in values.items():
         expander = zlib.decompressobj()
         try:
@@ -434,6 +439,14 @@ def _decompressed(repo: str, values: Mapping[str, bytes]) -> dict[str, bytes] | 
                 "A record of the shared snapshot of %s is cut off or expands past %s bytes.",
                 repo,
                 DEFAULT_BRAIN_VALUE_MAX_BYTES,
+            )
+            return None
+        total += len(text)
+        if total > DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES:
+            logger.info(
+                "The records of the shared snapshot of %s expand past the bound of %s bytes.",
+                repo,
+                DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES,
             )
             return None
         texts[number] = text
