@@ -175,7 +175,7 @@ class ReviewScannerMissingError(DevOpsCLIError):
         names = ", ".join(scanners)
         super().__init__(
             f"The review is not clean: the runner image lacks {names}, so the files it scans "
-            "went unscanned. Install each scanner in the image (#3827).",
+            "went unscanned. Add each scanner to the devtools image (#3827).",
             details={"scanners": list(scanners)},
         )
 

@@ -1,8 +1,9 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-21
 decision-makers: [owner]
 issue: 3827
+body-hash: "5febb00ef1d7fffdd364b6cf6ddda8e330a8349ae4fac8c47d908861c46fe130"
 ---
 
 # Review scanners run in the runner pod

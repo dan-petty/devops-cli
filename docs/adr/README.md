@@ -175,5 +175,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
 | [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
 | [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 |  |
+| [0031](0031-review-scanners-run-in-the-runner-pod.md) | Review scanners run in the runner pod | accepted | 2026-11-21 |  |
 
 <!-- ADR_INDEX_END -->
