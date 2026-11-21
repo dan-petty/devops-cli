@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The agent phase rebases once and settles each stop
-The agent phase SHALL rebase onto the tip of the default branch that `prepare` recorded, once, before the first step. It SHALL skip a commit whose every change the run makes again, and make the generated documents and `uv.lock` again. Another stop SHALL abort the rebase and stop the item with the class `conflict`. The job SHALL NOT call `fix_rebase_conflict`.
+The agent phase SHALL rebase onto the tip of the default branch that `prepare` recorded, once, before the first step. It SHALL skip only the archive commit of the item, and make the generated documents and `uv.lock` again. Another stop SHALL abort the rebase and stop the item with the class `conflict`. The job SHALL NOT call `fix_rebase_conflict`.
 
 #### Scenario: A main that moved
 - **WHEN** `main` gains a commit before the Job starts

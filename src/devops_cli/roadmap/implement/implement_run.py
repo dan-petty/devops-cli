@@ -59,7 +59,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
-    CONST_OPENSPEC_SPECS_DIR,
+    CONST_OPENSPEC_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
     CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
@@ -347,18 +347,29 @@ def _unmerged(path: Path) -> list[str]:
     return [name for name in listed.split("\0") if name]
 
 
-def _made_again(status: str, path: str) -> bool:
-    """Whether the run makes the change of `path` again after a rebase: a file of the archive or
-    of the specs, which the archive writes, the removal of a file of a change folder, which the
-    archive moves, or a generated document. A rebase skips a commit that holds only such changes
-    (#3702): an archive commit, but not the plan commit, which adds the change folder."""
+def skips_archive_commit(listed: str, number: int) -> bool:
+    """Whether a rebase skips the commit that `listed` gives, the output of `git show --name-status
+    -z` of `REBASE_HEAD`: the archive commit of item `number`. It removes or moves a file out of
+    `openspec/changes/<number>-`, and every path is an OpenSpec path or a generated document, which
+    the run makes again (#3702). The plan commit adds its change folder, so the rule keeps it.
+    The conflict fixer of #6620 holds the same rule; #6640 makes them one function."""
     from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path
 
-    if path.startswith((f"{CONST_OPENSPEC_ARCHIVE_DIR}/", f"{CONST_OPENSPEC_SPECS_DIR}/")):
-        return True
-    if path.startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/"):
-        return status == "D"
-    return is_generated_docs_path(path)
+    fields = listed.split("\0")
+    moved, paths, index = False, [], 0
+    while index < len(fields) and fields[index]:
+        status = fields[index][:1]
+        width = 2 if status in ("R", "C") else 1
+        names = fields[index + 1 : index + 1 + width]
+        moved = moved or (
+            status in ("D", "R") and names[0].startswith(f"{CONST_OPENSPEC_CHANGES_DIR}/{number}-")
+        )
+        paths.extend(names)
+        index += 1 + width
+    made_again = all(
+        name.startswith(f"{CONST_OPENSPEC_DIR}/") or is_generated_docs_path(name) for name in paths
+    )
+    return moved and made_again
 
 
 def _rebase_in_progress(path: Path) -> bool:
@@ -816,7 +827,7 @@ class _ItemRun:
     def _rebase(self, path: Path) -> None:
         """Rebase the checkout `path` onto `onto`, the tip of `origin/<default>` that `prepare`
         recorded, and settle each stop as a developer does (#3702): `git rebase --skip` for a
-        commit whose every path the run makes again (`_made_again`), and `git checkout --ours`
+        commit whose every path the run makes again (`skips_archive_commit`), and `git checkout --ours`
         with a new generation for conflicts only in the generated documents and `uv.lock`. A
         rebase that git refuses to start, as in a checkout that holds changes, is no conflict: no
         abort runs, and the stop has the class `ci_infra`, as a new Job starts from a new clone
@@ -862,17 +873,9 @@ class _ItemRun:
         from devops_cli.roadmap.steps.fix_conflict import is_generated_docs_path, is_lockfile_path
 
         listed = git(
-            path,
-            "show",
-            "--name-status",
-            "--no-renames",
-            "-z",
-            "--format=",
-            "REBASE_HEAD",
-            operation=GIT_OPERATION,
-        ).split("\0")
-        changes = list(zip(listed[0::2], listed[1::2], strict=False))
-        if changes and all(_made_again(status, name) for status, name in changes):
+            path, "show", "--name-status", "-z", "--format=", "REBASE_HEAD", operation=GIT_OPERATION
+        )
+        if skips_archive_commit(listed, self.number):
             return ("rebase", "--skip")
         unmerged = _unmerged(path)
         if not unmerged or not all(

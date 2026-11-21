@@ -21,7 +21,7 @@ from devops_cli.roadmap.implement.implement_phases import (
     prepare_implement,
     publish_phase,
 )
-from devops_cli.roadmap.implement.implement_run import _made_again
+from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.stores.store import ImplementResult
 from tests.support.implement_step import WINDOW
@@ -147,19 +147,25 @@ class TestPrepareRunsGitOnly:
         assert names == {"git"}
 
 
-@pytest.mark.parametrize(
-    ("status", "path", "again"),
-    [
-        ("A", "openspec/changes/archive/2026-11-21-1-x/tasks.md", True),
-        ("M", "openspec/specs/roadmap/spec.md", True),
-        ("D", "openspec/changes/1-x/tasks.md", True),
-        ("A", "openspec/changes/1-x/tasks.md", False),
-        ("M", "src/devops_cli/shout.py", False),
-    ],
+ARCHIVE_MOVE = (
+    "R100\0openspec/changes/1-x/tasks.md\0openspec/changes/archive/2026-11-21-1-x/tasks.md\0"
 )
-def test_a_rebase_skips_only_a_commit_that_the_run_makes_again(
-    status: str, path: str, again: bool
-) -> None:
-    """The archive commit moves the change folder and merges the specs, so the run archives again
-    after a skip. The plan commit adds the change folder, so a skip would lose the plan (#3702)."""
-    assert _made_again(status, path) is again
+
+
+@pytest.mark.parametrize(
+    ("listed", "skip"),
+    [
+        (ARCHIVE_MOVE + "M\0openspec/specs/roadmap/spec.md\0", True),
+        ("D\0openspec/changes/1-x/tasks.md\0M\0docs/CLI_REFERENCE.md\0", True),
+        ("A\0openspec/changes/1-x/tasks.md\0A\0openspec/changes/1-x/proposal.md\0", False),
+        ("M\0openspec/specs/roadmap/spec.md\0", False),
+        ("D\0openspec/changes/2-y/tasks.md\0", False),
+        (ARCHIVE_MOVE + "M\0src/devops_cli/shout.py\0", False),
+    ],
+    ids=["archive", "archive-by-delete", "plan", "spec-only", "other-item", "mixed"],
+)
+def test_a_rebase_skips_only_the_archive_commit_of_the_item(listed: str, skip: bool) -> None:
+    """The archive commit moves the change folder of the item and merges the specs, so the run
+    archives again after a skip. The plan commit adds the change folder, so a skip would lose the
+    plan, and a commit that changes other files goes to a stop (#3702)."""
+    assert skips_archive_commit(listed, 1) is skip
