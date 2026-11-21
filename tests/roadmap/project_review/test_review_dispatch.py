@@ -382,7 +382,8 @@ def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
     fact has a series in the window (one more read, sent only for an empty answer)."""
     config(prometheus={"url": PROMETHEUS})
     web.serve(_by_query(_probe(present)))
-    fact = {**_prometheus_fact("prometheus.spend", "sum by (row) (x_total) > 0", shape)}
+    query = "sum by (row) (increase(x_total[{range}])) > 0"
+    fact = {**_prometheus_fact("prometheus.spend", query, shape)}
     fact["base"] = 'x_total{repo="{repo}"}'
     catalog = _catalog(tmp_path, [fact])
 
@@ -390,10 +391,33 @@ def test_a_fact_with_no_series_is_none_only_when_its_base_metric_has_a_series(
 
     assert (read.status, read.value, read.n) == (status, value, n)
     assert [request.url.params["query"] for request in web.sent] == [
-        "sum by (row) (x_total) > 0",
+        "sum by (row) (increase(x_total[604800s])) > 0",
         f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))',
     ]
     assert present or "x_total" in read.reason
+
+
+@pytest.mark.parametrize("shape", ["scalar", "rows"])
+def test_an_end_instant_fact_whose_base_has_no_series_at_the_end_is_skipped(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path], shape: str
+) -> None:
+    """A query with no `{range}` reads the window end, so its probe reads the end too: a series
+    earlier in the window does not make an empty answer "none" (#6612)."""
+    config(prometheus={"url": PROMETHEUS})
+    window_probe = f'group(last_over_time(x_total{{repo="{REPO}"}}[604800s]))'
+    web.serve(_by_query(lambda query: _vector(({}, 1)) if query == window_probe else _vector()))
+    fact = {**_prometheus_fact("prometheus.states", "sum by (state) (x_total)", shape)}
+    fact["base"] = 'x_total{repo="{repo}"}'
+    catalog = _catalog(tmp_path, [fact])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, "x_total" in read.reason) == (FactStatus.SKIPPED, None, True)
+    assert "2026-11-11T14:51:23Z" in read.reason
+    assert [request.url.params["query"] for request in web.sent] == [
+        "sum by (state) (x_total)",
+        f'group(x_total{{repo="{REPO}"}})',
+    ]
 
 
 def test_a_workload_query_reads_only_the_namespaces_of_the_setting(
