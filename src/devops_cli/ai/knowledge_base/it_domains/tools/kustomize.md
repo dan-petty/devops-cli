@@ -91,7 +91,7 @@ patches:
 
 ## 5. Security Recommendations & Zero-Trust Policies
 
-- **Secret Generator Protection**: When using `secretGenerator`, avoid committing raw secret values in `kustomization.yaml`. Use `env` files referenced from encrypted secret stores or SealedSecrets.
+- **Secret Generator Protection**: Do not use `secretGenerator` for a secret value: the value goes into git. A service Secret comes from an `ExternalSecret` of the External Secrets Operator, and a platform Secret from `devops k8s push-secrets` (ADR 0033).
 - **Path Traversal Restrictions**: Ensure overlays only reference relative paths inside the project repository tree.
 - **Pre-Deployment Linting**: Pipe Kustomize output through `kubelinter` and `pluto` before applying to live clusters.
 

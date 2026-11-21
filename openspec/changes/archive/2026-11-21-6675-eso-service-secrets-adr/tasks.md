@@ -28,6 +28,8 @@ Changes: `docs/SERVICE_PATTERNS.md`, `SECURITY.md`, `docs/guidelines/production-
   - Verification: `$ grep -n ExternalSecret docs/SERVICE_PATTERNS.md SECURITY.md docs/guidelines/production-readiness.md`
 - [x] 3.2 Limit REL-9, Table 12 and steps 5 and 9 of Table 13 of the production readiness guideline to platform Secrets, and add the ESO path of a new service
   - Verification: `$ grep -c "Add a row to the Secret table\|pushes the Secrets and merges" docs/guidelines/production-readiness.md` prints 0
+- [x] 3.3 Replace the Sealed Secrets and render-time injection advice of the Helm and Kustomize knowledge base with the ESO and push-secrets paths, and keep the Check cell of CF4 to the checks that exist
+  - Verification: `$ grep -c -i "sealed" src/devops_cli/ai/knowledge_base/it_domains/tools/helm.md src/devops_cli/ai/knowledge_base/it_domains/tools/kustomize.md` prints 0 for each file
 
 ## Criteria
 
