@@ -29,10 +29,14 @@ Kind: manifest. Reads: `tests/gate/k8s_render.py`, `tests/gate/k8s_checks/argocd
 
 ## 4. The store alerts and has a dashboard
 
-Kind: manifest. Reads: `k8s/monitoring/prometheus-values.yaml`, `k8s/monitoring/dashboards/kustomization.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/monitoring/prometheus-values.yaml`, `k8s/monitoring/dashboards/seaweedfs.json` (new), `k8s/monitoring/dashboards/kustomization.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
+Kind: manifest. Reads: `k8s/monitoring/prometheus-values.yaml`, `k8s/monitoring/networkpolicy.yaml`, `src/devops_cli/config/defaults.py`, `k8s/monitoring/dashboards/kustomization.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/monitoring/prometheus-values.yaml`, `k8s/monitoring/dashboards/seaweedfs.json` (new), `k8s/monitoring/dashboards/kustomization.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`, `k8s/monitoring/networkpolicy.yaml`, `tests/gate/k8s_checks/object_store.py`, `src/devops_cli/config/defaults.py`, `docs/CONFIGURATION.md`, `k8s/README.md`.
 
 - [x] 4.1 Add the `seaweedfs` group of five alerts, the four SeaweedFS series to `SERVED_SERIES`, the dashboard of tag 4.54 with the lint changes, and its ConfigMap `grafana-storage-dashboards`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py tests/prometheus/test_k8s_monitoring_dashboards.py` passes, `$ uv run devops grafana dashboards lint k8s/monitoring/dashboards/seaweedfs.json` finds no problem, and `$ uv run devops ci --check --only k8s` passes
+- [x] 4.2 Write the scrape rule of `tests/gate/k8s_checks/object_store.py`, which joins the egress of the `monitoring` policies and the ingress of the store for the `alloy-metrics` pod, then add the egress rule of `monitoring-default-perimeter` to namespace `object-store` on 9327 and the ServiceMonitors of the operator to the Alloy targets of the README section `Scrape Ownership`
+  - Verification: `check_alloy_reaches_the_metrics_port_of_each_component` fails before the egress rule and `$ uv run devops ci --check --only k8s` passes after it
+- [x] 4.3 Add `object-store` to `DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES`, so the project review reads the workloads of the store, and generate `docs/CONFIGURATION.md`
+  - Verification: the names of `DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES` equal the names of the objects of `kind: Namespace` in `k8s/namespaces.yaml`, and `$ uv run devops ci docs` passes
 
 ## 5. The build test
 

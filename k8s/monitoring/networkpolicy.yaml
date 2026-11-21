@@ -178,6 +178,14 @@ spec:
       ports:
         - protocol: TCP
           port: 9402
+    # SeaweedFS object store metrics (#4750): the ServiceMonitors that the SeaweedFS operator makes
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: object-store
+      ports:
+        - protocol: TCP
+          port: 9327
     # 5. Allow egress to cloudflared namespace for Cloudflare Tunnel metrics scraping
     - to:
         - namespaceSelector:

@@ -2,8 +2,8 @@
 
 The SeaweedFS operator makes every workload of the store from the one `Seaweed` CR of
 `k8s/object-store/seaweed.yaml`, so these checks read the CR, the NetworkPolicies and the
-PodDisruptionBudgets of the render of `k8s/object-store`, the two Argo CD Applications and the
-AppProject. Each rule is a function that returns its problems. One check applies the rule to the
+PodDisruptionBudgets of the render of `k8s/object-store`, the NetworkPolicies of the render of
+`k8s/monitoring`, the two Argo CD Applications and the AppProject. Each rule is a function that returns its problems. One check applies the rule to the
 committed render, and one applies it to a fixture that breaks the rule and asserts that the problem
 names the object, so a rule that stops finding its problem fails the row too.
 """
@@ -33,6 +33,7 @@ OPERATOR_APP: Final = APPS_DIR / "seaweedfs-operator.yaml"
 STORE_APP: Final = APPS_DIR / "object-store.yaml"
 PROJECTS: Final = APPS_DIR / "projects.yaml"
 OPERATOR_VALUES: Final = STORE_DIR / "operator-values.yaml"
+MONITORING_DIR: Final = K8S_DIR / "monitoring"
 
 NAMESPACE: Final = "object-store"
 PROJECT: Final = "homelab"
@@ -60,8 +61,12 @@ S3_PORT: Final = 8333
 API_SERVER_PORTS: Final = frozenset({443, 6443})
 METADATA_ADDRESS: Final = "169.254.169.254/32"
 CLIENT_LABEL: Final = {"backup-client": "true"}
+MONITORING: Final = "monitoring"
+# The pod of the `alloy-metrics` StatefulSet of the k8s-monitoring release, which scrapes the
+# ServiceMonitors of every namespace.
+ALLOY_LABELS: Final = {"app.kubernetes.io/name": "alloy-metrics"}
 # The namespaces that a rule may name by `kubernetes.io/metadata.name`: CoreDNS and Alloy.
-NAMED_NAMESPACES: Final = frozenset({"kube-system", "monitoring"})
+NAMED_NAMESPACES: Final = frozenset({"kube-system", MONITORING})
 
 FORBIDDEN_FIELD: Final = "fs.mergeVolumes"
 MAX_CPU: Final = "1"
@@ -88,11 +93,12 @@ def component_labels(component: str) -> dict[str, str]:
     return {**_SEAWEED_LABELS, "app.kubernetes.io/component": component}
 
 
-# The peers of the perimeter model: a pod of each component and the operator in the namespace, a
-# pod of a client namespace, and a pod of another namespace.
+# The peers of the perimeter model: a pod of each component and the operator in the namespace, the
+# Alloy pod, a pod of a client namespace, and a pod of another namespace.
 _PEERS: Final = {
     **{component: (NAMESPACE, component_labels(component), {}) for component in COMPONENTS},
     "operator": (NAMESPACE, OPERATOR_LABELS, {}),
+    "alloy": (MONITORING, ALLOY_LABELS, {}),
     "client": ("example-client", {"app": "client"}, CLIENT_LABEL),
     "foreign": ("example-other", {"app": "other"}, {}),
 }
@@ -730,6 +736,110 @@ def check_the_egress_rule_names_a_perimeter_with_internet_egress() -> None:
 
 def check_clients_reach_the_s3_port_by_a_namespace_label() -> None:
     assert client_problems(_store_kind("NetworkPolicy")) == []
+
+
+def _monitoring_policies() -> list[dict[str, Any]]:
+    """The NetworkPolicies of the render of `k8s/monitoring`."""
+    return [
+        doc for doc in _load(kustomize(MONITORING_DIR).stdout) if doc.get("kind") == "NetworkPolicy"
+    ]
+
+
+def _egress_peer_reaches(
+    peer: Mapping[str, Any], source_namespace: str, namespace: str, labels: Mapping[str, str]
+) -> bool:
+    if "ipBlock" in peer:
+        return True
+    namespaces = peer.get("namespaceSelector")
+    pods = peer.get("podSelector")
+    in_namespace = (
+        namespace == source_namespace
+        if namespaces is None
+        else _selects(namespaces, _namespace_labels(namespace, {}))
+    )
+    return in_namespace and (pods is None or _selects(pods, labels))
+
+
+def egress_blockers(
+    policies: Iterable[Mapping[str, Any]],
+    source: tuple[str, Mapping[str, str]],
+    target: tuple[str, Mapping[str, str]],
+    port: int,
+) -> list[str]:
+    """The names of the policies that select the pod `source` (namespace, labels) for egress when
+    no egress rule of them lets it send to the pod `target` on TCP `port`; empty when the pod may
+    send. With no policy that selects the pod for egress, the pod sends everywhere."""
+    source_namespace, source_labels = source
+    selecting = [
+        policy
+        for policy in policies
+        if policy.get("metadata", {}).get("namespace") == source_namespace
+        and "Egress"
+        in policy.get("spec", {}).get(
+            "policyTypes", ["Egress"] if "egress" in policy.get("spec", {}) else []
+        )
+        and _selects(policy["spec"].get("podSelector", {}), source_labels)
+    ]
+    sends = any(
+        _port_matches(rule, port)
+        and any(
+            _egress_peer_reaches(peer, source_namespace, *target)
+            for peer in rule.get("to") or [{"namespaceSelector": {}}]
+        )
+        for policy in selecting
+        for rule in policy["spec"].get("egress", [])
+    )
+    return [] if not selecting or sends else sorted(p["metadata"]["name"] for p in selecting)
+
+
+def scrape_problems(
+    monitoring_policies: Iterable[Mapping[str, Any]],
+    store_policies: Iterable[Mapping[str, Any]],
+    seaweed: Mapping[str, Any],
+) -> list[str]:
+    """Alloy reaches the metrics port of each component: the perimeter of `monitoring` lets the
+    Alloy pod send to it, and the perimeter of the store admits the Alloy pod."""
+    monitoring_policies, store_policies = list(monitoring_policies), list(store_policies)
+    problems = []
+    for component, part in _components(seaweed).items():
+        port = part.get("metricsPort")
+        if not isinstance(port, int):
+            continue
+        labels = component_labels(component)
+        blockers = egress_blockers(
+            monitoring_policies, (MONITORING, ALLOY_LABELS), (NAMESPACE, labels), port
+        )
+        if blockers:
+            problems.append(
+                f"NetworkPolicy {', '.join(blockers)}: Alloy cannot send to component "
+                f"{component} on {port}"
+            )
+        if "alloy" not in admitted_peers(store_policies, labels, port):
+            problems.append(f"no policy admits Alloy to component {component} on {port}")
+    return problems
+
+
+def check_alloy_reaches_the_metrics_port_of_each_component() -> None:
+    assert scrape_problems(_monitoring_policies(), _store_kind("NetworkPolicy"), _seaweed()) == []
+
+
+def check_the_scrape_rule_names_a_monitoring_perimeter_with_no_egress_to_the_store() -> None:
+    policies = _monitoring_policies()
+    for policy in policies:
+        policy["spec"]["egress"] = [
+            rule
+            for rule in policy["spec"].get("egress", [])
+            if not any(
+                peer.get("namespaceSelector", {}).get("matchLabels", {})
+                == {"kubernetes.io/metadata.name": NAMESPACE}
+                for peer in rule.get("to", [])
+            )
+        ]
+
+    assert any(
+        "monitoring-default-perimeter" in p
+        for p in scrape_problems(policies, _store_kind("NetworkPolicy"), _seaweed())
+    )
 
 
 # The workloads.

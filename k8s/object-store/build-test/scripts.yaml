@@ -4,6 +4,8 @@ metadata:
   name: build-test-scripts
 data:
   # Four parallel multipart uploads of 150 MB with boto3, each read back and compared by SHA-256.
+  # Both programs write to the bucket that a person makes before the run: the identity of the run
+  # has no Admin action, and SeaweedFS authorizes a bucket create as Admin.
   multipart.py: |
     import concurrent.futures
     import hashlib
@@ -52,8 +54,6 @@ data:
         )
 
 
-    if BUCKET not in {b["Name"] for b in s3.list_buckets().get("Buckets", [])}:
-        s3.create_bucket(Bucket=BUCKET)
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(upload, range(4)))
     print("\n".join(results))
@@ -98,13 +98,6 @@ data:
         }
         ctx := context.Background()
         bucket := os.Getenv("BUCKET")
-        if exists, err := client.BucketExists(ctx, bucket); err != nil {
-            log.Fatal(err)
-        } else if !exists {
-            if err := client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{Region: "us-east-1"}); err != nil {
-                log.Fatal(err)
-            }
-        }
         sent := sha256.New()
         // A pipe hides the length of the data, so PutObject cannot know its size.
         reader, writer := io.Pipe()

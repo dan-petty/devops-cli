@@ -153,6 +153,17 @@ The perimeter SHALL admit each namespace with the label `backup-client: "true"` 
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
 - **THEN** the row passes with a namespace selector on `backup-client: "true"` for port 8333 and no `kubernetes.io/metadata.name` selector but those of `kube-system` and `monitoring`
 
+### Requirement: Alloy reaches the metrics port of each component
+The egress of the NetworkPolicies of namespace `monitoring` SHALL let the `alloy-metrics` pod send to namespace `object-store` on the metrics port of each component, and the perimeter of the store SHALL admit the pod on that port.
+
+#### Scenario: The committed perimeters
+- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/monitoring` and `k8s/object-store`
+- **THEN** the row passes with an egress rule of `monitoring-default-perimeter` to namespace `object-store` on 9327 and an ingress rule of the store from namespace `monitoring` on 9327
+
+#### Scenario: A monitoring perimeter with no egress to the store
+- **WHEN** `uv run devops ci --check --only k8s` runs the scrape rule on the monitoring policies with the egress rule to `object-store` removed
+- **THEN** the rule reports a problem that names `monitoring-default-perimeter`
+
 ### Requirement: Each store workload is restricted, budgeted and scraped
 Each component of the `Seaweed` CR SHALL set a pod security context with `runAsNonRoot`, a non-root `runAsUser` and `seccompProfile` `RuntimeDefault`, and a container security context with `allowPrivilegeEscalation: false` and `capabilities.drop: [ALL]`. Each component and the operator SHALL have a PodDisruptionBudget. Each component SHALL set a `metricsPort`, and `spec.serviceMonitor.enabled` SHALL be true, so the operator makes a ServiceMonitor for each component.
 
@@ -219,7 +230,7 @@ The `seaweedfs` group of `serverFiles.alerting_rules.yml` SHALL hold `SeaweedFSN
 - **THEN** promtool accepts the group, the lint finds no problem, and the row passes
 
 ### Requirement: The build test proves the S3 clients
-The build test of `k8s/object-store/build-test/` SHALL run 4 parallel 150 MB multipart uploads with boto3 and one streaming upload of unknown size with minio-go through Service `seaweedfs-s3`, from a namespace with the label `backup-client: "true"`.
+The build test of `k8s/object-store/build-test/` SHALL run 4 parallel 150 MB multipart uploads with boto3 and one streaming upload of unknown size with minio-go through Service `seaweedfs-s3`, from a namespace with the label `backup-client: "true"`. The README section `Build test` SHALL make the bucket `build-test` before the Jobs start, because the identity `build-test` has the actions Read, Write, List and Tagging and SeaweedFS authorizes a bucket create as `Admin`.
 
 #### Scenario: The client uploads
 - **WHEN** a person runs the steps of the README section `Build test` after the merge and the push of the Secrets
