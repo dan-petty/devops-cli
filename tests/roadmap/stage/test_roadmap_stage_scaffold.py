@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -12,7 +13,12 @@ import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_STATUS_READY
 from devops_cli.roadmap.stage import stage as stage_module
-from devops_cli.roadmap.stage.stage import parse_filters, plan_stage
+from devops_cli.roadmap.stage.stage import (
+    StageWriter,
+    parse_filters,
+    plan_stage,
+    read_stage_round,
+)
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
@@ -97,7 +103,67 @@ def test_stage_orphan_cleanup_keeps_app_only_branch_of_ready_item(
     assert BRANCH in _pushed(stage_repo)
     found = store.item(number)
     assert found is not None
-    assert not found.job_record.get(StageRecordKey.PENDING)
+    # The kept branch keeps its intent mark, so a later round resumes on it (#6668).
+    assert found.job_record.get(StageRecordKey.PENDING) == mark
+
+
+def test_the_round_after_the_orphan_cleanup_of_the_service_resumes_on_the_kept_branch(
+    staging: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """A stage Job pushed and died before its draft. The stage row of the Service keeps the
+    App-only branch of the Ready item, and the next Job resumes on it and stages the item, with
+    no plan call (#6668)."""
+    model_fake.answer(make_stage_proposal())
+    plan = plan_stage(
+        staging, repo=STAGE_REPO, source=stage_repo.clone, filters=parse_filters(()), now=NOW
+    )
+    with (
+        patch.object(stage_module, "_open_pull", side_effect=Killed),
+        pytest.raises(Killed) as exc_info,
+    ):
+        apply_stage(staging, plan, source=stage_repo.clone, now=NOW)
+    assert exc_info.type is Killed
+    service = read_stage_round(
+        staging,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        limit=0,
+        now=LATER,
+        every_orphan=True,
+    )
+    StageWriter(staging, stage_repo.clone, now=LATER).begin(service.plan, ())
+    assert _pushed(stage_repo) == [BRANCH, "main"]
+    model_fake.calls.clear()
+    openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
+
+    with patch("devops_cli.roadmap.stage.stage.read_plan_record", return_value=None):
+        _plan2, staged, _removed, failed = _stage_round(staging, stage_repo, now=LATER)
+
+    assert (failed, staged, len(model_fake.calls)) == ((), (1,), 0)
+
+
+def test_a_push_url_in_the_clone_of_the_job_changes_nothing(
+    staging: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    tmp_path: Path,
+) -> None:
+    """`publish` pushes the plan commit from a new repository to the repository on GitHub, so
+    the configuration of the clone that the planner reads never reaches the push (#6704)."""
+    stage_repo.git("config", "remote.origin.pushurl", str(tmp_path / "elsewhere.git"))
+    model_fake.answer(make_stage_proposal())
+
+    plan, staged, _removed, failed = _stage_round(staging, stage_repo, now=NOW)
+
+    assert (failed, staged) == ((), (1,))
+    assert stage_repo.origin_git("log", "--format=%an|%s|%b", f"main..{BRANCH}").split("\n")[
+        :1
+    ] == [f"{STAGE_NAME}|{plan.ready[0].title}|Plans #1."]
 
 
 def test_a_stage_round_killed_after_checkpoint_push_resumes_with_zero_planner_calls(

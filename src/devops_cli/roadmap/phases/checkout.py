@@ -36,10 +36,18 @@ class BranchClone:
     lease: str
 
 
-def clone_branch(work: Path, *, url: str, issue: int, branch: str) -> BranchClone:
+def clone_branch(
+    work: Path,
+    *,
+    url: str,
+    issue: int,
+    branch: str,
+    identity: tuple[str, str] | None = None,
+) -> BranchClone:
     """Clone the repository at `url` into the work folder `work`, and switch to `branch` of item
     `issue`: the pushed branch, or a new branch at the tip of the default branch. The clone commits
-    as the identity of the session, the bot of the App in a runner."""
+    as `identity`, a name and an email, or else as the identity of the session, the bot of the App
+    in a runner."""
     path = work / CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
     work.mkdir(parents=True, exist_ok=True)
     git_call(work, "clone", "--quiet", url, str(path))
@@ -55,9 +63,11 @@ def clone_branch(work: Path, *, url: str, issue: int, branch: str) -> BranchClon
     else:
         git_call(path, "switch", "--quiet", "-c", branch, f"origin/{default}")
         lease = ""
-    session = get_github_session()
-    git_call(path, "config", "user.name", session.login)
-    git_call(path, "config", "user.email", session.commit_email)
+    if identity is None:
+        session = get_github_session()
+        identity = (session.login, session.commit_email)
+    git_call(path, "config", "user.name", identity[0])
+    git_call(path, "config", "user.email", identity[1])
     return BranchClone(path, branch, default, base, lease)
 
 

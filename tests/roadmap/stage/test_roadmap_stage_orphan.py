@@ -460,7 +460,8 @@ def test_the_dry_run_lists_the_write_of_the_intent_mark_before_the_push() -> Non
     texts = MESSAGES.roadmap
     record = StoreRequests(STAGE_REPO).set_marks(texts.plan_placeholders["item"])[-1]
     marks = [i for i, w in enumerate(writes) if (w.target, w.argv) == (record.target, record.argv)]
-    push = next(i for i, w in enumerate(writes) if "push" in w.argv and "-u" in w.argv)
-    worktree = next(i for i, w in enumerate(writes) if "worktree" in w.argv and "add" in w.argv)
+    push = next(i for i, w in enumerate(writes) if w.argv[2:4] == ("<new git folder>", "push"))
+    clone = next(i for i, w in enumerate(writes) if w.argv[1:2] == ("clone",))
 
-    assert [i for i in marks if worktree < i < push] != []
+    # The mark goes before the clone of `prepare`, and so before the push of `publish` (#6704).
+    assert [i for i in marks if i < clone < push] != []

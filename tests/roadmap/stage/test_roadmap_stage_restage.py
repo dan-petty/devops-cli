@@ -231,5 +231,6 @@ def test_a_branch_that_moved_past_the_recorded_commit_refuses_the_push(
 
     assert applied.staged == ()
     (failure,) = applied.failed
-    assert f"--force-with-lease=refs/heads/{BRANCH}:{old}" in failure.reason
+    # The lease on the recorded commit refuses the push (#3387).
+    assert "stale info" in failure.reason
     assert stage_repo.origin_git("rev-parse", BRANCH) == moved

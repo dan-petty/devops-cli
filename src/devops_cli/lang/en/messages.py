@@ -4524,6 +4524,9 @@ class RoadmapMessages:
     )
     # A re-stage pushes with a lease on the commit that `stage.sha` records, and the record of the
     # item holds none (#3387).
+    stage_push_no_change: str = (
+        "The plan of #{number} changes no file of the default branch, so the job pushed nothing."
+    )
     stage_restage_no_sha: str = (
         "The record of #{number} holds no `stage.sha`, so the job cannot push the plan that "
         "replaces the one of its draft pull request."
@@ -5037,9 +5040,16 @@ class RoadmapMessages:
             "plan_state": "the state of the plan pull request of the item, to find a rejected plan",
             "rejected_path": "the newest commit that changed a file that the reason of a rejection names",
             "rejected_reason": "the comment that holds the reason of a rejected plan, for the request",
-            "worktree": "the worktree of the item's branch at the staged commit",
+            "clone": "prepare clones the repository into a new run folder",
+            "switch": "the agent work starts the branch of the item at the staged commit",
+            "patch": "the agent work writes the patch of the change folder",
+            "new_repo": "publish makes a new repository, which reads no file of the clone",
+            "remote_add": "publish names the repository on GitHub as origin of the new repository",
+            "fetch_base": "publish fetches the tip of the default branch and the lease",
+            "apply": "publish applies the patch to the index as data",
             "commit": "commit the change as the identity of the session",
-            "push": "push the branch of the item",
+            "push": "push the branch of the item with a lease on the recorded commit of a "
+            "re-stage, or on the tip that prepare found",
             "pull": "open the draft pull request of the item",
             "delete_failed": "delete the pushed branch when the pull request cannot open",
             "delete_rejected": "delete the staged branch of a rejected plan",

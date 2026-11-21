@@ -3852,6 +3852,9 @@ CONST_ROADMAP_PHASE_PATCH_MAX_BYTES: Final[int] = 16 * 1024 * 1024
 CONST_ROADMAP_FIX_CHECKS_RUNS_DIR: Final[str] = "roadmap/fix-checks-runs"
 # The folder of the data folder that holds the run folders of `implement --phase all` (#3702).
 CONST_ROADMAP_IMPLEMENT_RUNS_DIR: Final[str] = "roadmap/implement-runs"
+CONST_ROADMAP_STAGE_RUNS_DIR: Final[str] = "roadmap/stage-runs"
+"""The folder, in the data folder, of the run folders of the stage write: the clone of `prepare`, the
+change folder of the agent work and the patch that `publish` applies (#6704)."""
 # The variables that the agent phase of a runner Job refuses to start with: the private key of the
 # App and each GitHub token that gh and git read (#2695, #6601).
 CONST_GITHUB_AGENT_REFUSED_ENV: Final[tuple[str, ...]] = (

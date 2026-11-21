@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.roadmap.stage import stage_phases
 from devops_cli.roadmap.stage.stage import StageApplied, StagePlan
 from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_verify import Finding, Verification
@@ -163,9 +164,11 @@ class StageRepo:
 
 
 @pytest.fixture
-def stage_repo(tmp_path: Path) -> StageRepo:
-    """A bare origin and a clone on `main`, with its remote branches fetched."""
+def stage_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StageRepo:
+    """A bare origin and a clone on `main`, with its remote branches fetched. The write of a plan
+    clones and pushes `origin` in place of the repository on GitHub (#6704)."""
     origin = tmp_path / "origin" / "example" / "roadmap.git"
+    monkeypatch.setattr(stage_phases, "CONST_GITHUB_CLONE_URL", str(origin))
     origin.mkdir(parents=True)
     run_git(origin, "init", "-q", "--bare", "-b", "main")
     clone = tmp_path / "clone"
