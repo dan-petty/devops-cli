@@ -4,7 +4,7 @@
 
 The alternatives job is below its target of 80% success. On 2026-11-21 it had 30 successes in 40 results in 6 hours, and 91 in 120 in 24 hours. On 0.186.0 and 0.187.0, each failed result is `refused` with `reason=url`, after 3 to 10 answered searches. The WARNING lines of #6346 name the refused URLs. Closes #6394.
 
-In 10 of the 14 refused URLs, the model cites a link from the text of a page that `fetch_page` read. No tool returned that link. The prompt tells the model to cite "a URL that a tool gave you". The answer of `fetch_page` holds each link of the page. Thus the model reads a link in the page text as a URL that a tool gave it.
+In 10 of the 14 refused URLs, the model cites a link from the text of a page that `fetch_page` read. No tool returned that link. The prompt of 0.187.0 told the model to cite "a URL that a tool gave you". The answer of `fetch_page` holds each link of the page. Thus the model reads a link in the page text as a URL that a tool gave it.
 
 ## What Changes
 

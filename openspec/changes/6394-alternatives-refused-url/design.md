@@ -28,7 +28,7 @@ The log line of #6346 is `The alternatives check of #<n> refused its reply (url)
 
 The earlier result of an item is not the cause. 9 of the 11 items had an earlier check. But the earlier comments hold only 1 of the 14 URLs (`https://openspec.dev/docs/setup` of #3770), and the README that the run fetched also links it.
 
-The prompt says "Do not write a URL that no tool gave you" and "Each one is a URL that a tool gave you". The answer of `fetch_page` holds the whole text of the page, with its links. Thus a link in the page is a URL that a tool gave the model. The check reads the rule otherwise: only the `Source` URL of the page joins `allowed_urls`.
+The prompt of 0.187.0 said "Do not write a URL that no tool gave you" and "Each one is a URL that a tool gave you". The answer of `fetch_page` holds the whole text of the page, with its links. Thus a link in the page is a URL that a tool gave the model. The check reads the rule otherwise: only the `Source` URL of the page joins `allowed_urls`.
 
 ## Decisions
 
