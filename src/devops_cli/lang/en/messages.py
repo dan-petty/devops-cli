@@ -6948,6 +6948,24 @@ class RoadmapMessages:
             ),
         }
     )
+    review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
+    review_catalog_fact: str = "the fact {id}"
+    review_catalog_fact_index: str = "fact {index}"
+    review_catalog_root: str = "the catalog"
+    review_catalog_missing: str = "{subject} has no `{field}`."
+    review_catalog_unknown_field: str = (
+        "{subject} has the field `{field}`, which the schema does not name."
+    )
+    review_catalog_bad_field: str = "{subject} has a `{field}` that the schema refuses. {rule}"
+    review_catalog_see_schema: str = "See catalog.schema.json."
+    review_catalog_bad_program: str = "{subject} has a `{field}` that jq cannot compile: {error}"
+    review_catalog_duplicate: str = "two facts have the id of {subject}."
+    review_catalog_unknown_section: str = (
+        "{subject} names the section {section}, which `sections` does not list."
+    )
+    review_catalog_unknown_fact: str = (
+        "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
+    )
 
 
 @dataclass(frozen=True)

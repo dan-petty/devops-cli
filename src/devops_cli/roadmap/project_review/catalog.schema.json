@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "The fact catalog of the project review",
+  "description": "Each fact that the project review reads from a reader other than git (#4692). A new fact is data and needs no code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "sections", "readers", "facts", "disagreements"],
+  "properties": {
+    "version": {"const": 1, "description": "The version of this form."},
+    "sections": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The sections of the review, in order.",
+      "items": {"$ref": "#/$defs/section"}
+    },
+    "readers": {
+      "type": "object",
+      "description": "The retention and the conditions of each reader kind.",
+      "propertyNames": {"$ref": "#/$defs/reader"},
+      "additionalProperties": {"$ref": "#/$defs/rules"}
+    },
+    "facts": {
+      "type": "array",
+      "description": "The facts, in the order of the review.",
+      "items": {"$ref": "#/$defs/fact"}
+    },
+    "disagreements": {
+      "type": "array",
+      "description": "The pairs of facts that must agree.",
+      "items": {"$ref": "#/$defs/disagreement"}
+    }
+  },
+  "$defs": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "reader": {
+      "enum": ["listing", "github", "github_runs", "prometheus", "loki", "openspec"],
+      "description": "A reader kind of the dispatcher."
+    },
+    "retention": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*d$",
+      "description": "A retention in days, such as 30d."
+    },
+    "requires": {
+      "type": "array",
+      "description": "The conditions of a read: a setting that has a value, or a kind of window.",
+      "items": {
+        "type": "string",
+        "pattern": "^(setting:[a-z_]+(\\.[a-z_]+)+|window:(version|week|period))$"
+      }
+    },
+    "program": {"type": "string", "minLength": 1, "description": "A jq program."},
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "retention": {"$ref": "#/$defs/retention"},
+        "requires": {"$ref": "#/$defs/requires"}
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title"],
+      "properties": {
+        "id": {"$ref": "#/$defs/name"},
+        "title": {"type": "string", "minLength": 1}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reader", "section", "query", "unit", "definition"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "description": "The id of the fact, as <reader>.<name>."
+        },
+        "reader": {"$ref": "#/$defs/reader"},
+        "section": {"$ref": "#/$defs/name"},
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*\\{(?!(?:start|end|range|base|head|repo)\\})[a-z_]+\\})",
+          "description": "A placeholder is one of {start}, {end}, {range}, {base}, {head} and {repo}."
+        },
+        "value": {"$ref": "#/$defs/program"},
+        "n": {"$ref": "#/$defs/program"},
+        "shape": {"enum": ["scalar", "rows"]},
+        "unit": {"type": "string", "minLength": 1},
+        "definition": {"type": "string", "minLength": 1},
+        "requires": {"$ref": "#/$defs/requires"},
+        "retention": {"$ref": "#/$defs/retention"},
+        "newest_first": {
+          "type": "string",
+          "pattern": "^[a-z_]+$",
+          "description": "The time field of a listing that GitHub gives newest first."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["reader"],
+            "properties": {"reader": {"enum": ["listing", "github", "github_runs", "openspec"]}}
+          },
+          "then": {"required": ["value"]}
+        },
+        {
+          "if": {
+            "required": ["reader"],
+            "properties": {"reader": {"enum": ["prometheus", "loki"]}}
+          },
+          "then": {
+            "required": ["shape"],
+            "properties": {
+              "query": {
+                "not": {"pattern": "\\bby\\s*\\([^)]*\\b(?:node|instance)\\b"},
+                "description": "A review gives no host name: a query does not group by node or instance."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["reader", "query"],
+            "properties": {
+              "reader": {"const": "prometheus"},
+              "query": {"pattern": "devops_cli_service_"}
+            }
+          },
+          "then": {
+            "properties": {
+              "query": {
+                "pattern": "\\{repo\\}",
+                "description": "A query of a Service metric names the repository with {repo}."
+              }
+            }
+          }
+        }
+      ]
+    },
+    "disagreement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "left", "right", "tolerance", "definition"],
+      "properties": {
+        "id": {"$ref": "#/$defs/name"},
+        "left": {"type": "string"},
+        "right": {"type": "string"},
+        "tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The largest relative difference that is not a disagreement."
+        },
+        "definition": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

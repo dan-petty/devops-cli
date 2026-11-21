@@ -2,9 +2,9 @@
 
 ## 1. Behavior: the catalog loader and its JSON Schema
 
-- [ ] 1.1 Add the failing tests in `tests/roadmap/project_review/test_review_catalog.py`, on fixture catalogs only: a fact with no id names its index and `id`; a fact with no section names the fact and `section`; a section that `sections` does not list; two facts with one id; a disagreement that names an unknown fact; an unknown placeholder `{owner}`; a Service metric query with no `{repo}` names the fact; a query `by (node)` names the fact; the placeholders of a PromQL query for the 7 days to `2026-11-11T14:51:23Z` of `example/project` give `repo="example/project"` and `[604800s]` and keep the label braces
+- [x] 1.1 Add the failing tests in `tests/roadmap/project_review/test_review_catalog.py`, on fixture catalogs only: a fact with no id names its index and `id`; a fact with no section names the fact and `section`; a section that `sections` does not list; two facts with one id; a disagreement that names an unknown fact; an unknown placeholder `{owner}`; a Service metric query with no `{repo}` names the fact; a query `by (node)` names the fact; the placeholders of a PromQL query for the 7 days to `2026-11-11T14:51:23Z` of `example/project` give `repo="example/project"` and `[604800s]` and keep the label braces
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_catalog.py`
-- [ ] 1.2 Add `src/devops_cli/roadmap/project_review/catalog.schema.json` (Draft 2020-12), `src/devops_cli/roadmap/project_review/catalog.py` (load with PyYAML, validate with `jsonschema`, the 3 cross-reference checks, frozen dataclasses, `render_query`), and the messages of each refusal in `src/devops_cli/lang/en/messages.py`
+- [x] 1.2 Add `src/devops_cli/roadmap/project_review/catalog.schema.json` (Draft 2020-12), `src/devops_cli/roadmap/project_review/catalog.py` (load with PyYAML, validate with `jsonschema`, the 3 cross-reference checks, frozen dataclasses, `render_query`), and the messages of each refusal in `src/devops_cli/lang/en/messages.py`
   - Verification: `$ uv run devops ci test tests/roadmap/project_review/test_review_catalog.py`
 
 ## 2. Behavior: the merged pull requests and the read-only snapshot
