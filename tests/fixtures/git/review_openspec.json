@@ -19,7 +19,7 @@
    "stdin": null,
    "env": null,
    "returncode": 0,
-   "stdout": "openspec/changes/archive/2026-10-03-add-two/proposal.md\u0000openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u0000openspec/changes/archive/2026-10-03-plan-only/proposal.md\u0000",
+   "stdout": "openspec/changes/archive/2026-10-03-add-two/design.md\u0000openspec/changes/archive/2026-10-03-add-two/proposal.md\u0000openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\u0000openspec/changes/archive/2026-10-03-plan-only/proposal.md\u0000",
    "stderr": ""
   },
   {
@@ -31,10 +31,10 @@
     "--batch"
    ],
    "cwd": null,
-   "stdin": "v1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\n",
+   "stdin": "v1.1.0:openspec/changes/archive/2026-10-03-add-two/design.md\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/proposal.md\nv1.1.0:openspec/changes/archive/2026-10-03-add-two/specs/cap/spec.md\n",
    "env": null,
    "returncode": 0,
-   "stdout": "a25320d46aafc39f653df6907e9971f9107de4ec blob 16\n# Two\n\nWhy two.\n\nddefa9c20fb4f4ab83fd2df0246363686c1f1dc3 blob 256\n## ADDED Requirements\n\n### Requirement: Two\nThe tool SHALL do two.\n\n#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n\n## MODIFIED Requirements\n\n### Requirement: One\nThe tool SHALL do one, now with a café.\n\n#### Scenario: One\n- **WHEN** one\n- **THEN** one\n\n",
+   "stdout": "e3fa1a0e20a35c38ccb7f7819c0c693e2804f411 blob 31\n# Design\n\nA caf� line.\nLast\n\na25320d46aafc39f653df6907e9971f9107de4ec blob 16\n# Two\n\nWhy two.\n\nddefa9c20fb4f4ab83fd2df0246363686c1f1dc3 blob 256\n## ADDED Requirements\n\n### Requirement: Two\nThe tool SHALL do two.\n\n#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n\n## MODIFIED Requirements\n\n### Requirement: One\nThe tool SHALL do one, now with a café.\n\n#### Scenario: One\n- **WHEN** one\n- **THEN** one\n\n",
    "stderr": ""
   },
   {
@@ -105,10 +105,11 @@
   "changes": [
    [
     "2026-10-03-add-two",
-    [
-     "proposal.md",
-     "specs/cap/spec.md"
-    ]
+    {
+     "design.md": "# Design\n\nA caf� line.\nLast\n\n",
+     "proposal.md": "# Two\n\nWhy two.\n",
+     "specs/cap/spec.md": "## ADDED Requirements\n\n### Requirement: Two\nThe tool SHALL do two.\n\n#### Scenario: Two\n- **WHEN** two\n- **THEN** two\n\n## MODIFIED Requirements\n\n### Requirement: One\nThe tool SHALL do one, now with a café.\n\n#### Scenario: One\n- **WHEN** one\n- **THEN** one\n"
+    }
    ]
   ],
   "totals": [

@@ -640,7 +640,9 @@ def review_openspec(ws: Workspace) -> Any:
     """`specs` holds the spec `cap` with one requirement and a change archived before the base
     (tag `v1.0.0`). The head (tag `v1.1.0`) archives `2026-10-03-add-two`, whose delta adds the
     requirement Two and changes One, archives a change with no specs, and holds two requirements.
-    The review reads the changes that the window archived and the totals at both ends."""
+    Its `design.md` has CRLF line ends, a lone carriage return and a byte that is not UTF-8, so a
+    text read gives fewer characters than git counts bytes. The review reads the text of each file
+    that the window archived and the totals at both ends."""
     repo = ws.path("specs")
     ws.git("specs", "init", "--quiet", "-b", "main")
     ws.write("specs/openspec/specs/cap/spec.md", OPENSPEC_SPEC)
@@ -653,6 +655,8 @@ def review_openspec(ws: Workspace) -> Any:
     ws.git("specs", "commit", "--quiet", "-m", "feat: one")
     ws.git("specs", "tag", "v1.0.0")
     archived = "specs/openspec/changes/archive/2026-10-03-add-two"
+    ws.write(f"{archived}/design.md", "")
+    ws.path(f"{archived}/design.md").write_bytes(b"# Design\r\n\r\nA caf\xe9 line.\rLast\r\n")
     ws.write(f"{archived}/proposal.md", "# Two\n\nWhy two.\n")
     ws.write(
         f"{archived}/specs/cap/spec.md",
@@ -668,7 +672,7 @@ def review_openspec(ws: Workspace) -> Any:
     with ws.environment():
         return {
             "changes": [
-                [change.name, sorted(change.files)]
+                [change.name, dict(sorted(change.files.items()))]
                 for change in archived_changes(repo, "v1.0.0", "v1.1.0")
             ],
             "totals": [requirement_total(repo, rev) for rev in ("v1.0.0", "v1.1.0")],

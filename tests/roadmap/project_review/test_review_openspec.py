@@ -40,8 +40,9 @@ def test_one_archived_change_gives_its_deltas_and_the_totals_at_both_ends(
         show_args(CHANGE),
         0,
         json.dumps({"id": CHANGE, "deltas": deltas}),
-        effect=lambda cwd: seen.append(
-            (cwd / "openspec/changes" / CHANGE / "specs/cap/spec.md").read_text(encoding="utf-8")
+        effect=lambda cwd: seen.extend(
+            (cwd / "openspec/changes" / CHANGE / name).read_text(encoding="utf-8")
+            for name in ("design.md", "specs/cap/spec.md")
         ),
     )
     before = _files(checkout)
@@ -64,7 +65,10 @@ def test_one_archived_change_gives_its_deltas_and_the_totals_at_both_ends(
     }
     shown = [call for call in openspec_fake.calls if call.argv[:1] == ("show",)]
     assert [call.argv for call in shown] == [show_args(CHANGE)]
-    assert ["## ADDED Requirements" in text for text in seen] == [True]
+    # A text read turns CRLF and a lone CR into one line end, and a byte that is not UTF-8 into
+    # U+FFFD; the file after it keeps its own text.
+    assert seen[0] == "# Design\n\nA caf\ufffd line.\nLast\n"
+    assert seen[1].startswith("## ADDED Requirements")
     assert (_files(checkout), reads.counts["openspec"]) == (before, 1)
 
 
