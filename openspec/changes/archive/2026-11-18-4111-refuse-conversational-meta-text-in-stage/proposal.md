@@ -6,7 +6,7 @@ The stage job commits the text of an earlier model reply into the Feasibility se
 
 ## What Changes
 
-- Add `src/devops_cli/roadmap/stage/stage_meta_text.py` with the bounded list of repair phrases and the check of the Feasibility lines, which skips fenced code blocks and block quotations.
+- Add `src/devops_cli/roadmap/stage/stage_meta_text.py` with the bounded list of repair phrases and the check of the Feasibility lines, which skips fenced code blocks, block quotations and inline code spans.
 - Add the message `stage_problem_meta_text` to `src/devops_cli/lang/en/messages.py`; it names the line number and the phrase of each refused line.
 - Register the gate `meta-text` in `src/devops_cli/roadmap/stage/stage_change.py` and in `STAGE_EVAL_GATE_PATHS`, so the stage job and `devops roadmap plan-recheck` report it.
 - Test the rule in `tests/roadmap/stage/test_roadmap_stage_meta_text.py`, and add the plan's own acceptance test to `tests/roadmap/stage/test_roadmap_stage_gates.py`.

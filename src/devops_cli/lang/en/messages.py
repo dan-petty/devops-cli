@@ -5137,6 +5137,11 @@ class RoadmapMessages:
         "The feasibility list quotes no line of the probes, word for word. Quote at least one "
         "line of the probes in feasibility."
     )
+    # A feasibility line that names an earlier reply or corrects the model (#4111).
+    stage_problem_meta_text: str = (
+        "The feasibility line {line} holds the phrase `{phrase}`, which refers to an earlier "
+        "reply or corrects the model. Write the system fact alone."
+    )
     stage_problem_no_cost: str = (
         "builds_own is true, and existing_tool gives no cost. Write the tokens to build the code "
         "(for example `80k tokens`) and the time (for example `4 hours`)."
