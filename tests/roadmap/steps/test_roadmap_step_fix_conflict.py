@@ -9,6 +9,9 @@ Verifies:
 - Archive-only conflict ends with clean push and 0 model requests
 - Soft and hard caps hold
 - Strict validation runs before push
+- Without --confirm the step runs no code of the pull request and writes nothing
+- Each fetch and push goes to the URL of origin that the step read after its clone, with no hook
+  and no setting of the clone
 """
 
 from __future__ import annotations
@@ -17,17 +20,22 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from devops_cli.config.commands import BIN_OPENSPEC, BIN_UV
 from devops_cli.config.constants import (
     CONST_CHANGELOG_FILENAME,
     CONST_GIT_CLI,
     CONST_GIT_MAIN_BRANCH,
 )
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitOperationError
+from devops_cli.exceptions.roadmap import GitSettingsError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.steps import fix_conflict
 from devops_cli.roadmap.steps.fix_conflict import (
@@ -638,7 +646,7 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert rep_human.result == FixConflictResult.REFUSED
     assert "Human commit detected" in rep_human.reason
 
-    # 3. Code conflict scenario (Tier 2 plan mode stops)
+    # 3. Code conflict scenario: a plan without --confirm, and a stop of Tier 1 with it
     _git(clone_dir, "checkout", "main")
     (clone_dir / "base.txt").write_text("main update\n", encoding="utf-8")
     _git(clone_dir, "commit", "-am", "main conflict update")
@@ -656,9 +664,11 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         "get_github_session",
         lambda: FakeSession(code_sha, f"feat/{num}-code-conflict"),
     )
-    rep_code = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=False)
+    rep_plan = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=False)
+    assert (rep_plan.result, rep_plan.files) == (FixConflictResult.PLANNED, ("base.txt",))
+    rep_code = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=True)
     assert rep_code.result == FixConflictResult.STOPPED
-    assert "Tier 2" in rep_code.reason
+    assert "could not be resolved by Tier 1" in rep_code.reason
 
     # 4. Strict specs failure scenario
     item = store.item(num)
@@ -678,14 +688,14 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr(fix_conflict, "resolve_tier1", fake_resolve_tier1)
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda *args: False)
-    rep_spec = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=False)
+    rep_spec = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=True)
     assert rep_spec.result == FixConflictResult.FAILED
     assert "strict failed" in rep_spec.reason
 
     # 5. Clean Tier 1 resolution with lease push
     item.job_record.clear()
     monkeypatch.setattr(fix_conflict, "validate_strict_specs", lambda *args: True)
-    rep_ok = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=False)
+    rep_ok = run_fix_conflict(store, REPO, num, source=clone_dir, confirm=True)
     assert rep_ok.result == FixConflictResult.RESOLVED
 
 
@@ -828,3 +838,362 @@ def test_fix_rebase_conflict_branches(tmp_path: Path, monkeypatch: pytest.Monkey
         fix_rebase_conflict(tmp_path, repo=REPO, item=num, default_branch="main", store=store)
         is False
     )
+
+
+# Tier 1 runs code of the checkout of the pull request: `uv run devops docs generate` and `uv lock`
+# start the entry point of the project and its build hooks. The double of the `uv` process writes
+# one of these into the clone, as such code can.
+_WRITTEN = ("pre-push hook", "remote.origin.pushurl", "remote.origin.receivepack", "url.insteadOf")
+_SPEC = "openspec/specs/test-cap/spec.md"
+
+
+@dataclass(frozen=True)
+class _Pull:
+    """A bot pull request on the bare repository `upstream` whose archive commit conflicts with
+    main on `_SPEC`; the clone of the step; another bare repository with the same head branch,
+    whose pre-receive hook writes the token that it gets into `seen` and refuses the push; and
+    `seen`, where each program of the clone writes."""
+
+    upstream: Path
+    other: Path
+    clone: Path
+    seen: Path
+    branch: str
+    head: str
+    number: int
+    store: InMemoryRoadmapStore
+
+    def status(self) -> PullStatus:
+        return PullStatus.model_validate(
+            {
+                "state": "open",
+                "draft": False,
+                "head": {"ref": self.branch, "sha": self.head},
+                "base": {"ref": CONST_GIT_MAIN_BRANCH},
+                "user": {"login": BOT_USER},
+                "labels": [],
+            }
+        )
+
+    def pushed(self) -> str:
+        """The tip of the head branch on `upstream`."""
+        return _git(self.upstream, "rev-parse", f"refs/heads/{self.branch}")
+
+    def other_tip(self) -> str:
+        """The tip of the head branch on the other repository, which holds the same branch."""
+        return _git(self.other, "rev-parse", f"refs/heads/{self.branch}")
+
+    def written(self) -> list[str]:
+        """What the programs of the clone wrote into `seen`."""
+        return sorted(path.name for path in self.seen.iterdir())
+
+
+def _record(target: Path) -> str:
+    """A shell line that writes the GitHub token of its environment into `target`."""
+    return f"printf '%s' \"$GH_TOKEN\" > '{target}'"
+
+
+def _bot(clone: Path) -> None:
+    _git(clone, "config", "user.name", "Bot[bot]")
+    _git(clone, "config", "user.email", "bot@example.com")
+
+
+def _commit_spec(seed: Path, text: str, message: str) -> None:
+    (seed / _SPEC).write_text(f"# Test Spec\n\n## Requirements\nInitial req.\n{text}", "utf-8")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", message)
+
+
+def _pull_with_archive_conflict(tmp_path: Path) -> _Pull:
+    upstream = tmp_path / "upstream.git"
+    other = tmp_path / "other.git"
+    seen = tmp_path / "seen"
+    seen.mkdir()
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(upstream))
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(other))
+
+    seed = tmp_path / "seed"
+    _git(tmp_path, "clone", "-q", str(upstream), str(seed))
+    _bot(seed)
+    (seed / _SPEC).parent.mkdir(parents=True)
+    _commit_spec(seed, "", "chore: initial specs")
+    _git(seed, "push", "-q", "origin", "main")
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = store.seed_issue(
+        title="feat: test", labels=("status/in-progress", "priority/p2-medium")
+    )
+    branch = f"feat/{number}-test-cap"
+    _git(seed, "checkout", "-q", "-b", branch)
+    change = seed / "openspec" / "changes" / f"{number}-test-cap"
+    change.mkdir(parents=True)
+    (change / "tasks.md").write_text("- [x] task done\n", encoding="utf-8")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", f"feat: implement {number}")
+    (change.parent / "archive").mkdir()
+    shutil.move(change, change.parent / "archive" / f"2026-11-16-{number}-test-cap")
+    _commit_spec(seed, f"Added req {number}.\n", f"docs(openspec): archive the change (#{number})")
+    _git(seed, "push", "-q", "origin", branch)
+    _git(seed, "push", "-q", str(other), branch)
+    receive = other / "hooks" / "pre-receive"
+    receive.write_text(f"#!/bin/sh\n{_record(seen / 'other')}\nexit 1\n", encoding="utf-8")
+    receive.chmod(0o755)
+    head = _git(seed, "rev-parse", "HEAD")
+    _git(seed, "checkout", "-q", "main")
+    _commit_spec(seed, "Main req concurrent.\n", "chore: concurrent spec update")
+    _git(seed, "push", "-q", "origin", "main")
+
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", str(upstream), str(clone))
+    _bot(clone)
+    return _Pull(upstream, other, clone, seen, branch, head, number, store)
+
+
+def _write_into_clone(pull: _Pull, checkout: Path, written: str | None) -> None:
+    """What the code of the pull request writes into the clone."""
+    if written == "pre-push hook":
+        hook = checkout / ".git" / "hooks" / "pre-push"
+        hook.write_text(f"#!/bin/sh\n{_record(pull.seen / 'hook')}\n", encoding="utf-8")
+        hook.chmod(0o755)
+    elif written == "remote.origin.pushurl":
+        _git(checkout, "config", written, str(pull.other))
+    elif written == "remote.origin.receivepack":
+        _git(checkout, "config", written, f"{_record(pull.seen / 'receivepack')}; git-receive-pack")
+    elif written == "url.insteadOf":
+        _git(checkout, "config", f"url.{pull.other}.insteadOf", str(pull.upstream))
+
+
+def _with_pull_request_code(
+    monkeypatch: pytest.MonkeyPatch, pull: _Pull, written: str | None = None
+) -> list[list[str]]:
+    """Run the step against `pull`: GitHub gives its status, each `uv` process is the code of the
+    pull request, `openspec archive` moves the change folder and `openspec validate` passes. git
+    runs for real through the process runner, which gives the token to each git child that reaches
+    a remote. The list holds each `uv` process."""
+    ran: list[list[str]] = []
+    status = pull.status()
+
+    class FakeClient:
+        def get_pull_status(self, repo: str, number: int) -> PullStatus:
+            return status
+
+    class FakeSession:
+        client = FakeClient()
+
+    def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == BIN_UV:
+            ran.append(cmd)
+            _write_into_clone(pull, Path(kwargs["cwd"]), written)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        if cmd[0] == BIN_OPENSPEC:
+            if "archive" in cmd:
+                changes = Path(kwargs["cwd"]) / "openspec" / "changes"
+                active = changes / f"{pull.number}-test-cap"
+                shutil.move(active, changes / "archive" / f"2026-11-21-{pull.number}-test-cap")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return run_subprocess(cmd, **kwargs)
+
+    monkeypatch.setattr(fix_conflict, "get_github_session", lambda: FakeSession())
+    monkeypatch.setattr(fix_conflict, "run_subprocess", run)
+    return ran
+
+
+def test_without_confirm_the_step_runs_no_code_of_the_pull_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --confirm, as on a workstation, the step finds the conflict and returns its plan,
+    which names the runner Job. It runs no fixer of tier 1, pushes nothing and writes no record."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull, "pre-push hook")
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
+
+    assert ran == []
+    assert pull.written() == []
+    assert (report.result, report.files) == (FixConflictResult.PLANNED, (_SPEC,))
+    assert "runner Job" in report.reason
+    assert pull.pushed() == pull.head
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert FixConflictRecordKey.RESULT not in item.job_record
+
+
+@pytest.mark.parametrize("written", _WRITTEN)
+def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, written: str
+) -> None:
+    """With --confirm, tier 1 runs code of the pull request, and that code can write a hook or a
+    git setting into the clone. The push still goes to the URL of origin that the step read after
+    its clone, before that code ran, and no hook, program or other repository that the clone names
+    runs."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull, written)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert ran
+    assert pull.written() == []
+    assert report.result == FixConflictResult.RESOLVED
+    assert pull.pushed() == report.head != pull.head
+    assert pull.other_tip() == pull.head
+
+
+def test_in_a_runner_a_setting_that_tier_1_writes_stops_the_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """In a runner Job the step checks the git settings of the clone before each fetch and push,
+    as the implement job does. A key that tier 1 wrote stops the round before the push."""
+    config(roadmap={"implement": {"in_runner": True}})
+    pull = _pull_with_archive_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull, "remote.origin.pushurl")
+
+    with pytest.raises(GitSettingsError, match=r"remote\.origin\.pushurl"):
+        run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert pull.written() == []
+    assert pull.pushed() == pull.head
+    assert pull.other_tip() == pull.head
+
+
+def test_a_fetch_of_the_step_reads_no_setting_of_the_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The step fetches at the URL that it read after the clone, in a git folder of its own, so a
+    program that a setting of the clone names, such as `remote.origin.uploadpack`, never runs."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    upload = f"{_record(pull.seen / 'uploadpack')}; git-upload-pack"
+    _git(pull.clone, "config", "remote.origin.uploadpack", upload)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone)
+
+    assert pull.written() == []
+    assert report.result == FixConflictResult.PLANNED
+
+
+def test_no_local_git_call_of_the_step_runs_a_hook_of_the_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each local git call of the step, such as checkout, rebase and commit, turns the hooks of the
+    clone off (`core.hooksPath=/dev/null`)."""
+    pull = _pull_with_archive_conflict(tmp_path)
+    hooks = ("post-checkout", "pre-rebase", "post-rewrite", "pre-commit", "post-commit")
+    for name in (*hooks, "prepare-commit-msg", "commit-msg"):
+        hook = pull.clone / ".git" / "hooks" / name
+        hook.write_text(f"#!/bin/sh\ntouch '{pull.seen / name}'\n", encoding="utf-8")
+        hook.chmod(0o755)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert pull.written() == []
+    assert report.result == FixConflictResult.RESOLVED
+
+
+_DOCS = "docs/CLI_REFERENCE.md"
+_LOCK = "uv.lock"
+
+
+def _commit_files(seed: Path, files: dict[str, str], message: str) -> None:
+    for name, text in files.items():
+        (seed / name).parent.mkdir(parents=True, exist_ok=True)
+        (seed / name).write_text(text, encoding="utf-8")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", message)
+
+
+def _pull_with_docs_and_lock_conflict(tmp_path: Path) -> _Pull:
+    """A bot pull request whose generated document and `uv.lock` conflict with main, and the clone
+    of the step as `_clone_or_reuse_source` makes it: shallow, with the default branch only."""
+    upstream = tmp_path / "upstream.git"
+    other = tmp_path / "other.git"
+    seen = tmp_path / "seen"
+    seen.mkdir()
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(upstream))
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(other))
+    seed = tmp_path / "seed"
+    _git(tmp_path, "clone", "-q", str(upstream), str(seed))
+    _bot(seed)
+    _commit_files(seed, {_DOCS: "# v1\n", _LOCK: "version = 1\n"}, "chore: base")
+    _git(seed, "push", "-q", "origin", "main")
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = store.seed_issue(
+        title="feat: docs", labels=("status/in-progress", "priority/p2-medium")
+    )
+    branch = f"feat/{number}-docs"
+    _git(seed, "checkout", "-q", "-b", branch)
+    changed = {_DOCS: "# v1\nbranch\n", _LOCK: "version = 1\nbranch\n", "src/feature.py": "A = 1\n"}
+    _commit_files(seed, changed, "feat: a feature")
+    _git(seed, "push", "-q", "origin", branch)
+    head = _git(seed, "rev-parse", "HEAD")
+    _git(seed, "checkout", "-q", "main")
+    _commit_files(seed, {_DOCS: "# v1\nmain\n", _LOCK: "version = 1\nmain\n"}, "chore: main")
+    _git(seed, "push", "-q", "origin", "main")
+
+    clone = tmp_path / "clone"
+    _git(tmp_path, "clone", "-q", "--depth=50", upstream.as_uri(), str(clone))
+    _bot(clone)
+    return _Pull(upstream, other, clone, seen, branch, head, number, store)
+
+
+def test_in_a_runner_a_docs_and_lockfile_round_completes_with_no_environment_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """In a runner Job, a round on a conflict of a generated document and `uv.lock` checks out the
+    head branch of its shallow clone, continues the rebase with `-c core.editor=true`, generates
+    both files again and pushes. No git call of the step sets an environment variable, because the
+    process runner refuses an override such as `GIT_EDITOR`."""
+    config(roadmap={"implement": {"in_runner": True}})
+    pull = _pull_with_docs_and_lock_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+    code = fix_conflict.run_subprocess
+    git_env: list[object] = []
+
+    def spy(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == CONST_GIT_CLI:
+            git_env.append(kwargs.get("env"))
+        return code(cmd, **kwargs)
+
+    monkeypatch.setattr(fix_conflict, "run_subprocess", spy)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, source=pull.clone, confirm=True)
+
+    assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
+    assert [cmd[1:] for cmd in ran] == [["run", "devops", "docs", "generate"], ["lock"]]
+    assert pull.pushed() == report.head != pull.head
+    assert git_env
+    assert set(git_env) == {None}
+
+
+def test_a_tier_1_round_that_cannot_generate_again_stops_the_rebase_of_the_implement_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rebase of the implement job calls `fix_rebase_conflict`. When `devops docs generate`
+    fails after tier 1 took the default branch for the conflicted document, the call returns false
+    and records the stop, so the job stops the item with the class `conflict`."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _bot(repo)
+    _commit_files(repo, {_DOCS: "# v1\n"}, "chore: base")
+    _git(repo, "checkout", "-q", "-b", "feat/branch")
+    _commit_files(repo, {_DOCS: "# v1\nbranch\n", "src/feature.py": "A = 1\n"}, "feat: a feature")
+    _git(repo, "checkout", "-q", "main")
+    _commit_files(repo, {_DOCS: "# v1\nmain\n"}, "chore: main")
+    _git(repo, "checkout", "-q", "feat/branch")
+    subprocess.run([CONST_GIT_CLI, "-C", str(repo), "rebase", "main"], capture_output=True)
+
+    def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[0] == BIN_UV:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="generate failed")
+        return run_subprocess(cmd, **kwargs)
+
+    monkeypatch.setattr(fix_conflict, "run_subprocess", run)
+
+    assert (
+        fix_rebase_conflict(repo, repo=REPO, item=num, default_branch="main", store=store) is False
+    )
+    item = store.item(num)
+    assert item is not None
+    assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
