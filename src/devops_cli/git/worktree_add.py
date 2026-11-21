@@ -212,8 +212,8 @@ def _commands(
 
 class OriginReads(Protocol):
     """The reads of `origin` that `add_worktree` makes: the branches, and a fetch of branches into
-    `refs/remotes/origin/<branch>`. The implement job passes its own, which runs each read in a new
-    git folder (`roadmap/implement/git_isolation.py`)."""
+    `refs/remotes/origin/<branch>`. `devops repos worktrees add --reclaim` passes the heads that it
+    read already (`PreReadOrigin`)."""
 
     def heads(self, *branches: str) -> str: ...
 

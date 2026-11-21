@@ -690,7 +690,8 @@ def test_the_implement_plan_comments_a_stop_on_the_item_before_it_links_it_on_th
 
 def test_the_implement_plan_lists_the_git_calls_of_the_three_phases_in_order() -> None:
     """`prepare` clones, the agent phase writes the patches, and `publish` applies them in a new
-    repository and pushes. A return first takes back the pushes of earlier Jobs (#3702)."""
+    repository and pushes. A refused draft of a new branch deletes the branch, and a return first
+    takes back the pushes of earlier Jobs, each from a new repository too (#3702)."""
     from devops_cli.roadmap.request_plan import implement_requests
 
     _, writes = implement_requests(REPO)
@@ -701,6 +702,7 @@ def test_the_implement_plan_lists_the_git_calls_of_the_three_phases_in_order() -
         if request.method == "git"
     ]
     run, fresh = ("<clone of the run>",), ("<new git folder>",)
+    new = [("init", ("--quiet",)), ("remote", fresh)]
     assert calls == [
         ("clone", ("--quiet",)),
         ("switch", run),
@@ -713,14 +715,21 @@ def test_the_implement_plan_lists_the_git_calls_of_the_three_phases_in_order() -
         ("commit", run),
         ("commit", run),
         ("diff", run),
-        ("init", ("--quiet",)),
+        *new,
         ("fetch", fresh),
         ("apply", fresh),
         ("commit", fresh),
         ("push", fresh),
+        *new,
+        ("push", fresh),
+        *new,
+        *new,
+        ("fetch", fresh),
         ("push", fresh),
         ("push", fresh),
     ]
+    fetch = next(r for r in writes if r.argv[3:4] == ("fetch",) and not r.condition)
+    assert fetch.argv[-2:] == ("<base of the patches>", "<remote tip>")
 
 
 def test_the_implement_plan_takes_back_the_pushes_of_earlier_jobs_before_a_return() -> None:
@@ -742,7 +751,7 @@ def test_the_implement_plan_takes_back_the_pushes_of_earlier_jobs_before_a_retur
     )
     assert [line for _, line in withdraws] == [
         "--quiet --force-with-lease=refs/heads/<branch>:<remote tip> origin "
-        "<base of the patches>:refs/heads/<branch>",
+        "<implement.base>:refs/heads/<branch>",
         "--quiet --force-with-lease=refs/heads/<branch>:<remote tip> origin :refs/heads/<branch>",
     ]
     assert max(index for index, _ in withdraws) < returned

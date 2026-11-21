@@ -19,9 +19,9 @@ environment, a file the same user can read, or a pipe, and a user namespace for 
 needs `unshare`, which the pod's `RuntimeDefault` seccomp profile refuses. So the job guarantees an
 order instead. The agent controls the agent's shell and the code that the job runs from the
 checkout: the tests, the hooks of `pre-commit` and the other exit checks. The job ends every
-process it started (`end_leftover_processes`) when a step ends, before the check of the git
-settings and before each git call that reaches `origin` (`roadmap/implement/git_isolation.py`),
-and, in a runner, before and after each child that gets the token (`core/process.py`). A process
+process it started (`end_leftover_processes`) when a step ends, before the git calls of `publish`
+that reach `origin` (`roadmap/phases/publish.py`), and, in a runner, before and after each child
+that gets the token (`core/process.py`). A process
 that survives stops the item. Each child that gets the token starts in a session of its own, and a
 timeout kills its whole process group, so no helper of a child that ran out of time keeps the
 token. `adopt_orphans` makes the job the parent of a process that the agent or
@@ -29,8 +29,9 @@ that code daemonized, so that none escapes the count.
 
 The order covers only processes. The agent can also write files that a git call reads: the git
 configuration of the home folder and of the clone, the hooks and the attribute files. So a git call
-with the token runs in a new git folder and reads none of them (`OriginGit`), and a local git call
-of the job gets no token (`core/process.py`, `git_reaches_remote`).
+with the token runs in the clone that `prepare` made before the agent phase, or in the new
+repository of `publish`, with no global or system configuration (`roadmap/phases/publish.py`),
+and a local git call of the job gets no token (`core/process.py`, `git_reaches_remote`).
 """
 
 from __future__ import annotations

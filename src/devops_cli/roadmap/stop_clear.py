@@ -9,8 +9,8 @@ A stop of the implement job sets the Status Blocked and records `implement.stopp
 - **`continue`**: the stop is `job`, which the round records for a Job that ended without a result
   (a pod that the kernel killed or evicted, a Job that the Service ended by its stall, a Job that
   no longer exists), and the class of the stop has the action `retry` in `ACTION_BY_CLASS`
-  (#3721). The new Job takes the branch from `origin`, so it keeps the groups that a checkpoint
-  pushed (`implement_run.py`, #3677). A group that no push kept runs again. The record
+  (#3721). The new Job takes the branch from `origin`. Only `publish` pushes, at the end of a run
+  (#3702), so a continuation runs every group of the Job that ended again. The record
   `implement.continuations` counts the Jobs
   that the Service started this way, and the setting `roadmap.implement.continuations_per_item`
   bounds it. Only a sign in the log gives the class `oom`, because the Service reads no pod

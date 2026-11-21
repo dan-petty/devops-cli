@@ -102,6 +102,8 @@ class OpenPullRequest(BaseModel):
     head: CommitRef = Field(default_factory=lambda: CommitRef(sha="", ref=""))
     base: CommitRef = Field(default_factory=lambda: CommitRef(sha="", ref=""))
     labels: tuple[str, ...] = ()
+    # The login of the account that opened the pull request.
+    author: str = Field(default="", validation_alias=AliasPath("user", "login"))
 
     @field_validator("labels", mode="before")
     @classmethod

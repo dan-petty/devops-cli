@@ -1236,6 +1236,9 @@ def test_a_rendered_group_has_no_double_stop_and_no_task_that_starts_with_a_comm
         ("close https://example.com/o/r/issues/5", "close"),
         ("Plans #12 and closes nothing", None),
         ("The fix is in #12", None),
+        ("fix(c): closes #include of the header", None),
+        ("it fixes #main-loop in the docs", None),
+        ("(closes #12)", "closes"),
     ],
 )
 def test_a_closing_keyword_before_an_issue_reference_is_found(

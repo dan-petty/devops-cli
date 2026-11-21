@@ -154,6 +154,10 @@ _TIME_COST: Final[re.Pattern[str]] = re.compile(
 )
 _REQUIREMENT_WORDS: Final[frozenset[str]] = frozenset({"SHALL", "MUST"})
 _WORD_PUNCTUATION: Final[str] = ".,;:()"
+# An issue reference that GitHub links: `#12`, `owner/repo#12`, or the URL of the issue.
+_ISSUE_REFERENCE: Final[re.Pattern[str]] = re.compile(
+    r"^\(?(?:[\w.-]+/[\w.-]+)?#\d+\b|/issues/\d+\b"
+)
 # GitHub closes the issue that follows one of these words in the body of a pull request.
 _CLOSING_KEYWORDS: Final[frozenset[str]] = frozenset(
     {
@@ -3212,7 +3216,7 @@ def closing_keyword_in(text: str) -> str | None:
     words = text.split()
     for word, following in pairwise(words):
         keyword = word.strip(_WORD_PUNCTUATION).lower()
-        if keyword in _CLOSING_KEYWORDS and ("#" in following or "/issues/" in following):
+        if keyword in _CLOSING_KEYWORDS and _ISSUE_REFERENCE.search(following):
             return keyword
     return None
 

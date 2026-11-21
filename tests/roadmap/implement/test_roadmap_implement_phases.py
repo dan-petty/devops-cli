@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from devops_cli.exceptions.roadmap import PhaseOutputError
+from devops_cli.github.client import GitHubClient
+from devops_cli.roadmap.implement import implement_report
 from devops_cli.roadmap.implement.implement_phases import (
     AgentTools,
     ImplementState,
@@ -24,23 +27,30 @@ from devops_cli.roadmap.implement.implement_phases import (
 from devops_cli.roadmap.implement.implement_run import skips_archive_commit
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.stores.store import ImplementRecordKey, ImplementResult, ItemField
+from tests.support.fakes.github import github_json
 from tests.support.fakes.process import ProcessAnswer
 from tests.support.implement_step import WINDOW
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
     ARCHIVE_COMMIT,
     BRANCH,
+    OPEN_DRAFT,
     PULL,
     WORK_COMMIT,
     JobWorld,
     group_one_calls,
+    route_pull_status,
     two_groups,
 )
-from tests.support.roadmap_stage import STAGE_REPO
+from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 SECRET = "ghp_" + "a" * 36
+
+
+class _Killed(BaseException):
+    """The end of a Job that the kernel kills: no handler of the job catches it."""
 
 
 def _prepare(world: JobWorld, folders: RunFolders, *, rebase: bool = True) -> ImplementState:
@@ -475,3 +485,203 @@ def test_the_evidence_of_a_return_is_fenced(job_world: JobWorld, tmp_path: Path)
 
     comment = job_world.issue_comments()[-1]
     assert "```\nline one\n# Injected\n```" in comment
+
+
+def test_a_new_branch_after_a_person_deleted_the_old_one_gets_a_new_draft(
+    planned_world: JobWorld,
+) -> None:
+    """The first Job opened draft 5 and stopped. A person deleted the branch, so GitHub closed the
+    draft. `prepare` clears the `implement.pr` of the earlier Job, so the next Job opens a draft
+    for its new branch and writes nothing to the closed one (#6670)."""
+    planned_world.run(_stop_after_group_one())
+    planned_world.repo.origin_git("branch", "-D", BRANCH)
+    route_pull_status(planned_world.api, {**OPEN_DRAFT, "state": "closed", "draft": True})
+    planned_world.api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls",
+        github_json({"number": 6, "html_url": "https://example.com/pull/6"}, status=201),
+    )
+    _continue(planned_world)
+
+    planned_world.run(two_groups())
+
+    assert len(planned_world.sent("POST", "pulls")) == 2
+    assert _record(planned_world).get("implement.pr") == "6"
+
+
+def test_a_publish_that_died_before_it_recorded_the_draft_updates_the_open_draft(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first `publish` opened the draft and died before the mark `implement.pr`. The second
+    `publish` finds the open draft of the branch, opens no second one and keeps the branch."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+    real = planned_world.store.set_marks
+
+    def marks(item: Any, values: Any, *args: Any, **kwargs: Any) -> Any:
+        if ImplementRecordKey.PR in values:
+            raise _Killed
+        return real(item, values, *args, **kwargs)
+
+    monkeypatch.setattr(planned_world.store, "set_marks", marks)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(planned_world.store, "set_marks", real)
+    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
+    owner = STAGE_REPO.split("/")[0]
+    planned_world.api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls?head={owner}:{BRANCH}&state=open",
+        github_json([_open_pull(PULL, tip, STAGE_NAME)]),
+    )
+    planned_world.api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls",
+        github_json({"message": "Validation Failed"}, status=422),
+    )
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (again, _record(planned_world).get("implement.pr")) == (ImplementResult.DRAFTED, "5")
+    assert planned_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+def test_a_return_publish_that_died_after_the_withdraw_returns_the_item_the_next_time(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The withdraw deleted the branch of the earlier Job, and the Job died before the return. The
+    withdraw cleared `implement.base`, so the next `publish` withdraws nothing again and returns
+    the item to New (#6670)."""
+    planned_world.run(_stop_after_group_one())
+    _continue(planned_world)
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say(PREMISE)).model(), WINDOW))
+    real = implement_report.apply_return
+
+    def die(*args: object, **kwargs: object) -> None:
+        raise _Killed
+
+    monkeypatch.setattr(implement_report, "apply_return", die)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(implement_report, "apply_return", real)
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (again, _record(planned_world).get("Status")) == (ImplementResult.RETURNED, "New")
+    assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
+
+
+@pytest.mark.parametrize("plan_subject", ["docs(openspec): plan #1 Fixes #4 in the job"])
+def test_an_issue_title_with_a_closing_keyword_stops_the_item_before_the_push(
+    job_world: JobWorld,
+) -> None:
+    """The title with the summary of the plan holds a closing keyword, so the title of the issue
+    is the fallback. A squash merge puts the title in the subject on `main`, so a closing keyword
+    there too would close #2336: the item stops before the push (#6670)."""
+    before = job_world.repo.origin_git("rev-parse", BRANCH)
+    job_world.store.rename_by_hand(1, "fix(roadmap): the stage job closes #2336 too early")
+
+    applied = job_world.run(two_groups())
+
+    assert applied.stopped == (1,)
+    assert job_world.repo.origin_git("rev-parse", BRANCH) == before
+    (comment,) = [c for c in job_world.issue_comments() if "closes #2336" in c]
+    # The title passes the form check: the stop names only the closing keyword.
+    assert "Semantic PR title" not in comment
+
+
+def _open_pull(number: int, tip: str, login: str) -> dict[str, Any]:
+    """An open pull request of the branch, as the lookup of GitHub lists it."""
+    return {
+        "number": number,
+        "draft": True,
+        "title": "fix: a title",
+        "body": "a body",
+        "html_url": f"https://example.com/pull/{number}",
+        "user": {"login": login},
+        "head": {"ref": BRANCH, "sha": tip},
+        "base": {"ref": "main", "sha": tip},
+    }
+
+
+def test_a_publish_writes_nothing_to_an_open_pull_request_of_a_person(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first `publish` pushed the new branch and died before it opened the draft. A person
+    then opened pull request 7 on the branch. The next `publish` stops the item: it writes
+    nothing to pull request 7, opens no draft and keeps the branch (#6693)."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+    real = GitHubClient.create_draft_pull
+
+    def die(*args: Any, **kwargs: Any) -> Any:
+        raise _Killed
+
+    monkeypatch.setattr(GitHubClient, "create_draft_pull", die)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(GitHubClient, "create_draft_pull", real)
+    tip = planned_world.repo.origin_git("rev-parse", BRANCH)
+    owner = STAGE_REPO.split("/")[0]
+    planned_world.api.route(
+        "GET",
+        f"/repos/{STAGE_REPO}/pulls?head={owner}:{BRANCH}&state=open",
+        github_json([_open_pull(7, tip, "a-person")]),
+    )
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert again is ImplementResult.STOPPED
+    assert (planned_world.sent("PATCH", "pulls/7"), len(planned_world.sent("POST", "pulls"))) == (
+        [],
+        0,
+    )
+    assert planned_world.repo.origin_git("rev-parse", BRANCH) == tip
+
+
+def test_a_withdraw_killed_after_the_delete_returns_the_item_the_next_time(
+    planned_world: JobWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The withdraw deleted the branch, and the Job died before the close of the draft. The delete
+    is recorded at once, so the next `publish` deletes nothing again and returns the item."""
+    planned_world.run(_stop_after_group_one())
+    _continue(planned_world)
+    folders = RunFolders(tmp_path / "run")
+    _prepare(planned_world, folders)
+    agent_implement(folders, AgentTools(ModelScript(say(PREMISE)).model(), WINDOW))
+    real = GitHubClient.close_pull
+
+    def die(*args: Any, **kwargs: Any) -> Any:
+        raise _Killed
+
+    monkeypatch.setattr(GitHubClient, "close_pull", die)
+    with pytest.raises(_Killed) as killed:
+        publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+    assert killed.type is _Killed
+    monkeypatch.setattr(GitHubClient, "close_pull", real)
+
+    again = publish_phase(planned_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (again, _record(planned_world).get("Status")) == (ImplementResult.RETURNED, "New")
+
+
+def test_a_return_with_nothing_to_withdraw_writes_the_base_only_at_the_return(
+    job_world: JobWorld,
+) -> None:
+    """No earlier Job pushed, so the withdraw pushes nothing and records nothing: only the end
+    of the return clears `implement.base`."""
+    job_world.run(ModelScript(say(PREMISE)))
+
+    cleared = [
+        write.key
+        for write in job_world.store.job_writes()
+        if write.key == ImplementRecordKey.BASE and write.value is None
+    ]
+    assert cleared == [ImplementRecordKey.BASE]
