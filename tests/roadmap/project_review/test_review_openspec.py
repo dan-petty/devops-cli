@@ -59,9 +59,31 @@ def test_one_archived_change_gives_its_deltas_and_the_totals_at_both_ends(
                 ],
             }
         ],
+        "unread": [],
         "requirements": {"base": 1, "head": 2},
     }
     shown = [call for call in openspec_fake.calls if call.argv[:1] == ("show",)]
     assert [call.argv for call in shown] == [show_args(CHANGE)]
     assert ["## ADDED Requirements" in text for text in seen] == [True]
     assert (_files(checkout), reads.counts["openspec"]) == (before, 1)
+
+
+def test_a_change_that_openspec_cannot_show_is_listed_and_the_read_goes_on(
+    checkout: Path, openspec_fake: OpenSpecFake
+) -> None:
+    """An archived proposal with no Why section fails `openspec show` (OpenSpec 2.1.0). The
+    reader lists the change with the message of the tool, and the totals stay."""
+    status = {
+        "severity": "error",
+        "code": "show_error",
+        "message": "Change must have a Why section",
+    }
+    openspec_fake.script(show_args(CHANGE), 1, json.dumps({"status": [status]}))
+
+    answer = read_openspec(checkout, "v1.0.0", "v1.1.0", Reads())
+
+    assert answer == {
+        "changes": [],
+        "unread": [{"id": CHANGE, "reason": "Change must have a Why section"}],
+        "requirements": {"base": 1, "head": 2},
+    }
