@@ -4,7 +4,7 @@ date: 2026-11-22
 decision-makers: [owner]
 issue: 6782
 amends: ["0026"]
-body-hash: "61020b857626288a4b333188d2a6443ccaca3cb0fbf61cad79edb8725706c95c"
+body-hash: "88b143cce2c28919d1584870da5453721720d2d37ec38645832bd5c13ef72cc1"
 ---
 
 # The onboard command owns the repository settings
@@ -27,7 +27,7 @@ body-hash: "61020b857626288a4b333188d2a6443ccaca3cb0fbf61cad79edb8725706c95c"
 - **OpenTofu holds the repository settings, as ADR 0026 decided**: rejected, because its stacks and state do not exist, and the provider cannot hold the `code_quality` rule of the ruleset.
 - **The command and OpenTofu both hold the repository settings**: rejected, because two copies of one setting drift.
 - **A repository secret for the release key of a private repository on the Free plan**: rejected, because each branch can read a repository secret.
-- **Public visibility or GitHub Pro for a private repository that needs releases**: deferred until the owner changes the visibility or the plan of that repository.
+- **A paid plan or public visibility for a private repository that needs releases**: deferred until the owner changes the plan or the visibility of that repository.
 - **The person marks the template pull request ready and merges it**: rejected, because it adds a person step, and the required checks gate the merge in both cases.
 - **The person adds the repository to `service.repos` and deploys by hand**: rejected, because it adds person steps that the command can do.
 
