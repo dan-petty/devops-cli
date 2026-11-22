@@ -10,6 +10,7 @@ from devops_cli.commands.ci import get_check_spec, get_check_specs
 
 _GATE_ROWS = {
     "k8s": "k8s",
+    "charts": "charts",
     "test-tree": "tree",
     "startup-imports": "startup_imports",
     "swallowed-failures": "swallowed_failures",

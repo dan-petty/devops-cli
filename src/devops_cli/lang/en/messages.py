@@ -2288,6 +2288,7 @@ class CIMessages:
     git_transcripts: str = "git transcripts (recorded again with the real git)"
     kube_linter: str = "kube-linter (the checks of .kube-linter.yaml on the Argo CD Applications)"
     k8s_manifests: str = "k8s manifests (kustomize renders of the committed applications)"
+    chart_renders: str = "charts (helm renders of the chart sources of the Argo CD applications)"
     test_tree: str = "test tree (invariants over the Python files of src and tests)"
     startup_imports: str = "startup imports (modules that each command imports at start)"
     swallowed_failures: str = "swallowed failures (ratchet of blind excepts and unread check=False)"

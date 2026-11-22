@@ -37,24 +37,29 @@ tempo:
     limits:
       cpu: 1000m
       memory: 2048Mi
-  # A search holds memory until it ends, so the values cap the bytes of a trace that it reads, the
-  # result count, the search duration and the byte rate, and bound the reads that run at once. Ten
-  # searches then stay under the 2048Mi memory limit of the pod, which OOM-killed tempo-0 twice in
-  # one minute when no limit bounded them (#6616).
+  # A read holds memory until it ends, so the values bound the reads that wait and run at once, the
+  # result count of a search and the time of a read. Ten searches then stay under the 2048Mi memory
+  # limit of the pod, which OOM-killed tempo-0 twice in one minute when no limit bounded them
+  # (#6616). The `charts` row parses the rendered config with the Tempo image of the chart, which
+  # refuses a key that its version does not have (#6730). Tempo 3.1.1 has no limit on the byte
+  # rate of a search, and `search.max_duration` is the largest time range of a search, not the
+  # time that it runs, so the values set neither.
   queryFrontend:
     max_outstanding_per_tenant: 10
+    # The frontend stops a read after 30s and cancels its queued jobs.
+    api_timeout: 30s
     search:
-      max_bytes_per_trace: 1000000
       max_result_limit: 50
-      max_duration: 30s
-      target_bytes_per_second: 25000000
   querier:
     max_concurrent_queries: 4
-  # Tempo discards the spans of a trace beyond 1000000 bytes as it receives the trace, so a trace
-  # that the store receives after this change is at most 1000000 bytes. A trace that the store
-  # already holds can be larger, and it leaves the store within the retention of 168h (#6616).
-  global_overrides:
-    max_bytes_per_trace: 1000000
+  # The chart renders `tempo.overrides` into the `overrides` block of the Tempo config; it does not
+  # render `tempo.global_overrides`. Tempo applies the limit of 1000000 bytes to a trace that a
+  # search reads, to a trace that it receives and to compaction. A trace that the store already
+  # holds can be larger, and it leaves the store within the retention of 168h (#6616).
+  overrides:
+    defaults:
+      global:
+        max_bytes_per_trace: 1000000
 
 persistence:
   enabled: true

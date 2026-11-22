@@ -1406,7 +1406,7 @@
             }
           ],
           "default": null,
-          "description": "Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
+          "description": "Run only the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, charts, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
         },
         "shard": {
           "default": 1,
@@ -1433,7 +1433,7 @@
             }
           ],
           "default": null,
-          "description": "Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
+          "description": "Skip the specified check names (test, lint, format, typecheck, audit, security, actionlint, zizmor, docs, uv-check, lockfile, build, outdated, deps, constructs, devcontainer, openspec, git, test-settings, bwrap, kube-linter, k8s, charts, test-tree, startup-imports, swallowed-failures, domain, roadmap-stage-eval-commits). Comma-separated or repeated."
         }
       },
       "type": "object"
