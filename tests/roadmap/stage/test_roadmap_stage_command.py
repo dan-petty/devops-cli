@@ -268,7 +268,7 @@ def test_the_dry_run_makes_no_request_and_lists_the_reads_the_git_commands_and_t
         "git -C <model-clone> ls-remote --heads origin",
         "stage model",
         "openspec validate <change> --strict",
-        "git -C <worktree> push -q -u origin <branch>",
+        "git -C <new git folder> push --quiet --force-with-lease=refs/heads/<branch>:<remote tip>",
         "POST https://api.github.com/repos/example/roadmap/pulls",
         "git -C <model-clone> push origin --delete <branch>",
     ):

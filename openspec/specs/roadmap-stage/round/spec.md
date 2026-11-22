@@ -6,11 +6,23 @@ The work of a stage round on each item: the staged branch, its one commit and it
 ## Requirements
 
 ### Requirement: A staged item gets a branch and one commit
-For each item the job SHALL make the branch `<type>/<issue>-<slug>` at `origin/<default branch>`, where the type is the Conventional Commit type of the title and the slug comes from its summary. The job SHALL write the change folder `openspec/changes/<issue>-<slug>/`, make one commit as the identity of the session, and push the branch with `-u origin`.
+For each item the job SHALL make the branch `<type>/<issue>-<slug>`, where the type is the Conventional Commit type of the title and the slug comes from its summary. The job SHALL write the change folder `openspec/changes/<issue>-<slug>/` on the staged commit, and `publish` SHALL apply its patch to the tip of the default branch as one commit of the identity of the session and push it from a new repository with a lease (#6704).
 
 #### Scenario: A Ready bug is staged
 - **WHEN** the job runs with `--confirm` on a Ready P1 bug and the model gives a valid plan
 - **THEN** the branch is pushed with one commit by the session identity, and the commit holds the change folder
+
+#### Scenario: A push URL in the clone of the job
+- **WHEN** the clone that the planner reads has a push URL that names another repository
+- **THEN** the job pushes the branch to `origin` all the same, with one commit whose body is `Plans #<issue>.`
+
+#### Scenario: A re-stage branch that moved past the recorded commit
+- **WHEN** the App pushed a commit after `stage.sha`, and the new plan renders the files of `stage.sha` again
+- **THEN** the item fails, and `origin` keeps the branch at that commit
+
+#### Scenario: GitHub refuses the draft of a new plan
+- **WHEN** the clone of the job has a push URL that names another repository, and GitHub refuses the draft
+- **THEN** the job deletes the pushed branch from `origin`, and the item fails with the refusal
 
 ### Requirement: A staged item gets a draft pull request
 The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
@@ -215,18 +227,7 @@ A round SHALL take as the staged commit the commit of `origin/<default branch>` 
 
 #### Scenario: The dry run lists the move of the clone
 - **WHEN** `devops roadmap stage --dry-run` runs
-- **THEN** the git commands move the clone to the staged commit before the tracked files are read, and the worktree of each item starts at the staged commit
-
-### Requirement: A staged branch starts at the staged commit
-The job SHALL make the commit of a staged item on the staged commit of its round, so that the probe and the plan read one commit. Before it pushes, the job SHALL fetch the default branch and rebase the commit onto it, so that the pushed branch holds the default branch. A conflict SHALL abort the rebase and fail the item with nothing pushed. When the job takes over a pushed branch of the item, the branch SHALL keep its own tip.
-
-#### Scenario: origin moves after the round read the default branch
-- **WHEN** `origin/main` gains a commit after the round read it, and the job stages an item
-- **THEN** the parent of the commit of the new branch is the tip of `origin/main`, and `main` has no commit that the new branch lacks
-
-#### Scenario: The rebase conflicts
-- **WHEN** `origin/main` gains a file with the path of a file of the plan
-- **THEN** the job aborts the rebase, pushes no branch, opens no pull request, and records the item as failed
+- **THEN** the git commands move the clone to the staged commit before the tracked files are read, and the agent work of each item writes its change folder on the staged commit
 
 ### Requirement: A staged item records the hash of its text
 When the job stages an item, it SHALL record `stage.text_hash`: the hash of the text of the item outside the refine section that the plan came from. A rejected plan SHALL clear it, and a record that holds none SHALL take the hash of the text at the time of the read.
@@ -382,3 +383,14 @@ The stage job SHALL push the new plan commit to the branch of the draft pull req
 #### Scenario: A person moved the branch
 - **WHEN** A person pushed a commit to the branch after the job recorded the staged commit
 - **THEN** The push with the lease is refused, the job stops item 7 with the error of the push, and it opens no second pull request
+
+### Requirement: A staged plan goes onto the tip of the default branch
+The job SHALL write the change folder of a staged item on the staged commit of its round, so that the probe and the plan read one commit. `publish` SHALL apply the patch of the change folder to the tip of the default branch as one commit, so that the pushed branch holds the default branch (#6704). A patch that the tip refuses SHALL fail the item with nothing pushed.
+
+#### Scenario: origin moves after the round read the default branch
+- **WHEN** `origin/main` gains a commit after the round read it, and the job stages an item
+- **THEN** the parent of the commit of the new branch is the tip of `origin/main`, and `main` has no commit that the new branch lacks
+
+#### Scenario: The patch does not apply to the tip
+- **WHEN** `origin/main` gains a file with the path of a file of the plan after the round read it
+- **THEN** the job pushes no branch, opens no pull request, and records the item as failed

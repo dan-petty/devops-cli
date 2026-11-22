@@ -737,8 +737,10 @@ def stage_requests(
     the tracked files of the clone (#3010) and the tasks of each open plan (#3418), and for each
     item asks the model, and validates the change. The model is asked again only when a task group
     is over the budget, a path of the plan is no file, or the change fails its checks. Each run
-    then fetches the staged branch of each closed item. The writes are the worktree, which starts
-    at the staged commit, the commit and the push of each item, the draft pull request, the
+    then fetches the staged branch of each closed item. The writes are the phases of the plan
+    commit of each item (#6704): the clone of `prepare`, the change folder on the staged commit and
+    its patch, then the apply of the patch in a new repository, its commit and the push with a
+    lease; then the draft pull request, the
     record, the plan-state comment of the draft (an edit of the comment that holds its key, else a
     new comment) and the comment of the run (#6197), and the removal of the draft and the branch of
     a closed item. A run that finds a plan pull request closed with no merge reads the tracked
@@ -748,7 +750,8 @@ def stage_requests(
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
     req, cond, rep = texts.stage_requests, texts.stage_request_conditions, texts.plan_repeat
-    clone, tree, branch, change = "<model-clone>", "<worktree>", _p("branch"), _p("change")
+    clone, branch, change = "<model-clone>", _p("branch"), _p("change")
+    run, fresh = _p("run_clone"), _p("git_folder")
     each_item, each_closed = rep["stage_item"], rep["stage_closed"]
     each_rejected = rep["stage_rejected"]
 
@@ -864,32 +867,58 @@ def stage_requests(
         ),
         *within(store.comment(_p("item")), repeat=each_rejected),
         *within(store.write_status(_p("item")), repeat=each_rejected),
+        *within(store.set_marks(_p("item")), repeat=each_item),
+        other("git", "clone", "git", "clone", "--quiet", _p("origin_url"), run),
+        git("switch", run, "switch", "--quiet", "-C", branch, "<staged commit>", repeat=each_item),
+        git("patch", run, "diff", "--binary", "<staged commit>", repeat=each_item),
+        other("git", "new_repo", "git", "init", "--quiet", fresh),
+        git("remote_add", fresh, "remote", "add", "origin", _p("origin_url"), repeat=each_item),
         git(
-            "worktree",
-            clone,
-            "worktree",
-            "add",
-            "--no-track",
-            "-b",
-            branch,
-            tree,
-            "<staged commit>",
+            "fetch_base",
+            fresh,
+            "fetch",
+            "--quiet",
+            "--depth=1",
+            "--no-tags",
+            "origin",
+            _p("base"),
+            _p("remote_tip"),
             repeat=each_item,
         ),
-        *within(store.set_marks(_p("item")), repeat=each_item),
-        git("commit", tree, "add", "--", f"openspec/changes/{change}", repeat=each_item),
-        git("commit", tree, "commit", "-q", "-m", _p("title"), repeat=each_item),
-        git("push", tree, "push", "-q", "-u", "origin", branch, repeat=each_item),
+        git("apply", fresh, "apply", "--index", "--binary", _p("patch"), repeat=each_item),
+        git("commit", fresh, "commit", "--quiet", "-m", _p("title"), repeat=each_item),
+        git(
+            "push",
+            fresh,
+            "push",
+            "--quiet",
+            f"--force-with-lease=refs/heads/{branch}:{_p('remote_tip')}",
+            "origin",
+            f"HEAD:refs/heads/{branch}",
+            repeat=each_item,
+        ),
         other("REST write", "pull", "POST", pulls),
         *within(store.file(CONST_ROADMAP_LABELS_PATH, None), repeat=each_item),
         *within(store.label_issue(_p("pull")), repeat=each_item),
+        other("git", "new_repo", "git", "init", "--quiet", fresh, when=cond["delete_failed"]),
+        git(
+            "remote_add",
+            fresh,
+            "remote",
+            "add",
+            "origin",
+            _p("origin_url"),
+            when=cond["delete_failed"],
+            repeat=each_item,
+        ),
         git(
             "delete_failed",
-            clone,
+            fresh,
             "push",
+            "--quiet",
+            f"--force-with-lease=refs/heads/{branch}:{_p('pushed_tip')}",
             "origin",
-            "--delete",
-            branch,
+            f":refs/heads/{branch}",
             when=cond["delete_failed"],
             repeat=each_item,
         ),

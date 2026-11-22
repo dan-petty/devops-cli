@@ -844,10 +844,51 @@ def test_the_stage_plan_moves_the_clone_to_the_staged_commit_and_starts_each_bra
     assert read_lines.index(move) < next(
         index for index, line in enumerate(read_lines) if "ls-files" in line
     )
-    assert any(
-        line.endswith("worktree add --no-track -b <branch> <worktree> <staged commit>")
-        for line in write_lines
-    )
+    assert any(line.endswith("switch --quiet -C <branch> <staged commit>") for line in write_lines)
+
+
+def test_the_stage_plan_pushes_the_plan_commit_from_a_new_repository() -> None:
+    """`prepare` clones, the agent work writes the patch from the staged commit, and `publish`
+    applies it and pushes with a lease from a new repository: no worktree of the clone of the
+    job pushes (#6704)."""
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    _, writes = stage_requests(REPO)
+
+    calls = [
+        (request.argv[3] if request.argv[1:2] == ("-C",) else request.argv[1], request.argv[2:3])
+        for request in writes
+        if request.method == "git" and request.repeat and not request.condition
+    ]
+    run, fresh = ("<clone of the run>",), ("<new git folder>",)
+    assert calls == [
+        ("clone", ("--quiet",)),
+        ("switch", run),
+        ("diff", run),
+        ("init", ("--quiet",)),
+        ("remote", fresh),
+        ("fetch", fresh),
+        ("apply", fresh),
+        ("commit", fresh),
+        ("push", fresh),
+    ]
+
+
+def test_the_stage_plan_deletes_the_branch_of_a_refused_draft_where_the_push_went() -> None:
+    """The delete of the branch of a draft that GitHub refused goes from a new repository, as the
+    push of the plan commit does, with a lease on the pushed commit (#6710)."""
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    _, writes = stage_requests(REPO)
+
+    cond = MESSAGES.roadmap.stage_request_conditions["delete_failed"]
+    lines = [" ".join(request.argv) for request in writes if request.condition == cond]
+    assert lines == [
+        "git init --quiet <new git folder>",
+        "git -C <new git folder> remote add origin <URL of origin>",
+        "git -C <new git folder> push --quiet --force-with-lease=refs/heads/<branch>:<pushed tip> "
+        "origin :refs/heads/<branch>",
+    ]
 
 
 def test_the_stage_plan_reads_the_tracked_files_of_the_clone_once_for_the_round() -> None:

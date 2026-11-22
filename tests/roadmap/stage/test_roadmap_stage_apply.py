@@ -843,8 +843,6 @@ def test_a_staged_branch_that_conflicts_with_main_is_not_pushed(
     assert (applied.staged, [f.number for f in applied.failed]) == ((), [1])
     assert _pushed(stage_repo) == ["main"]
     assert opened.requested == []
-    assert stage_repo.git("worktree", "list").count("\n") == 0
-    assert "rebase-merge" not in stage_repo.git("status")
 
 
 def test_the_report_names_the_staged_commit_that_the_probe_read(

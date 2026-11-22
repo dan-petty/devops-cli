@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -98,6 +99,25 @@ def test_stage_orphan_cleanup_keeps_app_only_branch_of_ready_item(
     found = store.item(number)
     assert found is not None
     assert not found.job_record.get(StageRecordKey.PENDING)
+
+
+def test_a_push_url_in_the_clone_of_the_job_changes_nothing(
+    staging: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    tmp_path: Path,
+) -> None:
+    """`publish` pushes the plan commit from a new repository to the repository on GitHub, so
+    the configuration of the clone that the planner reads never reaches the push (#6704)."""
+    stage_repo.git("config", "remote.origin.pushurl", str(tmp_path / "elsewhere.git"))
+    model_fake.answer(make_stage_proposal())
+
+    plan, staged, _removed, failed = _stage_round(staging, stage_repo, now=NOW)
+
+    assert (failed, staged) == ((), (1,))
+    assert stage_repo.origin_git("log", "--format=%an|%s|%b", f"main..{BRANCH}").split("\n")[
+        :1
+    ] == [f"{STAGE_NAME}|{plan.ready[0].title}|Plans #1."]
 
 
 def test_a_stage_round_killed_after_checkpoint_push_resumes_with_zero_planner_calls(
