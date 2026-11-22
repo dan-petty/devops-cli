@@ -123,7 +123,7 @@ def _names_the_store(doc: Mapping[str, Any]) -> bool:
 def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
     """Each platform bucket is there with its quota, and each bucket of the store names the store,
     keeps an enforced quota and keeps its data when its CR goes."""
-    problems = []
+    problems: list[str] = []
     found = {_bucket_name(bucket): bucket for bucket in buckets}
     for name, size in PLATFORM_BUCKETS.items():
         quota = found.get(name, {}).get("spec", {}).get("quota", {}).get("size")
@@ -164,7 +164,7 @@ def check_the_bucket_rule_names_a_bucket_that_deletes_its_data() -> None:
 def anonymous_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
     """Only the report buckets have anonymous read, and no bucket grants the anonymous user an
     action of its own."""
-    problems = []
+    problems: list[str] = []
     for bucket in buckets:
         spec = bucket.get("spec", {})
         name = _bucket_name(bucket)
@@ -191,7 +191,7 @@ def check_the_anonymous_rule_names_a_backup_bucket_with_anonymous_read() -> None
 
 
 def _enabled(rule: Mapping[str, Any]) -> bool:
-    return rule.get("status", "Enabled") == "Enabled"
+    return bool(rule.get("status", "Enabled") == "Enabled")
 
 
 def _expires(rule: Mapping[str, Any]) -> bool:
@@ -201,7 +201,7 @@ def _expires(rule: Mapping[str, Any]) -> bool:
 def _rule_problems(name: str, rules: list[Mapping[str, Any]]) -> list[str]:
     """The rules of one bucket: the abort rule, the expirations of the design, and no expiration
     of a backup."""
-    problems = []
+    problems: list[str] = []
     if not any(
         _enabled(rule)
         and not rule.get("prefix")
@@ -227,7 +227,7 @@ def lifecycle_problems(
     buckets: Iterable[Mapping[str, Any]], policies: Iterable[Mapping[str, Any]]
 ) -> list[str]:
     """Each bucket has one lifecycle policy in its namespace with the rules of the design."""
-    problems = []
+    problems: list[str] = []
     bucket_list = list(buckets)
     by_bucket: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
     for policy in policies:
@@ -286,7 +286,7 @@ def _resource_bucket(resource: str) -> str:
 
 
 def _statement_problems(policy: Mapping[str, Any], buckets: set[str]) -> list[str]:
-    problems = []
+    problems: list[str] = []
     spec = policy.get("spec", {})
     if "policyDocument" in spec:
         problems.append(f"{_ref(policy)}: a raw policyDocument, not statements")
@@ -427,7 +427,7 @@ def key_problems(
     rows = {secret.ref: secret for secret in table}
     identities = {_name(identity) for identity in _kind("S3Identity", docs)}
     grants = _kind("ResourceReferenceGrant", docs)
-    problems = []
+    problems: list[str] = []
     secrets: set[tuple[str, str]] = set()
     for credentials in _kind("S3Credentials", docs):
         namespace, name, fields = _secret_target(credentials)
@@ -526,7 +526,7 @@ def kind_problems(
     that the project admits."""
     (project,) = [p for p in projects if _name(p) == PROJECT]
     destinations = {d.get("namespace") for d in project.get("spec", {}).get("destinations", [])}
-    problems = []
+    problems: list[str] = []
     for doc in documents:
         if doc.get("kind") not in STORE_KINDS:
             problems.append(f"{_ref(doc)}: kind {doc.get('kind')} reconciles outside the operator")
