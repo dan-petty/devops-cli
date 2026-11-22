@@ -372,7 +372,7 @@ and draft readiness. |
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
 |  | `devops tf graph [OPTIONS] <directory>` | Inspect the in-memory resource dependency graph and blast radius. |
 |  | `devops tf drift [OPTIONS] <directory>` | Compare declared configuration against recorded state. |
-|  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP. |
+|  | `devops tf deploy-cloud [OPTIONS]` | Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP from an infra checkout. |
 |  | `devops tf lint [OPTIONS] <directory>` | Run TFLint static analysis on Terraform/OpenTofu configurations. |
 |  | `devops tf notify-plan [OPTIONS]` | Format an OpenTofu plan as a collapsible pull request comment and print it. The command sends no request. |
 |  | `devops tf cost COMMAND [ARGS]...` | OpenTofu and Terraform Infrastructure-as-Code operations. |

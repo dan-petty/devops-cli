@@ -17,6 +17,7 @@ from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups, section_
 from devops_cli.roadmap.step_rules import (
     ROUTES,
     RULES_HEADING,
+    Route,
     route_heading,
     route_text,
     rules_sections,
@@ -81,13 +82,22 @@ def test_the_sections_of_a_route_fit_the_cap_and_are_not_cut() -> None:
     assert [document for document, text in texts.items() if TRUNCATED in text] == []
 
 
-def test_a_route_without_sections_gives_the_start_of_its_document_cut_to_the_cap() -> None:
-    [route] = [route for route in ROUTES if not route.sections]
+def test_a_route_without_sections_gives_the_start_of_its_document_cut_to_the_cap(
+    tmp_path: Path,
+) -> None:
+    """No route of `ROUTES` has no sections since the OpenTofu guide moved to infra (#6679), so
+    the route and its document over the cap are built here."""
+    document = "# Guide\n\n" + "Apply the module. " * 40_000
+    (tmp_path / "GUIDE.md").write_text(document, encoding="utf-8")
+    route = Route(row="change a module", patterns=("modules/**",), document="GUIDE.md")
 
-    text = route_text(REPO_ROOT, route)
+    text = route_text(tmp_path, route)
 
-    assert text.startswith((REPO_ROOT / route.document).read_text(encoding="utf-8")[:40])
-    assert count_tokens(text) <= CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
+    assert (
+        text.startswith(document[:40]),
+        TRUNCATED in text,
+        count_tokens(text) <= CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS + 8,
+    ) == (True, True, True)
 
 
 # ── The sections of a group ───────────────────────────────────────────────────────────────

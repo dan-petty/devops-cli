@@ -1600,6 +1600,10 @@ class TfMessages:
         "Deploying {provider} cloud infrastructure from [cyan]{path}[/cyan]..."
     )
     deploy_cloud_success: str = "✓ {provider} cloud infrastructure deployed successfully."
+    deploy_cloud_dir_not_found: str = (
+        "{path} does not exist. Run devops tf deploy-cloud in an infra checkout, which holds "
+        "the example of each provider in tf/examples/<provider>."
+    )
     deploy_cloud_state_in_checkout: str = (
         "{path} has no local state, but the main checkout's {checkout} does. A worktree "
         "does not share the main checkout's untracked state, so init and apply here start "

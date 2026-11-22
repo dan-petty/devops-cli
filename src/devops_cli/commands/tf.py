@@ -14,7 +14,6 @@ from devops_cli.config.constants import (
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_TF_AWS_DIR,
     CONST_TF_AZURE_DIR,
-    CONST_TF_ENVIRONMENTS_DIR,
     CONST_TF_GCP_DIR,
 )
 from devops_cli.config.defaults import (
@@ -30,6 +29,7 @@ from devops_cli.core.validation import validate_dir
 from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.decorator import dry_run_class
 from devops_cli.dry_run.requests import render_request_plan
+from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.models.tf import (
     TFCostBreakdownResult,
@@ -91,7 +91,7 @@ def _resolve_tf_binary(dry_run: bool = False) -> str:
 
 
 def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:
-    """Resolve directory path for a supported cloud provider."""
+    """The example root module of a supported cloud provider in the infra checkout `repo_root`."""
     provider_map = {
         "aws": repo_root / CONST_TF_AWS_DIR,
         "azure": repo_root / CONST_TF_AZURE_DIR,
@@ -108,9 +108,10 @@ def _get_cloud_dir(cloud_provider: str, repo_root: Path) -> Path:
 
 
 def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
-    """Find default example tfvars file for a cloud provider."""
+    """The values of the provider's example, `<provider>.tfvars.example` beside its root module,
+    when the file exists."""
     key = cloud_provider.lower()
-    candidate = repo_root / CONST_TF_ENVIRONMENTS_DIR / f"{key}.tfvars.example"
+    candidate = _get_cloud_dir(key, repo_root) / f"{key}.tfvars.example"
     return candidate if candidate.exists() else None
 
 
@@ -688,9 +689,17 @@ def deploy_cloud(
     ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
-    """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP."""
+    """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP from an infra checkout.
+
+    Runs `tofu init` and `tofu apply` in `tf/examples/<provider>` of the infra checkout that holds
+    the working folder, with `<provider>.tfvars.example` there as the default variable file.
+    """
     repo_root = find_worktree_root(Path.cwd())
     cloud_dir = _get_cloud_dir(provider, repo_root)
+    if not cloud_dir.is_dir():
+        raise ValidationError(
+            MESSAGES.tf.deploy_cloud_dir_not_found.format(path=cloud_dir), field="provider"
+        )
     _confirm_deploy_without_checkout_state(
         provider, repo_root, cloud_dir, auto_approve=auto_approve, dry_run=dry_run
     )

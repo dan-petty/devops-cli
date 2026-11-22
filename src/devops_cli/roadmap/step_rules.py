@@ -81,21 +81,16 @@ ROUTES: Final[tuple[Route, ...]] = (
         sections=("Purpose", "Labels and record keys", "The stop and retry path"),
     ),
     Route(
-        row="change a manifest, the cluster or OpenTofu",
+        row="change a manifest or the cluster",
         patterns=("k8s/**",),
         document="k8s/README.md",
         sections=("Stacks Overview", "Directory Structure"),
     ),
     Route(
-        row="change a manifest, the cluster or OpenTofu",
+        row="change a manifest or the cluster",
         patterns=("k8s/**",),
         document="docs/CLUSTER.md",
         sections=("Image Pins",),
-    ),
-    Route(
-        row="change a manifest, the cluster or OpenTofu",
-        patterns=("tf/**",),
-        document="tf/README.md",
     ),
 )
 

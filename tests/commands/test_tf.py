@@ -104,14 +104,10 @@ def test_validate_dir_invalid(tmp_path: Path) -> None:
 
 
 def test_get_cloud_dir(tmp_path: Path) -> None:
-    aws_dir = _get_cloud_dir("aws", tmp_path)
-    assert aws_dir == tmp_path / "tf" / "aws"
-
-    azure_dir = _get_cloud_dir("azure", tmp_path)
-    assert azure_dir == tmp_path / "tf" / "azure"
-
-    gcp_dir = _get_cloud_dir("gcp", tmp_path)
-    assert gcp_dir == tmp_path / "tf" / "gcp"
+    """Each provider has its example root module in `tf/examples/<provider>`, the infra layout."""
+    assert [_get_cloud_dir(provider, tmp_path) for provider in ("aws", "azure", "gcp")] == [
+        tmp_path / "tf" / "examples" / provider for provider in ("aws", "azure", "gcp")
+    ]
 
     with pytest.raises(typer.Exit) as raised:
         _get_cloud_dir("unknown", tmp_path)
@@ -119,9 +115,10 @@ def test_get_cloud_dir(tmp_path: Path) -> None:
 
 
 def test_get_default_var_file(tmp_path: Path) -> None:
-    env_dir = tmp_path / "tf" / "environments"
-    env_dir.mkdir(parents=True)
-    aws_var = env_dir / "aws.tfvars.example"
+    """The values of an example are `<provider>.tfvars.example` beside its root module."""
+    (tmp_path / "tf" / "examples" / "azure").mkdir(parents=True)
+    aws_var = tmp_path / "tf" / "examples" / "aws" / "aws.tfvars.example"
+    aws_var.parent.mkdir(parents=True)
     aws_var.write_text("aws_region = 'us-west-2'\n")
 
     assert _get_default_var_file("aws", tmp_path) == aws_var
@@ -232,7 +229,7 @@ def test_deploy_cloud_command(
     process_fake: ProcessFake,
 ) -> None:
     (temp_tf_dir / ".git").mkdir()
-    (temp_tf_dir / "tf" / "aws").mkdir(parents=True)
+    (temp_tf_dir / "tf" / "examples" / "aws").mkdir(parents=True)
     monkeypatch.chdir(temp_tf_dir)
     result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve"])
     assert result.exit_code == 0
@@ -248,13 +245,62 @@ def test_deploy_cloud_dry_run(
     process_fake: ProcessFake,
 ) -> None:
     (temp_tf_dir / ".git").mkdir()
-    (temp_tf_dir / "tf" / "aws").mkdir(parents=True)
+    (temp_tf_dir / "tf" / "examples" / "aws").mkdir(parents=True)
     monkeypatch.chdir(temp_tf_dir)
     result = runner.invoke(
         app, ["deploy-cloud", "--provider", "aws", "--auto-approve", "--dry-run"]
     )
     assert result.exit_code == 0
     assert len(process_fake.calls) == 0
+
+
+def test_a_dry_run_in_an_infra_checkout_plans_init_and_apply_of_its_example(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """`devops tf deploy-cloud -p aws --dry-run` in an infra checkout plans `tofu init` and
+    `tofu apply` with the values of `tf/examples/aws`, and starts no process (#6679)."""
+    (tmp_path / ".git").mkdir()
+    example = tmp_path / "tf" / "examples" / "aws"
+    example.mkdir(parents=True)
+    (example / "aws.tfvars.example").write_text('aws_region = "us-west-2"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--dry-run"])
+
+    output = "".join(result.output.split())
+    assert (
+        result.exit_code,
+        str(example.resolve()) in output,
+        "tofuinit" in output,
+        f"tofuapply-var-file{example.resolve() / 'aws.tfvars.example'}" in output,
+        process_fake.calls,
+    ) == (0, True, True, True, [])
+
+
+@pytest.mark.parametrize("args", [[], ["--dry-run"]], ids=["run", "dry-run"])
+def test_deploy_cloud_outside_an_infra_checkout_names_one(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    process_fake: ProcessFake,
+    fake_tf_binaries: None,
+    args: list[str],
+) -> None:
+    """A checkout with no `tf/examples/<provider>` stops the command before any plan or
+    process, and the error names the missing folder and an infra checkout (#6679)."""
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--auto-approve", *args])
+
+    output = " ".join(result.output.split())
+    assert (
+        result.exit_code,
+        "".join(str((tmp_path / "tf" / "examples" / "aws").resolve()).split())
+        in "".join(output.split()),
+        "infra checkout" in output,
+        "tofu apply" in output,
+        process_fake.calls,
+    ) == (1, True, True, False, [])
 
 
 def test_tf_subcommands_dry_run(
@@ -328,6 +374,7 @@ def test_deploy_cloud_targets_the_nested_worktrees_configuration(
     """Verify `devops tf deploy-cloud` from a worktree under `.claude/worktrees/` initialises
     and applies that worktree's provider configuration, not the checkout's (#582)."""
     _, nested = nested_worktree
+    (nested / CONST_TF_AWS_DIR).mkdir(parents=True)
     monkeypatch.chdir(nested)
 
     result = runner.invoke(app, ["deploy-cloud", "--provider", "aws", "--dry-run"])
@@ -347,8 +394,8 @@ def _deploy_from_the_worktree(
     checkout_state: tuple[str, str] = ("terraform.tfstate", "{}"),
 ) -> tuple[int, list[Path], str]:
     """Run `devops tf deploy-cloud --provider aws` from a nested worktree, with the main
-    checkout's tf/aws holding `checkout_state` (a relative path and its contents, local state
-    by default); the exit code, the tofu cwds and the output."""
+    checkout's tf/examples/aws holding `checkout_state` (a relative path and its contents, local
+    state by default); the exit code, the tofu cwds and the output."""
     import shutil
 
     main, nested = nested_worktree
