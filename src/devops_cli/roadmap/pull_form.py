@@ -306,7 +306,7 @@ def body_problems(body: str) -> list[str]:
     The body is the text of what the change does and why, then the line `Closes #<issue>` for the
     one issue it closes, then the line `Change:` with the folder of the change in a code span, then,
     when given, the attribution lines. The limit of `BODY_MAX_CHARS` characters measures the text
-    above the line `Closes`, with its leading and trailing blank lines removed, that
+    above the line `Closes`, with the whitespace at its start and at its end removed, that
     `measured_body_text` gives: the `Closes` line, the `Change:` line and the attribution lines do
     not count. The text is no placeholder and keeps nothing of the pull request template."""
     texts = MESSAGES.pr

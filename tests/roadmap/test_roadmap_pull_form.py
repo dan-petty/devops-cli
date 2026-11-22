@@ -326,10 +326,10 @@ def test_a_closes_line_with_whitespace_at_its_ends_ends_the_measured_text(closes
 def test_the_docstring_of_the_body_check_names_the_text_above_closes() -> None:
     documented = body_problems.__doc__ or ""
 
-    assert ("above the line `Closes`" in documented, "trailing blank lines" in documented) == (
-        True,
-        True,
-    )
+    assert (
+        "above the line `Closes`" in documented,
+        "the whitespace at its start and at its end removed" in documented,
+    ) == (True, True)
 
 
 def test_the_trailers_do_not_count_toward_the_limit_of_the_body() -> None:
