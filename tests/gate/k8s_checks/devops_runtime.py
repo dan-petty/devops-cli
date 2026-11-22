@@ -9,6 +9,11 @@ from pathlib import Path
 
 import yaml
 
+from devops_cli.config.constants import (
+    CONST_RUNNER_PHASE_AGENT,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
+)
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
@@ -25,13 +30,18 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     `latest` would default the pull policy to Always, so both containers set IfNotPresent.
     """
     service = "ghcr.io/dan-petty/devops-cli/service"
+    runner = "ghcr.io/dan-petty/devops-cli/runner"
     digest = f"sha256:{'0' * 64}"
     overlay = K8S_DIR / "overlays" / "homelab" / "devops"
     (tmp_path / "kustomization.yaml").write_text(
         yaml.safe_dump(
             {
                 "resources": [os.path.relpath(overlay, tmp_path)],
-                "images": [{"name": service, "newTag": "latest", "digest": digest}],
+                # Image Updater writes the entry of the runner in the Application (#2667).
+                "images": [
+                    {"name": service, "newTag": "latest", "digest": digest},
+                    {"name": runner, "newTag": "latest", "digest": digest},
+                ],
             }
         ),
         encoding="utf-8",
@@ -62,7 +72,6 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         for kind, pod in pods
         for container in [*pod.get("initContainers", []), *pod["containers"]]
     }
-    # The runner has no entry here: Image Updater writes its own entry (#2667).
     # Deployment `crawl4ai` pins a third-party image by tag and digest (#3884), and Renovate
     # updates the pin (#6060).
     crawl4ai = next(c for c in containers if c[1] == "crawl4ai")
@@ -83,10 +92,17 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
         len({c[2] for c in renovate}),
         all(RENOVATE_IMAGE.fullmatch(c[2]) and c[3] == "IfNotPresent" for c in renovate),
     ) == ({"CronJob"}, 1, True)
+    # Each container of the runner image gets the digest, the init containers of the runner
+    # template too (#3700).
+    runners = {c for c in containers if c[2].startswith(runner)}
+    containers -= runners
+    assert (
+        {c[2:] for c in runners},
+        {CONST_RUNNER_PHASE_PREPARE, CONST_RUNNER_PHASE_AGENT, CONST_RUNNER_PHASE_PUBLISH}
+        <= {c[1] for c in runners},
+    ) == ({(f"{runner}:latest@{digest}", "IfNotPresent")}, True)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
-        ("CronJob", "runner", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
-        ("CronJob", "stage", "ghcr.io/dan-petty/devops-cli/runner", "IfNotPresent"),
         ("CronJob", "token", f"{service}:latest@{digest}", "IfNotPresent"),
         ("Deployment", "mcp-server", "ghcr.io/dan-petty/devops-cli/mcp-server", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),

@@ -30,7 +30,8 @@ NAMESPACE_FROM_DOWNWARD_API = {"fieldRef": {"fieldPath": "metadata.namespace"}}
 
 
 def _containers(document: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
-    """The name and the spec of each container of a rendered object that has a pod template."""
+    """The name and the spec of each container of a rendered object that has a pod template, its
+    init containers first."""
     spec = document.get("spec", {})
     match document["kind"]:
         case "Deployment":
@@ -44,7 +45,7 @@ def _containers(document: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]
             return
         case _:
             return
-    for container in pod["containers"]:
+    for container in [*pod.get("initContainers", []), *pod["containers"]]:
         yield container["name"], container
 
 
@@ -80,7 +81,10 @@ def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> Non
     assert named == {
         ("CronJob", "devops-cli", "devops-cli"): (cluster, "devops"),
         ("CronJob", "devops-cli-planner-run", "runner"): (cluster, "devops"),
-        ("CronJob", "devops-cli-runner", "runner"): (cluster, "devops"),
+        ("CronJob", "devops-cli-runner", "prepare"): (cluster, "devops"),
+        ("CronJob", "devops-cli-runner", "agent"): (cluster, "devops"),
+        ("CronJob", "devops-cli-runner", "publish"): (cluster, "devops"),
+        ("CronJob", "renovate", "token"): (cluster, "devops"),
         ("CronJob", "roadmap-stage", "stage"): (cluster, "devops"),
         ("Deployment", "mcp-server", "mcp-server"): (cluster, "devops"),
         ("Deployment", "roadmap-service", "service"): (cluster, "devops"),

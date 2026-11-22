@@ -1,10 +1,15 @@
 # The template of the runner Job, the pod in which the implement job runs its steps (#2667). It
 # never runs on a schedule: `devops k8s run-job --template runner -- ARGS` and the roadmap
-# Service create a Job from it with only the container's args, the name and some labels and
-# environment values changed. The shell of a step is no security boundary, so this pod is the
-# sandbox: a read-only root, no Linux capability, no Kubernetes token, and the egress of
+# Service create a Job from it with only the args, the name and some labels and environment
+# values changed. The shell of a step is no security boundary, so this pod is the sandbox: a
+# read-only root, no Linux capability, no Kubernetes token, and the egress of
 # `devops-default-perimeter-egress` (DNS, the gateway, the cache, the OTLP collector and public
-# HTTPS).
+# HTTPS). The step runs as three containers, one after the other (#3700, ADR 0030): the init
+# containers `prepare` and `agent`, then the container `publish`. `build_job` gives each the args
+# with its own `--phase` and `--work /run/roadmap` (`CONST_RUNNER_PHASE_*`). Only `prepare` and
+# `publish` hold the App key, only `agent` holds the model key, and `agent` mounts neither the
+# state folder nor a home of the other two. The containers share the network, the IPC namespace
+# and the kernel of the pod, and no process namespace.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -49,8 +54,8 @@ spec:
             fsGroup: 1000
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: runner
+          initContainers:
+            - name: prepare
               image: ghcr.io/dan-petty/devops-cli/runner
               imagePullPolicy: IfNotPresent
               args: ["--version"]
@@ -65,23 +70,8 @@ spec:
                   value: /config/devops-cli.yaml
                 - name: DEVOPS_CLI_DATA_DIR
                   value: /home/devops/.data
-                # Only the keys of Secret devops-cli that the implement and fix-checks jobs read
-                # (#6518), the keys of a stage Job (`CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`): the
-                # job process acts as the App and calls the gateway. No other key reaches the pod.
-                # The MCP client of the implement job is off (`roadmap.implement.mcp`), so the
-                # change that turns it on adds its key.
-                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: devops-cli
-                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
-                - name: DEVOPS_CLI_AI_API_KEY
-                  valueFrom:
-                    secretKeyRef:
-                      name: devops-cli
-                      key: DEVOPS_CLI_AI_API_KEY
-                # Only the pod of a runner Job sets this. `devops roadmap implement --confirm`
-                # runs a step only when it is true.
+                # Only the pod of a runner Job sets this. A phase of `devops roadmap implement
+                # --confirm` and of `roadmap step fix-checks --confirm` runs only when it is true.
                 - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER
                   value: "true"
                 # The telemetry of a runner Job reports under the service name `roadmap-implement`.
@@ -101,14 +91,90 @@ spec:
                   value: homelab-k3s
                 - name: POD_NAMESPACE
                   value: devops
+                - name: DO_NOT_TRACK
+                  value: "1"
+                # The App key of Secret devops-cli: this phase acts as the App (#6518).
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+              volumeMounts:
+                # The run folder: the clone and the inputs of the agent in `work/`.
+                - name: run
+                  mountPath: /run/roadmap
+                # The state of the run, which `agent` cannot read or write.
+                - name: state
+                  mountPath: /run/roadmap/state
+                - name: prepare-tmp
+                  mountPath: /tmp
+                - name: prepare-home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              # One small fixed row: git and GitHub calls only. Kubernetes sizes the pod by the
+              # largest init container or by the sum of the app containers, so this row adds no
+              # capacity to the row of `agent`.
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                  ephemeral-storage: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+                  ephemeral-storage: 2Gi
+            - name: agent
+              image: ghcr.io/dan-petty/devops-cli/runner
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                # Only the pod of a runner Job sets this. A phase of `devops roadmap implement
+                # --confirm` and of `roadmap step fix-checks --confirm` runs only when it is true.
+                - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER
+                  value: "true"
+                # The telemetry of a runner Job reports under the service name `roadmap-implement`.
+                - name: OTEL_SERVICE_NAME
+                  value: roadmap-implement
+                # Every Job pod of the workload sends this one instance, so its metric stream
+                # continues across the Job pods instead of starting again at zero in the same
+                # Prometheus series (#4697).
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=devops-cli-job
+                # The spans and the log records name the cluster (`k8s.cluster.name`) and the
+                # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
+                # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name
+                # minikube. The admission policy `roadmap-service-jobs` refuses `fieldRef` (the
+                # Downward API) in a Job of the Service, so the namespace is a plain value.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  value: devops
+                - name: DO_NOT_TRACK
+                  value: "1"
+                # The model key of Secret devops-cli: the agent calls the gateway and holds no App key.
+                - name: DEVOPS_CLI_AI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_AI_API_KEY
                 # `pytest-xdist` starts one worker for each CPU of the node, not of the pod
                 # (`-n logical`, 280 MB each). On a node with 48 CPUs that is about 13 GB in a pod
                 # with 2 CPUs (#2806). The value equals the CPU limit; a test checks it. The shell
                 # of a step takes it from here.
                 - name: PYTEST_XDIST_AUTO_NUM_WORKERS
                   value: "2"
-                - name: DO_NOT_TRACK
-                  value: "1"
                 - name: OPENSPEC_TELEMETRY
                   value: "0"
                 - name: OPENSPEC_NO_UPDATE_CHECK
@@ -116,28 +182,24 @@ spec:
                 - name: PYDANTIC_AI_NO_BANNER
                   value: "1"
               volumeMounts:
-                # The new repository of publish, about 160 MB for devops-cli (#6743).
-                - name: tmp
+                # The clone of `prepare`, its venv, the caches of the checks, and `out/`, which
+                # `agent` makes for its outputs.
+                - name: run
+                  mountPath: /run/roadmap
+                - name: agent-tmp
                   mountPath: /tmp
-                # The clone, the worktree, its venv, the uv cache and the caches of the checks.
-                # Measured on 2026-11-16 (#5960): 1.8 GB for the clone, the worktree, the venv and
-                # the cache, and 68 MB for the tree of the mutation run, which the strength check
-                # removes after its run. A run of #3648 went over 4 GiB, so the limit is twice that.
-                # The run folder of fix-checks is here too (#6601): 176 MB for its clone, measured
-                # on 2026-11-21.
-                - name: home
+                # The cache of uv and the files of the steps.
+                - name: agent-home
                   mountPath: /home/devops
                 - name: config
                   mountPath: /config
                   readOnly: true
+              # The Service replaces this row with a row of `RUNNER_SIZES` (#3193). The storage
+              # limit covers every volume below and the log, so a step cannot fill the disk of
+              # the node. The storage request is the 4 GiB that a run of #3648 used (#5960). The
+              # memory limit is a burst class (#2806): twice the 4.13 GB that the killed Job had
+              # reached, and below the 15 Gi that the smallest node can allocate.
               resources:
-                # The storage limit covers both volumes below (8 Gi and 1 Gi) and the log, so a
-                # step cannot fill the disk of the node. The storage request is the 4 GiB that a
-                # run of #3648 used (#5960). The memory request is the normal peak of
-                # a Job (1.24 GB at most over the 10 Jobs that did not run out of memory). The
-                # memory limit is a burst class (#2806): twice the 4.13 GB that the killed Job had
-                # reached, and below the 15 Gi that the smallest node can allocate, so a pod that
-                # lands on it cannot starve the node. The CPU limit only slows a step, so it stays.
                 requests:
                   cpu: "2"
                   memory: 4Gi
@@ -145,14 +207,114 @@ spec:
                 limits:
                   cpu: "2"
                   memory: 8Gi
-                  ephemeral-storage: 10Gi
+                  ephemeral-storage: 14Gi
+          containers:
+            - name: publish
+              image: ghcr.io/dan-petty/devops-cli/runner
+              imagePullPolicy: IfNotPresent
+              args: ["--version"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                # Only the pod of a runner Job sets this. A phase of `devops roadmap implement
+                # --confirm` and of `roadmap step fix-checks --confirm` runs only when it is true.
+                - name: DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER
+                  value: "true"
+                # The telemetry of a runner Job reports under the service name `roadmap-implement`.
+                - name: OTEL_SERVICE_NAME
+                  value: roadmap-implement
+                # Every Job pod of the workload sends this one instance, so its metric stream
+                # continues across the Job pods instead of starting again at zero in the same
+                # Prometheus series (#4697).
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=devops-cli-job
+                # The spans and the log records name the cluster (`k8s.cluster.name`) and the
+                # namespace (`k8s.namespace.name`) from these two values. The cluster name is the
+                # name in k8s/monitoring/k8s-monitoring-values.yaml; without it, they name
+                # minikube. The admission policy `roadmap-service-jobs` refuses `fieldRef` (the
+                # Downward API) in a Job of the Service, so the namespace is a plain value.
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  value: devops
+                - name: DO_NOT_TRACK
+                  value: "1"
+                # The App key of Secret devops-cli: this phase acts as the App (#6518).
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+              volumeMounts:
+                # `publish` reads the state and the outputs as data, and writes neither.
+                - name: run
+                  mountPath: /run/roadmap
+                  readOnly: true
+                - name: state
+                  mountPath: /run/roadmap/state
+                  readOnly: true
+                # The new repository of the push, in a temporary folder.
+                - name: publish-tmp
+                  mountPath: /tmp
+                - name: publish-home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              # One small fixed row: git and GitHub calls only. Kubernetes sizes the pod by the
+              # largest init container or by the sum of the app containers, so this row adds no
+              # capacity to the row of `agent`.
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                  ephemeral-storage: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+                  ephemeral-storage: 2Gi
           volumes:
-            - name: tmp
+            # The run folder (`RunFolders`): measured on 2026-11-16 (#5960), 1.8 GB for the clone,
+            # the venv and the cache, and 68 MB for the tree of a mutation run. A run of #3648 went
+            # over 4 GiB, so the run folder holds more than that.
+            - name: run
+              emptyDir:
+                sizeLimit: 6Gi
+            - name: state
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: prepare-tmp
+              emptyDir:
+                sizeLimit: 256Mi
+            # The model clone of the plan, a full clone: 184 MB measured on 2026-11-22 (#3700).
+            - name: prepare-home
               emptyDir:
                 sizeLimit: 1Gi
-            - name: home
+            - name: agent-tmp
               emptyDir:
-                sizeLimit: 8Gi
+                sizeLimit: 1Gi
+            # The uv cache: 1.16 GB measured on 2026-11-22 (#3700). It is on another volume than
+            # the venv in `run`, so uv copies each file into the venv and the run folder holds
+            # that copy too.
+            - name: agent-home
+              emptyDir:
+                sizeLimit: 4Gi
+            # The new repository of each `publish` (#6743): about 160 MB for devops-cli, the pack
+            # and the checkout.
+            - name: publish-tmp
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: publish-home
+              emptyDir:
+                sizeLimit: 256Mi
             - name: config
               configMap:
                 name: devops-cli-config

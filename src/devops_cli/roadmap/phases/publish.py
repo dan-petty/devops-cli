@@ -18,8 +18,9 @@ does, in a new repository of its own, and reads each patch as data:
 4. `git push --force-with-lease` pushes `HEAD` to the branch with a lease on the old tip, or, with
    an empty lease, only when the branch does not exist.
 
-Until #3700 runs the agent in its own container, the home folder is shared with the agent: each
-git call reads no global or system configuration, and gets its credential helper from `-c` values.
+On the three containers of the runner Job (#3700), `publish` has a home of its own, which the
+agent cannot write. Each git call still reads no global or system configuration, and gets its
+credential helper from `-c` values.
 """
 
 from __future__ import annotations

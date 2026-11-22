@@ -9,7 +9,13 @@ import pytest
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
-from devops_cli.config.constants import CONST_ROADMAP_STAGE_JOB_SECRET_KEYS
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
+    CONST_RUNNER_PHASE_AGENT,
+    CONST_RUNNER_PHASE_PREPARE,
+    CONST_RUNNER_PHASE_PUBLISH,
+)
+from devops_cli.k8s.cluster_job import phase_containers
 from tests.gate.k8s_render import kustomize
 from tests.support.paths import REPO_ROOT
 
@@ -44,16 +50,20 @@ def _cronjob_pod(name: str) -> dict[str, Any]:
     return pod
 
 
-def _runner_container() -> dict[str, Any]:
-    (container,) = _cronjob_pod("devops-cli-runner")["containers"]
-    return container
+def _runner_containers() -> dict[str, dict[str, Any]]:
+    """The containers of the runner pod by name, in the order that they run (#3700)."""
+    pod = _cronjob_pod("devops-cli-runner")
+    return {c["name"]: c for c in [*pod.get("initContainers", []), *pod["containers"]]}
+
+
+def _env(container: dict[str, Any]) -> dict[str, Any]:
+    return {entry["name"]: entry.get("value") for entry in container["env"]}
 
 
 def check_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> None:
     cronjob = _object("CronJob", "devops-cli-runner")
     job = cronjob["spec"]["jobTemplate"]["spec"]
     pod = _cronjob_pod("devops-cli-runner")
-    container = _runner_container()
 
     assert (
         cronjob["metadata"]["namespace"],
@@ -61,43 +71,42 @@ def check_the_runner_cronjob_is_a_suspended_template_that_never_retries() -> Non
         job["backoffLimit"],
         pod["restartPolicy"],
         pod["serviceAccountName"],
-        container["name"],
-        container["image"],
-        container["imagePullPolicy"],
+        phase_containers(pod),
+        {(c["image"], c["imagePullPolicy"]) for c in _runner_containers().values()},
     ) == (
         "devops",
         True,
         0,
         "Never",
         "devops-cli",
-        "runner",
-        RUNNER_IMAGE,
-        "IfNotPresent",
+        (CONST_RUNNER_PHASE_PREPARE, CONST_RUNNER_PHASE_AGENT, CONST_RUNNER_PHASE_PUBLISH),
+        {(RUNNER_IMAGE, "IfNotPresent")},
     )
 
 
 def check_the_runner_bounds_the_workers_of_the_test_runner_to_its_cpu_limit() -> None:
     """`pytest-xdist` counts the CPUs of the node, not the CPU limit of the pod. On a node with 48
-    CPUs a test run started 48 workers of about 280 MB each in a pod with 2 CPUs (#2806)."""
-    container = _runner_container()
-    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    CPUs a test run started 48 workers of about 280 MB each in a pod with 2 CPUs (#2806). Only
+    `agent` runs the tests."""
+    agent = _runner_containers()["agent"]
 
-    assert env["PYTEST_XDIST_AUTO_NUM_WORKERS"] == container["resources"]["limits"]["cpu"]
+    assert _env(agent)["PYTEST_XDIST_AUTO_NUM_WORKERS"] == agent["resources"]["limits"]["cpu"]
 
 
 def check_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
     pod = _cronjob_pod("devops-cli-runner")
-    container = _runner_container()
     reference = _cronjob_pod("devops-cli")
 
     assert (
         pod["securityContext"],
-        container["securityContext"],
+        {name: c["securityContext"] for name, c in _runner_containers().items()},
         pod["automountServiceAccountToken"],
+        "shareProcessNamespace" in pod,
         [volume["name"] for volume in pod["volumes"] if "projected" in volume],
     ) == (
         reference["securityContext"],
-        reference["containers"][0]["securityContext"],
+        dict.fromkeys(_runner_containers(), reference["containers"][0]["securityContext"]),
+        False,
         False,
         [],
     )
@@ -106,55 +115,85 @@ def check_the_runner_pod_is_restricted_and_mounts_no_token() -> None:
 def check_the_runner_container_knows_it_is_a_runner_and_takes_its_credentials_from_the_secret() -> (
     None
 ):
-    container = _runner_container()
-    env = {entry["name"]: entry.get("value") for entry in container["env"]}
-    sourced = [(e["name"], e["valueFrom"]) for e in container["env"] if "valueFrom" in e]
+    """Only `prepare` and `publish` read the App key, and only `agent` the model key (#3700)."""
+    containers = _runner_containers()
     service = _object("Deployment", "roadmap-service")["spec"]["template"]["spec"]["containers"][0]
     default = _cronjob_pod("devops-cli")["containers"][0]
-    keys = [
-        (key, {"secretKeyRef": {"name": "devops-cli", "key": key}})
-        for key in CONST_ROADMAP_STAGE_JOB_SECRET_KEYS
-    ]
+    app_key, model_key = sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS, reverse=True)
+
+    def keys(container: dict[str, Any]) -> list[str]:
+        return [
+            e["valueFrom"]["secretKeyRef"]["key"]
+            for e in container["env"]
+            if "valueFrom" in e and e["valueFrom"]["secretKeyRef"]["name"] == "devops-cli"
+        ]
 
     assert (
-        env["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"],
-        "envFrom" in container,
-        sourced,
-        env["DEVOPS_CLI_CONFIG"],
+        {name: _env(c)["DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER"] for name, c in containers.items()},
+        [name for name, c in containers.items() if "envFrom" in c],
+        {name: keys(c) for name, c in containers.items()},
+        {_env(c)["DEVOPS_CLI_CONFIG"] for c in containers.values()},
         [e["name"] for e in service["env"] if "IN_RUNNER" in e["name"]],
         [e["name"] for e in default["env"] if "IN_RUNNER" in e["name"]],
-    ) == ("true", False, keys, "/config/devops-cli.yaml", [], [])
+    ) == (
+        dict.fromkeys(containers, "true"),
+        [],
+        {"prepare": [app_key], "agent": [model_key], "publish": [app_key]},
+        {"/config/devops-cli.yaml"},
+        [],
+        [],
+    )
 
 
-def check_the_runner_home_is_an_empty_dir_with_a_size_limit_and_the_data_dir_lives_in_it() -> None:
+def check_each_runner_container_has_its_own_home_and_tmp_and_the_data_dir_lives_in_it() -> None:
     """A run that reached the strength check went over 4 Gi and the kubelet evicted it (#5960).
-    The size is a value of the template, so the check holds the form only (#6060)."""
+    Each container has its own home and tmp, so no writable volume of `agent` reaches `publish`
+    (#3700). The sizes are values of the template, so the check holds the form only (#6060)."""
     pod = _cronjob_pod("devops-cli-runner")
-    container = _runner_container()
-    home = next(v for v in pod["volumes"] if v["name"] == "home")
-    env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    volumes = {v["name"]: v for v in pod["volumes"]}
+    containers = _runner_containers()
+    # The tmp of each container is at the path of the tmp of CronJob devops-cli.
+    (tmp,) = (
+        m["mountPath"]
+        for m in _cronjob_pod("devops-cli")["containers"][0]["volumeMounts"]
+        if m["name"] == "tmp"
+    )
 
     assert (
-        sorted(home["emptyDir"]),
-        {m["name"]: m["mountPath"] for m in container["volumeMounts"] if m["name"] == "home"},
-        env["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/"),
-        {"home", "tmp"} <= {m["name"] for m in container["volumeMounts"]},
-    ) == (["sizeLimit"], {"home": "/home/devops"}, True, True)
+        {
+            name: {
+                m["mountPath"]: m["name"]
+                for m in c["volumeMounts"]
+                if m["mountPath"] in (tmp, "/home/devops")
+            }
+            for name, c in containers.items()
+        },
+        {
+            sorted(volumes[f"{name}-{part}"]["emptyDir"]) == ["sizeLimit"]
+            for name in containers
+            for part in ("tmp", "home")
+        },
+        {_env(c)["DEVOPS_CLI_DATA_DIR"].startswith("/home/devops/") for c in containers.values()},
+    ) == (
+        {name: {tmp: f"{name}-tmp", "/home/devops": f"{name}-home"} for name in containers},
+        {True},
+        {True},
+    )
 
 
 def check_every_volume_of_the_runner_has_a_size_limit_inside_the_ephemeral_storage_limit() -> None:
     """A step can write as much as it wants into `/tmp`. Without a limit one Job fills the disk
-    of its node (#2667), so each volume has a limit and the container has a storage limit that
-    covers them both and the log (#5960)."""
+    of its node (#2667), so each volume has a limit. The kubelet sizes the storage of the pod by
+    its largest init container, `agent`, whose storage limit covers every volume and the log
+    (#5960, #3700)."""
     pod = _cronjob_pod("devops-cli-runner")
     limits = {v["name"]: v["emptyDir"].get("sizeLimit") for v in pod["volumes"] if "emptyDir" in v}
-    storage = _runner_container()["resources"]["limits"]["ephemeral-storage"]
+    storage = _runner_containers()["agent"]["resources"]["limits"]["ephemeral-storage"]
 
     assert (
-        sorted(limits),
         None in limits.values(),
         sum(parse_quantity(limit) for limit in limits.values() if limit) < parse_quantity(storage),
-    ) == (["home", "tmp"], False, True)
+    ) == (False, True)
 
 
 def check_the_service_has_its_own_account_and_mounts_a_token_that_expires_in_an_hour() -> None:

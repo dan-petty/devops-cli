@@ -13,11 +13,13 @@ import pytest
 from cel_expr_python import cel
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT,
     CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
     CONST_ROADMAP_STAGE_JOB_DEADLINE_SECONDS,
     CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
 )
-from devops_cli.github.repo_ref import RepoRef
+from devops_cli.config.settings import load_settings
+from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.cluster_job import (
     RUNNER_TEMPLATE,
     STAGE_TEMPLATE,
@@ -29,7 +31,7 @@ from devops_cli.k8s.cluster_job import (
 )
 from devops_cli.roadmap.fix_checks_row import FixDue, fix_unit
 from devops_cli.roadmap.implement.implement_size import RUNNER_SIZES, WORKERS_VARIABLE, RunnerSize
-from devops_cli.roadmap.job_launcher import runner_job
+from devops_cli.roadmap.job_launcher import RunnerUnit, runner_job
 from tests.gate.k8s_render import applied_documents
 from tests.support.paths import REPO_ROOT
 
@@ -91,9 +93,10 @@ def _holds(expression: str, data: dict[str, Any]) -> bool:
 
 
 def _value(expression: str, data: dict[str, Any]) -> Any:
-    """The value of the expression, or None when it errors."""
+    """The value of the expression as plain Python data, so a later expression can read it as a
+    variable, such as the list of the containers (#3700), or None when it errors."""
     result = _CEL.compile(expression).eval(data=data)
-    return result.value() if result.type() != cel.Type.ERROR else None
+    return result.plain_value() if result.type() != cel.Type.ERROR else None
 
 
 def _policy_refusals(
@@ -139,17 +142,33 @@ def _delete_refusals(job: dict[str, Any], user: str | None = None) -> list[str]:
 
 
 def _job_of_size(size: RunnerSize | None, memory_limit: str = "8Gi") -> dict[str, Any]:
-    """The Job the Service makes for a row of the size table, or the Job of the bare template."""
+    """The implement Job that the Service makes for a row of the size table, through the
+    launcher seam from a `RunnerUnit` of the row implement, as `implement_submit._create` makes
+    it, so an env value of that row reaches the policy; or the Job of the bare template."""
     cronjob = _object("CronJob", "devops-cli-runner")
-    return build_job(
-        cronjob,
-        ["roadmap", "implement", "--repo", "example/project", "--item", "7", "--confirm"],
-        "devops-cli-runner-20261030-120000-ab12",
-        template=RUNNER_TEMPLATE,
-        env={**SERVICE_ENV, **(size.env if size else {})},
+    args = ("roadmap", "implement", "--repo", "example/project", "--item", "7", "--confirm")
+    name = "devops-cli-runner-20261030-120000-ab12"
+    if size is None:
+        return build_job(
+            cronjob,
+            list(args),
+            name,
+            template=RUNNER_TEMPLATE,
+            env=SERVICE_ENV,
+            labels=SERVICE_LABELS,
+        )
+    unit = RunnerUnit(
+        row=ServiceRow.IMPLEMENT,
+        repo=RepoRef("example/project"),
+        item=7,
+        args=args,
+        size=size,
+        name=name,
+        deadline=load_settings().roadmap.implement.deadline_extension_seconds,
         labels=SERVICE_LABELS,
-        resources=size.resources(memory_limit) if size else None,
+        annotations={CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: "1700000000"},
     )
+    return runner_job(cronjob, unit, memory_limit)
 
 
 @functools.cache
@@ -170,8 +189,23 @@ def _pod(job: dict[str, Any]) -> dict[str, Any]:
     return pod
 
 
+def _containers(job: dict[str, Any]) -> list[dict[str, Any]]:
+    """The containers of the pod in the order that they run: the init containers first."""
+    pod = _pod(job)
+    return [*pod.get("initContainers", []), *pod["containers"]]
+
+
+def _named(job: dict[str, Any], name: str) -> dict[str, Any]:
+    (container,) = (c for c in _containers(job) if c["name"] == name)
+    return container
+
+
 def _container(job: dict[str, Any]) -> dict[str, Any]:
-    container: dict[str, Any] = _pod(job)["containers"][0]
+    """The container that the Service sizes: `agent` of a runner Job on the three containers
+    (#3700), else the one container of the pod."""
+    pod = _pod(job)
+    names = [c["name"] for c in _containers(job)]
+    container: dict[str, Any] = _named(job, "agent") if "agent" in names else pod["containers"][0]
     return container
 
 
@@ -250,11 +284,13 @@ def _set_container(**fields: object) -> Mutation:
 
 
 def _add_container(job: dict[str, Any]) -> None:
-    _pod(job)["containers"].append({**copy.deepcopy(_container(job)), "name": "second"})
+    _pod(job)["containers"].append({**copy.deepcopy(_pod(job)["containers"][0]), "name": "second"})
 
 
 def _add_init_container(job: dict[str, Any]) -> None:
-    _pod(job)["initContainers"] = [{**copy.deepcopy(_container(job)), "name": "init"}]
+    """A third init container, a copy of `prepare` under another name."""
+    third = {**copy.deepcopy(_named(job, "prepare")), "name": "init"}
+    _pod(job)["initContainers"].append(third)
 
 
 def _add_env_from(source: dict[str, Any]) -> Mutation:
@@ -276,7 +312,7 @@ def _rename_config_map(job: dict[str, Any]) -> None:
 
 
 def _host_path_for_tmp(job: dict[str, Any]) -> None:
-    tmp = next(volume for volume in _pod(job)["volumes"] if volume["name"] == "tmp")
+    tmp = next(volume for volume in _pod(job)["volumes"] if volume["name"] == "agent-tmp")
     del tmp["emptyDir"]
     tmp["hostPath"] = {"path": "/"}
 
@@ -346,6 +382,199 @@ def check_a_job_that_breaks_one_rule_is_refused_by_that_rule(mutate: Mutation, r
 
     assert len(refused) == 1
     assert rule in refused[0]
+
+
+APP_KEY = "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY"
+
+
+MODEL_KEY = "DEVOPS_CLI_AI_API_KEY"
+
+
+def _key_in(name: str, key: str) -> Mutation:
+    entry = {"name": key, "valueFrom": {"secretKeyRef": {"name": "devops-cli", "key": key}}}
+    return lambda job: _named(job, name)["env"].append(entry)
+
+
+def _mount_in(name: str, volume: str, path: str) -> Mutation:
+    return lambda job: _named(job, name)["volumeMounts"].append({"name": volume, "mountPath": path})
+
+
+def _writable_in(name: str, volume: str) -> Mutation:
+    def mutate(job: dict[str, Any]) -> None:
+        (mount,) = (m for m in _named(job, name)["volumeMounts"] if m["name"] == volume)
+        mount["readOnly"] = False
+
+    return mutate
+
+
+def _set_in(name: str, **fields: object) -> Mutation:
+    return lambda job: _named(job, name).update(fields)
+
+
+def _arg_in(name: str, from_end: int, value: str) -> Mutation:
+    """Replace the arg `from_end` places from the end of the args of container `name`."""
+
+    def mutate(job: dict[str, Any]) -> None:
+        args = _named(job, name)["args"]
+        args[len(args) - from_end] = value
+
+    return mutate
+
+
+def _first_arg_in(name: str, value: str) -> Mutation:
+    return lambda job: _named(job, name)["args"].insert(0, value)
+
+
+def _plain_env_in(name: str, variable: str, value: str) -> Mutation:
+    """Set the plain env value `variable` of container `name`, or add it."""
+
+    def mutate(job: dict[str, Any]) -> None:
+        env = _named(job, name)["env"]
+        env[:] = [entry for entry in env if entry["name"] != variable]
+        env.append({"name": variable, "value": value})
+
+    return mutate
+
+
+@pytest.mark.parametrize(
+    ("mutate", "rule"),
+    [
+        pytest.param(_key_in("agent", APP_KEY), "valueFrom", id="app-key-in-agent"),
+        pytest.param(_key_in("prepare", MODEL_KEY), "valueFrom", id="model-key-in-prepare"),
+        pytest.param(_key_in("publish", MODEL_KEY), "valueFrom", id="model-key-in-publish"),
+        pytest.param(
+            _mount_in("agent", "state", "/run/roadmap/state"), "mounts only", id="state-in-agent"
+        ),
+        pytest.param(
+            _mount_in("agent", "publish-home", "/publish"), "mounts only", id="home-of-publish"
+        ),
+        pytest.param(_writable_in("publish", "run"), "mounts only", id="publish-writes-run"),
+        pytest.param(_writable_in("publish", "state"), "mounts only", id="publish-writes-state"),
+        pytest.param(_set_pod(shareProcessNamespace=True), "shareProcessNamespace", id="pid"),
+        pytest.param(_set_in("prepare", restartPolicy="Always"), "restartPolicy", id="sidecar"),
+        pytest.param(_set_in("publish", restartPolicy="Always"), "restartPolicy", id="app"),
+        pytest.param(
+            _set_in("agent", restartPolicyRules=[{"action": "Restart"}]),
+            "restartPolicy",
+            id="restart-rules",
+        ),
+        pytest.param(_add_init_container, "init containers prepare and agent", id="third-init"),
+        pytest.param(
+            _set_in("prepare", image="ghcr.io/dan-petty/devops-cli/service"),
+            "image",
+            id="init-image",
+        ),
+        pytest.param(_set_in("agent", command=["sh", "-c", "id"]), "command", id="init-command"),
+        pytest.param(_arg_in("publish", 1, "/run/roadmap/work"), "its name", id="publish-work"),
+        pytest.param(_arg_in("prepare", 3, "all"), "its name", id="prepare-phase-all"),
+        pytest.param(_first_arg_in("agent", "--phase=publish"), "its name", id="second-phase"),
+        pytest.param(_first_arg_in("publish", "--work=/tmp/x"), "its name", id="second-work"),
+        pytest.param(_set_pod(restartPolicy="OnFailure"), "restartPolicy Never", id="on-failure"),
+        pytest.param(_set_in("publish", lifecycle={"postStart": {}}), "lifecycle", id="lifecycle"),
+        pytest.param(_set_in("agent", livenessProbe={}), "lifecycle", id="liveness"),
+        pytest.param(_set_in("agent", readinessProbe={}), "lifecycle", id="readiness"),
+        pytest.param(_set_in("prepare", startupProbe={}), "lifecycle", id="startup"),
+        pytest.param(_set_in("publish", workingDir="/run/roadmap"), "lifecycle", id="working-dir"),
+        pytest.param(_plain_env_in("publish", "PYTHONPATH", "/run/roadmap"), "plain env", id="pp"),
+        pytest.param(_plain_env_in("agent", "LD_PRELOAD", "/run/roadmap/x"), "plain env", id="ld"),
+        pytest.param(
+            _plain_env_in("publish", "GIT_CONFIG_GLOBAL", "/run/roadmap/c"), "plain env", id="git"
+        ),
+        pytest.param(_plain_env_in("publish", "HOME", "/run/roadmap"), "plain env", id="home"),
+        pytest.param(
+            _plain_env_in("publish", "DEVOPS_CLI_DATA_DIR", "/run/roadmap/work"),
+            "plain env",
+            id="data-dir",
+        ),
+        pytest.param(
+            _plain_env_in("prepare", "DEVOPS_CLI_CONFIG", "/run/roadmap/c.yaml"),
+            "plain env",
+            id="config",
+        ),
+    ],
+)
+def check_a_job_on_the_three_containers_that_breaks_one_rule_is_refused_by_that_rule(
+    mutate: Mutation, rule: str
+) -> None:
+    """The rules of #3700: the key of each container, the mounts of each, no shared process
+    namespace, no container that restarts, and the image and the command of an init container."""
+    refused = _refusals(_changed(mutate))
+
+    assert len(refused) == 1, refused
+    assert rule in refused[0]
+
+
+def check_the_patches_of_the_service_on_the_three_containers_are_admitted() -> None:
+    """The Service patches a Job that runs: a new deadline on progress, the deadline and the mark
+    of a stall (#3063), and the resume of a fix-checks Job that waited (#5027). A Job keeps its
+    pod template, so each PATCH is an UPDATE of the same template."""
+
+    def patched(job: dict[str, Any], **spec: object) -> dict[str, Any]:
+        changed = copy.deepcopy(job)
+        changed["spec"].update(spec)
+        changed["metadata"].setdefault("annotations", {})["roadmap.devops-cli/progress-at"] = "1"
+        return changed
+
+    jobs = [
+        patched(_template_job(), activeDeadlineSeconds=9000),
+        patched(_job_of_size(RUNNER_SIZES[-1]), activeDeadlineSeconds=600),
+        patched(_fix_job(suspend=True), suspend=False),
+    ]
+
+    assert [_refusals(job, update=True) for job in jobs] == [[]] * len(jobs)
+
+
+def _one_container_job() -> dict[str, Any]:
+    """The Job of the runner template before #3700: one container `runner` that holds both keys
+    and runs every phase, with the volumes tmp, home and config."""
+    cronjob = copy.deepcopy(_object("CronJob", "devops-cli-runner"))
+    pod = cronjob["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    agent = next(c for c in pod["initContainers"] if c["name"] == "agent")
+    tmp = next(m["mountPath"] for m in agent["volumeMounts"] if m["name"] == "agent-tmp")
+    mounts = [("tmp", tmp), ("home", "/home/devops")]
+    runner = {
+        **agent,
+        "name": "runner",
+        "env": [
+            *agent["env"],
+            {
+                "name": APP_KEY,
+                "valueFrom": {"secretKeyRef": {"name": "devops-cli", "key": APP_KEY}},
+            },
+        ],
+        "volumeMounts": [
+            *({"name": name, "mountPath": path} for name, path in mounts),
+            {"name": "config", "mountPath": "/config", "readOnly": True},
+        ],
+    }
+    del pod["initContainers"]
+    pod["containers"] = [runner]
+    config = next(volume for volume in pod["volumes"] if volume["name"] == "config")
+    pod["volumes"] = [{"name": name, "emptyDir": {"sizeLimit": "1Gi"}} for name, _ in mounts]
+    pod["volumes"].append(config)
+    size = RUNNER_SIZES[0]
+    return build_job(
+        cronjob,
+        ["roadmap", "implement", "--repo", "example/project", "--item", "7", "--confirm"],
+        "devops-cli-runner-20261030-120000-ab12",
+        template=RUNNER_TEMPLATE,
+        env={**SERVICE_ENV, **size.env},
+        labels=SERVICE_LABELS,
+        resources=size.resources("8Gi"),
+    )
+
+
+def check_the_one_container_of_the_old_template_is_admitted_only_on_an_update() -> None:
+    """The Service patches the deadline of a Job that runs, so during the switch an UPDATE admits
+    a Job that the Service made from the template before #3700, and a CREATE does not."""
+    job = _one_container_job()
+    refused = _refusals(job)
+
+    assert (len(refused), "only an UPDATE" in refused[0], _refusals(job, update=True)) == (
+        1,
+        True,
+        [],
+    )
 
 
 def check_the_job_of_every_row_of_the_size_table_passes_also_with_a_raised_memory_limit() -> None:
@@ -684,21 +913,31 @@ def check_the_stage_job_may_read_exactly_the_keys_of_the_constant() -> None:
     assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
 
 
-def check_a_runner_job_may_read_exactly_the_keys_of_the_constant() -> None:
-    """A runner Job reads the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` (#6518), and the
-    policy refuses another key of the Secret, such as the password of the cache or an MCP token."""
+def check_each_container_of_a_runner_job_may_read_exactly_its_key_of_the_constant() -> None:
+    """A runner Job reads the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS` (#6518): on the three
+    containers (#3700) `agent` reads only the model key, and `prepare` and `publish` only the App
+    key. The policy refuses another key of the Secret, such as the password of the cache or an
+    MCP token."""
     keys = (
         *CONST_ROADMAP_STAGE_JOB_SECRET_KEYS,
         "DEVOPS_CLI_VALKEY_PASSWORD",
         "DEVOPS_CLI_MCP_IMPLEMENT_TOKEN",
     )
-    admitted = [
-        key
-        for key in keys
-        if not _refusals(_changed(_drop_secret_keys, _add_secret_key("devops-cli", key)))
-    ]
 
-    assert admitted == list(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS)
+    def only(name: str, key: str) -> dict[str, Any]:
+        job = _changed()
+        container = _named(job, name)
+        container["env"] = [entry for entry in container["env"] if "valueFrom" not in entry]
+        _key_in(name, key)(job)
+        return job
+
+    admitted = {
+        name: [key for key in keys if not _refusals(only(name, key))]
+        for name in ("prepare", "agent", "publish")
+    }
+
+    assert sorted(CONST_ROADMAP_STAGE_JOB_SECRET_KEYS) == sorted((APP_KEY, MODEL_KEY))
+    assert admitted == {"prepare": [APP_KEY], "agent": [MODEL_KEY], "publish": [APP_KEY]}
 
 
 ENV_FROM_SECRET = {"secretRef": {"name": "devops-cli"}}
@@ -733,7 +972,7 @@ def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_s
     (rule,) = (
         item["expression"]
         for item in _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]["validations"]
-        if "plain env" in item["message"]
+        if "plain env" in item["message"] and "stage Job" in item["message"]
     )
     listed = set(re.findall(r'"([A-Z0-9_]+)"', rule.partition("e.name in")[2]))
     template = _object("CronJob", STAGE_TEMPLATE.cronjob)
@@ -741,6 +980,27 @@ def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_s
     plain = {entry["name"] for entry in container["env"] if "valueFrom" not in entry}
 
     assert listed == plain | set(stage_job_env(STAGE_REPO, "x", STAGE_DEADLINE))
+
+
+def check_the_plain_env_names_of_a_runner_job_are_those_of_its_template_and_the_service() -> None:
+    """The policy names each plain environment value that a container of the three may set: those
+    of CronJob devops-cli-runner and those that the Service adds to the implement Job and to the
+    fix-checks Job (#3700). A new value in either place needs a row in the policy."""
+    (rule,) = (
+        item["expression"]
+        for item in _object("ValidatingAdmissionPolicy", POLICY_NAME)["spec"]["validations"]
+        if "plain env" in item["message"] and "three containers" in item["message"]
+    )
+    listed = set(re.findall(r'"([A-Z0-9_]+)"', rule.partition("e.name in")[2].partition("]")[0]))
+    plain = {
+        entry["name"]
+        for job in (_template_job(), _fix_job())
+        for container in _containers(job)
+        for entry in container["env"]
+        if "valueFrom" not in entry
+    }
+
+    assert listed == plain
 
 
 def check_the_service_may_delete_a_stage_job_and_a_waiting_fix_job_and_no_other_job() -> None:
