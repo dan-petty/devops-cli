@@ -768,7 +768,7 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `devops/crawl4ai` | `CRAWL4AI_API_TOKEN` | keyring `crawl4ai_api_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | devops | `deployment/crawl4ai` |
 | `devops/searxng` | `SEARXNG_SECRET` | keyring `searxng_secret_key` | yes | adopt the live value; else generate 64 hex | devops | `deployment/searxng` |
 | `devops/searxng-metrics-auth` | `username` | literal | yes | fail | devops | `deployment/searxng` |
-| `devops/searxng-metrics-auth` | `password` | keyring `searxng_metrics_password` | yes | adopt the live value; else fail | devops | `deployment/searxng` |
+| `devops/searxng-metrics-auth` | `password` | keyring `searxng_metrics_password` | no | adopt the live value; else skip with a warning | devops | `deployment/searxng` |
 | `devops/mcp-server` | `DEVOPS_CLI_MCP_TOKEN` | keyring `mcp_token` | yes | adopt the live value; else generate `token_urlsafe(32)` | devops | `deployment/mcp-server` |
 | `devops/renovate` | `DEVOPS_CLI_RENOVATE_GITHUB_APP_ID` | setting renovate.github_app_id | no | skip with a warning | devops | none |
 | `devops/renovate` | `DEVOPS_CLI_RENOVATE_GITHUB_APP_INSTALLATION_ID` | setting renovate.github_app_installation_id | no | skip with a warning | devops | none |

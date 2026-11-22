@@ -300,7 +300,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "devops/searxng-metrics-auth",
             "password",
             "devops",
-            True,
+            False,
             None,
             None,
             ("deployment/searxng",),
