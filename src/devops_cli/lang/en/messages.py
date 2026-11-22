@@ -740,6 +740,10 @@ class RepoMessages:
         "--all checks the drift only: give --plan or --dry-run, not --confirm."
     )
     onboard_all_empty: str = "service.repos holds no repository to check."
+    onboard_drift_line: str = (
+        "Drift check of {repo}: {state} ({drift} rows off the baseline, {not_readable} rows not "
+        "readable)"
+    )
     onboard_only_invalid: str = "--only takes row numbers from 0 to 15, such as 2,3,8: {value}"
     onboard_create_visibility: str = "--create needs --visibility public or --visibility private."
 

@@ -1111,6 +1111,7 @@ def onboard(
     `--plan` (the default) reads only, `--dry-run` sends no request, and `--confirm` writes only
     the differences. The output ends with the steps that only a person can do.
     """
+    from devops_cli.github.onboard.drift import DriftCounts, drift_counts, record_drift
     from devops_cli.github.onboard.model import OnboardOptions
     from devops_cli.github.onboard.run import onboard_repository, planned_requests, render_report
     from devops_cli.github.repo_ref import RepoRef
@@ -1153,9 +1154,24 @@ def onboard(
     settings = load_settings()
     session = get_github_session()
     failing = False
+    drift: list[DriftCounts] = []
     for target in targets:
         report = onboard_repository(options_for(target), session=session, settings=settings)
         write_stdout(render_report(report) + "\n")
         failing = failing or report.failing
+        if all_repos:
+            drift.append(drift_counts(report))
+            record_drift(drift[-1])
+    for counts in drift:
+        state = counts.state.value.replace("_", " ")
+        write_stdout(
+            MESSAGES.repos.onboard_drift_line.format(
+                repo=counts.repo,
+                state=state,
+                drift=counts.drift,
+                not_readable=counts.not_readable,
+            )
+            + "\n"
+        )
     if failing:
         raise typer.Exit(1)
