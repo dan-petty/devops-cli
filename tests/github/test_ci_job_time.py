@@ -16,6 +16,7 @@ from urllib.parse import urlencode
 import pytest
 
 from devops_cli.ci.job_time import JobTimeReport, check_job_time
+from devops_cli.config import defaults
 from devops_cli.github.client import JobRunTime
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.github.session import get_github_session
@@ -23,7 +24,7 @@ from tests.support.fakes.github import github_json, next_page, quota_headers
 from tests.support.paths import FIXTURES
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
     from tests.support.fakes.github import GitHubApiFake
@@ -78,7 +79,7 @@ def _job(name: str, started: str, completed: str, conclusion: str = "success") -
     }
 
 
-def _route_runs(api: GitHubApiFake, seconds: list[float | None]) -> list[int]:
+def _route_runs(api: GitHubApiFake, seconds: Sequence[float | None]) -> list[int]:
     """Route one completed run for each entry, newest first. An entry is the seconds the job took
     in that run, or None for a run that has no such job."""
     ids = list(range(100, 100 + len(seconds)))
@@ -99,30 +100,72 @@ _RELEASE_RUNS = (
 )
 
 
+# The jobs of release.yml on main since #6571, as runs 44977064803 (a release) and 44979901604 (no
+# release) of 2026-11-22 give them. release.yml calls release-image.yml one time for each image,
+# and GitHub names each job of a call `<Title> Image / <job>`. A run that makes no release skips
+# the call, and GitHub shows it as one skipped job whose name it does not expand.
+_IMAGE_STEP_JOBS = ("Build", "Verify", "Attest & Tag")
+_RELEASE_IMAGE_JOBS = tuple(
+    f"{title} Image / {step}" for title in ("MCP Server", "Runner") for step in _IMAGE_STEP_JOBS
+)
+_OTHER_RELEASE_JOBS = (
+    "Upload Release Assets",
+    "Build DevContainer Image",
+    "Smoke-Test DevContainer Image",
+    "Attest & Tag DevContainer Image",
+    *(f"Service Image / {step}" for step in _IMAGE_STEP_JOBS),
+)
+_SKIPPED_RELEASE_JOBS = (
+    "Upload Release Assets",
+    "Smoke-Test DevContainer Image",
+    "Attest & Tag DevContainer Image",
+    "Build DevContainer Image",
+    "${{ matrix.title }} Image",
+)
+
+
+def _ended_after(seconds: float) -> str:
+    return f"2026-10-29T10:{int(seconds) // 60:02d}:{int(seconds) % 60:02d}Z"
+
+
+def _release_jobs(seconds: Mapping[str, float]) -> list[dict[str, Any]]:
+    """The jobs of a run that made a release. A release image job takes its seconds in `seconds`,
+    or 300 s, and each other job takes 100 s."""
+    jobs = [_job("Release Please", "2026-10-29T09:59:00Z", "2026-10-29T09:59:15Z")]
+    jobs += [
+        _job(name, "2026-10-29T10:00:00Z", _ended_after(100.0)) for name in _OTHER_RELEASE_JOBS
+    ]
+    jobs += [
+        _job(name, "2026-10-29T10:00:00Z", _ended_after(seconds.get(name, 300.0)))
+        for name in _RELEASE_IMAGE_JOBS
+    ]
+    return jobs
+
+
+def _no_release_jobs() -> list[dict[str, Any]]:
+    """The jobs of a run that made no release: GitHub gives a skipped job an end before its start."""
+    skipped = [
+        _job(name, "2026-10-29T10:00:01Z", "2026-10-29T10:00:00Z", "skipped")
+        for name in _SKIPPED_RELEASE_JOBS
+    ]
+    return [_job("Release Please", "2026-10-29T09:59:00Z", "2026-10-29T09:59:15Z"), *skipped]
+
+
+def _route_jobs(api: GitHubApiFake, run_id: int, jobs: list[dict[str, Any]]) -> None:
+    api.route("GET", _jobs_path(run_id), github_json({"total_count": len(jobs), "jobs": jobs}))
+
+
 def _route_release_runs(
-    api: GitHubApiFake,
-    mcp_seconds: float = 300.0,
-    runner_seconds: float = 300.0,
-    count: int = 10,
+    api: GitHubApiFake, seconds: Mapping[str, float] | None = None, count: int = 10
 ) -> list[int]:
-    """Route completed push runs of release.yml on main, with MCP Server Image and Runner Image."""
-    ids = list(range(200, 200 + count))
+    """Route completed push runs of release.yml on main, newest first: `count` runs that made a
+    release, each one followed by a run that made none. The jobs of a release run are those of
+    `_release_jobs(seconds)`. Returns the ids of the runs."""
+    ids = list(range(200, 200 + 2 * count))
     runs = [{"id": run_id, "head_branch": "main", "event": "push"} for run_id in ids]
     api.route("GET", _RELEASE_RUNS, github_json({"total_count": len(runs), "workflow_runs": runs}))
-    for run_id in ids:
-        jobs = [
-            _job(
-                "MCP Server Image",
-                "2026-10-29T10:00:00Z",
-                f"2026-10-29T10:{int(mcp_seconds) // 60:02d}:{int(mcp_seconds) % 60:02d}Z",
-            ),
-            _job(
-                "Runner Image",
-                "2026-10-29T10:00:00Z",
-                f"2026-10-29T10:{int(runner_seconds) // 60:02d}:{int(runner_seconds) % 60:02d}Z",
-            ),
-        ]
-        api.route("GET", _jobs_path(run_id), github_json({"total_count": len(jobs), "jobs": jobs}))
+    for n, run_id in enumerate(ids):
+        _route_jobs(api, run_id, _release_jobs(seconds or {}) if n % 2 == 0 else _no_release_jobs())
     return ids
 
 
@@ -741,13 +784,6 @@ def test_no_issue_is_searched_or_filed_without_a_full_read_over_the_limit(
         _posted(github_api),
     ) == ([], [])
 
-    cli("ci", "job-time", "--repo", _REPO, "--file-issue")
-
-    assert (
-        [line for line in github_api.requested if "search" in line],
-        _posted(github_api),
-    ) == ([], [])
-
 
 def test_a_dry_run_with_the_issue_lists_the_search_and_both_writes_and_makes_none(
     github_api: GitHubApiFake, cli: Callable[..., Any]
@@ -783,66 +819,135 @@ def test_the_command_exits_1_and_asks_for_a_repository_when_the_checkout_has_no_
     assert (result.exit_code, "--repo" in _said(result), github_api.requested) == (1, True, [])
 
 
-def test_the_default_checks_hold_the_test_job_and_the_two_release_image_jobs() -> None:
-    """`JOB_TIME_CHECKS` holds three checks: the test job of ci.yml over 20 runs, and the two
-    release image jobs of release.yml over 10 runs, each at the 360 s limit. `job_time_checks`
-    narrows to one check when an option is given."""
-    from devops_cli.ci.job_time import (
-        JOB_TIME_CHECKS,
-        JobTimeCheck,
-        job_time_checks,
-    )
+def test_the_default_checks_hold_the_test_job_and_the_six_release_image_jobs() -> None:
+    """`JOB_TIME_CHECKS` holds seven checks: the test job of ci.yml over 20 runs, and each of the
+    jobs Build, Verify and Attest & Tag of the two release images of release.yml over 10 runs, by
+    the names of the Actions API, each at the 360 s limit. `job_time_checks` narrows to one check
+    when an option is given."""
+    from devops_cli.ci.job_time import JOB_TIME_CHECKS, JobTimeCheck, job_time_checks
 
-    assert len(JOB_TIME_CHECKS) == 3
     assert [(c.workflow, c.branch, c.job, c.runs, c.limit_seconds) for c in JOB_TIME_CHECKS] == [
         ("ci.yml", "main", "Tests & Coverage", 20, 360.0),
-        ("release.yml", "main", "MCP Server Image", 10, 360.0),
-        ("release.yml", "main", "Runner Image", 10, 360.0),
+        ("release.yml", "main", "MCP Server Image / Build", 10, 360.0),
+        ("release.yml", "main", "MCP Server Image / Verify", 10, 360.0),
+        ("release.yml", "main", "MCP Server Image / Attest & Tag", 10, 360.0),
+        ("release.yml", "main", "Runner Image / Build", 10, 360.0),
+        ("release.yml", "main", "Runner Image / Verify", 10, 360.0),
+        ("release.yml", "main", "Runner Image / Attest & Tag", 10, 360.0),
     ]
-
     assert job_time_checks() == JOB_TIME_CHECKS
-
-    narrowed = job_time_checks(job="Custom Job", runs=5, limit_seconds=180.0)
-    assert narrowed == (
+    assert job_time_checks(job="Custom Job", runs=5, limit_seconds=180.0) == (
         JobTimeCheck(
-            workflow="ci.yml",
-            branch="main",
-            job="Custom Job",
-            runs=5,
-            limit_seconds=180.0,
+            workflow="ci.yml", branch="main", job="Custom Job", runs=5, limit_seconds=180.0
         ),
     )
 
 
-def test_the_command_reads_the_test_job_and_the_two_release_image_jobs(
+# The run times of the release image jobs of run 44977064803 of 2026-11-22.
+_RELEASE_SECONDS = {
+    "MCP Server Image / Build": 114.0,
+    "MCP Server Image / Verify": 80.0,
+    "MCP Server Image / Attest & Tag": 25.0,
+    "Runner Image / Build": 210.0,
+    "Runner Image / Verify": 156.0,
+    "Runner Image / Attest & Tag": 23.0,
+}
+
+
+def test_the_command_reports_the_mean_of_each_release_image_job_of_the_api(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """With no option, the command reads the test job and both release image jobs, prints three
-    tables and three means, and exits 0 when all are inside the limit."""
+    """The jobs have the names that the Actions API gives, and the runs between two releases hold
+    only skipped jobs and `${{ matrix.title }} Image`. With no option the command prints the mean
+    of each of the six release image jobs, and of no Service Image job, and exits 0 (#6734)."""
     _route_runs(github_api, [200.0] * 20)
-    _route_release_runs(github_api, mcp_seconds=250.0, runner_seconds=280.0, count=10)
+    _route_release_runs(github_api, _RELEASE_SECONDS)
 
     result = cli("ci", "job-time", "--repo", _REPO)
 
     said = _said(result)
     assert (
         result.exit_code,
-        "Tests & Coverage" in said,
+        [
+            job
+            for job, seconds in _RELEASE_SECONDS.items()
+            if f"The last 10 runs of {job} took {seconds:.0f} s on average" not in said
+        ],
         "took 200 s on average" in said,
-        "MCP Server Image" in said,
-        "took 250 s on average" in said,
-        "Runner Image" in said,
-        "took 280 s on average" in said,
-    ) == (0, True, True, True, True, True, True)
+        "Service Image" in said,
+    ) == (0, [], True, False)
+
+
+def _release_reads(api: GitHubApiFake) -> list[str]:
+    """The requests for the listing of the runs of release.yml and for the jobs of its runs."""
+    return [line for line in api.requested if "release.yml" in line or "/actions/runs/2" in line]
+
+
+def test_the_checks_of_one_workflow_ask_for_the_jobs_of_each_run_one_time(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The six release image checks share one read of release.yml: the runs are listed one time,
+    and the jobs of each run are asked for one time, up to the tenth release run (#6734)."""
+    _route_runs(github_api, [200.0] * 20)
+    ids = _route_release_runs(github_api)
+
+    cli("ci", "job-time", "--repo", _REPO)
+
+    assert _release_reads(github_api) == [f"GET https://api.github.com{_RELEASE_RUNS}"] + [
+        f"GET https://api.github.com{_jobs_path(run_id)}" for run_id in ids[:19]
+    ]
+
+
+def test_a_read_that_finds_no_release_image_job_stops_after_a_fixed_count_of_runs(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """No run of release.yml holds a release image job, as when a job is renamed. The read asks
+    for the jobs of the first `DEFAULT_CI_JOB_TIME_MAX_RUNS` runs only, reads no second page of
+    the listing, exits 1 and names the bound, so the daily job ends inside its timeout (#6734)."""
+    bound = defaults.DEFAULT_CI_JOB_TIME_MAX_RUNS
+    _route_runs(github_api, [200.0] * 20)
+    ids = list(range(5000, 5000 + bound + 50))
+    second_page = "/repositories/1/actions/workflows/7/runs?page=2"
+    runs = [{"id": run_id, "head_branch": "main", "event": "push"} for run_id in ids]
+    github_api.route(
+        "GET",
+        _RELEASE_RUNS,
+        github_json(
+            {"total_count": len(ids), "workflow_runs": runs[:bound]},
+            headers=next_page(second_page),
+        ),
+    )
+    github_api.route(
+        "GET", second_page, github_json({"total_count": len(ids), "workflow_runs": runs[bound:]})
+    )
+    for run_id in ids:
+        _route_jobs(github_api, run_id, _no_release_jobs())
+
+    result = cli("ci", "job-time", "--repo", _REPO)
+
+    said = _said(result)
+    assert (
+        result.exit_code,
+        [line for line in github_api.requested if "/actions/runs/5" in line],
+        [line for line in github_api.requested if second_page in line],
+        "Only 0 of the last 10 runs of MCP Server Image / Build could be read" in said,
+        f"after the jobs of {bound} runs" in said,
+    ) == (
+        1,
+        [f"GET https://api.github.com{_jobs_path(run_id)}" for run_id in ids[:bound]],
+        [],
+        True,
+        True,
+    )
 
 
 def test_the_command_files_one_p0_issue_for_a_release_image_job_over_the_limit(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """A release image job averaging 380 s over 10 runs breaches the 360 s limit: with --file-issue
-    the command files one P0 issue with the four labels, and exits 1."""
+    """`Runner Image / Verify` averages 380 s over 10 release runs, over the 360 s limit: with
+    --file-issue the command files one P0 issue for that job with the four labels, and exits 1."""
     _route_runs(github_api, [200.0] * 20)
-    _route_release_runs(github_api, mcp_seconds=380.0, runner_seconds=250.0, count=10)
+    _route_release_runs(github_api, {"Runner Image / Verify": 380.0})
     _route_alarm_search(github_api)
     github_api.route("POST", f"/repos/{_REPO}/issues", github_json({"number": 99}, status=201))
 
@@ -859,27 +964,47 @@ def test_the_command_files_one_p0_issue_for_a_release_image_job_over_the_limit(
     ) == (
         1,
         f"/repos/{_REPO}/issues",
-        "fix(ci): MCP Server Image averages 380 s, over the 360 s limit",
+        "fix(ci): Runner Image / Verify averages 380 s, over the 360 s limit",
         ["type/bug", "scope/ci", "status/new", "priority/p0-critical"],
         True,
         True,
     )
 
 
-def test_the_command_exits_1_when_fewer_release_runs_than_wanted_exist(
+def test_a_release_image_job_at_the_limit_makes_no_issue_request(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """The test job has 20 runs, but release.yml has only 2 completed runs: the command exits 1
-    and says that only 2 of the last 10 runs could be read."""
+    """`Runner Image / Build` takes 360 s in each of the 10 release runs: the mean is on the limit,
+    so with --file-issue the command exits 0 and searches and files no issue."""
     _route_runs(github_api, [200.0] * 20)
-    _route_release_runs(github_api, mcp_seconds=200.0, runner_seconds=200.0, count=2)
+    _route_release_runs(github_api, {"Runner Image / Build": 360.0})
 
-    result = cli("ci", "job-time", "--repo", _REPO)
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
 
     assert (
         result.exit_code,
-        "Only 2 of the last 10 runs of MCP Server Image could be read" in _said(result),
-    ) == (1, True)
+        [line for line in github_api.requested if "search" in line],
+        _posted(github_api),
+    ) == (0, [], [])
+
+
+def test_the_command_exits_1_when_fewer_release_runs_than_wanted_exist(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The test job has 20 runs, but only 2 runs of release.yml made a release: the command exits 1,
+    says that only 2 of the last 10 runs could be read, and with --file-issue makes no issue
+    request."""
+    _route_runs(github_api, [200.0] * 20)
+    _route_release_runs(github_api, count=2)
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--file-issue")
+
+    assert (
+        result.exit_code,
+        "Only 2 of the last 10 runs of MCP Server Image / Build could be read" in _said(result),
+        [line for line in github_api.requested if "search" in line],
+        _posted(github_api),
+    ) == (1, True, [], [])
 
 
 def test_an_option_narrows_the_run_to_one_check(
@@ -887,16 +1012,7 @@ def test_an_option_narrows_the_run_to_one_check(
 ) -> None:
     """An option such as --workflow, --job or --runs narrows the run to that one check and reads
     no other job."""
-    ids = list(range(300, 305))
-    runs = [{"id": run_id, "head_branch": "main", "event": "push"} for run_id in ids]
-    github_api.route(
-        "GET", _RELEASE_RUNS, github_json({"total_count": len(runs), "workflow_runs": runs})
-    )
-    for run_id in ids:
-        jobs = [_job("Runner Image", "2026-10-29T10:00:00Z", "2026-10-29T10:03:20Z")]
-        github_api.route(
-            "GET", _jobs_path(run_id), github_json({"total_count": len(jobs), "jobs": jobs})
-        )
+    _route_release_runs(github_api, {"Runner Image / Build": 200.0})
 
     result = cli(
         "ci",
@@ -906,7 +1022,7 @@ def test_an_option_narrows_the_run_to_one_check(
         "--workflow",
         "release.yml",
         "--job",
-        "Runner Image",
+        "Runner Image / Build",
         "--runs",
         "5",
     )
@@ -914,26 +1030,25 @@ def test_an_option_narrows_the_run_to_one_check(
     said = _said(result)
     assert (
         result.exit_code,
-        "Runner Image" in said,
-        "took 200 s on average" in said,
+        "The last 5 runs of Runner Image / Build took 200 s on average" in said,
         "Tests & Coverage" in said,
+        "Runner Image / Verify" in said,
         "MCP Server Image" in said,
-    ) == (0, True, True, False, False)
+    ) == (0, True, False, False, False)
 
 
-def test_a_dry_run_lists_three_request_plans_when_no_option_is_given(
+def test_a_dry_run_lists_one_plan_for_each_read(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
-    """A dry run with no option lists the requests of all three default checks."""
+    """A dry run with no option lists two plans: the read of the test job of ci.yml, and the one
+    read of release.yml that serves the six release image jobs (#6734)."""
     result = cli("ci", "job-time", "--repo", _REPO, "--dry-run")
 
     said = _said(result)
     assert (
         result.exit_code,
         github_api.requested,
-        "Tests & Coverage" in said,
-        "MCP Server Image" in said,
-        "Runner Image" in said,
-        "actions/workflows/ci.yml/runs" in said,
-        "actions/workflows/release.yml/runs" in said,
-    ) == (0, [], True, True, True, True, True)
+        said.count("actions/workflows/ci.yml/runs"),
+        said.count("actions/workflows/release.yml/runs"),
+        [job for job in _RELEASE_IMAGE_JOBS if job not in said],
+    ) == (0, [], 1, 1, [])

@@ -24,6 +24,8 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_CI_JOB_TIME_RUNS
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from devops_cli.github.client import GitHubClient, JobRunTime
 
 # The labels of the alarm issue: a mean over the limit is a P0 bug of CI (owner, 2026-10-23).
@@ -43,12 +45,20 @@ _ALARM_TITLE: Final[str] = "fix(ci): {job} averages {mean:.0f} s, over the {limi
 _REPORT_START: Final[str] = "<!-- devops ci job-time report: start -->"
 _REPORT_END: Final[str] = "<!-- devops ci job-time report: end -->"
 
-RELEASE_WORKFLOW_FILE: Final[str] = "release.yml"
-RELEASE_IMAGE_JOB_NAMES: Final[tuple[str, ...]] = (
-    "MCP Server Image",
-    "Runner Image",
+_RELEASE_WORKFLOW_FILE: Final[str] = "release.yml"
+# The jobs of the two release images of #6522, by the names of the Actions API. release.yml calls
+# release-image.yml one time for each image (#6571), and GitHub names each job of a call
+# `<caller job> / <called job>`: the caller job is `<Title> Image`, and the called jobs are Build,
+# Verify and Attest & Tag. Each one has a timeout above 360 s, so each one is a check (#6734).
+_RELEASE_IMAGE_JOB_NAMES: Final[tuple[str, ...]] = (
+    "MCP Server Image / Build",
+    "MCP Server Image / Verify",
+    "MCP Server Image / Attest & Tag",
+    "Runner Image / Build",
+    "Runner Image / Verify",
+    "Runner Image / Attest & Tag",
 )
-RELEASE_IMAGE_RUNS: Final[int] = 10
+_RELEASE_IMAGE_RUNS: Final[int] = 10
 
 
 @dataclass(frozen=True)
@@ -72,13 +82,13 @@ JOB_TIME_CHECKS: Final[tuple[JobTimeCheck, ...]] = (
     ),
     *(
         JobTimeCheck(
-            workflow=RELEASE_WORKFLOW_FILE,
+            workflow=_RELEASE_WORKFLOW_FILE,
             branch=CONST_GIT_MAIN_BRANCH,
             job=job_name,
-            runs=RELEASE_IMAGE_RUNS,
+            runs=_RELEASE_IMAGE_RUNS,
             limit_seconds=CONST_CI_JOB_TIME_LIMIT_SECONDS,
         )
-        for job_name in RELEASE_IMAGE_JOB_NAMES
+        for job_name in _RELEASE_IMAGE_JOB_NAMES
     ),
 )
 
@@ -157,6 +167,40 @@ def check_job_time(
     `repo` where it ran to an end."""
     runs = client.get_job_run_times(repo, workflow=workflow, branch=branch, job=job, count=wanted)
     return JobTimeReport(job=job, wanted=wanted, limit_seconds=limit_seconds, runs=tuple(runs))
+
+
+def job_time_reads(checks: Sequence[JobTimeCheck]) -> tuple[tuple[JobTimeCheck, ...], ...]:
+    """The checks of `checks` in groups of one workflow, branch and count, in the order of their
+    first check. One read of the runs serves each group (#6734)."""
+    groups: dict[tuple[str, str, int], list[JobTimeCheck]] = {}
+    for check in checks:
+        groups.setdefault((check.workflow, check.branch, check.runs), []).append(check)
+    return tuple(tuple(group) for group in groups.values())
+
+
+def check_job_times(
+    client: GitHubClient, repo: str, checks: Sequence[JobTimeCheck]
+) -> tuple[JobTimeReport, ...]:
+    """The report of each check of `checks`, in their order. The checks of one workflow, branch
+    and count share one read, so the jobs of a run are asked for one time (#6734)."""
+    reports: dict[JobTimeCheck, JobTimeReport] = {}
+    for group in job_time_reads(checks):
+        first = group[0]
+        times = client.get_run_times_of_jobs(
+            repo,
+            workflow=first.workflow,
+            branch=first.branch,
+            jobs=tuple(check.job for check in group),
+            count=first.runs,
+        )
+        for check in group:
+            reports[check] = JobTimeReport(
+                job=check.job,
+                wanted=check.runs,
+                limit_seconds=check.limit_seconds,
+                runs=tuple(times[check.job]),
+            )
+    return tuple(reports[check] for check in checks)
 
 
 @dataclass(frozen=True)

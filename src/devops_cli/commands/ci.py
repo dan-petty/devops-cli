@@ -51,6 +51,7 @@ from devops_cli.config.defaults import (
     DEFAULT_BANDIT_SEVERITY,
     DEFAULT_CI_BANDIT_NICENESS,
     DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS,
+    DEFAULT_CI_JOB_TIME_MAX_RUNS,
     DEFAULT_CI_JOB_TIME_RUNS,
     DEFAULT_CI_MUTATE_TIMEOUT_SECONDS,
     DEFAULT_CI_TEST_COLLECTION_TIMEOUT_SECONDS,
@@ -2850,7 +2851,12 @@ def job_time(
 ) -> None:
     """Fail when the last runs of a CI job averaged more than the limit (#2699), and with
     `--file-issue` write the report into its P0 issue or file one (#5247, #6199)."""
-    from devops_cli.ci.job_time import check_job_time, job_time_checks, raise_alarm
+    from devops_cli.ci.job_time import (
+        check_job_times,
+        job_time_checks,
+        job_time_reads,
+        raise_alarm,
+    )
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 
     target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
@@ -2865,23 +2871,14 @@ def job_time(
         limit_seconds=limit,
     )
     if dry_run or is_dry_run():
-        for check in checks:
-            _render_job_time_plan(target, check, file_issue=file_issue)
+        for group in job_time_reads(checks):
+            _render_job_time_plan(target, group, file_issue=file_issue)
         return
     from devops_cli.github.session import get_github_session
 
     client = get_github_session().client
     failed = False
-    for check in checks:
-        report = check_job_time(
-            client,
-            target,
-            workflow=check.workflow,
-            branch=check.branch,
-            job=check.job,
-            wanted=check.runs,
-            limit_seconds=check.limit_seconds,
-        )
+    for check, report in zip(checks, check_job_times(client, target, checks), strict=True):
         _print_job_time_report(report, workflow=check.workflow, branch=check.branch)
         if file_issue and report.complete and not report.passes:
             alarm = raise_alarm(
@@ -2900,21 +2897,26 @@ def _print_alarm(alarm: Alarm, *, repo: str) -> None:
     print_info(said.format(repo=repo, number=alarm.number), safe=True)
 
 
-def _render_job_time_plan(repo: str, check: JobTimeCheck, *, file_issue: bool) -> None:
-    """List the requests of `job-time` without making them (#412)."""
+def _render_job_time_plan(repo: str, group: Sequence[JobTimeCheck], *, file_issue: bool) -> None:
+    """List the requests of one read of `job-time` without making them (#412). The checks of
+    `group` share the workflow, the branch and the count, so one read serves them (#6734)."""
+    first = group[0]
     base = f"/repos/{repo}/actions"
     planned = [
-        PlannedRequest(method="GET", target=f"{base}/workflows/{check.workflow}/runs"),
+        PlannedRequest(method="GET", target=f"{base}/workflows/{first.workflow}/runs"),
         PlannedRequest(
             method="GET",
             target=f"{base}/runs/<run_id>/jobs",
-            repeat=f"for each run, until {check.runs} runs hold an ended {check.job}",
+            repeat=(
+                f"for each run, until {first.runs} runs hold each job ended, "
+                f"at most {DEFAULT_CI_JOB_TIME_MAX_RUNS} runs"
+            ),
         ),
     ]
     if file_issue:
         from devops_cli.ci.job_time import ALARM_MARKER
 
-        over = "the mean is over the limit"
+        over = "the mean of a job is over the limit"
         planned += [
             PlannedRequest(
                 method="GET",
@@ -2924,7 +2926,7 @@ def _render_job_time_plan(repo: str, check: JobTimeCheck, *, file_issue: bool) -
             PlannedRequest(
                 method="GET",
                 target=f"/repos/{repo}/issues/<number>",
-                condition=f"{over} and an open issue holds the alarm of {check.job}",
+                condition=f"{over} and an open issue holds the alarm of that job",
             ),
             PlannedRequest(
                 method="PATCH",
@@ -2935,12 +2937,14 @@ def _render_job_time_plan(repo: str, check: JobTimeCheck, *, file_issue: bool) -
             PlannedRequest(
                 method="POST",
                 target=f"/repos/{repo}/issues",
-                condition=f"{over} and no open issue holds the alarm of {check.job}",
+                condition=f"{over} and no open issue holds the alarm of that job",
             ),
         ]
     render_request_plan(
         MESSAGES.ci.job_time_dry_run_heading.format(
-            job=check.job, workflow=check.workflow, branch=check.branch
+            jobs=", ".join(check.job for check in group),
+            workflow=first.workflow,
+            branch=first.branch,
         ),
         planned,
     )
@@ -3052,6 +3056,7 @@ def _print_job_time_report(report: JobTimeReport, *, workflow: str, branch: str)
                 job=report.job,
                 workflow=workflow,
                 branch=branch,
+                max_runs=DEFAULT_CI_JOB_TIME_MAX_RUNS,
             )
         )
         return

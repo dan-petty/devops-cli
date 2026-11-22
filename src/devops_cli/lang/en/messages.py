@@ -2347,13 +2347,13 @@ class CIMessages:
     )
     job_time_short: str = (
         "Only {found} of the last {wanted} runs of {job} could be read from {workflow} on "
-        "{branch}, so the mean says nothing yet."
+        "{branch}, so the mean says nothing yet. The read stops after the jobs of {max_runs} runs."
     )
     job_time_no_repo: str = (
         "No repository to read: the checkout has no origin remote. Give one with --repo."
     )
     job_time_dry_run_heading: str = (
-        "Would read the time of {job} in the last runs of {workflow} on {branch}"
+        "Would read the time of {jobs} in the last runs of {workflow} on {branch}"
     )
     job_time_issue_filed: str = "Filed the P0 issue https://github.com/{repo}/issues/{number}."
     job_time_issue_updated: str = (

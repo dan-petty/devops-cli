@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
 from devops_cli.config.defaults import (
+    DEFAULT_CI_JOB_TIME_MAX_RUNS,
     DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS,
     DEFAULT_GH_LABEL_LIST_LIMIT,
     DEFAULT_GH_REST_PER_PAGE,
@@ -751,13 +752,28 @@ class GitHubClient:
     ) -> list[JobRunTime]:
         """How long `job` ran, and how long it waited in the queue, in each of the last `count`
         completed `push` runs of `workflow` on `branch` where it ran to an end, newest first (#2699).
+        It is the read of `get_run_times_of_jobs` for one job."""
+        return self.get_run_times_of_jobs(
+            repo, workflow=workflow, branch=branch, jobs=(job,), count=count
+        )[job]
+
+    def get_run_times_of_jobs(
+        self, repo: str, *, workflow: str, branch: str, jobs: Sequence[str], count: int
+    ) -> dict[str, list[JobRunTime]]:
+        """How long each job of `jobs` ran, and how long it waited in the queue, in each of the
+        last `count` completed `push` runs of `workflow` on `branch` where it ran to an end, newest
+        first (#2699, #6734).
 
         The job's own conclusion decides, not the run's. A job that ended `success`, `failure` or
         `timed_out` counts, so a run that failed for another job, such as the guard that reads
         this time, still gives the time of the job. A run that has no job of that name, or whose
-        job was skipped or cancelled, is left out. The listing is read page by page and stops once
-        `count` runs hold the job, so the jobs of no later run are asked for. Fewer than `count`
-        come back when the workflow has fewer such runs.
+        job was skipped or cancelled, is left out for that job. One request for the jobs of a run
+        serves every job of `jobs`, so the checks of one workflow cost one request for each run
+        (#6734). The listing is read page by page and stops once each job has `count` runs, so
+        the jobs of no later run are asked for. It also stops after the jobs of
+        `DEFAULT_CI_JOB_TIME_MAX_RUNS` runs, so a job that runs only on some pushes, or a name
+        that no run holds, costs a bounded number of requests (#6734). Fewer than `count` runs
+        come back for a job when the runs read hold fewer.
         """
         query = urlencode(
             {
@@ -768,19 +784,30 @@ class GitHubClient:
             }
         )
         listing = _repo_path(repo, f"actions/workflows/{quote(workflow, safe='')}/runs?{query}")
-        times: list[JobRunTime] = []
-        for item in self._session.paginate(listing, iterable_key="workflow_runs"):
+        times: dict[str, list[JobRunTime]] = {job: [] for job in jobs}
+        runs = self._session.paginate(listing, iterable_key="workflow_runs")
+        for read, item in enumerate(runs, start=1):
             run = _read_as(_WorkflowRunRef, item, path=listing)
-            took = self._job_run_time(repo, run.id, job)
-            if took is not None:
-                times.append(took)
-            if len(times) >= count:
+            run_jobs = self._run_jobs(repo, run.id)
+            for job, held in times.items():
+                took = self._job_run_time(run_jobs, run.id, job) if len(held) < count else None
+                if took is not None:
+                    held.append(took)
+            if read >= DEFAULT_CI_JOB_TIME_MAX_RUNS or all(
+                len(held) >= count for held in times.values()
+            ):
                 break
         return times
 
-    def _job_run_time(self, repo: str, run_id: int, job: str) -> JobRunTime | None:
-        """How long the check `job` ran in the run `run_id`, and how long it waited in the queue;
-        None if it did not run to an end.
+    def _run_jobs(self, repo: str, run_id: int) -> list[_JobTiming]:
+        """The jobs of the run `run_id`, as one page of the jobs endpoint gives them."""
+        path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        return _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
+
+    @staticmethod
+    def _job_run_time(jobs: Sequence[_JobTiming], run_id: int, job: str) -> JobRunTime | None:
+        """How long the check `job` ran among the `jobs` of the run `run_id`, and how long it
+        waited in the queue; None if it did not run to an end.
 
         A check that runs in shards (#3050) is the job `job`, which joins them, and the shard jobs
         named `<job> (…)`. The shards run side by side and the join starts after the last of them,
@@ -789,8 +816,6 @@ class GitHubClient:
         number of jobs at one time, so a shard or the join can wait long for a runner (#4634). A
         run with no shard job ran for the time of `job` alone.
         """
-        path = _repo_path(repo, f"actions/runs/{run_id}/jobs?per_page={DEFAULT_GH_REST_PER_PAGE}")
-        jobs = _read_as(_RunJobs, self._session.rest("GET", path), path=path).jobs
         last = next(
             (j for j in jobs if j.name == job and j.conclusion in _JOB_ENDED_CONCLUSIONS), None
         )
