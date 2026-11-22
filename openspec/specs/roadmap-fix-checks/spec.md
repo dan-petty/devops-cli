@@ -348,11 +348,11 @@ After the push of a repair, the step SHALL upsert its marked comment for the che
 - **THEN** the comment of the step names the file and the changed name that it uses
 
 ### Requirement: The Job makes its process unreadable before the repair
-With `--confirm` in a runner Job, each phase of `devops roadmap step fix-checks` SHALL clear the dumpable flag of its own process and adopt the orphans of a step first, before the runner check and before it reads a file of the run. A kernel that refuses either call SHALL stop the command before the step.
+With `--confirm` in a runner Job, each phase of `devops roadmap step fix-checks` SHALL clear the dumpable flag of its own process first, before the runner check and before it reads a file of the run. A kernel that refuses the call SHALL stop the command before the step.
 
 #### Scenario: A confirmed round hardens its process first
 - **WHEN** the command runs with `--confirm` in a runner Job, with each value of `--phase`
-- **THEN** it calls `deny_environment_reads`, then `adopt_orphans`, then the runner check, or the check of the agent phase for `--phase agent`, and only then the phase
+- **THEN** it calls `deny_environment_reads`, then the runner check, or the check of the agent phase for `--phase agent`, and only then the phase
 
 ### Requirement: The step marks an implement draft ready only by the readiness rule
 When the step finds an implement draft that it repaired (`fix_checks.result` equal to `repaired` or `rebased`), or whose implement Job ended at the draft (`implement.result` equal to `drafted`), whose item holds no stop, with every check passing on the head, it SHALL ask `draft_readiness`. It SHALL mark the draft ready with the expected head only when the answer is ready, and SHALL return `ready`. Otherwise it SHALL leave the draft as it is.

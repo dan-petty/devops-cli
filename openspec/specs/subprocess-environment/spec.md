@@ -442,93 +442,23 @@ With isolation on, `build_subprocess_env` SHALL keep `GOFLAGS`, `YARN_YARN_PATH`
 - **WHEN** a caller builds a child environment with the override `GIT_CONFIG_GLOBAL=/tmp/example.gitconfig`, `GIT_CONFIG_NOSYSTEM=0` or `git_config_global=/dev/null`
 - **THEN** `build_subprocess_env` raises `SecurityError` that names the key
 
-### Requirement: Only a git child that reaches a remote gets the session's token
-The process runner SHALL give `GH_TOKEN` set to the session's token only to a git child whose subcommand is in `CONST_GIT_NETWORK_SUBCOMMANDS`, or is `remote` with an action of `CONST_GIT_REMOTE_NETWORK_ACTIONS`. It SHALL read the subcommand after the global options of git, and take the next word as the value of an option of `CONST_GIT_VALUE_OPTIONS`. Any other git child SHALL get no `GH_TOKEN` and no `GITHUB_TOKEN`, and SHALL start no lookup of the token.
-
-#### Scenario: A network command and a local command
-- **WHEN** the process runner starts `git push origin feat/184-example`, `git -C /tmp/x fetch origin main` and `git ls-remote --heads origin`, and then `git add -A`, `git -c user.name=x commit -m x` and `git diff --cached`
-- **THEN** each of the first three children gets the session's token as `GH_TOKEN`, and each of the last three gets no `GH_TOKEN` and no `GITHUB_TOKEN`
-
-#### Scenario: A local command and no login
-- **WHEN** no token resolves and the process runner starts `git status`
-- **THEN** the child starts, and no `gh auth token` runs
-
-### Requirement: A gh child reads the session's token from a private configuration folder
-The process runner SHALL give a gh child, except a local gh command (`gh auth`, version and help), no `GH_TOKEN` and no `GITHUB_TOKEN`. It SHALL give it a new folder (mode 0700) whose `hosts.yml` (mode 0600) holds the session's token, with `GH_CONFIG_DIR` set to the folder and `GH_HOST` set to `github.com`, and SHALL remove the folder when the child ends, also when the child fails, runs out of time or is cancelled.
-
-#### Scenario: A gh call with a jq filter
-- **WHEN** the process runner starts `gh api rate_limit --jq '[env.GH_TOKEN, env.GITHUB_TOKEN]'`, and the child ends with status 0, with status 1, or after its timeout
-- **THEN** the environment of the child holds no `GH_TOKEN` and no `GITHUB_TOKEN`, `GH_CONFIG_DIR` names a folder with mode 0700 whose `hosts.yml` has mode 0600 and holds the session's token, `GH_HOST` is `github.com`, and the folder is gone after the run
-
-#### Scenario: The App's installation token
-- **WHEN** the process acts as the App and starts a gh child
-- **THEN** the `hosts.yml` of the child holds the installation token, and its environment holds no token
-
-### Requirement: The folder of a gh child does not depend on the current folder
-The process runner SHALL make the folder of a gh child directly in the runtime folder of the user (`platformdirs`), else directly in the temp folder of the system, else in `<data directory>/gh-config` when the data directory is absolute. A candidate that raises `OSError` SHALL give way to the next. When none works, the call SHALL raise `ConfigurationError` that names the settings.
-
-#### Scenario: Where the folder is
-- **WHEN** `XDG_RUNTIME_DIR` names a private folder
-- **THEN** the folder of a gh child is directly in `$XDG_RUNTIME_DIR`
-
-#### Scenario: No runtime folder
-- **WHEN** the runtime folder cannot hold a folder, as in a runner Job with a read-only root file system, and the process runner starts a gh child
-- **THEN** the folder of the child is a new folder with mode 0700 in the temp folder of the system
-
-#### Scenario: Only the data directory
-- **WHEN** the runtime folder and the temp folder fail, and the data directory is absolute
-- **THEN** the folder of the child is under `<data directory>/gh-config`
-
-#### Scenario: A relative data directory
-- **WHEN** the runtime folder and the temp folder fail, the data directory is `.data`, and the current folder cannot be written
-- **THEN** the call raises `ConfigurationError` that names `data.dir` and `XDG_RUNTIME_DIR`, the gh child does not start, and the current folder holds nothing new
-
-### Requirement: A candidate folder that is a link or in the current folder is skipped
-A runtime folder or a `gh-config` folder that is a link, belongs to another user or that others can read SHALL raise `OSError`. A runtime or temp folder that resolves into the current folder SHALL raise `OSError`, unless the current folder is the root of the file system.
-
-#### Scenario: A link below the runtime folder
-- **WHEN** `<runtime folder>/devops-cli` is a link into a checkout
-- **THEN** the folder of a gh child is directly in the runtime folder, and not in the checkout
-
-#### Scenario: A runtime or temp folder in the current folder
-- **WHEN** the runtime folder or the temp folder resolves into the current folder, and the data directory is absolute
-- **THEN** the folder of the child is under `<data directory>/gh-config`, outside the current folder
-
-#### Scenario: The current folder is the root of the file system
-- **WHEN** the current folder is `/` and `XDG_RUNTIME_DIR` names a private folder
-- **THEN** the folder of a gh child is directly in `$XDG_RUNTIME_DIR`
-
-### Requirement: An async gh call makes its folder after the token lookup
-An async call SHALL look up the token in a thread and make the folder of the gh child in the thread of the event loop, so that a cancelled call leaves no folder.
-
-#### Scenario: A cancelled call
-- **WHEN** an async gh call is cancelled while it looks up the token
-- **THEN** no folder with the token is left after the lookup ends
-
-### Requirement: In a runner, the leftover processes end before and after each child that gets the session's token
-When `roadmap.implement.in_runner` is true, the process runner SHALL end every leftover process of the job (`end_leftover_processes`) before it starts a gh child or a git child that gets the session's token, before it makes the token folder of a gh child, and again after the child ends. A process that survives the first sweep SHALL raise `RoadmapImplementError`, and the child SHALL NOT start. A local git child and a local gh command SHALL start no sweep.
-
-#### Scenario: The order
-- **WHEN** in a runner the process runner starts `gh api rate_limit`, `git push origin feat/184-example`, `git status` and `gh --version`
-- **THEN** the leftover processes end before and after each of the first two children, and before and after neither of the last two
-
-#### Scenario: A process that survives
-- **WHEN** in a runner a process survives the sweep before a gh child
-- **THEN** the call raises `RoadmapImplementError`, the child does not start, and no `hosts.yml` exists
-
 ### Requirement: A child that gets the session's token stops with its process group
-The process runner SHALL start each child that gets the session's token in a session of its own. A timeout, or another error while the child runs, SHALL kill the whole process group of the child.
+The process runner SHALL start each child that gets the session's token in a session of its own. A timeout, or another error while the child runs, SHALL kill the whole process group of the child. After a Ctrl+C, the process runner SHALL first send SIGINT to the process group of the child, which the terminal does not reach, and wait up to 0.25 s, as `subprocess.run` waits after a Ctrl+C, before it kills what is left of the group.
 
 #### Scenario: A timeout
-- **WHEN** a git child that reaches a remote starts a helper and runs past its timeout
+- **WHEN** a git child starts a helper and runs past its timeout
 - **THEN** the call raises `subprocess.TimeoutExpired`, and neither the child nor the helper is alive
 
-### Requirement: A git child gets no -c value, and a git child that reaches no remote gets no token
-The process runner MUST NOT add a `-c` value to the arguments of a git child, and MUST NOT give a GitHub token to a git child that reaches no remote.
+#### Scenario: A Ctrl+C during a git commit
+- **WHEN** `git commit -a` runs a `pre-commit` hook that sleeps, and the process gets SIGINT
+- **THEN** the call raises `KeyboardInterrupt`, and `.git/index.lock` is gone
+
+### Requirement: A git child gets no -c value
+The process runner MUST NOT add a `-c` value to the arguments of a git child.
 
 #### Scenario: A local status
-- **WHEN** a test runs `git status` through the process runner with `GH_TOKEN` in the environment of the process
-- **THEN** the recorded arguments hold no `-c` credential value, and the environment of the child holds no `GH_TOKEN`.
+- **WHEN** a test runs `git status`, `git fetch --prune origin` or `git -C clone ls-remote --heads origin main` through the process runner with `GH_TOKEN` in the environment of the process
+- **THEN** the recorded arguments of the child are the arguments of the caller with no `-c` value, and the child gets the session's token as `GH_TOKEN`
 
 ### Requirement: The git configuration keys of the environment reach only a child of a person
 `build_subprocess_env` SHALL give each child the `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` of the environment of the process when the process does not act as the GitHub App, as a shell gives them, so git reads the credential helper that the devcontainer sets with them. When the process acts as the GitHub App, `build_subprocess_env` MUST give a child none of these keys, with isolation on or off. A caller override of these keys stays refused.
@@ -545,13 +475,28 @@ The process runner MUST NOT add a `-c` value to the arguments of a git child, an
 - **WHEN** the environment holds the same keys and the private key of the GitHub App, and a caller builds a child environment with isolation off
 - **THEN** the child environment holds none of these keys
 
-### Requirement: A network git child with no token fails at once only for the App
-When the process acts as the GitHub App, holds no installation token that has not expired, and the mint fails, the process runner SHALL raise the error of the mint before it starts a git child that reaches a remote. For a person, such a child SHALL start with no `GH_TOKEN`. A lookup that finds no token SHALL NOT be kept, so the next call looks again.
+### Requirement: A git child with no token fails at once only for the App
+When the process acts as the GitHub App, holds no installation token that has not expired, and the mint fails, the process runner SHALL raise the error of the mint before it starts a git child. For a person, such a child SHALL start with no `GH_TOKEN`, and the git children SHALL keep that failed lookup for the life of the process. A gh call SHALL look again, and the next git child SHALL get the token that it finds.
 
 #### Scenario: The App's mint fails
-- **WHEN** the environment holds `not-a-pem-key` as the App's key and the process runner starts `git fetch origin`
+- **WHEN** the environment holds `not-a-pem-key` as the App's key and the process runner starts `git fetch origin` or `git status`
 - **THEN** it raises `GitHubUnauthenticatedError` that says the App has no installation token, and no child starts
 
 #### Scenario: A person has no login
-- **WHEN** no token resolves and the process runner starts `git fetch` two times
-- **THEN** each child starts with no `GH_TOKEN`, and `gh auth token` runs before each of them
+- **WHEN** no token resolves and the process runner starts `git fetch` two times, then `gh issue list` after `gh auth login`, then `git fetch`
+- **THEN** the first two git children start with no `GH_TOKEN` after one `gh auth token`, the gh call looks the token up again, and the last git child gets that token
+
+### Requirement: Each gh and git child gets the session's token as GH_TOKEN
+The process runner SHALL give each gh child, except a local gh command (`gh auth`, version and help), and each git child the session's token as `GH_TOKEN`, and no `GITHUB_TOKEN`. It SHALL make no configuration folder for a gh child. A local gh command SHALL get the `GH_TOKEN` and `GITHUB_TOKEN` of the environment, or of the caller, unchanged.
+
+#### Scenario: A git child
+- **WHEN** the process runner starts `git push origin feat/184-example`, `git -C work/example fetch origin main`, `git ls-remote --heads origin`, `git add -A`, `git -c user.name=example commit -q -m fix` and `git remote get-url origin`, with `GH_TOKEN` in the environment of the process and `GITHUB_TOKEN` from the caller
+- **THEN** each child gets the session's token as `GH_TOKEN`, and no `GITHUB_TOKEN` and no `GH_CONFIG_DIR`
+
+#### Scenario: A gh child
+- **WHEN** the process runner starts `gh api rate_limit`, with `GH_TOKEN` in the environment of the process and `GITHUB_TOKEN` from the caller
+- **THEN** the child gets the session's token as `GH_TOKEN`, and no `GITHUB_TOKEN` and no `GH_CONFIG_DIR`
+
+#### Scenario: The App's installation token
+- **WHEN** the process acts as the App and starts a gh child
+- **THEN** the child gets the installation token as `GH_TOKEN`

@@ -96,17 +96,6 @@ Before any step, `devops roadmap implement --confirm` and `apply_implement` SHAL
 - **WHEN** `devops k8s run-job --template runner -- roadmap implement --item 7` runs with no `--repo`
 - **THEN** the command exits 1, names `--repo`, and sends no request
 
-### Requirement: No process of a step lives when the job runs git or gh
-A `git` or `gh` child of the job holds the session token in its environment, which a process of the same user can read, and a pod cannot hide it (see design.md). So the job SHALL adopt orphans (`PR_SET_CHILD_SUBREAPER`) and, when a step ends, kill every descendant, also one in a session of its own, before it runs any program. A descendant that survives SHALL raise `RoadmapImplementError` and stop the item.
-
-#### Scenario: A daemon of the shell
-- **WHEN** a step leaves a process in a session of its own and the step ends
-- **THEN** the process is dead before the first `git` of the job runs after the step
-
-#### Scenario: A process that does not die
-- **WHEN** a descendant is still alive after the timeout
-- **THEN** `RoadmapImplementError` names it
-
 ### Requirement: The Job is recorded before it is created
 The round SHALL record the name of the Job in `implement.job` and the digest of the runner image in the template of CronJob `devops-cli-runner` in `implement.job_digest`, and clear `implement.job_state`, before it creates the Job. The round SHALL read the CronJob one time for each create, and take the digest and the Job from that read. A create that fails SHALL remove the record of the Job. So a Job that no record names does not exist, and an item whose Job dies early is reported and stopped.
 

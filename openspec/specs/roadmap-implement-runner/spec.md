@@ -115,7 +115,7 @@ A ValidatingAdmissionPolicy and a binding SHALL apply to `CREATE` and `UPDATE` o
 - **THEN** the match condition is false, so the policy does not refuse the Job
 
 ### Requirement: The policy pins the image and the account of a Job of the Service
-The policy SHALL refuse a runner Job unless it has the init containers `prepare` and `agent` and the container `publish`, or in an `UPDATE` the one container of the template before #3700. A stage Job and a planner run Job SHALL have one container and no init container. Each container SHALL run `ghcr.io/dan-petty/devops-cli/runner` alone or followed by `:` or `@`, and the pod SHALL use ServiceAccount `devops-cli` with `automountServiceAccountToken: false`.
+The policy SHALL refuse a runner Job unless it has the init containers `prepare` and `agent` and the container `publish`, on a `CREATE` and on an `UPDATE`. A stage Job and a planner run Job SHALL have one container and no init container. Each container SHALL run `ghcr.io/dan-petty/devops-cli/runner` alone or followed by `:` or `@`, and the pod SHALL use ServiceAccount `devops-cli` with `automountServiceAccountToken: false`.
 
 #### Scenario: A Job with another image or account
 - **WHEN** the Job from the template changes in one way: another repository, an image that only starts with the repository name, a second container, a third init container, another image of an init container, another ServiceAccount, or a token that mounts or is not set
@@ -123,7 +123,7 @@ The policy SHALL refuse a runner Job unless it has the init containers `prepare`
 
 #### Scenario: The Job of the old template
 - **WHEN** the policy checks a runner Job of one container `runner` that holds both keys
-- **THEN** it refuses the `CREATE` and admits the `UPDATE`
+- **THEN** it refuses the `CREATE` and the `UPDATE`
 
 ### Requirement: The policy pins the secrets, the volumes and the host of a Job of the Service
 The policy SHALL refuse a Job unless each `env` entry with `valueFrom` reads `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` or `DEVOPS_CLI_AI_API_KEY` of Secret `devops-cli` through `secretKeyRef` in the variable of its name, on the three containers the model key only in `agent` and the App key only elsewhere, the volumes are those of the template, and the pod sets no `hostNetwork`, `hostPID` or `hostIPC`.
@@ -136,12 +136,12 @@ The policy SHALL refuse a Job unless each `env` entry with `valueFrom` reads `DE
 - **WHEN** a person creates the Job from the template as the Service with `kubectl --as=system:serviceaccount:devops:roadmap-service create --dry-run=server`
 - **THEN** the policy admits the Job with the key of each container in `secretKeyRef`
 
-### Requirement: The policy admits envFrom only in the update of a runner Job
-The policy SHALL refuse a Job with `envFrom`, but not in the `UPDATE` of a runner Job whose `envFrom` names only Secret `devops-cli`. A runner Job that the Service made before #6518 has that `envFrom`, and the Service patches its deadline and resumes it. A Job keeps its pod template, so an `UPDATE` cannot add `envFrom`.
+### Requirement: The policy refuses envFrom in each Job of the Service
+The policy SHALL refuse a Job with `envFrom`, on a `CREATE` and on an `UPDATE`. A stage Job and a runner Job read their keys of Secret `devops-cli` with `valueFrom` (#6518), and no runner Job that the Service made with `envFrom` before #6518 is left in the cluster (#6691).
 
 #### Scenario: A Job with envFrom
-- **WHEN** `uv run devops ci --check --only k8s` runs the policy against the Job from the template with `envFrom` of a ConfigMap, of another Secret or of Secret `devops-cli`
-- **THEN** the policy refuses the `CREATE` of each, admits the `UPDATE` of a runner Job with Secret `devops-cli` in `envFrom`, and refuses the `UPDATE` of a runner Job with another Secret in `envFrom`
+- **WHEN** `uv run devops ci --check --only k8s` runs the policy against the Job from the template with `envFrom` of a ConfigMap, of another Secret or of Secret `devops-cli`, and against a stage Job and a planner run Job with `envFrom` of Secret `devops-cli`
+- **THEN** the policy refuses the `CREATE` and the `UPDATE` of each, with the message of the `envFrom` rule alone
 
 ### Requirement: The policy keeps a Job of the Service from reaching beyond its pod
 The policy SHALL refuse a Job unless the label `app.kubernetes.io/name` of its pod template is `devops-cli-job`, the pod sets no `priorityClassName`, `nodeName` or `imagePullSecrets`, the container sets no `command`, the Job sets no `manualSelector`, and `completions` and `parallelism` are 1 or not set.
@@ -209,28 +209,6 @@ The policy SHALL refuse a Job of the Service unless the CPU request of its conta
 #### Scenario: A raised memory limit
 - **WHEN** the Job of a row sets a memory limit of 12Gi
 - **THEN** the policy admits the Job
-
-### Requirement: The leftover processes end before each part of a network git call
-`OriginGit` SHALL end every leftover process before it makes the new folder, and again just before the call with the token.
-
-#### Scenario: The order of the calls
-- **WHEN** the job reads the heads of a branch
-- **THEN** the leftover processes end before the new folder is made, again after the new git folder is ready, and only then the read with the token runs
-
-#### Scenario: A link at the shallow file before the call
-- **WHEN** the `shallow` file of the clone is a link, and the job reads the heads of a branch in a runner
-- **THEN** the leftover processes end first, the call raises `GitSettingsError` that names `shallow`, and the read with the token does not run
-
-### Requirement: The new git folder of a shallow clone gets a copy of its shallow file
-The new git folder of a network call SHALL get a copy of the `shallow` file of a shallow clone, which the job SHALL open with `O_NOFOLLOW`. A link, or anything but a regular file, at that place SHALL raise `GitSettingsError` that names `shallow`.
-
-#### Scenario: A push from a shallow clone
-- **WHEN** the clone was made with `--depth 1`, and the job pushes a new commit of the clone
-- **THEN** `origin` holds the new commit on the branch, and the clone stays shallow
-
-#### Scenario: A link at the shallow file
-- **WHEN** the `shallow` file of the clone is a link, and the job reads the heads of `main`
-- **THEN** the call raises `GitSettingsError` that names `shallow`
 
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.
@@ -453,11 +431,11 @@ The runner image SHALL hold Gitleaks, Pluto, osv-scanner, golangci-lint and Semg
 - **THEN** the command refuses before it reads the inputs
 
 ### Requirement: A network git call of the implement job runs in a folder that no agent wrote
-Each git call of the implement job that reaches `origin` SHALL run in a folder that no agent wrote: the new clone of `prepare` in the run folder, before the agent phase, or the new repository of `publish`. Each git call of `prepare` and `publish` SHALL set `CONST_GIT_ISOLATED_CONFIG_ENV` and get the helper of `gh` from `-c` values. `publish` SHALL end every leftover process first, and give its calls a home folder of the run. No call with the token SHALL touch the clone of the agent phase.
+Each git call of the implement job that reaches `origin` SHALL run in a folder that no agent wrote: the new clone of `prepare` in the run folder, before the agent phase, or the new repository of `publish`. Each git call of `prepare` and `publish` SHALL set `CONST_GIT_ISOLATED_CONFIG_ENV` and get the helper of `gh` from `-c` values. `publish` SHALL give its calls a home folder of the run. No call with the token SHALL touch the clone of the agent phase.
 
 #### Scenario: Programs that the home folder of the Job names
 - **WHEN** a turn of the agent writes into the git configuration of the home folder a hook folder with a `pre-commit`, `post-commit`, `pre-push` and `reference-transaction` hook and a credential helper, each of which writes the `GH_TOKEN` that it sees, and the job runs a Planned item to its pull request
-- **THEN** the branch of the item is on `origin`, and no program wrote the session's token
+- **THEN** the branch of the item is on `origin`, the `pre-commit` hook ran at a local commit of the agent phase, and neither the credential helper nor the `pre-push` hook ran
 
 #### Scenario: A credential helper in the clone
 - **WHEN** a turn of the agent adds a credential helper and a `pre-push` hook to the configuration of its clone
@@ -494,7 +472,7 @@ For a Job on the phases, `devops k8s run-job` SHALL follow `prepare`, `agent` an
 
 #### Scenario: A dry run of the runner template
 - **WHEN** run-job prints the dry run of the runner template, which reads no CronJob
-- **THEN** it lists the reads of one container under the condition that the CronJob holds one container, and the reads of each phase container under the condition that the CronJob holds the init containers `prepare` and `agent`
+- **THEN** it lists the reads of each phase container, and no read of one container; a run on a CronJob of the three containers makes each request of the dry run
 
 ### Requirement: Publish writes no folder of the run
 The `publish` phase of implement, fix-checks, fix-conflict and stage SHALL make its new repository in the temporary folder, and SHALL write no file in the run folder or in the data folder, so it runs on a run folder that its container mounts read-only (#3700).
@@ -509,13 +487,6 @@ When the plan leaves the named item out, `prepare` SHALL print the plan and writ
 #### Scenario: An item that is not eligible
 - **WHEN** the plan leaves item 1 out because it is not Ready, and `prepare` and then `publish` run on one run folder
 - **THEN** both exit 0, the output of `prepare` holds the plan, and the output of `publish` holds the reason
-
-### Requirement: The dry run shows each shape of the runner template under its condition
-The dry run of `devops k8s run-job` SHALL read no CronJob. For the runner template, it SHALL show the create of a Job of one container `runner` with the args, under the condition that the CronJob holds one container, and the create of a Job of the init containers `prepare` and `agent` and the container `publish`, each with the args and its `--phase` and `--work`, under the condition that the CronJob holds them.
-
-#### Scenario: Both shapes
-- **WHEN** the dry run of `--template runner` runs
-- **THEN** it sends no request, and shows the container `runner` and the three containers, each under its condition
 
 ### Requirement: The policy keeps the three containers of a runner Job apart
 On the three containers, the policy SHALL refuse a mount other than `run` at `/run/roadmap`, `state` at `/run/roadmap/state`, the own tmp and home of the container and `config` read-only, a `subPath`, `state` in `agent`, and a writable `run` or `state` in `publish`. It SHALL refuse `shareProcessNamespace`, and `restartPolicy` or `restartPolicyRules` on any container. Argo CD SHALL apply the policy and its binding before the CronJob.
@@ -538,3 +509,10 @@ On the three containers, the policy SHALL refuse a container whose args do not e
 #### Scenario: The patches of the Service
 - **WHEN** the Service patches the deadline of a Job of the three containers, marks its stall, or resumes a fix-checks Job that waited
 - **THEN** the policy admits each `UPDATE`
+
+### Requirement: The dry run shows the three containers of the runner template
+The dry run of `devops k8s run-job` SHALL read no CronJob. For the runner template, it SHALL show only the create of a Job of the init containers `prepare` and `agent` and the container `publish`, each with the args and its `--phase` and `--work`, under the condition that the CronJob exists. The template in git makes only these three containers.
+
+#### Scenario: The three containers
+- **WHEN** the dry run of `--template runner` runs
+- **THEN** it sends no request, and shows one create, of the three containers, and no container `runner`
