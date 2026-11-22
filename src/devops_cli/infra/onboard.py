@@ -8,7 +8,7 @@ of the repo. It also reads `ssh-keygen -F` against `~/.ssh/known_hosts` and `kub
 get-contexts`. When the repo pins collections in `collections/requirements.yml`, it installs them
 into a temporary folder and reads their roles from `ansible-doc -t role -l -j` (#6678). It opens no
 connection to a host, and the fetch and that install are its only requests. Each check gives one
-row with a state, a reason and the step that fixes a gap, as `devops roadmap onboard` does.
+row with a state, a reason and the step that fixes a gap, as `devops repos onboard` does.
 
 The profile gives the layout: the inventory, the playbook folder, the role folders and the group of
 hosts out of service. A host variable comes raw from `ansible-inventory --list`: onboarding reads

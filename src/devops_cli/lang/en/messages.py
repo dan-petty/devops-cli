@@ -728,6 +728,20 @@ class RepoMessages:
     worktrees_prune_done: str = (
         "Prune complete: {removed} removed, {refused} refused, {failed} failed, {size} freed"
     )
+    onboard_plan_title: str = "Plan of devops repos onboard for {target}"
+    onboard_plan_reads: str = "The reads of each row (a --plan sends these and nothing else):"
+    onboard_plan_writes: str = (
+        "The write routes that --confirm can send, each only on a difference:"
+    )
+    onboard_plan_note: str = "The dry run sent no request and started no program."
+    onboard_modes_exclusive: str = "Give at most one of --plan, --dry-run and --confirm."
+    onboard_target_needed: str = "Give one repository as owner/name, or --all."
+    onboard_all_confirm: str = (
+        "--all checks the drift only: give --plan or --dry-run, not --confirm."
+    )
+    onboard_all_empty: str = "service.repos holds no repository to check."
+    onboard_only_invalid: str = "--only takes row numbers from 0 to 15, such as 2,3,8: {value}"
+    onboard_create_visibility: str = "--create needs --visibility public or --visibility private."
 
 
 @dataclass(frozen=True)
@@ -6121,7 +6135,6 @@ class RoadmapMessages:
             "add_sub_issue": "add {subject} as a sub-issue of {parent}",
             "create_issue": "open an issue for {subject}",
             "close": "close {subject} with the reason {reason}",
-            "create_label": "create label {label}",
             "consolidate_embed": "the embeddings of the items that the cache of vectors lacks",
             "consolidate_proposal": "the model's proposal for the shortlist of {subject}",
             "consolidate_refutation": "the model's refutation of that proposal",
@@ -6192,7 +6205,6 @@ class RoadmapMessages:
                 "no usable title, the model gave no summary that passes the title form, or the "
                 "job has no correction for its title type"
             ),
-            "as_app": "the process acts as the GitHub App",
             "consolidate_cited": "the model cites a path with a line",
             "consolidate_embed": "an open item has a text that the cache of vectors lacks",
             "claim_made": "the claim of the agent is made",
@@ -6243,16 +6255,8 @@ class RoadmapMessages:
             "implement_patch": (
                 "for each of the three patches: the work, the archive commit and the work after it"
             ),
-            "missing_label": "for each declared label that the repository lacks",
         }
     )
-    # `devops roadmap onboard` (#1359).
-    onboard_title: str = "# Onboard for {repo}"
-    onboard_plain_note: str = (
-        "Onboard without a mode flag runs as --plan: it reads GitHub and writes "
-        "nothing. --dry-run makes no request."
-    )
-    onboard_not_readable_count: str = "Not readable rows: {count}."
     # `devops roadmap repair` (#3478).
     repair_title: str = "# Repair for {repo}"
     repair_line: str = "- #{number} {title}: {cause}"

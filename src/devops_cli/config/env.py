@@ -85,6 +85,11 @@ CREDENTIALS: tuple[Credential, ...] = (
         "PEM private key of the GitHub App that self-hosted Renovate acts as. `devops gh "
         "app-token --app renovate` signs the App's JWT with it (stored in OS keyring)",
     ),
+    Credential(
+        "github.release_app_private_key",
+        "PEM private key of the release App, which `devops repos onboard` seals into the secret "
+        "RELEASE_APP_PRIVATE_KEY of the environment release (stored in OS keyring)",
+    ),
     Credential("ai.api_key", "AI API key (stored in OS keyring)"),
     Credential("qdrant.api_key", "Qdrant API key (stored in OS keyring)", in_file=True),
     Credential(

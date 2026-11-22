@@ -93,6 +93,7 @@ from devops_cli.config.defaults import (
     DEFAULT_FEEDBACK_DATASET_PATH,
     DEFAULT_GITEA_APPLICATIONS,
     DEFAULT_GITEA_GITHUB_BRANCHES,
+    DEFAULT_GITHUB_TEMPLATE_REPOSITORY,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     DEFAULT_INFRA_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_INFRA_NODE_READY_TIMEOUT_SECONDS,
@@ -342,6 +343,18 @@ class GitHubConfig(BaseModel):
     model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
     default_org: Annotated[str | None, Variable()] = Field(
         default=None, description="Default GitHub organization"
+    )
+    template_repository: Annotated[str, Variable()] = Field(
+        default=DEFAULT_GITHUB_TEMPLATE_REPOSITORY,
+        pattern=r"^[\w.-]+/[\w.-]+$",
+        description="owner/name of the repository that holds the Copier template and the settings "
+        "baseline that `devops repos onboard` applies",
+    )
+    release_app_client_id: Annotated[str | None, Variable()] = Field(
+        default=None,
+        min_length=1,
+        description="Client ID of the release App, which `devops repos onboard` writes to the "
+        "variable RELEASE_APP_CLIENT_ID of the environment release",
     )
 
 
@@ -3120,6 +3133,16 @@ def get_argocd_password(settings: Settings) -> str | None:
 def get_renovate_github_app_private_key(settings: Settings) -> str | None:
     """Resolve the private key of the GitHub App that self-hosted Renovate acts as."""
     return _resolve("renovate.github_app_private_key", settings)
+
+
+def get_service_github_app_private_key(settings: Settings) -> str | None:
+    """Resolve the private key of the GitHub App that the roadmap Service acts as."""
+    return _resolve("service.github_app.private_key", settings)
+
+
+def get_release_app_private_key(settings: Settings) -> str | None:
+    """Resolve the private key of the release App, which `devops repos onboard` seals."""
+    return _resolve("github.release_app_private_key", settings)
 
 
 def get_ai_api_key(settings: Settings) -> str | None:

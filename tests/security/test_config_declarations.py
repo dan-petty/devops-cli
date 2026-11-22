@@ -78,6 +78,9 @@ _VARIABLES_BEFORE = frozenset(
         "DEVOPS_CLI_FIRECRAWL_API_KEY",
         "DEVOPS_CLI_GITEA_ADMIN_PASSWORD",
         "DEVOPS_CLI_GITHUB_DEFAULT_ORG",
+        "DEVOPS_CLI_GITHUB_RELEASE_APP_CLIENT_ID",  # #6773
+        "DEVOPS_CLI_GITHUB_RELEASE_APP_PRIVATE_KEY",  # #6773
+        "DEVOPS_CLI_GITHUB_TEMPLATE_REPOSITORY",  # #6773
         "DEVOPS_CLI_GRAFANA_PASSWORD",
         "DEVOPS_CLI_GRAFANA_TOKEN",
         "DEVOPS_CLI_GRAFANA_URL",
@@ -403,6 +406,7 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "crawl4ai.api_token": "crawl4ai_api_token",  # #3882
     "roadmap_service.llm_key": "roadmap_service_llm_key",  # #3685
     "renovate.github_app_private_key": "renovate_github_app_private_key",  # #4897
+    "github.release_app_private_key": "github_release_app_private_key",  # #6773
     "gitea.token": "gitea_token",  # #1090
     "gitea.argocd_token": "gitea_argocd_token",  # #1082
 }

@@ -21,6 +21,8 @@ nav:
       - docs/KNOWN_ISSUES.md
       - Roadmap jobs:
           - "docs/roadmap/*.md"
+      - Repositories:
+          - "docs/repos/*.md"
       - Cheatsheets:
           - "docs/cheatsheets/*.md"
   - Guidelines:

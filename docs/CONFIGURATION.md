@@ -32,6 +32,8 @@ GitHub authentication, default owner, and repository settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `default_org` | `Union` | - | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | Default GitHub organization |
+| `template_repository` | `str` | `dan-petty/infra` | `DEVOPS_CLI_GITHUB_TEMPLATE_REPOSITORY` | owner/name of the repository that holds the Copier template and the settings baseline that `devops repos onboard` applies |
+| `release_app_client_id` | `Union` | - | `DEVOPS_CLI_GITHUB_RELEASE_APP_CLIENT_ID` | Client ID of the release App, which `devops repos onboard` writes to the variable RELEASE_APP_CLIENT_ID of the environment release |
 
 ## SSH Configuration (`ssh`)
 
