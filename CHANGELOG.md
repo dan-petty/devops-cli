@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.195.4](https://github.com/dan-petty/devops-cli/compare/v0.195.3...v0.195.4) (2026-11-22)
+
+
+### Bug Fixes
+
+* **ai:** show the newest index time in rag status ([#6801](https://github.com/dan-petty/devops-cli/issues/6801)) ([1193d4c](https://github.com/dan-petty/devops-cli/commit/1193d4c955677e05dc40703ff973de3e08c55314))
+* **pr:** judge the branch and path filters of pull request workflows ([#6803](https://github.com/dan-petty/devops-cli/issues/6803)) ([24cc5fe](https://github.com/dan-petty/devops-cli/commit/24cc5fea3c3fb42e3f00c0efa0696b6889fded8c)), closes [#5408](https://github.com/dan-petty/devops-cli/issues/5408)
+
 ## [0.195.3](https://github.com/dan-petty/devops-cli/compare/v0.195.2...v0.195.3) (2026-11-22)
 
 
