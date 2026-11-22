@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, TextIO
+from typing import Annotated, Any, BinaryIO, TextIO
 
 import typer
 
@@ -139,7 +139,7 @@ app.add_typer(pages_app, name="pages")
 app.add_typer(issue_app, name="issue")
 app.add_typer(run_app, name="run")
 app.add_typer(branch_protection_app, name="branch-protection", help=HELP.gh.branch_protection_app)
-app.add_typer(secret_app, name="secret")
+app.add_typer(secret_app, name="secret", help=HELP.gh.secret_app)
 app.add_typer(pr_app, name="pr")
 
 
@@ -2005,6 +2005,44 @@ def app_token_cmd(
 # =============================================================================
 
 
+def _refuse_secret_sync_options(
+    environment: str | None, names: list[str], source: str, *, has_file: bool
+) -> None:
+    """Refuse an empty environment name, and a file with a second source of values (exit 2)."""
+    from devops_cli.github.secrets import is_vault_source
+
+    if environment is not None and not environment.strip():
+        raise typer.BadParameter(MESSAGES.gh_secret.env_empty, param_hint="'--env'")
+    if not has_file:
+        return
+    if is_vault_source(source):
+        raise typer.BadParameter(MESSAGES.gh_secret.from_file_and_vault, param_hint="'--from-file'")
+    count = len(set(names))
+    if count != 1:
+        raise typer.BadParameter(
+            MESSAGES.gh_secret.from_file_names.format(count=count), param_hint="'--from-file'"
+        )
+
+
+def _secret_from_input(source: BinaryIO) -> str:
+    """The value that `--from-file` gives, or a usage error that quotes no byte of it (exit 2)."""
+    from devops_cli.config.secret_input import read_secret_input
+
+    try:
+        return read_secret_input(source)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="'--from-file'") from None
+
+
+def _secret_sync_title(repo: str, environment: str | None, *, plan: bool) -> str:
+    """The title of the plan or of the result table of `gh secret sync`."""
+    texts = MESSAGES.gh_secret
+    if environment is None:
+        return (texts.repository_plan if plan else texts.repository_title).format(repo=repo)
+    template = texts.environment_plan if plan else texts.environment_title
+    return template.format(repo=repo, env=environment)
+
+
 @secret_app.command("sync", help=HELP.gh.secret_sync)
 @dry_run_class("request-plan")
 def sync_secrets_cmd(
@@ -2013,10 +2051,18 @@ def sync_secrets_cmd(
         typer.Option("--secret-names", "-n", help=HELP.gh.secret_names),
     ],
     repo: Annotated[str | None, typer.Option("--repo", "-R", help="Target repository")] = None,
+    environment: Annotated[
+        str | None,
+        typer.Option("--env", help=HELP.gh.secret_env),
+    ] = None,
     source: Annotated[
         str,
         typer.Option("--source", "-s", help=HELP.gh.secret_source),
     ] = "keyring",
+    from_file: Annotated[
+        typer.FileBinaryRead | None,
+        typer.Option("--from-file", metavar="PATH", help=HELP.gh.secret_from_file),
+    ] = None,
     vault_path: Annotated[
         str,
         typer.Option("--vault-path", help=HELP.gh.secret_vault_path),
@@ -2026,9 +2072,10 @@ def sync_secrets_cmd(
         typer.Option("--dry-run", help="Preview secret synchronization without mutations"),
     ] = False,
 ) -> None:
-    """Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."""
-    target_repo = _resolve_repo(repo)
+    """Seal secrets into the repository or one of its environments with libsodium (#6781)."""
     names = [n.strip() for n in secret_names.split(",") if n.strip()]
+    _refuse_secret_sync_options(environment, names, source, has_file=from_file is not None)
+    target_repo = _resolve_repo(repo)
     if not names:
         print_warning("No secret names provided to synchronize.")
         return
@@ -2036,10 +2083,11 @@ def sync_secrets_cmd(
     if dry_run or is_dry_run():
         from devops_cli.github.secrets import sync_secrets_requests
 
-        planned = sync_secrets_requests(target_repo, names)
-        render_request_plan(f"Plan for synchronizing secrets ({target_repo})", planned)
+        planned = sync_secrets_requests(target_repo, names, environment)
+        render_request_plan(_secret_sync_title(target_repo, environment, plan=True), planned)
         return
 
+    value = None if from_file is None else _secret_from_input(from_file)
     try:
         result = sync_repository_secrets(
             repo=target_repo,
@@ -2047,6 +2095,8 @@ def sync_secrets_cmd(
             source=source,
             vault_path=vault_path,
             dry_run=dry_run,
+            environment=environment,
+            value=value,
         )
     except Exception as exc:
         print_error(f"Secret synchronization failed: {exc}")
@@ -2055,7 +2105,8 @@ def sync_secrets_cmd(
     columns = ["Secret Name", "Source", "Status", "Details"]
     rows = [[it.name, it.source, it.status.upper(), it.message] for it in result.items]
     mode_text = "[yellow][DRY RUN][/yellow] " if result.dry_run else ""
-    print_table(f"{mode_text}Repository Secret Synchronization ({target_repo})", columns, rows)
+    title = _secret_sync_title(target_repo, environment, plan=False)
+    print_table(f"{mode_text}{title}", columns, rows)
 
     summary = (
         f"{mode_text}Synced: {len(result.synced_secrets)}, "

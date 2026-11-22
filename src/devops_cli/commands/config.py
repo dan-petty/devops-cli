@@ -18,7 +18,6 @@ from devops_cli.config.constants import (
     CONST_CONFIG_UNSET_COMMAND,
     CONST_GH_CLI,
     CONST_OUTPUT_FORMAT_TABLE,
-    CONST_SECRET_FILE_MAX_BYTES,
 )
 from devops_cli.config.defaults import (
     DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
@@ -42,6 +41,7 @@ from devops_cli.config.os_keyring import (
     remember_secret,
     require_persistent_keyring,
 )
+from devops_cli.config.secret_input import read_secret_input
 from devops_cli.config.settings import (
     _SECRET_FIELDS,
     Settings,
@@ -228,20 +228,6 @@ def _from_file_error(message: str) -> typer.BadParameter:
     return typer.BadParameter(message, param_hint="'--from-file'")
 
 
-def _read_to_end(source: BinaryIO, limit: int) -> bytes | None:
-    """Every byte up to the end of `source`, or None once more than `limit` bytes arrive.
-
-    The io contract lets one read of a terminal return less than it asks for before the end, so
-    the loop reads until a read returns nothing.
-    """
-    data = bytearray()
-    while chunk := source.read(limit + 1 - len(data)):
-        data += chunk
-        if len(data) > limit:
-            return None
-    return bytes(data)
-
-
 def _secret_from_file(key: str, value: str | None, source: BinaryIO) -> str:
     """The credential a file or stdin holds, as its UTF-8 text, with no line added or removed.
 
@@ -252,18 +238,10 @@ def _secret_from_file(key: str, value: str | None, source: BinaryIO) -> str:
         raise _from_file_error(MESSAGES.config.from_file_not_secret.format(key=key))
     if value is not None:
         raise _from_file_error(MESSAGES.config.from_file_and_value)
-    raw = _read_to_end(source, CONST_SECRET_FILE_MAX_BYTES)
-    if raw is None:
-        limit = CONST_SECRET_FILE_MAX_BYTES
-        raise _from_file_error(MESSAGES.config.from_file_oversize.format(limit=limit))
     try:
-        secret = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        # The decode error quotes the bytes it could not decode, and they are part of the secret.
-        raise _from_file_error(MESSAGES.config.from_file_not_text) from None
-    if not secret.strip():
-        raise _from_file_error(MESSAGES.config.from_file_empty)
-    return secret
+        return read_secret_input(source)
+    except ValueError as exc:
+        raise _from_file_error(str(exc)) from None
 
 
 def _refuse_a_second_source(
