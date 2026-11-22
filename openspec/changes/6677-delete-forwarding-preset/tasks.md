@@ -13,7 +13,7 @@ Kind: other (deletion). Reads: `.github/renovate/base.json`, the Renovate config
 
 Kind: other (documents). Reads: each file that names `renovate/base`. Changes: none.
 
-- [ ] 2.1 Make sure that no file outside the archived changes names the old path
-  - Verification: `$ ! git grep -n 'devops-cli//.github/renovate/base' -- . ':!openspec/changes/archive'` exits 0
-- [ ] 2.2 Make sure that the documents and the specs pass their checks
+- [x] 2.1 Make sure that no file outside the change folders names the old path
+  - Verification: `$ ! git grep -n 'devops-cli//.github/renovate/base' -- . ':!openspec/changes'` exits 0
+- [x] 2.2 Make sure that the documents and the specs pass their checks
   - Verification: `$ uv run devops ci --check --only docs,openspec` passes
