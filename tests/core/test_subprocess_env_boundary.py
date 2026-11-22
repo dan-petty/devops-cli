@@ -729,7 +729,7 @@ def test_a_git_child_gets_the_git_configuration_keys_of_the_environment_only_for
     the process runner gives them to a child of a person too, and adds no `-c` value: git reads
     the helper that the person configured (#6653). A process that acts as the GitHub App gives a
     child none of them: the runner and Service images set the helper in `/etc/gitconfig`, and
-    until #3700 a process that the shell of the agent starts could set them."""
+    the shell of the agent runs in its own container, which holds no App key (#3700)."""
     for key, value in _GIT_CONFIG_ENV.items():
         monkeypatch.setenv(key, value)
     if acts_as_app:

@@ -17,12 +17,12 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-import yaml
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_WATCH_LEDGER_FILENAME,
     CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
 )
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stores.store import (
     FixChecksRecordKey,
@@ -45,7 +45,7 @@ from tests.support.fakes.github import (
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import cronjob_template
 from tests.support.roadmap_run import NOW, REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "cluster")
@@ -241,8 +241,9 @@ def test_a_bot_pull_request_with_a_failed_test_check_gets_one_fix_job_and_no_git
     """A finished bot delivery PR, whose implement Job ended, with a failed `Tests & Coverage`:
     the row starts one fix-checks Job in mode `plan`, with no `--confirm`, and writes nothing to
     GitHub. The record of the ended Job holds nothing against the PR (#5027)."""
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+    cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [
+        cronjob_template(RUNNER_TEMPLATE)
+    ]
     issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
     held = store.item(issue)
     assert held is not None
@@ -290,8 +291,9 @@ def test_a_kubernetes_or_configuration_error_of_the_fix_round_does_not_fail_the_
     stop only the fix-checks round: the row logs and counts the error, writes its ledger and
     gives its result (#6018)."""
     if broken == "limits":
-        template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-        cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [template]
+        cluster.custom_objects.objects[("batch", "v1", "cronjobs")] = [
+            cronjob_template(RUNNER_TEMPLATE)
+        ]
         config(roadmap={"implement": {"step_time_limit_seconds": 13000}})
     issue = store.seed_issue("Issue 1", fields={ItemField.PRIORITY: "P1-High"})
     held = store.item(issue)

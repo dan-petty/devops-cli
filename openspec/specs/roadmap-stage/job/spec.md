@@ -14,7 +14,7 @@ The manifests SHALL hold a suspended CronJob `roadmap-stage` in namespace `devop
 
 #### Scenario: The digest of the runner image
 - **WHEN** `kubectl kustomize` renders `k8s/overlays/homelab/devops` with the kustomize image entry `ghcr.io/dan-petty/devops-cli/runner`, `newTag: latest` and a digest, as Image Updater writes it into Application `devops`.
-- **THEN** the container `stage` of CronJob `roadmap-stage` names that tag and digest, as the container of CronJob `devops-cli-runner` does.
+- **THEN** the container `stage` of CronJob `roadmap-stage` names that tag and digest, as each container of CronJob `devops-cli-runner` does.
 
 ### Requirement: The admission policy admits a stage Job of the Service with its own rules
 The policy `roadmap-service-jobs` SHALL check a Job of the Service whose name starts with `devops-cli-stage-` with the rules of a stage Job, and every other Job with the rules of a runner Job.

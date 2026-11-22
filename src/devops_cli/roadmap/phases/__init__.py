@@ -14,6 +14,6 @@ again, pushes with a lease and makes the GitHub writes of the outcome.
 - `publish.py`: each patch applied as data in a new repository, one commit of the bot for each,
   and the push. #6528 uses it for stage.
 
-`devops roadmap step fix-checks` is the first step on the phases. #3700 runs each phase in its own
-container; until then `--phase all` runs the three in one process.
+`devops roadmap step fix-checks` is the first step on the phases. The runner template runs each
+phase in its own container (#3700), and `--phase all` runs the three in one process.
 """

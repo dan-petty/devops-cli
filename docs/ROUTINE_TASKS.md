@@ -284,11 +284,12 @@ Executed on workspace initialization (DevContainer startup) or on-demand.
 - **Commands**:
   ```bash
   kubectl -n devops get jobs -l implement-repo
-  kubectl -n devops logs job/<name>
+  kubectl -n devops logs job/<name> --all-containers --prefix
+  kubectl -n devops logs -f job/<name> -c agent
   devops roadmap implement --repo <owner/name> --item <number> --dry-run
   devops roadmap implement --repo <owner/name> --item <number> --confirm
   ```
-  The last command makes the same Job by hand with the code of `devops k8s run-job --template runner <args>`, follows its log, and refuses a claimed item, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended.
+  A runner Job has the containers `prepare`, `agent` and `publish` (#3700), and `logs` with no `-c` reads only `publish`: name the phase with `-c`, or read each container with `--all-containers --prefix`. The last command makes the same Job by hand with the code of `devops k8s run-job --template runner <args>`, follows its log, and refuses a claimed item, an item that is neither Ready nor Planned, and a repository that has a runner Job that has not ended.
 
 ---
 

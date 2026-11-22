@@ -12,19 +12,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-import yaml
 
 from devops_cli.config.constants import CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES
 from devops_cli.exceptions.docker import RegistryReadError, RegistryTagNotFoundError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
+from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.release_feed import ReleaseInfo
 from devops_cli.roadmap.release_roll import RolledDigests, cluster_digests, live_release
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
-from tests.support.paths import REPO_ROOT
+from tests.support.job_templates import phase_cronjob_template
 
 PREFIX = "ghcr.io/dan-petty/devops-cli"
 SERVICE = {tag: "sha256:" + str(index) * 64 for index, tag in enumerate(("v1.0.0", "v1.1.0"), 1)}
@@ -44,9 +44,8 @@ def _registry() -> RegistryFake:
 
 
 def _roll(cluster: FakeCluster, service: str, runner: str) -> RolledDigests:
-    template = yaml.safe_load((REPO_ROOT / "k8s/devops/cronjob-runner.yaml").read_text("utf-8"))
-    pod = template["spec"]["jobTemplate"]["spec"]["template"]["spec"]
-    pod["containers"][0]["image"] = f"{PREFIX}/runner@{runner}"
+    # Image Updater sets the digest on each container of the template, its init containers too.
+    template = phase_cronjob_template(RUNNER_TEMPLATE, image=f"{PREFIX}/runner@{runner}")
     deployment: dict[str, Any] = {
         "metadata": {"name": "roadmap-service", "namespace": "devops"},
         "spec": {

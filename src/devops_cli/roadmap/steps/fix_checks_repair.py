@@ -7,7 +7,8 @@ The command `devops roadmap step fix-checks --confirm` gives the step `job_repai
   branch that the clone read. The App must have written every commit of the branch past main, and
   the branch must be at the judged head. The clone holds no credential: git gets the token of
   each call that reaches `origin` from its environment. The run folder of `--phase all` is in the
-  data folder, on the home volume of the Job, and goes when the round ends.
+  data folder and goes when the round ends. On the runner Job, the run folder is `/run/roadmap`
+  (volume `run`), and the clone is in its `work/` (#3700).
 - The rebase (`agent`, #6639): a branch that is behind the default branch is rebased onto the
   tip that `prepare` read, as implement rebases it (`rebase_onto`). A rebase that skipped the
   archive commit of the item archives the change again, in a commit of its own. A stop that no
@@ -145,8 +146,9 @@ def merged_workflows(repo: str, ref: str, item: int) -> tuple[str, ...]:
 
 
 def _runs() -> Path:
-    """The folder of the run folders of `--phase all`: in the data folder, on the home volume of
-    the Job, as the clone `model-clone` was before the phases (#6601)."""
+    """The folder of the run folders of `--phase all` only, in the data folder (#6601). On the
+    runner Job, the run folder is `/run/roadmap` (volume `run`), and the clone is in its `work/`
+    (#3700)."""
     folder = resolve_data_path(load_settings().data.dir) / CONST_ROADMAP_FIX_CHECKS_RUNS_DIR
     folder.mkdir(parents=True, exist_ok=True)
     return folder

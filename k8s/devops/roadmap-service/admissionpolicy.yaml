@@ -17,9 +17,15 @@
 # the stack select pods by that label: a Job pod with the label of the Service would take its
 # egress to the API server. A runner Job runs its pod once, and no Job has a `command`,
 # `imagePullSecrets`, a `priorityClassName` or a `nodeName`.
-# The CPU and the memory request of the container are a row of the size table of the Service
+# A runner Job runs the step as three containers, one after the other (#3700, ADR 0030): the init
+# containers `prepare` and `agent` and the container `publish`. Only `prepare` and `publish` read
+# the App key, only `agent` reads the model key, `agent` mounts neither the state folder nor a
+# home of the other two, and `publish` mounts the run folder read only. No container restarts in
+# the pod, and the pod shares no process namespace. An UPDATE admits the one container of the
+# template before #3700, because the Service patches the deadline of a Job that runs.
+# The CPU and the memory request of `agent` are a row of the size table of the Service
 # (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193); a gate check holds the two
-# equal. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
+# equal. `prepare` and `publish` have one small fixed row. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
 # raises it.
 # Not pinned: the tag or digest of the image, the args and the plain `env` values of a runner Job
 # but its worker count, the values of the plain `env` of a stage Job but its token repository, the
@@ -32,6 +38,10 @@ metadata:
   labels:
     app.kubernetes.io/name: roadmap-service
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    # Argo CD applies the policy and its binding before CronJob devops-cli-runner (wave 0), so the
+    # cluster admits a Job of the three containers before the Service makes one (#3700).
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   # The policy runs in the API server, not behind a webhook, so no outage can block a request.
   # `Fail` matters when an expression errors: the Service's Job is then refused, in the open.
@@ -57,17 +67,87 @@ spec:
         has(object.spec.template.metadata) && has(object.spec.template.metadata.labels) &&
         "app.kubernetes.io/name" in object.spec.template.metadata.labels &&
         object.spec.template.metadata.labels["app.kubernetes.io/name"] == "devops-cli-planner-run"
+    # The containers of the pod in the order that they run: the init containers, then the
+    # containers. Each rule of a container reads this list, so an init container meets each rule.
+    - name: containers
+      expression: >-
+        has(object.spec.template.spec.initContainers) ?
+        object.spec.template.spec.initContainers + object.spec.template.spec.containers :
+        object.spec.template.spec.containers
+    # A runner Job of the three containers (#3700).
+    - name: phases
+      expression: >-
+        !variables.stage && !variables.planner &&
+        has(object.spec.template.spec.initContainers) &&
+        size(object.spec.template.spec.initContainers) > 0
   validations:
     - expression: >-
-        size(object.spec.template.spec.containers) == 1 &&
+        (size(object.spec.template.spec.containers) == 1 &&
         (!has(object.spec.template.spec.initContainers) ||
-        size(object.spec.template.spec.initContainers) == 0)
-      message: The Job must have one container and no init container.
+        size(object.spec.template.spec.initContainers) == 0) &&
+        (variables.stage || variables.planner || request.operation == "UPDATE")) ||
+        (!variables.stage && !variables.planner &&
+        has(object.spec.template.spec.initContainers) &&
+        object.spec.template.spec.initContainers.map(c, c.name) == ["prepare", "agent"] &&
+        object.spec.template.spec.containers.map(c, c.name) == ["publish"])
+      message: A stage Job and a planner run Job must have one container and no init container. A runner Job must have the init containers prepare and agent and the container publish, and only an UPDATE may keep the one container of the template before issue 3700.
+      reason: Forbidden
+    # A container that restarts runs at the same time as another one (a native sidecar), or runs
+    # `publish` again, which pushes and comments twice.
+    - expression: >-
+        variables.containers.all(c, !has(c.restartPolicy) && !has(c.restartPolicyRules))
+      message: A container must not set restartPolicy or restartPolicyRules, an init container included.
+      reason: Forbidden
+    - expression: >-
+        !has(object.spec.template.spec.shareProcessNamespace) ||
+        !object.spec.template.spec.shareProcessNamespace
+      message: The pod must not set shareProcessNamespace, so that no container sees the processes of another.
+      reason: Forbidden
+    # Each container runs its own phase on the run folder that the volumes hold (`build_job`):
+    # `publish --work /run/roadmap/work` would read a state folder that `agent` writes, and
+    # `prepare --phase all` would run the agent next to the App key. Standard CEL has no slice, so
+    # the rule reads the last four args by index.
+    - expression: >-
+        !variables.phases || variables.containers.all(c,
+        !(c.name in ["prepare", "agent", "publish"]) || has(c.args) && size(c.args) >= 4 &&
+        c.args[size(c.args) - 4] == "--phase" && c.args[size(c.args) - 3] == c.name &&
+        c.args[size(c.args) - 2] == "--work" && c.args[size(c.args) - 1] == "/run/roadmap" &&
+        size(c.args.filter(a, a == "--phase" || a.startsWith("--phase="))) == 1 &&
+        size(c.args.filter(a, a == "--work" || a.startsWith("--work="))) == 1)
+      message: On the three containers, the args of each container must end with --phase and its name and --work /run/roadmap, with no other --phase or --work.
+      reason: Forbidden
+    # A pod that restarts a container runs `publish` again, or runs `prepare` again on a run
+    # folder that `agent` wrote.
+    - expression: >-
+        !variables.phases || (has(object.spec.template.spec.restartPolicy) &&
+        object.spec.template.spec.restartPolicy == "Never")
+      message: The pod of a runner Job on the three containers must set restartPolicy Never.
+      reason: Forbidden
+    - expression: >-
+        !variables.phases || variables.containers.all(c, !has(c.lifecycle) &&
+        !has(c.livenessProbe) && !has(c.readinessProbe) && !has(c.startupProbe) &&
+        !has(c.workingDir))
+      message: A container of a runner Job on the three containers must not set lifecycle, livenessProbe, readinessProbe, startupProbe or workingDir, because each runs a program or changes the folder of the phase.
+      reason: Forbidden
+    # A plain value can make a program load code or read a file of the run folder, such as
+    # PYTHONPATH, LD_PRELOAD, GIT_CONFIG_GLOBAL or HOME. So each container sets only the plain values
+    # of the template and of the Service (`RunnerUnit.env`), and the configuration and the data
+    # folder keep the paths of the template.
+    - expression: >-
+        !variables.phases || variables.containers.all(c, !has(c.env) || c.env.all(e,
+        has(e.valueFrom) || (e.name in ["DEVOPS_CLI_CONFIG", "DEVOPS_CLI_DATA_DIR",
+        "DEVOPS_CLI_ROADMAP_IMPLEMENT_IN_RUNNER", "OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES",
+        "K8S_CONTEXT", "POD_NAMESPACE", "DO_NOT_TRACK", "PYTEST_XDIST_AUTO_NUM_WORKERS",
+        "OPENSPEC_TELEMETRY", "OPENSPEC_NO_UPDATE_CHECK", "PYDANTIC_AI_NO_BANNER",
+        "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"] &&
+        (e.name != "DEVOPS_CLI_CONFIG" || (has(e.value) && e.value == "/config/devops-cli.yaml")) &&
+        (e.name != "DEVOPS_CLI_DATA_DIR" || (has(e.value) && e.value == "/home/devops/.data")))))
+      message: A container of a runner Job on the three containers sets only the plain env values of the template and of the Service, with DEVOPS_CLI_CONFIG at /config/devops-cli.yaml and DEVOPS_CLI_DATA_DIR at /home/devops/.data.
       reason: Forbidden
     # Every Job of the Service runs the runner image (#6417). The repository alone, or followed by
     # a tag or a digest: a bare prefix would admit `runner-evil`.
     - expression: >-
-        object.spec.template.spec.containers.all(c,
+        variables.containers.all(c,
         c.image == "ghcr.io/dan-petty/devops-cli/runner" ||
         c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner:") ||
         c.image.startsWith("ghcr.io/dan-petty/devops-cli/runner@"))
@@ -89,7 +169,7 @@ spec:
     # Job keeps its pod template, so an UPDATE cannot add envFrom: the policy admits envFrom of
     # Secret devops-cli in an UPDATE of a runner Job and nowhere else.
     - expression: >-
-        object.spec.template.spec.containers.all(c, !has(c.envFrom) ||
+        variables.containers.all(c, !has(c.envFrom) ||
         (request.operation == "UPDATE" && !variables.stage && !variables.planner &&
         c.envFrom.all(e, has(e.secretRef) && !has(e.configMapRef) &&
         e.secretRef.name == "devops-cli")))
@@ -97,17 +177,20 @@ spec:
       reason: Forbidden
     # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job and a
     # runner Job (#6518) read the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the
-    # variable of its name. A planner run Job reads no key.
+    # variable of its name. On the three containers, only `agent` reads the model key, and only
+    # `prepare` and `publish` read the App key (#3700). A planner run Job reads no key.
     - expression: >-
-        object.spec.template.spec.containers.all(c, !has(c.env) ||
+        variables.containers.all(c, !has(c.env) ||
         c.env.all(e, !has(e.valueFrom) || (!variables.planner &&
         has(e.valueFrom.secretKeyRef) && !has(e.valueFrom.fieldRef) &&
         !has(e.valueFrom.configMapKeyRef) && !has(e.valueFrom.resourceFieldRef) &&
         e.valueFrom.secretKeyRef.name == "devops-cli" &&
         e.valueFrom.secretKeyRef.key in ["DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
         "DEVOPS_CLI_AI_API_KEY"] &&
-        e.name == e.valueFrom.secretKeyRef.key)))
-      message: An env entry must not use valueFrom, but a runner Job and a stage Job read the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name.
+        e.name == e.valueFrom.secretKeyRef.key &&
+        (!variables.phases || (c.name == "agent") ==
+        (e.valueFrom.secretKeyRef.key == "DEVOPS_CLI_AI_API_KEY")))))
+      message: An env entry must not use valueFrom, but a runner Job and a stage Job read the keys DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY and DEVOPS_CLI_AI_API_KEY of Secret devops-cli, each in the variable of its name. On the three containers, only agent reads DEVOPS_CLI_AI_API_KEY, and only prepare and publish read DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY.
       reason: Forbidden
     # A stage Job of the Service runs the stage job of one item and nothing else, with the keys of
     # the Secret. `devops k8s run-job` of a person is not evaluated, so this rule does not limit it.
@@ -139,13 +222,35 @@ spec:
         object.spec.template.spec.volumes.all(v,
         ((v.name == "tmp" || v.name == "home") && has(v.emptyDir) &&
         (!variables.planner || has(v.emptyDir.sizeLimit))) ||
+        (!variables.stage && !variables.planner &&
+        v.name in ["run", "state", "prepare-tmp", "prepare-home", "agent-tmp", "agent-home",
+        "publish-tmp", "publish-home"] && has(v.emptyDir)) ||
         (v.name == "config" && has(v.configMap) &&
         ((!variables.planner && v.configMap.name == "devops-cli-config") ||
         (variables.planner && v.configMap.name == "devops-cli-config-sandbox"))) ||
         (variables.planner && v.name == "repo" && has(v.persistentVolumeClaim) &&
         v.persistentVolumeClaim.claimName == "roadmap-service-home" &&
         has(v.persistentVolumeClaim.readOnly) && v.persistentVolumeClaim.readOnly))
-      message: The pod may have only the volumes tmp and home (emptyDir), config (ConfigMap devops-cli-config, or devops-cli-config-sandbox for a planner run Job) and, for a planner run Job, repo (claim roadmap-service-home, read only).
+      message: The pod may have only the volumes tmp and home (emptyDir), for a runner Job also run, state and the tmp and the home of each of its three containers (emptyDir), config (ConfigMap devops-cli-config, or devops-cli-config-sandbox for a planner run Job) and, for a planner run Job, repo (claim roadmap-service-home, read only).
+      reason: Forbidden
+    # Each container of the three mounts only its own volumes at their fixed paths (#3700):
+    # `prepare` writes the run folder and the state, `agent` writes the run folder and reads no
+    # state, and `publish` reads both. The tmp and the home of a container are its own, so no
+    # writable volume of `agent` reaches `publish`. The rule of the layout refuses any other container.
+    - expression: >-
+        !variables.phases || variables.containers.all(c,
+        !(c.name in ["prepare", "agent", "publish"]) || has(c.volumeMounts) &&
+        c.volumeMounts.all(m, !has(m.subPath) && !has(m.subPathExpr) &&
+        ((m.name == "run" && m.mountPath == "/run/roadmap" &&
+        (c.name != "publish" || (has(m.readOnly) && m.readOnly))) ||
+        (m.name == "state" && m.mountPath == "/run/roadmap/state" && c.name != "agent" &&
+        (c.name != "publish" || (has(m.readOnly) && m.readOnly))) ||
+        (m.name == c.name + "-tmp" && m.mountPath == "/tmp") ||
+        (m.name == c.name + "-home" && m.mountPath == "/home/devops") ||
+        (m.name == "config" && m.mountPath == "/config" && has(m.readOnly) && m.readOnly))) &&
+        c.volumeMounts.exists(m, m.name == "run") &&
+        (c.name == "agent" || c.volumeMounts.exists(m, m.name == "state")))
+      message: Each container of a runner Job mounts only run at /run/roadmap, state at /run/roadmap/state, its own tmp at /tmp and home at /home/devops, and config at /config read only, with no subPath. Each mounts run, agent mounts no state, prepare and publish mount state, and publish mounts run and state read only.
       reason: Forbidden
     - expression: >-
         (!has(object.spec.template.spec.hostNetwork) || !object.spec.template.spec.hostNetwork) &&
@@ -183,7 +288,7 @@ spec:
       message: The pod must not set imagePullSecrets.
       reason: Forbidden
     # The image sets the entrypoint. The Service sets only `args`.
-    - expression: object.spec.template.spec.containers.all(c, !has(c.command))
+    - expression: variables.containers.all(c, !has(c.command))
       message: The container must not set command.
       reason: Forbidden
     - expression: >-
@@ -261,10 +366,11 @@ spec:
       reason: Forbidden
     # The rows of `RUNNER_SIZES`: CPU 1 with 2Gi, and CPU 4 with 6Gi. The CPU request equals the
     # CPU limit, and the worker count of the test runner equals the CPU limit, because
-    # `pytest-xdist` counts the CPUs of the node and not of the pod (#2806). A stage Job has the
-    # size of cronjob-stage.yaml.
+    # `pytest-xdist` counts the CPUs of the node and not of the pod (#2806). On the three
+    # containers the row is of `agent`, and `prepare` and `publish` have the small fixed row of
+    # the template. A stage Job has the size of cronjob-stage.yaml.
     - expression: >-
-        object.spec.template.spec.containers.all(c, has(c.resources) &&
+        variables.containers.all(c, has(c.resources) &&
         has(c.resources.requests) && has(c.resources.limits) &&
         has(c.resources.requests.cpu) && has(c.resources.requests.memory) &&
         has(c.resources.limits.cpu) && has(c.resources.limits.memory) &&
@@ -274,12 +380,15 @@ spec:
         (variables.planner ?
         (c.resources.requests.cpu == "1" && c.resources.limits.cpu == "1" &&
         c.resources.requests.memory == "2Gi" && c.resources.limits.memory == "2Gi") :
+        (variables.phases && c.name != "agent") ?
+        (c.resources.requests.cpu == "250m" && c.resources.requests.memory == "512Mi" &&
+        c.resources.limits.cpu == "1" && c.resources.limits.memory == "2Gi") :
         (c.resources.requests.cpu == c.resources.limits.cpu &&
         ((c.resources.limits.cpu == "1" && c.resources.requests.memory == "2Gi") ||
         (c.resources.limits.cpu == "4" && c.resources.requests.memory == "6Gi")) &&
         has(c.env) && c.env.exists(e, e.name == "PYTEST_XDIST_AUTO_NUM_WORKERS" &&
         has(e.value) && e.value == c.resources.limits.cpu)))))
-      message: The CPU and the memory request of a runner Job must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size, and a planner run Job requests and limits 1 CPU and 2Gi.
+      message: The CPU and the memory request of a runner Job, of agent on the three containers, must be a row of the size table (1 CPU with 2Gi, or 4 CPU with 6Gi), the CPU request must equal the CPU limit, the memory limit must be set, and PYTEST_XDIST_AUTO_NUM_WORKERS must equal the CPU limit. prepare and publish request 250m CPU and 512Mi with limits of 1 CPU and 2Gi. A stage Job requests 250m CPU and 1Gi with limits of 1 CPU and 2Gi, the stage size, and a planner run Job requests and limits 1 CPU and 2Gi.
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -289,6 +398,8 @@ metadata:
   labels:
     app.kubernetes.io/name: roadmap-service
     app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   policyName: roadmap-service-jobs
   # `Audit` writes each refusal to the audit log of the API server.

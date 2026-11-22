@@ -18,8 +18,9 @@ does, in a new repository of its own, and reads each patch as data:
 4. `git push --force-with-lease` pushes `HEAD` to the branch with a lease on the old tip, or, with
    an empty lease, only when the branch does not exist.
 
-Until #3700 runs the agent in its own container, the home folder is shared with the agent: each
-git call reads no global or system configuration, and gets its credential helper from `-c` values.
+On the three containers of the runner Job (#3700), `publish` has a home of its own, which the
+agent cannot write. Each git call still reads no global or system configuration, and gets its
+credential helper from `-c` values.
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ class _Change:
 
 def git_call(repo: Path, *args: str, config: Sequence[str] = (), home: Path | None = None) -> str:
     """The output of `git <args>` in `repo`, with no global or system configuration and the
-    credential helper of `gh` (#3702). `prepare` and `publish` use it until #3700. With `home`,
+    credential helper of `gh` (#3702). `prepare` and `publish` use it. With `home`,
     git reads no other file of the home folder either, as `.config/git/attributes` and `.netrc`:
     `publish` gives its own new folder (#6655). The helper gets the token from the environment."""
     values = [part for value in (*_CREDENTIAL, *config) for part in ("-c", value)]

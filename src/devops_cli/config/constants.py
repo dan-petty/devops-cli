@@ -3894,9 +3894,9 @@ CONST_ROADMAP_PHASE_SUMMARY_FILE: Final[str] = "summary.json"
 CONST_ROADMAP_PHASE_OUTCOME_FILE: Final[str] = "outcome.json"
 # The most bytes that `publish` reads of the patch and of each JSON output of the agent phase.
 CONST_ROADMAP_PHASE_PATCH_MAX_BYTES: Final[int] = 16 * 1024 * 1024
-# The folder of the data folder that holds the run folders of `fix-checks --phase all`: the home
-# volume of the Job (#6601). It holds the clone, 176 MB for devops-cli measured on 2026-11-21. The
-# fetch of publish goes to `/tmp` (#6743).
+# The folder of the data folder that holds the run folders of `fix-checks --phase all` only
+# (#6601). On the runner Job of the three containers, the run folder is `/run/roadmap` (volume
+# `run`), and the clone is in its `work/` (#3700). The fetch of publish goes to `/tmp` (#6743).
 CONST_ROADMAP_FIX_CHECKS_RUNS_DIR: Final[str] = "roadmap/fix-checks-runs"
 # The folder of the data folder that holds the run folders of `implement --phase all` (#3702).
 CONST_ROADMAP_IMPLEMENT_RUNS_DIR: Final[str] = "roadmap/implement-runs"

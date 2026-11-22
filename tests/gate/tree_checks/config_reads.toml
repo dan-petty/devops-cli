@@ -53,13 +53,11 @@
 "tests/roadmap/stage/test_roadmap_stage_job.py" = 5
 "tests/roadmap/stage/test_roadmap_stage_submit.py" = 27
 "tests/roadmap/test_roadmap_fix_checks_row.py" = 1
-"tests/roadmap/test_roadmap_release_roll.py" = 10
 "tests/roadmap/test_roadmap_run_intake_row.py" = 4
 "tests/roadmap/test_roadmap_run_job.py" = 4
 "tests/roadmap/test_roadmap_run_job_rows.py" = 2
 "tests/roadmap/test_roadmap_runner_tools.py" = 4
 "tests/roadmap/test_roadmap_status_round.py" = 2
-"tests/roadmap/test_roadmap_watch_row.py" = 2
 "tests/security/test_tf_azure_aks_security.py" = 3
 "tests/server/routes/test_k8s_roadmap_service.py" = 5
 "tests/server/test_service_log_trace_ids.py" = 1
