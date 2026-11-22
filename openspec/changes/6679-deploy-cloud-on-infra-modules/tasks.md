@@ -12,10 +12,10 @@ Adds: `CONST_TF_EXAMPLES_DIR`, `MESSAGES.tf.deploy_cloud_dir_not_found`
 
 ## 2. Delete the copy of the infra examples
 
-Kind: other. Reads: `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_roadmap_step_rules.py`, `AGENTS.md`. Changes: `tf/`, `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_roadmap_step_rules.py`, `AGENTS.md`.
+Kind: other. Reads: `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_roadmap_step_rules.py`, `AGENTS.md`, `tests/research/test_inventory_repository.py`. Changes: `tf/`, `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_roadmap_step_rules.py`, `AGENTS.md`, `tests/security/test_tf_azure_aks_security.py`, `tests/research/test_inventory_repository.py`, `tests/gate/tree_checks/config_reads.toml`, `tests/module_durations.json`.
 
-- [ ] 2.1 Delete `tf/aws`, `tf/azure`, `tf/gcp`, `tf/environments` and `tf/README.md`. Delete the `tf/**` route of `src/devops_cli/roadmap/step_rules.py`, rename the row of the two `k8s/**` routes and of AGENTS.md to "change a manifest or the cluster", and delete the `tf` link of that row. Change `test_a_route_without_sections_gives_the_start_of_its_document_cut_to_the_cap` to build its route and a document over the cap in a temporary checkout
-  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_step_rules.py tests/invariants/test_agents_md.py tests/roadmap/implement/test_roadmap_implement_step_rules.py` passes, and `$ test -z "$(git ls-files tf)"` exits 0
+- [x] 2.1 Delete `tf/aws`, `tf/azure`, `tf/gcp`, `tf/environments` and `tf/README.md`. Delete the `tf/**` route of `src/devops_cli/roadmap/step_rules.py`, rename the row of the two `k8s/**` routes and of AGENTS.md to "change a manifest or the cluster", and delete the `tf` link of that row. Change `test_a_route_without_sections_gives_the_start_of_its_document_cut_to_the_cap` to build its route and a document over the cap in a temporary checkout. Delete `tests/security/test_tf_azure_aks_security.py`, which reads `tf/azure`, and its lines in `tests/gate/tree_checks/config_reads.toml` and `tests/module_durations.json`: the module `azure-aks` of infra keeps the authorized ranges with no default and a validation. `test_the_repository_has_at_least_one_pin_of_each_kind` leaves out the Terraform provider kind, because the repository holds no OpenTofu configuration, and the fixture repository of `tests/research/test_inventory.py` still holds a provider pin
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_step_rules.py tests/invariants/test_agents_md.py tests/roadmap/implement/test_roadmap_implement_step_rules.py tests/research` passes, and `$ test -z "$(git ls-files tf)"` exits 0
 
 ## 3. Point the documents to the infra examples
 

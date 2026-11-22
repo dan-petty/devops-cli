@@ -36,6 +36,6 @@
 | run a routine task or audit | [routines](docs/ROUTINE_TASKS.md) |
 | use a project term or a decision record | [terms](CONTEXT.md), [ADRs](docs/adr/) |
 | run a review or work on verdicts | [reviews](docs/SELF_IMPROVEMENT.md) |
-| change a manifest, the cluster or OpenTofu | [k8s](k8s/README.md), [cluster](docs/CLUSTER.md), [tf](tf/README.md) |
+| change a manifest or the cluster | [k8s](k8s/README.md), [cluster](docs/CLUSTER.md) |
 | design or change a service or workload | [service patterns](docs/SERVICE_PATTERNS.md) |
 | learn a subsystem, library or tool | [knowledge base](src/devops_cli/ai/knowledge_base/README.md) |

@@ -1241,7 +1241,6 @@
   "tests/security/test_semgrep_registry.py": 8.6,
   "tests/security/test_suppression_policy.py": 0.3,
   "tests/security/test_suppression_properties.py": 1.0,
-  "tests/security/test_tf_azure_aks_security.py": 0.0,
   "tests/security/test_tflint.py": 0.3,
   "tests/security/test_tool_databases.py": 0.1,
   "tests/security/test_trivy_config_ignore.py": 0.0,
