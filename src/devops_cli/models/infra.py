@@ -199,8 +199,8 @@ class HostPlan(BaseModel):
     )
     disruptive: tuple[str, ...] = Field(
         default=(),
-        description="The disruptive classes of the changes: reboot, service-restart:<unit> and "
-        "drain, in run order",
+        description="The disruptive classes of the changes: reboot, service-restart:<unit>, "
+        "service-restart-nodrain:<unit> and drain, in run order",
     )
     unchecked: tuple[PlanTask, ...] = Field(
         default=(),
@@ -269,6 +269,9 @@ class ApplyStep(StrEnum):
     # before the node is cordoned.
     DRAIN_CHECK = "drain check"
     DRAIN = "drain"
+    # The step that takes the place of the drain check and the drain of a host that a no-drain
+    # restart changes: the node takes no new pod while the unit restarts, and no pod is evicted.
+    CORDON = "cordon"
     FRESH_CHECK = "fresh check"
     RUN = "run"
     READY = "ready"

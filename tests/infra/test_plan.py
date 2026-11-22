@@ -40,9 +40,12 @@ _CHECK_WHEN = "ansible/playbooks/check_when.yaml"
 
 
 def _hosts(
-    run: str, project: Path, units: dict[str, frozenset[str]] | None = None
+    run: str,
+    project: Path,
+    units: dict[str, frozenset[str]] | None = None,
+    nodrain: dict[str, frozenset[str]] | None = None,
 ) -> dict[str, HostPlan]:
-    plans = host_plans(recorded_events(run, project), project, units or {})
+    plans = host_plans(recorded_events(run, project), project, units or {}, nodrain or {})
     return {plan.host: plan for plan in plans}
 
 
@@ -276,6 +279,66 @@ def test_a_templated_list_of_nondisruptive_units_is_not_read(tmp_path: Path) -> 
     )
 
     assert nondisruptive_units(parse_inventory(listing)) == {}
+
+
+def test_a_unit_that_the_host_lists_for_a_nodrain_restart_gets_the_nodrain_class(
+    tmp_path: Path,
+) -> None:
+    """A restart of a unit of `devops_infra_restart_nodrain_units` needs a cordon and no drain, so
+    the plan gives it its own class (#6338)."""
+    from devops_cli.infra.plan import nodrain_units
+
+    listing = recorded_read("inventory", tmp_path)
+    listing["_meta"]["hostvars"]["node-3.example.com"]["devops_infra_restart_nodrain_units"] = [
+        "k3s-agent"
+    ]
+    nodrain = nodrain_units(parse_inventory(listing))
+
+    node = _hosts("agent", tmp_path, nodrain=nodrain)["node-3.example.com"]
+
+    assert nodrain == {"node-3.example.com": frozenset({"k3s-agent"})}
+    assert (len(node.changed), node.disruptive) == (
+        2,
+        ("service-restart-nodrain:k3s-agent",),
+    )
+
+
+def test_a_templated_nodrain_list_lists_no_unit(tmp_path: Path) -> None:
+    """Only Ansible renders a template, so a templated no-drain list lists no unit and every
+    restart stays disruptive."""
+    from devops_cli.infra.plan import nodrain_units
+
+    listing = recorded_read("inventory", tmp_path)
+    listing["_meta"]["hostvars"]["node-3.example.com"]["devops_infra_restart_nodrain_units"] = (
+        "{{ units }}"
+    )
+
+    assert nodrain_units(parse_inventory(listing)) == {}
+    assert _hosts("agent", tmp_path)["node-3.example.com"].disruptive == (
+        "service-restart:k3s-agent",
+    )
+
+
+@pytest.mark.parametrize(
+    ("disruptive", "skips"),
+    [
+        pytest.param((), False, id="no-class"),
+        pytest.param(("service-restart-nodrain:k3s",), True, id="one-nodrain"),
+        pytest.param(
+            ("service-restart-nodrain:k3s", "service-restart-nodrain:k3s-agent"),
+            True,
+            id="two-nodrain",
+        ),
+        pytest.param(("service-restart:k3s",), False, id="drain"),
+        pytest.param(("service-restart-nodrain:k3s", "reboot"), False, id="nodrain-and-reboot"),
+    ],
+)
+def test_a_host_skips_the_drain_only_when_each_of_its_classes_is_a_nodrain_restart(
+    disruptive: tuple[str, ...], skips: bool
+) -> None:
+    from devops_cli.infra.plan import skips_drain
+
+    assert skips_drain(disruptive) is skips
 
 
 def _event(action: str, res: dict[str, Any]) -> dict[str, Any]:

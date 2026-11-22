@@ -11,6 +11,7 @@ import pytest
 
 from devops_cli.exceptions.infra import InfraApplyRefusedError
 from devops_cli.github.repo_ref import RepoRef
+from devops_cli.infra import apply
 from devops_cli.infra.access import AgentAccess, apply_level
 from devops_cli.infra.apply import (
     ApplyRequest,
@@ -21,6 +22,7 @@ from devops_cli.infra.apply import (
 from devops_cli.infra.plan import host_plans
 from devops_cli.models.infra import ChangedTask, HostPlan, PlanTask
 from tests.support.infra import recorded_events
+from tests.support.paths import REPO_ROOT
 
 
 def _hosts(tmp_path: Path) -> dict[str, HostPlan]:
@@ -77,3 +79,14 @@ def test_a_task_that_check_mode_skipped_may_change_in_the_run(tmp_path: Path) ->
 def test_an_id_that_is_not_a_plan_id_is_refused_before_a_read(given: str) -> None:
     with pytest.raises(InfraApplyRefusedError, match="is not a plan id"):
         read_plan(RepoRef("example-org/infra"), ApplyRequest(plan_id=given, playbook="site.yaml"))
+
+
+def test_the_apply_module_text_names_the_nodrain_class() -> None:
+    docstring = " ".join((apply.__doc__ or "").split())
+    context = (REPO_ROOT / "CONTEXT.md").read_text(encoding="utf-8")
+    security = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+
+    assert "service-restart-nodrain" in docstring
+    assert "skips the drain check and the drain" in docstring
+    assert "service-restart-nodrain" in context
+    assert "service-restart-nodrain" in security

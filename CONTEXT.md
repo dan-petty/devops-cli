@@ -270,7 +270,7 @@ The record of one check-mode run of a playbook of an infra repo at one commit: f
 _Avoid_: dry run (a dry run makes no request), preview, check run
 
 **Disruptive class**:
-A change that takes a host out of service for a time, as the job events of a plan show it: `reboot`, `service-restart:<unit>` (a restart, reload or stop of a unit that `devops_infra_nondisruptive_units` does not list) or `drain`.
+A change that takes a host out of service for a time, as the job events of a plan show it: `reboot`, `service-restart:<unit>` (a restart, reload or stop of a unit that `devops_infra_nondisruptive_units` does not list), `service-restart-nodrain:<unit>` (a restart of a unit that `devops_infra_restart_nodrain_units` lists, which keeps its containers, so the apply cordons the node and runs neither the drain check nor the drain) or `drain`.
 _Avoid_: risky change, outage
 
 **Unchecked task**:
@@ -278,11 +278,11 @@ A task that check mode skipped, such as a `command` with no `creates` or `remove
 _Avoid_: skipped task
 
 **Infra apply**:
-The run of a saved infra plan on the hosts of an infra repo with `devops infra apply`, at the commit of the plan. The hosts with no disruptive class run together. Each disruptive host runs alone in plan order: drain check, drain, fresh check, run, Ready, the health of the nodes, uncordon only when the node was schedulable before, and the critical alerts. The first failure stops it. Each apply writes one audit record, `infra.apply`.
+The run of a saved infra plan on the hosts of an infra repo with `devops infra apply`, at the commit of the plan. The hosts with no disruptive class run together. Each disruptive host runs alone in plan order: drain check, drain, fresh check, run, Ready, the health of the nodes, uncordon only when the node was schedulable before, and the critical alerts. A host whose disruptive classes are all of the class `service-restart-nodrain:<unit>` is cordoned instead: it runs the fresh check, the run, the Ready wait, the health of the nodes, the uncordon and the alerts, and skips the drain check and the drain. The first failure stops it. Each apply writes one audit record, `infra.apply`.
 _Avoid_: deploy, rollout, make target
 
 **Fresh check**:
-The check-mode run of one disruptive host after its drain and before its run in an infra apply. It must show the plan of the host again, else the apply stops before the host changes.
+The check-mode run of one disruptive host after its drain or its cordon and before its run in an infra apply. It must show the plan of the host again, else the apply stops before the host changes.
 _Avoid_: re-plan, second plan
 
 **Drain check**:

@@ -503,6 +503,6 @@ def test_infra_help_gives_the_node_group_its_help(cli: Callable[..., Any]) -> No
     result = cli("infra", "--help")
 
     assert result.exit_code == 0, result.output
-    rows = [line for line in result.output.splitlines() if line.lstrip("│ ").startswith("node ")]
-    assert rows, result.output
+    rows = [line for line in result.output.splitlines() if line.startswith("│ node ")]
+    assert len(rows) == 1, result.output
     assert "Drain, uncordon" in rows[0], rows[0]

@@ -17,6 +17,8 @@ process runner with a request bound below its process bound:
   claim whose PersistentVolume only the node can mount (`kubectl get pvc` and `kubectl get pv`,
   node affinity on `kubernetes.io/hostname`). They cannot start on another node, so they are down
   until the node is uncordoned. The apply names them; it does not stop for them.
+- **Cordon**: `kubectl cordon <node>`. The node takes no new pod while a unit restarts, and no pod
+  is evicted: a k3s restart stops only the k3s process, so it keeps the containers.
 - **Uncordon**: `kubectl uncordon <node>`.
 - **A new boot**: after a reboot, the wait for Ready also needs a boot ID (`nodeInfo.bootID`) other
   than the one of before, so it does not pass on the status that the node posted before the reboot.
@@ -204,6 +206,11 @@ def grace_period(item: Mapping[str, Any]) -> int:
     return int(value) if value is not None else _DEFAULT_GRACE_SECONDS
 
 
+def cordon_args(node: str) -> tuple[str, ...]:
+    """Stop the scheduler from putting new pods on `node`, which keeps the pods that it runs."""
+    return ("cordon", node)
+
+
 def uncordon_args(node: str) -> tuple[str, ...]:
     """Let the scheduler put new pods on `node` again."""
     return ("uncordon", node)
@@ -378,6 +385,11 @@ class Cluster:
         args = drain_args(node, bound, server_dry_run=False, force=force)
         return self._kubectl(args, bound + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
+    def cordon(self, node: str) -> str | None:
+        """Cordon `node`, so the scheduler puts no new pod on it while a unit restarts and the pods
+        that it runs stay; the problem when the cordon does not finish."""
+        return self._kubectl(cordon_args(node), DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS).problem
+
     def uncordon(self, node: str) -> list[str]:
         """Uncordon `node`, and try again through a gap of the API server until the wait for a
         node ends; the last problem when it does not finish."""
@@ -492,6 +504,7 @@ __all__ = [
     "Read",
     "alert_node",
     "boot_id",
+    "cordon_args",
     "critical_alerts",
     "drain_args",
     "get_node_args",

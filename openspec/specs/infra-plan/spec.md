@@ -69,15 +69,23 @@ A change SHALL have its diff hidden when its result holds an empty diff (`diff: 
 - **THEN** node-5 has one change, and the `command` and the loop are unchecked, but the last `command` is not
 
 ### Requirement: The disruptive classes
-A changed `ansible.builtin.reboot` SHALL be `reboot`. A changed `kubernetes.core.k8s_drain` with the state `drain` SHALL be `drain`. A changed `systemd`, `systemd_service` or `service` task with the state `restarted`, `reloaded` or `stopped` SHALL be `service-restart:<unit>`, unless the host variable `devops_infra_nondisruptive_units` lists the unit. A service result with no arguments SHALL be disruptive, and a templated list of units SHALL list no unit.
+A changed `ansible.builtin.reboot` SHALL be `reboot`. A changed `kubernetes.core.k8s_drain` that drains SHALL be `drain`. A changed `systemd`, `systemd_service` or `service` task that restarts, reloads or stops SHALL be `service-restart:<unit>`, `service-restart-nodrain:<unit>` when `devops_infra_restart_nodrain_units` lists the unit, and none when `devops_infra_nondisruptive_units` lists it. A service result with no arguments SHALL be disruptive, and a templated list SHALL list no unit.
 
 #### Scenario: A unit that does not disrupt the host
 - **WHEN** node-1 sets `devops_infra_nondisruptive_units: [demo]`
 - **THEN** the restart of `demo` is a change of node-1 with no disruptive class
 
 #### Scenario: A start and a cordon
-- **WHEN** a changed `systemd_service` task has the state `started`, or a changed `k8s_drain` task has the state `cordon`
+- **WHEN** a changed systemd_service task has the state started, or a changed k8s_drain task has the state cordon
 - **THEN** the change has no disruptive class
+
+#### Scenario: A unit that the host lists for a no-drain restart
+- **WHEN** node-3 lists the unit k3s-agent in `devops_infra_restart_nodrain_units`, and the playbook restarts that unit
+- **THEN** the plan of node-3 holds the class service-restart-nodrain:k3s-agent and no other disruptive class
+
+#### Scenario: A templated list of no-drain units
+- **WHEN** the host variable `devops_infra_restart_nodrain_units` holds `{{ units }}`
+- **THEN** the plan lists no unit and every restart stays disruptive
 
 ### Requirement: The plan record and its id
 The command SHALL save `plan.json` with the repo, the ref, the commit, the playbook, the limit, the host pattern, the tags, the inventory hash, the status, the error and the plan of each host, in `plans/<id>/` with the runner artifacts, and remove the export. The id SHALL be the SHA-256 of the canonical JSON of these facts, without the time, the runner ident and the folder. The record SHALL hold no version of the Ansible tool environment.

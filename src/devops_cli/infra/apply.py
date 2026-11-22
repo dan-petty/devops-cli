@@ -18,7 +18,12 @@ with these guards for every caller and at every level:
    Each disruptive host runs alone, in plan order: read its node, check the drain with a server
    dry run, drain, a fresh check of the host that must equal its plan, the run, wait for Ready
    and the GPUs of before, the health of the nodes, uncordon only a node that was schedulable
-   before, and wait for the critical alerts to clear.
+   before, and wait for the critical alerts to clear. A host whose disruptive classes are all
+   restarts of a unit that `devops_infra_restart_nodrain_units` lists, of class
+   `service-restart-nodrain:<unit>`, skips the drain check and the drain: the apply cordons its
+   node, then runs the fresh check, the run, the Ready and health waits, the uncordon and the
+   alerts. A k3s restart keeps its containers (`KillMode=process`), so no pod is evicted, and a
+   control plane whose PodDisruptionBudgets allow no eviction is not drained.
 7. **Result matches the plan.** A task that changed in the run and that the plan does not show
    as changed or unchecked stops the apply.
 8. **Stop at the first failure.** The apply stops, the node stays cordoned, and the command
@@ -70,10 +75,12 @@ from devops_cli.infra.plan import (
     RunOutcome,
     host_pattern,
     install_collections,
+    nodrain_units,
     nondisruptive_units,
     plan_id,
     plan_outcome,
     plans_folder,
+    skips_drain,
     write_runner_settings,
 )
 from devops_cli.infra.repo_tree import OriginHold, export_tree, origin_holds, pull_number
@@ -512,6 +519,7 @@ def _prepare(
         key=find_newest_key(settings.ssh.key_dir, prefix=entry.ssh_key_prefix),
         collections=install_collections(tool, project),
         nondisruptive=nondisruptive_units(inventory),
+        nodrain=nodrain_units(inventory),
     )
     write_runner_settings(folder)
     return _Context(plan, run, cluster, inventory, ansible.offline_group)
@@ -612,16 +620,21 @@ _Stop = tuple[ApplyStep, str]
 
 
 def _apply_alone(context: _Context, planned: HostPlan) -> HostApply:
-    """Apply one disruptive host: read its node, drain it, change it, and let it settle. The
-    first step that stops gives the result, with the node as the step left it."""
+    """Apply one disruptive host: read its node, cordon or drain it, change it, and let it settle.
+    The first step that stops gives the result, with the node as the step left it. A host whose
+    disruptive classes are all no-drain restarts cordons its node and runs neither the drain check
+    nor the drain (#6338)."""
     cluster = context.cluster
     work = _HostRun(planned=planned, node=context.node(planned.host))
+    nodrain = skips_drain(planned.disruptive)
     read = cluster.node(work.node)
     if read.problem is not None or not read.document:
         reason = read.problem or MESSAGES.infra.apply_no_node.format(node=work.node)
-        return work.result(HostOutcome.STOPPED, step=ApplyStep.DRAIN_CHECK, reason=reason)
+        first = ApplyStep.CORDON if nodrain else ApplyStep.DRAIN_CHECK
+        return work.result(HostOutcome.STOPPED, step=first, reason=reason)
     work.before = parse_node(read.document)
-    for step in (_drain, _change, _settle):
+    steps = (_cordon, _change, _settle) if nodrain else (_drain, _change, _settle)
+    for step in steps:
         stopped = step(context, work)
         if stopped is not None:
             return work.result(
@@ -633,6 +646,15 @@ def _apply_alone(context: _Context, planned: HostPlan) -> HostApply:
 def _after(context: _Context, work: _HostRun) -> NodeState | None:
     read = context.cluster.node(work.node)
     return parse_node(read.document) if read.document else None
+
+
+def _cordon(context: _Context, work: _HostRun) -> _Stop | None:
+    """Cordon the node, so the scheduler puts no new pod on it while the unit restarts, and skip
+    the drain check and the drain: a no-drain restart keeps its containers, so no pod is evicted
+    (#6338)."""
+    if (problem := context.cluster.cordon(work.node)) is not None:
+        return ApplyStep.CORDON, problem
+    return None
 
 
 def _drain(context: _Context, work: _HostRun) -> _Stop | None:

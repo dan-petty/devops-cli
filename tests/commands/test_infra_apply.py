@@ -205,6 +205,90 @@ def test_a_node_that_was_cordoned_before_stays_cordoned(lab: Lab, person_caller:
     assert lab.cluster.nodes["node-3"].cordoned
 
 
+@pytest.mark.parametrize("cordoned_before", [False, True], ids=["schedulable", "cordoned-before"])
+def test_a_nodrain_restart_cordons_the_node_and_skips_the_drain(
+    lab: Lab,
+    infra_repo: Path,
+    ansible_installed: Path,
+    person_caller: None,
+    cordoned_before: bool,
+) -> None:
+    """A restart of a unit that the host lists for a no-drain restart cordons the node, waits for
+    Ready and the health of the nodes, and uncordons only a node that was schedulable before
+    (#6338)."""
+    listing = recorded_read("inventory", infra_repo)
+    listing["_meta"]["hostvars"][NODE_3]["devops_infra_restart_nodrain_units"] = ["k3s-agent"]
+    lab.process_fake.answer(
+        [str(ansible_installed / "ansible-inventory")], in_export(json.dumps(listing), infra_repo)
+    )
+    lab.cluster.reads = True
+    lab.cluster.nodes["node-3"].cordoned = cordoned_before
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply_json(plan)
+
+    assert result.exit_code == 0, result.output
+    assert "drain check node-3" not in lab.steps
+    assert "drain node-3" not in lab.steps
+    assert [step for step in lab.steps if not step.startswith("get ")] == [
+        "cordon node-3",
+        f"check {NODE_3}",
+        f"run {NODE_3}",
+        *([] if cordoned_before else ["uncordon node-3"]),
+    ]
+    after_run = lab.steps[lab.steps.index(f"run {NODE_3}") + 1 :]
+    ready = after_run.index("get node node-3")
+    health = after_run.index("get nodes")
+    assert ready < health
+    assert _hosts(result)[NODE_3]["disruptive"] == ["service-restart-nodrain:k3s-agent"]
+    if cordoned_before:
+        assert "uncordon node-3" not in lab.steps
+        assert lab.cluster.nodes["node-3"].cordoned
+    else:
+        assert health < after_run.index("uncordon node-3")
+        assert not lab.cluster.nodes["node-3"].cordoned
+
+
+def test_a_dry_run_of_a_nodrain_host_lists_the_cordon_and_no_drain(
+    lab: Lab,
+    infra_repo: Path,
+    ansible_installed: Path,
+    person_caller: None,
+) -> None:
+    """A host whose disruptive classes are all no-drain restarts lists the cordon of its node,
+    with no drain check and no drain (#6338)."""
+    listing = recorded_read("inventory", infra_repo)
+    listing["_meta"]["hostvars"][NODE_3]["devops_infra_restart_nodrain_units"] = ["k3s-agent"]
+    lab.process_fake.answer(
+        [str(ansible_installed / "ansible-inventory")], in_export(json.dumps(listing), infra_repo)
+    )
+    plan = lab.plan(NODE_3)
+    calls = len(lab.process_fake.calls)
+
+    result = lab.apply(plan, "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert len(lab.process_fake.calls) == calls
+    assert f"EXEC the cordon of {NODE_3}" in result.output
+    cordon = [
+        line
+        for line in result.output.splitlines()
+        if line.strip().startswith("kubectl") and " cordon " in line
+    ]
+    assert len(cordon) == 1
+    assert "only if the node was schedulable before the drain" in cordon[0]
+    assert f"the fresh check of {NODE_3}, which must give its plan" in result.output
+    assert f"the run of {NODE_3}" in result.output
+    for skipped in (
+        f"the pods of {NODE_3}",
+        "the PersistentVolumeClaims",
+        "the PersistentVolumes",
+        f"the server dry run of the drain of {NODE_3}",
+        f"the drain of {NODE_3}",
+    ):
+        assert skipped not in result.output
+
+
 def test_the_hosts_with_no_disruptive_class_run_together_with_no_drain(
     lab: Lab, person_caller: None
 ) -> None:
