@@ -74,10 +74,13 @@ def _status(exc: DevOpsCLIError) -> int | None:
 
 def token_scopes(session: GitHubSession) -> frozenset[str] | None:
     """The OAuth scopes of the token of the session, from `X-OAuth-Scopes` of `GET /user`, or None
-    when the token reports none, as a fine-grained or App token does."""
+    when the token reports none, as a fine-grained token does. An installation token of the App
+    has no OAuth scopes, and GitHub refuses it `GET /user`, so the App sends no request (#6783)."""
     from devops_cli.http.egress import EgressLevel
     from devops_cli.http.entry import http_client
 
+    if session.identity.renews:
+        return None
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {session.token}",

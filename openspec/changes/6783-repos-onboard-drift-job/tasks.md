@@ -14,9 +14,9 @@ Adds: `DriftState`, `drift_counts`, `record_drift`, `REPOS_DRIFT_ROWS`
 
 Kind: behavior. Reads: `src/devops_cli/github/onboard/settings_rows.py`, `src/devops_cli/core/process.py`, `tests/github/test_github_app_identity.py`. Changes: `src/devops_cli/github/onboard/settings_rows.py`, `tests/support/github_repository.py`, `tests/commands/test_repos_onboard.py`.
 
-- [ ] 2.1 Make `RepositoryState` of `tests/support/github_repository.py` refuse `GET /user` with HTTP 403 to an installation token, as GitHub does. Write the failing test `test_the_drift_check_as_the_app_reads_no_user` in `tests/commands/test_repos_onboard.py` for the scenario "The drift check as the App". It fails on the base, where `token_scopes` raises on the 403 before row 0
+- [x] 2.1 Make `RepositoryState` of `tests/support/github_repository.py` refuse `GET /user` with HTTP 403 to an installation token, as GitHub does. Write the failing test `test_the_drift_check_as_the_app_reads_no_user` in `tests/commands/test_repos_onboard.py` for the scenario "The drift check as the App". It fails on the base, where `token_scopes` raises on the 403 before row 0
   - Verification: `$ uv run devops ci test tests/commands/test_repos_onboard.py` fails on the base
-- [ ] 2.2 In `token_scopes` of `src/devops_cli/github/onboard/settings_rows.py`, give None with no request when the identity of the session is the App
+- [x] 2.2 In `token_scopes` of `src/devops_cli/github/onboard/settings_rows.py`, give None with no request when the identity of the session is the App
   - Verification: `$ uv run devops ci test tests/commands/test_repos_onboard.py tests/github/onboard/test_onboard_rows.py` passes
 
 ## 3. A read-only token asks for read permissions only
