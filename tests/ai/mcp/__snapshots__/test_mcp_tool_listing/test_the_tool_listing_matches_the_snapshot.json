@@ -3003,7 +3003,7 @@
         },
         "dry_run": {
           "default": false,
-          "description": "Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing.",
+          "description": "Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run, such as kubectl kustomize of its folders.",
           "type": "boolean"
         },
         "k8s_dir": {

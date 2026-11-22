@@ -232,6 +232,10 @@ class K8sErrorMessages:
         "Application under {folders} has that name. Add the Application, or give --k8s-dir with "
         "the tree that holds it."
     )
+    kustomization_not_mapping: str = (
+        "The kustomization {path} is not a YAML mapping ({reason}), so its remote bases are not "
+        "known. Correct the file."
+    )
     product_root_not_found: str = (
         "The product base of devops-cli is not at {path}. Run the command in a checkout of "
         "devops-cli, or give {option} with its k8s/devops folder."

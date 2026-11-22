@@ -40,7 +40,7 @@ from devops_cli.exceptions.k8s import (
     KubernetesContextError,
     KubernetesDeployError,
 )
-from devops_cli.k8s.app_render import render_path_source
+from devops_cli.k8s.app_render import path_source_folder
 from devops_cli.k8s.app_sources import (
     ChartSource,
     SourceTrees,
@@ -68,7 +68,9 @@ from devops_cli.k8s.environment import (
     resolve_product_root,
 )
 from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
+from devops_cli.k8s.kustomize_remotes import remote_targets
 from devops_cli.k8s.secret_push import namespace_exists
+from devops_cli.k8s.template import build_manifest_path
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -1244,11 +1246,13 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
 class _PathBuild:
     """The build of one path source of an Argo CD Application, which deploy-stack applies before
     the charts (#6681): the Application, the `path` of the source, and the text of the build. The
-    text is None in a dry run that would fetch the repository of the source."""
+    text is None in a dry run that would fetch the repository of the source, or each remote
+    target of its kustomization, which `fetches` gives."""
 
     application: str
     path: str
     text: str | None
+    fetches: tuple[str, ...] = ()
 
     def objects(self) -> list[str] | None:
         """Each object of the build, in its order, as `<kind> <namespace>/<name>`, or as
@@ -1277,7 +1281,8 @@ def _path_builds(
 ) -> list[_PathBuild]:
     """The build of each path source of each Application that `APPLICATIONS_BY_STACK` names for
     `selected_stacks`, in their order, from the sources of `trees` (#6681). A build of a folder is
-    a local read, so a dry run builds it too; a dry run builds no source of another repository.
+    a local read, so a dry run builds it too. A dry run builds no source of another repository,
+    and no folder whose kustomization reaches a remote target: Kustomize would fetch it.
 
     Raises:
         KubernetesDeployError: `env` holds no Application of a name of the table.
@@ -1301,13 +1306,20 @@ def _path_builds(
                 exit_code=1,
             )
         builds.extend(
-            _PathBuild(
-                name, str(source["path"]), render_path_source(trees, source, local_read=True)
-            )
+            _path_build(name, source, trees)
             for source in application_sources(doc)
             if "path" in source
         )
     return builds
+
+
+def _path_build(application: str, source: Mapping[str, Any], trees: SourceTrees) -> _PathBuild:
+    """The build of the path source `source` of `application`. In a dry run, a folder whose
+    kustomization reaches a remote target gets no build, only its remote targets (#6681)."""
+    folder = path_source_folder(trees, source)
+    fetches = tuple(remote_targets(folder)) if folder is not None and trees.dry_run else ()
+    text = None if folder is None or fetches else build_manifest_path(folder, local_read=True)
+    return _PathBuild(application, str(source["path"]), text, fetches)
 
 
 def _collect_deploy_targets(
@@ -1564,6 +1576,9 @@ def _render_deploy_stack_dry_run(
             "source_fetches": [list(command) for command in source_fetches],
             "manifests": all_manifests,
             "path_sources": {build.label: build.objects() for build in all_builds},
+            "kustomize_fetches": {
+                build.label: list(build.fetches) for build in all_builds if build.fetches
+            },
             "kustomizations": [str(k) for k in all_kustomizations],
             "post_helm": [str(p) for p in all_post_helm],
             "config_map": (
@@ -1867,6 +1882,9 @@ def teardown_stack(
                 "post_helm_deletes": [str(p) for p in all_post_helm_deletes],
                 "path_source_deletes": {
                     build.label: build.objects() for build in all_build_deletes
+                },
+                "kustomize_fetches": {
+                    build.label: list(build.fetches) for build in all_build_deletes if build.fetches
                 },
                 "manifest_deletes": all_manifest_deletes,
                 "source_fetches": [list(command) for command in source_fetches],

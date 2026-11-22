@@ -394,8 +394,8 @@ class K8sCommandHelp:
         "workloads a change would restart, and write nothing."
     )
     deploy_dry_run: str = (
-        "Print the releases, manifests and Secrets (key names only) a deploy would apply, and "
-        "run nothing."
+        "Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. "
+        "Only local reads of the checkout run, such as kubectl kustomize of its folders."
     )
     push_secrets_flag: str = (
         "Push the stacks' Secrets from the OS keyring before applying anything "

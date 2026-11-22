@@ -275,11 +275,15 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
 def test_deploy_stack_dry_run_makes_no_request(
     isolate_devops_cli_config: Path, process_fake: ProcessFake
 ) -> None:
-    """No kubectl, helm or gh child, no keyring call and no connection, with the Secret push on
-    and the context left to the settings."""
+    """No connection, no keyring call and no child that reads the cluster, with the Secret push
+    on and the context left to the settings. Each child is a local read of the checkout, which
+    the process fake answers: git reads its `origin`, and `kubectl kustomize` builds its folders
+    (#6681)."""
     _configure_service(isolate_devops_cli_config)
     result = runner.invoke(app, ["deploy-stack", "--stack", "all", "--dry-run"])
-    assert (result.exit_code, result.exception) == (0, None)
+    children = {(call.argv[:2], call.local_read) for call in process_fake.calls}
+    local_reads = {(("git", "-C"), True), (("kubectl", "kustomize"), True)}
+    assert (result.exit_code, result.exception, children <= local_reads) == (0, None, True)
 
 
 def test_k8s_deploy_stack_all_dry_run(
@@ -600,6 +604,7 @@ def test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source
     assert (
         res.exit_code,
         details["path_sources"],
+        details["kustomize_fetches"],
         details["manifests"],
         [(call.argv, call.local_read) for call in builds],
     ) == (
@@ -610,8 +615,51 @@ def test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source
                 "NetworkPolicy logging/default-deny",
             ]
         },
+        {},
         [],
         [(("kubectl", "kustomize", str((env / "logging").resolve())), True)],
+    )
+
+
+# A remote base of the shape that ADR 0032 plans: a folder of dan-petty/infra at a tag.
+_REMOTE_BASE = "https://example.com/infra.git//k8s/bases/loki?ref=v0.1.0"
+
+
+def test_dry_runs_build_no_folder_whose_kustomization_reaches_a_remote_base(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """Kustomize fetches a remote base and has no option that refuses it, so the dry runs of
+    deploy-stack and teardown-stack start no `kubectl kustomize` on a folder whose local base
+    names one, and list the remote base of the build (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    base = env / "bases" / "loki"
+    base.mkdir(parents=True)
+    (base / "kustomization.yaml").write_text(f"resources:\n  - {_REMOTE_BASE}\n", "utf-8")
+    (env / "logging" / "kustomization.yaml").write_text(
+        "resources:\n  - ../bases/loki\ncomponents:\n  - ../components/perimeter\n", "utf-8"
+    )
+    stack = ["--stack", "logging", "--k8s-dir", str(env), "--dry-run"]
+
+    deploy = cli("k8s", "deploy-stack", *stack)
+    teardown = cli("k8s", "teardown-stack", *stack)
+    deployed, removed = _dry_run_details(deploy.output), _dry_run_details(teardown.output)
+
+    assert (
+        deploy.exit_code,
+        teardown.exit_code,
+        deployed["path_sources"],
+        deployed["kustomize_fetches"],
+        removed["path_source_deletes"],
+        removed["kustomize_fetches"],
+        calls_starting(process_fake, "kubectl", "kustomize"),
+    ) == (
+        0,
+        0,
+        {"logging: env/logging": None},
+        {"logging: env/logging": [_REMOTE_BASE]},
+        {"logging: env/logging": None},
+        {"logging: env/logging": [_REMOTE_BASE]},
+        [],
     )
 
 
@@ -707,6 +755,86 @@ def test_deploy_stack_stops_on_an_application_that_the_tree_does_not_hold(
     res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
 
     assert (res.exit_code, "Application logging" in " ".join(res.output.split())) == (1, True)
+
+
+# A namespaced object and an object of the cluster scope, the build of a second path source.
+_EXTRA_BUILD = (
+    "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: logging\n---\n"
+    "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: loki-extra\n  namespace: logging\n"
+)
+
+
+def _two_source_tree(root: Path, process_fake: ProcessFake) -> Path:
+    """The tree of `_path_source_tree`, whose Application `logging` has a second path source
+    `env/extra`, with the process fake that gives the build of each folder."""
+    env = _path_source_tree(root)
+    (env / "extra").mkdir()
+    (env / "extra" / "kustomization.yaml").write_text("resources: []\n", "utf-8")
+    file = env / "argocd" / "apps" / "logging.yaml"
+    application = yaml.safe_load(file.read_text("utf-8"))
+    first = application["spec"].pop("source")
+    application["spec"]["sources"] = [first, {**first, "path": f"{root.name}/extra"}]
+    file.write_text(yaml.safe_dump(application), "utf-8")
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout=_PERIMETER_BUILD))
+    process_fake.answer(
+        ("kubectl", "kustomize", str((env / "extra").resolve())),
+        ProcessAnswer(stdout=_EXTRA_BUILD),
+    )
+    return env
+
+
+def test_teardown_dry_run_lists_the_builds_in_the_order_of_the_deletes(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The deploy dry run lists the builds in the order of the deploy, and the teardown dry run
+    lists them in the reverse order, as the teardown deletes them (#6681)."""
+    env = _two_source_tree(tmp_path / "env", process_fake)
+    stack = ["--stack", "logging", "--k8s-dir", str(env), "--dry-run"]
+
+    deploy = _dry_run_details(cli("k8s", "deploy-stack", *stack).output)
+    teardown = _dry_run_details(cli("k8s", "teardown-stack", *stack).output)
+    perimeter = ["NetworkPolicy logging/loki-perimeter", "NetworkPolicy logging/default-deny"]
+    extra = ["Namespace logging", "ConfigMap logging/loki-extra"]
+
+    assert (
+        list(deploy["path_sources"].items()),
+        list(teardown["path_source_deletes"].items()),
+    ) == (
+        [("logging: env/logging", perimeter), ("logging: env/extra", extra)],
+        [("logging: env/extra", extra), ("logging: env/logging", perimeter)],
+    )
+
+
+@pytest.mark.parametrize("failure", ["refused build", "missing Application"])
+def test_teardown_stack_stops_before_the_cluster_when_a_build_fails(
+    cli: Callable[..., Any],
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    """A build that Kustomize refuses, or an Application that the tree does not hold, stops the
+    teardown with exit 1 and the reason, before it deletes an object or uninstalls a chart
+    (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    name_contexts(cluster, "minikube")
+    if failure == "refused build":
+        process_fake.answer(
+            ("kubectl", "kustomize"), ProcessAnswer(returncode=1, stderr="missing resource")
+        )
+        reason = "missing resource"
+    else:
+        (env / "argocd" / "apps" / "logging.yaml").unlink()
+        reason = "Application logging"
+
+    res = cli("k8s", "teardown-stack", "--stack", "logging", "--k8s-dir", str(env), *_CONTEXT)
+
+    assert (
+        res.exit_code,
+        reason in " ".join(res.output.split()),
+        calls_starting(process_fake, "kubectl", "delete"),
+        calls_starting(process_fake, "helm"),
+    ) == (1, True, [], [])
 
 
 def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_cert_manager() -> (
