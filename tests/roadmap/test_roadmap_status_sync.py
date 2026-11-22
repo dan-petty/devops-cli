@@ -9,6 +9,9 @@ rules of the row `implement` do (`stop_clear.py`).
 Every job writes the Status through one writer, `write_status` (#5018). It writes the label only
 when it differs, and reads the issue again after the write: a label that another writer changed in
 between fails the write.
+
+The row `implement` removes the `status/*` and `owner/*` labels of each closed issue
+(`clear_closed_issues`, #4660), with one request for each label.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.status_sync import (
     StatusFacts,
     StatusWrite,
+    clear_closed_issues,
     derive_status,
     facts_of,
     sync_status,
@@ -32,6 +36,7 @@ from devops_cli.roadmap.status_sync import (
 )
 from devops_cli.roadmap.stores.store import (
     CloseReason,
+    GitHubState,
     ImplementRecordKey,
     Item,
     ItemField,
@@ -258,8 +263,8 @@ def test_a_write_of_another_lane_after_the_cached_read_is_not_written_over(
 def test_an_issue_that_closed_after_the_cached_read_gets_no_label(
     store: InMemoryRoadmapStore,
 ) -> None:
-    """The workflow `clear-status` removes the labels when an issue closes. A write from a view
-    that is older than the close would leave a label on a closed issue."""
+    """The row `implement` removes the labels of a closed issue (#4660). A write from a view that
+    is older than the close would leave a label on a closed issue."""
     number = _job_item(store, "Ready")
     cached = _item(store, number)
     store.close_by_hand(number, CloseReason.COMPLETED)
@@ -518,3 +523,117 @@ def test_the_status_writer_detects_a_lost_write_by_its_read_back() -> None:
 
     with pytest.raises(RoadmapStatusLostError, match=rf"#{number}\b.*Planned.*Ready"):
         write_status(store, _item(store, number), StatusFacts(plan_merged=True))
+
+
+def _closed(
+    store: InMemoryRoadmapStore, *labels: str, state: GitHubState = GitHubState.CLOSED
+) -> int:
+    return store.seed_issue("fix(cli): done", labels=labels, state=state)
+
+
+def _unlabels(store: InMemoryRoadmapStore) -> list[tuple[int | None, str | None]]:
+    """Each label removal that the store made as a job, in order: the issue and the label."""
+    return [
+        (write.number, write.value)
+        for write in store.job_writes()
+        if write.operation == "unlabel_issue"
+    ]
+
+
+def _labels_of(store: InMemoryRoadmapStore, number: int) -> set[str]:
+    return set(next(issue for issue in store.issues() if issue.number == number).labels)
+
+
+@pytest.mark.parametrize(
+    ("labels", "removed", "kept"),
+    [
+        (
+            ("status/in-review", "owner/agent", "type/bug"),
+            ["status/in-review", "owner/agent"],
+            {"type/bug"},
+        ),
+        (
+            ("status/ready", "status/in-review", "priority/p2-medium"),
+            ["status/ready", "status/in-review"],
+            {"priority/p2-medium"},
+        ),
+        (("priority/p2-medium",), [], {"priority/p2-medium"}),
+        (("status/new",), ["status/new"], set()),
+    ],
+    ids=["three-families", "two-status-labels", "no-managed-label", "a-closed-candidate"],
+)
+def test_the_clear_sends_one_removal_for_each_status_and_owner_label_of_a_closed_issue(
+    store: InMemoryRoadmapStore, labels: tuple[str, ...], removed: list[str], kept: set[str]
+) -> None:
+    """Test first for #4660: a closed issue, an Item or a Candidate, loses each `status/*` and
+    each `owner/*` label with one request each, and keeps every other label."""
+    number = _closed(store, *labels)
+
+    cleared = clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert (_unlabels(store), _labels_of(store, number), cleared.failed) == (
+        [(number, label) for label in removed],
+        kept,
+        (),
+    )
+
+
+def test_the_clear_keeps_the_labels_of_an_open_issue(store: InMemoryRoadmapStore) -> None:
+    number = _closed(store, "status/ready", "owner/agent", state=GitHubState.OPEN)
+
+    clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert (_unlabels(store), _labels_of(store, number)) == ([], {"status/ready", "owner/agent"})
+
+
+def test_the_clear_keeps_the_labels_of_an_issue_that_a_person_reopened_after_the_listing(
+    store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The listing of a round can be older than a reopen, so the clear reads the issue again
+    before it removes a label."""
+    number = _closed(store, "status/ready")
+    listing = store.issues()
+    store.as_actor("alice").reopen_issue(number)
+    monkeypatch.setattr(store, "issues", lambda: listing)
+
+    clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert (_unlabels(store), _labels_of(store, number)) == ([], {"status/ready"})
+
+
+def test_a_second_clear_sends_no_removal(store: InMemoryRoadmapStore) -> None:
+    number = _closed(store, "status/ready", "type/bug")
+
+    clear_closed_issues(store, repo=STAGE_REPO)
+    clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert _unlabels(store) == [(number, "status/ready")]
+
+
+def test_a_removal_that_fails_does_not_stop_the_next_issue(store: InMemoryRoadmapStore) -> None:
+    broken = _closed(store, "status/ready")
+    fine = _closed(store, "owner/agent")
+    store.fail_write(write="unlabel_issue", item=broken)
+
+    cleared = clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert (
+        [failure.number for failure in cleared.failed],
+        _labels_of(store, broken),
+        _labels_of(store, fine),
+    ) == ([broken], {"status/ready"}, set())
+
+
+def test_a_rate_limit_stops_the_clear(store: InMemoryRoadmapStore) -> None:
+    first = _closed(store, "status/ready")
+    _closed(store, "owner/agent")
+    store.fail_write(
+        write="unlabel_issue",
+        item=first,
+        error=GitHubRateLimitError("No requests are left.", operation="roadmap.write"),
+    )
+
+    with pytest.raises(GitHubRateLimitError, match="No requests are left"):
+        clear_closed_issues(store, repo=STAGE_REPO)
+
+    assert _unlabels(store) == []

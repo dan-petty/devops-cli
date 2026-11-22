@@ -1905,18 +1905,21 @@ def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_rou
 
 
 @pytest.mark.parametrize("event", ["issues"])
+@pytest.mark.parametrize("action", ["labeled", "closed"])
 def test_the_roadmap_consumer_takes_the_events_its_jobs_read_into_all_three_lanes(
-    event: str,
+    event: str, action: str
 ) -> None:
     """Each event a roadmap job's batch keys name, the issues events alone, reaches the status
     lane, the triage lane and the model lane as a ("webhook", <event>, <action>) trigger, whatever
-    its action (#1534)."""
+    its action (#1534). A close of an issue has no scoped update: its trigger makes the row
+    `implement` due, whose round removes the labels of the closed issue (#4660)."""
     lanes = _unblocked_lanes()
     app = _lanes_app(lanes)
     with TestClient(app) as client:
-        response = _github_post(client, event, _event_payload("labeled"), "roadmap-1")
+        payload = _event_payload(action, issue={"number": 42})
+        response = _github_post(client, event, payload, f"roadmap-{action}")
         settled = _lanes_settled(app)
-    key = ("webhook", event, "labeled")
+    key = ("webhook", event, action)
     assert (response.status_code, response.json(), settled, _webhook_keys(lanes)) == (
         202,
         {"status": "accepted"},

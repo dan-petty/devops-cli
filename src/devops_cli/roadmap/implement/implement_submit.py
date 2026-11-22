@@ -133,7 +133,12 @@ from devops_cli.roadmap.plan_read import tasks_at
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.round_log import log_implement_attempt
 from devops_cli.roadmap.stage.stage import StageFailure
-from devops_cli.roadmap.status_sync import StatusFacts, sync_statuses, write_status
+from devops_cli.roadmap.status_sync import (
+    StatusFacts,
+    clear_closed_issues,
+    sync_statuses,
+    write_status,
+)
 from devops_cli.roadmap.stop_clear import clear_stops
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -584,7 +589,9 @@ def run_implement_round(
     store: RoadmapStore, *, repo: str, source: Path | str, jobs: ClusterJobs | None = None
 ) -> SubmitResult:
     """One round of the `implement` row: report the Jobs that ended, wait while one runs, else
-    create the Job for the first Staged or Planned item that the default filter names.
+    create the Job for the first Staged or Planned item that the default filter names. Before it
+    waits, the round sets the Status of the items that the Service owns and removes the `status/*`
+    and `owner/*` labels of each closed issue (#4660).
 
     Raises ClusterJobError when the Kubernetes API refuses a call or CronJob `devops-cli-runner`
     is missing. Raises RoadmapImplementError before any request when `repo` is empty: each
@@ -600,10 +607,11 @@ def run_implement_round(
     manage_deadlines(api, held.values())
     planned = read_planned_changes(Path(source), operation=GIT_OPERATION)
     swept = sync_statuses(store, repo=repo, planned=planned).failed
+    closed = clear_closed_issues(store, repo=repo).failed
     stops = clear_stops(
         store, planned=planned, digest=partial(api.template_digest, RUNNER_TEMPLATE)
     )
-    failed = (*swept, *stops.failed)
+    failed = (*swept, *closed, *stops.failed)
     if any(job.state is JobState.RUNNING for job in held.values()):
         return SubmitResult(
             reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
@@ -632,7 +640,7 @@ def run_implement_round(
     number = plan.selected[0].item.number
     size = _size_of(source, planned, plan.selected[0])
     created = _create(store, api, repo, plan.selected[0], label, size)
-    failed = (*stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
+    failed = (*closed, *stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
     return SubmitResult(
         reported=reported,
         created=created,
