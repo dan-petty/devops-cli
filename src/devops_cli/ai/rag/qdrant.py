@@ -350,6 +350,8 @@ class QdrantProtocol(Protocol):
         limit: int = 1,
         with_payload: bool = True,
         with_vectors: bool = False,
+        order_by: str | None = None,
+        descending: bool = False,
     ) -> list[dict[str, Any]]: ...
 
     def delete_points_by_files(
@@ -701,7 +703,7 @@ class QdrantClient:
                     is_tenant=True,
                 )
             else:
-                field_schema = qmodels.PayloadSchemaType.KEYWORD
+                field_schema = qmodels.PayloadSchemaType(spec["field_schema"])
 
             def _create_idx(
                 client: NativeQdrantClient, fn: str = field_name, fs: Any = field_schema
@@ -885,9 +887,24 @@ class QdrantClient:
         limit: int = 1,
         with_payload: bool = True,
         with_vectors: bool = False,
+        order_by: str | None = None,
+        descending: bool = False,
     ) -> list[dict[str, Any]]:
-        """Scroll points in a collection with optional filter."""
+        """Scroll points in a collection with optional filter.
+
+        `order_by` names a payload field that Qdrant orders the points by, the smallest value
+        first or, with `descending`, the largest. Qdrant leaves out each point that does not hold
+        the field, and refuses the order of a field with no range index, such as a datetime index.
+        """
         query_filter = _build_payload_filter(filter_payload)
+        order = (
+            qmodels.OrderBy(
+                key=order_by,
+                direction=qmodels.Direction.DESC if descending else qmodels.Direction.ASC,
+            )
+            if order_by
+            else None
+        )
 
         def _scroll_op(c: NativeQdrantClient) -> Any:
             return c.scroll(
@@ -896,6 +913,7 @@ class QdrantClient:
                 limit=limit,
                 with_payload=with_payload,
                 with_vectors=with_vectors,
+                order_by=order,
             )
 
         try:

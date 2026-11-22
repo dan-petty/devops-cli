@@ -250,6 +250,8 @@ class FakeQdrantClient(QdrantProtocol):
         limit: int = 1,
         with_payload: bool = True,
         with_vectors: bool = False,
+        order_by: str | None = None,
+        descending: bool = False,
     ) -> list[dict[str, Any]]:
         if self.refusing:
             raise QdrantClientError("Server is unreachable")
@@ -260,10 +262,19 @@ class FakeQdrantClient(QdrantProtocol):
             limit=limit,
             with_payload=with_payload,
             with_vectors=with_vectors,
+            order_by=order_by,
+            descending=descending,
         )
         pts = self.collections.get(name, [])
         if filter_payload:
             pts = [p for p in pts if _matches_fake_filter(p.get("payload", {}), filter_payload)]
+        if order_by:
+            # As local mode does: a point with no value is left out, the others go in value order.
+            pts = sorted(
+                (p for p in pts if p.get("payload", {}).get(order_by) is not None),
+                key=lambda p: p["payload"][order_by],
+                reverse=descending,
+            )
         batch = pts[:limit]
         formatted: list[dict[str, Any]] = []
         for p in batch:

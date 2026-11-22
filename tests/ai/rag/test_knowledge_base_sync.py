@@ -23,9 +23,11 @@ from devops_cli.ai.rag.kb_sync import (
     ensure_knowledge_base_ready,
     is_kb_rebuild_needed,
 )
+from devops_cli.ai.rag.qdrant import QdrantClientError, install_qdrant_client, reset_qdrant_client
 from devops_cli.config.constants import CONST_RAG_KB_PROJECT
 from devops_cli.config.defaults import DEFAULT_RAG_RESEARCH_COLLECTION
 from devops_cli.telemetry.instruments import RAG_POINTS
+from tests.support.fakes.qdrant import FakeQdrantClient
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -227,6 +229,80 @@ def test_rag_status_table_displays_collection_metadata(
     assert "384" in output
     assert "abcdef0123456789" in output
     assert "2026-10-11 12:00:00" in output
+
+
+def _docs_point(point_id: str, indexed_at: str) -> dict[str, Any]:
+    """A KB point of `devops_docs` that an index run wrote at `indexed_at`."""
+    return {
+        "id": point_id,
+        "vector": [0.1] * 4,
+        "payload": {
+            "embedding_model": "bge-small-en-v1.5",
+            "indexed_at": indexed_at,
+            "kb_digest": "abcdef0123456789fedcba9876543210",
+            "project_name": CONST_RAG_KB_PROJECT,
+        },
+    }
+
+
+def _collection_row(output: str, name: str) -> list[str]:
+    """The cells of the row of `name` in the collections table of `rag status`, split at spaces."""
+    return next(line.split() for line in output.splitlines() if line.split()[:1] == [name])
+
+
+def test_rag_status_shows_the_time_of_the_newest_point(
+    cli: Any, qdrant: Any, embedder: Any, config: Any
+) -> None:
+    """An index run writes only the chunks that changed, so the first point can be old (#6774)."""
+    config(qdrant={"url": "http://example.com:6333"})
+    qdrant.collections["devops_docs"] = [
+        _docs_point("1", "2026-11-22T04:43:12.093718+00:00"),
+        _docs_point("2", "2026-11-22T14:31:05.512000+00:00"),
+    ]
+
+    result = cli(["ai", "rag", "status"])
+
+    assert (result.exit_code, _collection_row(result.output, "devops_docs")) == (
+        0,
+        [
+            "devops_docs",
+            "2",
+            "bge-small-en-v1.5",
+            "4",
+            "abcdef0123456789",
+            "2026-11-22",
+            "14:31:05",
+            "ok",
+        ],
+    )
+
+
+def test_rag_status_shows_no_index_time_when_qdrant_refuses_the_order(
+    cli: Any, embedder: Any, config: Any
+) -> None:
+    """A collection with no datetime index of `indexed_at` refuses a scroll ordered by it."""
+
+    class NoDatetimeIndexQdrant(FakeQdrantClient):
+        def scroll_points(
+            self, name: str, filter_payload: dict[str, Any] | None = None, **kwargs: Any
+        ) -> list[dict[str, Any]]:
+            if kwargs.get("order_by"):
+                raise QdrantClientError("No range index for `order_by` key: `indexed_at`")
+            return super().scroll_points(name, filter_payload, **kwargs)
+
+    config(qdrant={"url": "http://example.com:6333"})
+    fake = NoDatetimeIndexQdrant()
+    fake.collections["devops_docs"] = [_docs_point("1", "2026-11-22T04:43:12.093718+00:00")]
+    install_qdrant_client(fake)
+    try:
+        result = cli(["ai", "rag", "status"])
+    finally:
+        reset_qdrant_client()
+
+    assert (result.exit_code, _collection_row(result.output, "devops_docs")) == (
+        0,
+        ["devops_docs", "1", "bge-small-en-v1.5", "4", "abcdef0123456789", "—", "ok"],
+    )
 
 
 def test_rag_status_lists_the_research_collection_with_its_point_count(

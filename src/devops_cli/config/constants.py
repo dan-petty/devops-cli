@@ -2969,11 +2969,13 @@ CONST_RAG_CIRCUIT_BREAKER_PAUSE_SECONDS: Final[float] = 60.0
 # Project identifier used for bundled DevOps CLI Knowledge Base chunks in Qdrant
 CONST_RAG_KB_PROJECT: Final[str] = "devops-cli-kb"
 
-# Payload fields indexed when ensuring collections in Qdrant (#1388, #1389)
+# Payload fields indexed when ensuring collections in Qdrant (#1388, #1389). The datetime index of
+# `indexed_at` is the range index that a scroll ordered by `indexed_at` needs (#6774).
 CONST_RAG_PAYLOAD_INDEXES: Final[tuple[dict[str, Any], ...]] = (
     {"field_name": "project_name", "field_schema": "keyword", "is_tenant": True},
     {"field_name": "file_path", "field_schema": "keyword"},
     {"field_name": "visibility", "field_schema": "keyword"},
+    {"field_name": "indexed_at", "field_schema": "datetime"},
 )
 
 # Helm releases that deploy DaemonSets across all cluster nodes

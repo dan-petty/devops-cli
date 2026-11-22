@@ -1,0 +1,16 @@
+# Design
+
+## Decisions
+1. **Qdrant orders the points.** `_render_collection_row` calls `scroll_points(coll_name, limit=1, order_by="indexed_at", descending=True)` and reads `indexed_at` from the one point that it gets. Reason: the scroll of Qdrant with an `OrderBy` returns the points in the order of the payload value, and `limit=1` with the newest first gives the newest point in one request of one point.
+2. **A datetime payload index on `indexed_at`.** `CONST_RAG_PAYLOAD_INDEXES` gets the entry `{"field_name": "indexed_at", "field_schema": "datetime"}`. Reason: the Qdrant server refuses an `order_by` on a field with no range index (HTTP 400 from the live store). A datetime index is the range index for an RFC 3339 string.
+3. **The index takes the schema of its entry.** `_ensure_payload_indexes` gives `qmodels.PayloadSchemaType(spec["field_schema"])` to `create_payload_index`, and a `KeywordIndexParams` with `is_tenant=True` for a tenant entry. Reason: before, the function created a `keyword` index for each entry, and a keyword index is not a range index.
+4. **The next index run creates the index.** `ensure_collection` of a collection that exists creates each index that its payload schema does not hold, and `index_workspace` ensures its two collections at the start of each run. Qdrant builds the new index over the points that the collection holds, so no file is embedded again.
+5. **Status writes nothing.** Status does not create the index. When Qdrant refuses the order, `scroll_points` raises `QdrantClientError`, and "Last Indexed" shows `—`. The model and the KB digest come from their own scrolls, as before, so they still show. Reason: `devops ai rag status` is a read, and `—` is the true value when the store cannot say which point is the newest.
+6. **Two scalar arguments, no Qdrant model in the protocol.** `scroll_points` takes `order_by: str | None` and `descending: bool`, as it takes `filter_payload` as a dict. `QdrantClient` builds the `qmodels.OrderBy`. Reason: the callers of `QdrantProtocol` do not import `qdrant_client`, and the fake orders by the same two arguments.
+7. **The fake orders as local mode does.** `FakeQdrantClient.scroll_points` leaves out the points whose payload does not hold the field, and sorts the others by the value. Reason: the contract suite runs the case over the fake and over the native local mode, and local mode does the same (`_scroll_by_value`).
+
+## Rejected alternatives
+- **Record the time of the run in run metadata.** Rejected: the store holds no record of a run today, so the change must add a metadata point or a local file, and a write that each run must keep true. A local file is the source that #1139 removed from status. The `indexed_at` value of each point already holds the time, and Qdrant can order by it.
+- **Scroll all points and take the largest `indexed_at`.** Rejected: the live collections hold 41163 and 67428 points, so each status run reads all payloads for one value.
+- **Use the first point when Qdrant refuses the order.** Rejected: that is the wrong time that #6774 reports.
+- **Create the index in status.** Rejected: status is a read, and a write to the store from a read command is not expected.

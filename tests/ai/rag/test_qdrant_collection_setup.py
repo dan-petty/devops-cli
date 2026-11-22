@@ -50,10 +50,20 @@ def test_quantization_can_be_disabled() -> None:
     assert _created(served).get("quantization_config") is None
 
 
-def _index_fields(served: ServedQdrant) -> list[str]:
-    """The fields that the client asked for a payload index on, in order."""
+# The field and the schema of each payload index, in the order that the client asks for them.
+# The datetime index of `indexed_at` is the range index that a scroll ordered by it needs (#6774).
+_PAYLOAD_INDEXES: list[tuple[str, Any]] = [
+    ("project_name", {"type": "keyword", "is_tenant": True}),
+    ("file_path", "keyword"),
+    ("visibility", "keyword"),
+    ("indexed_at", "datetime"),
+]
+
+
+def _index_fields(served: ServedQdrant) -> list[tuple[str, Any]]:
+    """The field and the schema that the client asked for each payload index, in order."""
     return [
-        body["field_name"]
+        (body["field_name"], body["field_schema"])
         for method, path, body in served.bodies
         if method == "PUT" and "/index" in path
     ]
@@ -63,7 +73,7 @@ def test_a_new_collection_gets_all_payload_indexes() -> None:
     with serving_qdrant() as served:
         QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
 
-    assert _index_fields(served) == ["project_name", "file_path", "visibility"]
+    assert _index_fields(served) == _PAYLOAD_INDEXES
 
 
 def test_an_existing_collection_without_payload_indexes_gets_all_on_the_next_run() -> None:
@@ -76,6 +86,6 @@ def test_an_existing_collection_without_payload_indexes_gets_all_on_the_next_run
         QdrantClient(served.url, api_key="test-key", timeout=5.0).ensure_collection("docs", 4)
 
     assert (_index_fields(served), [b for b in served.bodies if "/index" not in b[1]]) == (
-        ["project_name", "file_path", "visibility"],
+        _PAYLOAD_INDEXES,
         [],
     )
