@@ -155,6 +155,7 @@ def test_networkpolicy_admits_traefik_monitoring_and_mattermost_on_8000() -> Non
 
 
 def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
+    """The one devops egress rule admits the roadmap Service on 8000 and the SearXNG scrape on 8080."""
     (mon_policy,) = [
         policy
         for policy in yaml.load_all(
@@ -178,4 +179,10 @@ def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
     assert (
         len(devops_egress),
         devops_egress[0]["ports"],
-    ) == (1, [{"protocol": "TCP", "port": 8000}])
+    ) == (
+        1,
+        [
+            {"protocol": "TCP", "port": 8000},
+            {"protocol": "TCP", "port": 8080},
+        ],
+    )

@@ -6,3 +6,4 @@ resources:
 - networkpolicy-client.yaml
 - networkpolicy.yaml
 - service.yaml
+- servicemonitor.yaml

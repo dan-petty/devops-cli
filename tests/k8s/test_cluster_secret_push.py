@@ -60,6 +60,7 @@ DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
 CRAWL4AI_TOKEN = "crawl4ai-keyring-value-0001"
 SEARXNG_SECRET = "searxng-keyring-value-0001"
+SEARXNG_METRICS_PASSWORD = "searxng-metrics-keyring-value-0001"
 MCP_TOKEN = "mcp-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
@@ -72,6 +73,7 @@ FULL_KEYRING = {
     "service_github_app_private_key": APP_KEY,
     "crawl4ai_api_token": CRAWL4AI_TOKEN,
     "searxng_secret_key": SEARXNG_SECRET,
+    "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
     "mcp_token": MCP_TOKEN,
     "roadmap_service_llm_key": "sk-virtual-service-0001",
 }
@@ -248,6 +250,7 @@ def test_apply_is_one_server_side_apply_of_a_list_on_stdin(
             "cloudflared/cloudflared-token": ["token"],
             "devops/crawl4ai": ["CRAWL4AI_API_TOKEN"],
             "devops/searxng": ["SEARXNG_SECRET"],
+            "devops/searxng-metrics-auth": ["password", "username"],
             "devops/mcp-server": ["DEVOPS_CLI_MCP_TOKEN"],
             "devops/devops-cli": [
                 "DEVOPS_CLI_AI_API_KEY",
@@ -390,6 +393,7 @@ def test_the_devops_api_key_is_adopted_from_the_gateway_secret_never_generated(
             "service_github_app_private_key": APP_KEY,
             "crawl4ai_api_token": CRAWL4AI_TOKEN,
             "searxng_secret_key": SEARXNG_SECRET,
+            "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
             "mcp_token": MCP_TOKEN,
             "qdrant_api_key": "qdrant-keyring-value-0001",
         },
@@ -590,6 +594,7 @@ def test_stack_devops_reads_the_app_key_gateway_key_and_webhook_secrets_and_runs
             "crawl4ai_api_token",
             "roadmap_service_llm_key",
             "searxng_secret_key",
+            "searxng_metrics_password",
             "mcp_token",
             "renovate_github_app_private_key",
             "qdrant_api_key",
@@ -668,11 +673,20 @@ def test_no_value_reaches_argv_logs_or_output(
         monkeypatch,
         cluster,
         keyring_store,
-        values={"cloudflare_tunnel_token": TUNNEL_TOKEN, "service_github_app_private_key": APP_KEY},
+        values={
+            "cloudflare_tunnel_token": TUNNEL_TOKEN,
+            "service_github_app_private_key": APP_KEY,
+            "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
+        },
     )
     cluster.add_secret("llm", "qdrant-api-key", {"api-key": "live-qdrant-value-0002"})
     result = _push()
-    values = [TUNNEL_TOKEN, "live-qdrant-value-0002", *backend.writes.values()]
+    values = [
+        TUNNEL_TOKEN,
+        SEARXNG_METRICS_PASSWORD,
+        "live-qdrant-value-0002",
+        *backend.writes.values(),
+    ]
     encoded = [base64.b64encode(v.encode()).decode() for v in values]
     argv = " ".join(" ".join(call.argv) for call in cluster.calls)
     texts = [argv, caplog.text, result.output, result.stderr if result.stderr_bytes else ""]

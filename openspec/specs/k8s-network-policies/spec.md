@@ -107,3 +107,10 @@ The `k8s` row SHALL refuse each NetworkPolicy of `k8s/` whose types hold `Ingres
 #### Scenario: The live cluster
 - **WHEN** a person runs `kubectl get networkpolicy -A -o json` after Argo CD syncs `main`, and selects each policy whose `policyTypes` hold `Ingress` and `Egress`
 - **THEN** no policy is selected, and in each namespace with split policies a probe pod that the ingress rules do not admit cannot connect to a limited port, on the node of the server pod and on a second node
+
+### Requirement: The monitoring perimeter admits the SearXNG metrics scrape
+The `monitoring-default-perimeter-egress` NetworkPolicy SHALL admit namespace `devops` to TCP port 8080 beside port 8000, so that a scrape of the SearXNG pod leaves the monitoring namespace.
+
+#### Scenario: The k8s check accepts the new egress port
+- **WHEN** `uv run devops ci --check --only k8s` runs on the branch that changes `k8s/monitoring/networkpolicy.yaml`
+- **THEN** the check exits 0 and reports no error for `k8s/monitoring/networkpolicy.yaml`

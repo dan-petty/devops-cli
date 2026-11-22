@@ -20,6 +20,7 @@ from devops_cli.k8s.cluster_secrets import (
     GRAFANA_SECURITY_KEY,
     LLM_GATEWAY_MASTER_KEY,
     MATTERMOST_DB_AUTH_KEY,
+    SEARXNG_METRICS_AUTH_KEY,
     SEARXNG_SERVER_KEY,
     KeyringSource,
     keyring_only_keys,
@@ -53,6 +54,7 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 DEVOPS_CACHE_VALKEY_AUTH_KEY,
                 MATTERMOST_DB_AUTH_KEY,
                 SEARXNG_SERVER_KEY,
+                SEARXNG_METRICS_AUTH_KEY,
                 GRAFANA_RENDERER_AUTH_KEY,
                 GRAFANA_SECURITY_KEY,
                 # The admin password of the object store (#4750), by its name: the key is new.

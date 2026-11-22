@@ -154,10 +154,23 @@ def _selects(selector: dict[str, Any], labels: dict[str, str]) -> bool:
     return True
 
 
+_DEVOPS_NAMESPACE_LABELS = {"kubernetes.io/metadata.name": "devops"}
+
+
+def _peer_admits_a_devops_pod(peer: dict[str, Any], labels: dict[str, str]) -> bool:
+    """Whether a peer of a rule admits a pod of namespace devops with `labels`: its
+    `namespaceSelector` selects the namespace devops, and its `podSelector` selects the pod. A
+    peer with neither selector admits each pod, and a peer of another namespace admits no pod of
+    devops (#4201)."""
+    return _selects(peer.get("namespaceSelector", {}), _DEVOPS_NAMESPACE_LABELS) and _selects(
+        peer.get("podSelector", {}), labels
+    )
+
+
 def _admits(rules: list[dict[str, Any]], side: str, labels: dict[str, str]) -> bool:
     """Whether a rule of `rules` admits TCP 8080 for a peer pod with `labels` of namespace devops."""
     return any(
-        any(_selects(peer.get("podSelector", {}), labels) for peer in rule.get(side, []))
+        any(_peer_admits_a_devops_pod(peer, labels) for peer in rule.get(side, []))
         and any(port["port"] == SEARXNG_PORT for port in rule.get("ports", []))
         for rule in rules
     )

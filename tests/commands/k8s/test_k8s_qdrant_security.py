@@ -100,6 +100,7 @@ def stub_keyring(monkeypatch: pytest.MonkeyPatch, cluster: FakeCluster) -> FakeK
             "runs_index_password": "deploy-runs-0001",
             "valkey_password": "deploy-cache-0001",
             "cloudflare_tunnel_token": "deploy-tunnel-0001",
+            "searxng_metrics_password": "deploy-searxng-metrics-0001",
         }
     )
     set_keyring_edge(backend)
@@ -168,6 +169,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
                 "cloudflared/cloudflared-token",
                 "devops/crawl4ai",
                 "devops/searxng",
+                "devops/searxng-metrics-auth",
                 "devops/mcp-server",
                 "devops/devops-cli",
                 "devops/qdrant-api-key",

@@ -42,6 +42,22 @@ def test_the_devops_stack_applies_the_rate_limit_before_the_ingress_that_names_i
     )
 
 
+def test_the_devops_stack_applies_the_searxng_service_monitor() -> None:
+    """The monitor needs the ServiceMonitor CRD of the Prometheus operator release, so deploy-stack
+    applies it after the Helm releases and not before them (#4201)."""
+    from devops_cli.commands.k8s.stack_lifecycle import (
+        PRODUCT_MANIFESTS_BY_STACK,
+        PRODUCT_POST_HELM_BY_STACK,
+    )
+
+    monitor = Path("searxng", "servicemonitor.yaml")
+
+    assert (
+        monitor in PRODUCT_POST_HELM_BY_STACK["devops"],
+        monitor in PRODUCT_MANIFESTS_BY_STACK["devops"],
+    ) == (True, False)
+
+
 def test_deploy_stack_devops_dry_run(
     isolate_devops_cli_config: Path, process_fake: ProcessFake
 ) -> None:

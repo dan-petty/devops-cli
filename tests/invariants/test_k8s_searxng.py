@@ -31,3 +31,24 @@ def test_the_secret_row_feeds_the_variable_and_restarts_the_deployment() -> None
         ["deployment/searxng"],
         "devops",
     )
+
+
+def test_the_metrics_secret_row() -> None:
+    """The OpenMetrics scrape reads a basic-auth Secret: user `searxng`, password from the
+    keyring entry `searxng_metrics_password`, and a push restarts the pod that reads it."""
+    (row,) = [secret for secret in CLUSTER_SECRETS if secret.ref == "devops/searxng-metrics-auth"]
+    username, password = row.entries
+
+    assert (
+        row.stack,
+        row.secret_type,
+        (username.key, username.source.label),
+        (password.key, password.source.label),
+        [str(workload) for workload in row.restarts],
+    ) == (
+        "devops",
+        "kubernetes.io/basic-auth",
+        ("username", "literal"),
+        ("password", "keyring searxng_metrics_password"),
+        ["deployment/searxng"],
+    )

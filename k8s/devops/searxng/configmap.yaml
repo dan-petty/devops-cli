@@ -1,8 +1,10 @@
 # The settings of SearXNG (#3924). The image reads this file as /etc/searxng/settings.yml. It holds
 # no secret: the server secret reaches the pod as SEARXNG_SECRET, which SearXNG reads before the
-# file. The file keeps only the engines that need no key. The scraping engines of Google, Bing,
-# Brave, Startpage, Mojeek and Qwant were suspended by their upstream sites in October 2026
-# (SearXNG issues 6866 and 6819), and the keyed Brave engine is not used, so none of them is kept.
+# file, and `general.open_metrics` holds the placeholder `${SEARXNG_METRICS_PASSWORD}` that the
+# `render-settings` init container replaces with the metrics password at pod start (#4201). The
+# file keeps only the engines that need no key. The scraping engines of Google, Bing, Brave,
+# Startpage, Mojeek and Qwant were suspended by their upstream sites in October 2026 (SearXNG
+# issues 6866 and 6819), and the keyed Brave engine is not used, so none of them is kept.
 # The pod logs two lines at start, and both are harmless:
 # - ERROR "X-Forwarded-For nor X-Real-IP header is set!" comes from `log_error_only_once` in
 #   searx/botdetection/trusted_proxies.py. It shows once, because the roadmap Service sends no proxy
@@ -37,6 +39,11 @@ data:
           - arxiv
           - mdn
           - docker hub
+    general:
+      # The OpenMetrics endpoint `/metrics` needs this password (#4201). The `render-settings` init
+      # container writes the password of key `password` of Secret `searxng-metrics-auth` here at pod
+      # start, so this file holds the placeholder and no secret.
+      open_metrics: ${SEARXNG_METRICS_PASSWORD}
     server:
       # The limiter needs Valkey and refuses a plain machine client. The NetworkPolicy
       # `searxng-perimeter-ingress` is the access control: only roadmap-service reaches the pod.
