@@ -20,7 +20,7 @@
 - **Keep the exact-value asserts of `tempo_query_limits.py`.**: They read the values file, which the chart did not render as the check expected. docs/TESTING.md and #6060 refuse an assert of a limit value, because each change of a value then needs a test change.
 - **Check the rendered keys against a list of Tempo keys in the repository.**: The list repeats one Tempo version, and a chart update breaks it. The binary of the pinned image knows its own keys.
 - **Download the Tempo binary from a GitHub release.**: It adds an installer and a version map to the repository, and the version can differ from the image of the chart.
-- **Run the check in a new `devops ci` row with a host refusal.**: It adds a row, a message and a refusal for one check. No step of a Job runs the `k8s` row: the implement Job runs `constructs`, `docs` and `openspec`, and the fixers of the fix-checks Job run ruff, the docs and `uv lock`.
+- **Run the check in a new `devops ci` row with a host refusal.**: It adds a row, a message and a refusal for one check. No step of a Job runs the `k8s` row: the implement Job runs `constructs`, `docs` and `openspec`, and the fixers of the fix-checks Job run ruff, the tests of a snapshot, the docs and `uv lock`.
 - **Run the check only in the Image Pins workflow.**: That check is not required, so a pull request can merge while it fails.
 - **Start the whole Tempo binary in the check.**: It needs a writable `/var/tempo` and a wait for the modules. `-config.verify=true` gives the parse result and stops.
 

@@ -1,112 +1,106 @@
-"""The Tempo query limits, which stay under the memory limit of the pod (#6616).
+"""The Tempo query limits, which stay under the memory limit of the pod (#6616, #6730).
 
-Two reads of the Tempo search API held the memory of pod `tempo-0` at the limit of
-`k8s/otel/tempo-values.yaml:39:memory: 2048Mi`, which OOM-killed the pod twice in one minute. The
-chart values cap the bytes of a trace that a search reads, the result count, the search duration,
-the byte rate, the outstanding queries per tenant and the concurrent queries of the querier, so a
-search cannot hold the memory of the pod. The chart renders the `queryFrontend` and `querier`
-blocks of the values into the Tempo configuration (#1813). The `global_overrides` block cuts the
-spans of a trace beyond 1000000 bytes as Tempo receives the trace.
+Ten reads of the Tempo search API held the memory of pod `tempo-0` at its limit, which OOM-killed
+the pod twice in one minute (#6616). The outstanding queries per tenant, the result limit of a
+search, the concurrent queries of the querier and the size limit of a trace bound the memory that
+the reads hold, and the read timeout of the query frontend stops a read and cancels its queued
+jobs. The check reads the Tempo configuration that chart `tempo` renders and the memory limit of
+the rendered `tempo` container, as Argo CD applies them. A key that the chart does not render,
+such as `tempo.global_overrides` (#6730), leaves Tempo at its default and fails the check. The
+check asserts the bounds and no value, so a new value within the bounds needs no change here
+(docs/TESTING.md).
 """
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Final
 
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
-from tests.support.paths import REPO_ROOT
+from tests.gate.k8s_render import ARGOCD_APPLICATIONS, chart_objects
 
-TEMPO_VALUES: Final = REPO_ROOT / "k8s" / "otel" / "tempo-values.yaml"
+TEMPO_APPLICATION: Final = ARGOCD_APPLICATIONS / "tempo.yaml"
 
+TEMPO_CONTAINER: Final[str] = "tempo"
 
-# The memory limit of the pod, and the query limits that the chart values set under it.
-MEMORY_LIMIT: Final[str] = "2048Mi"
+# The ConfigMap of the chart and its key that the container reads with `-config.file`.
+CONFIG_MAP: Final[str] = "tempo"
+CONFIG_FILE: Final[str] = "tempo.yaml"
 
-MAX_BYTES_PER_TRACE: Final[int] = 1000000
-
-MAX_RESULT_LIMIT: Final[int] = 50
-
-MAX_DURATION: Final[str] = "30s"
-
-TARGET_BYTES_PER_SECOND: Final[int] = 25000000
-
-MAX_OUTSTANDING_PER_TENANT: Final[int] = 10
-
-MAX_CONCURRENT_QUERIES: Final[int] = 4
+# The keys of the rendered Tempo configuration that bound the reads.
+OUTSTANDING: Final[tuple[str, ...]] = ("query_frontend", "max_outstanding_per_tenant")
+RESULT_LIMIT: Final[tuple[str, ...]] = ("query_frontend", "search", "max_result_limit")
+CONCURRENT: Final[tuple[str, ...]] = ("querier", "max_concurrent_queries")
+TRACE_BYTES: Final[tuple[str, ...]] = ("overrides", "defaults", "global", "max_bytes_per_trace")
+READ_TIMEOUT: Final[tuple[str, ...]] = ("query_frontend", "api_timeout")
 
 
-def _tempo() -> dict[str, Any]:
-    """The `tempo:` block of the Tempo chart values."""
-    values: dict[str, Any] = yaml.safe_load(TEMPO_VALUES.read_text(encoding="utf-8"))
-    return values["tempo"]
+def _rendered() -> tuple[dict[str, Any], Decimal]:
+    """The rendered Tempo configuration and the memory limit of the rendered `tempo` container."""
+    objects = chart_objects(TEMPO_APPLICATION)
+    (config_map,) = (
+        document
+        for document in objects
+        if document["kind"] == "ConfigMap" and document["metadata"]["name"] == CONFIG_MAP
+    )
+    (statefulset,) = (document for document in objects if document["kind"] == "StatefulSet")
+    (container,) = (
+        entry
+        for entry in statefulset["spec"]["template"]["spec"]["containers"]
+        if entry["name"] == TEMPO_CONTAINER
+    )
+    config: dict[str, Any] = yaml.safe_load(config_map["data"][CONFIG_FILE])
+    return config, parse_quantity(container["resources"]["limits"]["memory"])
+
+
+def _setting(config: dict[str, Any], path: tuple[str, ...]) -> Any:
+    """The value at `path` of the configuration, or None when a key of the path is absent."""
+    value: Any = config
+    for key in path:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
 
 
 def check_the_tempo_query_limits_stay_under_the_memory_limit() -> None:
-    """The values set the search byte, result, duration and byte-rate limits, the outstanding
-    queries per tenant, the concurrent queries of the querier and the trace size limit under the
-    `2048Mi` memory limit of the pod, so an oversized search or trace read is refused or cut and the
-    pod stays up (#6616)."""
-    tempo = _tempo()
-    frontend = tempo.get("queryFrontend", {})
-    querier = tempo.get("querier", {})
-    found = (
-        tempo.get("resources", {}).get("limits", {}).get("memory"),
-        frontend,
-        querier,
+    """The rendered configuration sets the outstanding queries, the result limit, the concurrent
+    queries, the trace size limit and the read timeout. The outstanding searches and the
+    concurrent reads hold at most half of the memory limit of the pod (#6616)."""
+    config, memory = _rendered()
+    found = {
+        ".".join(path): _setting(config, path)
+        for path in (OUTSTANDING, RESULT_LIMIT, CONCURRENT, TRACE_BYTES, READ_TIMEOUT)
+    }
+    unset = sorted(name for name, value in found.items() if value is None)
+
+    assert unset == [], (
+        f"{TEMPO_APPLICATION}: the rendered Tempo configuration does not set {unset}, so Tempo "
+        "uses its default there"
     )
 
-    assert found == (
-        MEMORY_LIMIT,
-        {
-            "search": {
-                "max_bytes_per_trace": MAX_BYTES_PER_TRACE,
-                "max_result_limit": MAX_RESULT_LIMIT,
-                "max_duration": MAX_DURATION,
-                "target_bytes_per_second": TARGET_BYTES_PER_SECOND,
-            },
-            "max_outstanding_per_tenant": MAX_OUTSTANDING_PER_TENANT,
-        },
-        {"max_concurrent_queries": MAX_CONCURRENT_QUERIES},
-    ), (
-        f"{TEMPO_VALUES}: resources.limits.memory is {found[0]}, queryFrontend is {found[1]} "
-        f"and querier is {found[2]}"
-    )
-
-    search = frontend["search"]
-    memory = parse_quantity(tempo["resources"]["limits"]["memory"])
-    searched = (
-        frontend["max_outstanding_per_tenant"]
-        * search["max_result_limit"]
-        * search["max_bytes_per_trace"]
-    )
+    outstanding = found[".".join(OUTSTANDING)]
+    results = found[".".join(RESULT_LIMIT)]
+    concurrent = found[".".join(CONCURRENT)]
+    trace_bytes = found[".".join(TRACE_BYTES)]
+    searched = outstanding * results * trace_bytes
 
     assert searched <= memory / 2, (
-        f"{TEMPO_VALUES}: queryFrontend.max_outstanding_per_tenant "
-        f"{frontend['max_outstanding_per_tenant']} times queryFrontend.search.max_result_limit "
-        f"{search['max_result_limit']} times queryFrontend.search.max_bytes_per_trace "
-        f"{search['max_bytes_per_trace']} is {searched} bytes, more than half of "
-        f"resources.limits.memory {memory}"
+        f"{TEMPO_APPLICATION}: query_frontend.max_outstanding_per_tenant {outstanding} times "
+        f"query_frontend.search.max_result_limit {results} times "
+        f"overrides.defaults.global.max_bytes_per_trace {trace_bytes} is {searched} bytes, more "
+        f"than half of the memory limit {memory}"
     )
 
-    assert querier["max_concurrent_queries"] <= frontend["max_outstanding_per_tenant"], (
-        f"{TEMPO_VALUES}: querier.max_concurrent_queries "
-        f"{querier['max_concurrent_queries']} is more than queryFrontend."
-        f"max_outstanding_per_tenant {frontend['max_outstanding_per_tenant']}"
+    assert concurrent <= outstanding, (
+        f"{TEMPO_APPLICATION}: querier.max_concurrent_queries {concurrent} is more than "
+        f"query_frontend.max_outstanding_per_tenant {outstanding}"
     )
 
-    received = tempo.get("global_overrides", {}).get("max_bytes_per_trace")
-
-    assert received == MAX_BYTES_PER_TRACE, (
-        f"{TEMPO_VALUES}: global_overrides.max_bytes_per_trace is {received}, not "
-        f"{MAX_BYTES_PER_TRACE} bytes, so Tempo keeps the spans of a larger trace"
-    )
-
-    held = querier["max_concurrent_queries"] * received
+    held = concurrent * trace_bytes
 
     assert held <= memory / 2, (
-        f"{TEMPO_VALUES}: querier.max_concurrent_queries "
-        f"{querier['max_concurrent_queries']} times global_overrides.max_bytes_per_trace "
-        f"{received} is {held} bytes, more than half of resources.limits.memory {memory}"
+        f"{TEMPO_APPLICATION}: querier.max_concurrent_queries {concurrent} times "
+        f"overrides.defaults.global.max_bytes_per_trace {trace_bytes} is {held} bytes, more than "
+        f"half of the memory limit {memory}"
     )
