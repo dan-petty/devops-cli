@@ -18,8 +18,10 @@ from devops_cli.config import os_keyring
 from devops_cli.config.constants import CONST_FAIL_TO_PASS_HOST_PATH_GUARD_MESSAGE
 from devops_cli.config.settings import load_settings
 from devops_cli.telemetry.tracer import get_tracer
+from tests.support import waits
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.paths import REPO_ROOT
+from tests.support.sleep_budget import charged_seconds
 
 
 def _run_with_floor(
@@ -1114,13 +1116,16 @@ def test_marked():
 def test_the_floor_refuses_real_sleeps_exceeding_budget(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A test that sleeps for real past the 0.25 s budget fails unless marked real_sleep (#4669)."""
+    """A test that sleeps for real past the 0.25 s budget fails unless marked real_sleep (#4669).
+    A poll of `wait_until` past the budget passes, because it waits for another thread (#6696)."""
     result = _run_with_floor(
         pytester,
         monkeypatch,
         """
         import time
         import pytest
+
+        from tests.support import waits
 
         def test_unmarked_sleep_fails():
             time.sleep(0.3)
@@ -1131,9 +1136,36 @@ def test_the_floor_refuses_real_sleeps_exceeding_budget(
 
         def test_budgeted_sleep_passes():
             time.sleep(0.01)
+
+        def test_wait_until_poll_past_the_budget_passes(monkeypatch):
+            monkeypatch.setattr(waits, "POLL_INTERVAL_SECONDS", 0.3)
+            reads = []
+
+            def condition():
+                reads.append(True)
+                return len(reads) > 1
+
+            assert waits.wait_until(condition)
         """,
     )
-    result.assert_outcomes(passed=3, errors=1)
+    result.assert_outcomes(passed=4, errors=1)
     failed_lines = [line for line in result.stdout.lines if "real sleep of" in line]
     assert len(failed_lines) >= 1
     assert "exceeded 0.25 s budget" in failed_lines[0]
+
+
+def test_a_wait_until_poll_past_the_budget_is_charged_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A poll of `wait_until` that waits longer than the 0.25 s budget costs the test nothing:
+    the poll waits for another thread, which a loaded host stretches (#6696)."""
+    monkeypatch.setattr(waits, "POLL_INTERVAL_SECONDS", 0.3)
+    reads: list[bool] = []
+
+    def condition() -> bool:
+        reads.append(True)
+        return len(reads) > 1
+
+    before = charged_seconds()
+    assert waits.wait_until(condition)
+    assert charged_seconds() == before
