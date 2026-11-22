@@ -85,8 +85,6 @@ _PHASE_PATH = ".status.phase"
 # The status lists of a pod: its init containers run first, one after the other (#3700).
 _INIT_STATUSES = "initContainerStatuses"
 _APP_STATUSES = "containerStatuses"
-# The condition of the requests of a runner Job on the phases in a dry run, which reads no CronJob.
-_PHASES_HELD = "the CronJob holds the init containers prepare and agent"
 # The containers of a runner Job on the phases and the status list of each, as a run follows them.
 _PHASE_STATUSES = (
     (CONST_RUNNER_PHASE_PREPARE, _INIT_STATUSES),
@@ -453,68 +451,55 @@ def dry_run_job(
             else []
         ),
     ]
-    # The dry run reads no CronJob, so for the runner template it shows the create of each
-    # shape under its condition: one container today, or the containers of the phases (#3700).
-    single = "the CronJob holds one container" if template == RUNNER_TEMPLATE else ""
-    exists = f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists"
-    shapes: list[tuple[str, tuple[str, ...]]] = [
-        (f"{single}, and {exists}" if single else exists, ())
-    ]
-    if template == RUNNER_TEMPLATE:
-        shapes.append((f"{_PHASES_HELD}, and {exists}", tuple(p for p, _ in _PHASE_STATUSES)))
-    requests += [
+    # The dry run reads no CronJob. The runner template in git holds the containers of the
+    # phases (#3700), so the dry run shows the create of those containers.
+    phases = tuple(phase for phase, _ in _PHASE_STATUSES) if template == RUNNER_TEMPLATE else ()
+    requests.append(
         kubectl(
             _CREATE_ARGS,
             f"job {JOB_NAMESPACE}/{name}",
             stdin=_job_preview(args, template, env, labels, repo=repo, item=item, phases=phases),
-            condition=condition,
+            condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
         )
-        for condition, phases in shapes
-    ]
-    started = f"{single}, after the pod left Pending" if single else "the pod left Pending"
-    if wait:
+    )
+    if wait and not phases:
         requests += [
             kubectl(
                 _pod_field_args(name, _PHASE_PATH),
                 f"pods of job {name}",
-                condition=single,
                 repeat=(
                     f"every {_POLL_SECONDS:g} s while the pod is Pending, "
                     f"for up to {start_timeout:g} s"
                 ),
             ),
-            kubectl(_logs_args(name), f"job {name}", condition=started),
+            kubectl(_logs_args(name), f"job {name}", condition="the pod left Pending"),
             kubectl(
                 _pod_field_args(name, _exit_code_path(template.container)),
                 f"pods of job {name}",
-                condition=started,
+                condition="the pod left Pending",
                 repeat=(
                     f"every {_POLL_SECONDS:g} s until the exit code is set, "
                     f"up to {_EXIT_CODE_ATTEMPTS} times"
                 ),
             ),
         ]
-    if wait and template == RUNNER_TEMPLATE:
-        # A run reads the CronJob and follows each container of a template on the phases in
-        # turn instead (#3700, #6690).
-        when = _PHASES_HELD
+    if wait and phases:
+        # A run follows each container of the phases in turn (#3700, #6690).
         for container, statuses in _PHASE_STATUSES:
             requests += [
                 kubectl(
                     _pod_field_args(name, _started_path(container, statuses)),
                     f"pods of job {name}",
-                    condition=when,
                     repeat=f"every {_POLL_SECONDS:g} s until {container} starts",
                 ),
                 kubectl(
                     _logs_args(name, container),
                     f"job {name}",
-                    condition=f"{when}, after {container} started",
+                    condition=f"after {container} started",
                 ),
                 kubectl(
                     _pod_field_args(name, _exit_code_path(container, statuses)),
                     f"pods of job {name}",
-                    condition=when,
                     repeat=f"until the exit code is set, up to {_EXIT_CODE_ATTEMPTS} times",
                 ),
             ]

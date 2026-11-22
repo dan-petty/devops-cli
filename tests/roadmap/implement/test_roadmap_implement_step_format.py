@@ -9,7 +9,6 @@ does; every other program is answered by `process_fake`.
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -29,7 +28,6 @@ from tests.support.implement_step import (
     WINDOW,
     command_text,
     git,
-    git_for_real,
     is_clean_at,
     make_checkout,
     programs_run,
@@ -274,43 +272,6 @@ def test_a_file_named_like_an_option_is_a_path_for_each_tool(
         [(list(tool), ["--", name]) for tool in tools],
     )
     assert not [line for line in programs_run(programs, "uv") if name in line and "mypy" in line]
-
-
-def _link_then_git(outside: Path) -> Callable[[ProcessCall], subprocess.CompletedProcess[str]]:
-    """What the agent leaves behind: `src/link.py`, a link to a file outside the checkout, as the
-    allowed `git` or `uv run python` could make it. It exists when the step stages the checkout."""
-
-    def make(call: ProcessCall) -> subprocess.CompletedProcess[str]:
-        link = (call.cwd or Path()) / "src" / "link.py"
-        if not link.is_symlink():
-            link.symlink_to(outside)
-        return git_for_real(call)
-
-    return make
-
-
-def test_a_link_named_like_a_python_file_stops_the_step_and_the_formatter_never_follows_it(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, tmp_path: Path
-) -> None:
-    head = git(checkout, "rev-parse", "HEAD")
-    outside = tmp_path / "outside.py"
-    outside.write_text(UNFORMATTED, encoding="utf-8")
-    _formats(programs)
-    programs.answer(
-        lambda call: call.argv[:3] == ("git", "add", "-A"),
-        ProcessAnswer(side_effect=_link_then_git(outside)),
-    )
-    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason, outside.read_text(encoding="utf-8")) == (
-        StepStatus.STOPPED,
-        "The agent made a symbolic link: src/link.py. The step does not format a link.",
-        UNFORMATTED,
-    )
-    assert is_clean_at(checkout, head)
-    assert not [line for line in programs_run(programs, "uv") if "ruff" in line]
 
 
 def test_the_instructions_say_that_the_job_formats_the_changed_python_files(

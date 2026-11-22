@@ -181,9 +181,10 @@ def test_the_read_of_origin_uses_the_credential_helper_of_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The devcontainer sets the credential helper with `GIT_CONFIG_*` keys. The read of a private
-    `origin` gets its credential from that helper, which reads the session's token, and the git
-    command holds no `-c` value of devops-cli (#6340, #6653). The server always refuses, so the
-    run stops after the read."""
+    `origin` gets its credential from that helper, which reads the session's token, and no git
+    command holds a `-c` value of devops-cli (#6340, #6653). Each git child gets the token, so the
+    recorder sees the local reads too (#6691). The server always refuses, so the run stops after
+    the read."""
     url, seen = challenge
     git(repo, "remote", "set-url", "origin", url)
     helper = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
@@ -213,7 +214,10 @@ def test_the_read_of_origin_uses_the_credential_helper_of_the_environment(
 
     credential = base64.b64encode(f"x-access-token:{pin_github_session}".encode()).decode()
     assert (result.exit_code, f"Basic {credential}" in seen, new_dir.exists()) == (1, True, False)
-    assert started == [["git", "-C", str(repo), "ls-remote", "--heads", "origin"]]
+    assert (
+        ["git", "-C", str(repo), "ls-remote", "--heads", "origin"] in started,
+        [cmd for cmd in started if "-c" in cmd],
+    ) == (True, [])
     assert github_api.requested == []
 
 

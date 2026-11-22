@@ -41,8 +41,6 @@ from devops_cli.config.constants import (
     CONST_GIT_MODULES_FILE,
     CONST_GITHUB_WORKFLOWS_DIR,
 )
-from devops_cli.config.settings import load_settings
-from devops_cli.core import process_hardening
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import PublishRefusedError
@@ -203,8 +201,6 @@ def publish_patch(
     work = [(patch, message) for patch, message in patches if patch.strip()]
     if not work:
         return None
-    if load_settings().roadmap.implement.in_runner:
-        process_hardening.end_leftover_processes()
     parent = Path(tempfile.mkdtemp(prefix="devops-publish-", dir=scratch))
     try:
         repo = parent / "repo"

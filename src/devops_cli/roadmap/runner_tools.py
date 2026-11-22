@@ -23,9 +23,11 @@ lock of an existing branch is the work of the agent: its shell can run `uv lock`
 `uv run --frozen`: a plain `uv run` locks a stale `uv.lock` again and writes it.
 After the bootstrap, the dev tools (`ToolSource.CHECKOUT`) come from the venv of the checkout.
 `checkout_environment` puts `node_modules/.bin` and that venv first on the PATH of the agent and
-of the checks that the Job starts. A child that gets a token never gets it, because the agent can
-write both folders. The stage Job runs in the runner image too (#6417), but it runs no bootstrap:
-it starts only the `git`, `gh` and `openspec` of the image (`ToolSource.DEVTOOLS`).
+of the checks that the Job starts. The agent can write both folders. Each git child gets the
+token of its session: the agent container of a runner Job holds none, but with `--phase all` or on
+a workstation a `git` of these folders gets it (#6691). The stage Job runs in the runner image too
+(#6417), but it runs no bootstrap: it starts only the `git`, `gh` and `openspec` of the image
+(`ToolSource.DEVTOOLS`).
 
 **The uv seed** (#4814). When the Job mounts the uv-seed image volume at `/opt/uv-seed`, and its
 `seed.json` holds the uv version, the Python version (`<major>.<minor>`) and the sha256 of the
@@ -340,8 +342,10 @@ _OFFLINE: Final[dict[str, str]] = {"UV_MALWARE_CHECK": "0"}
 
 def checkout_environment(checkout: Path) -> dict[str, str]:
     """The PATH of the agent and of the checks of a Job in `checkout`: `node_modules/.bin` and the
-    `bin` folder of the venv of the checkout first, then the PATH of the process. Give it only to
-    a child that gets no token: the agent can write both folders."""
+    `bin` folder of the venv of the checkout first, then the PATH of the process. The agent can
+    write both folders, so a program there runs in place of the program of the image. Each git
+    child gets the token of its session: in a runner Job the agent container holds none, but with
+    `--phase all` or on a workstation a `git` of these folders gets it (#6691)."""
     first = (checkout / "node_modules" / ".bin", checkout / ".venv" / "bin")
     rest = os.environ.get("PATH", os.defpath)
     return {"PATH": os.pathsep.join([*(str(folder) for folder in first), rest])}

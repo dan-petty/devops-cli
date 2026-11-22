@@ -69,8 +69,8 @@ class RunFolders:
 
     def make_out(self) -> Path:
         """Make `out/` for the user only and give it. The agent can write the run folder, so the
-        outputs go into a folder that is new after the sweep of the leftover processes: a link or
-        a FIFO in an `out/` that is there already would turn or hold the write (#6655)."""
+        outputs go into a new folder: a link or a FIFO in an `out/` that is there already would
+        turn or hold the write (#6655)."""
         try:
             self.out.mkdir(mode=_FOLDER_MODE)
         except FileExistsError:

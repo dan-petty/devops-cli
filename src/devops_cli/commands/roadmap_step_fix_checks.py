@@ -109,10 +109,9 @@ def _run(
         from devops_cli.core import process_hardening
 
         # The repair runs an agent step whose shell has the user of the Job, so the process is
-        # unreadable to its children before anything else, and adopts the orphans of a step, as
-        # the implement Job does (#2667, #6601).
+        # unreadable to its children before anything else, as the implement Job is (#2667,
+        # #6601).
         process_hardening.deny_environment_reads()
-        process_hardening.adopt_orphans()
     target = _repository(repo)
     if confirm:
         from devops_cli.roadmap.implement.implement_run import (

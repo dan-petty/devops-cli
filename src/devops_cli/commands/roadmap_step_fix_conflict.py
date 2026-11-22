@@ -4,8 +4,8 @@ Tier 1 runs code of the checkout of the pull request (`devops docs generate`, `u
 `--confirm`, which runs tier 1 and pushes, runs only in a runner Job (`require_runner`). With
 `--confirm`, `--phase` picks the phase of the round (#6703): `prepare`, `agent` or `publish` on the
 run folder `--work`, or `all`, the three in one process. Each phase first makes its process
-unreadable and adopts orphans; the agent phase then checks that it holds no App key, and the other
-phases that they act as the App. Without `--confirm` the step prints its plan, runs no code of the
+unreadable; the agent phase then checks that it holds no App key, and the other phases that they
+act as the App. Without `--confirm` the step prints its plan, runs no code of the
 checkout and writes nothing.
 """
 
@@ -95,10 +95,8 @@ def _run(
         from devops_cli.core import process_hardening
 
         # Tier 1 runs code of the pull request as the user of the Job, so the process is
-        # unreadable to its children before anything else, and adopts the orphans of that code,
-        # as the fix-checks Job does.
+        # unreadable to its children before anything else, as the fix-checks Job is.
         process_hardening.deny_environment_reads()
-        process_hardening.adopt_orphans()
     target = _repository(repo)
     if confirm:
         from devops_cli.roadmap.implement.implement_run import (

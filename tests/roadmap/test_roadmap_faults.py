@@ -515,8 +515,7 @@ def test_roadmap_fault_matrix(
 def test_every_failure_class_has_a_fault_case() -> None:
     """The fault cases cover every failure class in FailureClass. The suite runs the implement job,
     so it cannot drive two classes: only the refine round records a form-check failure (#6327),
-    and only an `OriginGit` call in a clone that an agent wrote meets a `shallow` link
-    (`git_config`), which the implement job no longer makes (#3702)."""
+    and no stop site gives `git_config` since #3702: only a record of an earlier Job holds it."""
     classes = {case.klass for case in FAULT_CASES}
     all_classes = set(FailureClass) - {FailureClass.FORM_CHECK, FailureClass.GIT_CONFIG}
     missing = all_classes - classes

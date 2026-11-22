@@ -849,7 +849,6 @@ def _implement_job(
         # The run starts the code of a pull request as the user of the Job, so the process is
         # unreadable to its children before the plan starts one (#2667, #3702).
         process_hardening.deny_environment_reads()
-        process_hardening.adopt_orphans()
     elif not plan_only:
         print_info(MESSAGES.roadmap.implement_job_plain_note)
     from devops_cli.roadmap.run import model_clone
@@ -917,7 +916,6 @@ def _implement_phase(
     from devops_cli.core import process_hardening
 
     process_hardening.deny_environment_reads()
-    process_hardening.adopt_orphans()
     from devops_cli.roadmap.implement import implement_phases as phases
     from devops_cli.roadmap.implement.implement_run import require_agent_runner, require_runner
     from devops_cli.roadmap.phases.files import RunFolders

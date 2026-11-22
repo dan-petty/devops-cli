@@ -1,9 +1,12 @@
-"""No program that a git configuration file names sees the GitHub token of the implement job (GHSA).
+"""No git call of the implement job that reaches `origin` runs a program that the agent names (GHSA).
 
 The agent of a step runs as the user of the Job, so it can write the git configuration of the home
-folder and of the clone. Git runs for real through the process runner, which pins the session's
-token (`PINNED_GITHUB_TOKEN`) on the git children that it gives a token. Each planted program
-writes the `GH_TOKEN` that it sees into one file.
+folder and of the clone. `prepare` clones before the agent phase, and `publish` pushes from a new
+repository that reads no configuration file of the home folder or of the clone. A local git call of
+the agent phase runs the hooks that the agent wrote; in the runner Job the agent phase holds no
+token (#3700). Git runs for real through the process runner, which pins the session's token
+(`PINNED_GITHUB_TOKEN`) on each git child. Each planted program writes its name and the
+`GH_TOKEN` that it sees into one file.
 """
 
 from __future__ import annotations
@@ -19,7 +22,6 @@ import pytest
 from devops_cli.core.process import DefaultProcessRunner
 from devops_cli.roadmap.implement.implement_step import commands_failure
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
-from tests.support.github_identity import PINNED_GITHUB_TOKEN
 from tests.support.implement_step import make_checkout
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
@@ -104,13 +106,20 @@ def home_gitconfig() -> Iterator[Path]:
             gitconfig.write_text(before, encoding="utf-8")
 
 
-def test_no_program_that_the_home_folder_names_sees_the_token(
+def _ran(capture: Path) -> set[str]:
+    """The names of the planted programs that ran."""
+    seen = capture.read_text(encoding="utf-8") if capture.exists() else ""
+    return {line.split()[0] for line in seen.splitlines() if line.strip()}
+
+
+def test_no_network_git_call_runs_a_program_that_the_home_folder_names(
     real_git: JobWorld, tmp_path: Path, home_gitconfig: Path
 ) -> None:
     """A turn of the agent writes hooks and a credential helper into the git configuration of the
-    home folder. The run pushes its branch, and none of them sees the token: a local git call gets
-    no token, and a network call reads no configuration file of the home folder. The job reads the
-    home folder before the first turn too, when a Job has a new one, so the plant waits for it."""
+    home folder. The run pushes its branch from the new repository of `publish`, which reads no
+    configuration file of the home folder, so neither the helper nor the `pre-push` hook runs. A
+    local commit of the agent phase runs the `pre-commit` hook. The job reads the home folder
+    before the first turn too, when a Job has a new one, so the plant waits for it."""
     capture = tmp_path / "capture.txt"
     hooks, helper = _plants(tmp_path / "planted", capture)
 
@@ -128,17 +137,18 @@ def test_no_program_that_the_home_folder_names_sees_the_token(
 
     applied = real_git.run(script)
 
-    seen = capture.read_text(encoding="utf-8") if capture.exists() else ""
+    ran = _ran(capture)
     assert (applied.drafted, applied.stopped, applied.failed) == ((1,), (), ())
     assert real_git.repo.origin_git("rev-parse", "--verify", f"refs/heads/{BRANCH}")
-    assert ("pre-commit none" in seen, PINNED_GITHUB_TOKEN in seen) == (True, False)
+    assert ("pre-commit" in ran, "pre-push" in ran, "helper" in ran) == (True, False, False)
 
 
-def test_no_program_that_the_configuration_of_the_clone_names_sees_the_token(
+def test_no_network_git_call_runs_a_program_that_the_configuration_of_the_clone_names(
     real_git: JobWorld, tmp_path: Path
 ) -> None:
     """A turn of the agent writes a hook folder and a credential helper into the configuration of
-    the clone. No hook and no helper sees the token in the rest of the run."""
+    the clone. `publish` pushes from its own repository, so neither the helper nor the `pre-push`
+    hook runs."""
     capture = tmp_path / "capture.txt"
     hooks, helper = _plants(tmp_path / "planted", capture)
 
@@ -156,8 +166,7 @@ def test_no_program_that_the_configuration_of_the_clone_names_sees_the_token(
 
     real_git.run(script)
 
-    seen = capture.read_text(encoding="utf-8") if capture.exists() else ""
-    assert PINNED_GITHUB_TOKEN not in seen
+    assert {"pre-push", "helper"} & _ran(capture) == set()
 
 
 @pytest.mark.parametrize(
@@ -173,7 +182,7 @@ def test_a_verification_command_that_reaches_a_remote_runs_no_program_with_the_t
 ) -> None:
     """A plan can name a network git call as a verification command. The step runs none: in the
     checkout, such a call reads the configuration that the agent can write, and the process runner
-    gives a git call that reaches a remote the token. The probe that the command names never runs."""
+    gives each git call the token. The probe that the command names never runs."""
     implement_programs.answer("git", ProcessAnswer(side_effect=_through_the_runner))
     checkout = make_checkout(tmp_path)
     capture = tmp_path / "capture.txt"

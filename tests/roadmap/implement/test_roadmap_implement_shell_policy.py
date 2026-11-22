@@ -570,8 +570,8 @@ def test_a_local_command_reaches_the_process_edge_and_is_no_refusal(
 
 
 def test_a_verification_command_runs_git_only_as_the_negative_search() -> None:
-    """A git call in the checkout reads the configuration that the agent can write, and a git call
-    that reaches a remote gets the token. So a verification command runs git only in the fixed
+    """A git call in the checkout reads the configuration that the agent can write, and each git
+    call gets the token of the process. So a verification command runs git only in the fixed
     shape of the negative search, which reaches no remote and takes no option that names a file."""
     assert (
         verification_problem("git fetch origin"),

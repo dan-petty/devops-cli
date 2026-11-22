@@ -61,8 +61,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_SUMMARY_FILE,
     CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
 )
-from devops_cli.config.settings import load_settings
-from devops_cli.core import process_hardening
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import (
     PhaseOutputError,
@@ -397,8 +395,6 @@ def agent_phase(folders: RunFolders, repair: Repair) -> None:
     item = Item.model_validate(inputs.item) if inputs.item is not None else None
     path = Path(inputs.checkout)
     outcome, tip = _fix(path, inputs, item, repair)
-    if load_settings().roadmap.implement.in_runner:
-        process_hardening.end_leftover_processes()
     out = folders.make_out()
     if outcome.kind is OutcomeKind.DONE:
         fix = outcome.result != FixChecksResult.REBASED

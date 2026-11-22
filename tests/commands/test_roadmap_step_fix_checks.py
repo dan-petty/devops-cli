@@ -114,7 +114,6 @@ def test_confirm_outside_a_runner_job_reads_no_pull_request(
     from devops_cli.core import process_hardening
 
     monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: None)
 
     result = cli(
         "roadmap", "step", "fix-checks", "--repo", "example/project", "--pull", "42", "--confirm"
@@ -244,10 +243,9 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_anything_else(
     runner: str,
 ) -> None:
     """The repair runs an agent step whose shell has the user of the Job, so each phase clears its
-    dumpable flag and adopts the orphans of a step first, before it reads the settings of the
-    runner or a file of the run (#2667, #3702). The agent phase checks that it holds no App key,
-    and the other phases that they act as the App (#6601). The spies replace the kernel calls,
-    which would change the test run."""
+    dumpable flag first, before it reads the settings of the runner or a file of the run (#2667,
+    #3702). The agent phase checks that it holds no App key, and the other phases that they act as
+    the App (#6601). The spy replaces the kernel call, which would change the test run."""
     from devops_cli.core import process_hardening
     from devops_cli.roadmap.attempt_kill import AttemptKilled
     from devops_cli.roadmap.implement import implement_run
@@ -259,7 +257,6 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_anything_else(
     monkeypatch.setattr(
         process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
     )
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
 
     def step(*_: Any, **__: Any) -> Any:
         seen.append("step")
@@ -281,7 +278,7 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_anything_else(
         *args,
     )
 
-    assert seen == ["unreadable", "orphans", runner, "step"]
+    assert seen == ["unreadable", runner, "step"]
 
 
 @pytest.mark.parametrize("phase", ["agent", "publish"])

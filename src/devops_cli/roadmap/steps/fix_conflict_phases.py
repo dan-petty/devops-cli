@@ -52,7 +52,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core import process_hardening
 from devops_cli.exceptions import DevOpsCLIError, GitOperationError
 from devops_cli.exceptions.roadmap import PhaseOutputError, PublishRefusedError
 from devops_cli.github.client import PullStatus
@@ -354,8 +353,6 @@ def agent_phase(folders: RunFolders) -> None:
     inputs = ConflictInput.model_validate_json(inputs_file.read_text(encoding="utf-8"))
     path = Path(inputs.checkout)
     outcome = _round(path, inputs)
-    if load_settings().roadmap.implement.in_runner:
-        process_hardening.end_leftover_processes()
     out = folders.make_out()
     if outcome.kind is OutcomeKind.DONE:
         _write_patches(path, inputs, out)

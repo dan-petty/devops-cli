@@ -906,35 +906,45 @@ def test_a_failed_lookup_is_not_kept(unresolved_identity: None) -> None:
     ]
 
 
-def test_git_looks_the_token_up_again_after_a_failed_lookup(unresolved_identity: None) -> None:
-    """A person with no gh login runs each network git command with no token, so the remote gives
-    its own answer, and the next command looks the token up again: no time window keeps git from a
-    login that `gh auth login` gives later (#6671)."""
-    with faked_children(return_value=_gh_answers(returncode=1)) as run:
+def test_git_keeps_a_failed_lookup_and_a_gh_call_looks_again(unresolved_identity: None) -> None:
+    """A person with no gh login runs each git command with no token, so the remote gives its own
+    answer. A git child keeps the failed lookup for the life of the process, so a process with no
+    login, such as the agent container, starts no `gh auth token` before each git call (#6691). A
+    gh call still looks the token up again, and the next git child takes the token that it found:
+    a login that `gh auth login` gives later reaches git (#6671)."""
+    answers = [_gh_answers(returncode=1), _gh_answers(), _gh_answers(), _gh_answers("A\n")]
+    with faked_children(side_effect=(children := _Children(*answers, _gh_answers()))):
         run_subprocess(["git", "fetch"])
         run_subprocess(["git", "fetch"])
-    assert [call.args[0][0] for call in run.call_args_list] == [
-        CONST_GH_CLI,
-        "git",
-        CONST_GH_CLI,
-        "git",
+        run_subprocess([CONST_GH_CLI, "issue", "list"])
+        run_subprocess(["git", "fetch"])
+    assert _child_envs(children) == [
+        ([CONST_GH_CLI, "auth", "token"], None, None),
+        (["git", "fetch"], None, None),
+        (["git", "fetch"], None, None),
+        ([CONST_GH_CLI, "auth", "token"], None, None),
+        ([CONST_GH_CLI, "issue", "list"], "A", None),
+        (["git", "fetch"], "A", None),
     ]
-    assert [call.kwargs["env"].get("GH_TOKEN") for call in run.call_args_list[1::2]] == [None, None]
 
 
-def test_a_network_git_child_of_the_app_fails_at_once_when_the_mint_fails(
-    unresolved_identity: None, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+@pytest.mark.parametrize("tail", [["fetch", "origin"], ["status"]], ids=["fetch", "status"])
+def test_a_git_child_of_the_app_fails_at_once_when_the_mint_fails(
+    tail: list[str],
+    unresolved_identity: None,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Callable[..., Path],
 ) -> None:
-    """When devops-cli acts as the GitHub App, a failed mint is an error of the git child that
-    needs the token, as it is of a gh call, and the child never starts. A key that cannot sign is
-    a refusal of the App, so the error names the mint as the cause (#6671)."""
+    """When devops-cli acts as the GitHub App, a failed mint is an error of the git child, which
+    gets the token, as it is of a gh call, and the child never starts. A key that cannot sign is
+    a refusal of the App, so the error names the mint as the cause (#6671, #6691)."""
     config(
         service={"github_app": {"app_id": 1001, "installation_id": 42, "slug": "devops-roadmap"}}
     )
     monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "not-a-pem-key")
     with faked_children(return_value=_gh_answers()) as run:
         with pytest.raises(GitHubUnauthenticatedError, match="has no installation token"):
-            run_subprocess(["git", "fetch", "origin"])
+            run_subprocess(["git", *tail])
     assert run.call_args_list == []
 
 
@@ -987,8 +997,7 @@ def test_the_unauthenticated_error_says_why_gh_gave_no_token(
 def test_gh_and_git_children_get_only_the_pinned_token(
     monkeypatch: pytest.MonkeyPatch, pin_github_session: str
 ) -> None:
-    """gh and a `git push` get the session's token and never a GITHUB_TOKEN: gh in the
-    `hosts.yml` of its private folder, git as GH_TOKEN."""
+    """gh and a `git push` get the session's token as GH_TOKEN and never a GITHUB_TOKEN."""
     monkeypatch.setenv("GH_TOKEN", "B")
     monkeypatch.setenv("GITHUB_TOKEN", "C")
     with faked_children(side_effect=(children := _Children(_gh_answers()))):
@@ -1000,38 +1009,38 @@ def test_gh_and_git_children_get_only_the_pinned_token(
     ]
 
 
-def test_git_runs_without_a_token_when_gh_has_no_login(unresolved_identity: None) -> None:
-    """A network git command still runs when no identity resolves; it just gets no token."""
+@pytest.mark.parametrize("tail", [["fetch"], ["status"]], ids=["fetch", "status"])
+def test_git_runs_without_a_token_when_gh_has_no_login(
+    tail: list[str], unresolved_identity: None
+) -> None:
+    """A git command still runs when no identity resolves; it just gets no token."""
     with faked_children(
         side_effect=(children := _Children(_gh_answers(returncode=1), _gh_answers())),
     ):
-        proc = run_subprocess(["git", "fetch"])
+        proc = run_subprocess(["git", *tail])
     assert (proc.returncode, _child_envs(children)[1:]) == (
         0,
-        [(["git", "fetch"], None, None)],
+        [(["git", *tail], None, None)],
     )
-
-
-def test_a_local_git_command_starts_no_lookup_when_gh_has_no_login(
-    unresolved_identity: None,
-) -> None:
-    """A local git command needs no token, so it starts no `gh auth token` (GHSA)."""
-    with faked_children(side_effect=(children := _Children(_gh_answers()))):
-        proc = run_subprocess(["git", "status"])
-    assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
 
 
 @pytest.mark.parametrize(
     "tail",
-    [["-C", "clone", "ls-remote", "--heads", "origin", "main"], ["fetch", "--prune", "origin"]],
-    ids=["ls-remote", "fetch"],
+    [
+        ["-C", "clone", "ls-remote", "--heads", "origin", "main"],
+        ["fetch", "--prune", "origin"],
+        ["status"],
+    ],
+    ids=["ls-remote", "fetch", "status"],
 )
-def test_a_network_git_child_gets_the_token_and_no_credential_value(
-    tail: list[str], pin_github_session: str
+def test_a_git_child_gets_the_token_and_no_credential_value(
+    tail: list[str], monkeypatch: pytest.MonkeyPatch, pin_github_session: str
 ) -> None:
-    """A git child that reaches a remote gets the session's token as `GH_TOKEN` and its own
-    arguments, with no `-c` value: git reads the credential helper that is configured for it, such
-    as `gh auth git-credential`, which reads that token (#6653)."""
+    """A git child gets the session's token as `GH_TOKEN` and its own arguments, with no `-c`
+    value: git reads the credential helper that is configured for it, such as
+    `gh auth git-credential`, which reads that token (#6653, #6691)."""
+    monkeypatch.setenv("GH_TOKEN", "ambient")
+
     with faked_children(side_effect=(children := _Children(_gh_answers()))):
         proc = run_subprocess(["git", *tail])
 
@@ -1039,19 +1048,6 @@ def test_a_network_git_child_gets_the_token_and_no_credential_value(
         0,
         [(["git", *tail], pin_github_session, None)],
     )
-
-
-def test_a_local_git_child_gets_no_credential_helper(
-    monkeypatch: pytest.MonkeyPatch, pin_github_session: str
-) -> None:
-    """A git child that reaches no remote gets no `-c` value and no token, so no lookup starts
-    (#6340)."""
-    monkeypatch.setenv("GH_TOKEN", "ambient")
-
-    with faked_children(side_effect=(children := _Children(_gh_answers()))):
-        proc = run_subprocess(["git", "status"])
-
-    assert (proc.returncode, _child_envs(children)) == (0, [(["git", "status"], None, None)])
 
 
 @pytest.mark.parametrize("argv", [[CONST_GH_CLI, "--version"], [CONST_GH_CLI, "help"]])

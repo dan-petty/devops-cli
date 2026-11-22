@@ -1025,20 +1025,6 @@ def isolate_proc_root(_hermetic_floor_dir: Path, monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.fixture(autouse=True)
-def isolate_end_leftover_processes(
-    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
-) -> None:
-    """Ensure non-live tests do not read host /proc to find leftover processes (#2165)."""
-    if "live" in request.keywords:
-        return
-    import devops_cli.core.process_hardening as ph
-    import devops_cli.roadmap.implement.implement_step as implement_step
-
-    monkeypatch.setattr(ph, "end_leftover_processes", lambda timeout=0.0: None)
-    monkeypatch.setattr(implement_step, "end_leftover_processes", lambda timeout=0.0: None)
-
-
-@pytest.fixture(autouse=True)
 def isolate_own_source_repository() -> None:
     """Run every test as a devops-cli installed in site-packages runs, trusting no repository as
     its own (#972). The suite imports devops-cli from the checkout it runs in, which would make

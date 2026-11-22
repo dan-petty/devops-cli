@@ -39,10 +39,9 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
     runner: str,
 ) -> None:
     """The run starts the code of a pull request as the user of the Job, so each phase clears its
-    dumpable flag and adopts the orphans of a step first, before it reads the settings of the
-    runner or a file of the run (#2667, #3702). The agent phase checks that it holds no App key,
-    and the other phases that they act as the App. The spies replace the kernel calls, which would
-    change the test run."""
+    dumpable flag first, before it reads the settings of the runner or a file of the run (#2667,
+    #3702). The agent phase checks that it holds no App key, and the other phases that they act as
+    the App. The spy replaces the kernel call, which would change the test run."""
     from devops_cli import ai
     from devops_cli.ai.client import factory
     from devops_cli.core import process_hardening
@@ -56,7 +55,6 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
     monkeypatch.setattr(
         process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
     )
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
     monkeypatch.setattr(factory, "get_task_model", lambda _task: None)
     monkeypatch.setattr(ai.client, "get_llm_client", lambda **_: None)
     monkeypatch.setattr(implement, "plan_implement", lambda *_, **__: _OnePlan())
@@ -83,7 +81,7 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
         str(tmp_path / "run"),
     )
 
-    assert (result.exit_code, seen) == (1, ["unreadable", "orphans", runner, "step"])
+    assert (result.exit_code, seen) == (1, ["unreadable", runner, "step"])
 
 
 class _OnePlan:
@@ -129,7 +127,6 @@ def test_a_publish_after_a_prepare_that_left_the_item_out_ends_with_its_reason(
     )
     monkeypatch.setattr(implement_run, "require_runner", lambda _repo: None)
     monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: None)
     monkeypatch.setattr(implement, "plan_implement", lambda *_, **__: plan)
     monkeypatch.setattr(run, "model_clone", lambda _repo: tmp_path)
     work = str(tmp_path / "run")

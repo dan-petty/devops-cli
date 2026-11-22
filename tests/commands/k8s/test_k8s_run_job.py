@@ -24,7 +24,6 @@ from tests.support.fakes.cluster_jobs import (
 
 REPO = "example/roadmap"
 PHASES = ("prepare", "agent", "publish")
-PHASES_HELD = "the CronJob holds the init containers prepare and agent"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
 LOCK_LABEL = "implement-repo"
 
@@ -321,24 +320,21 @@ def test_the_dry_run_of_the_runner_template_names_its_cronjob() -> None:
 
 
 def test_the_dry_run_of_the_runner_template_lists_the_reads_of_each_phase_container() -> None:
-    """A dry run reads no CronJob, so it lists the reads of a template on the phases with their
-    condition (#3700, #6690)."""
+    """A dry run reads no CronJob, so it lists the reads of each container of the runner template
+    in git, which holds the containers of the phases (#3700, #6690, #6691)."""
     result = _run("--template", "runner", "--repo", REPO, "--dry-run", "--", "roadmap", "implement")
     output = " ".join(result.output.split())
     assert (
         result.exit_code,
         [f"-c {phase}" in output for phase in ("prepare", "agent", "publish")],
-        "the CronJob holds the init containers prepare and agent" in output,
-    ) == (0, [True, True, True], True), result.output
+        "one container" in output,
+    ) == (0, [True, True, True], False), result.output
 
 
-def test_the_dry_run_of_the_runner_template_shows_the_create_of_each_shape_under_its_condition() -> (
-    None
-):
-    """The dry run reads no CronJob, so it shows the Job of each shape of the runner template
-    under its condition, as the follow steps do: one container `runner` today, and on the phases
-    (#3700) the init containers prepare and agent and the container publish, each with its phase
-    (#6743)."""
+def test_the_dry_run_of_the_runner_template_shows_the_create_of_the_three_containers() -> None:
+    """The runner template in git holds the init containers prepare and agent and the container
+    publish (#3700). The dry run shows the create of that Job alone, each container with its
+    phase, and no Job of one container `runner` (#6743, #6691)."""
     from devops_cli.commands.k8s.cluster_jobs import dry_run_job
 
     args = ["roadmap", "implement", "--item", "7"]
@@ -348,11 +344,10 @@ def test_the_dry_run_of_the_runner_template_shows_the_create_of_each_shape_under
         if request.stdin:
             pod = json.loads(request.stdin)["spec"]["template"]["spec"]
             containers = [*pod.get("initContainers", []), *pod["containers"]]
-            shown[request.condition.partition(",")[0]] = {c["name"]: c["args"] for c in containers}
+            shown[request.condition] = {c["name"]: c["args"] for c in containers}
 
     assert shown == {
-        "the CronJob holds one container": {"runner": args},
-        PHASES_HELD: {
+        "CronJob devops/devops-cli-runner exists": {
             phase: [*args, "--phase", phase, "--work", "/run/roadmap"] for phase in PHASES
         },
     }
@@ -572,40 +567,11 @@ def test_the_dry_run_of_the_runner_template_lists_the_lookup_and_the_label() -> 
     ) == (0, True, True), result.output
 
 
-def test_the_dry_run_of_the_runner_template_lists_exactly_the_requests_a_run_then_makes(
-    cluster_jobs: FakeJobs,
-) -> None:
-    from devops_cli.commands.k8s.cluster_jobs import dry_run_job
-
-    cluster_jobs.phases = ["Running"]
-    args = ["roadmap", "implement"]
-    planned = dry_run_job(
-        args,
-        "test-ctx",
-        wait=True,
-        start_timeout=5.0,
-        template=RUNNER_TEMPLATE,
-        env={REPO_ENV: REPO},
-        repo=REPO,
-    ).requests
-    result = _run("--template", "runner", "--repo", REPO, "--", *args)
-    name = cluster_jobs.created[0]["metadata"]["name"]
-    expected = [
-        [a.replace("<devops-cli-implement-name-xxxxxx>", name) for a in r.argv]
-        for r in planned
-        if not r.condition.startswith(PHASES_HELD)
-    ]
-    assert (result.exit_code, cluster_jobs.calls) == (
-        0,
-        [[a for a in argv if a not in ("--context", "test-ctx")] for argv in expected],
-    )
-
-
 def test_the_dry_run_lists_exactly_the_requests_of_a_run_on_the_phases(
     cluster_jobs: FakeJobs,
 ) -> None:
-    """For a CronJob on the phases, a run makes the shared requests and the reads of each
-    container, and none of the reads of one container (#3700, #6690)."""
+    """For a CronJob on the phases, a run makes each request of the dry run: the shared requests
+    and the reads of each container (#3700, #6690, #6691)."""
     from devops_cli.commands.k8s.cluster_jobs import dry_run_job
 
     cluster_jobs.runner_cronjob = phase_runner_cronjob_manifest()
@@ -623,9 +589,7 @@ def test_the_dry_run_lists_exactly_the_requests_of_a_run_on_the_phases(
     result = _run("--template", "runner", "--repo", REPO, "--", *args)
     name = cluster_jobs.created[0]["metadata"]["name"]
     expected = [
-        [a.replace("<devops-cli-implement-name-xxxxxx>", name) for a in r.argv]
-        for r in planned
-        if not r.condition.startswith("the CronJob holds one container")
+        [a.replace("<devops-cli-implement-name-xxxxxx>", name) for a in r.argv] for r in planned
     ]
     assert (result.exit_code, cluster_jobs.calls) == (
         0,

@@ -424,18 +424,6 @@ class ConfigMessages:
         "Quote <file> and <key> for the shell.\n"
         "A key that is not a config option needs only step 2."
     )
-    gh_config_root_not_private: str = (
-        "the folder is a link, belongs to another user, or others can read it"
-    )
-    gh_config_root_in_current_folder: str = (
-        "the folder is in the current folder, which can be a working tree"
-    )
-    gh_config_data_dir_relative: str = "the data directory is relative"
-    gh_config_folder_failed: str = (
-        "devops-cli found no private folder for the gh configuration of a gh call: {reasons}. "
-        "Set XDG_RUNTIME_DIR or TMPDIR to a folder that you can write, or set data.dir "
-        "(DEVOPS_CLI_DATA_DIR) to an absolute folder that you can write."
-    )
 
 
 @dataclass(frozen=True)
@@ -3577,9 +3565,6 @@ class RoadmapMessages:
     )
     implement_stop_command_timeout: str = "{command} ran out of time after {seconds} s."
     implement_formatted: str = "Formatted: {paths}"
-    implement_stop_link: str = (
-        "The agent made a symbolic link: {paths}. The step does not format a link."
-    )
     implement_stop_no_change: str = (
         "The group {group} ({title}) changed no file. The group may be too large or already done. "
         "Return the item for a smaller replacement of group {group}, or amend the plan with a "
@@ -3832,15 +3817,6 @@ class RoadmapMessages:
         "The implement job for {repo} needs a token for that one repository. Set "
         "service.github_app.token_repository to {repo}; it is now {scoped}. Without it the token "
         "covers every repository of the installation. This process ran no step."
-    )
-    implement_leftover_processes: str = (
-        "A process that the job started is still alive after the job sent it SIGKILL: {names}. The "
-        "job runs no program with the GitHub token while such a process lives, so it stops the item."
-    )
-    implement_git_settings_refused: str = (
-        "The git folder of the clone holds {settings} as a link or as a file that is not a regular "
-        "file, which the implement job does not allow. The job pushes nothing. A person removes "
-        "the file and its cause, and then retries the item."
     )
     implement_agent_phase_key_refused: str = (
         "The agent phase holds the model key only, and this environment holds {names}. Run the "
