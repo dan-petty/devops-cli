@@ -1346,7 +1346,7 @@ def test_a_body_that_fills_its_room_gets_no_rewrite(
     (change,) = plan.ready
     assert len(model_fake.calls) == 1
     assert change.body.startswith(f"{text}\n\nPlans #{item}\n")
-    assert len(text) == 1000
+    assert change.body.index(f"\n\nPlans #{item}\n") == 1000
 
 
 @pytest.mark.usefixtures("openspec")
