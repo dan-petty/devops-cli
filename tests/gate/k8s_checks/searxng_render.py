@@ -60,11 +60,8 @@ def _pod() -> dict[str, Any]:
 
 
 def _container(pod: dict[str, Any], name: str) -> dict[str, Any]:
-    (found,) = (
-        container
-        for container in [*pod.get("initContainers", []), *pod["containers"]]
-        if container["name"] == name
-    )
+    containers: list[dict[str, Any]] = [*pod.get("initContainers", []), *pod["containers"]]
+    (found,) = (container for container in containers if container["name"] == name)
     return found
 
 
