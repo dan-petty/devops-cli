@@ -288,10 +288,13 @@ def test_a_block_that_a_person_opens_on_any_line_keeps_the_record(
     keys of the old record."""
     written = with_record("\n".join(lines) + end, BLOCK).split("\n")
     at = data.draw(st.integers(min_value=0, max_value=len(written) - 1))
-    person, held = split_record("\n".join([*written[:at], opener, *written[at:]]))
+    edited = "\n".join([*written[:at], opener, *written[at:]])
+    person, held = split_record(edited)
     after = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
-    assert (held, after.count(CONST_ROADMAP_RECORD_MARKER), split_record(after)[1]) == (
-        RECORD,
-        1,
-        NEXT_RECORD,
-    )
+    assert (
+        held,
+        edited.startswith(person),
+        CONST_ROADMAP_RECORD_MARKER in person,
+        after.count(CONST_ROADMAP_RECORD_MARKER),
+        split_record(after)[1],
+    ) == (RECORD, True, False, 1, NEXT_RECORD)
