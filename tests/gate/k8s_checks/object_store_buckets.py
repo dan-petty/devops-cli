@@ -1,12 +1,13 @@
 """The buckets and the lifecycle rules of the object store (#4756).
 
 The SeaweedFS operator makes each bucket, quota, anonymous read and lifecycle rule of the store
-from the CRs of `k8s/object-store/buckets.yaml`, so no reconcile code runs. Each bucket lives in
-the namespace of the workload that writes it, and names the `Seaweed` CR of `object-store` through
-a grant there. These checks read the render of `k8s/object-store`, the values of the operator chart
-and the AppProject. Each rule is a function that returns its problems. One check applies the rule
-to the committed render, and one applies it to a fixture that breaks it and asserts that the
-problem names the object, so a rule that stops finding its problem fails the row too.
+from the CRs of `k8s/object-store/buckets.yaml`, so no reconcile code runs. Each bucket and its
+lifecycle policy live in namespace `object-store` beside the `Seaweed` CR, and the operator watches
+only that namespace: the chart gives each watched namespace the manager Role of the operator, which
+can read and write every Secret there. These checks read the render of `k8s/object-store` and the
+values of the operator chart. Each rule is a function that returns its problems. One check applies
+the rule to the committed render, and one applies it to a fixture that breaks it and asserts that
+the problem names the object, so a rule that stops finding its problem fails the row too.
 """
 
 from __future__ import annotations
@@ -24,22 +25,18 @@ from tests.support.paths import REPO_ROOT
 
 STORE_DIR: Final = REPO_ROOT / "k8s" / "object-store"
 OPERATOR_VALUES: Final = STORE_DIR / "operator-values.yaml"
-PROJECTS: Final = REPO_ROOT / "k8s" / "argocd" / "apps" / "projects.yaml"
 
 NAMESPACE: Final = "object-store"
 CR_NAME: Final = "seaweedfs"
-PROJECT: Final = "homelab"
-GROUP: Final = "seaweed.seaweedfs.com"
-GRANT_NAME: Final = "object-store-buckets"
 
-# The platform buckets of the devops-cli workloads: the namespace of the workload that writes each
-# one, and its quota. `local-path` does not enforce the size of a claim, so the quotas are the
-# limits. The tenant buckets `backups-*` come from the tenant chart of dan-petty/infra.
+# The platform buckets of the devops-cli workloads and their quotas, all in the store namespace.
+# `local-path` does not enforce the size of a claim, so the quotas are the limits. The tenant
+# buckets `backups-*` come from the tenant chart of dan-petty/infra.
 PLATFORM_BUCKETS: Final = {
-    "reports": ("devops", "20Gi"),
-    "reports-private": ("devops", "20Gi"),
-    "cache": ("devops", "10Gi"),
-    "argo-artifacts": ("argo-workflows", "10Gi"),
+    "reports": "20Gi",
+    "reports-private": "20Gi",
+    "cache": "10Gi",
+    "argo-artifacts": "10Gi",
 }
 ANONYMOUS_READ: Final = frozenset({"reports", "reports-private"})
 ANONYMOUS_USER: Final = "anonymous"
@@ -51,19 +48,13 @@ EXPIRATIONS: Final = {
     ("argo-artifacts", ""): 7,
 }
 ABORT_MULTIPART_DAYS: Final = 1
-# The kinds of the operator that it reconciles in their own namespace.
+# The kinds of the operator that it reconciles only in a watched namespace.
 WATCHED_KINDS: Final = frozenset({"Bucket", "BucketLifecyclePolicy"})
 # The kinds the render may hold: the operator CRs, the perimeter and the budgets. No Job, CronJob,
-# workload or script reconciles the store.
+# workload or script reconciles the store, and no ResourceReferenceGrant admits a CR of another
+# namespace to the store.
 STORE_KINDS: Final = frozenset(
-    {
-        "Seaweed",
-        "Bucket",
-        "BucketLifecyclePolicy",
-        "ResourceReferenceGrant",
-        "NetworkPolicy",
-        "PodDisruptionBudget",
-    }
+    {"Seaweed", "Bucket", "BucketLifecyclePolicy", "NetworkPolicy", "PodDisruptionBudget"}
 )
 
 
@@ -87,10 +78,6 @@ def _values() -> dict[str, Any]:
     return dict(data) if isinstance(data, dict) else {}
 
 
-def _projects() -> list[dict[str, Any]]:
-    return _load(PROJECTS.read_text(encoding="utf-8"))
-
-
 def _name(doc: Mapping[str, Any]) -> str:
     return str(doc.get("metadata", {}).get("name", ""))
 
@@ -109,12 +96,14 @@ def _bucket_name(bucket: Mapping[str, Any]) -> str:
 
 
 def _names_the_store(bucket: Mapping[str, Any]) -> bool:
+    """`clusterRef` names the `Seaweed` CR of the namespace of the bucket, the store namespace, so
+    the operator needs no grant."""
     spec = bucket.get("spec", {})
     ref = spec.get("clusterRef") or {}
     return (
         "seaweedRef" not in spec
         and ref.get("name") == CR_NAME
-        and (ref.get("namespace") or _namespace(bucket)) == NAMESPACE
+        and ref.get("namespace", _namespace(bucket)) == _namespace(bucket) == NAMESPACE
     )
 
 
@@ -122,12 +111,12 @@ def _names_the_store(bucket: Mapping[str, Any]) -> bool:
 
 
 def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Each platform bucket is there in the namespace of its writer with its quota, and each bucket
-    of the store names the store in `clusterRef`, keeps an enforced quota and keeps its data when
-    its CR goes."""
+    """Each platform bucket is there in the store namespace with its quota, and each bucket of the
+    store names the store in `clusterRef`, keeps an enforced quota and keeps its data when its CR
+    goes."""
     problems: list[str] = []
     found = {_bucket_name(bucket): bucket for bucket in buckets}
-    for name, (namespace, size) in PLATFORM_BUCKETS.items():
+    for name, size in PLATFORM_BUCKETS.items():
         bucket = found.get(name)
         if bucket is None:
             problems.append(f"Bucket/{name}: no Bucket in the render")
@@ -135,8 +124,8 @@ def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
         quota = bucket.get("spec", {}).get("quota", {}).get("size")
         if quota is None or parse_quantity(quota) != parse_quantity(size):
             problems.append(f"Bucket/{name}: quota is {quota!r}, not {size}")
-        if _namespace(bucket) != namespace:
-            problems.append(f"Bucket/{name}: namespace is {_namespace(bucket)!r}, not {namespace}")
+        if _namespace(bucket) != NAMESPACE:
+            problems.append(f"Bucket/{name}: namespace is {_namespace(bucket)!r}, not {NAMESPACE}")
     for bucket in found.values():
         spec = bucket.get("spec", {})
         quota = spec.get("quota", {})
@@ -162,102 +151,17 @@ def check_the_bucket_rule_names_a_bucket_that_deletes_its_data() -> None:
     assert any(p.startswith("Bucket/cache:") for p in bucket_problems(buckets))
 
 
-def check_the_bucket_rule_names_a_bucket_in_the_store_namespace() -> None:
+def check_the_bucket_rule_names_a_bucket_in_the_namespace_of_its_writer() -> None:
     buckets = _kind("Bucket")
     for bucket in buckets:
         if _bucket_name(bucket) == "cache":
-            bucket["metadata"]["namespace"] = NAMESPACE
+            bucket["metadata"]["namespace"] = "devops"
+            bucket["spec"]["clusterRef"]["namespace"] = NAMESPACE
 
-    assert any(p.startswith("Bucket/cache: namespace") for p in bucket_problems(buckets))
+    problems = bucket_problems(buckets)
 
-
-# The grant of the buckets.
-
-
-def _admits(grant: Mapping[str, Any], namespace: str) -> bool:
-    """The grant admits a `Bucket` of the namespace to the `Seaweed` CR of the store."""
-    spec = grant.get("spec", {})
-    return any(
-        source.get("group") == GROUP
-        and source.get("kind") == "Bucket"
-        and source.get("namespace") == namespace
-        for source in spec.get("from", [])
-    ) and any(
-        target.get("group") == GROUP
-        and target.get("kind") == "Seaweed"
-        and target.get("name") == CR_NAME
-        for target in spec.get("to", [])
-    )
-
-
-def _grant_problems(grant: Mapping[str, Any], namespaces: set[str]) -> list[str]:
-    """One grant: in the store namespace, from buckets of the bucket namespaces by name, to the
-    `Seaweed` CR of the store by name."""
-    ref = f"{_ref(grant)} of {_namespace(grant)}"
-    spec = grant.get("spec", {})
-    problems = [f"{ref}: not in namespace {NAMESPACE}"] if _namespace(grant) != NAMESPACE else []
-    problems.extend(
-        f"{ref}: admits {source.get('kind')} from {source.get('namespace') or 'a selector'}"
-        for source in spec.get("from", [])
-        if source.get("group") != GROUP
-        or source.get("kind") != "Bucket"
-        or "namespaceSelector" in source
-        or source.get("namespace") not in namespaces
-    )
-    problems.extend(
-        f"{ref}: admits {target.get('kind')} {target.get('name') or 'of every name'}"
-        for target in spec.get("to", [])
-        if target.get("group") != GROUP
-        or target.get("kind") != "Seaweed"
-        or target.get("name") != CR_NAME
-    )
-    return problems
-
-
-def grant_problems(documents: Iterable[Mapping[str, Any]]) -> list[str]:
-    """A grant in the store namespace admits each bucket of another namespace to the store, and
-    each grant admits only such buckets, to the store only."""
-    docs = list(documents)
-    grants = _kind("ResourceReferenceGrant", docs)
-    outside = [bucket for bucket in _kind("Bucket", docs) if _namespace(bucket) != NAMESPACE]
-    namespaces = {_namespace(bucket) for bucket in outside}
-    problems = [
-        f"{_ref(bucket)}: no grant in {NAMESPACE} admits the Buckets of {_namespace(bucket)}"
-        for bucket in outside
-        if not any(
-            _namespace(grant) == NAMESPACE and _admits(grant, _namespace(bucket))
-            for grant in grants
-        )
-    ]
-    for grant in grants:
-        problems.extend(_grant_problems(grant, namespaces))
-    return problems
-
-
-def check_a_grant_admits_the_buckets_to_the_store() -> None:
-    assert grant_problems(_render()) == []
-
-
-def check_the_grant_rule_names_a_bucket_namespace_with_no_grant() -> None:
-    documents = [copy.deepcopy(doc) for doc in _render()]
-    for doc in documents:
-        if doc.get("kind") == "Bucket" and _bucket_name(doc) == "argo-artifacts":
-            doc["metadata"]["namespace"] = "llm"
-
-    assert any(p.startswith("Bucket/argo-artifacts: no grant") for p in grant_problems(documents))
-
-
-def check_the_grant_rule_names_a_grant_to_every_seaweed_cr() -> None:
-    documents = [copy.deepcopy(doc) for doc in _render()]
-    for doc in documents:
-        if doc.get("kind") == "ResourceReferenceGrant":
-            for target in doc["spec"]["to"]:
-                target.pop("name", None)
-
-    assert any(
-        p.startswith(f"ResourceReferenceGrant/{GRANT_NAME} of {NAMESPACE}: admits Seaweed")
-        for p in grant_problems(documents)
-    )
+    assert "Bucket/cache: namespace is 'devops', not object-store" in problems
+    assert f"Bucket/cache: clusterRef does not name {NAMESPACE}/{CR_NAME}" in problems
 
 
 # The anonymous read.
@@ -386,64 +290,83 @@ def check_the_lifecycle_rule_names_a_bucket_with_no_policy() -> None:
 
 
 def watch_problems(values: Mapping[str, Any], documents: Iterable[Mapping[str, Any]]) -> list[str]:
-    """The operator watches the store and the namespace of each bucket and lifecycle policy, each
-    once: it sees a CR only through the cache of these namespaces, and an empty list gives it a
-    ClusterRole over every namespace."""
+    """The operator watches only the store namespace, and each CR that it reconciles is there. The
+    chart gives each watched namespace the manager Role of the operator, which can read and write
+    every Secret there, and an empty list gives it a ClusterRole over every namespace."""
     found = list(values.get("watchNamespaces") or [])
-    expected = {NAMESPACE} | {
-        _namespace(doc) for doc in documents if doc.get("kind") in WATCHED_KINDS
-    }
-    problems = [
-        f"watchNamespaces lacks namespace {namespace}"
-        for namespace in sorted(expected - set(found))
-    ]
+    problems = [] if found == [NAMESPACE] else [f"watchNamespaces is {found}, not [{NAMESPACE}]"]
     problems.extend(
-        f"watchNamespaces names namespace {namespace}, which no CR of the store needs"
-        for namespace in sorted(set(found) - expected)
+        f"{_ref(doc)}: the operator does not watch namespace {_namespace(doc)!r}"
+        for doc in documents
+        if doc.get("kind") in WATCHED_KINDS and _namespace(doc) not in found
     )
-    if len(found) != len(set(found)):
-        problems.append(f"watchNamespaces repeats a namespace: {found}")
     return problems
 
 
-def check_the_operator_watches_the_store_and_each_bucket_namespace() -> None:
+def check_the_operator_watches_only_the_store_namespace() -> None:
     assert watch_problems(_values(), _render()) == []
 
 
-def check_the_watch_rule_names_a_bucket_namespace_the_operator_does_not_watch() -> None:
-    values = {**_values(), "watchNamespaces": [NAMESPACE]}
+def check_the_watch_rule_names_a_watched_writer_namespace() -> None:
+    values = {**_values(), "watchNamespaces": [NAMESPACE, "devops", "argo-workflows"]}
 
-    assert "watchNamespaces lacks namespace devops" in watch_problems(values, _render())
+    assert watch_problems(values, _render()) == [
+        "watchNamespaces is ['object-store', 'devops', 'argo-workflows'], not [object-store]"
+    ]
+
+
+def check_the_watch_rule_names_a_watch_of_every_namespace() -> None:
+    values = {**_values(), "watchNamespaces": []}
+
+    assert "watchNamespaces is [], not [object-store]" in watch_problems(values, _render())
 
 
 # The kinds of the render.
 
 
-def kind_problems(
-    documents: Iterable[Mapping[str, Any]], projects: Iterable[Mapping[str, Any]]
-) -> list[str]:
-    """The render holds only the operator CRs, the perimeter and the budgets, each in a namespace
-    that the project admits."""
-    (project,) = [p for p in projects if _name(p) == PROJECT]
-    destinations = {d.get("namespace") for d in project.get("spec", {}).get("destinations", [])}
+def kind_problems(documents: Iterable[Mapping[str, Any]]) -> list[str]:
+    """The render holds only the operator CRs, the perimeter and the budgets, each in the store
+    namespace."""
     problems: list[str] = []
     for doc in documents:
         if doc.get("kind") not in STORE_KINDS:
-            problems.append(f"{_ref(doc)}: kind {doc.get('kind')} reconciles outside the operator")
-        if _namespace(doc) not in destinations:
-            problems.append(
-                f"{_ref(doc)}: AppProject/{PROJECT} has no destination {_namespace(doc)!r}"
-            )
+            problems.append(f"{_ref(doc)}: kind {doc.get('kind')} is not a kind of the store")
+        if _namespace(doc) != NAMESPACE:
+            problems.append(f"{_ref(doc)}: namespace is {_namespace(doc)!r}, not {NAMESPACE}")
     return problems
 
 
 def check_the_store_render_holds_no_reconcile_workload() -> None:
-    assert kind_problems(_render(), _projects()) == []
+    assert kind_problems(_render()) == []
 
 
 def check_the_kind_rule_names_a_reconcile_job() -> None:
     job = {"kind": "Job", "metadata": {"name": "bucket-reconcile", "namespace": NAMESPACE}}
 
-    assert any(
-        p.startswith("Job/bucket-reconcile:") for p in kind_problems([*_render(), job], _projects())
-    )
+    assert kind_problems([*_render(), job]) == [
+        "Job/bucket-reconcile: kind Job is not a kind of the store"
+    ]
+
+
+def check_the_kind_rule_names_a_reference_grant() -> None:
+    grant = {
+        "apiVersion": "seaweed.seaweedfs.com/v1",
+        "kind": "ResourceReferenceGrant",
+        "metadata": {"name": "object-store-buckets", "namespace": NAMESPACE},
+    }
+
+    assert kind_problems([*_render(), grant]) == [
+        "ResourceReferenceGrant/object-store-buckets: kind ResourceReferenceGrant is not a kind"
+        " of the store"
+    ]
+
+
+def check_the_kind_rule_names_a_policy_in_the_namespace_of_its_writer() -> None:
+    documents = [copy.deepcopy(doc) for doc in _render()]
+    for doc in documents:
+        if doc.get("kind") == "BucketLifecyclePolicy" and _name(doc) == "argo-artifacts":
+            doc["metadata"]["namespace"] = "argo-workflows"
+
+    assert kind_problems(documents) == [
+        "BucketLifecyclePolicy/argo-artifacts: namespace is 'argo-workflows', not object-store"
+    ]

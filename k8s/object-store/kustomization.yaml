@@ -2,14 +2,12 @@
 # operator of Application `seaweedfs-operator`, and `devops k8s deploy-stack --stack infra` applies
 # it after the charts. operator-values.yaml is the values file of the chart, and build-test/ is the
 # build test of the README, which no Application applies.
-#
-# No namespace transformer: the buckets live in the namespaces of their writers (#4756), so each
-# object names its own namespace.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
+namespace: object-store
 
 resources:
   - seaweed.yaml
   - networkpolicy.yaml
   - poddisruptionbudgets.yaml
-  - buckets.yaml
