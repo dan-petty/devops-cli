@@ -80,11 +80,11 @@ spec:
         - protocol: TCP
           port: 53
     # 2. The pods of the namespace, on the ports of ingress rule 1 only. The network policy
-    #    controller of the cluster does not apply the ingress rules of the destination pod when an
-    #    egress rule of the source pod allows the traffic (#6707). With this list, the admin gRPC
-    #    port 33646 and the metrics port 9327 stay closed between the pods of the namespace. Only
-    #    object-store-worker sends to 33646. Telemetry is off, and no SeaweedFS pod has internet
-    #    egress.
+    #    controller of the cluster does not apply the ingress rules of this policy to traffic that
+    #    an egress rule of this policy allows, because the policy has both types and selects the
+    #    source and the destination pod (#6707). With this list, the admin gRPC port 33646 and the
+    #    metrics port 9327 stay closed between the pods of the namespace. Only object-store-worker
+    #    sends to 33646. Telemetry is off, and no SeaweedFS pod has internet egress.
     - to:
         - podSelector: {}
       ports:

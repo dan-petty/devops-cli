@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Only the worker reaches the admin gRPC port
-The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods of the namespace, and SHALL let only the worker pods send to the admin pod on TCP 33646. No egress rule of a pod other than the worker SHALL cover TCP 33646 of the admin pod, also through a rule with no `ports`, because the network policy controller of the cluster does not apply the ingress rules of the destination pod when an egress rule of the source pod allows the traffic.
+The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods, and SHALL let only the worker pods send to it. No egress rule of these policies SHALL cover the port for another pod, also with no `ports`: the policy controller of the cluster does not apply the ingress rules of a policy with both types to traffic that an egress rule of that policy allows. A policy selects only pods of its namespace, so the ingress rules hold for other namespaces.
 
 #### Scenario: The committed perimeter
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`

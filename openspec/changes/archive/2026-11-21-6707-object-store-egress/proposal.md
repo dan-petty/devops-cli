@@ -1,7 +1,7 @@
 # Proposal: #6707
 
 ## Why
-Closes #6707. The admin gRPC port 33646 of SeaweedFS has no authentication, and no release fixes it (GHSA-3qr2-qw48-cj6q). The ingress rules of `object-store-perimeter` admit only the worker pods to it. But the in-namespace egress rule of the perimeter, `to: [podSelector: {}]`, has no ports. The network policy controller of the cluster does not apply the ingress rules of the destination pod when an egress rule of the source pod allows the traffic (#6708). So on 2026-11-21 a filer pod connected to TCP 33646 of the admin pod, and to the metrics port 9327 of the admin pod and of the volume pods on other nodes. The `k8s` row passed, because `admin_port_problems` reads only the ingress rules.
+Closes #6707. The admin gRPC port 33646 of SeaweedFS has no authentication, and no release fixes it (GHSA-3qr2-qw48-cj6q). The ingress rules of `object-store-perimeter` admit only the worker pods to it. But the in-namespace egress rule of the perimeter, `to: [podSelector: {}]`, has no ports. The network policy controller of the cluster does not apply the ingress rules of a policy with both types to traffic that an egress rule of the same policy allows, when the policy selects the source and the destination pod (#6707, #6708). So on 2026-11-21 a filer pod connected to TCP 33646 of the admin pod, and to the metrics port 9327 of the admin pod and of the volume pods on other nodes. The `k8s` row passed, because `admin_port_problems` reads only the ingress rules.
 
 ## What Changes
 - The in-namespace egress rule of `object-store-perimeter` gets the ports of the in-namespace ingress rule: 9333, 19333, 8444, 18444, 8888, 18888, 8333, 18333 and 23646. The ingress rules do not change.

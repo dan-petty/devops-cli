@@ -613,9 +613,11 @@ def admitted_peers(
 def admin_port_problems(policies: Iterable[Mapping[str, Any]]) -> list[str]:
     """Only the worker pods reach the admin gRPC port, which has no authentication
     (GHSA-3qr2-qw48-cj6q). The rule reads the ingress and the egress rules: the network policy
-    controller of the cluster does not apply the ingress rules of the admin pod when an egress
-    rule of the source pod allows the traffic (#6707), so no egress rule of a pod that is not the
-    worker may cover the port."""
+    controller of the cluster does not apply the ingress rules of a policy with both types to
+    traffic that an egress rule of the same policy allows, when the policy selects the source and
+    the destination pod (#6707). So no egress rule of the namespace may cover the port for a pod
+    that is not the worker. A policy selects only pods of its own namespace, so the rule reads
+    the policies of the store only."""
     policies = list(policies)
     admin = component_labels("admin")
     admitted = admitted_peers(policies, admin, ADMIN_GRPC_PORT)
@@ -769,8 +771,8 @@ def _admin_port_problems_of(policies: list[dict[str, Any]], name: str) -> list[s
 
 
 def check_the_admin_port_rule_names_a_perimeter_whose_namespace_egress_has_no_ports() -> None:
-    # The controller of the cluster does not apply the ingress rules of the admin pod when an
-    # egress rule of the source pod allows the traffic, so a rule with no ports opens 33646.
+    # The controller of the cluster does not apply the ingress rules of the perimeter to traffic
+    # that an egress rule of the perimeter allows, so a rule with no ports opens 33646.
     policies = _store_kind("NetworkPolicy")
     (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter"]
     (namespace_rule,) = [
