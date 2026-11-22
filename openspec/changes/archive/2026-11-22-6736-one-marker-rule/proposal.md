@@ -10,10 +10,10 @@ The review of PR #6720 (#6627) found two cases where a job block reader does not
 ## What Changes
 
 - `src/devops_cli/roadmap/body_hash.py` gets `block_marker_of`, the one token test for a job block marker. `_marker_span` and `_ends_section` use it.
-- A fenced code block or an HTML block that no close ends runs to the end of the body. In such a block, the first line that is a job block marker on its own ends the block for a read. `block_marker_spans` and `job_block_bounds` read the body in that form.
+- A fenced code block or an HTML block that no close ends runs to the end of the body. The jobs write their blocks at the end of the body, so the job blocks at the end of such a block end it for a read: from their first line on, the lines that are a job block marker on their own are whole blocks, one for each job at most. `block_marker_spans` and `job_block_bounds` read the body in that form.
 - `close_blocks_before_markers` writes the close of such a block on a line of its own before that line. `extract_section_and_outside` cuts the body in that form, so refine and the repair pass write the close before the job block. The alternatives `_with_block` uses the same function.
 - `body_dependencies` parses the body in that form.
-- A marker in a block that a close ends stays the text of the person.
+- A marker in a block that a close ends stays the text of the person. So does each other marker line in an open block: a lone marker, a block that a later block of the same job follows, and a block of a job whose block comes first.
 - The change alters the body that a job writes and the blockers that refine reads, so it carries spec deltas.
 
 The change fits one pull request.
