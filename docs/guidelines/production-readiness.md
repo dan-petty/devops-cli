@@ -226,7 +226,7 @@ This is the path from an empty repository to a service in production. Each step 
 | 2. Repository | Add the baseline files. Use a generator of devops-cli where one exists, so that no repository holds a hand copy of a generated file. | `devops ai agents --repo <path>` writes `AGENTS.md` and its pointer files | OWN-2, OWN-5, OWN-7 |
 | 2. Repository | Add the labels file and the status workflow, set up OpenSpec and write the project profile. | `devops roadmap onboard --repo <owner>/<name> --confirm`; `openspec init`; `.devops/project.toml` | OWN-3, OWN-6 |
 | 2. Repository | The owner installs the App and adds the repository to `service.repos`. | GitHub settings; `devops config set service.repos` | OWN-6, ACC-11 |
-| 2. Repository | Extend the shared Renovate preset of devops-cli. | `renovate.json` | SEC-6 |
+| 2. Repository | Extend the shared Renovate preset of dan-petty/infra, `github>dan-petty/infra//renovate/base`. | `renovate.json` | SEC-6 |
 | 3. Build | Commit the lockfile. Pin each action, image and chart. Give each job its token permissions. | `uv lock`; `devops scan workflows`; `devops k8s image-pins` | SEC-4, SEC-5 |
 | 3. Build | Run the tests, the coverage floor, the static checks, CodeQL and the audit in CI. The owner makes them required checks. | `ci.yml` and `codeql.yml` of devops-cli as the model | REL-4, SEC-3, SEC-7 |
 | 3. Build | Build the image in stages as user 1000, one time. Push it by digest, smoke-test and scan that digest, and attest its provenance and SBOM before the tag. | `release-image.yml` of devops-cli as the model | SEC-8, SEC-10 |
