@@ -1571,7 +1571,7 @@ def onboard_requests(
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap onboard` reads, in order, and the writes `--confirm` makes after
     them (#1359). It reads the repository, the App installation listing when acting as the App,
-    .github/labels.yml, the repository labels, and .github/workflows/clear-status.yml.
+    .github/labels.yml and the repository labels.
     With --confirm, it creates missing labels with POST."""
     store = StoreRequests(repo)
     texts = MESSAGES.roadmap
@@ -1584,7 +1584,6 @@ def onboard_requests(
         ),
         *store.file(CONST_ROADMAP_LABELS_PATH, None),
         *store.repository_labels(),
-        *store.file(".github/workflows/clear-status.yml", None),
     ]
     writes = [
         PlannedRequest(

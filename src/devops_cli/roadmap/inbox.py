@@ -3,8 +3,8 @@
 `read_inbox` reads the open issues, the open pull requests, the labels of the repository and
 `.github/labels.yml`, and returns the lines that a person must clear, with the number, the age and
 the one step that clears each. It writes nothing and calls no model. It never reads every issue:
-a closed item holds no `status/*` and no `owner/*` label (`clear-status.yml`), so the open ones
-are enough.
+a closed item holds no `status/*` and no `owner/*` label, because the row `implement` of the
+Service removes them (`status_sync.clear_closed_issues`, #4660), so the open ones are enough.
 
 **The jobs' lines**, in the order of the gates (docs/ROADMAP_WORKFLOW.md): ready plan pull
 requests (G1), ready implementation pull requests (G2), the release pull request (G3), items in

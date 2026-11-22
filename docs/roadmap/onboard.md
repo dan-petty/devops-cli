@@ -1,18 +1,19 @@
 # Repository onboarding
 
-`devops roadmap onboard` checks a repository against the seven prerequisites of the roadmap jobs. The command help gives a summary only. This page gives the rest.
+`devops roadmap onboard` checks a repository against the six prerequisites of the roadmap jobs. The command help gives a summary only. This page gives the rest.
 
 ## Prerequisites
 
-The command checks seven prerequisites in this order:
+The command checks six prerequisites in this order:
 
 1. **Issues are turned on.** GitHub must enable the issues feature for the repository (`has_issues: true`). When missing, the command outputs the `devops gh api -X PATCH repos/<repo> -f has_issues=true` command that a person can run. The command itself never patches the repository.
 2. **The App devops-cli-service is installed on the repository.** When the process acts as the App, the command checks whether the repository is in the installation (`GET /installation/repositories`). When the process acts as a user, the command reports `not readable as <login>` and sends no installation request.
 3. **`.github/labels.yml` is on the default branch and is valid.** The file must exist, must be valid YAML, and must list labels with name and color. It holds the labels of the repository only, such as `scope/*`.
 4. **Every workflow label and every label of `.github/labels.yml` exists on GitHub.** The package declares the workflow labels: the labels that the roadmap code reads or writes, such as `type/*`, `status/*`, `owner/*` and `verdict/fix-plan` (`src/devops_cli/roadmap/workflow_labels.py`). The command compares them and the labels of the file with the repository labels. When row 3 is missing or not readable, it compares the workflow labels only. The output lists each missing label. Differing labels are listed and kept.
-5. **`.github/workflows/clear-status.yml` is on the default branch.** The workflow file must exist on the default branch.
-6. **The repository is in `service.repos`.** Local configuration must include the repository in `service.repos`. When missing, the command outputs the line for `config.yaml` and the stack deployment command. The command never edits `config.yaml`.
-7. **The repository webhook posts the roadmap events to the Service.** The command reads `GET repos/<owner>/<name>/hooks` and compares each hook with `service.webhook_url`. The row is `present` when one active hook has that URL, the content type `json` and each event of `CONST_ROADMAP_WEBHOOK_EVENTS`. The hook can send more events: the Service acknowledges an event that no consumer takes (#5035). A hook with another URL or content type, or a hook that does not send each event of `CONST_ROADMAP_WEBHOOK_EVENTS`, is `wrong`, and the row names the field. With no hook the row is `missing`. An installation token with no administration read reports `not readable as <login>`. Every other state prints the step for a person: the URL, `application/json`, the events, and `devops config set service.webhook_secrets` for the secret. The row writes nothing and prints no secret.
+5. **The repository is in `service.repos`.** Local configuration must include the repository in `service.repos`. When missing, the command outputs the line for `config.yaml` and the stack deployment command. The command never edits `config.yaml`.
+6. **The repository webhook posts the roadmap events to the Service.** The command reads `GET repos/<owner>/<name>/hooks` and compares each hook with `service.webhook_url`. The row is `present` when one active hook has that URL, the content type `json` and each event of `CONST_ROADMAP_WEBHOOK_EVENTS`. The hook can send more events: the Service acknowledges an event that no consumer takes (#5035). A hook with another URL or content type, or a hook that does not send each event of `CONST_ROADMAP_WEBHOOK_EVENTS`, is `wrong`, and the row names the field. With no hook the row is `missing`. An installation token with no administration read reports `not readable as <login>`. Every other state prints the step for a person: the URL, `application/json`, the events, and `devops config set service.webhook_secrets` for the secret. The row writes nothing and prints no secret.
+
+No workflow file is a prerequisite. The Service removes the `status/*` and `owner/*` labels of a closed issue in each round of the row `implement` (`status_sync.clear_closed_issues`, #4660).
 
 ## RAG rows
 
@@ -22,7 +23,7 @@ The command prints three RAG status rows after the prerequisite rows:
 2. **`rag visibility`**: Whether Qdrant records the visibility of the points as `public` or `private`, verified against GitHub's `GET repos/<owner>/<name>`. An unscoped search excludes private repositories, so a mismatched visibility leaks or hides code.
 3. **`rag schedule`**: Whether the scheduled ingestion pass includes the repository in `service.repos`. When missing, the command outputs the configuration line to add.
 
-The RAG rows do not change the command exit code. The exit code stays on the seven prerequisite rows.
+The RAG rows do not change the command exit code. The exit code stays on the six prerequisite rows.
 
 ## Output and exit code
 

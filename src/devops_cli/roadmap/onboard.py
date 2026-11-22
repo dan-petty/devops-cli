@@ -1,16 +1,15 @@
 """Check a repository for the prerequisites of the roadmap jobs (#1359).
 
-Onboarding checks seven prerequisites:
+Onboarding checks six prerequisites:
 1. Issues are turned on.
 2. The App devops-cli-service is installed on the repository.
 3. .github/labels.yml is on the default branch and is valid.
 4. Every workflow label of the package and every label of that file exists on GitHub (#4652).
-5. .github/workflows/clear-status.yml is on the default branch.
-6. The repository is in service.repos.
-7. The repository webhook posts the roadmap events to the Service.
+5. The repository is in service.repos.
+6. The repository webhook posts the roadmap events to the Service.
 
 It also reports three RAG rows of the repository: the points that Qdrant holds, the visibility
-those points record, and the schedule that fills them (#3771). The exit code follows the seven
+those points record, and the schedule that fills them (#3771). The exit code follows the six
 prerequisites only.
 
 With --confirm, missing labels are created with POST. No labels are edited or deleted. With
@@ -46,16 +45,14 @@ from devops_cli.roadmap.stores.store import RoadmapStore
 from devops_cli.roadmap.title_labels import declared_label_specs
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 
-_CLEAR_STATUS_PATH: Final[str] = ".github/workflows/clear-status.yml"
 _ROW_1_PREREQUISITE: Final[str] = "Issues are turned on"
 _ROW_2_PREREQUISITE: Final[str] = "The App devops-cli-service is installed on the repository"
 _ROW_3_PREREQUISITE: Final[str] = ".github/labels.yml is on the default branch and is valid"
 _ROW_4_PREREQUISITE: Final[str] = (
     "Every workflow label and every label of .github/labels.yml exists on GitHub"
 )
-_ROW_5_PREREQUISITE: Final[str] = ".github/workflows/clear-status.yml is on the default branch"
-_ROW_6_PREREQUISITE: Final[str] = "The repository is in service.repos"
-_ROW_7_PREREQUISITE: Final[str] = "The repository webhook posts the roadmap events to the Service"
+_ROW_5_PREREQUISITE: Final[str] = "The repository is in service.repos"
+_ROW_6_PREREQUISITE: Final[str] = "The repository webhook posts the roadmap events to the Service"
 _RAG_INDEXED_ROW: Final[str] = "indexed"
 _RAG_VISIBILITY_ROW: Final[str] = "rag visibility"
 _RAG_SCHEDULE_ROW: Final[str] = "rag schedule"
@@ -248,29 +245,17 @@ def _check_row_4(
         )
 
 
-def _check_row_5(store: RoadmapStore) -> OnboardingRow:
-    """Check whether .github/workflows/clear-status.yml is present on the default branch."""
-    try:
-        store.repository_file(_CLEAR_STATUS_PATH, ref=None)
-        return OnboardingRow(5, _ROW_5_PREREQUISITE, "present")
-    except GitHubFileNotFoundError:
-        step = "Add .github/workflows/clear-status.yml on the default branch."
-        return OnboardingRow(5, _ROW_5_PREREQUISITE, "missing", step=step)
-    except DevOpsCLIError as exc:
-        return OnboardingRow(5, _ROW_5_PREREQUISITE, "not readable", reason=str(exc))
-
-
 def _service_repos_step(repo: str) -> str:
     """The step that adds `repo` to the list that the scheduled pass reads. The command never
     writes `config.yaml`."""
     return f"Add to service.repos in config.yaml:\n  - {repo}\nThen run: devops k8s deploy-stack"
 
 
-def _check_row_6(repo: str, settings: Settings) -> OnboardingRow:
+def _check_row_5(repo: str, settings: Settings) -> OnboardingRow:
     """Check whether the repository is in service.repos."""
     if repo in settings.service.repos:
-        return OnboardingRow(6, _ROW_6_PREREQUISITE, "present")
-    return OnboardingRow(6, _ROW_6_PREREQUISITE, "missing", step=_service_repos_step(repo))
+        return OnboardingRow(5, _ROW_5_PREREQUISITE, "present")
+    return OnboardingRow(5, _ROW_5_PREREQUISITE, "missing", step=_service_repos_step(repo))
 
 
 def webhook_step(settings: Settings) -> str:
@@ -284,7 +269,7 @@ def webhook_step(settings: Settings) -> str:
     )
 
 
-def _check_row_7(session: GitHubSession, repo: str, settings: Settings) -> OnboardingRow:
+def _check_row_6(session: GitHubSession, repo: str, settings: Settings) -> OnboardingRow:
     """The repository webhook: present, missing, wrong, or not readable without administration
     read (#3772)."""
     step = webhook_step(settings)
@@ -292,14 +277,14 @@ def _check_row_7(session: GitHubSession, repo: str, settings: Settings) -> Onboa
         hooks = session.client.get_repository_hooks(repo)
     except GitHubOperationError as exc:
         return OnboardingRow(
-            7,
-            _ROW_7_PREREQUISITE,
+            6,
+            _ROW_6_PREREQUISITE,
             f"not readable as {session.login}",
             reason=str(exc),
             step=step,
         )
     if not hooks:
-        return OnboardingRow(7, _ROW_7_PREREQUISITE, "missing", step=step)
+        return OnboardingRow(6, _ROW_6_PREREQUISITE, "missing", step=step)
     url = settings.service.webhook_url
     events = set(CONST_ROADMAP_WEBHOOK_EVENTS)
     matching = [hook for hook in hooks if hook.url == url]
@@ -307,12 +292,12 @@ def _check_row_7(session: GitHubSession, repo: str, settings: Settings) -> Onboa
         hook.active and hook.content_type == "json" and events <= set(hook.events)
         for hook in matching
     ):
-        return OnboardingRow(7, _ROW_7_PREREQUISITE, "present")
+        return OnboardingRow(6, _ROW_6_PREREQUISITE, "present")
     wrong = _wrong_webhook_fields(
         matching[0] if matching else hooks[0], known_url=bool(matching), events=events
     )
     return OnboardingRow(
-        7, _ROW_7_PREREQUISITE, "wrong", reason=f"Wrong: {', '.join(wrong)}.", step=step
+        6, _ROW_6_PREREQUISITE, "wrong", reason=f"Wrong: {', '.join(wrong)}.", step=step
     )
 
 
@@ -451,7 +436,7 @@ def check_onboarding(
     session: GitHubSession | None = None,
     settings: Settings | None = None,
 ) -> OnboardingReport:
-    """Check the seven roadmap prerequisites for `repo`."""
+    """Check the six roadmap prerequisites for `repo`."""
     active_session = session or get_github_session()
     active_settings = settings or load_settings()
 
@@ -459,12 +444,11 @@ def check_onboarding(
     row_2 = _check_row_2(active_session, repo)
     row_3, specs = _check_row_3(store)
     row_4, missing_labels, differing_labels = _check_row_4(store, specs)
-    row_5 = _check_row_5(store)
-    row_6 = _check_row_6(repo, active_settings)
-    row_7 = _check_row_7(active_session, repo, active_settings)
+    row_5 = _check_row_5(repo, active_settings)
+    row_6 = _check_row_6(active_session, repo, active_settings)
     rag_rows = check_rag_rows(repo, active_settings, repo_payload)
 
-    rows = (row_1, row_2, row_3, row_4, row_5, row_6, row_7)
+    rows = (row_1, row_2, row_3, row_4, row_5, row_6)
     return OnboardingReport(
         repo=repo,
         rows=rows,

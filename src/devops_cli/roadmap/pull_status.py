@@ -8,7 +8,8 @@ only: In Review never goes back to In Progress. A Blocked item stays Blocked whe
 that label, because only a person takes it out. A Blocked item that a stop of the implement job
 recorded (`Item.holds_service_stop`) takes the new Status, because the pull request is the fix of the
 stop. A pull request that closes no item changes nothing. A closed issue loses its
-`status/*` labels in `.github/workflows/clear-status.yml`.
+`status/*` and `owner/*` labels in the next round of the row `implement` of the Service
+(`status_sync.clear_closed_issues`, #4660).
 
 `devops repos worktrees add` sets In Progress earlier, when it claims the issue for an agent
 (`set_claimed_status`, #4685), so the Status shows the work before its pull request opens. The

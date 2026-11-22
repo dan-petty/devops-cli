@@ -70,7 +70,7 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | `status/blocked`, with `implement.stopped` | A trusted person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item, then it is `status/in-progress` | Person, then Service job |
 | `status/blocked`, with `implement.stopped` as `job` | The class in `implement.failure` has the action `retry`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item` | `status/ready`, or `status/planned` when the plan is on the default branch, and `implement.continuations` goes up by 1. The same round of row `implement` takes the Item | Service job |
 | `status/blocked`, with `implement.stopped` | The digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, the digest of the Job that stopped, and the class in `implement.failure` has the action `retry`. The class and item limits in `implement.digest_clears` allow a clear | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item | Service job |
-| `status/in-review` | A person merges the pull request (G2) and the issue closes | Closed, with no `status/*` label | Person, then the workflow `clear-status.yml` |
+| `status/in-review` | A person merges the pull request (G2) and the issue closes | Closed, with no `status/*` label | Person, then the row `implement` of the Service |
 | Closed | The release pull request merges (G3) | Released | Scheduled merge or person, then release-please |
 | Any state | A person sets a `status/*` label by hand | That label | Person |
 
@@ -85,7 +85,7 @@ Claims are a second family of labels. An Item has at most one `owner/*` label.
 | `owner/service` | The Job ends and a round reports it | No owner | Service job |
 | `owner/agent` or `owner/human` | A person or an agent runs `devops roadmap release` | No owner. A release of `owner/agent` writes the Status that the Item's facts give, and a release of `owner/human` changes no Status | Person or agentic coder |
 | `owner/agent` or `owner/human` | Another actor claims the Item | Refused. The Service takes no claimed Item | Service job, agentic coder |
-| Any owner | The issue closes | No owner | Workflow `clear-status.yml` |
+| Any owner | The issue closes | No owner | The row `implement` of the Service |
 
 A claim of an agent or a person ends a running Job before its push: `prepare` and `publish` check the claim (#3702). The Job pushes nothing and opens no pull request. No job releases the claim of an agent or a person. The facts give Planned when the plan is merged, In Progress while a Job or an open pull request holds the Item, Ready otherwise, and no Status write for a Blocked Item, a closed issue or a Status that a person set.
 
@@ -116,7 +116,7 @@ The labels on the issue hold the state. The job record holds the facts behind it
 | Owned by an agent | `owner/agent` | `devops repos worktrees add`, or a claim | None |
 | Owned by a person | `owner/human` | `devops roadmap claim` | None |
 
-A closed issue holds no `status/*` and no `owner/*` label, because the workflow `.github/workflows/clear-status.yml` removes them. No label holds Done.
+A closed issue holds no `status/*` and no `owner/*` label, because each round of the row `implement` of the Service removes them, with one request for each label (#4660). An `issues.closed` delivery makes the row due, and its interval removes a label that a writer added after the close. No file in the repository takes part. No label holds Done.
 
 These are all the keys of the job record, by the job that writes them:
 
@@ -263,7 +263,7 @@ Only a person passes a gate. No agent and no Service job merges a pull request.
 | Gate | Decision | What happens after it |
 | :--- | :--- | :--- |
 | G1 | A person merges the plan pull request | The change folder is on the default branch. The Service sets `status/planned` |
-| G2 | A person merges the implementation pull request | The squash commit closes the issue. The workflow `clear-status.yml` removes the labels |
+| G2 | A person merges the implementation pull request | The squash commit closes the issue. The row `implement` of the Service removes the labels |
 | G3 | The workflow `release-merge.yml` merges the release pull request every 6 hours, or a person merges it | release-please makes the release. The images roll ([RELEASE_CYCLE.md](../RELEASE_CYCLE.md)) |
 
 A pull request of the Service waits at G2 for an independent review with evidence: the tests that ran, the fail-to-pass result of a fix, and the scope against the plan. A person merges it only when that review shows that it is safe. The Service continues to run during this time.

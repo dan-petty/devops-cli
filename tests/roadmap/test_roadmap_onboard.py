@@ -58,7 +58,6 @@ def _seed_valid_repo(
     *,
     has_issues: bool = True,
     labels_yml: str | None = VALID_LABELS_YAML,
-    include_clear_status: bool = True,
     repo_labels: list[tuple[str, str, str]] | None = None,
     visibility: str = "private",
 ) -> None:
@@ -77,8 +76,6 @@ def _seed_valid_repo(
     )
     if labels_yml is not None:
         store.seed_file(CONST_ROADMAP_LABELS_PATH, labels_yml)
-    if include_clear_status:
-        store.seed_file(".github/workflows/clear-status.yml", "name: Clear Status\n")
     api.route("GET", f"/repos/{REPO}/hooks", github_json([MATCHING_HOOK]))
     seeded = [*WORKFLOW, ("scope/cli", "dcdcd6", "CLI")] if repo_labels is None else repo_labels
     for name, color, desc in seeded:
@@ -104,14 +101,13 @@ def test_onboard_all_prerequisites_present_exits_0(
     assert "2. The App devops-cli-service is installed on the repository: present" in result.stdout
     assert f"{ROW_3}: present" in result.stdout
     assert f"{ROW_4}: present" in result.stdout
+    assert "5. The repository is in service.repos: present" in result.stdout
     assert (
-        "5. .github/workflows/clear-status.yml is on the default branch: present" in result.stdout
-    )
-    assert "6. The repository is in service.repos: present" in result.stdout
-    assert (
-        "7. The repository webhook posts the roadmap events to the Service: present"
+        "6. The repository webhook posts the roadmap events to the Service: present"
         in result.stdout
     )
+    assert "7. " not in result.stdout
+    assert "clear-status" not in result.stdout
     assert "Not readable rows: 0." in result.stdout
 
 
@@ -327,6 +323,7 @@ def test_onboard_dry_run_makes_zero_requests(
     assert f"/repos/{REPO}" in result.stdout
     assert "/installation/repositories" in result.stdout
     assert f"/repos/{REPO}/labels" in result.stdout
+    assert "clear-status" not in result.stdout
 
 
 def test_onboard_refuses_two_mode_flags(
@@ -356,7 +353,7 @@ def test_onboard_service_repos_missing_prints_command_and_leaves_config(
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
     assert result.exit_code == 1
-    assert "6. The repository is in service.repos: missing" in result.stdout
+    assert "5. The repository is in service.repos: missing" in result.stdout
     assert "service.repos" in result.stdout
     assert "devops k8s deploy-stack" in result.stdout
 
@@ -381,10 +378,10 @@ def test_onboard_exit_code_0_when_no_missing_even_with_not_readable(
     assert "Not readable rows: 1." in result.stdout
 
 
-ROW_7 = "7. The repository webhook posts the roadmap events to the Service"
+ROW_6 = "6. The repository webhook posts the roadmap events to the Service"
 
 
-def test_onboard_row_7_is_missing_with_no_hook(
+def test_onboard_row_6_is_missing_with_no_hook(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -400,14 +397,14 @@ def test_onboard_row_7_is_missing_with_no_hook(
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
     assert result.exit_code == 1, result.output
-    assert f"{ROW_7}: missing" in result.stdout
+    assert f"{ROW_6}: missing" in result.stdout
     assert WEBHOOK_URL in result.stdout
     assert "application/json" in result.stdout
     assert "issues" in result.stdout
     assert "devops config set service.webhook_secrets" in result.stdout
 
 
-def test_onboard_row_7_names_each_wrong_field(
+def test_onboard_row_6_names_each_wrong_field(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -435,11 +432,11 @@ def test_onboard_row_7_names_each_wrong_field(
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
-    assert f"{ROW_7}: wrong" in result.stdout
+    assert f"{ROW_6}: wrong" in result.stdout
     assert "url, content_type, events" in result.stdout
 
 
-def test_onboard_row_7_names_an_inactive_hook(
+def test_onboard_row_6_names_an_inactive_hook(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -456,11 +453,11 @@ def test_onboard_row_7_names_an_inactive_hook(
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
-    assert f"{ROW_7}: wrong" in result.stdout
+    assert f"{ROW_6}: wrong" in result.stdout
     assert "Wrong: active." in result.stdout
 
 
-def test_onboard_row_7_is_present_for_a_hook_that_also_sends_other_events(
+def test_onboard_row_6_is_present_for_a_hook_that_also_sends_other_events(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -469,7 +466,7 @@ def test_onboard_row_7_is_present_for_a_hook_that_also_sends_other_events(
 ) -> None:
     """The consumer events are a subset of the hook events (#5035): a hook that sends each event
     that the Service takes, and other events too, posts the roadmap events. The Service
-    acknowledges an event that no consumer takes. Row 2 does not change row 7, so the command
+    acknowledges an event that no consumer takes. Row 2 does not change row 6, so the command
     runs with no App key."""
     monkeypatch.delenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, raising=False)
     _seed_valid_repo(roadmap_store, github_api)
@@ -481,10 +478,10 @@ def test_onboard_row_7_is_present_for_a_hook_that_also_sends_other_events(
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
-    assert (result.exit_code, f"{ROW_7}: present" in result.stdout) == (0, True), result.output
+    assert (result.exit_code, f"{ROW_6}: present" in result.stdout) == (0, True), result.output
 
 
-def test_onboard_row_7_names_events_when_the_hook_does_not_send_an_event_the_service_takes(
+def test_onboard_row_6_names_events_when_the_hook_does_not_send_an_event_the_service_takes(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -503,10 +500,10 @@ def test_onboard_row_7_names_events_when_the_hook_does_not_send_an_event_the_ser
 
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
-    assert (f"{ROW_7}: wrong" in result.stdout, "Wrong: events." in result.stdout) == (True, True)
+    assert (f"{ROW_6}: wrong" in result.stdout, "Wrong: events." in result.stdout) == (True, True)
 
 
-def test_onboard_row_7_is_not_readable_without_administration_read(
+def test_onboard_row_6_is_not_readable_without_administration_read(
     cli: Callable[..., Any],
     roadmap_store: InMemoryRoadmapStore,
     github_api: GitHubApiFake,
@@ -524,7 +521,7 @@ def test_onboard_row_7_is_not_readable_without_administration_read(
     result = cli("roadmap", "onboard", "--repo", REPO, "--plan")
 
     assert result.exit_code == 0, result.output
-    assert f"{ROW_7}: not readable as" in result.stdout
+    assert f"{ROW_6}: not readable as" in result.stdout
     assert "devops config set service.webhook_secrets" in result.stdout
 
 

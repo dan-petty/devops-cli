@@ -27,6 +27,12 @@ since the cached read: the next round decides again. An item that is New, In Pro
 Blocked is never written by the sweep: a person, the runner Job or the tools of a pull request set
 those, and the Service must not turn them back.
 
+**What a closed issue holds.** A closed issue is done, so it holds no `status/*` and no `owner/*`
+label (ADR 0016). `clear_closed_issues` removes them: each round of the row `implement` calls it, and
+the trigger of an `issues.closed` delivery makes that row due (#4660). It sends one label removal
+for each such label and keeps every other label. It reads the issue again first, so an issue that a
+person reopened since the listing keeps its labels. No file in the repository takes part.
+
 **The facts.** The plan is merged when the change folder of the item is on the default branch,
 active or archived (`planned.py`), or when its recorded stage pull request is merged. A Job holds
 the item while the record holds `implement.job` and no `implement.job_state`. A stop is on record
@@ -36,10 +42,10 @@ while `implement.stopped` holds a step.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_STATUS_BLOCKED,
@@ -58,6 +64,7 @@ from devops_cli.roadmap.stores.store import (
     Item,
     ItemField,
     RoadmapStore,
+    family_prefix,
     item_of,
 )
 
@@ -69,6 +76,11 @@ logger = logging.getLogger(__name__)
 
 # The Statuses that the Service writes from: no other Status is ever replaced.
 _WRITTEN_FROM = frozenset({CONST_ROADMAP_STATUS_READY, CONST_ROADMAP_STATUS_PLANNED})
+# The label families that a closed issue does not hold (ADR 0016).
+_CLOSED_CLEARS: Final[tuple[str, ...]] = (
+    family_prefix(ItemField.STATUS),
+    family_prefix(ItemField.OWNER),
+)
 
 
 @dataclass(frozen=True)
@@ -254,10 +266,65 @@ def sync_statuses(store: RoadmapStore, *, repo: str, planned: PlannedChanges) ->
     return StatusSynced(tuple(written), tuple(failed))
 
 
+def closed_issue_clears(labels: Iterable[str]) -> tuple[str, ...]:
+    """The labels of `labels` that a closed issue does not hold: each `status/*` and each
+    `owner/*` label, compared in lower case as the store reads a label."""
+    return tuple(label for label in labels if label.lower().startswith(_CLOSED_CLEARS))
+
+
+def clear_closed_labels(store: RoadmapStore, number: int) -> None:
+    """Remove each `status/*` and each `owner/*` label of issue `number`, with one label removal
+    request for each, and keep every other label. The issue is read again first: an issue that is
+    open, or gone, keeps its labels."""
+    issue = store.issue(number)
+    if issue is None or issue.state is not GitHubState.CLOSED:
+        return
+    for label in closed_issue_clears(issue.labels):
+        store.unlabel_issue(number, label)
+
+
+@dataclass(frozen=True)
+class ClosedCleared:
+    """What a clear of the closed issues did: the numbers of the issues it read again, and the
+    issues it could not clear."""
+
+    cleared: tuple[int, ...] = ()
+    failed: tuple[StageFailure, ...] = ()
+
+
+def clear_closed_issues(store: RoadmapStore, *, repo: str) -> ClosedCleared:
+    """Remove the `status/*` and `owner/*` labels of each closed issue of `repo` that holds one,
+    an Item or not (#4660). The listing of the store gives the issues, so a clear sends no read
+    for an issue that holds no such label. An issue that fails does not stop the others; a rate
+    limit, rejected credentials and the stop of the Service stop the clear."""
+    from devops_cli.roadmap.stage.stage import write_each
+
+    cleared: list[int] = []
+    failed: list[StageFailure] = []
+    writes = [
+        (item_of(issue), partial(clear_closed_labels, store, issue.number))
+        for issue in store.issues()
+        if issue.state is GitHubState.CLOSED and closed_issue_clears(issue.labels)
+    ]
+    write_each(writes, cleared, failed, also_stop=(GitHubRateLimitError,))
+    if writes:
+        logger.info(
+            "The clear of the closed issues of %s read %d issue(s) and failed for %d",
+            repo,
+            len(cleared),
+            len(failed),
+        )
+    return ClosedCleared(tuple(cleared), tuple(failed))
+
+
 __all__ = [
+    "ClosedCleared",
     "StatusFacts",
     "StatusSynced",
     "StatusWrite",
+    "clear_closed_issues",
+    "clear_closed_labels",
+    "closed_issue_clears",
     "derive_status",
     "facts_of",
     "job_holds",

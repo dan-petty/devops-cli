@@ -3,21 +3,29 @@
 The item is staged, its plan merges, a runner Job takes it, its pull request is ready, and its
 issue closes. The rows `stage_ready` and `implement` run for real: git runs on a clone with an
 `origin`, GitHub and the Kubernetes API are faked at their edges. The runner Job writes In Review
-itself (`implement_run`), so the test writes it the same way. The workflow `clear-status` removes
-the label when the issue closes, so the test removes it the same way.
+itself (`implement_run`), so the test writes it the same way. When the issue closes, the next round
+of the row `implement` removes the label (#4660).
 """
 
 from __future__ import annotations
 
 import copy
 import subprocess
+from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-from devops_cli.roadmap.run import STATUS_LANE_ROWS
-from devops_cli.roadmap.stores.store import CloseReason, ImplementRecordKey, Item, ItemField
+from devops_cli.roadmap.run import STATUS_LANE_ROWS, run_due_jobs
+from devops_cli.roadmap.stores.store import (
+    CloseReason,
+    GitHubState,
+    ImplementRecordKey,
+    Item,
+    ItemField,
+)
 from tests.support.fakes.github import GitHubApiFake, github_json, route_compare_files
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -25,6 +33,7 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import git_for_real
 from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_implement import BRANCH, PASS, PULL, merge_plan, seed_staged
+from tests.support.roadmap_run import NOW, POLL_KEY, stamp_successes
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo
 
 pytestmark = pytest.mark.usefixtures("keyring_store", "app_slug", "cluster")
@@ -35,6 +44,8 @@ HEAD = "a" * 40
 DELIVERY_PULL = 7
 CRONJOBS = ("batch", "v1", "cronjobs")
 JOBS = ("batch", "v1", "jobs")
+# The trigger that the router gives each lane for an `issues.closed` delivery.
+CLOSED_KEY = ("webhook", "issues", "closed")
 
 
 @pytest.fixture
@@ -52,6 +63,19 @@ def kube(cluster: FakeCluster) -> FakeCluster:
 def _labels(store: InMemoryRoadmapStore, number: int) -> list[str]:
     issue = next(issue for issue in store.issues() if issue.number == number)
     return [label for label in issue.labels if label.startswith("status/")]
+
+
+def _unlabels(store: InMemoryRoadmapStore) -> list[tuple[int | None, str | None]]:
+    """Each label removal that the store made as a job, in order: the issue and the label."""
+    return [
+        (write.number, write.value)
+        for write in store.job_writes()
+        if write.operation == "unlabel_issue"
+    ]
+
+
+def _all_labels(store: InMemoryRoadmapStore, number: int) -> set[str]:
+    return set(next(issue for issue in store.issues() if issue.number == number).labels)
 
 
 def _held(store: InMemoryRoadmapStore, number: int) -> Item:
@@ -79,6 +103,14 @@ def _draft_with_green_checks(api: GitHubApiFake) -> None:
         f"/repos/{STAGE_REPO}/commits/{HEAD}/check-runs?per_page=100",
         github_json({"total_count": 1, "check_runs": [PASS]}),
     )
+
+
+def _round_of_the_service(api: GitHubApiFake, gh: ProcessFake) -> None:
+    """A round of `run_due_jobs`: git runs for real, and the session finds the login that the
+    clone commits as."""
+    _real_git_and_ready_pull_requests(gh)
+    api.route("GET", "/user", github_json({"login": "test-bot"}))
+    api.route("GET", "/users/test-bot", github_json({"id": 4242, "login": "test-bot"}))
 
 
 def _real_git_and_ready_pull_requests(gh: ProcessFake) -> None:
@@ -132,9 +164,8 @@ def test_the_label_follows_the_item_from_staging_to_the_close(
     IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
     seen["pull request ready"] = _labels(store, number)
 
-    # The merge closes the issue, and the workflow removes the label.
+    # The merge closes the issue, and the next round removes the label.
     store.close_by_hand(number, CloseReason.COMPLETED)
-    store.remove_label(number, "status/in-review")
     IMPLEMENT_ROW.runner(store=store, repo=STAGE_REPO, clone_path=stage_repo.clone)
     seen["closed"] = _labels(store, number)
 
@@ -187,3 +218,76 @@ def test_the_row_watch_sets_planned_for_a_plan_pull_request_that_merged(
     WATCH_ROW.runner(store=store, repo=STAGE_REPO)
 
     assert _labels(store, number) == ["status/planned"]
+
+
+def test_an_issues_closed_delivery_removes_the_status_label_with_one_request(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """Test first for #4660: the router gives an `issues.closed` delivery to each lane as the
+    trigger `("webhook", "issues", "closed")`. One minute after the last success of the row
+    `implement`, only the trigger makes the row due, and its round removes `status/ready` of the
+    closed issue with one request. No workflow of the repository takes part."""
+    _round_of_the_service(*github_api_and_gh)
+    number = store.seed_issue(
+        "A merged item",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "Ready"},
+        state=GitHubState.CLOSED,
+    )
+    stamp_successes(tmp_path, implement=NOW - timedelta(minutes=1))
+
+    ran = run_due_jobs(
+        STAGE_REPO,
+        store,
+        batch={CLOSED_KEY: 1},
+        table=(IMPLEMENT_ROW,),
+        data_dir=tmp_path,
+        remote_url=str(stage_repo.origin),
+        now=NOW,
+    )
+
+    assert (ran, _unlabels(store), _labels(store, number)) == (
+        ("implement",),
+        [(number, "status/ready")],
+        [],
+    )
+
+
+def test_a_closed_issue_that_holds_owner_agent_loses_the_label_in_the_next_round(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
+    tmp_path: Path,
+) -> None:
+    """Test first for #4660: a closed issue whose label no delivery removed, such as a claim that
+    an agent made after the close, loses the label in the next poll round of the row `implement`.
+    The issue keeps its other labels, and the round after that sends no removal."""
+    _round_of_the_service(*github_api_and_gh)
+    number = store.seed_issue(
+        "Claimed after the close",
+        labels=("owner/agent", "type/bug"),
+        fields={ItemField.PRIORITY: "P2-Medium"},
+        state=GitHubState.CLOSED,
+    )
+    stamp_successes(tmp_path, implement=NOW - timedelta(minutes=8))
+
+    def poll(at: timedelta) -> tuple[str, ...]:
+        return run_due_jobs(
+            STAGE_REPO,
+            store,
+            batch={POLL_KEY: 1},
+            table=(IMPLEMENT_ROW,),
+            data_dir=tmp_path,
+            remote_url=str(stage_repo.origin),
+            now=NOW + at,
+        )
+
+    first = (poll(timedelta(0)), _unlabels(store), _all_labels(store, number))
+    second = (poll(timedelta(minutes=8)), _unlabels(store))
+
+    assert (first, second) == (
+        (("implement",), [(number, "owner/agent")], {"type/bug", "priority/p2-medium"}),
+        (("implement",), [(number, "owner/agent")]),
+    )
