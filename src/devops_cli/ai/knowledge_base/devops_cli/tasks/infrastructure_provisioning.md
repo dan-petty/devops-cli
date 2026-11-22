@@ -65,17 +65,19 @@ devops tf status tf/examples/aws
 
 ## 6. General Standards & Reference Guidelines
 
-- **File Layout**:
+- **File Layout** (the infra repository; `devops tf deploy-cloud -p <provider>` runs an example):
   ```text
   tf/
-  ├── aws/
-  │   ├── main.tf
-  │   ├── variables.tf
-  │   ├── outputs.tf
-  │   └── versions.tf
-  └── environments/
-      ├── dev.tfvars.example
-      └── prod.tfvars.example
+  ├── modules/           # Reusable modules: aws-eks, azure-aks, gcp-gke
+  └── examples/          # One root module for each module
+      ├── aws/           # Calls aws-eks
+      │   ├── main.tf
+      │   ├── variables.tf
+      │   ├── outputs.tf
+      │   ├── versions.tf
+      │   └── aws.tfvars.example
+      ├── azure/         # Calls azure-aks; values in azure.tfvars.example
+      └── gcp/           # Calls gcp-gke; values in gcp.tfvars.example
   ```
 - **HCL Syntax**: Use HCL2 declarative syntax with explicit type constraints for all variables (`type = string`, `type = list(string)`).
 
