@@ -14,7 +14,8 @@ spec:
   ingress:
     # 1. The pods of the namespace reach the HTTP and gRPC ports of the master (9333, 19333), the
     #    volume servers (8444, 18444), the filers (8888, 18888), the S3 gateway (8333, 18333) and
-    #    the admin HTTP port (23646). The admin gRPC port 33646 is not in this list.
+    #    the admin HTTP port (23646). The admin gRPC port 33646 is not in this list. Egress rule 2
+    #    has the same list.
     - from:
         - podSelector: {}
       ports:
@@ -78,9 +79,60 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. The pods of the namespace. Telemetry is off, and no SeaweedFS pod has internet egress.
+    # 2. The pods of the namespace, on the ports of ingress rule 1 only. The network policy
+    #    controller of the cluster does not apply the ingress rules of this policy to traffic that
+    #    an egress rule of this policy allows, because the policy has both types and selects the
+    #    source and the destination pod (#6707). With this list, the admin gRPC port 33646 and the
+    #    metrics port 9327 stay closed between the pods of the namespace. Only object-store-worker
+    #    sends to 33646. Telemetry is off, and no SeaweedFS pod has internet egress.
     - to:
         - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9333
+        - protocol: TCP
+          port: 19333
+        - protocol: TCP
+          port: 8444
+        - protocol: TCP
+          port: 18444
+        - protocol: TCP
+          port: 8888
+        - protocol: TCP
+          port: 18888
+        - protocol: TCP
+          port: 8333
+        - protocol: TCP
+          port: 18333
+        - protocol: TCP
+          port: 23646
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: object-store-worker
+  namespace: object-store
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # The worker pods only: the selector of ingress rule 2 of object-store-perimeter.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Egress
+  egress:
+    # 1. The admin gRPC port, the control plane of the worker (GHSA-3qr2-qw48-cj6q, no fixed
+    #    release).
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: seaweedfs
+              app.kubernetes.io/component: admin
+      ports:
+        - protocol: TCP
+          port: 33646
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
