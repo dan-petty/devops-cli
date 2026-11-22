@@ -42,30 +42,30 @@ graph LR
 ### Dual-Binary Dispatch
 `devops-cli` automatically inspects the environment, preferring `tofu` and seamlessly falling back to `terraform`.
 
-### Structured Layout
+### Structured Layout of the Infra Repository
 ```text
 tf/
-├── aws/           # AWS cloud infrastructure
-├── k8s/           # Kubernetes manifests via Helm/K8s providers
-└── environments/  # Environment variable overrides (.tfvars)
+├── modules/       # Reusable modules, such as aws-eks
+└── examples/      # Root modules that call the modules
+    └── aws/       # Calls aws-eks; values in aws.tfvars.example
 ```
 
 ### Common Commands
 ```bash
 # Initialize OpenTofu working directory
-devops tf init tf/aws
+devops tf init tf/examples/aws
 
-# Compute execution plan with variable file
-devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+# Compute execution plan with variable file (a copy of tf/examples/aws/aws.tfvars.example)
+devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
 
 # Apply the pre-computed plan file
-devops tf apply tf/aws --plan-file dev.tfplan
+devops tf apply tf/examples/aws --plan-file dev.tfplan
 
 # Read structured JSON outputs
-devops tf output tf/aws --json
+devops tf output tf/examples/aws --json
 
 # Inspect state status and provider health
-devops tf status tf/aws
+devops tf status tf/examples/aws
 ```
 
 ---

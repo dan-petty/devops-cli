@@ -22,13 +22,14 @@ OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool f
 ## 2. Usage Information & Architecture
 
 - **Dual-Binary Dispatch**: Automatically detects and uses `tofu` if installed, falling back to `terraform` seamlessly.
-- **Directory Convention**:
+- **Directory Convention** (the infra repository; `devops tf deploy-cloud -p <provider>` runs an example):
   ```text
   tf/
-  ├── aws/           # AWS infrastructure manifests
-  ├── azure/         # Azure infrastructure manifests
-  ├── gcp/           # GCP infrastructure manifests
-  └── environments/  # Environment variable definitions (.tfvars)
+  ├── modules/       # Reusable modules: aws-eks, azure-aks, gcp-gke
+  └── examples/      # One root module for each module
+      ├── aws/       # Calls aws-eks; values in aws.tfvars.example
+      ├── azure/     # Calls azure-aks; values in azure.tfvars.example
+      └── gcp/       # Calls gcp-gke; values in gcp.tfvars.example
   ```
 - **State Safety**: Programmatic execution utilizes bounded timeouts, plan file locking, and zero-trust parameter passing.
 - **CLI Commands**:
@@ -45,19 +46,19 @@ OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool f
 ### DevOps CLI OpenTofu Subcommands
 ```bash
 # Initialize OpenTofu directory
-devops tf init tf/aws
+devops tf init tf/examples/aws
 
-# Generate execution plan with variable file
-devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+# Generate execution plan with variable file (a copy of tf/examples/aws/aws.tfvars.example)
+devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
 
 # Apply generated plan
-devops tf apply tf/aws --plan-file dev.tfplan
+devops tf apply tf/examples/aws --plan-file dev.tfplan
 
 # Show structured output values as JSON
-devops tf output tf/aws --json
+devops tf output tf/examples/aws --json
 
 # Inspect initialization and state status
-devops tf status tf/aws
+devops tf status tf/examples/aws
 ```
 
 ### Standard OpenTofu / Terraform CLI Commands
@@ -91,7 +92,7 @@ tofu import aws_s3_bucket.data_lake my-bucket-name
 1. **Always Plan Before Apply**: Generate a plan file (`-o <name>.tfplan`) and review all additions, modifications, and destructions before applying.
 2. **Lock Provider Versions**: Always declare required provider versions explicitly in `versions.tf` (`required_providers`).
 3. **Use Remote State with Locking**: For team environments, configure remote state storage (S3 + DynamoDB, GCS, or Azure Blob) with state locking enabled.
-4. **Environment Isolation**: Keep environment states separated by workspace or directory structures (`tf/environments/`) rather than sharing single state files.
+4. **Environment Isolation**: Keep environment states separated by workspace or directory structures rather than sharing single state files.
 
 ---
 

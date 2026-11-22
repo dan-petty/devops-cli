@@ -21,7 +21,7 @@ Kind: other. Reads: `src/devops_cli/roadmap/step_rules.py`, `tests/roadmap/test_
 
 Kind: other. Reads: `README.md`, `docs/ROUTINE_TASKS.md`, the knowledge base pages. Changes: `README.md`, `docs/ROUTINE_TASKS.md`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/infrastructure_provisioning.md`, `src/devops_cli/ai/knowledge_base/it_domains/tools/opentofu_terraform.md`, `src/devops_cli/ai/knowledge_base/it_domains/topics/infrastructure_as_code_and_cloud_automation.md`.
 
-- [ ] 3.1 Replace the `tf/README.md` link of `README.md` with a link to the examples of the infra repository. In the three knowledge base pages, use `tf/examples/aws` and a copy of its `aws.tfvars.example` in the command examples, and show the infra layout in the folder trees. In `docs/ROUTINE_TASKS.md`, name only `k8s/` for the IaC scans of this repository
+- [x] 3.1 Replace the `tf/README.md` link of `README.md` with a link to the examples of the infra repository. In the three knowledge base pages, use `tf/examples/aws` and a copy of its `aws.tfvars.example` in the command examples, and show the infra layout in the folder trees. In `docs/ROUTINE_TASKS.md`, name only `k8s/` for the IaC scans of this repository
   - Verification: `$ uv run devops ci docs` passes, and `$ test -z "$(git grep -n 'tf/aws\|tf/README' -- README.md src/devops_cli/ai/knowledge_base)"` exits 0
 
 ## Workflow follow-up

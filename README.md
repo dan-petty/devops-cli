@@ -47,7 +47,7 @@
 - [**Telemetry & Tracing Reference (`docs/TELEMETRY.md`)**](docs/TELEMETRY.md) — Metrics, spans and the way they reach Prometheus.
 - [**AI and RAG Cheatsheet (`docs/cheatsheets/ai_and_rag.md`)**](docs/cheatsheets/ai_and_rag.md) — Managed repository ingestion and semantic search reference.
 - [**Knowledge Base Catalog (`docs/KNOWLEDGE_BASE.md`)**](docs/KNOWLEDGE_BASE.md) — The manuals that ground the AI commands.
-- [**OpenTofu Modules (`tf/README.md`)**](tf/README.md) — Managed Kubernetes cluster modules.
+- [**OpenTofu Examples (dan-petty/infra `tf/examples`)**](https://github.com/dan-petty/infra/tree/main/tf/examples) — Managed Kubernetes cluster examples that `devops tf deploy-cloud` runs in an infra checkout.
 - [**Agent Records (`docs/agent/README.md`)**](docs/agent/README.md) — Compacted records of the early development phases.
 - [**Dashboard Tabs Audit (`docs/DASHBOARD_TABS_AUDIT.md`)**](docs/DASHBOARD_TABS_AUDIT.md) — Audit of five dashboard tabs against open terminal tools.
 

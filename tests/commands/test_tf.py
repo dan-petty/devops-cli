@@ -394,8 +394,8 @@ def _deploy_from_the_worktree(
     checkout_state: tuple[str, str] = ("terraform.tfstate", "{}"),
 ) -> tuple[int, list[Path], str]:
     """Run `devops tf deploy-cloud --provider aws` from a nested worktree, with the main
-    checkout's tf/aws holding `checkout_state` (a relative path and its contents, local state
-    by default); the exit code, the tofu cwds and the output."""
+    checkout's tf/examples/aws holding `checkout_state` (a relative path and its contents, local
+    state by default); the exit code, the tofu cwds and the output."""
     import shutil
 
     main, nested = nested_worktree

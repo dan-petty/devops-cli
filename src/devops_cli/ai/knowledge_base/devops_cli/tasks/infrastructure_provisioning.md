@@ -18,7 +18,7 @@ graph LR
 ```
 
 - **Execution Engine**: `devops tf` detects the tofu or terraform binary automatically.
-- **Path Resolution**: Enforces structured directories under `tf/<provider>/` (e.g. `tf/aws`, `tf/gcp`).
+- **Path Resolution**: `devops tf deploy-cloud -p <provider>` runs `tofu init` and `tofu apply` in `tf/examples/<provider>/` of an infra checkout (e.g. `tf/examples/aws`), with `<provider>.tfvars.example` there as the default variable file. The other commands take the folder as an argument.
 - **Telemetry Integration**: Emits OpenTelemetry trace spans with execution duration, resource changes count, and provider metadata.
 
 ---
@@ -28,19 +28,20 @@ graph LR
 ### Provisioning Pipeline Commands
 ```bash
 # 1. Initialize OpenTofu working directory and download providers
-devops tf init tf/aws
+devops tf init tf/examples/aws
 
-# 2. Generate and save execution plan
-devops tf plan tf/aws -v tf/environments/dev.tfvars -o dev.tfplan
+# 2. Generate and save execution plan (dev.tfvars is a copy of
+#    tf/examples/aws/aws.tfvars.example with your values)
+devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
 
 # 3. Apply the generated plan file
-devops tf apply tf/aws --plan-file dev.tfplan
+devops tf apply tf/examples/aws --plan-file dev.tfplan
 
 # 4. View structured JSON output attributes
-devops tf output tf/aws --json
+devops tf output tf/examples/aws --json
 
 # 5. Check state file status and provider initialization
-devops tf status tf/aws
+devops tf status tf/examples/aws
 ```
 
 ---

@@ -198,7 +198,7 @@ Executed weekly, or when dependencies are updated.
 - **Command**: `uv run devops ci security`, or `uv run bandit -r src --ini .bandit --severity-level low` and `uv run bandit -r tests --ini .bandit --severity-level medium`.
 
 #### 3. Kubernetes & IaC Security Scans
-- **Frequency**: Whenever `k8s/` or `tf/` manifests are modified.
+- **Frequency**: Whenever `k8s/` manifests are modified.
 - **Methodology**: Uses Kube-linter, Pluto (deprecated API versions), Popeye (cluster sanitization), and Trivy (misconfigurations and vulnerabilities).
 - **Commands**:
   ```bash
