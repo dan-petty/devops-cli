@@ -18,7 +18,7 @@ The shared preset `github>dan-petty/infra//renovate/base` SHALL label each updat
 #### Scenario: The Renovate configuration is read
 - **WHEN** Renovate opens a pull request in devops-cli that updates an action, and a person runs `devops gh api repos/dan-petty/devops-cli/issues/<number> --jq '[.labels[].name]'`
 - **THEN** the labels are `type/chore`, `scope/deps` and `scope/ci`
-- **AND** each label is in `.github/labels.yml`
+- **AND** each label is in `.github/labels.yml` or in the workflow labels of `src/devops_cli/roadmap/workflow_labels.py`
 
 #### Scenario: An update of a chart
 - **WHEN** Renovate opens a pull request in devops-cli that moves the chart of an Argo CD Application under `k8s/argocd/apps/`
