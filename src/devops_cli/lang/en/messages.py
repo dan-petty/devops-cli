@@ -4531,9 +4531,9 @@ class RoadmapMessages:
         "The record of #{number} holds no `stage.sha`, so the job cannot push the plan that "
         "replaces the one of its draft pull request."
     )
-    # The branch of a re-stage moved past the commit that `stage.sha` records (#3387, #6710).
+    # The branch of a re-stage is not at the commit that `stage.sha` records (#3387, #6710).
     stage_restage_moved: str = (
-        "The branch `{branch}` is at `{tip}` on origin, past the commit `{recorded}` that the plan "
+        "The branch `{branch}` is at `{tip}` on origin, not at the commit `{recorded}` that the plan "
         "replaces, so the job pushes nothing."
     )
     git_failed: str = "`git {command}` failed: {reason}"

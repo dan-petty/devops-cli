@@ -11,10 +11,6 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>`, where the t
 - **WHEN** the clone that the planner reads has a push URL that names another repository
 - **THEN** the job pushes the branch to `origin` all the same, with one commit whose body is `Plans #<issue>.`
 
-#### Scenario: The default branch holds a file of the change folder now
-- **WHEN** the default branch gains a file of the change folder after the plan read the staged commit
-- **THEN** the patch does not apply to the tip, the item stops, and the job pushes nothing
-
 #### Scenario: A re-stage branch that moved past the recorded commit
 - **WHEN** the App pushed a commit after `stage.sha`, and the new plan renders the files of `stage.sha` again
 - **THEN** the item fails, and `origin` keeps the branch at that commit
@@ -50,9 +46,21 @@ A round SHALL take as the staged commit the commit of `origin/<default branch>` 
 - **WHEN** `devops roadmap stage --dry-run` runs
 - **THEN** the git commands move the clone to the staged commit before the tracked files are read, and the agent work of each item writes its change folder on the staged commit
 
-### Requirement: A staged branch starts at the staged commit
+## ADDED Requirements
+
+### Requirement: A staged plan goes onto the tip of the default branch
 The job SHALL write the change folder of a staged item on the staged commit of its round, so that the probe and the plan read one commit. `publish` SHALL apply the patch of the change folder to the tip of the default branch as one commit, so that the pushed branch holds the default branch (#6704). A patch that the tip refuses SHALL fail the item with nothing pushed.
 
 #### Scenario: origin moves after the round read the default branch
 - **WHEN** `origin/main` gains a commit after the round read it, and the job stages an item
 - **THEN** the parent of the commit of the new branch is the tip of `origin/main`, and `main` has no commit that the new branch lacks
+
+#### Scenario: The patch does not apply to the tip
+- **WHEN** `origin/main` gains a file with the path of a file of the plan after the round read it
+- **THEN** the job pushes no branch, opens no pull request, and records the item as failed
+
+## REMOVED Requirements
+
+### Requirement: A staged branch starts at the staged commit
+**Reason**: The job makes no commit on the staged commit and no rebase: `publish` applies the patch of the change folder to the tip of the default branch (#6704).
+**Migration**: The requirement "A staged plan goes onto the tip of the default branch" replaces it.

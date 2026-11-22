@@ -13,6 +13,7 @@ reads and writes are the fake of the API.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -232,7 +233,7 @@ def test_a_branch_that_moved_past_the_recorded_commit_refuses_the_push(
     assert applied.staged == ()
     (failure,) = applied.failed
     # The branch is past the recorded commit, so the job pushes nothing (#3387).
-    assert (failure.error, f"past the commit `{old}`" in failure.reason) == (
+    assert (failure.error, f"not at the commit `{old}`" in failure.reason) == (
         "GitOperationError",
         True,
     )
@@ -276,7 +277,7 @@ def test_a_refused_draft_deletes_the_pushed_branch_where_the_push_went(
 ) -> None:
     """GitHub refuses the draft of a new plan. The delete of the pushed branch goes to the
     repository on GitHub, as the push of `publish` does, so a push URL in the clone of the job
-    keeps no branch on `origin`, and the item fails with the refusal (#6710)."""
+    keeps no branch on `origin`, and the item fails with the error of the refusal (#6710)."""
     stage_repo.git("config", "remote.origin.pushurl", str(tmp_path / "elsewhere.git"))
     base = stage_repo.git("rev-parse", "HEAD")
     item = store.item(ISSUE) or pytest.fail("no item")
@@ -286,7 +287,15 @@ def test_a_refused_draft_deletes_the_pushed_branch_where_the_push_went(
         github_json({"message": "Validation Failed"}, status=422),
     )
 
-    applied = _apply(store, stage_repo, _change(item, replace_pull=None), base)
+    # A body in the plan form, so the open step reaches the POST that GitHub refuses.
+    body = (
+        "The plan keeps the last comment of a thread, so the job drops no comment of a person."
+        f"\n\nPlans #{ISSUE}\nChange: `{ROOT}/`"
+    )
+    change = replace(_change(item, replace_pull=None), body=body)
 
-    assert [failure.error for failure in applied.failed] == ["RoadmapOpenRefusedError"]
+    applied = _apply(store, stage_repo, change, base)
+
+    assert [failure.error for failure in applied.failed] == ["GitHubOperationError"]
+    assert f"POST {API}/repos/{STAGE_REPO}/pulls" in github_api.requested
     assert stage_repo.origin_git("branch", "--format=%(refname:short)").split() == ["main"]
