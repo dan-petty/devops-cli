@@ -1,4 +1,5 @@
-"""A failed embedding stops an index run, stores no stand-in vector, and a later run resumes."""
+"""A failed embedding batch is retried, then skipped, stores no stand-in vector, and a later run
+resumes; a permanent failure stops the run."""
 
 from __future__ import annotations
 
@@ -13,7 +14,8 @@ from devops_cli.ai.rag.retriever import SemanticRetriever
 from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.config.settings import AIConfig
 
-pytestmark = pytest.mark.usefixtures("keyring_store")
+# A skipped batch waits once through the clock seam before its second attempt.
+pytestmark = pytest.mark.usefixtures("keyring_store", "clock")
 
 
 def _engine_with_no_endpoint() -> EmbeddingsEngine:
@@ -25,17 +27,44 @@ def _stored(qdrant: Any) -> set[str]:
     return {point["id"] for points in qdrant.collections.values() for point in points}
 
 
-def _fail_on_batch(embedder: Any, number: int) -> None:
-    """Make the embedder raise a gateway timeout on its `number`th request."""
+GATEWAY_TIMEOUT = "Gateway 504 Gateway Timeout"
+
+
+def _fail_on_batch(embedder: Any, number: int, *, failures: int | None = None) -> list[list[str]]:
+    """Make the embedder raise a gateway timeout for the batch of its `number`th request, on each
+    try or on the first `failures` tries, and return the tries of that batch."""
     requests = 0
+    failing: list[str] | None = None
+    tries: list[list[str]] = []
 
     def hook(texts: list[str], is_query: bool) -> None:
-        nonlocal requests
+        nonlocal requests, failing
         requests += 1
         if requests == number:
-            raise RuntimeError("Gateway 504 Gateway Timeout")
+            failing = texts
+        if texts != failing:
+            return
+        tries.append(texts)
+        if failures is None or len(tries) <= failures:
+            raise RuntimeError(GATEWAY_TIMEOUT)
 
     embedder.before_embed = hook
+    return tries
+
+
+def _retry_waits(clock: Any) -> list[float]:
+    """The waits before a second batch attempt: 10 s or more. The real git of the walk polls the
+    exit of its child through `time.sleep`, with waits of milliseconds."""
+    return [wait for wait in clock.waits if wait >= 10.0]
+
+
+def _three_files(root: Path) -> None:
+    for name in ("file_a", "file_b", "file_c"):
+        (root / f"{name}.py").write_text(f"def {name}(): pass\n", encoding="utf-8")
+
+
+def _code_files(qdrant: Any) -> set[str]:
+    return {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]}
 
 
 def test_a_query_that_cannot_be_embedded_fails_the_search(qdrant: Any) -> None:
@@ -80,34 +109,71 @@ def test_indexing_text_the_model_cannot_embed_raises_and_stores_nothing(
     assert (retry["indexed_files"], retry["skipped_files"]) == (1, 0)
 
 
-def test_a_failed_second_batch_ends_with_exit_1_and_keeps_the_first_batch(
-    tmp_path: Path, qdrant: Any, embedder: Any
+def test_a_batch_that_fails_each_try_is_skipped_and_the_run_exits_1_naming_its_file(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
 ) -> None:
-    """A failed batch ends the run with exit 1 naming the files, and earlier batches stay for resume."""
-    for name in ("file_a", "file_b", "file_c"):
-        (tmp_path / f"{name}.py").write_text(f"def {name}(): pass\n", encoding="utf-8")
+    """The other batches are indexed, the run exits 1 at the end with the file it did not index,
+    and the next run embeds that file (#6717)."""
+    _three_files(tmp_path)
     embedder.batch_size = 1
-    _fail_on_batch(embedder, 2)
+    tries = _fail_on_batch(embedder, 2)
     cache_dir = tmp_path / ".cache"
     indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=cache_dir)
 
     with pytest.raises(EmbeddingsError) as exc_info:
         indexer.index_workspace(tmp_path, include_kb=False)
-    stored_after_failure = {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]}
+    stored_after_failure = _code_files(qdrant)
     embedder.before_embed = None
     resumed = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=cache_dir)
     result = resumed.index_workspace(tmp_path, include_kb=False, force=False)
 
-    assert exc_info.value.exit_code == CONST_EXIT_FAILURE
-    assert "Failed to embed batch from" in exc_info.value.message
-    assert "Gateway 504 Gateway Timeout" in exc_info.value.message
-    assert stored_after_failure == {"file_a.py"}
-    assert (result["indexed_files"], result["skipped_files"]) == (2, 1)
+    error = exc_info.value
+    assert (error.exit_code, len(tries), len(_retry_waits(clock))) == (CONST_EXIT_FAILURE, 2, 1)
+    assert (GATEWAY_TIMEOUT in error.message, "file_b.py" in error.message) == (True, True)
+    assert error.details["skipped_files"] == ["file_b.py"]
+    assert stored_after_failure == {"file_a.py", "file_c.py"}
+    assert (result["indexed_files"], result["skipped_files"]) == (1, 2)
+
+
+def test_a_batch_that_the_retry_embeds_is_indexed(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+) -> None:
+    _three_files(tmp_path)
+    embedder.batch_size = 1
+    tries = _fail_on_batch(embedder, 2, failures=1)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    result = indexer.index_workspace(tmp_path, include_kb=False)
+
+    assert (result["indexed_files"], len(tries), len(_retry_waits(clock))) == (3, 2, 1)
+    assert _code_files(qdrant) == {"file_a.py", "file_b.py", "file_c.py"}
+
+
+def test_a_permanent_failure_ends_the_run_with_no_retry(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+) -> None:
+    """An unserved model fails each batch, so the run stops at the first one and asks no more."""
+    _three_files(tmp_path)
+    embedder.batch_size = 1
+    embedder.fail("Embedding model m produced no embeddings: x answered HTTP 404")
+    requests: list[list[str]] = []
+    embedder.before_embed = lambda texts, is_query: requests.append(texts)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    assert (len(requests), _retry_waits(clock), exc_info.value.exit_code) == (
+        1,
+        [],
+        CONST_EXIT_FAILURE,
+    )
+    assert "Failed to embed batch from 'file_a.py'" in exc_info.value.message
 
 
 def _interrupted_index(tmp_path: Path, qdrant: Any, embedder: Any) -> tuple[Path, Path]:
-    """A multi-chunk big.py beside a one-chunk small.py, and the cache an embedding failure
-    inside big.py left; small.py keeps the project in later scans."""
+    """A multi-chunk big.py beside a one-chunk small.py, and the cache that a batch inside big.py
+    left when it failed both tries; small.py keeps the project in later scans."""
     (tmp_path / "small.py").write_text("def small():\n    return 1\n", encoding="utf-8")
     big = tmp_path / "big.py"
     big.write_text(

@@ -121,6 +121,30 @@ def test_index_stores_the_workspace_and_reports_it(
     }
 
 
+@pytest.mark.usefixtures("clock")
+def test_index_with_a_batch_that_fails_each_try_exits_1_and_names_its_file(
+    cli: Callable[..., Any], tmp_path: Path, qdrant: Any, embedder: Any
+) -> None:
+    """The run indexes the other files, then exits 1 with the file it did not index (#6717)."""
+    (tmp_path / "other.py").write_text("def other():\n    return 1\n", encoding="utf-8")
+
+    def time_out_app(texts: list[str], is_query: bool) -> None:
+        if any("run_app" in text for text in texts):
+            raise RuntimeError("Gateway 504 Gateway Timeout")
+
+    embedder.batch_size = 1
+    embedder.before_embed = time_out_app
+
+    result = cli(*RAG, "index", str(_app(tmp_path)), "--no-include-kb")
+
+    assert (result.exit_code, "app.py" in result.output, "Gateway 504" in result.output) == (
+        1,
+        True,
+        True,
+    )
+    assert {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]} == {"other.py"}
+
+
 def test_index_reports_the_files_it_pruned(
     cli: Callable[..., Any], tmp_path: Path, qdrant: Any, embedder: Any
 ) -> None:

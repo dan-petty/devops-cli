@@ -317,8 +317,9 @@ def _endpoint_failure(endpoint: str, exc: Exception) -> str:
     )
 
 
-def _is_transient_embedding_error(exc: Exception) -> bool:
-    """Check if an exception is a transient network, timeout, or connection reset error."""
+def is_transient_embedding_error(exc: BaseException) -> bool:
+    """Whether `exc` is a transient network, timeout or connection reset error, which a later
+    attempt can get past. The embedder and the index retry only these errors."""
     if isinstance(exc, EmbeddingsError):
         return exc.is_transient
     if isinstance(exc, (httpx2.NetworkError, httpx2.TimeoutException)):
@@ -1081,7 +1082,7 @@ class EmbeddingsEngine:
             except Exception as exc:
                 logger.debug("Ollama embedding on %s failed: %s", _endpoint_text(base_url), exc)
                 failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
-                is_transient_flags.append(_is_transient_embedding_error(exc))
+                is_transient_flags.append(is_transient_embedding_error(exc))
         all_transient = bool(is_transient_flags and all(is_transient_flags))
         raise self._embedding_error(failures, is_transient=all_transient)
 
@@ -1206,7 +1207,7 @@ class EmbeddingsEngine:
                 return res, time.monotonic() - started
             except Exception as exc:
                 last_exc = exc
-                if not _is_transient_embedding_error(exc) or attempt >= max_retries:
+                if not is_transient_embedding_error(exc) or attempt >= max_retries:
                     raise
                 # The pool closed the connection that failed, and the retry gets a new one. The
                 # client stays open for the batches in parallel with this one.
@@ -1287,7 +1288,7 @@ class EmbeddingsEngine:
                     endpoint, headers, model, batches, is_gateway
                 )
         except (DevOpsCLIError, httpx2.HTTPError) as exc:
-            is_transient = _is_transient_embedding_error(exc)
+            is_transient = is_transient_embedding_error(exc)
             raise self._embedding_error(
                 [_endpoint_failure(endpoint, exc)], model=model, is_transient=is_transient
             ) from exc
