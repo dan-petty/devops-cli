@@ -18,9 +18,9 @@ Adds: `clear_closed_labels`, `clear_closed_issues`, `ClosedCleared`
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/onboard.py`, `src/devops_cli/roadmap/request_plan.py`, `tests/roadmap/test_roadmap_onboard.py`. Changes: `.github/workflows/clear-status.yml`, `src/devops_cli/roadmap/onboard.py`, `src/devops_cli/roadmap/request_plan.py`, `tests/roadmap/test_roadmap_onboard.py`.
 
-- [ ] 2.1 Change `tests/roadmap/test_roadmap_onboard.py` to the six rows: the seed holds no `clear-status.yml`, every row is `present` and the output holds no `clear-status`, row 5 is `The repository is in service.repos`, the webhook row is row 6, and the dry run lists no read of `.github/workflows/clear-status.yml`
+- [x] 2.1 Change `tests/roadmap/test_roadmap_onboard.py` to the six rows: the seed holds no `clear-status.yml`, every row is `present` and the output holds no `clear-status`, row 5 is `The repository is in service.repos`, the webhook row is row 6, and the dry run lists no read of `.github/workflows/clear-status.yml`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_onboard.py` fails on the base
-- [ ] 2.2 Delete `.github/workflows/clear-status.yml`. In `src/devops_cli/roadmap/onboard.py`, delete `_CLEAR_STATUS_PATH`, the row-5 constant and `_check_row_5`, number the `service.repos` row 5 and the webhook row 6, and change the docstrings from seven to six. In `onboard_requests` of `src/devops_cli/roadmap/request_plan.py`, delete the read of the workflow file and its name in the docstring
+- [x] 2.2 Delete `.github/workflows/clear-status.yml`. In `src/devops_cli/roadmap/onboard.py`, delete `_CLEAR_STATUS_PATH`, the row-5 constant and `_check_row_5`, number the `service.repos` row 5 and the webhook row 6, and change the docstrings from seven to six. In `onboard_requests` of `src/devops_cli/roadmap/request_plan.py`, delete the read of the workflow file and its name in the docstring
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_onboard.py` passes
 
 ## 3. Name the Service in the docstrings
@@ -28,7 +28,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/onboard.py`, `src/devops_cli/road
 Kind: other. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/pull_status.py`. Changes: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/pull_status.py`.
 
 - [ ] 3.1 Change the module docstrings of `inbox.py` and `pull_status.py` so that they name the row `implement` of the Service as the remover of the labels of a closed issue
-  - Verification: `$ ! git grep -n clear-status -- src/ tests/roadmap/ tests/server/`
+  - Verification: `$ ! git grep -n clear-status -- src/`
 
 ## 4. Name the Service in the documents
 
