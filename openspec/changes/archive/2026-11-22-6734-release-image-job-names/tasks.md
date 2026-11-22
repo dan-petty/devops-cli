@@ -21,19 +21,23 @@ Adds: `get_run_times_of_jobs`, `check_job_times`, `job_time_reads`
 
 ## 3. Stop a read after a fixed count of runs
 
-Kind: behavior. Reads: `src/devops_cli/github/session.py`. Changes: `src/devops_cli/config/defaults.py`, `src/devops_cli/github/client.py`, `src/devops_cli/commands/ci.py`, `src/devops_cli/lang/en/messages.py`, `tests/github/test_ci_job_time.py`.
+Kind: behavior. Reads: `src/devops_cli/github/session.py`. Changes: `src/devops_cli/config/defaults.py`, `src/devops_cli/github/client.py`, `src/devops_cli/commands/ci.py`, `src/devops_cli/lang/en/messages.py`, `tests/github/test_ci_job_time.py`, `tests/ci/test_ci_durations.py`.
 Adds: `DEFAULT_CI_JOB_TIME_MAX_RUNS`
 
 - [x] 3.1 Write `test_a_read_that_finds_no_release_image_job_stops_after_a_fixed_count_of_runs` in `tests/github/test_ci_job_time.py`: the listing of `release.yml` holds 150 runs on two pages and no release image job, and the command asks for the jobs of the first 100 runs only, reads no second page, exits 1 and names the bound. It fails on the base, which reads every run
   - Verification: `$ uv run devops ci test tests/github/test_ci_job_time.py` fails on the base
 - [x] 3.2 Add `DEFAULT_CI_JOB_TIME_MAX_RUNS` (100) beside `DEFAULT_CI_JOB_TIME_RUNS` in `src/devops_cli/config/defaults.py`, stop the loop of `get_run_times_of_jobs` after the jobs of that many runs, and name the bound in `job_time_short` and in the repeat line of the dry-run plan
   - Verification: `$ uv run devops ci test tests/github/test_ci_job_time.py` passes
+- [x] 3.3 Write `test_a_count_above_the_bound_of_a_read_is_a_usage_error_that_names_the_bound` in `tests/github/test_ci_job_time.py` and in `tests/ci/test_ci_durations.py`: `--runs 101` exits 2, names the bound and sends no request. Both fail on the base, which takes any count above 0
+  - Verification: `$ uv run devops ci test tests/github/test_ci_job_time.py tests/ci/test_ci_durations.py` fails on the base
+- [x] 3.4 In `src/devops_cli/commands/ci.py`, give the `--runs` options of `job-time` and `durations` the maximum `DEFAULT_CI_JOB_TIME_MAX_RUNS`, so the help shows the range 1 to 100
+  - Verification: `$ uv run devops ci test tests/github/test_ci_job_time.py tests/ci/test_ci_durations.py` passes
 
 ## 4. State the checks in the help and the documents
 
 Kind: other. Reads: `src/devops_cli/ci/job_time.py`. Changes: `src/devops_cli/lang/en/help.py`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `docs/TESTING.md`, `.github/workflows/ci.yml`.
 
-- [x] 4.1 In `src/devops_cli/lang/en/help.py`, make `HELP.ci.job_time` name the six release image jobs and the bound of 100 runs, and put the shard and queue sentences back into `HELP.ci.job_time_job`. Run `uv run devops docs generate`
+- [x] 4.1 In `src/devops_cli/lang/en/help.py`, make `HELP.ci.job_time` name the six release image jobs and say that one read stops after a fixed count of runs. Put the shard and queue sentences back into `HELP.ci.job_time_job`. Run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 - [x] 4.2 In the comment of the `Test Job Duration` job of `.github/workflows/ci.yml`, name the six release image jobs, and say that the job writes its report into the body of the open P0 issue of the check, or files one when none is open. In the Run time paragraph of `docs/TESTING.md`, name the six jobs, the shared read and the bound, and say that the alarm line of `src/devops_cli/ci/job_time.py` names the job, the workflow and the branch
   - Verification: `$ uv run devops ci --check --only actionlint,docs` passes

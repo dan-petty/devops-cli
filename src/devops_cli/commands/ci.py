@@ -2840,7 +2840,10 @@ def job_time(
     branch: Annotated[
         str | None, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
     ] = None,
-    runs: Annotated[int | None, typer.Option("--runs", min=1, help=HELP.ci.job_time_runs)] = None,
+    runs: Annotated[
+        int | None,
+        typer.Option("--runs", min=1, max=DEFAULT_CI_JOB_TIME_MAX_RUNS, help=HELP.ci.job_time_runs),
+    ] = None,
     limit: Annotated[
         float | None, typer.Option("--limit", min=1, help=HELP.ci.job_time_limit)
     ] = None,
@@ -2961,7 +2964,10 @@ def durations(
         str, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
     ] = CONST_GIT_MAIN_BRANCH,
     runs: Annotated[
-        int, typer.Option("--runs", min=1, help=HELP.ci.durations_runs)
+        int,
+        typer.Option(
+            "--runs", min=1, max=DEFAULT_CI_JOB_TIME_MAX_RUNS, help=HELP.ci.durations_runs
+        ),
     ] = DEFAULT_CI_JOB_TIME_RUNS,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:

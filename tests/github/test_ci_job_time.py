@@ -418,6 +418,22 @@ def test_the_command_takes_the_limit_and_the_count_from_its_options(
     assert (over.exit_code, inside.exit_code) == (1, 0)
 
 
+def test_a_count_above_the_bound_of_a_read_is_a_usage_error_that_names_the_bound(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """A read stops after the jobs of `DEFAULT_CI_JOB_TIME_MAX_RUNS` runs, so it can never give
+    more runs. A larger `--runs` exits 2, names the bound and sends no request (#6734)."""
+    bound = defaults.DEFAULT_CI_JOB_TIME_MAX_RUNS
+
+    result = cli("ci", "job-time", "--repo", _REPO, "--runs", str(bound + 1))
+
+    assert (result.exit_code, f"1<=x<={bound}" in _said(result), github_api.requested) == (
+        2,
+        True,
+        [],
+    )
+
+
 def test_the_command_exits_1_when_fewer_runs_than_wanted_exist(
     github_api: GitHubApiFake, cli: Callable[..., Any]
 ) -> None:
@@ -896,6 +912,41 @@ def test_the_checks_of_one_workflow_ask_for_the_jobs_of_each_run_one_time(
     assert _release_reads(github_api) == [f"GET https://api.github.com{_RELEASE_RUNS}"] + [
         f"GET https://api.github.com{_jobs_path(run_id)}" for run_id in ids[:19]
     ]
+
+
+def test_a_job_with_its_runs_takes_no_older_run_while_the_read_continues_for_another_job(
+    github_api: GitHubApiFake, cli: Callable[..., Any]
+) -> None:
+    """The third release run skipped `Runner Image / Attest & Tag`, as when Verify fails. So the
+    read continues to the eleventh release run, which gives that job its tenth run, and stops
+    there. `Runner Image / Build` took 900 s in that run, but it had its 10 runs before, so its
+    mean covers only its newest 10 runs (#6734)."""
+    build, attest = "Runner Image / Build", "Runner Image / Attest & Tag"
+    _route_runs(github_api, [200.0] * 20)
+    ids = _route_release_runs(github_api, {build: 200.0}, count=12)
+    skipped = _job(attest, "2026-10-29T10:00:01Z", "2026-10-29T10:00:00Z", "skipped")
+    _route_jobs(
+        github_api,
+        ids[4],
+        [skipped if job["name"] == attest else job for job in _release_jobs({build: 200.0})],
+    )
+    _route_jobs(github_api, ids[20], _release_jobs({build: 900.0}))
+
+    result = cli("ci", "job-time", "--repo", _REPO)
+
+    said = _said(result)
+    assert (
+        result.exit_code,
+        f"The last 10 runs of {build} took 200 s on average" in said,
+        f"The last 10 runs of {attest} took 300 s on average" in said,
+        _release_reads(github_api),
+    ) == (
+        0,
+        True,
+        True,
+        [f"GET https://api.github.com{_RELEASE_RUNS}"]
+        + [f"GET https://api.github.com{_jobs_path(run_id)}" for run_id in ids[:21]],
+    )
 
 
 def test_a_read_that_finds_no_release_image_job_stops_after_a_fixed_count_of_runs(

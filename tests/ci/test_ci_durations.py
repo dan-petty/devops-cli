@@ -15,6 +15,7 @@ import pytest
 
 from devops_cli.ci import fail_to_pass
 from devops_cli.ci.durations import mean_durations, module_of, module_seconds, write_durations
+from devops_cli.config import defaults
 from devops_cli.config.constants import CONST_CI_TEST_DURATIONS_PATH
 from devops_cli.core.test_selection import recorded_durations
 from tests.support.fakes.github import github_json
@@ -238,3 +239,20 @@ def test_a_dry_run_lists_the_reads_and_the_download_and_makes_none(
         "/artifacts" in said,
         "gh run download" in said,
     ) == (0, [], [], True, True, True)
+
+
+def test_a_count_above_the_bound_of_a_read_is_a_usage_error_that_names_the_bound(
+    github_api: GitHubApiFake, process_fake: ProcessFake, cli: Callable[..., Any]
+) -> None:
+    """The read of the runs stops after the jobs of `DEFAULT_CI_JOB_TIME_MAX_RUNS` runs. A larger
+    `--runs` exits 2 and names the bound, and nothing is read or downloaded (#6734)."""
+    bound = defaults.DEFAULT_CI_JOB_TIME_MAX_RUNS
+
+    result = cli("ci", "durations", "--repo", _REPO, "--runs", str(bound + 1))
+
+    assert (
+        result.exit_code,
+        f"1<=x<={bound}" in " ".join(result.output.split()),
+        github_api.requested,
+        process_fake.calls,
+    ) == (2, True, [], [])

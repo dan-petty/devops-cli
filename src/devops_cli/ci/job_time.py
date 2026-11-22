@@ -49,7 +49,9 @@ _RELEASE_WORKFLOW_FILE: Final[str] = "release.yml"
 # The jobs of the two release images of #6522, by the names of the Actions API. release.yml calls
 # release-image.yml one time for each image (#6571), and GitHub names each job of a call
 # `<caller job> / <called job>`: the caller job is `<Title> Image`, and the called jobs are Build,
-# Verify and Attest & Tag. Each one has a timeout above 360 s, so each one is a check (#6734).
+# Verify and Attest & Tag. The plan of #6522 names these two images, so their six jobs are the
+# checks. The Service Image jobs average inside the limit, and the DevContainer image is not part
+# of #6522 (design.md of #6734).
 _RELEASE_IMAGE_JOB_NAMES: Final[tuple[str, ...]] = (
     "MCP Server Image / Build",
     "MCP Server Image / Verify",
