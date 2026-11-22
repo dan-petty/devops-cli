@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Only the gateway and the operator reach the database
-Policy `llm-gateway-db-perimeter-ingress` SHALL admit to the database pods on 5432 only the gateway's pods and the CloudNativePG operator (which also uses 8000). It SHALL admit namespace `monitoring` on the metrics port 9187 only, and the egress of policy `llm-gateway-db-perimeter-egress` SHALL be DNS and the Kubernetes API only. The gateway's egress policy SHALL admit egress to the database pods on 5432 by pod selector. `llm-default-perimeter-ingress` and `llm-default-perimeter-egress` SHALL leave the database pods out.
+Policy `llm-gateway-db-perimeter-ingress` SHALL admit to the database pods on 5432 only the gateway's pods and the CloudNativePG operator (which also uses 8000), and namespace `monitoring` on 9187 only. The egress of `llm-gateway-db-perimeter-egress` SHALL be DNS and the Kubernetes API only. The gateway's egress policy SHALL admit the database pods on 5432 by pod selector. The default perimeter of `llm` SHALL leave the database pods out.
 
 #### Scenario: The database perimeter
 - **WHEN** `uv run devops ci --check --only k8s` runs

@@ -12,7 +12,7 @@ The egress of the NetworkPolicies of namespace `monitoring` SHALL let the `alloy
 - **THEN** the rule reports a problem that names `monitoring-default-perimeter-egress`
 
 ### Requirement: Only the worker reaches the admin gRPC port
-The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods, and SHALL let only the worker pods send to it. No egress rule of these policies SHALL cover the port for another pod, also with no `ports`, so that the port stays closed if a policy gets both types again: the policy controller of the cluster does not apply the ingress rules of a policy with both types to traffic that an egress rule of that policy allows. A policy selects only pods of its namespace, so the ingress rules hold for other namespaces.
+The NetworkPolicies of namespace `object-store` SHALL admit to the admin pod on TCP 33646 only the worker pods, and SHALL let only the worker pods send to it. No egress rule of these policies SHALL cover the port for another pod, also with no `ports`, so the port stays closed if a policy gets both types again: the controller of the cluster then skips its ingress rules for that traffic. The ingress rules hold for other namespaces.
 
 #### Scenario: The committed perimeter
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
