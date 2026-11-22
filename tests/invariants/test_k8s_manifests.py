@@ -57,11 +57,6 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
                 GRAFANA_SECURITY_KEY,
                 # The admin password of the object store (#4750), by its name: the key is new.
                 "seaweedfs_admin_password",
-                # The key pair of each writer of the object store (#4756), by name.
-                "object_store_devops_access_key",
-                "object_store_devops_secret_key",
-                "object_store_argo_access_key",
-                "object_store_argo_secret_key",
             }
         ),
     )

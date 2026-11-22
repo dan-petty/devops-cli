@@ -531,49 +531,13 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             None,
             ("deployment/seaweedfs-s3",),
         ),
-        (
-            "devops/object-store-devops",
-            "accessKey",
-            "devops",
-            True,
-            SecretGenerator("hex", 10),
-            None,
-            (),
-        ),
-        (
-            "devops/object-store-devops",
-            "secretKey",
-            "devops",
-            True,
-            SecretGenerator("urlsafe", 30),
-            None,
-            (),
-        ),
-        (
-            "argo-workflows/object-store-argo",
-            "accessKey",
-            "infra",
-            True,
-            SecretGenerator("hex", 10),
-            None,
-            (),
-        ),
-        (
-            "argo-workflows/object-store-argo",
-            "secretKey",
-            "infra",
-            True,
-            SecretGenerator("urlsafe", 30),
-            None,
-            (),
-        ),
     ]
 
 
 def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file_is_empty() -> None:
     """The push makes the admin password under a keyring-only key, so the admin UI asks for a
     login, and it writes an identities file with no identity, so the S3 gateway refuses each
-    request until an identity of the store CRs exists (#4750, #4756). The JWT keys have no row:
+    request until a person adds an identity in the admin UI (#4750). The JWT keys have no row:
     the operator mints them."""
     rows = {secret.ref: secret for secret in CLUSTER_SECRETS}
     admin, s3 = rows["object-store/seaweedfs-admin"], rows["object-store/seaweedfs-s3"]
@@ -602,54 +566,12 @@ def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file
     )
 
 
-@pytest.mark.parametrize(
-    ("ref", "writer", "stack"),
-    [
-        ("devops/object-store-devops", "devops", "devops"),
-        ("argo-workflows/object-store-argo", "argo", "infra"),
-    ],
-)
-def test_each_writer_key_of_the_store_is_generated_in_the_keyring(
-    ref: str, writer: str, stack: str
-) -> None:
-    """The `S3Credentials` of a writer reads its key pair from a Secret in the writer namespace,
-    and the operator never makes a Secret there, so the push makes the pair and the keyring keeps
-    it (#4756). The fields are the defaults of `S3Credentials`, the lengths are those of the pair
-    that the operator makes, and no workload reads the Secret yet."""
-    (secret,) = [row for row in CLUSTER_SECRETS if row.ref == ref]
-    access, secret_key = secret.entries
-    assert access.generator is not None
-    assert secret_key.generator is not None
-
-    assert (
-        [(entry.key, entry.source, entry.generator, entry.required) for entry in secret.entries],
-        secret.stack,
-        secret.restarts,
-        {f"object_store_{writer}_access_key", f"object_store_{writer}_secret_key"}
-        <= keyring_only_keys(),
-        len(access.generator.generate()),
-        len(secret_key.generator.generate()),
-    ) == (
-        [
-            (
-                "accessKey",
-                KeyringSource(f"object_store_{writer}_access_key"),
-                SecretGenerator("hex", 10),
-                True,
-            ),
-            (
-                "secretKey",
-                KeyringSource(f"object_store_{writer}_secret_key"),
-                SecretGenerator("urlsafe", 30),
-                True,
-            ),
-        ],
-        stack,
-        (),
-        True,
-        20,
-        40,
-    )
+def test_no_row_holds_a_key_of_the_object_store() -> None:
+    """The key pair of a writer of the object store comes from an ESO `Password` generator of the
+    tenant chart, not from the keyring, so the table has no row for a store key (#4756)."""
+    assert [
+        secret.ref for secret in CLUSTER_SECRETS if secret.name.startswith("object-store-")
+    ] == []
 
 
 def test_generators_make_the_documented_shapes() -> None:
