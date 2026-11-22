@@ -224,7 +224,6 @@ def test_an_issues_closed_delivery_removes_the_status_label_with_one_request(
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
-    kube: FakeCluster,
     tmp_path: Path,
 ) -> None:
     """Test first for #4660: the router gives an `issues.closed` delivery to each lane as the
@@ -260,7 +259,6 @@ def test_a_closed_issue_that_holds_owner_agent_loses_the_label_in_the_next_round
     store: InMemoryRoadmapStore,
     stage_repo: StageRepo,
     github_api_and_gh: tuple[GitHubApiFake, ProcessFake],
-    kube: FakeCluster,
     tmp_path: Path,
 ) -> None:
     """Test first for #4660: a closed issue whose label no delivery removed, such as a claim that
