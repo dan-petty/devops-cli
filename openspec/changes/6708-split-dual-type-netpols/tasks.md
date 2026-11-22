@@ -18,7 +18,7 @@
 
 ## 3. Documents
 
-- [ ] 3.1 Add the section `NetworkPolicy` to `k8s/README.md` with the controller behavior and the rule, and use the new names in its sections and its tree
+- [x] 3.1 Add the section `NetworkPolicy` to `k8s/README.md` with the controller behavior and the rule, and use the new names in its sections and its tree
   - Verification: `$ uv run devops ci docs`
 
 ## Checks after the sync
