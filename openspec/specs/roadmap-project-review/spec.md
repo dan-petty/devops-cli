@@ -197,19 +197,27 @@ After a read that gets no answer from the network, a `ServiceRequestError` with 
 - **THEN** the fake records the attempts of the first query only, and each fact has the status `error` with one reason
 
 ### Requirement: The listing reader fills the gap after the snapshot watermark
-The `listing` reader SHALL read the kept listing snapshot of the repository when its records have the schema of the release, whatever the age of its last full read, SHALL send the listing of the issues and pull requests changed at or after its watermark, and SHALL merge the answer with the snapshot. When no such snapshot is kept, it SHALL send only the listing of the issues and pull requests changed at or after the window start. It SHALL NOT write a snapshot.
+The `listing` reader SHALL read the review's own listing snapshot when its records have the schema of the release, and SHALL send only the issues and pull requests changed at or after the later of its watermark and the window start. With no such snapshot it SHALL read the intake snapshot that way, and with neither it SHALL read from the window start. It SHALL keep the merged records in the review's own store, and SHALL NOT write the intake snapshot.
 
 #### Scenario: An issue after the watermark
-- **WHEN** the snapshot watermark is `2026-11-11T14:28:04Z`, the window ends at `2026-11-11T14:51:23Z`, and the fake GitHub gives one issue opened at `2026-11-11T14:40:00Z` in the listing changed since the watermark
-- **THEN** the fact of the issues opened in the window counts that issue once, and the snapshot file is the same as before the run
+- **WHEN** the review snapshot watermark is 2026-11-11T14:28:04Z, the window ends at 2026-11-11T14:51:23Z, and the fake GitHub gives one issue opened at 2026-11-11T14:40:00Z in the listing changed since the watermark
+- **THEN** the fact of the issues opened in the window counts that issue once, the sent listing names since=2026-11-11T14:28:04Z, and the review snapshot holds that issue
 
 #### Scenario: An old snapshot
-- **WHEN** the last full read of the snapshot is 3 days old
-- **THEN** the fake GitHub records only the listing changed since the watermark, and the snapshot file is the same as before the run
+- **WHEN** the review keeps no snapshot and the last full read of the intake snapshot is 3 days old
+- **THEN** the fake GitHub records only the listing changed since its watermark, the intake snapshot file is byte-identical after the run, and the review snapshot holds the merged records
 
 #### Scenario: No snapshot of this schema
-- **WHEN** no snapshot is kept, or the snapshot has another schema key, and the window starts at `2026-11-04T14:51:23Z`
-- **THEN** the fake GitHub records only the listing changed since `2026-11-04T14:51:23Z`, and no snapshot file changes
+- **WHEN** neither store holds a snapshot of this schema and the window starts at 2026-11-04T14:51:23Z
+- **THEN** the fake GitHub records only the listing changed since 2026-11-04T14:51:23Z, and the review store holds a snapshot with the schema key of the release
+
+#### Scenario: A watermark before the window start
+- **WHEN** the review snapshot watermark is 3 weeks before the window start
+- **THEN** each listing request names a since at or after the window start, and the listing count equals the listing count of a run with an empty review store
+
+#### Scenario: A window wider than the review snapshot
+- **WHEN** the window starts before the first window that the review snapshot covers
+- **THEN** the fake GitHub records only the listing changed since the window start, and the review store holds a snapshot that covers the new window
 
 ### Requirement: The listing gives the merged pull requests
 An issue record of a pull request SHALL hold `merged_at` from `pull_request.merged_at` of the issue listing, or null when the pull request did not merge.
@@ -217,13 +225,6 @@ An issue record of a pull request SHALL hold `merged_at` from `pull_request.merg
 #### Scenario: A merged and a closed pull request
 - **WHEN** the issue listing holds pull request 7 with `pull_request.merged_at` `2026-11-11T10:00:00Z` and pull request 8 closed with `pull_request.merged_at` null
 - **THEN** the record of pull request 7 has `merged_at` `2026-11-11T10:00:00Z`, and the record of pull request 8 has `merged_at` null
-
-### Requirement: The runs reader splits a slice that reaches the result cap
-The `github_runs` reader SHALL read the runs of a query by created time. When a slice gives a `total_count` of 1,000 or more, it SHALL split the slice in two halves by created time and read each half. It SHALL give each run once.
-
-#### Scenario: Two thousand runs
-- **WHEN** a fake session holds 2,000 runs in the window and answers each `created` slice as GitHub does, with at most 1,000 runs and the real `total_count`
-- **THEN** the reader gives all 2,000 run ids, each id once, and each slice that it reads to the end holds fewer than 1,000 runs
 
 ### Requirement: A newest-first listing stops at the window start
 A `github` fact that names a `newest_first` field SHALL read no page after the first page that holds an item with that field at or before the start of the window.
@@ -447,3 +448,40 @@ The shipped fact `prometheus.stage_sli` SHALL be the share of the stage items of
 #### Scenario: Only skipped items
 - **WHEN** the fixture series add only 5 `skipped` items of `example/project`
 - **THEN** the query gives no series
+
+### Requirement: The review keeps its own listing snapshot
+The project review SHALL write its listing snapshot to its own store under `review-listing` in the roadmap state directory, and SHALL NOT write the snapshot that intake keeps.
+
+#### Scenario: A review writes the review snapshot
+- **WHEN** a test runs one review over a 7-day window with an empty review store and an empty intake store
+- **THEN** the review store holds one snapshot of the repository with the schema key of the release, and the intake store holds no file
+
+#### Scenario: A review leaves the intake snapshot unchanged
+- **WHEN** a test runs a review with an intake snapshot that holds a record of an older schema key
+- **THEN** the intake snapshot file is byte-identical after the review, and the review store holds a new snapshot
+
+### Requirement: The runs reader counts the runs of each status
+The `github_runs` reader SHALL read the count of the Actions runs of a window with one GitHub request for each of the statuses success, failure, cancelled and in progress, and SHALL read the total count of the window with one more request. It SHALL NOT read a page of runs.
+
+#### Scenario: A window of 2,072 runs
+- **WHEN** the fake GitHub gives 1,927 successful, 29 failed, 104 cancelled and 12 in-progress runs and the total 2,072
+- **THEN** the fact's value holds the four counts, its n is 2,072, and the reader counted 5 runs reads
+
+#### Scenario: A window above the result cap
+- **WHEN** the window holds more than 1,000 runs
+- **THEN** the total count is exact and the reader sends 5 requests
+
+#### Scenario: A run of another status
+- **WHEN** the window holds 3 skipped runs
+- **THEN** the total includes those 3 runs and the value holds no skipped key
+
+### Requirement: A 7-day review sends at most 45 GitHub requests
+A project review over a 7-day window MUST send at most 45 GitHub requests when it starts with no snapshot of any kind, and MUST send at most 45 when it starts with the review snapshot of an earlier review and no intake snapshot.
+
+#### Scenario: A first 7-day review
+- **WHEN** a test runs a review over a 7-day window with an empty review store and an empty intake store
+- **THEN** the sum of the counts of the reads is at most 45
+
+#### Scenario: A second 7-day review
+- **WHEN** a test runs the review with the review snapshot of the previous review and no intake snapshot
+- **THEN** the sum of the counts of the reads is at most 45 and the listing count is lower than the listing count of the first review
