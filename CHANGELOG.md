@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.194.0](https://github.com/dan-petty/devops-cli/compare/v0.193.1...v0.194.0) (2026-11-22)
+
+
+### Features
+
+* **roadmap:** run the runner Job as three containers ([#6732](https://github.com/dan-petty/devops-cli/issues/6732)) ([97d6bc7](https://github.com/dan-petty/devops-cli/commit/97d6bc7baae6a12ec46dbd59ee7473a77c87e3f5)), closes [#3700](https://github.com/dan-petty/devops-cli/issues/3700)
+
+
+### Bug Fixes
+
+* **ai:** retry a Qdrant request after a 429, 502, 503 or 504 answer ([#6761](https://github.com/dan-petty/devops-cli/issues/6761)) ([a406980](https://github.com/dan-petty/devops-cli/commit/a4069808df7b490c4f88b305c1f8021dcfab0f62))
+* **deps:** pin the devtools image in its run tag form ([#6763](https://github.com/dan-petty/devops-cli/issues/6763)) ([4735538](https://github.com/dan-petty/devops-cli/commit/4735538d68f9c663f4d2f59bb31b45859c9d5749)), closes [#6760](https://github.com/dan-petty/devops-cli/issues/6760)
+* **k8s:** Scrape the SearXNG engine metrics ([#6755](https://github.com/dan-petty/devops-cli/issues/6755)) ([80fc29d](https://github.com/dan-petty/devops-cli/commit/80fc29d764c7d6eef7596f34c9574959bbc76c09))
+
 ## [0.193.1](https://github.com/dan-petty/devops-cli/compare/v0.193.0...v0.193.1) (2026-11-22)
 
 
