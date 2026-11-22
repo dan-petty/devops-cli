@@ -10,6 +10,7 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: Seaweed
 metadata:
   name: seaweedfs
+  namespace: object-store
   annotations:
     # The CR owns the StatefulSets of the claims: Argo CD neither prunes nor deletes it.
     argocd.argoproj.io/sync-options: Prune=false,Delete=false

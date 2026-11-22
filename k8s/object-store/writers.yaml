@@ -1,0 +1,188 @@
+# The writers of the platform buckets of the object store (#4756). Each writer <writer> has the
+# same five objects:
+#
+# - S3Identity, S3Policy, S3PolicyBinding and S3Credentials <writer> in namespace object-store:
+#   the binding and the credential name the identity and the policy in their own namespace;
+# - ResourceReferenceGrant object-store-credentials in the writer namespace: the operator reads a
+#   Secret of another namespace only when a grant there admits the credential.
+#
+# The credential reads the key pair from Secret object-store-<writer> of the writer namespace,
+# which `devops k8s push-secrets` makes from the keyring; the operator never makes a Secret in
+# another namespace. Until the push, the credential stays Pending and retries. The operator
+# watches each writer namespace (operator-values.yaml). Each policy names only the buckets of its
+# writer, and SeaweedFS authorizes an identity with a policy by its policies alone, so a key gets
+# AccessDenied on every other bucket. k8s/README.md, section Buckets and keys, has the table.
+
+# Writer devops (namespace devops): reports, reports-private and cache.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Identity
+metadata:
+  name: devops
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Policy
+metadata:
+  name: devops
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  statements:
+    - sid: Buckets
+      effect: Allow
+      actions:
+        - s3:ListBucket
+        - s3:ListBucketMultipartUploads
+        - s3:GetBucketLocation
+      resources:
+        - reports
+        - reports-private
+        - cache
+    - sid: Objects
+      effect: Allow
+      actions:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:DeleteObject
+        - s3:AbortMultipartUpload
+        - s3:ListMultipartUploadParts
+      resources:
+        - reports/*
+        - reports-private/*
+        - cache/*
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3PolicyBinding
+metadata:
+  name: devops
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  policyRef:
+    name: devops
+  subjects:
+    - kind: S3Identity
+      name: devops
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Credentials
+metadata:
+  name: devops
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  identityRef:
+    name: devops
+  secretRef:
+    namespace: devops
+    name: object-store-devops
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: ResourceReferenceGrant
+metadata:
+  name: object-store-credentials
+  namespace: devops
+spec:
+  from:
+    - group: seaweed.seaweedfs.com
+      kind: S3Credentials
+      namespace: object-store
+  to:
+    - group: ""
+      kind: Secret
+      name: object-store-devops
+---
+# Writer argo (namespace argo-workflows): argo-artifacts.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Identity
+metadata:
+  name: argo
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Policy
+metadata:
+  name: argo
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  statements:
+    - sid: Buckets
+      effect: Allow
+      actions:
+        - s3:ListBucket
+        - s3:ListBucketMultipartUploads
+        - s3:GetBucketLocation
+      resources:
+        - argo-artifacts
+    - sid: Objects
+      effect: Allow
+      actions:
+        - s3:GetObject
+        - s3:PutObject
+        - s3:DeleteObject
+        - s3:AbortMultipartUpload
+        - s3:ListMultipartUploadParts
+      resources:
+        - argo-artifacts/*
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3PolicyBinding
+metadata:
+  name: argo
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  policyRef:
+    name: argo
+  subjects:
+    - kind: S3Identity
+      name: argo
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: S3Credentials
+metadata:
+  name: argo
+  namespace: object-store
+spec:
+  seaweedRef:
+    name: seaweedfs
+    namespace: object-store
+  identityRef:
+    name: argo
+  secretRef:
+    namespace: argo-workflows
+    name: object-store-argo
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: ResourceReferenceGrant
+metadata:
+  name: object-store-credentials
+  namespace: argo-workflows
+spec:
+  from:
+    - group: seaweed.seaweedfs.com
+      kind: S3Credentials
+      namespace: object-store
+  to:
+    - group: ""
+      kind: Secret
+      name: object-store-argo

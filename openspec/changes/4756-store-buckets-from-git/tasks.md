@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_
 
 Kind: manifest. Reads: `tests/gate/k8s_checks/object_store.py`, `tests/gate/k8s_render.py`, `src/devops_cli/k8s/cluster_secrets.py`. Changes: `tests/gate/k8s_checks/object_store_buckets.py` (new), `tests/gate/k8s_checks/object_store.py`, `k8s/object-store/buckets.yaml` (new), `k8s/object-store/writers.yaml` (new), `k8s/object-store/kustomization.yaml`, `k8s/object-store/seaweed.yaml`, `k8s/object-store/operator-values.yaml`, `k8s/argocd/apps/projects.yaml`.
 
-- [ ] 2.1 Write `tests/gate/k8s_checks/object_store_buckets.py`: one function for each rule of the spec that returns its problems, one check that applies it to the committed render, and one that applies it to a fixture that breaks it. Make the Secret rule of `object_store.py` read the namespace of a `secretRef`, with a fixture check, and move `watchNamespaces` from its values rule to the new watch rule. The checks fail on the base tree, which has no bucket
+- [x] 2.1 Write `tests/gate/k8s_checks/object_store_buckets.py`: one function for each rule of the spec that returns its problems, one check that applies it to the committed render, and one that applies it to a fixture that breaks it. Make the Secret rule of `object_store.py` read the namespace of a `secretRef`, with a fixture check, and move `watchNamespaces` from its values rule to the new watch rule. The checks fail on the base tree, which has no bucket
   - Verification: `$ uv run devops ci --check --only k8s` fails and names `object_store_buckets`
-- [ ] 2.2 Add `buckets.yaml` and `writers.yaml`, list them in the kustomization and drop its `namespace` transformer, give the `Seaweed` CR `namespace: object-store`, add `devops` and `argo-workflows` to `watchNamespaces`, and add the two Secrets to the orphan ignores of the project `homelab`
+- [x] 2.2 Add `buckets.yaml` and `writers.yaml`, list them in the kustomization and drop its `namespace` transformer, give the `Seaweed` CR `namespace: object-store`, add `devops` and `argo-workflows` to `watchNamespaces`, and add the two Secrets to the orphan ignores of the project `homelab`
   - Verification: `$ uv run devops ci --check --only k8s` passes, and `$ uv run devops k8s lint` finds no problem
 
 ## 3. Documents
