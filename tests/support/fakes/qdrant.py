@@ -13,6 +13,7 @@ import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -488,6 +489,7 @@ class ServedQdrant:
     collections: list[str] = field(default_factory=list)
     points: list[dict[str, Any]] = field(default_factory=list)
     drop_connections: int = 0
+    error_statuses: list[int] = field(default_factory=list)
     collection_info: dict[str, Any] | None = None
     requests: list[tuple[str, str, dict[str, str]]] = field(default_factory=list)
     bodies: list[tuple[str, str, Any]] = field(default_factory=list)
@@ -508,7 +510,7 @@ def _served_result(served: ServedQdrant, prefix: str, method: str, path: str) ->
         return served.collection_info
     if method == "POST" and path.endswith("/points/query"):
         return {"points": served.points}
-    if method == "PUT" and path.endswith("/index"):
+    if method == "PUT" and path.endswith(("/index", "/points")):
         return {"operation_id": 0, "status": "completed"}
     if method == "PUT":
         return True
@@ -523,13 +525,16 @@ def serving_qdrant(
 
     It answers `GET <prefix>/collections` with `collections`, `GET <prefix>/collections/<name>`
     with `collection_info` when the test sets it, `POST <prefix>/collections/<name>/
-    points/query` with `points`, and `PUT` of a collection or of its index with success. Every other
+    points/query` with `points`, and `PUT` of a collection, of its index or of its points with
+    success. Every other
     path answers 404, as a collection that does not exist does. It records each request's method,
     path and headers, and the JSON body of each request that has one. The next `drop_connections` requests are cut without an answer, as a tunnel
-    that closes a keep-alive connection cuts them. A test of what the real native client sends or
+    that closes a keep-alive connection cuts them. Each of the next requests after them takes the
+    first status of `error_statuses` and gets that status with an HTML body, as a proxy in front of
+    Qdrant answers when its backend does not. A test of what the real native client sends or
     retries, such as its API key header, the proxy prefix of a cluster address or the retry of a
-    dropped connection, reads the record. The prefix is the path that a Kubernetes API server
-    proxies a Service under.
+    dropped connection or of a gateway answer, reads the record. The prefix is the path that a
+    Kubernetes API server proxies a Service under.
     """
     served = ServedQdrant(url="", collections=list(collections), points=list(points))
 
@@ -545,13 +550,18 @@ def serving_qdrant(
                 self.close_connection = True
                 return
             result = _served_result(served, prefix, method, self.path.split("?")[0])
-            if result is None:
+            content_type = "application/json"
+            if served.error_statuses:
+                status = served.error_statuses.pop(0)
+                page = f"<html><body><h1>{status} {HTTPStatus(status).phrase}</h1></body></html>"
+                body, content_type = page.encode(), "text/html"
+            elif result is None:
                 body, status = b"{}", 404
             else:
                 body = json.dumps({"result": result, "status": "ok", "time": 0.0}).encode()
                 status = 200
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

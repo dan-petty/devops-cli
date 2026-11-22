@@ -1,0 +1,15 @@
+# Design
+
+## Decisions
+1. **The status of an `UnexpectedResponse` decides.** `_is_transient_qdrant_error` returns `exc.status_code in _RETRY_STATUSES` for an `UnexpectedResponse`, before the search for connection words in the text. Reason: the issue keeps each status other than 429, 502, 503 and 504 permanent. On the base, a 504 and a 408 got a retry only because their reason phrases hold the word "Timeout", and an error answer of any status gets a retry when its body holds such a word.
+2. **`_RETRY_STATUSES` is a module-level table in `qdrant.py`.** It holds `HTTPStatus.TOO_MANY_REQUESTS`, `BAD_GATEWAY`, `SERVICE_UNAVAILABLE` and `GATEWAY_TIMEOUT`, with a comment: a server that limits the rate, or a proxy whose backend does not answer. Reason: CONTRIBUTING.md puts a table beside the one module that reads it.
+3. **`_execute_with_retry` and `_record_retry` do not change.** A gateway answer gets the reconnect, the backoff of 0.5 s times the attempt and the attempt limit `DEFAULT_MAX_RETRIES` that a transport error gets. The retry counter labels it `error_type="UnexpectedResponse"`, the class of the error.
+4. **The tests go through `upsert_points` on the loopback server.** `serving_qdrant` gets the field `error_statuses`: each of the next requests takes one status from the list and gets that status with an HTML body. The test sets up the collection first, then sets the status, so the status reaches the upsert of the batch, as in the run of the issue. The real native client of qdrant-client 1.20.0 makes the `UnexpectedResponse`, and the `clock` fixture records the waits. Reason: docs/TESTING.md lets no test import or call a private name of `devops_cli`, and the existing retry tests in `tests/ai/rag/test_qdrant_request_telemetry.py` use this server.
+
+## Rejected alternatives
+- **Keep the search for words for an `UnexpectedResponse`.** Rejected: a 500 or a 400 whose body holds "timeout" then gets a retry, and the issue keeps 400 and 500 permanent. A validation error that names a `timeout` parameter is such a body.
+- **Use `CONST_RETRYABLE_HTTP_STATUS_CODES`.** Rejected: it holds 500, 408, 529 and the Cloudflare statuses 520 to 530, and the issue keeps 500 permanent.
+- **Use `_RETRY_STATUSES` of `src/devops_cli/http/retry.py`.** Rejected: it is a private name of the read policy of another package. CONTRIBUTING.md moves a table to `config/constants.py` only when a second package imports it, and that move changes the read retry, which this item does not change.
+- **Put `ReadRetryTransport` on the httpx client of qdrant-client.** Rejected: it sends only a GET, HEAD or OPTIONS request again, and an upsert is a PUT.
+- **Use `upload_points(max_retries=...)` of qdrant-client.** Rejected: it retries a 400 too, it waits with `time.sleep` past the clock seam, and it replaces `_execute_with_retry` for the upsert, which the item keeps.
+- **Count `ResourceExhaustedResponse` (a 429 with `Retry-After`) as transient.** Rejected for this item: the issue names `UnexpectedResponse`, and a correct retry of it waits the `Retry-After` time, not the backoff of `_execute_with_retry`.
