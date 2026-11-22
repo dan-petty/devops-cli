@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A record write closes the block that the body leaves open
-When the body ends inside a fenced code block or an HTML block that only an end text ends, such as a comment or `<pre>`, the store SHALL put the close of that block on a line of its own before the record block, so the record block stays the last block of the body. The close SHALL add no empty line to the block. A body with no open block SHALL get no close. The close SHALL count as no edit of a person.
+A body can end inside a fenced code block, or an HTML block that only an end text ends, such as a comment or `<pre>`. Then the store SHALL put the close of that block on a line of its own before the record block. The record block SHALL stay the last block of the body. The close SHALL add no empty line to the block. A body with no open block SHALL get no close. The close SHALL count as no edit of a person.
 
 #### Scenario: A body ends in an open block
 - **WHEN** a job writes a mark to an issue whose body ends in an open backtick fence, an open tilde fence, an open `<!--` or an open `<pre>`
@@ -16,5 +16,5 @@ When the body ends inside a fenced code block or an HTML block that only an end 
 - **THEN** only the first two rounds see a change, and the body holds one record block
 
 #### Scenario: The GitHub store counts no lost edit for the close
-- **WHEN** the GitHub store writes a mark to a body that ends in an open fence
-- **THEN** it sends one `PATCH`, and `devops_cli_roadmap_record_lost_edit_total` does not change
+- **WHEN** the GitHub store writes two marks from one read of the item to a body that ends in an open fence
+- **THEN** it sends one `PATCH` for each mark, the record holds both marks, and `devops_cli_roadmap_record_lost_edit_total` does not change
