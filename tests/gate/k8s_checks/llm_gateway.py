@@ -149,14 +149,15 @@ def check_the_gateway_reaches_only_the_collector_pods_on_the_otlp_port() -> None
     }
     collector_ingress = [
         rule["from"]
-        for rule in yaml.safe_load(COLLECTOR_POLICY.read_text(encoding="utf-8"))["spec"]["ingress"]
+        for policy in yaml.safe_load_all(COLLECTOR_POLICY.read_text(encoding="utf-8"))
+        for rule in policy["spec"].get("ingress", [])
         if {"protocol": "TCP", "port": OTLP_HTTP_PORT} in rule.get("ports", [])
     ]
 
     assert (
         [
             rule["to"]
-            for rule in policies["llm-gateway-perimeter"]["egress"]
+            for rule in policies["llm-gateway-perimeter-egress"]["egress"]
             if {"protocol": "TCP", "port": OTLP_HTTP_PORT} in rule.get("ports", [])
         ],
         collector_ingress,

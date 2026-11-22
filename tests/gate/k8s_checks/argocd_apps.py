@@ -112,7 +112,8 @@ def check_namespace_and_pvc_data_safety() -> None:
 
 
 def check_exactly_one_application_renders_argocd_default_perimeter() -> None:
-    """The argocd-default-perimeter NetworkPolicy is rendered by exactly one Application (#1673)."""
+    """The two NetworkPolicies of the argocd perimeter are rendered by exactly one Application
+    (#1673, #6708)."""
     apps = _all_applications()
     rendering_apps: list[str] = []
     for name, app in apps.items():
@@ -127,7 +128,10 @@ def check_exactly_one_application_renders_argocd_default_perimeter() -> None:
             p = REPO_ROOT / rel_path
             if (p / "kustomization.yaml").is_file() or (p / "kustomization.yml").is_file():
                 policies = kustomized_objects(p, "NetworkPolicy")
-                if ("argocd", "argocd-default-perimeter") in policies:
+                if {
+                    ("argocd", "argocd-default-perimeter-ingress"),
+                    ("argocd", "argocd-default-perimeter-egress"),
+                } & policies:
                     rendering_apps.append(name)
     assert rendering_apps == ["argocd"]
 
@@ -254,8 +258,12 @@ def check_mainline_git_sources_safety_rule() -> None:
 
 
 def check_argocd_networkpolicy_gitea_egress() -> None:
-    """argocd-default-perimeter allows egress to Gitea on TCP port 3000 (#1082)."""
-    policy = _load_yaml(ARGOCD_DIR / "networkpolicy.yaml")
+    """argocd-default-perimeter-egress allows egress to Gitea on TCP port 3000 (#1082)."""
+    (policy,) = [
+        document
+        for document in yaml.safe_load_all((ARGOCD_DIR / "networkpolicy.yaml").read_text())
+        if document["metadata"]["name"] == "argocd-default-perimeter-egress"
+    ]
     egress_rules = policy.get("spec", {}).get("egress", [])
     has_gitea_egress = False
     for rule in egress_rules:
@@ -271,4 +279,4 @@ def check_argocd_networkpolicy_gitea_egress() -> None:
             has_gitea_egress = True
             break
 
-    assert has_gitea_egress, "argocd-default-perimeter missing egress rule to gitea:3000"
+    assert has_gitea_egress, "argocd-default-perimeter-egress missing egress rule to gitea:3000"

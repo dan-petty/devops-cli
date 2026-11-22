@@ -350,7 +350,7 @@ class TestK8sLLMGatewayManifests:
             "NodePort",
             4000,
             False,
-            "llm-gateway-perimeter",
+            "llm-gateway-perimeter-ingress",
             "llm-gateway",
             [(None, [4000])],
         )
@@ -741,8 +741,15 @@ def gateway_egress() -> tuple[dict[str, Any], list[BackendTarget], dict[str, str
     """Return the gateway policy, its resolved backends and the gateway's pod labels."""
     deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
     backends = [target for target in _gateway_backends().values() if target is not None]
+    (egress,) = [
+        doc
+        for doc in yaml.safe_load_all(
+            (GATEWAY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8")
+        )
+        if doc["metadata"]["name"] == "llm-gateway-perimeter-egress"
+    ]
     return (
-        _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy"),
+        egress,
         backends,
         deployment["spec"]["template"]["metadata"]["labels"],
     )

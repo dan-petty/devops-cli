@@ -10,8 +10,8 @@
 # noeviction, so it can't also hold a cache that must evict. Valkey requires a password, which
 # comes from the keyring: `devops k8s push-secrets --only llm/valkey-devops-auth --only
 # devops/devops-cli` writes it to Secret valkey-devops-auth and to Secret devops/devops-cli,
-# generating one the first time. The policy valkey-devops-perimeter admits only namespace devops
-# and the metrics scrapers.
+# generating one the first time. The policy valkey-devops-perimeter-ingress admits only namespace
+# devops and the metrics scrapers.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -192,7 +192,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: valkey-devops-perimeter
+  name: valkey-devops-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: valkey-devops
@@ -203,7 +203,6 @@ spec:
       app.kubernetes.io/name: valkey-devops
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # devops-cli's Service and cluster jobs are the only clients (k8s/devops/configmap.example.yaml).
     # A namespace-selector-only peer with `ports:`, the shape kube-router enforces.
@@ -222,5 +221,20 @@ spec:
       ports:
         - protocol: TCP
           port: 9121
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-devops-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-devops
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-devops
+  policyTypes:
+    - Egress
   # No egress: Valkey only answers, and the exporter reaches it on localhost.
   egress: []

@@ -155,10 +155,14 @@ def test_networkpolicy_admits_traefik_monitoring_and_mattermost_on_8000() -> Non
 
 
 def test_monitoring_networkpolicy_has_egress_rule_to_devops_on_8000() -> None:
-    mon_policy = yaml.load(
-        (K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text(encoding="utf-8"),
-        Loader=yaml.CSafeLoader,
-    )
+    (mon_policy,) = [
+        policy
+        for policy in yaml.load_all(
+            (K8S_DIR / "monitoring" / "networkpolicy.yaml").read_text(encoding="utf-8"),
+            Loader=yaml.CSafeLoader,
+        )
+        if "egress" in policy["spec"]
+    ]
     devops_egress = [
         rule
         for rule in mon_policy["spec"]["egress"]

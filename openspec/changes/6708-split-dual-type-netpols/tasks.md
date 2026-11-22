@@ -9,11 +9,11 @@
 
 ## 2. Single-type policies (manifests)
 
-- [ ] 2.1 Split each policy with both types of namespaces `argocd`, `gitea`, `llm`, `logging`, `mattermost`, `monitoring`, `object-store` and `otel` into `<name>-ingress` and `<name>-egress`, and give the in-namespace egress rule of `gitea-default-perimeter-egress` TCP 3000
+- [x] 2.1 Split each policy with both types of namespaces `argocd`, `gitea`, `llm`, `logging`, `mattermost`, `monitoring`, `object-store` and `otel` into `<name>-ingress` and `<name>-egress`, and give the in-namespace egress rule of `gitea-default-perimeter-egress` TCP 3000
   - Verification: `$ uv run devops ci --check --only k8s`
-- [ ] 2.2 Split `argo-workflows-default-perimeter`, `cert-manager-default-perimeter`, `cloudflared-isolation` and `plugin-barman-cloud` in the same way
+- [x] 2.2 Split `argo-workflows-default-perimeter`, `cert-manager-default-perimeter`, `cloudflared-isolation` and `plugin-barman-cloud` in the same way
   - Verification: `$ uv run devops ci --check --only k8s`
-- [ ] 2.3 Make the checks of the `k8s` row and the tests that look up a split policy read the new name
+- [x] 2.3 Make the checks of the `k8s` row and the tests that look up a split policy read the new name
   - Verification: `$ uv run devops ci test tests/ai/benchmark/test_k8s_llm_gateway.py tests/ai/test_ai_gateway_portkey.py tests/k8s/test_k8s_argo_workflows.py tests/server/routes/test_k8s_roadmap_service.py`
 
 ## 3. Documents

@@ -13,7 +13,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: llm-gateway-db-perimeter
+  name: llm-gateway-db-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: llm-gateway-db
@@ -24,7 +24,6 @@ spec:
       cnpg.io/cluster: llm-gateway-db
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # The gateway is the only client of the database.
     - from:
@@ -52,6 +51,21 @@ spec:
       ports:
         - protocol: TCP
           port: 9187
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-db-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway-db
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: llm-gateway-db
+  policyTypes:
+    - Egress
   egress:
     - to:
         - namespaceSelector:

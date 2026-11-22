@@ -252,7 +252,11 @@ def check_alloy_scrapes_the_exporter_of_the_database_through_a_pod_monitor() -> 
     `monitoring` namespace admits its egress to namespace `llm` on 9187 (#4994)."""
     (monitor,) = _of_kind(_documents(DATABASE_FILE), "PodMonitor")
     values = yaml.safe_load(MONITORING_VALUES.read_text(encoding="utf-8"))
-    (policy,) = _documents(MONITORING_POLICY)
+    (policy,) = [
+        doc
+        for doc in _documents(MONITORING_POLICY)
+        if doc["metadata"]["name"] == "monitoring-default-perimeter-egress"
+    ]
     llm_egress_ports = [
         port["port"]
         for rule in policy["spec"]["egress"]
@@ -289,26 +293,26 @@ def check_only_the_gateway_reaches_the_database_and_the_database_calls_only_dns_
     port. The `monitoring` namespace reaches only the metrics exporter on 9187 (#4994). Its egress
     is DNS and the Kubernetes API (the instance manager reads Secrets and updates status through
     it), the form of the Mattermost database."""
-    policy = next(
-        doc
+    policies = {
+        doc["metadata"]["name"]: doc["spec"]
         for doc in _of_kind(_documents(DATABASE_FILE), "NetworkPolicy")
-        if doc["metadata"]["name"] == "llm-gateway-db-perimeter"
-    )
-    spec = policy["spec"]
+    }
+    ingress_spec = policies["llm-gateway-db-perimeter-ingress"]
+    egress_spec = policies["llm-gateway-db-perimeter-egress"]
     ingress = {
         yaml.safe_dump(rule["from"], sort_keys=True): [p["port"] for p in rule["ports"]]
-        for rule in spec["ingress"]
+        for rule in ingress_spec["ingress"]
     }
-    egress_ports = [[p["port"] for p in rule["ports"]] for rule in spec["egress"]]
+    egress_ports = [[p["port"] for p in rule["ports"]] for rule in egress_spec["egress"]]
 
     assert (
-        spec["podSelector"],
-        spec["policyTypes"],
+        [ingress_spec["podSelector"], egress_spec["podSelector"]],
+        [ingress_spec["policyTypes"], egress_spec["policyTypes"]],
         ingress,
         egress_ports,
     ) == (
-        {"matchLabels": {"cnpg.io/cluster": CLUSTER_NAME}},
-        ["Ingress", "Egress"],
+        [{"matchLabels": {"cnpg.io/cluster": CLUSTER_NAME}}] * 2,
+        [["Ingress"], ["Egress"]],
         {
             yaml.safe_dump(
                 [{"podSelector": {"matchLabels": {"app.kubernetes.io/name": "llm-gateway"}}}],
@@ -344,7 +348,7 @@ def check_the_gateway_policy_admits_egress_to_the_database_pods_by_label() -> No
     never by an ipBlock."""
     rules = [
         rule
-        for rule in _policy("llm-gateway-perimeter")["spec"]["egress"]
+        for rule in _policy("llm-gateway-perimeter-egress")["spec"]["egress"]
         if rule["ports"] == [{"protocol": "TCP", "port": DATABASE_PORT}]
     ]
 
@@ -354,15 +358,16 @@ def check_the_gateway_policy_admits_egress_to_the_database_pods_by_label() -> No
 
 
 def check_the_default_perimeter_leaves_the_database_to_its_own_policy() -> None:
-    """llm-default-perimeter admits every pod of the namespace to every other, so the database
-    pods are outside it and llm-gateway-db-perimeter alone governs them."""
-    selector = _policy("llm-default-perimeter")["spec"]["podSelector"]["matchExpressions"]
+    """The two policies of the llm default perimeter admit every pod of the namespace to every
+    other, so the database pods are outside them and the two policies of the database alone govern
+    them."""
+    excluded = {"key": "cnpg.io/cluster", "operator": "NotIn", "values": [CLUSTER_NAME]}
 
-    assert {
-        "key": "cnpg.io/cluster",
-        "operator": "NotIn",
-        "values": [CLUSTER_NAME],
-    } in selector
+    assert [
+        excluded
+        in _policy(f"llm-default-perimeter-{side}")["spec"]["podSelector"]["matchExpressions"]
+        for side in ("ingress", "egress")
+    ] == [True, True]
 
 
 def check_argo_cd_and_deploy_stack_both_apply_the_database_and_the_operator_comes_first() -> None:
@@ -383,4 +388,4 @@ def check_argo_cd_and_deploy_stack_both_apply_the_database_and_the_operator_come
         "cloudnative-pg" in releases["infra"],
         "cloudnative-pg" in releases["chat"],
         [doc["kind"] for doc in applied_documents(DATABASE_FILE)],
-    ) == (True, True, True, False, ["NetworkPolicy", "Cluster", "PodMonitor"])
+    ) == (True, True, True, False, ["NetworkPolicy", "NetworkPolicy", "Cluster", "PodMonitor"])

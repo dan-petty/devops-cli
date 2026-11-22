@@ -153,7 +153,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: valkey-runs-perimeter
+  name: valkey-runs-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: valkey-runs
@@ -164,12 +164,26 @@ spec:
       app.kubernetes.io/name: valkey-runs
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Workstations reach the index through its NodePort. Valkey rejects clients without the
     # password, so the port admits any source.
     - ports:
         - protocol: TCP
           port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-runs-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey-runs
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-runs
+  policyTypes:
+    - Egress
   # No egress: Valkey only answers.
   egress: []

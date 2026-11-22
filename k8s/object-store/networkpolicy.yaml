@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: object-store-perimeter
+  name: object-store-perimeter-ingress
   namespace: object-store
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -10,12 +10,11 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. The pods of the namespace reach the HTTP and gRPC ports of the master (9333, 19333), the
     #    volume servers (8444, 18444), the filers (8888, 18888), the S3 gateway (8333, 18333) and
     #    the admin HTTP port (23646). The admin gRPC port 33646 is not in this list. Egress rule 2
-    #    has the same list.
+    #    of object-store-perimeter-egress has the same list.
     - from:
         - podSelector: {}
       ports:
@@ -65,6 +64,19 @@ spec:
       ports:
         - protocol: TCP
           port: 9327
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: object-store-perimeter-egress
+  namespace: object-store
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # Every pod of the namespace: the SeaweedFS pods and the operator (#4750).
+  podSelector: {}
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS
     - to:
@@ -79,11 +91,11 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. The pods of the namespace, on the ports of ingress rule 1 only. The network policy
-    #    controller of the cluster does not apply the ingress rules of this policy to traffic that
-    #    an egress rule of this policy allows, because the policy has both types and selects the
-    #    source and the destination pod (#6707). With this list, the admin gRPC port 33646 and the
-    #    metrics port 9327 stay closed between the pods of the namespace. Only object-store-worker
+    # 2. The pods of the namespace, on the ports of ingress rule 1 of
+    #    object-store-perimeter-ingress only. The ingress rules also close these ports, because
+    #    the two policies have one type each (#6708). The list keeps the admin gRPC port 33646
+    #    and the metrics port 9327 closed between the pods of the namespace if a policy gets both
+    #    types again (#6707). Only object-store-worker
     #    sends to 33646. Telemetry is off, and no SeaweedFS pod has internet egress.
     - to:
         - podSelector: {}
@@ -115,7 +127,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
 spec:
-  # The worker pods only: the selector of ingress rule 2 of object-store-perimeter.
+  # The worker pods only: the selector of ingress rule 2 of object-store-perimeter-ingress.
   podSelector:
     matchLabels:
       app.kubernetes.io/name: seaweedfs
@@ -137,7 +149,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: object-store-operator
+  name: object-store-operator-ingress
   namespace: object-store
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -148,7 +160,6 @@ spec:
       app.kubernetes.io/instance: seaweedfs-operator
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. The API server calls the admission webhooks on 9443 from the host network of the
     #    control-plane node. No selector names that address, and kube-router admits host traffic
@@ -156,6 +167,21 @@ spec:
     - ports:
         - protocol: TCP
           port: 9443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: object-store-operator-egress
+  namespace: object-store
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs-operator
+      app.kubernetes.io/instance: seaweedfs-operator
+  policyTypes:
+    - Egress
   egress:
     # 1. The Kubernetes API server, which the operator watches and writes. The `kubernetes`
     #    Service resolves to the node's address on 6443, which no pod selector names, so the peer

@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: plugin-barman-cloud
+  name: plugin-barman-cloud-ingress
   namespace: cnpg-system
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -12,7 +12,6 @@ spec:
       app.kubernetes.io/name: plugin-barman-cloud
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. The operator calls the gRPC server of the plugin over mutual TLS on 9090. The instance
     #    pods talk to the plugin sidecar in their own pod, so they need no rule here. The peer is a
@@ -24,6 +23,21 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: plugin-barman-cloud-egress
+  namespace: cnpg-system
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  # The Barman Cloud plugin alone. The CloudNativePG operator in the same namespace has no policy.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: plugin-barman-cloud
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS
     - to:

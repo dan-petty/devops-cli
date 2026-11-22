@@ -222,44 +222,64 @@ def test_the_perimeter_admits_the_metrics_scrape_and_reaches_dns_and_the_api_ser
     selector alone, since kube-router matches an ingress CIDR against pod addresses. Egress is
     CoreDNS and the API server on 6443 through an ipBlock that excludes the cloud metadata
     address. There is no public HTTPS and no OTLP: `--version` needs neither."""
-    policy = _load("k8s/argo-workflows/networkpolicy.yaml")
+    policies = list(
+        yaml.load_all(
+            (K8S_DIR / "argo-workflows" / "networkpolicy.yaml").read_text(encoding="utf-8"),
+            Loader=yaml.CSafeLoader,
+        )
+    )
     metrics_port = _values()["controller"]["metricsConfig"]["port"]
-    assert (policy["metadata"], policy["spec"]) == (
-        {
-            "name": "argo-workflows-default-perimeter",
+
+    def metadata(side: str) -> dict[str, Any]:
+        return {
+            "name": f"argo-workflows-default-perimeter-{side}",
             "namespace": NAMESPACE,
             "labels": {"app.kubernetes.io/part-of": "devops-cli-stack"},
-        },
-        {
-            "podSelector": {},
-            "policyTypes": ["Ingress", "Egress"],
-            "ingress": [
-                {
-                    "from": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+        }
+
+    assert [(policy["metadata"], policy["spec"]) for policy in policies] == [
+        (
+            metadata("ingress"),
+            {
+                "podSelector": {},
+                "policyTypes": ["Ingress"],
+                "ingress": [
+                    {
+                        "from": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {"kubernetes.io/metadata.name": "monitoring"}
+                                }
                             }
-                        }
-                    ],
-                    "ports": [{"protocol": "TCP", "port": metrics_port}],
-                }
-            ],
-            "egress": [
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                        ],
+                        "ports": [{"protocol": "TCP", "port": metrics_port}],
+                    }
+                ],
+            },
+        ),
+        (
+            metadata("egress"),
+            {
+                "podSelector": {},
+                "policyTypes": ["Egress"],
+                "egress": [
+                    {
+                        "to": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                                }
                             }
-                        }
-                    ],
-                    "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
-                },
-                {
-                    "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": ["169.254.169.254/32"]}}],
-                    "ports": [{"protocol": "TCP", "port": 6443}],
-                },
-            ],
-        },
-    )
+                        ],
+                        "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+                    },
+                    {
+                        "to": [
+                            {"ipBlock": {"cidr": "0.0.0.0/0", "except": ["169.254.169.254/32"]}}
+                        ],
+                        "ports": [{"protocol": "TCP", "port": 6443}],
+                    },
+                ],
+            },
+        ),
+    ]

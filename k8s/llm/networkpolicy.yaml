@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: llm-default-perimeter
+  name: llm-default-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -23,7 +23,6 @@ spec:
           - llm-gateway-db
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Allow intra-namespace pod communications
     - from:
@@ -63,6 +62,32 @@ spec:
       ports:
         - protocol: TCP
           port: 6333
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-default-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: NotIn
+        values:
+          - llm-gateway
+          - portkey
+          - valkey
+          - valkey-runs
+          - valkey-devops
+      # The gateway database has its own policy (gateway-db.yaml).
+      - key: cnpg.io/cluster
+        operator: NotIn
+        values:
+          - llm-gateway-db
+  policyTypes:
+    - Egress
   egress:
     # Allow intra-namespace pod communications
     - to:
