@@ -17,7 +17,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
-from devops_cli.roadmap.body_hash import body_hashes, extract_section_and_outside
+from devops_cli.roadmap.body_hash import body_hashes, extract_section_and_outside, job_block_bounds
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     RefineRecordKey,
@@ -146,8 +146,9 @@ def test_a_record_write_keeps_a_job_block_in_an_open_block_readable(body: str) -
     written body finds the job block where the read of the body finds it, and the record too."""
     written, held = split_record(with_record(body, BLOCK))
     section = extract_section_and_outside(body)[1]
-    assert (section, extract_section_and_outside(written)[1], held) == (
-        "\nThe section.\n",
+    assert (
         section,
-        RECORD,
-    )
+        job_block_bounds(written) is not None,
+        extract_section_and_outside(written)[1],
+        held,
+    ) == ("\nThe section.\n", True, section, RECORD)

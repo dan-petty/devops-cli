@@ -1043,10 +1043,11 @@ def with_record(body: str, block: str | None) -> str:
 def closed_body(body: str) -> str:
     """`body` as `with_record` writes it before a record block (#6729).
 
-    A fence or an HTML block that `body` leaves open gets its close. The close goes before the job
-    blocks at the end of the open block, where the readers end it (#6736), else at the end of
-    `body` (#6799). A body that leaves no block open stays as it is. A read of the written text
-    gives this body back, so a writer compares with it."""
+    A fence or an HTML block that `body` leaves open gets its close. When job blocks are at the end
+    of the open block, the close goes before them, where the readers end it (#6736, #6799). Then a
+    block that is still open at the end of `body` gets its close (#6729). A body that leaves no
+    block open stays as it is. A read of the written text gives this body back, so a writer
+    compares with it."""
     # `body_hash` imports this module, so the import waits for the first call.
     from devops_cli.roadmap.body_hash import close_blocks_before_markers, close_open_block
 
