@@ -6,18 +6,18 @@ Reads: `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md`, `
 
 Changes: `docs/adr/0035-the-onboard-command-owns-the-repository-settings.md` (new), `docs/adr/README.md`.
 
-- [ ] 1.1 Write ADR 0035 with decisions D1 to D4 of #6773 and the amendments of ADR 0026 decisions 1, 4 and 7
+- [x] 1.1 Write ADR 0035 with decisions D1 to D4 of #6773 and the amendments of ADR 0026 decisions 1, 4 and 7
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [ ] 1.2 Regenerate the index of `docs/adr/README.md`
+- [x] 1.2 Regenerate the index of `docs/adr/README.md`
   - Verification: `$ uv run devops ci --check --only docs,domain`
 
 ## 2. Amend ADR 0026 and the guideline
 
 Changes: `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md`, `docs/guidelines/production-readiness.md`.
 
-- [ ] 2.1 Add `amended-by: ["0032", "0035"]` and a dated `Amended by ADR 0035` line to ADR 0026
+- [x] 2.1 Add `amended-by: ["0032", "0035"]` and a dated `Amended by ADR 0035` line to ADR 0026
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
-- [ ] 2.2 Change row ACC-3 of the production readiness guideline to the command and the organization stacks
+- [x] 2.2 Change row ACC-3 of the production readiness guideline to the command and the organization stacks
   - Verification: `$ grep -n 'ACC-3' docs/guidelines/production-readiness.md`
 
 ## Criteria

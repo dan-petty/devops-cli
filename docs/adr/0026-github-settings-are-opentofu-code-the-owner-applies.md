@@ -3,7 +3,7 @@ status: accepted
 date: 2026-11-15
 decision-makers: [owner]
 issue: 5314
-amended-by: ["0032"]
+amended-by: ["0032", "0035"]
 body-hash: "62fbb9367e57dda05fdb5ee7a337c8d7cc4ee6feb27322a190abfdf42847da07"
 ---
 
@@ -68,3 +68,4 @@ The ruleset of `devops-cli` stays in the GitHub UI. The record changes when the 
 
 2026-11-15: Accepted by the owner, decisions 1, 4, 5 and 7 of #5311.
 2026-11-21: Amended by ADR 0032, section 8.
+2026-11-22: Amended by ADR 0035, section 6.
