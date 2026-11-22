@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.194.1](https://github.com/dan-petty/devops-cli/compare/v0.194.0...v0.194.1) (2026-11-22)
+
+
+### Code Refactoring
+
+* **terraform:** run deploy-cloud on the infra examples ([#6767](https://github.com/dan-petty/devops-cli/issues/6767)) ([7344d29](https://github.com/dan-petty/devops-cli/commit/7344d29e807078b5521876a2bd134b39158f38fe))
+
 ## [0.194.0](https://github.com/dan-petty/devops-cli/compare/v0.193.1...v0.194.0) (2026-11-22)
 
 
