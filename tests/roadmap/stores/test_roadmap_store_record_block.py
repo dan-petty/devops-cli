@@ -13,7 +13,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 from markdown_it import MarkdownIt
 
-from devops_cli.roadmap.body_hash import body_hashes
+from devops_cli.config.constants import (
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
+)
+from devops_cli.roadmap.body_hash import body_hashes, extract_section_and_outside
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     RefineRecordKey,
@@ -123,3 +127,27 @@ def test_every_record_write_reads_back_and_a_second_write_keeps_the_body(
     first, held = split_record(with_record(body, BLOCK))
     second, held_next = split_record(with_record(first, NEXT_BLOCK))
     assert (held, second, held_next) == (RECORD, first, NEXT_RECORD)
+
+
+# The refine block at the end of a block that a person opened above it and left open. The
+# readers end such an open block at the job blocks at its end (#6736).
+_JOB_BLOCK = f"{CONST_ROADMAP_REFINE_START_MARKER}\nThe section.\n{CONST_ROADMAP_REFINE_END_MARKER}"
+JOB_BLOCKS_IN_AN_OPEN_BLOCK = {
+    "fence": f"Text.\n\n```\ncode\n\n{_JOB_BLOCK}",
+    "pre": f"Text.\n\n<pre>\ncode\n\n{_JOB_BLOCK}",
+}
+
+
+@pytest.mark.parametrize(
+    "body", JOB_BLOCKS_IN_AN_OPEN_BLOCK.values(), ids=JOB_BLOCKS_IN_AN_OPEN_BLOCK.keys()
+)
+def test_a_record_write_keeps_a_job_block_in_an_open_block_readable(body: str) -> None:
+    """The write closes the open block before the job block, not after it. So the read of the
+    written body finds the job block where the read of the body finds it, and the record too."""
+    written, held = split_record(with_record(body, BLOCK))
+    section = extract_section_and_outside(body)[1]
+    assert (section, extract_section_and_outside(written)[1], held) == (
+        "\nThe section.\n",
+        section,
+        RECORD,
+    )
