@@ -457,13 +457,17 @@ def test_the_close_of_a_block_that_the_body_leaves_open_is_no_lost_edit(
     otlp: FakeCollector,
 ) -> None:
     """The store closes a fence that the body leaves open before it writes the record block
-    (#6729). The read-back gives the body with the close, which is the body that the store wrote,
-    so one `PATCH` holds the mark and the store counts no edit of a person."""
+    (#6729). The read-back gives the body with the close, which is the body that the store wrote.
+    A second write from the same read finds that body, which differs from the body of the Item
+    only by the close. So one `PATCH` for each write holds its mark, and the store counts no
+    edit of a person."""
     github = GitHubFake(REPO)
     github.seed_issue(7, labels=("priority/p2-medium",), body="Text.\n\n```python\nx = 1")
     store = fake_store(github)
+    item = read(store, 7)
 
-    store.set_marks(read(store, 7), {ImplementRecordKey.JOB: "job-1"})
+    store.set_marks(item, {ImplementRecordKey.JOB: "job-1"})
+    store.set_marks(item, {ImplementRecordKey.PR: "12"})
 
     assert (
         otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name),
@@ -472,9 +476,9 @@ def test_the_close_of_a_block_that_the_body_leaves_open_is_no_lost_edit(
         read(store, 7).job_record,
     ) == (
         [],
-        [issue_edit_args(REPO, 7)],
+        [issue_edit_args(REPO, 7)] * 2,
         "Text.\n\n```python\nx = 1\n```",
-        {ImplementRecordKey.JOB: "job-1"},
+        {ImplementRecordKey.JOB: "job-1", ImplementRecordKey.PR: "12"},
     )
 
 
