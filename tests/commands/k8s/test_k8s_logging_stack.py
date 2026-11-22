@@ -23,7 +23,9 @@ from tests.support.k8s_commands import answer_helm_version
 runner = CliRunner()
 
 
-def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -> None:
+def test_logging_stack_definitions_and_single_shipper(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
     """Verify logging stack registers Loki alone (#548)."""
     res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", "k8s", "--dry-run")
     assert res.exit_code == 0
@@ -36,15 +38,16 @@ def test_logging_stack_definitions_and_single_shipper(cli: Callable[..., Any]) -
 
     assert (release_names, repo_names) == (("loki",), ("grafana-community",))
 
-    manifest_paths = [str(p) for p in details["manifests"]]
-    assert ("logging" in VALID_STACKS, any("networkpolicy.yaml" in p for p in manifest_paths)) == (
-        True,
-        True,
-    )
+    # The perimeter of the namespace is in the build of the Application `logging` (#6681).
+    assert (
+        "logging" in VALID_STACKS,
+        any(label.startswith("logging: ") for label in details["path_sources"]),
+    ) == (True, True)
 
 
 def test_deploy_stack_installs_loki_from_the_grafana_community_chart(
     cli: Callable[..., Any],
+    process_fake: ProcessFake,
 ) -> None:
     """The logging stack of deploy-stack installs the chart `grafana-community/loki` (#1632). It
     adds only the grafana-community repository, and gives the chart only the values file. The
@@ -93,6 +96,7 @@ def _dry_run_details(output: str) -> dict[str, Any]:
 
 def test_deploy_stack_dry_run_lists_the_helm_commands_of_the_logging_stack(
     cli: Callable[..., Any],
+    process_fake: ProcessFake,
 ) -> None:
     """The logging stack dry run lists helm repo add/update and helm upgrade commands (#2469)."""
     expected_repo_cmds = [
@@ -236,7 +240,7 @@ def test_deploy_stack_dry_run_lists_the_helm_commands_that_the_real_run_starts(
     assert helm_calls_during_dry_run == []
 
 
-def test_deploy_logging_stack_dry_run() -> None:
+def test_deploy_logging_stack_dry_run(process_fake: ProcessFake) -> None:
     """Verify deploy-stack --stack logging with dry run."""
     set_dry_run(True)
     result = runner.invoke(app, ["deploy-stack", "--stack", "logging", "--no-push-secrets"])
@@ -245,7 +249,7 @@ def test_deploy_logging_stack_dry_run() -> None:
     assert "logging" in result.output
 
 
-def test_teardown_logging_stack_dry_run() -> None:
+def test_teardown_logging_stack_dry_run(process_fake: ProcessFake) -> None:
     """Verify teardown-stack --stack logging with dry run."""
     set_dry_run(True)
     result = runner.invoke(app, ["teardown-stack", "--stack", "logging"])
@@ -390,7 +394,7 @@ def test_k8s_logs_escapes_rich_markup(config: Callable[..., Path], web: WebFake)
     assert "[bold red]critical payload syntax error[/bold red]" in result.output
 
 
-def test_k8s_teardown_stack_case_insensitive() -> None:
+def test_k8s_teardown_stack_case_insensitive(process_fake: ProcessFake) -> None:
     """Verify teardown-stack normalizes case-insensitive stack names."""
     set_dry_run(True)
     result = runner.invoke(app, ["teardown-stack", "--stack", "LOGGING"])

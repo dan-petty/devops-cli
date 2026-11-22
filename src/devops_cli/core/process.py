@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
     CONST_GIT_CLI,
     CONST_GIT_CONFIG_ENV_PATTERNS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
+    CONST_GIT_LOCAL_ONLY_ENV,
     CONST_GIT_NETWORK_SUBCOMMANDS,
     CONST_GIT_REMOTE_NETWORK_ACTIONS,
     CONST_GIT_VALUE_OPTIONS,
@@ -174,8 +175,8 @@ def _is_env_var_denied(
 def _is_env_override_refused(key: str, value: str) -> bool:
     """Whether a caller may not set `key` to `value`: a pattern of `CONST_CODE_LOADING_ENV_PATTERNS`
     matches it, and it is not a git key that `CONST_GIT_ACCEPTED_ENV` names, nor a key of
-    `CONST_GIT_ISOLATED_CONFIG_ENV` with its one value."""
-    if CONST_GIT_ISOLATED_CONFIG_ENV.get(key) == value:
+    `CONST_GIT_ISOLATED_CONFIG_ENV` or `CONST_GIT_LOCAL_ONLY_ENV` with its one value."""
+    if value in (CONST_GIT_ISOLATED_CONFIG_ENV.get(key), CONST_GIT_LOCAL_ONLY_ENV.get(key)):
         return False
     return (
         key.upper() not in CONST_GIT_ACCEPTED_ENV

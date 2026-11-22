@@ -55,6 +55,7 @@ from devops_cli.commands.kustomize import (
 )
 from devops_cli.main import app
 from tests.support.dry_run_classes import misclassified
+from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
@@ -100,9 +101,14 @@ def test_commands_carry_their_dry_run_class() -> None:
 
 @pytest.mark.parametrize("cmd_name,callback,argv", REQUEST_PLAN_COMMANDS)
 def test_request_plan_commands_execute_offline(
-    cmd_name: str, callback: Any, argv: list[str], refuse_requests: list[str]
+    cmd_name: str,
+    callback: Any,
+    argv: list[str],
+    refuse_requests: list[str],
+    process_fake: ProcessFake,
 ) -> None:
-    """Executing --dry-run prints request plan and makes zero external requests."""
+    """Executing --dry-run prints request plan and makes zero external requests. A local read,
+    such as the build of a path source of the checkout, goes to the process fake."""
     res = runner.invoke(app, argv)
     assert res.exit_code == 0, f"Command {argv} failed with output:\n{res.output}"
     assert (

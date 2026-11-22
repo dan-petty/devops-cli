@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from devops_cli.exceptions.k8s import ApplicationSourceError
 from devops_cli.k8s.app_render import write_path_renders
 from devops_cli.k8s.environment import EnvironmentTree
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -96,3 +97,23 @@ def test_the_folder_of_the_builds_holds_no_file_of_a_fetched_source(
         "web-1.yaml",
         "web-2.yaml",
     ]
+
+
+def test_a_path_out_of_the_folder_of_its_repository_is_not_built(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """Argo CD builds no path that goes out of the folder of its repository, so no build reads a
+    folder outside the checkout (#6681)."""
+    env = _tree(tmp_path / "repo")
+    application = env.root / "argocd" / "apps" / "web.yaml"
+    application.write_text(_APPLICATION.replace("path: k8s/web", "path: ../outside"), "utf-8")
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "kustomization.yaml").write_text("resources: []\n", "utf-8")
+
+    with pytest.raises(ApplicationSourceError) as caught:
+        write_path_renders(env, tmp_path / "work")
+
+    assert (
+        "../outside" in caught.value.message,
+        [call.argv for call in process_fake.calls if call.argv[-1].endswith("outside")],
+    ) == (True, [])

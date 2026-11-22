@@ -8,6 +8,7 @@ from typing import Any
 from typer.testing import CliRunner
 
 from devops_cli.main import app
+from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
@@ -18,6 +19,7 @@ def _dry_run_details(output: str) -> dict[str, Any]:
 
 def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
     isolate_devops_cli_config: Any,
+    process_fake: ProcessFake,
 ) -> None:
     """deploy-stack --dry-run lists config writes for deployed service URLs whose settings are empty."""
     isolate_devops_cli_config.write_text(
@@ -45,6 +47,7 @@ def test_deploy_stack_dry_run_lists_config_writes_when_settings_empty(
 
 def test_deploy_stack_dry_run_does_not_overwrite_configured_urls(
     isolate_devops_cli_config: Any,
+    process_fake: ProcessFake,
 ) -> None:
     """deploy-stack --dry-run does not write settings that already have values."""
     isolate_devops_cli_config.write_text(

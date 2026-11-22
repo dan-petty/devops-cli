@@ -7,7 +7,7 @@ import os
 import secrets
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, TypedDict, assert_never
 
@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
+    CONST_KUBECTL_ERROR_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_STACK
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
@@ -40,12 +41,15 @@ from devops_cli.exceptions.k8s import (
     KubernetesContextError,
     KubernetesDeployError,
 )
+from devops_cli.k8s.app_render import path_source_folder
 from devops_cli.k8s.app_sources import (
     ChartSource,
     SourceTrees,
+    application_sources,
     chart_sources,
     repository_origin,
 )
+from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.argocd_overrides import (
     application_patch,
     application_source,
@@ -66,6 +70,7 @@ from devops_cli.k8s.environment import (
 )
 from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
 from devops_cli.k8s.secret_push import namespace_exists
+from devops_cli.k8s.template import build_manifest_path
 from devops_cli.lang import ERRORS, HELP, MESSAGES
 from devops_cli.output import (
     print_error,
@@ -262,18 +267,35 @@ HELM_RELEASES_BY_STACK: dict[str, list[StackRelease]] = {
 
 _HELM_RELEASES: list[StackRelease] = HELM_RELEASES_BY_STACK["infra"]
 
+# The Argo CD Applications of the environment tree whose path sources deploy-stack builds and
+# applies before the charts, after the paths below, and deletes in reverse order before them
+# (#6681). Each build holds the objects that Argo CD applies from the source, such as those of a
+# component or a base of another repository. The Applications come from the tree wherever it is.
+APPLICATIONS_BY_STACK: dict[str, tuple[str, ...]] = {
+    "infra": ("argocd", "otel"),
+    "logging": ("logging",),
+    "devops": ("agents",),
+    "gitea": ("gitea-manifests",),
+}
+
 # Paths under --k8s-dir, the environment tree (#5131), applied right after the Secret push, before
 # any chart: a directory with `kubectl apply -k` and a file with `kubectl apply -f`, in order, and
-# deleted in reverse order before the charts uninstall. `llm/gateway` is a kustomization: it
-# generates the gateway's ConfigMap from its config.yaml with a content-hash name, so a changed
-# config rolls the gateway (#1929).
+# deleted in reverse order before the charts uninstall. A path stays here only where the build of
+# its Application holds objects that the path does not hold (#6681). `llm/gateway` is a
+# kustomization: it generates the gateway's ConfigMap from its config.yaml with a content-hash
+# name, so a changed config rolls the gateway (#1929).
 MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "infra": [
-        Path("argocd", "networkpolicy.yaml"),
+        # The build of Application `argo-workflows-manifests` also holds the WorkflowTemplate of
+        # `POST_HELM_BY_STACK`, which needs the CRD of the chart.
         Path("argo-workflows", "networkpolicy.yaml"),
-        Path("otel", "networkpolicy.yaml"),
+        # The build of Application `ingress` also holds the CORS origins of Open WebUI, which
+        # stack `llm` applies.
         Path("ingress", "ingress-routes.yaml"),
     ],
+    # The build of Application `llm` also holds the gateway database and the ServiceMonitor of
+    # `POST_HELM_BY_STACK`, which need the CRDs of the charts, and the CORS origins of Open WebUI
+    # are in the build of Application `ingress`.
     "llm": [
         Path("llm", "networkpolicy.yaml"),
         Path("llm", "valkey.yaml"),
@@ -288,16 +310,6 @@ MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         # Open WebUI reads its CORS origins from this ConfigMap at start, so it goes before the
         # chart. Argo CD's `ingress` Application renders it beside the Ingress hosts (#5306).
         Path("ingress", "open-webui-origins.yaml"),
-    ],
-    "logging": [
-        Path("logging", "networkpolicy.yaml"),
-    ],
-    "gitea": [
-        Path("gitea", "networkpolicy.yaml"),
-    ],
-    "devops": [
-        Path("agents", "serviceaccount.yaml"),
-        Path("agents", "clusterrolebinding.yaml"),
     ],
 }
 
@@ -748,8 +760,10 @@ def _apply_manifest_files(
     manifests: Sequence[str],
     kubectl_ctx: list[str],
     domain: str | None = None,
+    builds: Sequence[_PathBuild] = (),
 ) -> None:
-    """Apply Kubernetes native manifest files, rendering templates if a domain is resolved."""
+    """Apply Kubernetes native manifest files, then the builds of path sources, rendering
+    templates if a domain is resolved."""
     effective_domain = domain
     if not effective_domain:
         try:
@@ -761,6 +775,57 @@ def _apply_manifest_files(
 
     for manifest_path in manifests:
         _apply_single_manifest(manifest_path, kubectl_ctx, effective_domain)
+    for build in builds:
+        _apply_build(build, kubectl_ctx, effective_domain)
+
+
+def _apply_build(build: _PathBuild, kubectl_ctx: list[str], domain: str | None) -> None:
+    """Apply the build of a path source with `kubectl apply -f -`, with the template domain
+    replaced as in a manifest file, or exit with kubectl's reason. A build with no object is not
+    applied (#6681)."""
+    if build.text is None or not build.objects():
+        return
+    print_info(
+        f"[bold]Applying the build of Application {build.application} ({build.path})...[/bold]",
+        prefix=False,
+    )
+    text = build.text
+    if domain:
+        from devops_cli.k8s.template import render_manifest_template
+
+        text = render_manifest_template(text, domain=domain)
+    res = runtime._run_cmd(
+        ["kubectl", "apply", "-f", "-"] + kubectl_ctx, input=text, check=False, capture=True
+    )
+    if res.returncode != 0:
+        print_error(
+            f"Could not apply the build of Application {build.application} ({build.path}): "
+            f"{(res.stderr or res.stdout).strip()}",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+
+def _delete_build(build: _PathBuild, kubectl_ctx: list[str]) -> None:
+    """Delete the objects of the build of a path source with `kubectl delete -f -`, or warn with
+    kubectl's reason, so the teardown goes on to the other objects (#6681)."""
+    if build.text is None or not build.objects():
+        return
+    print_info(
+        f"[bold]Deleting the build of Application {build.application} ({build.path})...[/bold]",
+        prefix=False,
+    )
+    res = runtime._run_cmd(
+        ["kubectl", "delete", "-f", "-", "--ignore-not-found"] + kubectl_ctx,
+        input=build.text,
+        check=False,
+        capture=True,
+    )
+    if res.returncode != 0:
+        print_warning(
+            f"Could not delete the build of Application {build.application} ({build.path}): "
+            f"{(res.stderr or res.stdout).strip()}"
+        )
 
 
 def _install_single_release(
@@ -1177,6 +1242,108 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
         runtime._run_cmd(["kubectl", "delete", flag, str(path), "--ignore-not-found"] + kubectl_ctx)
 
 
+@dataclass(frozen=True)
+class _PathBuild:
+    """The build of one path source of an Argo CD Application, which deploy-stack applies before
+    the charts (#6681): the Application, the `path` of the source, and the text of the build. The
+    text is None in a dry run that would fetch the repository of the source, and in a dry run
+    whose build failed, such as one that would fetch a remote target: `failure` gives the error
+    of that build as one line."""
+
+    application: str
+    path: str
+    text: str | None
+    failure: str | None = None
+
+    def objects(self) -> list[str] | None:
+        """Each object of the build, in its order, as `<kind> <namespace>/<name>`, or as
+        `<kind> <name>` for an object with no namespace in the build: an object of the cluster
+        scope, or an object that kubectl applies in the namespace of the context. None with no
+        build. Strings keep the list inside the nesting depth of the details of a dry run."""
+        if self.text is None:
+            return None
+        import yaml
+
+        found = []
+        for doc in yaml.safe_load_all(self.text):
+            if isinstance(doc, dict):
+                metadata = doc.get("metadata") or {}
+                scope = f"{metadata['namespace']}/" if metadata.get("namespace") else ""
+                found.append(f"{doc.get('kind')} {scope}{metadata.get('name')}")
+        return found
+
+    @property
+    def label(self) -> str:
+        """The key of the build in the details of a dry run: `<application>: <path>`."""
+        return f"{self.application}: {self.path}"
+
+
+def _path_builds(
+    selected_stacks: Sequence[str], env: EnvironmentTree, trees: SourceTrees
+) -> list[_PathBuild]:
+    """The build of each path source of each Application that `APPLICATIONS_BY_STACK` names for
+    `selected_stacks`, in their order, from the sources of `trees` (#6681). A build of a folder is
+    a local read, so a dry run builds it too, with no route to a host that is not a loopback
+    address. A dry run builds no source of another repository.
+
+    Raises:
+        KubernetesDeployError: `env` holds no Application of a name of the table.
+        ApplicationSourceError: a path source goes out of the folder of its repository.
+    """
+    wanted = [
+        (stack, name) for stack in selected_stacks for name in APPLICATIONS_BY_STACK.get(stack, ())
+    ]
+    if not wanted:
+        return []
+    applications = discover_argocd_applications(env.application_dirs)
+    builds: list[_PathBuild] = []
+    for stack, name in wanted:
+        doc = applications.get(name)
+        if doc is None:
+            folders = ", ".join(str(folder) for folder in env.application_dirs)
+            raise KubernetesDeployError(
+                ERRORS.k8s.application_not_found.format(
+                    folders=folders, application=name, stack=stack
+                ),
+                chart_or_manifest=name,
+                exit_code=1,
+            )
+        builds.extend(
+            _path_build(name, source, trees)
+            for source in application_sources(doc)
+            if "path" in source
+        )
+    return builds
+
+
+def _path_build(application: str, source: Mapping[str, Any], trees: SourceTrees) -> _PathBuild:
+    """The build of the path source `source` of `application`. A dry run builds the folder with
+    `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`, so a remote target at a host that is not a loopback address
+    fails the build at once and sends no request. Go still sends a download of a loopback address.
+    A failed build of a dry run gives no text, only its error as one line, and the dry run goes on;
+    the real run stops on it (#6681)."""
+    folder = path_source_folder(trees, source)
+    path = str(source["path"])
+    if folder is None:
+        return _PathBuild(application, path, None)
+    if not trees.dry_run:
+        return _PathBuild(application, path, build_manifest_path(folder, local_read=True))
+    try:
+        text = build_manifest_path(folder, local_read=True, offline=True)
+    except KubernetesContextError as exc:
+        return _PathBuild(application, path, None, _error_line(str(exc)))
+    return _PathBuild(application, path, text)
+
+
+def _error_line(error: str) -> str:
+    """The error of kubectl in `error` as one line, from its prefix `error: ` to its end, or all
+    of `error` when kubectl gave no such prefix. A warning of Kustomize can come before the error,
+    such as the warning for a `git::` URL. The error of a builtin transformer holds its config on
+    lines of its own, and the cause, such as the error of the proxy, comes last (#6681)."""
+    start = error.find(CONST_KUBECTL_ERROR_PREFIX)
+    return " ".join(error[max(start, 0) :].split())
+
+
 def _collect_deploy_targets(
     selected_stacks: Sequence[str], env: EnvironmentTree, product: Path, trees: SourceTrees
 ) -> tuple[list[StackRelease], list[str], list[Path], list[Path]]:
@@ -1286,14 +1453,16 @@ def _stack_roots(
 
 def _deploy_native_manifests(
     all_manifests: list[str],
+    all_builds: Sequence[_PathBuild],
     config_map: str | None,
     kubectl_ctx: list[str],
     domain: str | None,
 ) -> None:
-    """Apply the devops ConfigMap rendered from the active config, then the native manifests."""
+    """Apply the devops ConfigMap rendered from the active config, then the native manifests,
+    then the builds of the path sources of the Applications."""
     if config_map is not None:
         _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
-    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain)
+    _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain, builds=all_builds)
 
 
 def _handle_argo_managed_deployment(
@@ -1387,6 +1556,7 @@ def _render_deploy_stack_dry_run(
     push_secrets: bool,
     all_releases: Sequence[StackRelease],
     all_manifests: Sequence[str],
+    all_builds: Sequence[_PathBuild],
     all_kustomizations: Sequence[Path],
     all_post_helm: Sequence[Path],
     config_map: str | None,
@@ -1395,7 +1565,7 @@ def _render_deploy_stack_dry_run(
     source_fetches: Sequence[Sequence[str]],
 ) -> None:
     """Render the dry run result for deploy-stack. `source_fetches` are the git commands that the
-    real run starts to fetch the sources of the values files."""
+    real run starts to fetch the sources of the values files and of the path sources."""
     from devops_cli.config.settings import load_settings
 
     active_settings = load_settings()
@@ -1427,6 +1597,10 @@ def _render_deploy_stack_dry_run(
             "helm_commands": helm_commands,
             "source_fetches": [list(command) for command in source_fetches],
             "manifests": all_manifests,
+            "path_sources": {build.label: build.objects() for build in all_builds},
+            "kustomize_fetches": {
+                build.label: build.failure for build in all_builds if build.failure is not None
+            },
             "kustomizations": [str(k) for k in all_kustomizations],
             "post_helm": [str(p) for p in all_post_helm],
             "config_map": (
@@ -1505,6 +1679,7 @@ def deploy_stack(
         all_releases, all_manifests, all_kustomizations, all_post_helm = _collect_deploy_targets(
             selected_stacks, env, product, trees
         )
+        all_builds = _path_builds(selected_stacks, env, trees)
 
         # 1. Render what git does not hold before anything else: a missing setting stops a dry run
         # and a deploy alike, before either touches the cluster
@@ -1527,6 +1702,7 @@ def deploy_stack(
                 push_secrets=push_secrets,
                 all_releases=all_releases,
                 all_manifests=all_manifests,
+                all_builds=all_builds,
                 all_kustomizations=all_kustomizations,
                 all_post_helm=all_post_helm,
                 config_map=config_map,
@@ -1581,7 +1757,7 @@ def deploy_stack(
         _deploy_helm_repos(selected_stacks)
 
         # 7. Install native manifests
-        _deploy_native_manifests(all_manifests, config_map, kubectl_ctx, domain)
+        _deploy_native_manifests(all_manifests, all_builds, config_map, kubectl_ctx, domain)
 
         # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
         unready_nodes = runtime._get_unready_nodes(context=effective_context)
@@ -1706,6 +1882,12 @@ def teardown_stack(
     all_uninstalls, all_post_helm_deletes, all_manifest_deletes = _collect_teardown_targets(
         selected_stacks, env, product
     )
+    # A build is text, so the fetched sources need not stay after the builds. A dry run fetches
+    # nothing (#6681).
+    with tempfile.TemporaryDirectory(prefix="devops-teardown-stack-") as workdir:
+        trees = _source_trees(env, Path(workdir), dry_run=dry_run or is_dry_run())
+        all_build_deletes = _path_builds(selected_stacks, env, trees)[::-1]
+        source_fetches = trees.planned
 
     if dry_run or is_dry_run():
         render_dry_run_result(
@@ -1720,7 +1902,16 @@ def teardown_stack(
                 "context": effective_context,
                 "helm_uninstalls": [r["name"] for r in all_uninstalls],
                 "post_helm_deletes": [str(p) for p in all_post_helm_deletes],
+                "path_source_deletes": {
+                    build.label: build.objects() for build in all_build_deletes
+                },
+                "kustomize_fetches": {
+                    build.label: build.failure
+                    for build in all_build_deletes
+                    if build.failure is not None
+                },
                 "manifest_deletes": all_manifest_deletes,
+                "source_fetches": [list(command) for command in source_fetches],
                 "config_map_delete": (
                     f"devops/{CONST_K8S_DEVOPS_CONFIGMAP}" if "devops" in selected_stacks else None
                 ),
@@ -1753,8 +1944,10 @@ def teardown_stack(
     helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
     # 1. Delete post-Helm custom resources and kustomizations while their operators still run,
-    # then native manifests
+    # then the builds of the path sources, then native manifests
     _delete_post_helm_paths(all_post_helm_deletes, kubectl_ctx)
+    for build in all_build_deletes:
+        _delete_build(build, kubectl_ctx)
     for manifest_path in all_manifest_deletes:
         flag = "-k" if Path(manifest_path).is_dir() else "-f"
         print_info(

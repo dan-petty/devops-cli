@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from devops_cli.dry_run import set_dry_run
+from tests.support.fakes.process import ProcessFake
 from tests.support.k8s_tree import K8S, TREE
 
 # The GitHub App the Service acts as, in config.yaml (ADR 0015).
@@ -47,7 +48,10 @@ def _relative(details: dict[str, Any], *roots: Path) -> str:
 
 
 def test_deploy_stack_reads_a_copy_of_the_tree_as_it_reads_the_tree(
-    cli: Callable[..., Any], config: Callable[..., Path], copy_of_k8s: Path
+    cli: Callable[..., Any],
+    config: Callable[..., Path],
+    copy_of_k8s: Path,
+    process_fake: ProcessFake,
 ) -> None:
     """The dry run of a copy outside the repository names the same releases, values files,
     manifests and kustomizations, under the copy. The product base stays `k8s/devops` of the
@@ -78,7 +82,7 @@ def _loki_upgrade(details: dict[str, Any]) -> list[str]:
 
 
 def test_deploy_stack_installs_a_chart_at_the_version_that_its_application_in_the_tree_pins(
-    cli: Callable[..., Any], copy_of_k8s: Path
+    cli: Callable[..., Any], copy_of_k8s: Path, process_fake: ProcessFake
 ) -> None:
     """deploy-stack reads the version of each chart from the Argo CD Application of the tree, so
     an update of the pin moves both paths, and the code holds no version of its own (#6060)."""

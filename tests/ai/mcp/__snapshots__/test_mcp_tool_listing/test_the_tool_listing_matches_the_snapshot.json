@@ -3003,7 +3003,7 @@
         },
         "dry_run": {
           "default": false,
-          "description": "Print the releases, manifests and Secrets (key names only) a deploy would apply, and run nothing.",
+          "description": "Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run, with one exception: kubectl kustomize builds its folders with no route to a remote host, but it downloads an http or https URL of a loopback address, which can be a port-forward to a cluster.",
           "type": "boolean"
         },
         "k8s_dir": {

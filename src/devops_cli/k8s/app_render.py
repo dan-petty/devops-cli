@@ -3,7 +3,9 @@
 Argo CD builds a path source with Kustomize. `render_path_source` builds one as `devops k8s
 image-pins` builds it: a source of the repository that holds the tree reads the checkout, and a
 source of another public repository is fetched at its revision (`devops_cli.k8s.app_sources`). A
-dry run fetches nothing, so it builds no source of another repository.
+dry run fetches nothing, so it builds no source of another repository. `path_source_folder` gives
+the local path of a source, which `devops k8s deploy-stack` builds itself, and refuses a path out
+of the folder of its repository, as Argo CD does (#6681).
 
 `write_path_renders` writes the build of each path source to a file of its own in one folder,
 `<application>-<index>.yaml`, where the index is the place of the source in the Application. The
@@ -21,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Final
 
+from devops_cli.exceptions.k8s import ApplicationSourceError
 from devops_cli.k8s.app_sources import (
     SourceTrees,
     application_sources,
@@ -31,6 +34,7 @@ from devops_cli.k8s.app_sources import (
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
 from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.template import build_manifest_path
+from devops_cli.lang import ERRORS
 
 # The folders under the work folder of `write_path_renders`: the builds, and the fetched sources.
 _RENDERS_DIR: Final[str] = "renders"
@@ -39,13 +43,31 @@ _SOURCES_DIR: Final[str] = "sources"
 _WORKERS: Final[int] = 8
 
 
+def path_source_folder(trees: SourceTrees, source: Mapping[str, Any]) -> Path | None:
+    """The local path of the path source `source` of an Application, or None in a dry run that
+    would fetch its repository.
+
+    Raises:
+        ApplicationSourceError: the path goes out of the folder of its repository, which Argo CD
+            does not build (#6681).
+    """
+    repo = str(source.get("repoURL") or trees.origin)
+    tree = trees.tree(repo, source_revision(source))
+    if tree.planned:
+        return None
+    folder = (tree.root / str(source["path"])).resolve()
+    if not folder.is_relative_to(tree.root.resolve()):
+        raise ApplicationSourceError(
+            ERRORS.k8s.path_source_leaves_repository.format(path=source["path"], repo=repo)
+        )
+    return folder
+
+
 def render_path_source(trees: SourceTrees, source: Mapping[str, Any]) -> str | None:
     """The build of the path source `source` of an Application, or None in a dry run that would
     fetch its repository."""
-    tree = trees.tree(str(source.get("repoURL") or trees.origin), source_revision(source))
-    if tree.planned:
-        return None
-    return build_manifest_path((tree.root / str(source["path"])).resolve())
+    folder = path_source_folder(trees, source)
+    return None if folder is None else build_manifest_path(folder)
 
 
 def write_path_renders(
@@ -78,4 +100,4 @@ def write_path_renders(
     return renders
 
 
-__all__ = ["render_path_source", "write_path_renders"]
+__all__ = ["path_source_folder", "render_path_source", "write_path_renders"]

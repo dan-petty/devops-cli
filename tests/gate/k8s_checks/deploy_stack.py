@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
 from tests.gate.k8s_render import applied_documents
-from tests.support.k8s_tree import TREE, release_values
+from tests.support.k8s_tree import TREE, deploy_stack_manifests, release_values
 from tests.support.paths import REPO_ROOT
 
 runner = CliRunner()
@@ -78,17 +78,17 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
 
     k8s-monitoring 4.x and dcgm-exporter ship no ServiceMonitor CRD, so on a cluster without it
     Helm refused both releases and the infra stack came up without Alloy (#819). Pre-Helm
-    `MANIFESTS_BY_STACK` paths apply before any chart, so no pre-Helm file or kustomization may
-    hold a ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `POST_HELM_BY_STACK`
+    `MANIFESTS_BY_STACK` paths and the builds of the Applications of `APPLICATIONS_BY_STACK` apply
+    before any chart (#6681), so no pre-Helm file, kustomization or build may hold a
+    ServiceMonitor and `k8s/llm/gateway/servicemonitor.yaml` lives in `POST_HELM_BY_STACK`
     (#1367).
     """
     from devops_cli.commands.k8s.stack_lifecycle import (
         _HELM_REPOS_BY_STACK,
         HELM_RELEASES_BY_STACK,
-        MANIFESTS_BY_STACK,
         POST_HELM_BY_STACK,
-        PRODUCT_MANIFESTS_BY_STACK,
     )
+    from devops_cli.config.constants import CONST_K8S_STACKS
 
     crds = HELM_RELEASES_BY_STACK["infra"][0]
     with tempfile.TemporaryDirectory(prefix="deploy-stack-values-") as workdir:
@@ -102,16 +102,7 @@ def check_prometheus_operator_crds_install_before_every_service_monitor() -> Non
             )
         ]
     pre_helm_paths = [
-        *(
-            (stack, TREE.path(path))
-            for stack, paths in MANIFESTS_BY_STACK.items()
-            for path in paths
-        ),
-        *(
-            (stack, TREE.path("devops") / path)
-            for stack, paths in PRODUCT_MANIFESTS_BY_STACK.items()
-            for path in paths
-        ),
+        (stack, path) for stack in CONST_K8S_STACKS for path in deploy_stack_manifests([stack])
     ]
     pre_helm_monitors = [
         (stack, path.as_posix())

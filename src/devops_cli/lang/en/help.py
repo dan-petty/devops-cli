@@ -394,8 +394,10 @@ class K8sCommandHelp:
         "workloads a change would restart, and write nothing."
     )
     deploy_dry_run: str = (
-        "Print the releases, manifests and Secrets (key names only) a deploy would apply, and "
-        "run nothing."
+        "Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. "
+        "Only local reads of the checkout run, with one exception: kubectl kustomize builds its "
+        "folders with no route to a remote host, but it downloads an http or https URL of a "
+        "loopback address, which can be a port-forward to a cluster."
     )
     push_secrets_flag: str = (
         "Push the stacks' Secrets from the OS keyring before applying anything "

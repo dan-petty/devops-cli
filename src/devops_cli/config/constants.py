@@ -1268,6 +1268,52 @@ CONST_GIT_ISOLATED_CONFIG_ENV: Final[Mapping[str, str]] = MappingProxyType(
 """The two git keys that `build_subprocess_env` accepts from a caller, each with this value only.
 Each turns a configuration file off (the global file and `/etc/gitconfig`), and neither names a
 program or a file that git reads. The network git calls of the implement job set both (GHSA)."""
+CONST_GIT_LOCAL_ONLY_ENV: Final[Mapping[str, str]] = MappingProxyType(
+    {"GIT_ALLOW_PROTOCOL": "file", "GIT_SSH_COMMAND": "false"}
+)
+"""The two git keys that keep git to local repositories, which `build_subprocess_env` accepts from
+a caller with this value only. With `GIT_ALLOW_PROTOCOL=file`, git refuses each transport but
+`file`, also for a submodule (git(1), `protocol.allow` of git-config(1)). `GIT_SSH_COMMAND=false`
+makes an ssh connection fail at once. Another value could enable the `ext::` transport or start a
+program of the caller. The stack dry runs set both for `kubectl kustomize` (#6681)."""
+CONST_K8S_OFFLINE_PROXY_URL: Final[str] = "http://127.0.0.1:9"
+"""A proxy at a closed local port: port 9 of the loopback address, the discard port, which no
+service of the devcontainer or of a CI runner listens on. The connection fails at once (#6681)."""
+CONST_K8S_KUSTOMIZE_OFFLINE_ENV: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        **dict.fromkeys(
+            (
+                "HTTP_PROXY",
+                "HTTPS_PROXY",
+                "ALL_PROXY",
+                "http_proxy",
+                "https_proxy",
+                "all_proxy",
+            ),
+            CONST_K8S_OFFLINE_PROXY_URL,
+        ),
+        "NO_PROXY": "",
+        "no_proxy": "",
+        **CONST_GIT_LOCAL_ONLY_ENV,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+)
+"""The environment of `kubectl kustomize` in the stack dry runs, which gives the build no route to
+a host that is not a loopback address (#6681). Kustomize downloads a file with `net/http` of Go,
+and the default transport of Go sends each http and https request to the proxy of `HTTP_PROXY` or
+`HTTPS_PROXY` (or the lower-case names), unless `NO_PROXY` names the host
+(`ProxyFromEnvironment`, `golang.org/x/net/http/httpproxy`). So each download fails at once with
+a `proxyconnect` error. Go never uses the proxy for `localhost` or a loopback address, and no
+environment key changes this. So this environment does not block an http or https download of a
+loopback address, also of the URL of a remote base, which Kustomize first loads as a file. Such a
+request can reach a server of the host, such as a `kubectl port-forward` or a tunnel to a cluster.
+libcurl, the HTTP transport of git, also reads `all_proxy`. Kustomize clones a repository with
+the `git` program, which gets this environment: git refuses each transport but `file`, at each
+address, and reads no `/etc/gitconfig`."""
+CONST_KUBECTL_ERROR_PREFIX: Final[str] = "error: "
+"""The prefix of the error that kubectl prints when a command fails. A warning of Kustomize can
+come before it on stderr (#6681)."""
 CONST_GIT_NETWORK_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
     {"push", "fetch", "pull", "ls-remote", "clone"}
 )
