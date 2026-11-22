@@ -538,6 +538,19 @@ def test_a_body_at_the_limit_above_plans_has_no_problem(stage_repo: StageRepo) -
     assert [p.rule for p in result.problems] == []
 
 
+def test_a_body_that_starts_with_a_blank_line_at_the_limit_has_no_problem(
+    stage_repo: StageRepo,
+) -> None:
+    """The plan check measures the text above `Plans` as the plan form check does, so a leading
+    blank line does not count (#6735)."""
+    sha = _push(stage_repo, _change())
+    body = f"\n{'a' * 1000}\n\n{BODY}"
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
+
+    assert [p.rule for p in result.problems] == []
+
+
 def test_an_unread_check_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
 

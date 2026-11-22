@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from pydantic import ValidationError as ModelValidationError
 
 from devops_cli.exceptions import ValidationError
+from devops_cli.roadmap import pull_form
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
     PLACEHOLDER_ERROR_TYPE,
@@ -278,6 +280,36 @@ def test_a_body_at_the_limit_above_closes_has_no_problem() -> None:
     assert body_problems(_body_above_closes("a" * BODY_MAX_CHARS)) == []
 
 
+def _lengths(problems: list[str]) -> list[str]:
+    """The lengths that the problems of the body limit name, as texts."""
+    return [n for p in problems for n in re.findall(r"has (\d+) characters\.", p)]
+
+
+@pytest.mark.parametrize(("length", "problems"), [(1000, []), (1001, ["1001"])])
+def test_a_body_that_starts_with_a_blank_line_gets_one_measure(
+    length: int, problems: list[str]
+) -> None:
+    """The open step and the ready check measure one text: the text above `Closes`, with the
+    whitespace at its two ends removed, so a leading blank line counts at neither (#6735)."""
+    text = "a" * length
+    body = f"\n{text}\n\nCloses #5020\n\nChange: `openspec/changes/5020-one-measure/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert _lengths(pull_form.open_body_problems(body, issue=5020, plan=False)) == problems
+    assert _lengths(pull_form.body_problems(body)) == problems
+
+
+def test_a_line_that_the_form_takes_as_no_closes_line_stays_in_the_measured_text() -> None:
+    """The text ends at the line that the form takes as `Closes`, at open and at ready, and not at
+    a line such as `Closes #abc` above it (#6735)."""
+    text = f"{'a' * 995}\nCloses #abc"
+    body = f"{text}\n\nCloses #5020\n\nChange: `openspec/changes/5020-one-measure/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert _lengths(pull_form.open_body_problems(body, issue=5020, plan=False)) == ["1007"]
+    assert _lengths(pull_form.body_problems(body)) == ["1007"]
+
+
 def test_the_docstring_of_the_body_check_names_the_text_above_closes() -> None:
     documented = body_problems.__doc__ or ""
 
@@ -494,6 +526,19 @@ def test_the_room_of_a_plan_text_is_the_body_limit() -> None:
 
     with pytest.raises(ValidationError, match="Shorten the text above `Plans`"):
         build_plan_body(why="a" * (BODY_MAX_CHARS + 1), issue=3215, change=PLAN_CHANGE)
+
+
+@pytest.mark.parametrize(("length", "problems"), [(1000, []), (1001, ["1001"])])
+def test_a_plan_body_that_starts_with_a_blank_line_gets_one_measure(
+    length: int, problems: list[str]
+) -> None:
+    """The plan form check and the plan check measure the text above `Plans`, with the whitespace
+    at its two ends removed (#6735)."""
+    text = "a" * length
+    body = f"\n{text}\n\nPlans #3215\n\nChange: `{PLAN_CHANGE}/`"
+
+    assert pull_form.measured_body_text(body, "Plans") == text
+    assert _lengths(pull_form.plan_body_problems(body, 3215)) == problems
 
 
 def test_a_short_plan_text_names_plans_and_where_the_text_goes() -> None:
