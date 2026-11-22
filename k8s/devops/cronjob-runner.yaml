@@ -3,7 +3,8 @@
 # Service create a Job from it with only the container's args, the name and some labels and
 # environment values changed. The shell of a step is no security boundary, so this pod is the
 # sandbox: a read-only root, no Linux capability, no Kubernetes token, and the egress of
-# `devops-default-perimeter` (DNS, the gateway, the cache, the OTLP collector and public HTTPS).
+# `devops-default-perimeter-egress` (DNS, the gateway, the cache, the OTLP collector and public
+# HTTPS).
 apiVersion: batch/v1
 kind: CronJob
 metadata:

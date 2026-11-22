@@ -3,7 +3,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: portkey-perimeter
+  name: portkey-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: portkey
@@ -14,7 +14,6 @@ spec:
       app.kubernetes.io/name: portkey
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Allow incoming API requests to port 8787 from stack workloads and monitoring
     - from:
@@ -27,6 +26,21 @@ spec:
       ports:
         - protocol: TCP
           port: 8787
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: portkey-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: portkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: portkey
+  policyTypes:
+    - Egress
   egress:
     # Allow communication to backend inference pods (Ollama). Every Ollama tier
     # (profiles/ollama-profiles.yaml) carries llm.devops.io/provider: ollama. Portkey reads its

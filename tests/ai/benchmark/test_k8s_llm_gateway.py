@@ -350,7 +350,7 @@ class TestK8sLLMGatewayManifests:
             "NodePort",
             4000,
             False,
-            "llm-gateway-perimeter",
+            "llm-gateway-perimeter-ingress",
             "llm-gateway",
             [(None, [4000])],
         )
@@ -510,21 +510,26 @@ class TestK8sLLMGatewayManifests:
         )
 
     def test_llm_namespace_default_perimeter_excludes_gateway_and_workloads(self) -> None:
-        """Verify llm-default-perimeter excludes gateway, portkey and the three Valkeys
-        to avoid additive policy leakage."""
+        """Verify both llm-default-perimeter policies exclude gateway, portkey and the three
+        Valkeys to avoid additive policy leakage.
+
+        The egress policy allows every destination on every port, so a Valkey that it selects
+        gets full egress.
+        """
         np_path = Path("k8s/llm/networkpolicy.yaml")
         docs = list(yaml.safe_load_all(np_path.read_text(encoding="utf-8")))
-        np = next(d for d in docs if d and d.get("kind") == "NetworkPolicy")
-        exprs = np["spec"]["podSelector"]["matchExpressions"]
-        name_expr = next(e for e in exprs if e.get("key") == "app.kubernetes.io/name")
+        policies = {
+            d["metadata"]["name"]: d for d in docs if d and d.get("kind") == "NetworkPolicy"
+        }
 
-        assert (
-            name_expr["operator"],
-            sorted(name_expr["values"]),
-        ) == (
-            "NotIn",
-            ["llm-gateway", "portkey", "valkey", "valkey-devops", "valkey-runs"],
-        )
+        assert [
+            (expr["operator"], sorted(expr["values"]))
+            for side in ("ingress", "egress")
+            for expr in policies[f"llm-default-perimeter-{side}"]["spec"]["podSelector"][
+                "matchExpressions"
+            ]
+            if expr["key"] == "app.kubernetes.io/name"
+        ] == [("NotIn", ["llm-gateway", "portkey", "valkey", "valkey-devops", "valkey-runs"])] * 2
 
     def test_llm_manifests_have_a_deploy_path(self, tmp_path: Path) -> None:
         """Verify every manifest under k8s/llm is applied by something (#953).
@@ -741,8 +746,15 @@ def gateway_egress() -> tuple[dict[str, Any], list[BackendTarget], dict[str, str
     """Return the gateway policy, its resolved backends and the gateway's pod labels."""
     deployment = _load_kind(GATEWAY_DIR / "deployment.yaml", "Deployment")
     backends = [target for target in _gateway_backends().values() if target is not None]
+    (egress,) = [
+        doc
+        for doc in yaml.safe_load_all(
+            (GATEWAY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8")
+        )
+        if doc["metadata"]["name"] == "llm-gateway-perimeter-egress"
+    ]
     return (
-        _load_kind(GATEWAY_DIR / "networkpolicy.yaml", "NetworkPolicy"),
+        egress,
         backends,
         deployment["spec"]["template"]["metadata"]["labels"],
     )

@@ -678,14 +678,12 @@ def egress_problems(policies: Iterable[Mapping[str, Any]]) -> list[str]:
     the Kubernetes API on 6443, with the metadata address excluded."""
     problems = []
     policies = list(policies)
-    perimeter = [
-        p
-        for p in policies
-        if p.get("spec", {}).get("podSelector") == {}
-        and {"Ingress", "Egress"} <= set(p["spec"].get("policyTypes", []))
-    ]
-    if not perimeter:
-        problems.append(f"no NetworkPolicy of {NAMESPACE} selects every pod for ingress and egress")
+    for side in ("Ingress", "Egress"):
+        if not any(
+            p.get("spec", {}).get("podSelector") == {} and side in p["spec"].get("policyTypes", [])
+            for p in policies
+        ):
+            problems.append(f"no NetworkPolicy of {NAMESPACE} selects every pod for {side}")
     for policy in policies:
         spec = policy.get("spec", {})
         selector = spec.get("podSelector", {})
@@ -771,16 +769,17 @@ def _admin_port_problems_of(policies: list[dict[str, Any]], name: str) -> list[s
 
 
 def check_the_admin_port_rule_names_a_perimeter_whose_namespace_egress_has_no_ports() -> None:
-    # The controller of the cluster does not apply the ingress rules of the perimeter to traffic
-    # that an egress rule of the perimeter allows, so a rule with no ports opens 33646.
+    # The controller of the cluster does not apply the ingress rules of a policy with both types
+    # to traffic that an egress rule of that policy allows, so the egress rules keep 33646 closed
+    # too, and a rule with no ports opens it.
     policies = _store_kind("NetworkPolicy")
-    (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter"]
+    (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter-egress"]
     (namespace_rule,) = [
         rule for rule in perimeter["spec"]["egress"] if rule.get("to") == [{"podSelector": {}}]
     ]
     namespace_rule.pop("ports", None)
 
-    assert _admin_port_problems_of(policies, "object-store-perimeter")
+    assert _admin_port_problems_of(policies, "object-store-perimeter-egress")
 
 
 def check_the_admin_port_rule_names_a_policy_that_lets_a_filer_send_to_the_admin_port() -> None:
@@ -816,10 +815,10 @@ def check_the_store_has_no_internet_egress() -> None:
 
 def check_the_egress_rule_names_a_perimeter_with_internet_egress() -> None:
     policies = _store_kind("NetworkPolicy")
-    (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter"]
+    (perimeter,) = [p for p in policies if p["metadata"]["name"] == "object-store-perimeter-egress"]
     perimeter["spec"]["egress"].append({"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]})
 
-    assert any("object-store-perimeter" in p for p in egress_problems(policies))
+    assert any("object-store-perimeter-egress" in p for p in egress_problems(policies))
 
 
 def check_clients_reach_the_s3_port_by_a_namespace_label() -> None:
@@ -960,7 +959,7 @@ def check_the_scrape_rule_names_a_monitoring_perimeter_with_no_egress_to_the_sto
         ]
 
     assert any(
-        "monitoring-default-perimeter" in p
+        "monitoring-default-perimeter-egress" in p
         for p in scrape_problems(policies, _store_kind("NetworkPolicy"), _seaweed())
     )
 

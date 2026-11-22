@@ -8,8 +8,8 @@
 # policy requires that value on a Job of the Service. The pod has no MCP token: the MCP client of
 # the stage job is off (`roadmap.stage.mcp`), and the server accepts one token for every role, so
 # the change that turns the client on adds the key here and in the policy. Its egress is that of
-# `devops-default-perimeter`, and `searxng-stage-clients` adds SearXNG for the tool `search_web`
-# of the planner.
+# `devops-default-perimeter-egress`, and `searxng-stage-clients` adds SearXNG for the tool
+# `search_web` of the planner.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

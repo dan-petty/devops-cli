@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: argocd-default-perimeter
+  name: argocd-default-perimeter-ingress
   namespace: argocd
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -9,7 +9,6 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. Allow intra-namespace pod communications (server, repo-server, controller, valkey/redis)
     - from:
@@ -41,6 +40,18 @@ spec:
           port: 8084
         - protocol: TCP
           port: 9121
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argocd-default-perimeter-egress
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
   egress:
     # 1. Allow intra-namespace pod communications
     - to:

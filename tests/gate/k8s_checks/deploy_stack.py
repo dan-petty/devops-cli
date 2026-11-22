@@ -27,8 +27,8 @@ def _dry_run_details(output: str) -> dict[str, Any]:
 
 
 def check_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it() -> None:
-    """deploy-stack --stack llm applies llm-gateway-perimeter before the gateway's Deployment,
-    and teardown-stack deletes it (#795). Without Argo CD the gateway ran with no policy, so its
+    """deploy-stack --stack llm applies the two gateway policies before the gateway's Deployment,
+    and teardown-stack deletes them (#795, #6708). Without Argo CD the gateway ran with no policy, so its
     egress was unrestricted. Both apply the gateway kustomization, whose render puts the policy
     first (#1929). Neither dry run makes a request."""
     gateway = TREE.path(Path("llm", "gateway"))
@@ -51,7 +51,11 @@ def check_llm_stack_applies_the_gateway_policy_before_the_gateway_and_deletes_it
         0,
         True,
         True,
-        [("NetworkPolicy", "llm-gateway-perimeter"), ("Deployment", "llm-gateway")],
+        [
+            ("NetworkPolicy", "llm-gateway-perimeter-egress"),
+            ("NetworkPolicy", "llm-gateway-perimeter-ingress"),
+            ("Deployment", "llm-gateway"),
+        ],
     )
 
 

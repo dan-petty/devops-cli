@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: cloudflared-isolation
+  name: cloudflared-isolation-ingress
   namespace: cloudflared
   labels:
     app.kubernetes.io/name: cloudflared
@@ -13,7 +13,6 @@ spec:
       app.kubernetes.io/name: cloudflared
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Allow Prometheus metrics scraping on port 2000 strictly from monitoring namespace
     - from:
@@ -23,6 +22,22 @@ spec:
       ports:
         - protocol: TCP
           port: 2000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared-isolation-egress
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/component: tunnel
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudflared
+  policyTypes:
+    - Egress
   egress:
     # Allow DNS queries
     - ports:

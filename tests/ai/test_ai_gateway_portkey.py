@@ -195,7 +195,7 @@ class TestK8sPortkeyManifests:
         netpol_docs = list(
             yaml.safe_load_all((PORTKEY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8"))
         )
-        netpol = next(d for d in netpol_docs if d and d.get("kind") == "NetworkPolicy")
+        netpol = next(d for d in netpol_docs if d and "egress" in d.get("spec", {}))
         egress = netpol["spec"]["egress"]
 
         egress_backends = [
@@ -209,6 +209,6 @@ class TestK8sPortkeyManifests:
             netpol["metadata"]["name"],
             sorted(egress_backends),
         ) == (
-            "portkey-perimeter",
+            "portkey-perimeter-egress",
             [("llm.devops.io/provider", "ollama")],
         )

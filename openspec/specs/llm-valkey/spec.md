@@ -24,11 +24,11 @@ The valkey container of the Deployment `valkey-devops` in `k8s/llm/valkey-devops
 - **THEN** its valkey container starts valkey-server with `--maxmemory-policy allkeys-lru`, `--save ""` and `--appendonly no`, and its `--maxmemory` is at most three quarters of the container's memory limit
 
 ### Requirement: devops-cli's cache Valkey requires its password and admits only namespace devops
-The valkey container and the redis-exporter container of `valkey-devops` SHALL read the password from key `password` of Secret `valkey-devops-auth`, and the valkey container SHALL write it to a config file on a memory volume. The policy `valkey-devops-perimeter` SHALL admit namespace `devops` on TCP 6379 and namespace `monitoring` on TCP 9121, and SHALL allow no egress.
+The valkey container and the redis-exporter container of `valkey-devops` SHALL read the password from key `password` of Secret `valkey-devops-auth`, and the valkey container SHALL write it to a config file on a memory volume. The policy `valkey-devops-perimeter-ingress` SHALL admit namespace `devops` on TCP 6379 and namespace `monitoring` on TCP 9121, and the policy `valkey-devops-perimeter-egress` SHALL allow no egress.
 
 #### Scenario: The devops cache Valkey's password and perimeter
-- **WHEN** a person runs `kubectl -n llm get deployment valkey-devops -o yaml` and `kubectl -n llm get networkpolicy valkey-devops-perimeter -o yaml` on the cluster
-- **THEN** both containers read `VALKEY_PASSWORD` or `REDIS_PASSWORD` from `valkey-devops-auth` key `password`, and `valkey-devops-perimeter` admits exactly namespace `devops` on 6379 and namespace `monitoring` on 9121, with no egress
+- **WHEN** a person runs `kubectl -n llm get deployment valkey-devops -o yaml` and `kubectl -n llm get networkpolicy valkey-devops-perimeter-ingress valkey-devops-perimeter-egress -o yaml` on the cluster
+- **THEN** both containers read `VALKEY_PASSWORD` or `REDIS_PASSWORD` from `valkey-devops-auth` key `password`, `valkey-devops-perimeter-ingress` admits exactly namespace `devops` on 6379 and namespace `monitoring` on 9121, and `valkey-devops-perimeter-egress` has no egress rule
 
 ### Requirement: The cluster jobs name devops-cli's cache Valkey and send its password
 The devops ConfigMap template SHALL set `valkey.url` to `valkey://valkey-devops.llm.svc.cluster.local:6379/0` and hold no password. Secret `devops/devops-cli` SHALL carry `DEVOPS_CLI_VALKEY_PASSWORD` from the same keyring entry as `llm/valkey-devops-auth`, adopted from the live `llm/valkey-devops-auth password` when the keyring lacks it.

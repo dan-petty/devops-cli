@@ -3,7 +3,7 @@
 # Open WebUI keeps its state and its websocket pub/sub here. Valkey requires a password, which
 # comes from the keyring: `devops k8s push-secrets --only llm/valkey-auth` writes it, generating
 # one the first time, and deploy-stack pushes it before it applies this file. The policy
-# valkey-perimeter admits only Open WebUI and the metrics scrapers.
+# valkey-perimeter-ingress admits only Open WebUI and the metrics scrapers.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -188,7 +188,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: valkey-perimeter
+  name: valkey-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: valkey
@@ -199,7 +199,6 @@ spec:
       app.kubernetes.io/name: valkey
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Open WebUI is the only client (values-open-webui.yaml).
     - from:
@@ -217,5 +216,20 @@ spec:
       ports:
         - protocol: TCP
           port: 9121
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: valkey
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes:
+    - Egress
   # No egress: Valkey only answers, and the exporter reaches it on localhost.
   egress: []

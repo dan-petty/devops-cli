@@ -1,12 +1,13 @@
 # The perimeter of the Crawl4AI pod (#3884). It renders pages that a model chose, in a browser that
 # runs with --no-sandbox, and the application filter against internal addresses had bypasses in
-# 0.8 and 0.9. So this policy is the main control: the pod reaches DNS and public web pages, and no
-# private range, no cluster Service and no cloud metadata address. `devops-default-perimeter` skips
-# this pod, so it also gets no path to the gateway or to the cache Valkey.
+# 0.8 and 0.9. So these policies are the main control: the pod reaches DNS and public web pages,
+# and no private range, no cluster Service and no cloud metadata address. The default perimeter
+# (`devops-default-perimeter-ingress` and `devops-default-perimeter-egress`) skips this pod, so it
+# also gets no path to the gateway or to the cache Valkey.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: crawl4ai-perimeter
+  name: crawl4ai-perimeter-ingress
   namespace: devops
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -16,7 +17,6 @@ spec:
       app.kubernetes.io/name: crawl4ai
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Only the roadmap Service calls the pod. A pod selector peer alone: kube-router refused a
     # namespace and pod selector peer paired with `ports`.
@@ -27,6 +27,20 @@ spec:
       ports:
         - protocol: TCP
           port: 11235
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: crawl4ai-perimeter-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: crawl4ai
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS lookups
     - to:
@@ -38,9 +52,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. Public web pages: HTTP and HTTPS. The ranges are those of `devops-default-perimeter`: no
-    #    private range, no shared address space, no link-local range, no cloud metadata endpoint,
-    #    and no IETF protocol or benchmarking range.
+    # 2. Public web pages: HTTP and HTTPS. The ranges are those of
+    #    `devops-default-perimeter-egress`: no private range, no shared address space, no
+    #    link-local range, no cloud metadata endpoint, and no IETF protocol or benchmarking
+    #    range.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

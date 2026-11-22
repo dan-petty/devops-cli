@@ -63,6 +63,7 @@ def check_the_kustomization_renders_the_template_and_the_perimeter_and_nothing_e
     assert sorted(
         (d["kind"], d["metadata"]["namespace"], d["metadata"]["name"]) for d in rendered
     ) == [
-        ("NetworkPolicy", NAMESPACE, "argo-workflows-default-perimeter"),
+        ("NetworkPolicy", NAMESPACE, "argo-workflows-default-perimeter-egress"),
+        ("NetworkPolicy", NAMESPACE, "argo-workflows-default-perimeter-ingress"),
         ("WorkflowTemplate", NAMESPACE, "devops-cli-version"),
     ]

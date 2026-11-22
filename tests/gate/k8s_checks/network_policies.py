@@ -1,8 +1,10 @@
-"""Every network policy has a path that deploy-stack applies (#2164)."""
+"""Every network policy has a path that deploy-stack applies (#2164), the pods that reach SearXNG
+(#3924), and no policy has both types, `Ingress` and `Egress` (#6708)."""
 
 from __future__ import annotations
 
 import functools
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -204,3 +206,98 @@ def check_the_service_and_the_stage_job_reach_searxng_and_the_runner_job_does_no
         _reaches_searxng(stage),
         _reaches_searxng(runner),
     ) == (True, True, False)
+
+
+# ── A policy with both types (#6708) ───────────────────────────────────────────────
+#
+# kube-router keeps one chain for each policy, with its ingress and its egress rules. The chain of
+# a pod jumps to the chain of each policy that selects it, and for a policy with both types the
+# jump has no source or destination match. So when such a policy selects the source and the
+# destination pod, its egress rule marks the traffic, and the destination accepts it before its
+# ingress rules run. By the same chain, its ingress rule can let the source skip its egress
+# rules. Two single-type policies are enforced correctly (#6708, retest 2026-11-22).
+
+
+def _policy_types(policy: dict[str, Any]) -> set[str]:
+    """The types of a NetworkPolicy as the API server sets them (`SetDefaults_NetworkPolicy`):
+    `policyTypes` as written; with no types, `Ingress`, and `Egress` when it has an egress rule."""
+    spec = policy["spec"]
+    if spec.get("policyTypes"):
+        return set(spec["policyTypes"])
+    return {"Ingress", "Egress"} if spec.get("egress") else {"Ingress"}
+
+
+def dual_type_problems(policies: Iterable[dict[str, Any]]) -> list[str]:
+    """Each NetworkPolicy whose types hold `Ingress` and `Egress` (#6708)."""
+    return [
+        f"NetworkPolicy {policy['metadata'].get('namespace')}/{policy['metadata']['name']}: has "
+        "the types Ingress and Egress, and kube-router lets the rules of one type skip the rules "
+        "of the other type for traffic between the pods that it selects (#6708), so split it "
+        "into <name>-ingress with the type Ingress and <name>-egress with the type Egress"
+        for policy in policies
+        if {"Ingress", "Egress"} <= _policy_types(policy)
+    ]
+
+
+@functools.cache
+def _tree_network_policies() -> tuple[dict[str, Any], ...]:
+    """Each NetworkPolicy document of each YAML file of the environment tree `k8s/`."""
+    return tuple(
+        document
+        for path in sorted(K8S_DIR.rglob("*.y*ml"))
+        for document in yaml.load_all(path.read_text(encoding="utf-8"), Loader=yaml.CSafeLoader)
+        if isinstance(document, dict) and document.get("kind") == "NetworkPolicy"
+    )
+
+
+def _fixture(name: str, types: list[str] | None, **spec: Any) -> dict[str, Any]:
+    """A NetworkPolicy named `name` in namespace `fixture` that selects each pod. `types` None
+    leaves `policyTypes` out, so the API server sets the types."""
+    written = {} if types is None else {"policyTypes": types}
+    return {
+        "kind": "NetworkPolicy",
+        "metadata": {"name": name, "namespace": "fixture"},
+        "spec": {"podSelector": {}, **written, **spec},
+    }
+
+
+_INGRESS = [{"from": [{"podSelector": {}}], "ports": [{"protocol": "TCP", "port": 3000}]}]
+_EGRESS = [{"to": [{"podSelector": {}}]}]
+
+
+def check_the_dual_type_rule_names_a_policy_that_writes_both_types() -> None:
+    # The probe of #6708: the egress rule lets each pod reach each other pod on every port, and
+    # kube-router applies no ingress rule of the policy to that traffic.
+    fixture = _fixture("fixture-written", ["Ingress", "Egress"], ingress=_INGRESS, egress=_EGRESS)
+
+    (problem,) = dual_type_problems([fixture])
+    assert ("fixture/fixture-written" in problem, "kube-router" in problem) == (True, True)
+
+
+def check_the_dual_type_rule_names_a_policy_with_no_types_and_an_egress_rule() -> None:
+    # The API server gives a policy with no `policyTypes` the type Ingress, and Egress when the
+    # policy has an egress rule.
+    public = [{"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
+    fixture = _fixture("fixture-defaulted", None, egress=public)
+
+    (problem,) = dual_type_problems([fixture])
+    assert "fixture/fixture-defaulted" in problem
+
+
+def check_the_dual_type_rule_accepts_single_type_policies() -> None:
+    policies = [
+        _fixture("ingress-only", ["Ingress"], ingress=_INGRESS),
+        _fixture("egress-only", ["Egress"], egress=_EGRESS),
+        _fixture("defaulted-ingress", None, ingress=_INGRESS),
+        _fixture("defaulted-no-egress-rule", None, ingress=_INGRESS, egress=[]),
+    ]
+
+    assert dual_type_problems(policies) == []
+
+
+def check_no_network_policy_of_the_tree_has_both_types() -> None:
+    """Each NetworkPolicy of the environment tree has one type, `Ingress` or `Egress`: kube-router
+    lets the rules of one type of a policy with both types skip the rules of the other type for
+    traffic between two pods that the policy selects (#6708)."""
+    problems = dual_type_problems(_tree_network_policies())
+    assert not problems, "\n".join(problems)

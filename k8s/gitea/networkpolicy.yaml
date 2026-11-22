@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: gitea-default-perimeter
+  name: gitea-default-perimeter-ingress
   namespace: gitea
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -9,7 +9,6 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. Gitea's HTTP port only, from Traefik (the path from the Cloudflare tunnel), Argo CD's
     #    repo server (#1082) and the namespace's own pods. No peer is an address range: the
@@ -32,6 +31,18 @@ spec:
       ports:
         - protocol: TCP
           port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gitea-default-perimeter-egress
+  namespace: gitea
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS. With mirrors, migrations and the update checker off, Gitea calls nothing
     #    outside its namespace.
@@ -47,6 +58,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. The namespace's own pods
+    # 2. The namespace's own pods, on the HTTP port only: the one port that the ingress rule of
+    #    gitea-default-perimeter-ingress admits from them.
     - to:
         - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000

@@ -1,11 +1,12 @@
-# The perimeter of the SearXNG pod (#3924). It has no limiter and no login, so this policy is the
-# access control: only the roadmap Service and the pod of a stage Job (#5483) reach the pod, and
-# the pod reaches DNS and public HTTPS pages only. `devops-default-perimeter` skips this pod, so it also gets no path to the
-# gateway or to the cache Valkey.
+# The perimeter of the SearXNG pod (#3924). It has no limiter and no login, so these policies are
+# the access control: only the roadmap Service and the pod of a stage Job (#5483) reach the pod,
+# and the pod reaches DNS and public HTTPS pages only. The default perimeter
+# (`devops-default-perimeter-ingress` and `devops-default-perimeter-egress`) skips this pod, so it
+# also gets no path to the gateway or to the cache Valkey.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: searxng-perimeter
+  name: searxng-perimeter-ingress
   namespace: devops
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -15,7 +16,6 @@ spec:
       app.kubernetes.io/name: searxng
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # Only the roadmap Service and the pod of a stage Job call the pod. Pod selector peers alone:
     # kube-router refused a namespace and pod selector peer paired with `ports`.
@@ -30,6 +30,20 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: searxng-perimeter-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS lookups
     - to:
@@ -41,9 +55,10 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 2. The engines: public HTTPS. The ranges are those of `devops-default-perimeter`: no
-    #    private range, no shared address space, no link-local range, no cloud metadata endpoint,
-    #    and no IETF protocol or benchmarking range.
+    # 2. The engines: public HTTPS. The ranges are those of
+    #    `devops-default-perimeter-egress`: no private range, no shared address space, no
+    #    link-local range, no cloud metadata endpoint, and no IETF protocol or benchmarking
+    #    range.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

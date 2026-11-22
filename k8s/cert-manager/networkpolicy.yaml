@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: cert-manager-default-perimeter
+  name: cert-manager-default-perimeter-ingress
   namespace: cert-manager
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -9,7 +9,6 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. Alloy scrapes the controller, the webhook and the cainjector on 9402: their pods carry
     #    the `prometheus.io/*` keys (k8s/monitoring/k8s-monitoring-values.yaml).
@@ -21,6 +20,18 @@ spec:
       ports:
         - protocol: TCP
           port: 9402
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cert-manager-default-perimeter-egress
+  namespace: cert-manager
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS
     - to:

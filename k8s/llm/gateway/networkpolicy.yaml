@@ -3,7 +3,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: llm-gateway-perimeter
+  name: llm-gateway-perimeter-ingress
   namespace: llm
   labels:
     app.kubernetes.io/name: llm-gateway
@@ -14,15 +14,29 @@ spec:
       app.kubernetes.io/name: llm-gateway
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # The gateway is the authenticated entry point for LAN clients (via its NodePort), Open WebUI,
     # devops-cli workloads and monitoring. LiteLLM rejects requests without the master key, so the
-    # API port admits any source; egress below stays limited to the inference backends, the key
-    # database, the hosted providers and the span Collector.
+    # API port admits any source; the egress policy below stays limited to the inference backends,
+    # the key database, the hosted providers and the span Collector.
     - ports:
         - protocol: TCP
           port: 4000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-gateway-perimeter-egress
+  namespace: llm
+  labels:
+    app.kubernetes.io/name: llm-gateway
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: llm-gateway
+  policyTypes:
+    - Egress
   # Every backend is an in-cluster Service, admitted by its pods' labels. No ipBlock admits a
   # private range: kube-router matches one against pod addresses, so it admits every pod on its
   # ports. The one ipBlock rule below admits public addresses on 443 for the hosted models.

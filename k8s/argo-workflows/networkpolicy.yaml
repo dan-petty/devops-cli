@@ -3,7 +3,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: argo-workflows-default-perimeter
+  name: argo-workflows-default-perimeter-ingress
   namespace: argo-workflows
   labels:
     app.kubernetes.io/part-of: devops-cli-stack
@@ -11,7 +11,6 @@ spec:
   podSelector: {}
   policyTypes:
     - Ingress
-    - Egress
   ingress:
     # 1. Alloy's scrape of the controller's metrics port. A namespace-selector-only peer, and no
     #    ipBlock: kube-router matches an ingress CIDR against pod addresses.
@@ -22,6 +21,18 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: argo-workflows-default-perimeter-egress
+  namespace: argo-workflows
+  labels:
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
   egress:
     # 1. CoreDNS lookups
     - to:

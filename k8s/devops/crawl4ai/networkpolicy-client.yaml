@@ -1,6 +1,6 @@
 # The roadmap Service calls Crawl4AI on TCP 11235 (#3884). This policy adds to
-# `devops-default-perimeter`, which gives the Service pod no such port. No policy gives a Job pod
-# (`devops-cli-job`) this port, so a Job cannot call the fetch service.
+# `devops-default-perimeter-egress`, which gives the Service pod no such port. No policy gives a
+# Job pod (`devops-cli-job`) this port, so a Job cannot call the fetch service.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
