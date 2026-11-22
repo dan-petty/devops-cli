@@ -453,6 +453,31 @@ def test_a_person_edit_to_the_body_text_outside_the_record_block_is_restored_and
     assert otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name) == [({}, 1.0)]
 
 
+def test_the_close_of_a_block_that_the_body_leaves_open_is_no_lost_edit(
+    otlp: FakeCollector,
+) -> None:
+    """The store closes a fence that the body leaves open before it writes the record block
+    (#6729). The read-back gives the body with the close, which is the body that the store wrote,
+    so one `PATCH` holds the mark and the store counts no edit of a person."""
+    github = GitHubFake(REPO)
+    github.seed_issue(7, labels=("priority/p2-medium",), body="Text.\n\n```python\nx = 1")
+    store = fake_store(github)
+
+    store.set_marks(read(store, 7), {ImplementRecordKey.JOB: "job-1"})
+
+    assert (
+        otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name),
+        [args for args in github.writes() if "PATCH" in args],
+        store.read_issue_body(7),
+        read(store, 7).job_record,
+    ) == (
+        [],
+        [issue_edit_args(REPO, 7)],
+        "Text.\n\n```python\nx = 1\n```",
+        {ImplementRecordKey.JOB: "job-1"},
+    )
+
+
 def test_a_batched_write_reads_the_issue_once_and_patches_three_fields() -> None:
     """Status, Value and Effort go in one `PATCH`, and one read-back checks the record (#4452)."""
     github, store = seeded(i7=("type/bug", "priority/p2-medium"))
