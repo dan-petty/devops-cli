@@ -22,7 +22,7 @@ Kind: manifest. Reads: `tests/gate/k8s_checks/object_store.py`, `tests/gate/k8s_
 
 Kind: other. Changes: `k8s/README.md`.
 
-- [ ] 3.1 Add the section `Buckets and keys` to the Object Store section of `k8s/README.md` (the buckets, the writers, the scope and namespace of each CR), and update the Application row, the security bullet of the S3 identities, the clients, the rollout, the operator scope and the folder tree
+- [x] 3.1 Add the section `Buckets and keys` to the Object Store section of `k8s/README.md` (the buckets, the writers, the scope and namespace of each CR), and update the Application row, the security bullet of the S3 identities, the clients, the rollout, the operator scope and the folder tree
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
