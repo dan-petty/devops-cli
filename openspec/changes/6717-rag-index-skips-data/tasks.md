@@ -26,7 +26,7 @@ Adds: `is_transient_embedding_error`, `ERRORS.rag.batches_skipped`
 
 Kind: data. Reads: `.gitattributes`. Changes: `.gitattributes`.
 
-- [ ] 3.1 Add `tests/fixtures/tiktoken/*.tiktoken linguist-vendored` to `.gitattributes`, with a comment that names them the data of tiktoken
+- [x] 3.1 Add `tests/fixtures/tiktoken/*.tiktoken linguist-vendored` to `.gitattributes`, with a comment that names them the data of tiktoken
   - Verification: `$ git check-attr linguist-vendored -- tests/fixtures/tiktoken/o200k_base.tiktoken tests/fixtures/tiktoken/cl100k_base.tiktoken`
 
 ## 4. State the skips and the failed batches in the knowledge base

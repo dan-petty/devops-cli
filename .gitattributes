@@ -13,7 +13,8 @@
 *.whl binary
 
 # Generated files: a tool writes them, and nobody edits them by hand. GitHub folds their diffs,
-# and `devops roadmap review run` counts their lines apart from the other lines.
+# `devops roadmap review run` counts their lines apart from the other lines, and
+# `devops ai rag index` leaves them out of the index.
 uv.lock linguist-generated
 **/package-lock.json linguist-generated
 CHANGELOG.md linguist-generated
@@ -21,3 +22,8 @@ CHANGELOG.md linguist-generated
 tests/module_durations.json linguist-generated
 docs/CLI_REFERENCE.md linguist-generated
 docs/commands/*.md linguist-generated
+
+# Vendored files: the data of a third party, which nobody edits. GitHub leaves them out of the
+# language counts, and `devops ai rag index` leaves them out of the index. The tiktoken
+# vocabularies are the data of tiktoken.
+tests/fixtures/tiktoken/*.tiktoken linguist-vendored
