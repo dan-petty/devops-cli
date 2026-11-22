@@ -33,7 +33,7 @@ Kind: behavior. Reads: `src/devops_cli/commands/rag.py`. Changes: `src/devops_cl
 
 Kind: other. Reads: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`. Changes: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`.
 
-- [ ] 4.1 In the best practice list of `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`, state that "Last Indexed" of `devops ai rag status` is the newest `indexed_at` of the collection, that Qdrant orders by the datetime index of `indexed_at`, that each index run creates that index, and that the column shows `—` until then
+- [x] 4.1 In the best practice list of `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`, state that "Last Indexed" of `devops ai rag status` is the newest `indexed_at` of the collection, that Qdrant orders by the datetime index of `indexed_at`, that each index run creates that index, and that the column shows `—` until then
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
