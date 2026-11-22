@@ -13,7 +13,7 @@ Kind: behavior. Reads: `k8s/devops/searxng/deployment.yaml`, `k8s/devops/searxng
 
 Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/invariants/test_k8s_manifests.py`. Changes: `tests/invariants/test_k8s_searxng.py`, `src/devops_cli/k8s/cluster_secrets.py`, `k8s/README.md`.
 
-- [ ] 2.1 Extend `test_the_metrics_secret_row` in `tests/invariants/test_k8s_searxng.py` to assert that entry `password` is not required and that `OPTIONAL_FEATURE_SECRETS` names the row. The test fails on the base
+- [x] 2.1 Extend `test_the_metrics_secret_row` in `tests/invariants/test_k8s_searxng.py` to assert that entry `password` is not required and that `OPTIONAL_FEATURE_SECRETS` names the row. The test fails on the base
   - Verification: `$ uv run devops ci test tests/invariants/test_k8s_searxng.py` fails on the base
 - [ ] 2.2 In `src/devops_cli/k8s/cluster_secrets.py`, set `required=False` on entry `password` of row `devops/searxng-metrics-auth`, change the comment of the row, and add the row to `OPTIONAL_FEATURE_SECRETS`. Change the row of key `password` in the Cluster Secrets table of `k8s/README.md` to the text that `test_readme_lists_the_table` computes
   - Verification: `$ uv run devops ci test tests/invariants/test_k8s_searxng.py tests/invariants/test_k8s_manifests.py tests/k8s/test_cluster_secret_plan.py tests/k8s/test_cluster_secret_push.py tests/commands/k8s/test_k8s.py tests/k8s/test_grafana_renderer_optional.py` passes

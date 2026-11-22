@@ -7,7 +7,7 @@ reply and the engines that stay off. No test asserts a value of the manifests (#
 
 from __future__ import annotations
 
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, OPTIONAL_FEATURE_SECRETS
 
 
 def test_the_secret_row_feeds_the_variable_and_restarts_the_deployment() -> None:
@@ -35,7 +35,8 @@ def test_the_secret_row_feeds_the_variable_and_restarts_the_deployment() -> None
 
 def test_the_metrics_secret_row() -> None:
     """The OpenMetrics scrape reads a basic-auth Secret: user `searxng`, password from the
-    keyring entry `searxng_metrics_password`, and a push restarts the pod that reads it."""
+    keyring entry `searxng_metrics_password`, and a push restarts the pod that reads it. The
+    metrics are an optional feature, so a push with no password skips it (#6805)."""
     (row,) = [secret for secret in CLUSTER_SECRETS if secret.ref == "devops/searxng-metrics-auth"]
     username, password = row.entries
 
@@ -43,12 +44,14 @@ def test_the_metrics_secret_row() -> None:
         row.stack,
         row.secret_type,
         (username.key, username.source.label),
-        (password.key, password.source.label),
+        (password.key, password.source.label, password.required),
         [str(workload) for workload in row.restarts],
+        row.ref in OPTIONAL_FEATURE_SECRETS,
     ) == (
         "devops",
         "kubernetes.io/basic-auth",
         ("username", "literal"),
-        ("password", "keyring searxng_metrics_password"),
+        ("password", "keyring searxng_metrics_password", False),
         ["deployment/searxng"],
+        True,
     )
