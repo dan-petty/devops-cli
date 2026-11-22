@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.195.3](https://github.com/dan-petty/devops-cli/compare/v0.195.2...v0.195.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **roadmap:** a record write keeps job blocks readable ([#6800](https://github.com/dan-petty/devops-cli/issues/6800)) ([b1d4852](https://github.com/dan-petty/devops-cli/commit/b1d485234f0a24e916d1683e2a8079d53682ebe2))
+* **roadmap:** every job block reader uses one marker rule ([#6794](https://github.com/dan-petty/devops-cli/issues/6794)) ([9dfe03e](https://github.com/dan-petty/devops-cli/commit/9dfe03e3e7df1078de4049e6f03e859055821d5e)), closes [#6736](https://github.com/dan-petty/devops-cli/issues/6736)
+
 ## [0.195.2](https://github.com/dan-petty/devops-cli/compare/v0.195.1...v0.195.2) (2026-11-22)
 
 
