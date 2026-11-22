@@ -56,10 +56,10 @@ Refine SHALL write a link, a handle or a reference in a code block of the model'
 - **THEN** the next step holds the point ``Read this: `www.example.com` ``
 
 ### Requirement: The hash of the body leaves out the job's block
-The hash that refine records as `refine.body_hash` SHALL be the hash of the body that refine writes, outside the alternatives job's block and refine's section, as the check for an unchanged item computes it. The check before a write SHALL compare the hash of the whole body outside refine's section, so a block that the job wrote after refine read the body is kept. A marker SHALL bound a block only as an HTML block of its own or as the whole last line of a comment.
+The hash that refine records as `refine.body_hash` SHALL be the hash of the body that refine writes. The hash SHALL leave out the alternatives block and the refine section, as the check for an unchanged item computes it. The check before a write SHALL compare the hash of the whole body outside the refine section. So refine keeps a block that the job wrote after the read. A marker SHALL bound a block only as an HTML block of its own or as the whole last line of a comment or declaration.
 
 #### Scenario: An item with a block reads as unchanged
-- **WHEN** refine refines an item whose body holds the job's block, and the next round reads the item with no change
+- **WHEN** refine refines an item whose body holds the block of the job, and the next round reads the item with no change
 - **THEN** the item reads as unchanged and the round does not refine it
 
 #### Scenario: The job writes a block during the round
@@ -68,7 +68,9 @@ The hash that refine records as `refine.body_hash` SHALL be the hash of the body
 
 #### Scenario: A body that quotes the refine markers
 - **WHEN** a body quotes the refine start marker and the refine end marker in code spans with text between them, and holds no refine section
-- **THEN** `extract_section_and_outside` returns the body as the outside text and None as the section, `without_alternatives` keeps the quoted pair and the text between them, and a refine write adds its section at the end
+- **THEN** `extract_section_and_outside` returns the body as the outside text and None as the section
+- **AND** `without_alternatives` keeps the quoted pair and the text between them
+- **AND** a refine write adds its section at the end
 
 #### Scenario: A real block is left out of the hash
 - **WHEN** a body holds an alternatives block whose start marker and end marker are each an HTML block on a line of its own
@@ -314,7 +316,7 @@ Refine SHALL close a code fence or an HTML block that the model's text leaves op
 - **AND** only the first round sends a request to the model
 
 ### Requirement: Refine finds its section in a block that a person leaves open
-A fenced code block or an HTML block that no close ends runs to the end of the body. The job blocks at the end of such a block SHALL end it for a read, so a read finds the section. The outside text of the section SHALL hold the close of the open block on a line of its own before their first line. Refine SHALL NOT write a second section. Each other job block marker in the open block, and a marker in a block that a close ends, SHALL stay the text of the person.
+A fenced code block or an HTML block that no close ends runs to the end of the body. The job blocks at the end of such a block SHALL end it for a read, so a read finds the section. The outside text of the section SHALL hold the close of the open block on a line of its own before their first line. Refine SHALL NOT write a second section. Each other job block marker in the open block SHALL stay the text of the person. A marker in a block that a close ends SHALL also stay the text of the person.
 
 #### Scenario: A person opens a code fence above the section
 - **WHEN** refine wrote and recorded a section, and then a person opens a code fence above it and does not close it
@@ -325,10 +327,12 @@ A fenced code block or an HTML block that no close ends runs to the end of the b
 #### Scenario: A person opens a pre block above the section
 - **WHEN** refine wrote and recorded a section, and then a person opens a `<pre>` block above it and does not close it
 - **AND** refine runs three rounds on the item
-- **THEN** after each round the body holds one refine start marker, a read finds the section, and the body does not change after the first round
+- **THEN** after each round the body holds one refine start marker, and a read finds the section
+- **AND** the body does not change after the first round
 
 #### Scenario: The outside text holds the close
-- **WHEN** `extract_section_and_outside` reads a body that opens a code fence, a `<pre>` block or a `<?` block and does not close it, and after it a refine section and an alternatives block
+- **WHEN** `extract_section_and_outside` reads a body that opens a code fence, a `<pre>` block or a `<?` block and does not close it
+- **AND** a refine section and an alternatives block follow the open block
 - **THEN** it returns the refine section
 - **AND** the outside text holds the close of the open block on a line of its own before the alternatives block
 
@@ -342,7 +346,8 @@ A fenced code block or an HTML block that no close ends runs to the end of the b
 - **AND** a read of the alternatives block finds it
 
 #### Scenario: A person quotes one marker in an open fence
-- **WHEN** a body quotes the start marker of refine in a code fence that it does not close, holds no end marker after it, and holds no section
+- **WHEN** a body quotes the start marker of refine in a code fence that it does not close
+- **AND** the body holds no end marker after it, and holds no section
 - **AND** refine runs three rounds on the item
 - **THEN** the first round keeps the quote, closes the fence at the end of the body and adds the section after it
 - **AND** only the first round sends a request to the model
@@ -350,5 +355,6 @@ A fenced code block or an HTML block that no close ends runs to the end of the b
 #### Scenario: A person opens a code fence above the block of another job
 - **WHEN** a body holds an alternatives block and no section, and a person opens a code fence above the block and does not close it
 - **AND** refine runs three rounds on the item
-- **THEN** the first round writes the close of the fence on a line of its own before the start marker of the alternatives block, and adds the section at the end
+- **THEN** the first round writes the close of the fence on a line of its own before the start marker of the alternatives block
+- **AND** the first round adds the section at the end
 - **AND** a read finds the alternatives block after each round, and only the first round sends a request to the model

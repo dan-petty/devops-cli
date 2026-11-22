@@ -25,14 +25,24 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/body_hash.py`, `src/devops_cli/ro
 
 - [x] 3.1 Write the tests first. `test_a_block_that_a_person_leaves_open_holds_their_quotes_up_to_the_blocks_of_the_jobs` in `tests/roadmap/test_roadmap_body_hash.py` reads an open fence with a quoted block above the block of the job, a lone refine start, a lone alternatives start, a quoted block after the block of the job, text after the block, and a fence in the section. `test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text_over_three_rounds` in `tests/roadmap/test_roadmap_alternatives.py` and `test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text` in `tests/roadmap/refine/test_roadmap_refine_block_markers.py` run three rounds on a quote. `test_a_write_closes_a_block_that_a_person_opens_above_the_block_of_another_job` runs three refine rounds that write. The round test of a block above the section asserts no model call and no write. The quote cases fail on the head of group 2
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine/test_roadmap_refine_block_markers.py tests/roadmap/test_roadmap_alternatives.py` fails on the head of group 2
-- [x] 3.2 End an open block at the job blocks at its end (`_are_job_blocks`), with at most one part more than there are jobs, in `src/devops_cli/roadmap/body_hash.py`. Update the docstrings that the change makes wrong, also of `_marker_problem`
+- [x] 3.2 End an open block at the job blocks at its end (`_are_job_blocks`), in `src/devops_cli/roadmap/body_hash.py`. A body has at most one part more than there are job block markers. One job can end two open blocks, so `test_each_job_block_marker_can_end_a_block_that_a_person_leaves_open` reads a body with three open blocks. Update the docstrings that the change makes wrong, also of `_marker_problem`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_repair.py tests/roadmap/stage/test_roadmap_stage_criteria.py` passes
+
+## 4. End a declaration at a marker as a comment
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/body_hash.py`. Changes: `src/devops_cli/roadmap/body_hash.py`, `tests/roadmap/test_roadmap_body_hash.py`, `tests/roadmap/refine/test_roadmap_refine_block_markers.py`.
+
+- [x] 4.1 Write the tests first. `test_a_marker_that_ends_an_open_html_block_of_a_person_bounds_the_block` in `tests/roadmap/test_roadmap_body_hash.py` reads a comment and a `<!DOCTYPE html` declaration that a person leaves open above a job block. `test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds` runs three refine rounds on each. The declaration cases fail on the head of group 3
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine/test_roadmap_refine_block_markers.py` fails on the head of group 3
+- [x] 4.2 Make `block_marker_of` read the end text of each kind of HTML block from `_HTML_BLOCK_CLOSES`, the table of `close_open_block` (`_end_text`), in `src/devops_cli/roadmap/body_hash.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine tests/roadmap/test_roadmap_alternatives.py` passes
 
 ## Criteria
 
 - Group 2: Test first: over three rounds of the refine write and of the alternatives writer, a body with an open fence or an open `<pre>` above an existing job block holds one job block after each round. The test fails on the base.
 - Group 1: Test first: for the body of case 2, `body_dependencies` gives [4989]. The test fails on the base.
 - Group 3: Test first: a quote of a person in an open block stays the text of the person, and only the job blocks at the end of the block are blocks. The unit test fails on the base and on the head of group 2.
+- Group 4: Test first: a job block marker on the last line of a declaration that a person leaves open bounds the block, as on the last line of a comment. The test fails on the head of group 3.
 
 ## Workflow follow-up
 

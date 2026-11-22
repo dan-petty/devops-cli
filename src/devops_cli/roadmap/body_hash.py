@@ -8,11 +8,12 @@ text that the hashes cover, so an approval holds only while the body hashes as r
 The module imports no job, so that `trust` and `refine` can both import it.
 
 A job block marker bounds a block only where CommonMark parses the marker as an HTML block of its
-own (#6627). CommonMark ends a comment at the first line that holds `-->`, so a marker is also a
-bound when it is the whole last line of a comment that a person leaves open above it. A marker that
-a person quotes in a code span, a code block or a paragraph is the person's text, so a read keeps
-it and a write adds its block at the end. A writer closes a fenced code block or an HTML block that
-is open before a marker that it writes (`close_open_block`), so the next read finds the block again.
+own (#6627). CommonMark ends a comment at the first line that holds `-->`, and a declaration such
+as `<!DOCTYPE` at the first line that holds `>`. So a marker is also a bound when it is the whole
+last line of such a block that a person leaves open above it. A marker that a person quotes in a
+code span, a code block or a paragraph is the person's text, so a read keeps it and a write adds
+its block at the end. A writer closes a fenced code block or an HTML block that is open before a
+marker that it writes (`close_open_block`), so the next read finds the block again.
 
 A fenced code block or an HTML block that no close ends runs to the end of the body, and GitHub
 shows each later line as code, the job blocks too. A person leaves such a block open by accident.
@@ -66,27 +67,41 @@ def _line_starts(body: str) -> list[int]:
     return [0, *(found.end() for found in _LINE_BREAK.finditer(body))]
 
 
-_COMMENT_OPEN: Final = "<!--"
-_COMMENT_CLOSE: Final = "-->"
+# The close of each kind of HTML block that only an end tag or an end text ends, by the start of
+# its first line (CommonMark kinds 1 to 5). A blank line ends each other kind of HTML block.
+_HTML_BLOCK_CLOSES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    (re.compile(r"<(script|pre|style|textarea)(?=[\s>]|$)", re.IGNORECASE), "</{tag}>"),
+    (re.compile(r"<!--"), "-->"),
+    (re.compile(r"<\?"), "?>"),
+    (re.compile(r"<![A-Za-z]"), ">"),
+    (re.compile(r"<!\[CDATA\["), "]]>"),
+)
+
+
+def _end_text(block: str) -> str | None:
+    """The end tag or the end text that ends the HTML block `block`, by the start of its first
+    line (`_HTML_BLOCK_CLOSES`), or None when a blank line ends its kind."""
+    for opener, close in _HTML_BLOCK_CLOSES:
+        if (match := opener.match(block)) is not None:
+            return close.format(tag=match.group(1).lower() if match.groups() else "")
+    return None
 
 
 def block_marker_of(token: Token, markers: Collection[str] = JOB_BLOCK_MARKERS) -> str | None:
-    """The marker of `markers` that bounds a job block in `token`, or None. `token` is an HTML
-    block, and the marker is its whole text or the whole last line of a comment whose first `-->`
-    ends the marker. CommonMark ends a comment at the first line that holds `-->`, so a comment
-    that a person leaves open above a job block ends at the marker (#6627). Each reader of a job
-    block marker in a token uses this test (#6736)."""
+    """The marker of `markers` that bounds a job block in `token`, or None. When `token` is an
+    HTML block, the marker is its whole text, or its whole last line when the first end text of
+    the block (`_end_text`) ends the marker. CommonMark ends a comment at the first line that
+    holds `-->` and a declaration such as `<!DOCTYPE` at the first line that holds `>`. So such a
+    block that a person leaves open above a job block ends at the marker (#6627). For each other
+    token, None. Each reader of a job block marker in a token uses this test (#6736)."""
     if token.type != "html_block":
         return None
     block = token.content.strip()
     if block in markers:
         return block
     last = block.rsplit("\n", 1)[-1].strip()
-    if (
-        last in markers
-        and block.startswith(_COMMENT_OPEN)
-        and block.find(_COMMENT_CLOSE) == len(block) - len(_COMMENT_CLOSE)
-    ):
+    close = _end_text(block)
+    if last in markers and close is not None and block.find(close) == len(block) - len(close):
         return last
     return None
 
@@ -194,10 +209,12 @@ def _parts(body: str) -> list[tuple[int, list[Token]]]:
     """The start of each part of `body` and the tokens of the text from that start (#6736). A block
     that no close ends runs to the end of the body, and the job blocks at its end end it
     (`_open_block_end`): a new part starts at their first line. The first marker of a part bounds
-    a block, so a job ends one open block at most, and a body has at most one part more than there
-    are jobs. A body with no such block is one part."""
+    a block, so each job block marker ends one open block at most. A job can end two open blocks:
+    its start marker ends a block above its block, and its end marker ends a block in its block.
+    So a body has at most one part more than there are job block markers. A body with no such
+    block is one part."""
     parts = [(0, _BODY_MARKDOWN.parse(body))]
-    while len(parts) <= len(_JOB_BLOCKS):
+    while len(parts) <= len(JOB_BLOCK_MARKERS):
         start, tokens = parts[-1]
         end = _open_block_end(body[start:], tokens, _spans(body, parts, JOB_BLOCK_MARKERS))
         if end is None:
@@ -257,17 +274,6 @@ def job_block_bounds(
     return _bounds(block_marker_spans(body, markers), start_marker, end_marker)
 
 
-# The close of each kind of HTML block that only an end tag or an end text ends, by the start of
-# its first line (CommonMark kinds 1 to 5). A blank line ends each other kind of HTML block.
-_HTML_BLOCK_CLOSES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
-    (re.compile(r"<(script|pre|style|textarea)(?=[\s>]|$)", re.IGNORECASE), "</{tag}>"),
-    (re.compile(r"<!--"), "-->"),
-    (re.compile(r"<\?"), "?>"),
-    (re.compile(r"<![A-Za-z]"), ">"),
-    (re.compile(r"<!\[CDATA\["), "]]>"),
-)
-
-
 def close_open_block(text: str) -> str:
     """`text` with a close on a line of its own for the fenced code block or the HTML block that
     is open at its end, or `text` itself when no such block is open.
@@ -282,12 +288,8 @@ def close_open_block(text: str) -> str:
     last = found[1]
     if last.type == "fence":
         return f"{text}\n{last.markup}"
-    first = last.content.lstrip()
-    for opener, close in _HTML_BLOCK_CLOSES:
-        if (match := opener.match(first)) is not None:
-            tag = match.group(1).lower() if match.groups() else ""
-            return f"{text}\n{close.format(tag=tag)}"
-    return text
+    close = _end_text(last.content.lstrip())
+    return text if close is None else f"{text}\n{close}"
 
 
 def _closed(body: str, parts: Sequence[tuple[int, list[Token]]]) -> str:
