@@ -389,10 +389,12 @@ jobs:
 
   # AGENTS.md rule 5: a check that averages more than 5 minutes is a P0 bug, with 1 minute of
   # tolerance for the variation of the runners. The run of one pull request is one sample, so
-  # this job reads the last twenty completed pushes to main from the Actions API and the last ten
-  # completed push runs of the two release image jobs (MCP Server Image and Runner Image) of
-  # release.yml, and fails when the mean of any check is over 360 s (#2699, #5247, #6522). Then it
-  # comments on the open P0 issue of the check, or files one when none is open, so one breach has
+  # this job reads the last twenty completed pushes to main from the Actions API, and the last ten
+  # release runs of the jobs Build, Verify and Attest & Tag of the MCP Server and Runner images of
+  # release.yml, such as `Runner Image / Build`. It fails when the mean of any check is over 360 s
+  # (#2699, #5247, #6522, #6734). One read of release.yml serves its six checks and stops after a
+  # fixed count of runs, so the job ends inside its timeout. Then it writes its report into the
+  # body of the open P0 issue of the check, or files one when none is open, so one breach has
   # one issue. The time of a run is the run time of the slowest shard job plus that of the job
   # `Tests & Coverage`, which joins the shards (#3050). The time the jobs waited for a runner is
   # shown on its own line and is not counted (#4634). The job runs only on the daily schedule and

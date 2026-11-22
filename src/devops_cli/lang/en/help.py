@@ -1050,10 +1050,11 @@ class CICommandHelp:
     )
     job_time: str = (
         "Fail when the last runs of a CI job average more than the limit. By default, reads the "
-        "test job of ci.yml over 20 runs and the two release image jobs of release.yml over 10 "
-        "runs on main, each at the 360 s limit. An option narrows the run to one check. Reads "
-        "the job times from GitHub's Actions API and fails when any mean is over the limit or a "
-        "read is short."
+        "test job of ci.yml over 20 runs, and the jobs Build, Verify and Attest & Tag of the MCP "
+        "Server and Runner images of release.yml over 10 runs, on main, each at the 360 s limit. "
+        "An option narrows the run to one check. Reads the job times from GitHub's Actions API: "
+        "one read serves the checks of one workflow and stops after a fixed count of runs. Fails "
+        "when any mean is over the limit or a read is short."
     )
     shard: str = (
         "Number of the part of the test suite this run covers, from 1 to --shards. CI runs each "
@@ -1065,8 +1066,11 @@ class CICommandHelp:
     )
     job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
     job_time_job: str = (
-        "Name of the check whose time is read. By default, reads the test job and the two release "
-        "image jobs. An option narrows the run to one check."
+        "Name of the check whose time is read, as the Actions API names the job, such as "
+        "'Runner Image / Build'. The time is the run time of the job of that name plus the run "
+        "time of the slowest of its shard jobs named '<name> (...)'. Time in the queue is shown "
+        "but not counted. By default, reads the test job and the six release image jobs. An "
+        "option narrows the run to one check."
     )
     job_time_workflow: str = "Workflow file that holds the job."
     job_time_branch: str = "Branch whose push runs are read."

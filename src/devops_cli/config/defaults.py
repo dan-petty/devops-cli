@@ -537,6 +537,12 @@ DEFAULT_CI_COVERAGE_INDEX_TIMEOUT_SECONDS: Final[float] = 3600.0
 # `devops ci job-time` (#2699): how many of the last runs of the test job its mean covers. The
 # issue #3050 states the mean over 20 runs of `main`.
 DEFAULT_CI_JOB_TIME_RUNS: Final[int] = 20
+# The most runs whose jobs one read of `devops ci job-time` asks for (#6734). The release image jobs
+# run only on a push that makes a release: on 2026-11-22, 21 of the last 100 runs of release.yml
+# made one, and the tenth release run was run 48, so 100 runs give 10 release runs room twice
+# over. 100 runs are one page of the listing. A job name that no run holds then costs 101 requests
+# and a short read, not one request for each of the 2,385 runs and the 5 min timeout of the job.
+DEFAULT_CI_JOB_TIME_MAX_RUNS: Final[int] = 100
 # `devops ci` gate slots (#2336): one slot for each this many CPUs, at least one. The full suite
 # starts one pytest worker for each CPU, so a gate saturates a host alone. On 16 CPUs on
 # 2026-10-27, 11189 tests took 247 s alone, inside the 300 s test budget, and two gates side by
