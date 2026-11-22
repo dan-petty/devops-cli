@@ -29,7 +29,6 @@ from devops_cli.config.commands import (
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
-    CONST_CI_JOB_TIME_LIMIT_SECONDS,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SHARD_JUNIT_PATH,
     CONST_CI_SHARD_SUMMARY_CHARS,
@@ -93,7 +92,7 @@ from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import CI_CHECKS_TOTAL, CI_GATE_SLOT_WAIT, emit
 
 if TYPE_CHECKING:
-    from devops_cli.ci.job_time import Alarm, JobTimeReport
+    from devops_cli.ci.job_time import Alarm, JobTimeCheck, JobTimeReport
     from devops_cli.ci.mutate import MutationTarget
     from devops_cli.core.test_selection import SuiteImports
 
@@ -2821,19 +2820,17 @@ def _append_step_summary(text: str) -> None:
 @dry_run_class("request-plan")
 def job_time(
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.ci.job_time_repo)] = None,
-    job: Annotated[str, typer.Option("--job", help=HELP.ci.job_time_job)] = CONST_CI_TEST_JOB_NAME,
+    job: Annotated[str | None, typer.Option("--job", help=HELP.ci.job_time_job)] = None,
     workflow: Annotated[
-        str, typer.Option("--workflow", help=HELP.ci.job_time_workflow)
-    ] = CONST_CI_WORKFLOW_FILE,
+        str | None, typer.Option("--workflow", help=HELP.ci.job_time_workflow)
+    ] = None,
     branch: Annotated[
-        str, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
-    ] = CONST_GIT_MAIN_BRANCH,
-    runs: Annotated[
-        int, typer.Option("--runs", min=1, help=HELP.ci.job_time_runs)
-    ] = DEFAULT_CI_JOB_TIME_RUNS,
+        str | None, typer.Option("--branch", "-b", help=HELP.ci.job_time_branch)
+    ] = None,
+    runs: Annotated[int | None, typer.Option("--runs", min=1, help=HELP.ci.job_time_runs)] = None,
     limit: Annotated[
-        float, typer.Option("--limit", min=1, help=HELP.ci.job_time_limit)
-    ] = CONST_CI_JOB_TIME_LIMIT_SECONDS,
+        float | None, typer.Option("--limit", min=1, help=HELP.ci.job_time_limit)
+    ] = None,
     file_issue: Annotated[
         bool, typer.Option("--file-issue", help=HELP.ci.job_time_file_issue)
     ] = False,
@@ -2841,35 +2838,47 @@ def job_time(
 ) -> None:
     """Fail when the last runs of a CI job averaged more than the limit (#2699), and with
     `--file-issue` write the report into its P0 issue or file one (#5247, #6199)."""
+    from devops_cli.ci.job_time import check_job_time, job_time_checks, raise_alarm
     from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 
     target = repo or get_repo_origin_name(find_repo_root(Path.cwd()))
     if target is None:
         print_error(MESSAGES.ci.job_time_no_repo)
         raise typer.Exit(1)
-    if dry_run or is_dry_run():
-        _render_job_time_plan(
-            target, workflow=workflow, branch=branch, job=job, runs=runs, file_issue=file_issue
-        )
-        return
-    from devops_cli.ci.job_time import check_job_time, raise_alarm
-    from devops_cli.github.session import get_github_session
-
-    client = get_github_session().client
-    report = check_job_time(
-        client,
-        target,
+    checks = job_time_checks(
         workflow=workflow,
         branch=branch,
         job=job,
-        wanted=runs,
+        runs=runs,
         limit_seconds=limit,
     )
-    _print_job_time_report(report, workflow=workflow, branch=branch)
-    if file_issue and report.complete and not report.passes:
-        alarm = raise_alarm(client, target, report, workflow=workflow, branch=branch)
-        _print_alarm(alarm, repo=target)
-    if not report.passes:
+    if dry_run or is_dry_run():
+        for check in checks:
+            _render_job_time_plan(target, check, file_issue=file_issue)
+        return
+    from devops_cli.github.session import get_github_session
+
+    client = get_github_session().client
+    failed = False
+    for check in checks:
+        report = check_job_time(
+            client,
+            target,
+            workflow=check.workflow,
+            branch=check.branch,
+            job=check.job,
+            wanted=check.runs,
+            limit_seconds=check.limit_seconds,
+        )
+        _print_job_time_report(report, workflow=check.workflow, branch=check.branch)
+        if file_issue and report.complete and not report.passes:
+            alarm = raise_alarm(
+                client, target, report, workflow=check.workflow, branch=check.branch
+            )
+            _print_alarm(alarm, repo=target)
+        if not report.passes:
+            failed = True
+    if failed:
         raise typer.Exit(1)
 
 
@@ -2879,17 +2888,15 @@ def _print_alarm(alarm: Alarm, *, repo: str) -> None:
     print_info(said.format(repo=repo, number=alarm.number), safe=True)
 
 
-def _render_job_time_plan(
-    repo: str, *, workflow: str, branch: str, job: str, runs: int, file_issue: bool
-) -> None:
+def _render_job_time_plan(repo: str, check: JobTimeCheck, *, file_issue: bool) -> None:
     """List the requests of `job-time` without making them (#412)."""
     base = f"/repos/{repo}/actions"
     planned = [
-        PlannedRequest(method="GET", target=f"{base}/workflows/{workflow}/runs"),
+        PlannedRequest(method="GET", target=f"{base}/workflows/{check.workflow}/runs"),
         PlannedRequest(
             method="GET",
             target=f"{base}/runs/<run_id>/jobs",
-            repeat=f"for each run, until {runs} runs hold an ended {job}",
+            repeat=f"for each run, until {check.runs} runs hold an ended {check.job}",
         ),
     ]
     if file_issue:
@@ -2905,7 +2912,7 @@ def _render_job_time_plan(
             PlannedRequest(
                 method="GET",
                 target=f"/repos/{repo}/issues/<number>",
-                condition=f"{over} and an open issue holds the alarm of {job}",
+                condition=f"{over} and an open issue holds the alarm of {check.job}",
             ),
             PlannedRequest(
                 method="PATCH",
@@ -2916,11 +2923,13 @@ def _render_job_time_plan(
             PlannedRequest(
                 method="POST",
                 target=f"/repos/{repo}/issues",
-                condition=f"{over} and no open issue holds the alarm of {job}",
+                condition=f"{over} and no open issue holds the alarm of {check.job}",
             ),
         ]
     render_request_plan(
-        MESSAGES.ci.job_time_dry_run_heading.format(job=job, workflow=workflow, branch=branch),
+        MESSAGES.ci.job_time_dry_run_heading.format(
+            job=check.job, workflow=check.workflow, branch=check.branch
+        ),
         planned,
     )
 

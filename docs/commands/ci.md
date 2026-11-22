@@ -352,7 +352,7 @@ devops ci mutate [OPTIONS] <paths>
 
 ## `devops ci job-time`
 
-**Fail when the last runs of a CI job took more than the limit on average. Reads the job time of the last completed push runs of a workflow on a branch from GitHub's Actions API. A job that passed, failed or timed out counts, whatever the run concluded. Fails too when fewer runs than asked for could be read.**
+**Fail when the last runs of a CI job average more than the limit. By default, reads the test job of ci.yml over 20 runs and the two release image jobs of release.yml over 10 runs on main, each at the 360 s limit. An option narrows the run to one check. Reads the job times from GitHub's Actions API and fails when any mean is over the limit or a read is short.**
 
 ```bash
 devops ci job-time [OPTIONS]
@@ -363,11 +363,11 @@ devops ci job-time [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
-| `--job` | `string` | `Tests & Coverage` | Name of the check whose time is read: the run time of the job of that name plus the run time of the slowest of its shard jobs named '\<name\> (...)'. Time in the queue is shown but not counted. |
-| `--workflow` | `string` | `ci.yml` | Workflow file that holds the job. |
-| `--branch`, `-b` | `string` | `main` | Branch whose push runs are read. |
-| `--runs` | `integer` | `20` | How many of the last runs the mean covers. |
-| `--limit` | `float` | `360.0` | Most seconds the mean of the runs may be. Default: the 300 s of AGENTS.md rule 5 and the 60 s of tolerance that the owner allows for the variation of the runners. |
+| `--job` | `string` | - | Name of the check whose time is read. By default, reads the test job and the two release image jobs. An option narrows the run to one check. |
+| `--workflow` | `string` | - | Workflow file that holds the job. |
+| `--branch`, `-b` | `string` | - | Branch whose push runs are read. |
+| `--runs` | `integer` | - | How many of the last runs the mean covers. |
+| `--limit` | `float` | - | Most seconds the mean of the runs may be. Default: the 300 s of AGENTS.md rule 5 and the 60 s of tolerance that the owner allows for the variation of the runners. |
 | `--file-issue` | `boolean` | - | When the mean is over the limit, write the report into the body of the open issue of the check, or file one with the priority P0 when none is open. The report replaces the report of the last run, the text of a person stays, and no comment is posted. The search for the open issue reads the line that the command writes in the body of the issue, so a changed title or label files no second issue. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

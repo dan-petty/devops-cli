@@ -1047,10 +1047,11 @@ class CICommandHelp:
         "tree of a gate row run."
     )
     job_time: str = (
-        "Fail when the last runs of a CI job took more than the limit on average. Reads the job "
-        "time of the last completed push runs of a workflow on a branch from GitHub's Actions "
-        "API. A job that passed, failed or timed out counts, whatever the run concluded. Fails "
-        "too when fewer runs than asked for could be read."
+        "Fail when the last runs of a CI job average more than the limit. By default, reads the "
+        "test job of ci.yml over 20 runs and the two release image jobs of release.yml over 10 "
+        "runs on main, each at the 360 s limit. An option narrows the run to one check. Reads "
+        "the job times from GitHub's Actions API and fails when any mean is over the limit or a "
+        "read is short."
     )
     shard: str = (
         "Number of the part of the test suite this run covers, from 1 to --shards. CI runs each "
@@ -1062,9 +1063,8 @@ class CICommandHelp:
     )
     job_time_repo: str = "Repository as owner/name. Default: the origin of the current checkout."
     job_time_job: str = (
-        "Name of the check whose time is read: the run time of the job of that name plus the run "
-        "time of the slowest of its shard jobs named '<name> (...)'. Time in the queue is shown "
-        "but not counted."
+        "Name of the check whose time is read. By default, reads the test job and the two release "
+        "image jobs. An option narrows the run to one check."
     )
     job_time_workflow: str = "Workflow file that holds the job."
     job_time_branch: str = "Branch whose push runs are read."

@@ -1818,7 +1818,7 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Joins the coverage data of the shards and applies fail_under to the whole, never a check table row (#3050)",
         (
             "job-time",
-            "Check the duration of Tests & Coverage",
+            "Check the duration of the test and release image jobs",
         ): "Reads the job times of the last runs of main from the Actions API, so it is no row of the gate (#2699)",
         (
             "main-tests",

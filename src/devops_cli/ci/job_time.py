@@ -15,6 +15,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from devops_cli.config.constants import (
+    CONST_CI_JOB_TIME_LIMIT_SECONDS,
+    CONST_CI_TEST_JOB_NAME,
+    CONST_CI_WORKFLOW_FILE,
+    CONST_GIT_MAIN_BRANCH,
+)
+from devops_cli.config.defaults import DEFAULT_CI_JOB_TIME_RUNS
+
 if TYPE_CHECKING:
     from devops_cli.github.client import GitHubClient, JobRunTime
 
@@ -34,6 +42,74 @@ _ALARM_TITLE: Final[str] = "fix(ci): {job} averages {mean:.0f} s, over the {limi
 # between them, and the text of a person outside them stays (#6199).
 _REPORT_START: Final[str] = "<!-- devops ci job-time report: start -->"
 _REPORT_END: Final[str] = "<!-- devops ci job-time report: end -->"
+
+RELEASE_WORKFLOW_FILE: Final[str] = "release.yml"
+RELEASE_IMAGE_JOB_NAMES: Final[tuple[str, ...]] = (
+    "MCP Server Image",
+    "Runner Image",
+)
+RELEASE_IMAGE_RUNS: Final[int] = 10
+
+
+@dataclass(frozen=True)
+class JobTimeCheck:
+    """One job whose duration is checked against a limit over its last runs."""
+
+    workflow: str
+    branch: str
+    job: str
+    runs: int
+    limit_seconds: float
+
+
+JOB_TIME_CHECKS: Final[tuple[JobTimeCheck, ...]] = (
+    JobTimeCheck(
+        workflow=CONST_CI_WORKFLOW_FILE,
+        branch=CONST_GIT_MAIN_BRANCH,
+        job=CONST_CI_TEST_JOB_NAME,
+        runs=DEFAULT_CI_JOB_TIME_RUNS,
+        limit_seconds=CONST_CI_JOB_TIME_LIMIT_SECONDS,
+    ),
+    *(
+        JobTimeCheck(
+            workflow=RELEASE_WORKFLOW_FILE,
+            branch=CONST_GIT_MAIN_BRANCH,
+            job=job_name,
+            runs=RELEASE_IMAGE_RUNS,
+            limit_seconds=CONST_CI_JOB_TIME_LIMIT_SECONDS,
+        )
+        for job_name in RELEASE_IMAGE_JOB_NAMES
+    ),
+)
+
+
+def job_time_checks(
+    workflow: str | None = None,
+    branch: str | None = None,
+    job: str | None = None,
+    runs: int | None = None,
+    limit_seconds: float | None = None,
+) -> tuple[JobTimeCheck, ...]:
+    """The checks to run: `JOB_TIME_CHECKS` when no option is given, or one check from the options."""
+    if (
+        workflow is None
+        and branch is None
+        and job is None
+        and runs is None
+        and limit_seconds is None
+    ):
+        return JOB_TIME_CHECKS
+    return (
+        JobTimeCheck(
+            workflow=workflow or CONST_CI_WORKFLOW_FILE,
+            branch=branch or CONST_GIT_MAIN_BRANCH,
+            job=job or CONST_CI_TEST_JOB_NAME,
+            runs=runs if runs is not None else DEFAULT_CI_JOB_TIME_RUNS,
+            limit_seconds=limit_seconds
+            if limit_seconds is not None
+            else CONST_CI_JOB_TIME_LIMIT_SECONDS,
+        ),
+    )
 
 
 @dataclass(frozen=True)
