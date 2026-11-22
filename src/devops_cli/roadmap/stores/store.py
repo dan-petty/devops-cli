@@ -913,6 +913,7 @@ def require_value(field: ItemField, value: str | None, operation: str) -> None:
 _RECORD_OPENER = f"<!-- {CONST_ROADMAP_RECORD_MARKER} "
 _RECORD_BLOCK = re.compile(rf"{re.escape(_RECORD_OPENER)}(?P<record>.*?) -->", re.DOTALL)
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
+_LAST_LINE_BREAK = re.compile(r"(?:\r\n|\r|\n)\Z")
 # GitHub's Markdown is CommonMark: `html_block` is a real comment, `fence` and `code_block` are
 # text that only shows one. The record block is a top-level block, so the parser reads only the
 # blocks: the core rule `inline` is off, and a quote in a code span stays inside its paragraph.
@@ -958,9 +959,10 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     when the body has no block, or when the block holds no JSON object, which a warning names.
 
     The record block is the comment at the end of the body. The writer's separator before it
-    goes with it, so a body read back after `with_record` is the body written. A body that does
-    not hold the block's opening text is not parsed: most issues and every pull request of a
-    listing have no record (#4445).
+    goes with it, so a body read back after `with_record` is the body written. If the body left
+    a block open at its end, the read gives the body with the close of that block (#6729). A
+    body that does not hold the block's opening text is not parsed: most issues and every pull
+    request of a listing have no record (#4445).
     """
     if _RECORD_OPENER not in body:
         return body, {}
@@ -1022,10 +1024,34 @@ def encode_job_record(held: Mapping[str, Any], changes: Mapping[Any, str | int |
 
 def with_record(body: str, block: str | None) -> str:
     """`body`, which holds no record block, with `block` at its end; `body` itself when there
-    is no block."""
+    is no block.
+
+    CommonMark reads all text after an open fenced code block or an open HTML block as part of
+    that block. In a fence, GitHub then shows the record as code. In an open comment or `<pre>`
+    block, GitHub hides the record. In each case, `split_record` does not find the record. So
+    `with_record` closes a fence or an HTML block that `body` leaves open at its end. The close
+    goes on a line of its own before `block` (#6729). The close takes the place of one line break
+    at the end of `body`, so the block gets no new empty line. A body that leaves no block open
+    is written as it is."""
     if block is None:
         return body
-    return f"{body}\n\n{block}" if body else block
+    if not body:
+        return block
+    return f"{closed_body(body)}\n\n{block}"
+
+
+def closed_body(body: str) -> str:
+    """`body` as `with_record` writes it before a record block (#6729).
+
+    A fence or an HTML block that `body` leaves open at its end gets its close. A body that
+    leaves no block open stays as it is. A read of the written text gives this body back, so a
+    writer compares with it."""
+    # `body_hash` imports this module, so the import waits for the first call.
+    from devops_cli.roadmap.body_hash import close_open_block
+
+    text = _LAST_LINE_BREAK.sub("", body)
+    closed = close_open_block(text)
+    return body if closed == text else closed
 
 
 # ── Rules both adapters apply ─────────────────────────────────────────────────
@@ -1503,6 +1529,7 @@ __all__ = [
     "StageRecordKey",
     "Verdict",
     "as_utc",
+    "closed_body",
     "decode_job_record",
     "encode_job_record",
     "family_prefix",

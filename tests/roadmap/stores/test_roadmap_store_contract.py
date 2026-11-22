@@ -29,6 +29,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapItemChangedError
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     ChangeKind,
@@ -709,6 +710,38 @@ def test_a_quote_of_the_record_format_does_not_hide_the_real_record_block(world:
     world.store.write_issue_body(number, f"{quote} Again.")
     item = read(world, number)
     assert (item.body, item.job_record) == (f"{quote} Again.", {RefineRecordKey.BODY_HASH: "abc"})
+
+
+OPEN_BLOCKS = {
+    "backtick-fence": "Text.\n\n```python\nx = 1",
+    "tilde-fence": "Text.\n\n~~~~\nx = 1",
+    "comment": "Text.\n\n<!-- a note",
+    "pre": "Text.\n\n<pre>\nx = 1",
+}
+
+
+@pytest.mark.parametrize("body", OPEN_BLOCKS.values(), ids=OPEN_BLOCKS.keys())
+def test_a_body_that_leaves_a_block_open_keeps_its_record_and_settles(
+    world: World, body: str
+) -> None:
+    """Each round of a job reads the Item and records the hash of its body when the hash differs
+    from the recorded one. The store closes the open block when it writes the record, so the
+    mark reads back (#6729). The close changes the text of the person one time, so the second
+    round records the hash again, and each later round sees the body unchanged."""
+    number = world.seed("open block", labels=("priority/p2-medium",), body=body)
+    changed: list[bool] = []
+    for _ in range(4):
+        item = read(world, number)
+        seen, _ = body_hashes(item.body)
+        changed.append(item.job_record.get(RefineRecordKey.BODY_HASH) != seen)
+        if changed[-1]:
+            world.store.set_marks(item, {RefineRecordKey.BODY_HASH: seen})
+    item = read(world, number)
+    assert (changed, item.job_record, world.raw_body(number).count(RECORD)) == (
+        [True, True, False, False],
+        {RefineRecordKey.BODY_HASH: body_hashes(item.body)[0]},
+        1,
+    )
 
 
 def test_a_write_to_a_pull_request_or_an_issue_that_does_not_exist_raises(world: World) -> None:
