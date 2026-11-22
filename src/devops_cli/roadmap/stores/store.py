@@ -1035,12 +1035,19 @@ def with_record(body: str, block: str | None) -> str:
         return body
     if not body:
         return block
+    return f"{closed_body(body)}\n\n{block}"
+
+
+def closed_body(body: str) -> str:
+    """`body` as `with_record` writes it before a record block: with the close of a fence or an
+    HTML block that it leaves open at its end, or `body` itself when it leaves no block open
+    (#6729). A read of the written text gives this body back, so a writer compares with it."""
     # `body_hash` imports this module, so the import waits for the first call.
     from devops_cli.roadmap.body_hash import close_open_block
 
     text = _LAST_LINE_BREAK.sub("", body)
     closed = close_open_block(text)
-    return f"{body if closed == text else closed}\n\n{block}"
+    return body if closed == text else closed
 
 
 # ── Rules both adapters apply ─────────────────────────────────────────────────
@@ -1518,6 +1525,7 @@ __all__ = [
     "StageRecordKey",
     "Verdict",
     "as_utc",
+    "closed_body",
     "decode_job_record",
     "encode_job_record",
     "family_prefix",

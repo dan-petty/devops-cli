@@ -88,6 +88,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
     already_closed,
     as_utc,
+    closed_body,
     decode_job_record,
     encode_job_record,
     find_milestone,
@@ -1324,7 +1325,13 @@ class GitHubRoadmapStore(RoadmapStore):
         """One `PATCH` of `issue`: `labels` when given, and its body with the record block it
         holds, `changes` made. A lost mark is verified by read-back and repaired up to 2 times."""
         body, held = issue.split()
-        if item is not None and text is None and body != item.body:
+        # An earlier write from the same read can add the close of an open block (#6729).
+        if (
+            item is not None
+            and text is None
+            and body != item.body
+            and body != closed_body(item.body)
+        ):
             emit(ROADMAP_RECORD_LOST_EDIT_TOTAL, 1)
 
         normalized_changes = {
@@ -1354,7 +1361,7 @@ class GitHubRoadmapStore(RoadmapStore):
             back_body, back_held = read_back.split()
 
             # The written body holds the close of a block that the body left open (#6729).
-            if back_body != split_record(written)[0]:
+            if back_body != closed_body(current_body):
                 emit(ROADMAP_RECORD_LOST_EDIT_TOTAL, 1)
                 current_body = back_body
 
