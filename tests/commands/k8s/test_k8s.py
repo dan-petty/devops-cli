@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import threading
 from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,7 @@ import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_CANONICAL_OCI_SOURCE,
     CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
@@ -37,6 +41,7 @@ from tests.support.k8s_commands import (
     write_path_applications,
 )
 from tests.support.tcp_probe import TcpProbe
+from tests.support.waits import POLL_INTERVAL_SECONDS
 
 runner = CliRunner()
 
@@ -621,22 +626,32 @@ def test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source
     )
 
 
-# A remote base of the shape that ADR 0032 plans: a folder of dan-petty/infra at a tag.
-_REMOTE_BASE = "https://example.com/infra.git//k8s/bases/loki?ref=v0.1.0"
+# The answer of `kubectl kustomize` in a dry run for a folder that names a remote base: Kustomize
+# logs a warning first, and kubectl starts its error with `error:`. Go sends the download to the
+# closed proxy, and git refuses the https transport.
+_REFUSED_FETCH_ERROR = (
+    "error: accumulating resources: accumulation err='accumulating resources from "
+    "'https://192.0.2.1/infra.git//k8s/bases/loki?ref=main': Get "
+    '"https://192.0.2.1/infra.git//k8s/bases/loki?ref=main": proxyconnect tcp: dial tcp '
+    "127.0.0.1:9: connect: connection refused': failed to run '/usr/bin/git fetch --depth=1 "
+    "https://192.0.2.1/infra.git main': fatal: transport 'https' not allowed"
+)
+_REFUSED_FETCH = (
+    "I1122 01:45:22.949713 1857632 log.go:244] Warning: Forcing the git protocol using the "
+    "'git::' URL prefix is not supported.\n"
+    f"{_REFUSED_FETCH_ERROR}\n: exit status 128\n"
+)
 
 
-def test_dry_runs_build_no_folder_whose_kustomization_reaches_a_remote_base(
+def test_dry_runs_list_a_build_that_fails_and_go_on(
     cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
 ) -> None:
-    """Kustomize fetches a remote base and has no option that refuses it, so the dry runs of
-    deploy-stack and teardown-stack start no `kubectl kustomize` on a folder whose local base
-    names one, and list the remote base of the build (#6681)."""
+    """A dry-run build that fails, such as one that Kustomize cannot fetch, gives no objects: the
+    dry runs of deploy-stack and teardown-stack list it in `details.kustomize_fetches` with the
+    first line of kubectl's error, and exit 0 (#6681)."""
     env = _path_source_tree(tmp_path / "env")
-    base = env / "bases" / "loki"
-    base.mkdir(parents=True)
-    (base / "kustomization.yaml").write_text(f"resources:\n  - {_REMOTE_BASE}\n", "utf-8")
-    (env / "logging" / "kustomization.yaml").write_text(
-        "resources:\n  - ../bases/loki\ncomponents:\n  - ../components/perimeter\n", "utf-8"
+    process_fake.answer(
+        ("kubectl", "kustomize"), ProcessAnswer(returncode=1, stderr=_REFUSED_FETCH)
     )
     stack = ["--stack", "logging", "--k8s-dir", str(env), "--dry-run"]
 
@@ -651,15 +666,182 @@ def test_dry_runs_build_no_folder_whose_kustomization_reaches_a_remote_base(
         deployed["kustomize_fetches"],
         removed["path_source_deletes"],
         removed["kustomize_fetches"],
-        calls_starting(process_fake, "kubectl", "kustomize"),
     ) == (
         0,
         0,
         {"logging: env/logging": None},
-        {"logging: env/logging": [_REMOTE_BASE]},
+        {"logging: env/logging": _REFUSED_FETCH_ERROR},
         {"logging: env/logging": None},
-        {"logging: env/logging": [_REMOTE_BASE]},
-        [],
+        {"logging: env/logging": _REFUSED_FETCH_ERROR},
+    )
+
+
+def test_only_the_dry_runs_build_a_path_source_with_no_route_to_the_network(
+    cli: Callable[..., Any], cluster: FakeCluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The dry runs build each folder with an environment that sends each HTTP and HTTPS request
+    of Go to a closed local port and lets git use only the `file` transport. The real runs build
+    with the normal environment (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    name_contexts(cluster, "minikube")
+    answer_helm_version(process_fake)
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout=_PERIMETER_BUILD))
+    stack = ["--stack", "logging", "--k8s-dir", str(env)]
+    proxy = constants.CONST_K8S_OFFLINE_PROXY_URL
+    offline = {
+        "HTTP_PROXY": proxy,
+        "HTTPS_PROXY": proxy,
+        "ALL_PROXY": proxy,
+        "http_proxy": proxy,
+        "https_proxy": proxy,
+        "all_proxy": proxy,
+        "NO_PROXY": "",
+        "no_proxy": "",
+        "GIT_ALLOW_PROTOCOL": "file",
+        "GIT_SSH_COMMAND": "false",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_NOSYSTEM": "1",
+    }
+
+    exit_codes = [
+        cli("k8s", "deploy-stack", *stack, "--dry-run").exit_code,
+        cli("k8s", "teardown-stack", *stack, "--dry-run").exit_code,
+        runner.invoke(app, ["deploy-stack", "--no-push-secrets", *stack, *_CONTEXT]).exit_code,
+        runner.invoke(app, ["teardown-stack", *stack, *_CONTEXT]).exit_code,
+    ]
+    builds = [call for call in process_fake.calls if call.argv[:2] == ("kubectl", "kustomize")]
+
+    assert (exit_codes, [call.env for call in builds]) == (
+        [0, 0, 0, 0],
+        [offline, offline, None, None],
+    )
+
+
+# A kustomization of the folder `env/logging` for each form of a remote target that Kustomize
+# loads: a remote base by an https URL, a `git::` URL, an ssh URL, the SCP form and a path on
+# github.com, the `path` of a PatchTransformer inline and in a local file of `transformers`, and a
+# file and an env file of a ConfigMapGenerator. Each URL host is the RFC 5737 address 192.0.2.1,
+# so no real host exists. A path on github.com names its host, and git refuses the transport
+# before it resolves the name.
+_CONFIG_MAP = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: loki-extra\n"
+_PATCH_TRANSFORMER = (
+    "apiVersion: builtin\nkind: PatchTransformer\nmetadata:\n  name: loki-patch\n"
+    "path: https://192.0.2.1/patches/loki.yaml\n"
+)
+_REMOTE_TARGETS: dict[str, dict[str, str]] = {
+    "https base": {
+        "kustomization.yaml": "resources:\n  - https://192.0.2.1/infra.git//k8s/loki?ref=main\n"
+    },
+    "git:: base": {
+        "kustomization.yaml": (
+            "resources:\n  - git::https://192.0.2.1/infra.git//k8s/loki?ref=main\n"
+        )
+    },
+    "ssh base": {
+        "kustomization.yaml": (
+            "resources:\n  - ssh://git@192.0.2.1/example/infra.git//k8s/loki?ref=main\n"
+        )
+    },
+    "scp base": {
+        "kustomization.yaml": "resources:\n  - git@192.0.2.1:example/infra//k8s/loki?ref=main\n"
+    },
+    "github.com path": {
+        "kustomization.yaml": "resources:\n  - github.com/example/infra//k8s/loki?ref=main\n"
+    },
+    "inline PatchTransformer": {
+        "kustomization.yaml": (
+            "resources:\n  - configmap.yaml\ntransformers:\n  - |-\n"
+            + "".join(f"    {line}\n" for line in _PATCH_TRANSFORMER.splitlines())
+        ),
+        "configmap.yaml": _CONFIG_MAP,
+    },
+    "PatchTransformer file": {
+        "kustomization.yaml": "resources:\n  - configmap.yaml\ntransformers:\n  - patch.yaml\n",
+        "configmap.yaml": _CONFIG_MAP,
+        "patch.yaml": _PATCH_TRANSFORMER,
+    },
+    "ConfigMapGenerator files": {
+        "kustomization.yaml": (
+            "configMapGenerator:\n  - name: loki-files\n    files:\n"
+            "      - https://192.0.2.1/files/loki.conf\n"
+        )
+    },
+    "ConfigMapGenerator envs": {
+        "kustomization.yaml": (
+            "configMapGenerator:\n  - name: loki-envs\n    envs:\n"
+            "      - https://192.0.2.1/files/loki.env?ref=main\n"
+        )
+    },
+}
+# The error of Go for a request to the closed proxy, and the error of git for a refused transport.
+_NO_ROUTE = re.compile(r"proxyconnect tcp: .*connection refused|transport '\w+' not allowed")
+
+
+@pytest.mark.live("kubectl")
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("files", _REMOTE_TARGETS.values(), ids=_REMOTE_TARGETS.keys())
+def test_the_dry_run_build_of_a_remote_target_fails_at_once_and_is_listed(
+    cli: Callable[..., Any], tmp_path: Path, files: dict[str, str]
+) -> None:
+    """The real `kubectl kustomize` of a folder that names a remote target fails at once in the
+    dry run, with the error of the closed proxy or of a refused git transport, and the dry run
+    lists the folder in `details.kustomize_fetches` (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    for name, text in files.items():
+        (env / "logging" / name).write_text(text, "utf-8")
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+    details = _dry_run_details(res.output)
+    reason = details["kustomize_fetches"].get("logging: env/logging", "")
+
+    assert (res.exit_code, details["path_sources"], _NO_ROUTE.search(reason) is not None) == (
+        0,
+        {"logging: env/logging": None},
+        True,
+    ), reason
+
+
+class _ConfigMapFiles(BaseHTTPRequestHandler):
+    """A file server of the host that gives the ConfigMap `loki-extra` at each path."""
+
+    def do_GET(self) -> None:
+        body = _CONFIG_MAP.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Write no line for a request."""
+
+
+@pytest.mark.live("kubectl")
+@pytest.mark.timeout(5)
+def test_the_dry_run_build_loads_a_file_of_a_loopback_address(
+    cli: Callable[..., Any], tmp_path: Path
+) -> None:
+    """Go sends a request to a loopback address with no proxy, so the real `kubectl kustomize` of
+    the dry run loads a file of a loopback address: a local read of the host (#6681)."""
+    server = HTTPServer(("127.0.0.1", 0), _ConfigMapFiles)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": POLL_INTERVAL_SECONDS}, daemon=True
+    )
+    thread.start()
+    env = _path_source_tree(tmp_path / "env")
+    (env / "logging" / "kustomization.yaml").write_text(
+        f"resources:\n  - http://127.0.0.1:{server.server_port}/loki.yaml\n", "utf-8"
+    )
+    try:
+        res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+    finally:
+        server.shutdown()
+        server.server_close()
+    details = _dry_run_details(res.output)
+
+    assert (res.exit_code, details["path_sources"], details["kustomize_fetches"]) == (
+        0,
+        {"logging: env/logging": ["ConfigMap loki-extra"]},
+        {},
     )
 
 

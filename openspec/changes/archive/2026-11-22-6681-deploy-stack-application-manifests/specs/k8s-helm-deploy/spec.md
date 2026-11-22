@@ -50,13 +50,31 @@ For a path source of another repository, the dry run of `devops k8s deploy-stack
 - **WHEN** the path source of the Application `logging` of the tree `<tmp>/env` is `k8s/logging` of `https://example.com/infra.git` at `v1.0.0`, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs
 - **THEN** the entry of `details.path_sources` gives `null` as its objects, `details.source_fetches` lists the fetch of `https://example.com/infra` at `v1.0.0`, and the command starts no git fetch and no `kubectl kustomize`
 
-### Requirement: The stack dry runs build no folder that reaches a remote target
-The dry runs of `devops k8s deploy-stack` and `devops k8s teardown-stack` SHALL NOT start `kubectl kustomize` on a path source whose kustomization, or the kustomization of a local folder that it reaches, names a remote target: an http or https URL, or a git repository that Kustomize clones. They SHALL give `null` as the objects of such a build, and SHALL list its remote targets in `details.kustomize_fetches` under the key of the build. The real run SHALL build the folder as before.
+### Requirement: The stack dry runs build each folder with no route to the network
+The dry runs of `devops k8s deploy-stack` and `devops k8s teardown-stack` SHALL start `kubectl kustomize` with no route to the network: `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lower-case names point to the closed port `127.0.0.1:9`, `NO_PROXY` and `no_proxy` are empty, and `GIT_ALLOW_PROTOCOL=file`, `GIT_SSH_COMMAND=false`, `GIT_TERMINAL_PROMPT=0` and `GIT_CONFIG_NOSYSTEM=1` keep git to local repositories. A real run SHALL use the normal environment.
 
-#### Scenario: A local base that names a remote base
-- **WHEN** the path source `env/logging` of the Application `logging` of the tree `<tmp>/env` takes the local base `../bases/loki`, whose kustomization names `https://example.com/infra.git//k8s/bases/loki?ref=v0.1.0`, and `devops k8s deploy-stack` and `devops k8s teardown-stack` run with `--stack logging --k8s-dir <tmp>/env --dry-run`
-- **THEN** both commands exit 0, start no `kubectl kustomize`, give `null` as the objects of `logging: env/logging`, and list the remote base under `logging: env/logging` in `details.kustomize_fetches`
+#### Scenario: Only a dry-run build gets no route to the network
+- **WHEN** the tree `<tmp>/env` holds the Application `logging` with the path source `env/logging`, and `devops k8s deploy-stack` and `devops k8s teardown-stack` run with `--stack logging --k8s-dir <tmp>/env`, first with `--dry-run` and then on a cluster without Argo CD
+- **THEN** each dry run starts `kubectl kustomize` with the environment above, and each real run starts it with no environment of its own
+
+#### Scenario: A remote target fails the dry-run build at once
+- **WHEN** the kustomization of `env/logging` names a remote target at `192.0.2.1`: a remote base by an https URL, a `git::` URL, an ssh URL or the SCP form, a remote base by a path on `github.com`, the `path` of a PatchTransformer inline or in a local file of `transformers`, or a file or an env file with `?ref=main` of a ConfigMapGenerator, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs with the real `kubectl kustomize`
+- **THEN** the build fails within 5 seconds with the `proxyconnect` error of Go or with a refused git transport, and the command exits 0, gives `null` as the objects of `logging: env/logging`, and lists `logging: env/logging` in `details.kustomize_fetches` with that error
 
 #### Scenario: A folder with only local bases and components
 - **WHEN** the path source `env/logging` takes only the local component `../components/perimeter`, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs
 - **THEN** the command builds the folder with `kubectl kustomize` as a local read, and `details.kustomize_fetches` is empty
+
+### Requirement: A URL of a loopback address stays a local read in the stack dry runs
+Go sends a request to `localhost` or to a loopback address with no proxy (`golang.org/x/net/http/httpproxy`). So the environment of the dry-run builds SHALL NOT block a URL of a loopback address: such a URL is a local read of the host, and a dry run MAY load it.
+
+#### Scenario: A file at a loopback address
+- **WHEN** a server of the test at `127.0.0.1` gives the ConfigMap `loki-extra`, the kustomization of `env/logging` names its URL, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs with the real `kubectl kustomize`
+- **THEN** the command exits 0, lists `ConfigMap loki-extra` as the objects of `logging: env/logging`, and `details.kustomize_fetches` is empty
+
+### Requirement: The stack dry runs list a failed build and go on
+When a build of a path source fails in the dry run of `devops k8s deploy-stack` or `devops k8s teardown-stack`, the dry run SHALL give `null` as its objects, SHALL list the key of the build in `details.kustomize_fetches` with the first line of the error of kubectl, and SHALL go on. The real run SHALL stop on a failed build, as before.
+
+#### Scenario: A failed dry-run build is listed and the dry runs go on
+- **WHEN** `kubectl kustomize` of `<tmp>/env/logging` exits 1 with a warning of Kustomize and then the error of kubectl, and `devops k8s deploy-stack` and `devops k8s teardown-stack` run with `--stack logging --k8s-dir <tmp>/env --dry-run`
+- **THEN** both commands exit 0, give `null` as the objects of `logging: env/logging`, and list `logging: env/logging` in `details.kustomize_fetches` with the line of the error of kubectl

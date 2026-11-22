@@ -248,7 +248,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
 | `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only). |
-| `--dry-run` | `boolean` | - | Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run, such as kubectl kustomize of its folders. |
+| `--dry-run` | `boolean` | - | Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run: kubectl kustomize builds its folders with no route to the network. |
 
 ---
 

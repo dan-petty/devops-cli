@@ -12,15 +12,15 @@ Adds: `APPLICATIONS_BY_STACK`, `application_not_found`, `path_source_folder`
 - [x] 1.3 Compare the objects of each stack with the base: for each of the 6 stacks, the objects of `details.manifests` and `details.path_sources` of `uv run devops k8s deploy-stack --stack <stack> --no-push-secrets --dry-run` equal the objects of `details.manifests` on the base
   - Verification: `$ uv run devops ci --check --only k8s` passes
 
-## 2. The stack dry runs build no folder that reaches a remote target
+## 2. The stack dry runs build each folder with no route to the network
 
-Kind: behavior. Reads: `src/devops_cli/k8s/app_render.py`, `src/devops_cli/k8s/template.py`, the Kustomization schema and the loader of `sigs.k8s.io/kustomize/api`. Changes: `src/devops_cli/k8s/kustomize_remotes.py`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `src/devops_cli/lang/en/errors.py`, `tests/k8s/test_kustomize_remotes.py`, `tests/commands/k8s/test_k8s.py`.
-Adds: `remote_targets`, `kustomization_not_mapping`
+Kind: behavior. Reads: `src/devops_cli/k8s/template.py`, `src/devops_cli/core/process.py`, `ProxyFromEnvironment` of Go `net/http` and `golang.org/x/net/http/httpproxy`, `GIT_ALLOW_PROTOCOL` of git(1), the file loader and the git runner of `sigs.k8s.io/kustomize/api`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/core/process.py`, `src/devops_cli/k8s/template.py`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `tests/core/test_subprocess_env_boundary.py`, `tests/commands/k8s/test_k8s.py`.
+Adds: `CONST_GIT_LOCAL_ONLY_ENV`, `CONST_K8S_OFFLINE_PROXY_URL`, `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`, `CONST_KUBECTL_ERROR_PREFIX`
 
-- [x] 2.1 Write the failing tests. `tests/k8s/test_kustomize_remotes.py` writes kustomizations under `tmp_path`: a remote target of a local base, of a local component and of a folder of `bases` counts, each form of a remote entry counts and a local path does not, a file field counts only as an http or https URL, a cycle of local bases ends, and a kustomization that is not a mapping stops the read. `test_dry_runs_build_no_folder_whose_kustomization_reaches_a_remote_base` gives the folder `env/logging` the local base `../bases/loki`, which names a remote base: the dry runs of deploy-stack and teardown-stack start no `kubectl kustomize`, give `null` as the objects and list the remote base in `details.kustomize_fetches`. `test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source` also asserts an empty `details.kustomize_fetches`
-  - Verification: `$ uv run devops ci test tests/k8s/test_kustomize_remotes.py tests/commands/k8s/test_k8s.py` fails before 2.2
-- [x] 2.2 Add `remote_targets` and `ERRORS.k8s.kustomization_not_mapping`. In a dry run, `_path_build` builds no folder that `remote_targets` gives an entry for, and the dry runs list the entries in `details.kustomize_fetches`
-  - Verification: `$ uv run devops ci test tests/k8s/test_kustomize_remotes.py tests/commands/k8s/test_k8s.py` passes
+- [x] 2.1 Write the failing tests. `tests/core/test_subprocess_env_boundary.py`: `GIT_ALLOW_PROTOCOL=file` and `GIT_SSH_COMMAND=false` reach the child, and another value or a lower-case key is refused. `test_only_the_dry_runs_build_a_path_source_with_no_route_to_the_network`: with the process fake, the dry runs of deploy-stack and teardown-stack give `kubectl kustomize` the proxy and git keys of design decision 9, and the real runs give no environment. `test_dry_runs_list_a_build_that_fails_and_go_on`: a build that fails with a warning before the error of kubectl gives `null` objects and the line of the error in `details.kustomize_fetches`, and both dry runs exit 0. `test_the_dry_run_build_of_a_remote_target_fails_at_once_and_is_listed` (`@pytest.mark.live("kubectl")`, a bound of 5 seconds): the real `kubectl kustomize` of each form of a remote target at `192.0.2.1` fails with a proxy or transport error, and the dry run lists it. `test_the_dry_run_build_loads_a_file_of_a_loopback_address` (live): a file of a server of the test at `127.0.0.1` is a local read, and the dry run lists its object. `test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source` also asserts an empty `details.kustomize_fetches`
+  - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py tests/commands/k8s/test_k8s.py` fails before 2.2: the guard refuses `GIT_ALLOW_PROTOCOL`, and the live builds of a PatchTransformer and of an env file time out
+- [x] 2.2 Add the constants. `build_subprocess_env` accepts the two keys of `CONST_GIT_LOCAL_ONLY_ENV` with their values. `build_manifest_path` gets the keyword `offline`, which gives `kubectl kustomize` the environment `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`. In a dry run, `_path_build` sets it, and a failed build gives the first line of the error of kubectl, which the dry runs list in `details.kustomize_fetches`
+  - Verification: `$ uv run devops ci test tests/core/test_subprocess_env_boundary.py tests/commands/k8s/test_k8s.py` passes
 
 ## 3. Test the teardown of the builds
 
@@ -31,11 +31,11 @@ Kind: other. Reads: `openspec/specs/k8s-helm-deploy/spec.md`. Changes: `tests/co
 
 ## 4. State which objects deploy-stack applies before the charts
 
-Kind: other. Reads: `k8s/README.md`, `src/devops_cli/lang/en/help.py`. Changes: `k8s/README.md`, `src/devops_cli/lang/en/help.py`, `docs/commands/k8s.md`, `docs/MCP_TOOLS.md`, the MCP tool listing snapshot.
+Kind: other. Reads: `k8s/README.md`, `src/devops_cli/lang/en/help.py`. Changes: `k8s/README.md`, `ARCHITECTURE.md`, `src/devops_cli/lang/en/help.py`, `docs/commands/k8s.md`, `docs/MCP_TOOLS.md`, the MCP tool listing snapshot.
 
-- [x] 4.1 In `k8s/README.md`, state that deploy-stack builds the path sources of the Applications of `APPLICATIONS_BY_STACK`, applies each build before the charts and lists its objects in the dry run, that a row of `MANIFESTS_BY_STACK` stays only where the build of its Application holds more objects, and that the dry run does not build a folder that reaches a remote target
+- [x] 4.1 In `k8s/README.md`, state that deploy-stack builds the path sources of the Applications of `APPLICATIONS_BY_STACK`, applies each build before the charts and lists its objects in the dry run, that a row of `MANIFESTS_BY_STACK` stays only where the build of its Application holds more objects, and that the dry run builds each folder with no route to the network, with the loopback exception. In `ARCHITECTURE.md`, state the git keys that the guard of `build_subprocess_env` accepts with one value
   - Verification: `$ uv run devops ci docs` passes
-- [x] 4.2 The help of `--dry-run` of deploy-stack says that only local reads of the checkout run, such as `kubectl kustomize`, and the generated documents and the MCP tool listing snapshot follow it
+- [x] 4.2 The help of `--dry-run` of deploy-stack says that only local reads of the checkout run, and that `kubectl kustomize` builds its folders with no route to the network, and the generated documents and the MCP tool listing snapshot follow it
   - Verification: `$ uv run devops docs generate --check` passes
 
 ## Workflow follow-up

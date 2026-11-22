@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
+    CONST_KUBECTL_ERROR_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_STACK
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result
@@ -68,7 +69,6 @@ from devops_cli.k8s.environment import (
     resolve_product_root,
 )
 from devops_cli.k8s.gpu_placement import ollama_tiers, placement_warnings
-from devops_cli.k8s.kustomize_remotes import remote_targets
 from devops_cli.k8s.secret_push import namespace_exists
 from devops_cli.k8s.template import build_manifest_path
 from devops_cli.lang import ERRORS, HELP, MESSAGES
@@ -1246,13 +1246,14 @@ def _delete_post_helm_paths(paths: Sequence[Path], kubectl_ctx: list[str]) -> No
 class _PathBuild:
     """The build of one path source of an Argo CD Application, which deploy-stack applies before
     the charts (#6681): the Application, the `path` of the source, and the text of the build. The
-    text is None in a dry run that would fetch the repository of the source, or each remote
-    target of its kustomization, which `fetches` gives."""
+    text is None in a dry run that would fetch the repository of the source, and in a dry run
+    whose build failed, such as one that would fetch a remote target: `failure` gives the first
+    line of the error of that build."""
 
     application: str
     path: str
     text: str | None
-    fetches: tuple[str, ...] = ()
+    failure: str | None = None
 
     def objects(self) -> list[str] | None:
         """Each object of the build, in its order, as `<kind> <namespace>/<name>`, or as
@@ -1281,8 +1282,8 @@ def _path_builds(
 ) -> list[_PathBuild]:
     """The build of each path source of each Application that `APPLICATIONS_BY_STACK` names for
     `selected_stacks`, in their order, from the sources of `trees` (#6681). A build of a folder is
-    a local read, so a dry run builds it too. A dry run builds no source of another repository,
-    and no folder whose kustomization reaches a remote target: Kustomize would fetch it.
+    a local read, so a dry run builds it too, with no route to the network. A dry run builds no
+    source of another repository.
 
     Raises:
         KubernetesDeployError: `env` holds no Application of a name of the table.
@@ -1314,12 +1315,33 @@ def _path_builds(
 
 
 def _path_build(application: str, source: Mapping[str, Any], trees: SourceTrees) -> _PathBuild:
-    """The build of the path source `source` of `application`. In a dry run, a folder whose
-    kustomization reaches a remote target gets no build, only its remote targets (#6681)."""
+    """The build of the path source `source` of `application`. A dry run builds the folder with
+    no route to the network, so a remote target fails the build at once and sends no request. A
+    failed build of a dry run gives no text, only the first line of its error, and the dry run goes
+    on; the real run stops on it (#6681)."""
     folder = path_source_folder(trees, source)
-    fetches = tuple(remote_targets(folder)) if folder is not None and trees.dry_run else ()
-    text = None if folder is None or fetches else build_manifest_path(folder, local_read=True)
-    return _PathBuild(application, str(source["path"]), text, fetches)
+    path = str(source["path"])
+    if folder is None:
+        return _PathBuild(application, path, None)
+    if not trees.dry_run:
+        return _PathBuild(application, path, build_manifest_path(folder, local_read=True))
+    try:
+        text = build_manifest_path(folder, local_read=True, offline=True)
+    except KubernetesContextError as exc:
+        return _PathBuild(application, path, None, _error_line(str(exc)))
+    return _PathBuild(application, path, text)
+
+
+def _error_line(error: str) -> str:
+    """The first line of the error of kubectl in `error`, from its prefix `error: `, or the first
+    line of `error` when kubectl gave no such line. A warning of Kustomize can come before the
+    error, such as the warning for a `git::` URL (#6681)."""
+    lines = error.splitlines() or [""]
+    for line in lines:
+        start = line.find(CONST_KUBECTL_ERROR_PREFIX)
+        if start >= 0:
+            return line[start:].strip()
+    return lines[0].strip()
 
 
 def _collect_deploy_targets(
@@ -1577,7 +1599,7 @@ def _render_deploy_stack_dry_run(
             "manifests": all_manifests,
             "path_sources": {build.label: build.objects() for build in all_builds},
             "kustomize_fetches": {
-                build.label: list(build.fetches) for build in all_builds if build.fetches
+                build.label: build.failure for build in all_builds if build.failure is not None
             },
             "kustomizations": [str(k) for k in all_kustomizations],
             "post_helm": [str(p) for p in all_post_helm],
@@ -1884,7 +1906,9 @@ def teardown_stack(
                     build.label: build.objects() for build in all_build_deletes
                 },
                 "kustomize_fetches": {
-                    build.label: list(build.fetches) for build in all_build_deletes if build.fetches
+                    build.label: build.failure
+                    for build in all_build_deletes
+                    if build.failure is not None
                 },
                 "manifest_deletes": all_manifest_deletes,
                 "source_fetches": [list(command) for command in source_fetches],

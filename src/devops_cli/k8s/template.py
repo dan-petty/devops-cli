@@ -9,6 +9,7 @@ from typing import Any
 
 from devops_cli.config.constants import (
     CONST_K8S_KUSTOMIZATION_NAMES,
+    CONST_K8S_KUSTOMIZE_OFFLINE_ENV,
     CONST_K8S_SUBDOMAIN_RE,
     CONST_K8S_TEMPLATE_DOMAIN_PLACEHOLDER,
     CONST_K8S_TEMPLATE_DOMAIN_VARS,
@@ -106,12 +107,17 @@ def render_manifest_template(
     return rendered
 
 
-def _build_kustomize_dir(target_dir: Path, *, local_read: bool = False) -> str:
+def _build_kustomize_dir(
+    target_dir: Path, *, local_read: bool = False, offline: bool = False
+) -> str:
     """Run kustomize build on a directory without template substitution. With `local_read`, the
-    build runs also in a dry run, as a read of the local folder (#6681)."""
+    build runs also in a dry run, as a read of the local folder. With `offline`, the build gets
+    the environment `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`, which gives it no route to the network, so
+    a remote target fails the build at once (#6681)."""
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,
+        env=dict(CONST_K8S_KUSTOMIZE_OFFLINE_ENV) if offline else None,
         check=False,
         capture_output=True,
         text=True,
@@ -138,9 +144,12 @@ def _build_yaml_dir(target_dir: Path) -> str:
     return "\n---\n".join(parts)
 
 
-def build_manifest_path(path: str | Path, *, local_read: bool = False) -> str:
+def build_manifest_path(
+    path: str | Path, *, local_read: bool = False, offline: bool = False
+) -> str:
     """Build a manifest file or directory without domain and template substitution (#1343). With
-    `local_read`, a kustomization is built also in a dry run (#6681)."""
+    `local_read`, a kustomization is built also in a dry run. With `offline`, its build has no
+    route to the network (#6681)."""
     target = Path(path).resolve()
     if not target.exists():
         raise KubernetesContextError(f"Manifest path not found: {path}")
@@ -151,7 +160,7 @@ def build_manifest_path(path: str | Path, *, local_read: bool = False) -> str:
     if target.is_dir():
         has_kustomize = any((target / kf).exists() for kf in CONST_K8S_KUSTOMIZATION_NAMES)
         if has_kustomize:
-            return _build_kustomize_dir(target, local_read=local_read)
+            return _build_kustomize_dir(target, local_read=local_read, offline=offline)
         return _build_yaml_dir(target)
 
     raise KubernetesContextError(f"Invalid manifest target path: {path}")

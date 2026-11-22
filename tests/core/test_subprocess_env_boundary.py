@@ -789,6 +789,36 @@ def test_another_value_of_a_git_key_that_turns_a_file_off_is_refused(key: str, v
         build_subprocess_env(env={key: value})
 
 
+@pytest.mark.parametrize("isolate_env", [True, False], ids=["isolated", "not-isolated"])
+def test_the_git_keys_that_keep_git_to_local_repositories_reach_the_child(
+    isolate_env: bool,
+) -> None:
+    """`GIT_ALLOW_PROTOCOL=file` refuses each transport but `file`, and `GIT_SSH_COMMAND=false`
+    fails an ssh connection at once (git(1)), so the stack dry runs set them for
+    `kubectl kustomize` (#6681)."""
+    fixed = {"GIT_ALLOW_PROTOCOL": "file", "GIT_SSH_COMMAND": "false"}
+
+    env = build_subprocess_env(env=fixed, isolate_env=isolate_env)
+
+    assert {key: env.get(key) for key in fixed} == fixed
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("GIT_ALLOW_PROTOCOL", "ext"),
+        ("GIT_ALLOW_PROTOCOL", "file:ext"),
+        ("GIT_SSH_COMMAND", "ssh -o ProxyCommand=example"),
+        ("git_allow_protocol", "file"),
+        ("git_ssh_command", "false"),
+    ],
+)
+def test_another_value_of_a_git_key_that_keeps_git_local_is_refused(key: str, value: str) -> None:
+    """Another value can enable the `ext::` transport or start a program (git(1)) (#6681)."""
+    with pytest.raises(SecurityError, match=f"override: '{key}'"):
+        build_subprocess_env(env={key: value})
+
+
 def test_build_subprocess_env_refuses_less_override() -> None:
     """Verify build_subprocess_env raises SecurityError for a caller-provided LESS override."""
     with pytest.raises(

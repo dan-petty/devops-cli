@@ -1287,7 +1287,7 @@ Right after the namespaces, it pushes the Secrets of the base rows, its stacks a
 | `configure_urls` | `boolean` | No | `False` | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `push_secrets` | `boolean` | No | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
 | `argocd_revision` | `string` | No | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only). |
-| `dry_run` | `boolean` | No | `False` | Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run, such as kubectl kustomize of its folders. |
+| `dry_run` | `boolean` | No | `False` | Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run: kubectl kustomize builds its folders with no route to the network. |
 
 ### `k8s_diff_helm`
 

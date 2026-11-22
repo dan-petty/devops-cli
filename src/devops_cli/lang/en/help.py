@@ -395,7 +395,8 @@ class K8sCommandHelp:
     )
     deploy_dry_run: str = (
         "Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. "
-        "Only local reads of the checkout run, such as kubectl kustomize of its folders."
+        "Only local reads of the checkout run: kubectl kustomize builds its folders with no route "
+        "to the network."
     )
     push_secrets_flag: str = (
         "Push the stacks' Secrets from the OS keyring before applying anything "
