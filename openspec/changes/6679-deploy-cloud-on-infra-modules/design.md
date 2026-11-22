@@ -1,0 +1,18 @@
+# Design
+
+## Decisions
+1. **The infra layout in the constants.** `CONST_TF_EXAMPLES_DIR` is `tf/examples`, and `CONST_TF_AWS_DIR`, `CONST_TF_AZURE_DIR` and `CONST_TF_GCP_DIR` are its `aws`, `azure` and `gcp` folders. `_get_default_var_file` gives `<provider>.tfvars.example` in the folder of `_get_cloud_dir`, when that file exists. Reason: infra keeps the values of each example beside its root module, and the folder name is the provider name.
+2. **The working folder selects the checkout.** `deploy-cloud` keeps `find_worktree_root(Path.cwd())`, so a person runs it in an infra checkout or in a linked worktree of one, as before. The guard of a worktree without the state of the main checkout stays, because an infra checkout can have linked worktrees too. Reason: no setting names the infra checkout, and the issue asks for the working folder.
+3. **A missing folder stops the command, also in a dry run.** `deploy_cloud` raises `ValidationError` with `MESSAGES.tf.deploy_cloud_dir_not_found` before the state guard and before the plan, when the example folder is not a directory. The wrapper of `new_typer()` reports it in one line and exits 1. Reason: CONTRIBUTING.md asks a command to raise a typed error. The check reads only the local file system, so the dry run still sends no request. A plan for a folder that does not exist tells the person nothing true.
+4. **The dry run starts no tool.** The dry run only renders the planned `tofu init` and `tofu apply` commands with `render_request_plan`. It starts no process, so it needs no network block.
+5. **The command still applies.** `deploy-cloud` keeps its two steps, `tofu init` and `tofu apply`. The issue changes only the folders.
+6. **One route less.** This repository has no OpenTofu configuration after the change, and no `tf/github`. The `tf/**` route of `step_rules.py` goes, and the AGENTS.md row loses its `tf` link and the words "or OpenTofu". The two `k8s/**` routes take the new row text. The test of a route without sections builds its own route and document in a temporary checkout, because no route of `ROUTES` has no sections now.
+7. **Readers of any clone keep `tf`.** `TERRAFORM_GLOBS` of `research/terraform_pins.py` and `roadmap.alternatives.inventory_paths` read the root of the clone that they get, which can be infra or homelab. They do not change.
+8. **Documents.** `README.md` links the examples of the infra repository in place of `tf/README.md`. The knowledge base pages use `tf/examples/aws` and a copy of its `aws.tfvars.example` in their command examples. `docs/ROUTINE_TASKS.md` names only `k8s/` for the IaC scans of this repository. `devops docs generate` writes the command pages from the new docstring of `deploy-cloud`.
+
+## Rejected alternatives
+- **A setting for the path of the infra checkout**, as `devops infra` has for the Ansible repository. Rejected: the issue asks for the working folder, and a second way to find the checkout needs a setting, a default and its tests for one command.
+- **Keep `tf/` here as a second copy.** Rejected: infra#9 moved the modules, and the issue says that two copies must not stay live.
+- **Point the `tf/**` route to the README of `tf/github`.** Rejected: `git ls-files tf/github` gives nothing. #5311 plans the root stacks in dan-petty/homelab, not here (owner decision of 2026-11-21 in #6674).
+- **Make the dry run plan `tofu plan` in place of `tofu apply`.** Rejected: the real run applies, and a dry run shows the requests of the real run.
+- **Print the error and exit with `typer.Exit`**, as the check of an unknown provider does. Rejected: CONTRIBUTING.md asks new error states to raise a `DevOpsCLIError`.
