@@ -138,10 +138,11 @@ spec:
                 - name: PYDANTIC_AI_NO_BANNER
                   value: "1"
               volumeMounts:
+                # The new repository of publish, about 160 MB for devops-cli (#6743).
                 - name: tmp
                   mountPath: /tmp
-                # The blobless clone of the job, the full clone of the run folder of the plan
-                # write and the new repository of publish (#6704).
+                # The blobless clone of the job and the full clone of the run folder of the plan
+                # write (#6704).
                 - name: home
                   mountPath: /home/devops
                 - name: config

@@ -20,6 +20,9 @@ from urllib.parse import quote
 import pytest
 
 from devops_cli.ai.client import factory
+from devops_cli.config.constants import CONST_ROADMAP_FIX_CHECKS_RUNS_DIR
+from devops_cli.config.settings import load_settings
+from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import GitOperationError, RoadmapImplementError
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.implement.implement_step import ItemReader
@@ -53,6 +56,7 @@ from tests.support.roadmap_implement import (
     stale_lock_effect,
 )
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO, StageRepo, advance_origin, run_git
+from tests.support.run_folders import read_only_run
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -1006,7 +1010,12 @@ def test_a_fixer_that_rewrites_the_origin_of_the_clone_changes_no_push(
             store, client, STAGE_REPO, PULL, head=head, check=None, repair=repair, folders=folders
         )
         agent_phase(folders, repair)
-        report = publish_phase(store, client, folders, repair, repo=STAGE_REPO, pull=PULL)
+        # The container `publish` mounts the run folder read-only (#3700), and its new
+        # repository goes to its own temporary folder, not to the runs of the data folder
+        # (#6743).
+        runs = resolve_data_path(load_settings().data.dir) / CONST_ROADMAP_FIX_CHECKS_RUNS_DIR
+        with read_only_run(folders, runs):
+            report = publish_phase(store, client, folders, repair, repo=STAGE_REPO, pull=PULL)
 
     _, programs = github_api_and_gh
     assert (report.result, repo.origin_git("rev-parse", f"{BRANCH}~1")) == (

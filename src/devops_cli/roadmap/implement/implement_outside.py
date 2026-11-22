@@ -43,9 +43,17 @@ def job_args(repo: str, number: int) -> list[str]:
 
 
 def run_job_command(repo: str) -> str:
-    """The `devops k8s run-job` command that runs the implement job for `repo`, without its
-    options. The options of the job go after it."""
-    return f"devops k8s run-job --template runner --repo {repo} -- roadmap implement --repo {repo}"
+    """The `devops k8s run-job` command that runs the implement job for one item of `repo`,
+    without its options. A runner Job runs one item: each of its phases needs `--item` (#3700,
+    #6743). The options of the job go after it."""
+    return (
+        f"devops k8s run-job --template runner --repo {repo} -- roadmap implement --repo {repo} "
+        "--item <number>"
+    )
+
+
+# The options that choose the items of a run: a runner Job runs only the item of `--item` (#6743).
+_ITEM_ONLY = frozenset({"--filter", "--limit"})
 
 
 def runner_only_options(
@@ -69,14 +77,27 @@ def runner_only_options(
 
 def refusal(repo: str, *, options: Sequence[str]) -> str:
     """Why `--confirm` outside a runner starts no Job, and the command that does the work: the
-    options that need the runner, else the missing `--item`."""
+    options that need the runner, else the missing `--item`. A runner Job runs only the item of
+    `--item`, so `--filter` and `--limit` do not apply, and only the other options go after the
+    `--` of the command (#6743)."""
     texts = MESSAGES.roadmap
     why = (
         texts.implement_outside_why_options.format(options=", ".join(options))
         if options
         else texts.implement_outside_why_item
     )
-    return texts.implement_outside_refused.format(why=why, command=run_job_command(repo))
+    command = run_job_command(repo)
+    item_only = [option for option in options if option in _ITEM_ONLY]
+    passed = [option for option in options if option not in _ITEM_ONLY]
+    advice = ""
+    if item_only:
+        advice += texts.implement_outside_item_only.format(options=", ".join(item_only))
+    advice += (
+        texts.implement_outside_pass_options.format(options=", ".join(passed), command=command)
+        if passed
+        else texts.implement_outside_run_item.format(command=command)
+    )
+    return texts.implement_outside_refused.format(why=why, advice=advice)
 
 
 def require_startable(store: RoadmapStore, number: int) -> None:

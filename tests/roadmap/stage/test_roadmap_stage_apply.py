@@ -7,7 +7,8 @@ import stat
 import time
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -55,8 +56,6 @@ from tests.support.scripted_model import Script, call
 from tests.support.service_stop import stop_error
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
     from tests.support.fakes.openspec import OpenSpecFake
@@ -900,3 +899,40 @@ def test_the_comment_of_a_plan_that_names_no_moved_path_has_no_moved_section(
     (_, comment) = _comments(store)
     assert MESSAGES.roadmap.stage_comment_moved not in comment
     assert "later.txt" not in comment
+
+
+def test_the_push_of_a_plan_makes_its_new_repository_in_the_temporary_folder(
+    stage_repo: StageRepo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`publish` makes its new repository in its own temporary folder, not in the run folder of
+    the stage job, which a container of #3700 mounts read-only (#6743)."""
+    import tempfile
+
+    from devops_cli.roadmap.stage import stage_phases
+    from tests.support.roadmap_stage import STAGE_NAME
+
+    temporary = tmp_path / "tmpdir"
+    temporary.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temporary))
+    made: list[Path] = []
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*args: Any, **kwargs: Any) -> str:
+        path = real(*args, **kwargs)
+        made.append(Path(path))
+        return path
+
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+
+    stage_phases.push_plan(
+        STAGE_REPO,
+        issue=7,
+        branch="feat/7-plan",
+        files={"openspec/changes/7-plan/proposal.md": "# Proposal: #7\n"},
+        staged=stage_repo.git("rev-parse", "HEAD"),
+        message="docs(openspec): plan #7",
+        lease=None,
+        identity=(STAGE_NAME, STAGE_EMAIL),
+    )
+
+    assert [path.parent for path in made if path.name.startswith("devops-publish-")] == [temporary]

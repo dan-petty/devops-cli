@@ -116,14 +116,15 @@ spec:
                 - name: PYDANTIC_AI_NO_BANNER
                   value: "1"
               volumeMounts:
+                # The new repository of publish, about 160 MB for devops-cli (#6743).
                 - name: tmp
                   mountPath: /tmp
                 # The clone, the worktree, its venv, the uv cache and the caches of the checks.
                 # Measured on 2026-11-16 (#5960): 1.8 GB for the clone, the worktree, the venv and
                 # the cache, and 68 MB for the tree of the mutation run, which the strength check
                 # removes after its run. A run of #3648 went over 4 GiB, so the limit is twice that.
-                # The run folder of fix-checks is here too (#6601): 176 MB for its clone and 23 MB
-                # for the fetch of publish, measured on 2026-11-21.
+                # The run folder of fix-checks is here too (#6601): 176 MB for its clone, measured
+                # on 2026-11-21.
                 - name: home
                   mountPath: /home/devops
                 - name: config

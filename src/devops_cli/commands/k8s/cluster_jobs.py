@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
     CONST_RUNNER_PHASE_AGENT,
     CONST_RUNNER_PHASE_PREPARE,
     CONST_RUNNER_PHASE_PUBLISH,
+    CONST_RUNNER_PHASE_RUN_DIR,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
@@ -84,6 +85,8 @@ _PHASE_PATH = ".status.phase"
 # The status lists of a pod: its init containers run first, one after the other (#3700).
 _INIT_STATUSES = "initContainerStatuses"
 _APP_STATUSES = "containerStatuses"
+# The condition of the requests of a runner Job on the phases in a dry run, which reads no CronJob.
+_PHASES_HELD = "the CronJob holds the init containers prepare and agent"
 # The containers of a runner Job on the phases and the status list of each, as a run follows them.
 _PHASE_STATUSES = (
     (CONST_RUNNER_PHASE_PREPARE, _INIT_STATUSES),
@@ -333,6 +336,34 @@ def _env_entries(env: Mapping[str, str] | None) -> list[dict[str, str]]:
     return [{"name": name, "value": value} for name, value in (env or {}).items()]
 
 
+def _preview_containers(
+    args: Sequence[str],
+    template: JobTemplate,
+    env: Mapping[str, str] | None,
+    copied: str,
+    phases: Sequence[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """The containers of the previewed Job, as `build_job` makes them: on the phases (#3700) each
+    container gets its `--phase` and `--work`, and the one container of a template keeps the
+    args."""
+
+    def container(name: str, run_args: list[str]) -> dict[str, Any]:
+        return {
+            "name": name,
+            "...": copied,
+            "args": run_args,
+            **({"env": _env_entries(env)} if env else {}),
+        }
+
+    if not phases:
+        return {"containers": [container(template.container, list(args))]}
+    built = [
+        container(phase, [*args, "--phase", phase, "--work", CONST_RUNNER_PHASE_RUN_DIR])
+        for phase in phases
+    ]
+    return {"initContainers": built[:-1], "containers": built[-1:]}
+
+
 def _job_preview(
     args: Sequence[str],
     template: JobTemplate,
@@ -340,8 +371,10 @@ def _job_preview(
     labels: Mapping[str, str] | None = None,
     repo: str | None = None,
     item: int | None = None,
+    phases: Sequence[str] = (),
 ) -> str:
-    """The Job a run creates, with what it copies from the CronJob as placeholders."""
+    """The Job a run creates, with what it copies from the CronJob as placeholders, and the
+    containers of `phases` when the CronJob holds them."""
     copied = f"<from CronJob {JOB_NAMESPACE}/{template.cronjob}'s jobTemplate>"
     extra_labels: dict[str, str] = {}
     extra_annotations: dict[str, str] = {}
@@ -385,14 +418,7 @@ def _job_preview(
                 "metadata": pod_metadata,
                 "spec": {
                     "...": copied,
-                    "containers": [
-                        {
-                            "name": template.container,
-                            "...": copied,
-                            "args": list(args),
-                            **({"env": _env_entries(env)} if env else {}),
-                        }
-                    ],
+                    **_preview_containers(args, template, env, copied, phases),
                 },
             },
         },
@@ -426,15 +452,25 @@ def dry_run_job(
             if labels
             else []
         ),
+    ]
+    # The dry run reads no CronJob, so for the runner template it shows the create of each
+    # shape under its condition: one container today, or the containers of the phases (#3700).
+    single = "the CronJob holds one container" if template == RUNNER_TEMPLATE else ""
+    exists = f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists"
+    shapes: list[tuple[str, tuple[str, ...]]] = [
+        (f"{single}, and {exists}" if single else exists, ())
+    ]
+    if template == RUNNER_TEMPLATE:
+        shapes.append((f"{_PHASES_HELD}, and {exists}", tuple(p for p, _ in _PHASE_STATUSES)))
+    requests += [
         kubectl(
             _CREATE_ARGS,
             f"job {JOB_NAMESPACE}/{name}",
-            stdin=_job_preview(args, template, env, labels, repo=repo, item=item),
-            condition=f"CronJob {JOB_NAMESPACE}/{template.cronjob} exists",
-        ),
+            stdin=_job_preview(args, template, env, labels, repo=repo, item=item, phases=phases),
+            condition=condition,
+        )
+        for condition, phases in shapes
     ]
-    # The runner template has one container today, or the containers of the phases (#3700).
-    single = "the CronJob holds one container" if template == RUNNER_TEMPLATE else ""
     started = f"{single}, after the pod left Pending" if single else "the pod left Pending"
     if wait:
         requests += [
@@ -461,7 +497,7 @@ def dry_run_job(
     if wait and template == RUNNER_TEMPLATE:
         # A run reads the CronJob and follows each container of a template on the phases in
         # turn instead (#3700, #6690).
-        when = "the CronJob holds the init containers prepare and agent"
+        when = _PHASES_HELD
         for container, statuses in _PHASE_STATUSES:
             requests += [
                 kubectl(

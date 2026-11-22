@@ -395,7 +395,8 @@ def job_repair(repo: str) -> Repair:
         patches: Sequence[tuple[bytes, str]],
         before_push: Callable[[NewTree], None],
     ) -> Published | None:
-        return publish_patch(target, patches, before_push=before_push, scratch=scratch)
+        # The new repository goes to the temporary folder of `publish` (#3700, #6743).
+        return publish_patch(target, patches, before_push=before_push)
 
     return Repair(
         checkout=checkout,

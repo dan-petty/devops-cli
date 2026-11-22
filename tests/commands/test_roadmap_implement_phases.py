@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 Cli = Callable[..., Any]
+# A token form in a reason: the Service reads the log of `publish`, so the reason is masked.
+TOKEN = "ghp_" + "a1B2c3D4e5" * 3 + "f6G7h8"
 
 
 @pytest.mark.parametrize(
@@ -58,6 +60,7 @@ def test_each_phase_makes_its_process_unreadable_before_anything_else(
     monkeypatch.setattr(factory, "get_task_model", lambda _task: None)
     monkeypatch.setattr(ai.client, "get_llm_client", lambda **_: None)
     monkeypatch.setattr(implement, "plan_implement", lambda *_, **__: _OnePlan())
+    monkeypatch.setattr(implement, "render_implement_plan", lambda _plan: "")
     monkeypatch.setattr(run, "model_clone", lambda _repo: tmp_path)
 
     def step(*_: Any, **__: Any) -> Any:
@@ -102,3 +105,44 @@ def test_a_phase_needs_its_item_confirm_and_a_run_folder(cli: Cli, args: list[st
     result = cli("roadmap", "implement", "--repo", "example/project", *args)
 
     assert (result.exit_code, "--work" in result.output) == (1, True)
+
+
+def test_a_publish_after_a_prepare_that_left_the_item_out_ends_with_its_reason(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The container `publish` runs after each `prepare` (#3700). When the plan leaves the item
+    out, `prepare` prints the plan, as `--phase all` does, and writes a state that says the run
+    ended and why. `publish` prints the reason, because the Service reads the log of `publish`
+    when the pod succeeds, and exits 0, so the pod does not fail (#6743)."""
+    from devops_cli.core import process_hardening
+    from devops_cli.roadmap import run
+    from devops_cli.roadmap.implement import implement, implement_run
+    from devops_cli.roadmap.implement.implement import ImplementPlan
+    from devops_cli.roadmap.stage.stage import LeftOut
+
+    plan = ImplementPlan(
+        repo="example/project",
+        left_out=(LeftOut(number=1, title="Item one", reason=f"the item is not Ready {TOKEN}"),),
+    )
+    monkeypatch.setattr(implement_run, "require_runner", lambda _repo: None)
+    monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
+    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: None)
+    monkeypatch.setattr(implement, "plan_implement", lambda *_, **__: plan)
+    monkeypatch.setattr(run, "model_clone", lambda _repo: tmp_path)
+    work = str(tmp_path / "run")
+    base = ("roadmap", "implement", "--repo", "example/project", "--item", "1", "--confirm")
+
+    prepared, published = (
+        cli(*base, "--phase", phase, "--work", work) for phase in ("prepare", "publish")
+    )
+
+    assert (
+        prepared.exit_code,
+        "Item one" in prepared.output,
+        published.exit_code,
+        "the item is not Ready" in published.output,
+        TOKEN in published.output,
+    ) == (0, True, 0, True, False)

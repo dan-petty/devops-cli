@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -22,6 +23,7 @@ from tests.support.fakes.cluster_jobs import (
 )
 
 REPO = "example/roadmap"
+PHASES = ("prepare", "agent", "publish")
 PHASES_HELD = "the CronJob holds the init containers prepare and agent"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
 LOCK_LABEL = "implement-repo"
@@ -328,6 +330,45 @@ def test_the_dry_run_of_the_runner_template_lists_the_reads_of_each_phase_contai
         [f"-c {phase}" in output for phase in ("prepare", "agent", "publish")],
         "the CronJob holds the init containers prepare and agent" in output,
     ) == (0, [True, True, True], True), result.output
+
+
+def test_the_dry_run_of_the_runner_template_shows_the_create_of_each_shape_under_its_condition() -> (
+    None
+):
+    """The dry run reads no CronJob, so it shows the Job of each shape of the runner template
+    under its condition, as the follow steps do: one container `runner` today, and on the phases
+    (#3700) the init containers prepare and agent and the container publish, each with its phase
+    (#6743)."""
+    from devops_cli.commands.k8s.cluster_jobs import dry_run_job
+
+    args = ["roadmap", "implement", "--item", "7"]
+    planned = dry_run_job(args, None, wait=False, start_timeout=5.0, template=RUNNER_TEMPLATE)
+    shown = {}
+    for request in planned.requests:
+        if request.stdin:
+            pod = json.loads(request.stdin)["spec"]["template"]["spec"]
+            containers = [*pod.get("initContainers", []), *pod["containers"]]
+            shown[request.condition.partition(",")[0]] = {c["name"]: c["args"] for c in containers}
+
+    assert shown == {
+        "the CronJob holds one container": {"runner": args},
+        PHASES_HELD: {
+            phase: [*args, "--phase", phase, "--work", "/run/roadmap"] for phase in PHASES
+        },
+    }
+
+
+def test_the_dry_run_of_another_template_shows_its_one_container() -> None:
+    from devops_cli.commands.k8s.cluster_jobs import dry_run_job
+
+    planned = dry_run_job(["--version"], None, wait=False, start_timeout=5.0)
+    (create,) = (r for r in planned.requests if r.stdin)
+    pod = json.loads(create.stdin)["spec"]["template"]["spec"]
+
+    assert ([c["name"] for c in pod["containers"]], "initContainers" in pod) == (
+        ["devops-cli"],
+        False,
+    )
 
 
 def test_an_unknown_template_is_refused() -> None:
