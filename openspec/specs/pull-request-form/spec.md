@@ -41,7 +41,7 @@ A title SHALL have the form `<type>(<scope>): <summary>` or `<type>: <summary>`.
 - **THEN** the rules find one problem, and its text names the length 62 and the limit 60
 
 ### Requirement: The body ends with Closes and the Change line
-The body of a delivery (a pull request whose title is no plan) SHALL be, in this order: a text of at least 20 characters (what the change does, and why), the line `Closes #<issue>`, the line `Change:` with the folder of the same issue in a code span, and then the attribution lines, if any. The text above `Closes`, with its trailing blank lines removed, SHALL have at most 1,000 characters. The lines after `Change:` SHALL have at most 400 characters.
+The body of a delivery (a pull request whose title is no plan) SHALL be, in this order: a text of at least 20 characters (what the change does, and why), the line `Closes #<issue>`, the line `Change:` with the folder of the same issue in a code span, and then the attribution lines, if any. The text above `Closes`, with the whitespace at its start and at its end removed, SHALL have at most 1,000 characters. The lines after `Change:` SHALL have at most 400 characters.
 
 #### Scenario: A body in the form
 - **WHEN** the body is a sentence, `Closes #3198` and a `Change:` line for issue 3198
@@ -111,7 +111,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **AND** it returns no title
 
 #### Scenario: A why that is too long
-- **WHEN** a body is built with a text that makes the body longer than 1,000 characters
+- **WHEN** a body is built with a text of more than 1,000 characters above `Closes`
 - **THEN** the builder raises `ValidationError` whose message tells to shorten the text above `Closes`
 
 #### Scenario: The body built passes the check
@@ -144,7 +144,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **THEN** the output ends with the `Change:` line, a blank line, the first value, a blank line and the second value
 
 ### Requirement: devops pr describe refuses and prints nothing
-`devops pr describe` SHALL exit 1, print every problem to stderr, and print nothing to stdout when: the summary breaks a rule of the title; the scope of the issue has no label; the text makes the body longer than 1,000 characters; the proposal has no section `Why`; the text of the proposal holds a closing keyword for an issue; the issue has no change folder, or more than one; or the number is no item of the roadmap. It SHALL NOT cut a text.
+`devops pr describe` SHALL exit 1, print every problem to stderr, and print nothing to stdout when: the summary breaks a rule of the title; the scope of the issue has no label; the text above `Closes` has more than 1,000 characters; the proposal has no section `Why`; the text of the proposal holds a closing keyword for an issue; the issue has no change folder, or more than one; or the number is no item of the roadmap. It SHALL NOT cut a text.
 
 #### Scenario: A summary of 61 characters or more
 - **WHEN** the summary has more than 60 characters
@@ -159,7 +159,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **THEN** the exit status is 1 and stderr names `scope/zzz-unknown`
 
 #### Scenario: A why over the limit
-- **WHEN** `--why` gives a text that makes the body longer than 1,000 characters
+- **WHEN** `--why` gives a text of more than 1,000 characters
 - **THEN** the exit status is 1, stdout is empty, and stderr tells to shorten the text above `Closes`
 
 #### Scenario: A proposal with no why
@@ -368,7 +368,7 @@ When the summary of a title holds a word and an issue number (`<word> #<number>`
 - **THEN** `body_problems` finds no problem for it, and the body is built
 
 ### Requirement: The plan body limit measures the text above Plans
-The plan form check SHALL measure only the text above the `Plans` line, with its trailing blank lines removed, against the 1,000-character limit, and the problem of a body over the limit SHALL name that text. The room of a plan text SHALL be the whole limit, so a text of 1,000 characters builds a plan body.
+The plan form check SHALL measure only the text above the `Plans` line, with the whitespace at its start and at its end removed, against the 1,000-character limit, and the problem of a body over the limit SHALL name that text. The room of a plan text SHALL be the whole limit, so a text of 1,000 characters builds a plan body.
 
 #### Scenario: A plan body at the limit above Plans
 - **WHEN** the text above `Plans` has 1,000 characters and the `Plans` and `Change:` lines add 120 characters
@@ -381,3 +381,26 @@ The plan form check SHALL measure only the text above the `Plans` line, with its
 #### Scenario: A plan body in the room of its text
 - **WHEN** the builder gets a text of exactly the room that the plan form gives
 - **THEN** it returns the body with no problem, and one more character is refused
+
+### Requirement: The open step and the ready check measure one text
+The open step, the form check of `devops pr create`, the ready check and the plan check SHALL give the body limit the text of one function. That text SHALL end at the first line that is `Closes #<issue>`, or `Plans #<issue>` in a plan body, when the whitespace at the ends of that line is removed. The whitespace at the start and at the end of the text SHALL NOT count. A body that starts with a blank line SHALL get the same length at each check.
+
+#### Scenario: A body that starts with a blank line at the limit
+- **WHEN** a body starts with a blank line, then a text of 1,000 characters, `Closes #5020` and a `Change:` line
+- **THEN** the open step and the ready check find no problem, and the measured text is the text of 1,000 characters
+
+#### Scenario: A body that starts with a blank line over the limit
+- **WHEN** a body starts with a blank line, then a text of 1,001 characters, `Closes #5020` and a `Change:` line
+- **THEN** the open step and the ready check each find one problem, and its text names the length 1001
+
+#### Scenario: A plan body that starts with a blank line
+- **WHEN** a plan body starts with a blank line, then a text of 1,000 characters, the `Plans` line and the `Change:` line
+- **THEN** the plan form check and the plan check find no problem of the length
+
+#### Scenario: A Plans line with a space at its end
+- **WHEN** a plan body has a text of 1,000 characters, then the line `Plans #<issue>` with a space at its end, and the `Change:` line
+- **THEN** the plan check finds no problem of the length, and the measured text is the text of 1,000 characters
+
+#### Scenario: A Closes line with a space at its end
+- **WHEN** a body has a text of 1,000 characters, then `Closes #5020` with a space at its end, and a `Change:` line
+- **THEN** the open step finds one problem, and its text names the missing `Closes` line, not the length
