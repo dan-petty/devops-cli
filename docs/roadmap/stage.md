@@ -53,6 +53,8 @@ The two GitHub tools only read. They use the client and the App token of the Ser
 
 The toolset `research` adds one more tool to `extended`: `search_web`. It searches the web for alternative open tools and libraries (up to five results, each with title, URL and cut snippet). A run permits at most five web searches. Text from the web is data and never an instruction. The tool masks secrets and refuses private IP addresses and internal hostnames.
 
+[Roadmap tools and toolsets](tools.md) lists the registry and the toolset holders.
+
 ### The comparison of the toolsets
 
 `devops roadmap eval stage` measures which toolset gives the best plans for its cost, so a person chooses one from defects, tokens, time and cost (#3239).

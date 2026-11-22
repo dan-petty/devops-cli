@@ -22,27 +22,27 @@ Reads: `src/devops_cli/roadmap/tools.py`, `src/devops_cli/config/defaults.py`. C
 
 Reads: `src/devops_cli/roadmap/tools.py`, `src/devops_cli/ai/mcp/roles.py`. Changes: `src/devops_cli/ai/mcp/roles.py`, `tests/ai/mcp/test_mcp_roles.py`.
 
-- [ ] 3.1 Add a failing test in `tests/ai/mcp/test_mcp_roles.py` that each job role table equals `tool_names(role)`, that the three role counts stay 28, 17 and 16, and that a name outside the registry is still refused
+- [x] 3.1 Add a failing test in `tests/ai/mcp/test_mcp_roles.py` that each job role table equals `tool_names(role)`, that the three role counts stay 28, 15 and 16, and that a name outside the registry is still refused
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_roles.py` fails on the base
-- [ ] 3.2 Build `_JOB_ROLE_TOOLS` from `tool_names(role)` for each role of `JOB_ROLES`, keep the `ops` role on the whole catalogue, and keep the read-only filter and the missing-tool refusal of `tools_for_role`
+- [x] 3.2 Build `_JOB_ROLE_TOOLS` from `tool_names(role)` for each role of `JOB_ROLES`, keep the `ops` role on the whole catalogue, and keep the read-only filter and the missing-tool refusal of `tools_for_role`
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_roles.py` passes
 
 ## 4. Add the implement and review toolset settings
 
 Reads: `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/roadmap/tools.py`, `tests/roadmap/stage/test_roadmap_stage_settings.py`, `tests/roadmap/test_roadmap_limit_classes.py`. Changes: `src/devops_cli/config/defaults.py`, `src/devops_cli/config/settings.py`, `tests/roadmap/stage/test_roadmap_stage_settings.py`, `tests/roadmap/test_roadmap_limit_classes.py`.
 
-- [ ] 4.1 Add failing tests in `tests/roadmap/stage/test_roadmap_stage_settings.py` for the `base` default of `roadmap.implement.toolset` and `roadmap.review.toolset`, a value from a config file and from a variable, and the refusal of any other value that names the variable
+- [x] 4.1 Add failing tests in `tests/roadmap/stage/test_roadmap_stage_settings.py` for the `base` default of `roadmap.implement.toolset` and `roadmap.review.toolset`, a value from a config file and from a variable, and the refusal of any other value that names the variable
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_settings.py` fails on the base
-- [ ] 4.2 Add `JobToolset = Literal["base"]` and `DEFAULT_ROADMAP_JOB_TOOLSET` to `src/devops_cli/config/defaults.py`, the `toolset` field to `RoadmapImplementConfig`, a `RoadmapReviewConfig` with the same field, and the `review` member of `RoadmapConfig`. Delete the two new variables in the `config_file` fixture of the test module, and update `tests/roadmap/test_roadmap_limit_classes.py` for the new constant
+- [x] 4.2 Add `JobToolset = Literal["base"]` and `DEFAULT_ROADMAP_JOB_TOOLSET` to `src/devops_cli/config/defaults.py`, the `toolset` field to `RoadmapImplementConfig`, a `RoadmapReviewConfig` with the same field, and the `review` member of `RoadmapConfig`. Delete the two new variables in the `config_file` fixture of the test module, and update `tests/roadmap/test_roadmap_limit_classes.py` for the new constant
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_settings.py tests/roadmap/test_roadmap_limit_classes.py` passes
 
 ## 5. Document the registry and the three toolsets
 
 Reads: `docs/roadmap/stage.md`, `docs/roadmap/implement.md`, `src/devops_cli/roadmap/tools.py`, `src/devops_cli/config/settings.py`. Changes: `docs/roadmap/tools.md` (new), `docs/roadmap/stage.md`, `docs/roadmap/implement.md`.
 
-- [ ] 5.1 Add `docs/roadmap/tools.md` with the registry table, the three settings, the `base` value of each and the holders, and name the page from the toolset section of `docs/roadmap/stage.md` and from `docs/roadmap/implement.md`
+- [x] 5.1 Add `docs/roadmap/tools.md` with the registry table, the three settings, the `base` value of each and the holders, and name the page from the toolset section of `docs/roadmap/stage.md` and from `docs/roadmap/implement.md`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 5.2 Edit `docs/roadmap/tools.md`, `docs/roadmap/stage.md` and `docs/roadmap/implement.md`
+- [x] 5.2 Edit `docs/roadmap/tools.md`, `docs/roadmap/stage.md` and `docs/roadmap/implement.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
