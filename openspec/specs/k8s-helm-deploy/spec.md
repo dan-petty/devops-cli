@@ -221,7 +221,7 @@ The dry runs of `devops k8s deploy-stack` and `devops k8s teardown-stack` SHALL 
 
 #### Scenario: A remote target fails the dry-run build at once
 - **WHEN** the kustomization of `env/logging` names a remote target at `192.0.2.1`: a remote base by an https URL, a `git::` URL, an ssh URL or the SCP form, a remote base by a path on `github.com`, the `path` of a PatchTransformer inline, in a local file of `transformers` or in `patches`, or a file or an env file with `?ref=main` of a ConfigMapGenerator, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs with the real `kubectl kustomize`
-- **THEN** the build fails within 5 seconds with the `proxyconnect` error of Go or with a refused git transport, and the command exits 0, gives `null` as the objects of `logging: env/logging`, and lists `logging: env/logging` in `details.kustomize_fetches` with that error
+- **THEN** the build fails within 30 seconds, far below the TCP connect timeout of an address with no route, with the `proxyconnect` error of Go or with a refused git transport, and the command exits 0, gives `null` as the objects of `logging: env/logging`, and lists `logging: env/logging` in `details.kustomize_fetches` with that error
 
 #### Scenario: A folder with only local bases and components
 - **WHEN** the path source `env/logging` takes only the local component `../components/perimeter`, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --dry-run` runs

@@ -793,8 +793,14 @@ _REMOTE_TARGETS: dict[str, dict[str, str]] = {
 _NO_ROUTE = re.compile(r"proxyconnect tcp: .*connection refused|transport '\w+' not allowed")
 
 
+# A dry-run build of a remote target fails at once on the closed proxy (about 0.2 s here). The bound
+# leaves room for a loaded CI runner and is still far below the TCP connect timeout of a blackholed
+# RFC 5737 address (about 127 s on Linux), so a direct connect still fails the test.
+_OFFLINE_BUILD_BOUND_SECONDS = 30
+
+
 @pytest.mark.live("kubectl")
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(_OFFLINE_BUILD_BOUND_SECONDS)
 @pytest.mark.parametrize("files", _REMOTE_TARGETS.values(), ids=_REMOTE_TARGETS.keys())
 def test_the_dry_run_build_of_a_remote_target_fails_at_once_and_is_listed(
     cli: Callable[..., Any], tmp_path: Path, files: dict[str, str]
@@ -832,7 +838,7 @@ class _ConfigMapFiles(BaseHTTPRequestHandler):
 
 
 @pytest.mark.live("kubectl")
-@pytest.mark.timeout(5)
+@pytest.mark.timeout(_OFFLINE_BUILD_BOUND_SECONDS)
 def test_the_dry_run_build_loads_a_file_of_a_loopback_address(
     cli: Callable[..., Any], tmp_path: Path
 ) -> None:
