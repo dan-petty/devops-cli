@@ -52,6 +52,11 @@ clusterMetrics:
         - container_network_transmit_packets_total
         - container_network_receive_packets_dropped_total
         - container_network_transmit_packets_dropped_total
+        # The thread count and the thread limit of each cgroup, which the pids cgroup counts. The
+        # series of a pod cgroup (empty container and image labels) gives the peak that sets the
+        # kubelet pod PID limit (#6342).
+        - container_threads
+        - container_threads_max
   kube-state-metrics:
     # One replica, so the Service is the target: endpoints discovery also scraped its own
     # telemetry port 8081 into the same job (#1955).
