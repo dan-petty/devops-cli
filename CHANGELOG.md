@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.193.0](https://github.com/dan-petty/devops-cli/compare/v0.192.2...v0.193.0) (2026-11-22)
+
+
+### Features
+
+* **k8s:** apply store buckets and rules from git ([#6724](https://github.com/dan-petty/devops-cli/issues/6724)) ([0036c70](https://github.com/dan-petty/devops-cli/commit/0036c704121d759444ffab3e6461997474b3c711))
+
+
+### Bug Fixes
+
+* **ci:** match the real release image job names in job-time ([#6740](https://github.com/dan-petty/devops-cli/issues/6740)) ([d2dd628](https://github.com/dan-petty/devops-cli/commit/d2dd628f7580dd5b70d26f6c1500c33a43e1f0c3))
+
 ## [0.192.2](https://github.com/dan-petty/devops-cli/compare/v0.192.1...v0.192.2) (2026-11-22)
 
 
