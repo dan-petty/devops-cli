@@ -13,7 +13,13 @@ import yaml
 
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import DevOpsCLIError
-from devops_cli.github.onboard.model import DOC_SECRETS, OnboardOptions, OnboardReport, RowState
+from devops_cli.github.onboard.model import (
+    DOC_COPIER,
+    DOC_SECRETS,
+    OnboardOptions,
+    OnboardReport,
+    RowState,
+)
 from devops_cli.github.onboard.run import onboard_repository, render_report
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import get_github_session
@@ -166,14 +172,15 @@ def test_the_release_key_reaches_no_output_log_or_argv(
     assert not any(known in text or RELEASE_KEY in text for text in seen)
 
 
+@pytest.mark.parametrize("release_flow", [None, True], ids=["no flag", "--release-flow"])
 def test_a_private_repository_on_the_free_plan_gets_no_release_flow(
-    onboard_github: OnboardHarness,
+    onboard_github: OnboardHarness, release_flow: bool | None
 ) -> None:
     onboard_github.state.private = True
     onboard_github.state.rulesets_forbidden = True
     onboard_github.state.payload.update(private=True, visibility="private")
 
-    report = _run(onboard_github, confirm=True)
+    report = _run(onboard_github, confirm=True, release_flow=release_flow)
 
     assert onboard_github.calls("release_flow=false")
     assert [_row(report, n).state for n in (5, 6, 10)] == [RowState.SKIPPED] * 3
@@ -186,7 +193,7 @@ def test_a_private_repository_on_the_free_plan_gets_no_release_flow(
 def test_an_app_that_is_not_installed_is_a_person_step(onboard_github: OnboardHarness) -> None:
     onboard_github.state.installed = False
 
-    report = _run(onboard_github)
+    report = _run(onboard_github, confirm=True)
 
     assert _row(report, 7).state is RowState.PERSON
     assert any("example-service" in step.text for step in report.person_steps)
@@ -235,6 +242,7 @@ def test_no_copier_program_makes_the_baseline_rows_not_readable(
 
     assert _row(report, 2).state is RowState.NOT_READABLE
     assert "copier is not on PATH" in str(_row(report, 2).reason)
+    assert [step.document for step in report.person_steps if "copier" in step.text] == [DOC_COPIER]
 
 
 def test_a_token_without_workflow_stops_a_confirm_before_any_write(
@@ -246,6 +254,20 @@ def test_a_token_without_workflow_stops_a_confirm_before_any_write(
 
     assert _row(report, 0).state is RowState.FAILED
     assert "workflow" in str(_row(report, 0).reason)
+    assert onboard_github.writes() == []
+
+
+def test_a_token_without_workflow_stops_a_create_before_any_write(
+    onboard_github: OnboardHarness,
+) -> None:
+    onboard_github.state.exists = False
+    onboard_github.state.scopes = "repo"
+
+    report = _run(onboard_github, confirm=True, create=True, visibility="public")
+
+    assert _row(report, 0).state is RowState.FAILED
+    assert "workflow" in str(_row(report, 0).reason)
+    assert _row(report, 1).state is RowState.SKIPPED
     assert onboard_github.writes() == []
 
 
@@ -340,6 +362,36 @@ def test_a_pull_request_with_nothing_to_wait_for_merges(onboard_github: OnboardH
         "mergePullRequest",
     ]
     assert onboard_github.state.refs["main"] == "merged"
+
+
+def test_a_head_that_moves_after_its_checks_does_not_merge(
+    onboard_github: OnboardHarness,
+) -> None:
+    onboard_github.state.merge_state = "CLEAN"
+    onboard_github.state.push_during_checks = True
+
+    report = _run(onboard_github, confirm=True)
+
+    assert _row(report, 11).state is RowState.WAITING, render_report(report)
+    assert "the next run" in str(_row(report, 11).reason)
+    assert onboard_github.state.refs["main"] != "merged"
+    assert onboard_github.state.pulls[0]["auto_merge"] is None
+
+
+def test_a_drifted_commit_message_is_sent_with_its_title(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    onboard_github.state.payload["squash_merge_commit_message"] = "BLANK"
+
+    report = _run(onboard_github, confirm=True, only=frozenset({2}))
+
+    assert _row(report, 2).state is RowState.APPLIED, render_report(report)
+    patch = next(request for request in onboard_github.api.sent if request.method == "PATCH")
+    assert json.loads(patch.content) == {
+        "squash_merge_commit_message": "PR_BODY",
+        "squash_merge_commit_title": "PR_TITLE",
+    }
 
 
 def test_a_repository_file_with_other_text_is_kept(onboard_github: OnboardHarness) -> None:

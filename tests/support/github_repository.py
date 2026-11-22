@@ -261,6 +261,8 @@ class RepositoryState:
         ]
     )
     merge_state: str = "BLOCKED"
+    # A person pushes to the template branch while the run reads the checks of its head.
+    push_during_checks: bool = False
     hooks: list[dict[str, Any]] = field(default_factory=list)
     installed: bool = True
     actions_secrets: list[str] = field(default_factory=list)
@@ -437,13 +439,7 @@ class RepositoryState:
             ("POST", rf"{repo}/git/commits", self._commit),
             ("POST", rf"{repo}/git/refs", self._create_ref),
             ("PATCH", rf"{repo}/git/refs/heads/(?P<branch>.+)", self._update_ref),
-            (
-                "GET",
-                rf"{repo}/commits/(?P<sha>\w+)/check-runs",
-                lambda *_: github_json(
-                    {"total_count": len(self.check_runs), "check_runs": self.check_runs}
-                ),
-            ),
+            ("GET", rf"{repo}/commits/(?P<sha>\w+)/check-runs", self._check_runs),
             ("GET", rf"{repo}/hooks", lambda *_: github_json(self.hooks)),
             ("POST", rf"{repo}/hooks", self._create_hook),
             ("PATCH", rf"{repo}/hooks/(?P<id>\d+)", self._update_hook),
@@ -509,6 +505,14 @@ class RepositoryState:
         return github_json(self.payload)
 
     def _patch_repo(self, _found: Any, _query: Any, body: dict[str, Any]) -> httpx2.Response:
+        # GitHub needs the title of a commit with its message: "Required when using
+        # squash_merge_commit_message" (REST docs, Update a repository).
+        for message, title in (
+            ("squash_merge_commit_message", "squash_merge_commit_title"),
+            ("merge_commit_message", "merge_commit_title"),
+        ):
+            if message in body and title not in body:
+                return github_json({"message": f"{title} is required"}, status=422)
         for key, value in body.items():
             if isinstance(value, dict) and isinstance(self.payload.get(key), dict):
                 self.payload[key] = {**self.payload[key], **value}
@@ -641,6 +645,14 @@ class RepositoryState:
             {**pull, "head": {**pull["head"], "sha": self.refs.get(pull["head"]["ref"], "")}}
         )
 
+    def _check_runs(self, *_: Any) -> httpx2.Response:
+        answer = github_json({"total_count": len(self.check_runs), "check_runs": self.check_runs})
+        if self.push_during_checks and TEMPLATE_BRANCH in self.refs:
+            self.push_during_checks = False
+            self.commits["pushed"] = dict(self.commits[self.refs[TEMPLATE_BRANCH]])
+            self.refs[TEMPLATE_BRANCH] = "pushed"
+        return answer
+
     def _ref(self, found: re.Match[str], *_: Any) -> httpx2.Response:
         sha = self.refs.get(found["branch"])
         if sha is None:
@@ -695,6 +707,9 @@ class RepositoryState:
         self.graphql.append(name)
         number = int(body["variables"]["id"].removeprefix("PR_"))
         pull = self.pulls[number - 1]
+        expected = body["variables"].get("head")
+        if expected is not None and expected != self.refs.get(pull["head"]["ref"]):
+            return github_json({"errors": [{"message": "Head branch was modified."}]})
         if name == "markPullRequestReadyForReview":
             pull["draft"] = False
         elif name == "enablePullRequestAutoMerge":

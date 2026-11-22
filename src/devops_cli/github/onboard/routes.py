@@ -5,6 +5,7 @@ only through `RouteWriter`, which refuses a route that the table does not hold o
 not match the form of its route. With `--plan` the writer records each write and sends nothing; with
 `--confirm` it sends it. So a plan and a confirmed run take the same path through the rows, and the
 route-ownership test reads the one table to show that no route writes a setting of another owner.
+A GraphQL route names its mutations, and the writer refuses a document with another top field.
 `READS` lists the reads of each row for the dry run, which sends no request.
 """
 
@@ -38,7 +39,7 @@ class RouteOwner(StrEnum):
     # The config file, the keyring and the cluster of the person (D4).
     PERSON_CONFIG = "person config"
     # The ingestion pass of the RAG index, the one writer of its points (#1389).
-    RAG_PASS = "rag pass"
+    RAG_INGEST = "rag ingestion"
 
 
 @dataclass(frozen=True)
@@ -52,10 +53,31 @@ class Route:
     path: str
     owner: RouteOwner
     what: str
+    # The top fields of the mutations that a route of `POST /graphql` sends.
+    mutations: tuple[str, ...] = ()
 
     def matches(self, method: str, path: str) -> bool:
         """Whether `method` and `path` are a write of this route."""
         return method == self.method and _path_pattern(self.path).fullmatch(path) is not None
+
+
+def mutation_fields(document: str) -> tuple[str, ...]:
+    """The top fields of the mutation that `document` runs, or none for a query or a document
+    that does not parse. graphql-core loads only here."""
+    from graphql import FieldNode, GraphQLError, OperationType, parse
+    from graphql.utilities import get_operation_ast
+
+    try:
+        operation = get_operation_ast(parse(document, no_location=True))
+    except GraphQLError:
+        return ()
+    if operation is None or operation.operation is not OperationType.MUTATION:
+        return ()
+    return tuple(
+        selection.name.value
+        for selection in operation.selection_set.selections
+        if isinstance(selection, FieldNode)
+    )
 
 
 def _path_pattern(form: str) -> re.Pattern[str]:
@@ -246,6 +268,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         "/graphql",
         RouteOwner.PERSON_LOGIN,
         "markPullRequestReadyForReview of the template pull request",
+        ("markPullRequestReadyForReview",),
     ),
     Route(
         "pull-auto-merge",
@@ -254,6 +277,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         "/graphql",
         RouteOwner.PERSON_LOGIN,
         "enablePullRequestAutoMerge, or mergePullRequest when GitHub has nothing to wait for",
+        ("enablePullRequestAutoMerge", "mergePullRequest"),
     ),
     Route("hook-create", 12, "POST", "/repos/{repo}/hooks", RouteOwner.COMMAND, "Service webhook"),
     Route(
@@ -301,7 +325,7 @@ ROUTES: Final[tuple[Route, ...]] = (
         15,
         "RUN",
         "ingestion pass",
-        RouteOwner.RAG_PASS,
+        RouteOwner.RAG_INGEST,
         "points of the repository",
     ),
 )
@@ -331,9 +355,11 @@ READS: Final[tuple[tuple[int, str], ...]] = (
     (6, "GET /repos/{repo}/environments/{environment}/secrets/public-key"),
     (7, "GET /repos/{repo}/installation (JWT of each configured App)"),
     (8, "GET /repos/{repo}/labels"),
+    (8, "GET /repos/{repo}/contents/.github/labels.yml?ref=<default branch>"),
     (9, "GET /repos/{repo}/contents/<each template file>?ref=<branch>"),
     (9, "GET /repos/{repo}/pulls?head=<owner>:" + TEMPLATE_BRANCH),
     (9, "GET /repos/{repo}/git/ref/heads/<branch>"),
+    (9, "GET /repos/{repo}/git/commits/<parent>"),
     (9, "GET /repos/{repo}/commits/<head>/check-runs"),
     (10, "GET /repos/{repo}/rulesets/{ruleset}"),
     (11, "GET /repos/{repo}/pulls/{pull}"),
@@ -393,7 +419,16 @@ class RouteWriter:
         return _sent(key, lambda: self._session.rest(route.method, path, body=body))
 
     def graphql(self, key: str, query: str, variables: dict[str, Any]) -> dict[str, Any] | None:
-        """Send the GraphQL mutation of route `key`, or record it in a plan."""
+        """Send the GraphQL mutation of route `key`, or record it in a plan. A document whose
+        top fields are not all mutations of the route is refused."""
+        route = route_for(key)
+        fields = mutation_fields(query)
+        outside = [name for name in fields if name not in route.mutations]
+        if not fields or outside:
+            raise RouteRefusedError(
+                f"The route {key} sends the mutations {', '.join(route.mutations)}, "
+                f"not {', '.join(outside) or 'a document with no mutation'}."
+            )
         self._record(key, "POST", "/graphql")
         if not self.confirm:
             return None
@@ -426,5 +461,6 @@ __all__ = [
     "RouteRefusedError",
     "RouteWriteError",
     "RouteWriter",
+    "mutation_fields",
     "route_for",
 ]

@@ -29,10 +29,11 @@ Kind: other. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadma
 
 ## 4. Documents
 
-Kind: other. Reads: `docs/roadmap/onboard.md`, `README.md`. Changes: `docs/repos/onboard.md` (new), `docs/roadmap/onboard.md` (deleted), `README.md`, `docs/index.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/guidelines/production-readiness.md`, `docs/CLI_REFERENCE.md`, `docs/commands/repos.md`, `docs/commands/roadmap.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`.
+Kind: other. Reads: `docs/roadmap/onboard.md`, `README.md`. Changes: `docs/repos/onboard.md` (new), `.nav.yml`, `.gitignore`, `docs/roadmap/onboard.md` (deleted), `README.md`, `docs/index.md`, `docs/ROADMAP_WORKFLOW.md`, `docs/guidelines/production-readiness.md`, `docs/CLI_REFERENCE.md`, `docs/commands/repos.md`, `docs/commands/roadmap.md`, `docs/CONFIGURATION.md`, `docs/ENV_VARS.md`.
 
 - [x] 4.1 Write `docs/repos/onboard.md`: the one command, the modes, the rows and the person steps, and link it from the README, the index and the roadmap workflow; change the rows of the production readiness guideline to the new command
   - Verification: `$ ! git grep -n -F "roadmap onboard" -- README.md docs/index.md docs/ROADMAP_WORKFLOW.md docs/guidelines`
+  - Verification: `$ git ls-files --error-unmatch docs/repos/onboard.md && uv run --group docs devops docs site build --strict`
 - [x] 4.2 Regenerate the documentation
   - Verification: `$ uv run devops ci docs`
 
@@ -42,5 +43,5 @@ Kind: other. Reads: `docs/roadmap/onboard.md`, `README.md`. Changes: `docs/repos
 - #4417 removes row 12 and its webhook secret.
 - #6769 adds a release App key of its own to each repository.
 - The convergence of the existing repositories is item 7 of the build plan of #6773.
-- Pending a person: install the `copier` program in the development tools.
+- dan-petty/devtools#42 adds the `copier` program to the development tools. Until then, a person installs it with `uv tool install copier`.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

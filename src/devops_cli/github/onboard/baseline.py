@@ -24,6 +24,7 @@ import yaml
 from devops_cli.config.constants import CONST_MAX_ERROR_DETAIL_LENGTH
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.github.onboard.model import DOC_COPIER, PersonStep
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -35,15 +36,21 @@ SETTINGS_FILE: Final[str] = "github/repository.yaml"
 LABELS_FILE: Final[str] = ".github/labels.yml"
 _SCHEMA_PATH: Final[str] = "templates/github-repository.schema.json"
 _COPIER: Final[str] = "copier"
+# One install that the Copier documents name; it brings the GPL3 filters with the program.
+_COPIER_INSTALL: Final[str] = "uv tool install copier"
 # A clone of the template and a render took a few seconds on 2026-11-22; the bound stops a hang.
 _COPIER_TIMEOUT_SECONDS: Final[float] = 300.0
 
 
 class BaselineUnreadableError(DevOpsCLIError):
     """The baseline cannot be read: no ref, no `copier` program, a failed render, or a settings
-    file that the schema refuses."""
+    file that the schema refuses. `step` is the person step that makes it readable, if any."""
 
     error_code = "ONBOARD_BASELINE_UNREADABLE"
+
+    def __init__(self, message: str, *, step: PersonStep | None = None) -> None:
+        self.step = step
+        super().__init__(message)
 
 
 class AnswerFlagError(DevOpsCLIError):
@@ -133,12 +140,12 @@ def resolve_ref(
 def render_answers(
     answers: dict[str, Any] | None, options: OnboardOptions, *, plan_limited: bool
 ) -> dict[str, Any]:
-    """The answers of the render: those of `.copier-answers.yml`, else the flags. With no flag,
-    a repository that can have environments gets the release flow, and a private repository on
-    the Free plan gets none (D2)."""
+    """The answers of the render: those of `.copier-answers.yml`, else the flags. A private
+    repository on the Free plan gets no release flow, also with `--release-flow`, because it can
+    have no environment (D2). Any other repository gets it unless `--no-release-flow` is given."""
     if answers is not None:
         return {key: value for key, value in answers.items() if not key.startswith("_")}
-    release_flow = options.release_flow if options.release_flow is not None else not plan_limited
+    release_flow = not plan_limited and options.release_flow is not False
     given: dict[str, Any] = {
         "scopes": ",".join(sorted(_scope_set(options.scopes))),
         "release_flow": release_flow,
@@ -210,7 +217,8 @@ def render_baseline(
     program = shutil.which(_COPIER)
     if program is None:
         raise BaselineUnreadableError(
-            "The program copier is not on PATH. Install it with the development tools."
+            "The program copier is not on PATH.",
+            step=PersonStep(f"Install the program copier: `{_COPIER_INSTALL}`.", DOC_COPIER),
         )
     with tempfile.TemporaryDirectory(prefix="onboard-") as folder:
         dest = Path(folder) / repo_name

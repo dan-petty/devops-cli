@@ -67,7 +67,7 @@ The Traefik values SHALL keep the Service of Traefik `ClusterIP`, and the `web` 
 - **THEN** `service.spec.type` is `ClusterIP`, and `ports.web` has no `hostPort` and no `nodePort`
 
 ### Requirement: The consumer events are a subset of the hook events
-Each event that a GitHub consumer of the Service takes, and each webhook event that a batch key of a due-table row names, SHALL be an event of `CONST_ROADMAP_WEBHOOK_EVENTS`, the events that `devops roadmap onboard` requires of the repository hook.
+Each event that a GitHub consumer of the Service takes, and each webhook event that a batch key of a due-table row names, SHALL be an event of `CONST_ROADMAP_WEBHOOK_EVENTS`, the events that `devops repos onboard` requires of the repository hook (row 12).
 
 #### Scenario: A test reads the consumers of the Service
 - **WHEN** a test reads the events of each GitHub consumer of `service_consumers` and the webhook batch keys of `DEFAULT_DUE_TABLE`

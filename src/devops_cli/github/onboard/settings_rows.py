@@ -231,6 +231,14 @@ def _write_state(writer: RouteWriter) -> RowState:
     return RowState.APPLIED if writer.confirm else RowState.PENDING
 
 
+# GitHub needs the title of a commit with its message: "Required when using
+# squash_merge_commit_message" (REST docs, Update a repository).
+_TITLE_OF_MESSAGE: Final[tuple[tuple[str, str], ...]] = (
+    ("squash_merge_commit_message", "squash_merge_commit_title"),
+    ("merge_commit_message", "merge_commit_title"),
+)
+
+
 def repository_row(writer: RouteWriter, ctx: RowContext, baseline: Baseline) -> Row:
     """Row 2: the `repository` body of the baseline and `has_issues`, in one PATCH."""
     live = ctx.repo_payload or {}
@@ -240,6 +248,9 @@ def repository_row(writer: RouteWriter, ctx: RowContext, baseline: Baseline) -> 
     diff = differences(desired, live)
     if diff is None:
         return Row(2, "Repository", RowState.PRESENT, reason=reason)
+    for message, title in _TITLE_OF_MESSAGE:
+        if message in diff and title in desired:
+            diff.setdefault(title, desired[title])
     writer.rest("repository", f"/repos/{ctx.repo}", diff)
     return Row(
         2, "Repository", _write_state(writer), changes=tuple(change_lines(diff)), reason=reason

@@ -51,7 +51,7 @@ htmlcov/
 !.vscode/mcp.json
 
 # Generated repo clones
-repos/
+/repos/
 .code-workspace
 
 # OS

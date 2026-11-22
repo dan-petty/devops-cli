@@ -3,6 +3,7 @@ of another owner (#6773, ADR 0035)."""
 
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import unquote
 
@@ -11,7 +12,7 @@ import pytest
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.onboard.model import OnboardOptions
-from devops_cli.github.onboard.routes import ROUTES, RouteOwner, RouteWriter
+from devops_cli.github.onboard.routes import ROUTES, RouteOwner, RouteWriter, mutation_fields
 from devops_cli.github.onboard.run import onboard_repository
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import get_github_session
@@ -51,7 +52,13 @@ def test_each_write_of_a_confirmed_run_is_a_route(onboard_github: OnboardHarness
     writes = [
         (request.method, unquote(request.url.path))
         for request in onboard_github.api.sent
-        if request.method != "GET"
+        if request.method != "GET" and request.url.path != "/graphql"
+    ]
+    mutations = [
+        name
+        for request in onboard_github.api.sent
+        if request.url.path == "/graphql"
+        for name in mutation_fields(json.loads(request.content)["query"])
     ]
     writes += [
         ("PUT", f"/{call.argv[4]}")
@@ -60,6 +67,10 @@ def test_each_write_of_a_confirmed_run_is_a_route(onboard_github: OnboardHarness
     ]
     assert writes
     assert [write for write in writes if not any(route.matches(*write) for route in ROUTES)] == []
+    assert mutations
+    assert [
+        name for name in mutations if not any(name in route.mutations for route in ROUTES)
+    ] == []
 
 
 def test_the_writer_refuses_a_write_outside_its_route(onboard_github: OnboardHarness) -> None:
@@ -69,6 +80,17 @@ def test_the_writer_refuses_a_write_outside_its_route(onboard_github: OnboardHar
         writer.rest("label", f"/repos/{REPO}/labels/scope%2Fci", {"color": "000000"})
     with pytest.raises(DevOpsCLIError) as unknown:
         writer.rest("contents", f"/repos/{REPO}/contents/README.md", {})
+    with pytest.raises(DevOpsCLIError) as comment:
+        writer.graphql(
+            "pull-ready",
+            'mutation($id: ID!) { addComment(input: {subjectId: $id, body: "x"}) '
+            "{ clientMutationId } }",
+            {"id": "PR_1"},
+        )
 
-    assert {outside.value.error_code, unknown.value.error_code} == {"ONBOARD_ROUTE_REFUSED"}
+    assert {
+        outside.value.error_code,
+        unknown.value.error_code,
+        comment.value.error_code,
+    } == {"ONBOARD_ROUTE_REFUSED"}
     assert onboard_github.api.sent == []

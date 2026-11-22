@@ -39,7 +39,7 @@ With `--confirm`, each row SHALL write only the values that differ from the base
 - **THEN** the first run sends the writes of the routes, and the second run sends only GET requests and exits 0
 
 ### Requirement: Each write goes through the route table
-Each write of the command SHALL go through one route of `ROUTES`, which names its row, method, path form and owner. No route SHALL write a setting of another owner: an organization or transfer route of OpenTofu, a status label or a comment of the Service, or a direct write of a file to the default branch.
+Each write of the command SHALL go through one route of `ROUTES`, which names its row, method, path form and owner. No route SHALL write a setting of another owner: an organization or transfer route of OpenTofu, a status label or a comment of the Service, or a direct write of a file to the default branch. A route of `POST /graphql` SHALL name its mutations, and the writer SHALL refuse a document with another top field.
 
 #### Scenario: The table holds no route of another owner
 - **WHEN** the route-ownership test reads `ROUTES`
@@ -47,7 +47,11 @@ Each write of the command SHALL go through one route of `ROUTES`, which names it
 
 #### Scenario: Each request of a run is a route
 - **WHEN** `--confirm` runs on a new repository of the fake GitHub
-- **THEN** each write request that the fake gets matches a route of `ROUTES`
+- **THEN** each write request that the fake gets matches a route of `ROUTES`, and each GraphQL mutation is a mutation of a route
+
+#### Scenario: A mutation outside its route
+- **WHEN** a row sends `addComment` through the route `pull-ready`
+- **THEN** the writer refuses it and sends no request
 
 ### Requirement: The baseline comes from the template at one ref
 The command SHALL render the Copier template of `github.template_repository` with the `copier` program at the template ref: `--template-ref`, else `_commit` of `.copier-answers.yml` of the repository, else the latest release tag of the template repository. It SHALL validate the rendered `github/repository.yaml` with `templates/github-repository.schema.json` of the template at the same ref. A baseline that cannot be read SHALL make each row that reads it `not readable` with the reason.
@@ -62,7 +66,7 @@ The command SHALL render the Copier template of `github.template_repository` wit
 
 #### Scenario: No copier program
 - **WHEN** `copier` is not on PATH
-- **THEN** the baseline rows are `not readable`, and the reason names the program
+- **THEN** the baseline rows are `not readable`, the reason names the program, and a person step gives its install with the document of Copier
 
 ### Requirement: The answers file wins over the flags
 When `.copier-answers.yml` is on the default branch, the command SHALL render with its answers and its `_commit`, and SHALL refuse with a usage error a flag that gives another value: `--scope`, `--release-flow`, `--release-type` or `--template-ref`.
@@ -72,11 +76,15 @@ When `.copier-answers.yml` is on the default branch, the command SHALL render wi
 - **THEN** the command exits 2 with an error that names the flag and the file, and sends no write
 
 ### Requirement: The preflight stops a confirm
-Row 0 SHALL read the scopes of the token and SHALL need `repo` and `workflow`. It SHALL probe the rulesets of the repository, and a 403 on a private repository SHALL mark the Free plan limit (D2). It SHALL fail when the baseline or a secret of the repository names `SERVICE_APP_*`. With `--confirm`, a failed row 0 SHALL stop the run before the first write.
+Row 0 SHALL read the scopes of the token and SHALL need `repo` and `workflow`. It SHALL probe the rulesets of the repository, and a 403 on a private repository SHALL mark the Free plan limit (D2). It SHALL fail when the baseline or a secret of the repository names `SERVICE_APP_*`. With `--confirm`, a failed row 0 SHALL stop the run before the first write. For a repository that does not exist, row 0 SHALL check the scopes before row 1 creates it.
 
 #### Scenario: A token without workflow
 - **WHEN** the token holds the scope `repo` only and `--confirm` runs
 - **THEN** row 0 is `failed` and names `workflow`, and the fake GitHub gets no write
+
+#### Scenario: A token without workflow and a create
+- **WHEN** the fake GitHub has no repository, the token holds the scope `repo` only and `--create --visibility public --confirm` runs
+- **THEN** row 0 is `failed`, row 1 is `skipped`, and the fake GitHub gets no write
 
 ### Requirement: The create row runs with create only
 Row 1 SHALL be `present` for a repository that exists. For a missing repository, it SHALL send `POST /user/repos` with `auto_init` and the visibility of `--visibility` only with `--create` and `--confirm`. Without `--create`, the row SHALL be `failed` with the step, and the later rows SHALL be `skipped`.
@@ -92,6 +100,10 @@ Row 2 SHALL compare the `repository` body of the baseline and `has_issues: true`
 - **WHEN** the repository allows merge commits and `--confirm` runs
 - **THEN** one `PATCH /repos/<repo>` holds `allow_merge_commit: false` and no key that matches
 
+#### Scenario: A commit message that drifts
+- **WHEN** only the squash commit message of the repository differs and `--confirm` runs
+- **THEN** the `PATCH` holds the message and its title, because GitHub requires the title with the message
+
 ### Requirement: Code Quality that the plan does not have
 Row 4 SHALL read `GET /repos/<repo>/code-quality/setup`. A 404 SHALL be `not available`, and the run SHALL go on. Another answer with a state other than `configured` SHALL get `PATCH` with `state: configured`.
 
@@ -100,7 +112,7 @@ Row 4 SHALL read `GET /repos/<repo>/code-quality/setup`. A 404 SHALL be `not ava
 - **THEN** row 4 is `not available`, and the next rows run
 
 ### Requirement: No release flow on a private Free repository
-A private repository whose ruleset probe answers 403 SHALL get no release flow: the render SHALL answer `release_flow: false`, rows 5 and 6 SHALL be `skipped`, and no secret SHALL go to the repository. A 403 of the environments API SHALL be a person step with the document of environments.
+A private repository whose ruleset probe answers 403 SHALL get no release flow, also with `--release-flow`: the render SHALL answer `release_flow: false`, rows 5 and 6 SHALL be `skipped`, and no secret SHALL go to the repository. A 403 of the environments API SHALL be a person step with the document of environments.
 
 #### Scenario: A private repository on the Free plan
 - **WHEN** the repository is private, the rulesets probe answers 403 and `--confirm` runs
@@ -153,11 +165,15 @@ Row 10 SHALL write the ruleset `main` of the baseline with each required check o
 - **THEN** the ruleset requires that check and no other
 
 ### Requirement: The command starts the merge of the template pull request
-After the checks of the template pull request pass, row 11 SHALL mark it ready and SHALL turn on auto-merge with the squash method and the head that the checks ran on. When GitHub reports that the pull request can merge now, the row SHALL merge it with the squash method and that head.
+After the checks of the template pull request pass, row 11 SHALL mark it ready and SHALL turn on auto-merge with the squash method and the head that the checks ran on. When GitHub reports that the pull request can merge now, the row SHALL merge it with the squash method and that head. When the head of the pull request is not the head that the checks ran on, the row SHALL be `waiting` and SHALL send no write.
 
 #### Scenario: A pull request with nothing to wait for
 - **WHEN** the merge state of the pull request is `CLEAN`
 - **THEN** the row sends `markPullRequestReadyForReview` and `mergePullRequest`, and no `enablePullRequestAutoMerge`
+
+#### Scenario: A head that moves after its checks
+- **WHEN** a commit reaches the template branch after the run reads the checks of its head
+- **THEN** row 11 is `waiting`, and the pull request does not merge and gets no auto-merge
 
 ### Requirement: The webhook row writes the hook and keeps its secret
 Row 12 SHALL be `present` when one active hook has `service.webhook_url`, the content type `json`, each event of `CONST_ROADMAP_WEBHOOK_EVENTS` or `*`, and its secret in `service.webhook_secrets`. With `--confirm`, a missing hook SHALL get `POST` and a wrong hook SHALL get `PATCH`, each with a new secret that goes into the keyring map `service.webhook_secrets` and into no output.

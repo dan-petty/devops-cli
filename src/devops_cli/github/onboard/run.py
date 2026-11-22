@@ -25,6 +25,7 @@ from devops_cli.github.onboard.baseline import (
 from devops_cli.github.onboard.model import (
     OnboardOptions,
     OnboardReport,
+    PersonStep,
     Row,
     RowContext,
     RowState,
@@ -103,6 +104,7 @@ class _Run:
         self.rows: dict[int, Row] = {}
         self.baseline: Baseline | None = None
         self.baseline_error: str | None = None
+        self.baseline_steps: tuple[PersonStep, ...] = ()
         self.kept: tuple[str, ...] = ()
 
     def wanted(self, number: int) -> bool:
@@ -126,7 +128,14 @@ class _Run:
         if baseline is None:
             reason = self.baseline_error or "the baseline was not read"
             return self.put(
-                number, lambda: Row(number, ROW_NAMES[number], RowState.NOT_READABLE, reason=reason)
+                number,
+                lambda: Row(
+                    number,
+                    ROW_NAMES[number],
+                    RowState.NOT_READABLE,
+                    reason=reason,
+                    steps=self.baseline_steps,
+                ),
             )
         return self.put(number, lambda: step(baseline))
 
@@ -145,6 +154,7 @@ class _Run:
             self.baseline = render_baseline(self.session, template, options.repo.name, ref, given)
         except BaselineUnreadableError as exc:
             self.baseline_error = exc.message
+            self.baseline_steps = (exc.step,) if exc.step else ()
 
 
 def _skip_rest(run: _Run, reason: str) -> None:
@@ -193,6 +203,13 @@ def _pull_rows(run: _Run, template: str) -> None:
     run.with_baseline(11, lambda _baseline: ready_row(session, writer, ctx, state))
 
 
+def _preflight(run: _Run, step: Callable[[], Row]) -> None:
+    """Run row 0. With `--confirm`, a failed row 0 stops the run before its next write."""
+    preflight = run.put(0, step)
+    if run.ctx.options.confirm and preflight is not None and preflight.state is RowState.FAILED:
+        run.ctx.stopped = "the preflight failed"
+
+
 def onboard_repository(
     options: OnboardOptions,
     *,
@@ -208,21 +225,19 @@ def onboard_repository(
     template = settings.github.template_repository
     scopes = token_scopes(session)
     read_repository(session, ctx)
+    if ctx.repo_payload is None:
+        # Without a repository, row 0 checks the scopes only, before row 1 can create it.
+        _preflight(run, lambda: preflight_row(session, ctx, None, scopes=scopes, probe=None))
     create = run.put(1, lambda: create_row(session, writer, ctx))
     if ctx.repo_payload is None:
-        reason = "the repository does not exist yet"
+        reason = ctx.stopped or "the repository does not exist yet"
         if create is not None and create.state is RowState.PENDING:
             reason = "--confirm creates the repository first"
-        run.put(0, lambda: preflight_row(session, ctx, None, scopes=scopes, probe=None))
         _skip_rest(run, reason)
         return _report(run)
     probe = probe_rulesets(session, ctx)
     run.read_baseline(template)
-    preflight = run.put(
-        0, lambda: preflight_row(session, ctx, run.baseline, scopes=scopes, probe=probe)
-    )
-    if options.confirm and preflight is not None and preflight.state is RowState.FAILED:
-        ctx.stopped = "the preflight failed"
+    _preflight(run, lambda: preflight_row(session, ctx, run.baseline, scopes=scopes, probe=probe))
     _settings_rows(run)
     _pull_rows(run, template)
     run.put(12, lambda: webhook_row(session, writer, ctx, settings))

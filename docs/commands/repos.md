@@ -172,7 +172,7 @@ devops repos onboard [OPTIONS] <repo>
 | `--create` | `boolean` | - | Create the repository of the login when it does not exist. Needs --visibility. |
 | `--visibility` | `choice (public|private)` | - | The visibility of a repository that --create makes. |
 | `--scope` | `string` | - | A Conventional Commit scope of the repository, for its scope/* label. Give it once for each scope. An answer: it applies before .copier-answers.yml exists. |
-| `--release-flow` / `--no-release-flow` | `boolean` | - | Give the repository the release flow of release-please, or not. The default: yes when the repository can have environments (D2). An answer. |
+| `--release-flow` / `--no-release-flow` | `boolean` | - | Give the repository the release flow of release-please, or not. The default: yes. A repository that can have no environment gets none, also with this flag (D2). An answer. |
 | `--release-type` | `choice (simple|python|node)` | - | The release type of release-please. An answer. |
 | `--template-ref` | `string` | - | The tag of the template repository to render. The default: _commit of .copier-answers.yml, else the latest release. |
 | `--release-key-file` | `path` | - | A PEM file that holds the private key of the release App. The default: the credential github.release_app_private_key. |

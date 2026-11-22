@@ -719,8 +719,8 @@ class ReposCommandHelp:
         "each scope. An answer: it applies before .copier-answers.yml exists."
     )
     onboard_release_flow: str = (
-        "Give the repository the release flow of release-please, or not. The default: yes when "
-        "the repository can have environments (D2). An answer."
+        "Give the repository the release flow of release-please, or not. The default: yes. A "
+        "repository that can have no environment gets none, also with this flag (D2). An answer."
     )
     onboard_release_type: str = "The release type of release-please. An answer."
     onboard_template_ref: str = (

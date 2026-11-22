@@ -274,7 +274,9 @@ def ready_row(
     session: GitHubSession, writer: RouteWriter, ctx: RowContext, template_state: RowState
 ) -> Row:
     """Row 11: after the checks of the template pull request pass, mark it ready and turn on
-    auto-merge, or merge it at once when GitHub has nothing to wait for (D3)."""
+    auto-merge, or merge it at once when GitHub has nothing to wait for (D3). A head that moved
+    after the checks waits for the next run. The merge and the auto-merge name the head that the
+    checks ran on (`expectedHeadOid`), so GitHub refuses them when the head moves later."""
     name = "Ready"
     if template_state is RowState.PRESENT:
         return Row(11, name, RowState.PRESENT)
@@ -300,7 +302,14 @@ def ready_row(
             RowState.PRESENT,
             reason=f"#{ctx.template_pull} merges when its required checks pass",
         )
-    node, head = str(pull["node_id"]), str(pull["head"]["sha"])
+    node, head = str(pull["node_id"]), ctx.template_head or str(pull["head"]["sha"])
+    if str(pull["head"]["sha"]) != head:
+        return Row(
+            11,
+            name,
+            RowState.WAITING,
+            reason=f"#{ctx.template_pull} got a commit after its checks; the next run checks it",
+        )
     changes: list[str] = []
     if pull.get("draft"):
         error = _graphql_errors(writer.graphql("pull-ready", _READY_MUTATION, {"id": node}))
