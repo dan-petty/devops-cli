@@ -551,6 +551,20 @@ def test_a_body_that_starts_with_a_blank_line_at_the_limit_has_no_problem(
     assert [p.rule for p in result.problems] == []
 
 
+@pytest.mark.parametrize("plans", ["Plans #1 ", " Plans #1"])
+def test_a_plans_line_with_whitespace_at_its_ends_ends_the_measured_text(
+    stage_repo: StageRepo, plans: str
+) -> None:
+    """The plan check takes a `Plans` line with whitespace at its ends as the plan of the issue,
+    so the limit measures only the text above that line (#6735)."""
+    sha = _push(stage_repo, _change())
+    body = f"{'a' * BODY_MAX_CHARS}\n\n{BODY.replace('Plans #1', plans, 1)}"
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
+
+    assert [p.rule for p in result.problems] == []
+
+
 def test_an_unread_check_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
 

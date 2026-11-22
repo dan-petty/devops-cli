@@ -310,6 +310,19 @@ def test_a_line_that_the_form_takes_as_no_closes_line_stays_in_the_measured_text
     assert _lengths(pull_form.body_problems(body)) == ["1007"]
 
 
+@pytest.mark.parametrize("closes", ["Closes #5020 ", " Closes #5020", "\tCloses #5020\t"])
+def test_a_closes_line_with_whitespace_at_its_ends_ends_the_measured_text(closes: str) -> None:
+    """The measured text ends at a `Closes` line with whitespace at its ends, as the plan check
+    reads the `Plans` line, so the open step names the line and not a false length (#6735)."""
+    text = "a" * BODY_MAX_CHARS
+    body = f"{text}\n\n{closes}\n\nChange: `openspec/changes/5020-one-measure/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert pull_form.measured_body_text(body.replace("Closes", "Plans"), "Plans") == text
+    problems = pull_form.open_body_problems(body, issue=5020, plan=False)
+    assert [("no line `Closes" in p) for p in problems] == [True]
+
+
 def test_the_docstring_of_the_body_check_names_the_text_above_closes() -> None:
     documented = body_problems.__doc__ or ""
 
