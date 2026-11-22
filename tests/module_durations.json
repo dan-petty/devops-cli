@@ -519,7 +519,6 @@
   "tests/core/test_process_contract.py": 0.4,
   "tests/core/test_process_hardening.py": 1.4,
   "tests/core/test_public_export_surface.py": 6.3,
-  "tests/core/test_renovate_config.py": 0.0,
   "tests/core/test_repos_worktrees_add.py": 12.3,
   "tests/core/test_review_dry_run_preview.py": 0.0,
   "tests/core/test_roadmap_implement_planned_run.py": 24.6,

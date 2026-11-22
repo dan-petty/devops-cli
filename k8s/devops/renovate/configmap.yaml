@@ -6,9 +6,9 @@
 # - `autodiscover`: the installation of the App `dan-petty-renovate` is the scope, so no
 #   repository list is copied here.
 # - `onboarding` is false and `requireConfig` is `required`: a repository with no Renovate config
-#   gets no onboarding pull request, and Renovate skips it. Only devops-cli holds a config. #4913
-#   turns `onboarding` on for the other Service repositories, and then `onboardingConfig` extends
-#   the shared preset of #4896.
+#   gets no onboarding pull request, and Renovate skips it. #4913 turns `onboarding` on for the
+#   other Service repositories, and then `onboardingConfig` extends the shared preset
+#   `renovate/base.json` of dan-petty/infra.
 # - `binarySource: install`: containerbase installs the uv, Python and Node versions that a
 #   repository asks for. `containerbaseDir` keeps the downloads on the claim, under `cacheDir`.
 #   Renovate keeps the OSV database in `cacheDir` too.
@@ -50,7 +50,7 @@ data:
       "onboarding": false,
       "requireConfig": "required",
       "onboardingConfig": {
-        "extends": ["github>dan-petty/devops-cli//.github/renovate/base"]
+        "extends": ["github>dan-petty/infra//renovate/base"]
       },
       "binarySource": "install",
       "cacheDir": "/cache",
