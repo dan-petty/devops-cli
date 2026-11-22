@@ -75,11 +75,14 @@ _LEAD: Final[re.Pattern[str]] = re.compile(
     r"(?:\S+\s+)*?(?P<word>[^\W\d_][\w-]*)\s+#(?P<number>[0-9]+)(?![0-9])[\s:\u2013\u2014-]*"
     r"(?P<rest>.*)"
 )
-_CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
-_PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
-# The line that ends the text that the body limit measures, for each form, when the whitespace at
-# the ends of the line is removed: the plan check reads the `Plans` line so (#6735).
-_TEXT_ENDS: Final[dict[str, re.Pattern[str]]] = {"Closes": _CLOSES_LINE, "Plans": _PLANS_LINE}
+# The marker line of each form: `Closes #<issue>` in a delivery and `Plans #<issue>` in a plan,
+# when the whitespace at the ends of the line is removed. It ends the text that the body limit
+# measures. The issue has ASCII digits only, because GitHub links no other digit (#6735).
+type MarkerLine = Literal["Closes", "Plans"]
+_MARKER_LINES: Final[dict[MarkerLine, re.Pattern[str]]] = {
+    "Closes": re.compile(r"Closes #(?P<issue>[0-9]+)"),
+    "Plans": re.compile(r"Plans #(?P<issue>[0-9]+)"),
+}
 # GitHub closes the issue that follows one of these words, with an optional colon.
 _CLOSING_REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE
@@ -274,14 +277,14 @@ def open_body_problems(body: str, *, issue: int | None, plan: bool) -> list[str]
 def _closing_problems(body: str, lines: Sequence[str]) -> tuple[list[str], int | None, int | None]:
     """The problems of the `Closes` line, the issue it names and the index of its line."""
     texts = MESSAGES.pr
-    closing = [(i, m) for i, line in enumerate(lines) if (m := _CLOSES_LINE.fullmatch(line))]
+    closing = _marker_lines(lines, "Closes")
     references = len(_CLOSING_REFERENCE.findall(body))
     if not closing:
         return [texts.form_closes_missing], None, None
     if references != 1 or len(closing) != 1:
         return [texts.form_closes_many.format(count=max(references, len(closing)))], None, None
-    index, match = closing[0]
-    return [], int(match["issue"]), index
+    index, issue = closing[0]
+    return [], issue, index
 
 
 def _change_problems(lines: Sequence[str]) -> tuple[list[str], int | None, int | None]:
@@ -340,9 +343,9 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     """
     texts = MESSAGES.pr
     lines = body.strip().splitlines()
-    plans = [(i, m) for i, line in enumerate(lines) if (m := _PLANS_LINE.fullmatch(line))]
+    plans = _marker_lines(lines, "Plans")
     problems: list[str] = []
-    if len(plans) != 1 or int(plans[0][1]["issue"]) != issue:
+    if len(plans) != 1 or plans[0][1] != issue:
         problems.append(texts.form_plans_missing.format(issue=issue))
     if _CLOSING_REFERENCE.search(body):
         problems.append(texts.form_plan_closes)
@@ -368,20 +371,35 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     return problems
 
 
-def measured_body_text(body: str, line: Literal["Closes", "Plans"]) -> str:
-    """The text of `body` above its first line that is `<line> #<issue>` when the whitespace at the
-    ends of that line is removed, with the whitespace at the two ends of the text removed, and the
-    whole body when it has no such line: the part that the limit of `BODY_MAX_CHARS` characters
-    measures (#6633).
+def marker_issue(text: str, line: MarkerLine) -> int | None:
+    """The issue of `text` when it is the marker line `<line> #<issue>` once the whitespace at its
+    two ends is removed, and None for any other text.
+
+    Each reader of the `Closes` line and of the `Plans` line takes the line by this one rule: the
+    form checks, the measure of the body limit, the plan check and the grounding of a plan. Thus
+    no two readers of one body take a different line as the marker line (#6735)."""
+    match = _MARKER_LINES[line].fullmatch(text.strip())
+    return int(match["issue"]) if match else None
+
+
+def _marker_lines(lines: Sequence[str], line: MarkerLine) -> list[tuple[int, int]]:
+    """The index and the issue of each of `lines` that `marker_issue` takes as the line `line`."""
+    return [(i, n) for i, text in enumerate(lines) if (n := marker_issue(text, line)) is not None]
+
+
+def measured_body_text(body: str, line: MarkerLine) -> str:
+    """The text of `body` above its first marker line `<line> #<issue>` that `marker_issue` takes,
+    with the whitespace at the two ends of the text removed, and the whole body when it has no
+    such line: the part that the limit of `BODY_MAX_CHARS` characters measures (#6633).
 
     The open step, the ready check, the plan form check and the plan check all measure this text,
     so they agree on one body. The lines are those of `body.strip()`, which the form check reads, so
-    a blank line at the start counts at no check. The plan check takes a `Plans` line with
-    whitespace at its ends as the plan of the issue, so the text ends at that line too, and the
-    open step names a `Closes` line with a space at its end, not a false length (#6735)."""
+    a blank line at the start counts at no check. The form check counts each marker line that
+    `marker_issue` takes, so a second marker line below the first one is a problem, and no text
+    below the first one passes unmeasured (#6735)."""
     lines = body.strip().splitlines()
-    ends = _TEXT_ENDS[line]
-    end = next((i for i, text in enumerate(lines) if ends.fullmatch(text.strip())), len(lines))
+    markers = _marker_lines(lines, line)
+    end = markers[0][0] if markers else len(lines)
     return "\n".join(lines[:end]).rstrip()
 
 

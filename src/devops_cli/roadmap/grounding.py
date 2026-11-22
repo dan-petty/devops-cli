@@ -32,6 +32,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.github.client import PullRequestFile
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.pull_form import marker_issue
 
 
 class ChangedFilesRead(NamedTuple):
@@ -327,7 +328,6 @@ def grounding_blockers(grounding: Grounding) -> list[str]:
 # The title that the stage job writes for a plan (`staging_title`): the pull request plans an item
 # and delivers none, so the rules of a delivery do not apply to it (#3280).
 _PLAN_TITLE_RE = re.compile(r"docs\(openspec\): plan #(?P<issue>\d+) ")
-_PLANS_LINE_RE = re.compile(r"^Plans #(?P<issue>\d+)\s*$", re.MULTILINE)
 
 
 def plan_issue(title: str) -> int | None:
@@ -348,17 +348,17 @@ def plan_blockers(
 ) -> list[str]:
     """The blocker of each rule of a plan that its body or its files break, in a fixed order.
 
-    The body has exactly one line `Plans #<issue>` and no closing keyword. The plan adds or
-    changes a file of the active change folder of the issue and changes nothing under the living
-    specs. A file list
-    that holds GitHub's limit of files is one blocker in place of the file rules (#2530).
+    The body has exactly one line `Plans #<issue>`, by the rule of `marker_issue` that the form
+    check reads (#6735), and no closing keyword. The plan adds or changes a file of the active
+    change folder of the issue and changes nothing under the living specs. A file list that holds
+    GitHub's limit of files is one blocker in place of the file rules (#2530).
     """
     # Imported here: `stage_change` loads the model client, and `pr --help` must not (startup budget).
     from devops_cli.roadmap.stage.stage_change import closing_keyword_in
 
     texts = MESSAGES.pr
     found: list[str] = []
-    plans = [int(match.group("issue")) for match in _PLANS_LINE_RE.finditer(body)]
+    plans = [n for text in body.splitlines() if (n := marker_issue(text, "Plans")) is not None]
     if plans != [issue]:
         found.append(texts.grounding_plan_no_plans_line.format(number=pr_num, issue=issue))
     if (keyword := closing_keyword_in(body)) is not None:

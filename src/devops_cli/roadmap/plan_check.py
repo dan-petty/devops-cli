@@ -59,6 +59,7 @@ from devops_cli.roadmap.plan_read import (
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
     SUMMARY_MAX_CHARS,
+    marker_issue,
     measured_body_text,
     summary_length,
 )
@@ -88,7 +89,6 @@ _SPECS: Final[str] = CONST_OPENSPEC_SPECS_DIR
 _PROPOSAL: Final[str] = "proposal.md"
 _REQUIREMENT: Final[re.Pattern[str]] = re.compile(r"^### Requirement: (?P<name>.+?)[ \t]*$", re.M)
 _SCENARIO: Final[str] = "#### Scenario:"
-_PLANS: Final[re.Pattern[str]] = re.compile(r"^Plans #(?P<issue>[0-9]+)$")
 _TITLE: Final[re.Pattern[str]] = re.compile(
     rf"^{re.escape(STAGING_TYPE)}: plan #(?P<issue>[0-9]+) (?P<summary>\S.*)$"
 )
@@ -193,12 +193,10 @@ def _session_client() -> PlanReads:
 
 
 def issue_number(body: str) -> int | None:
-    """The issue of the `Plans #<issue>` line of `body`, or None when it holds none."""
-    for line in body.splitlines():
-        match = _PLANS.fullmatch(line.strip())
-        if match is not None:
-            return int(match["issue"])
-    return None
+    """The issue of the first `Plans #<issue>` line of `body` that `marker_issue` takes, as the
+    form check and the measure of the body limit take it, or None when it holds none (#6735)."""
+    lines = body.splitlines()
+    return next((n for text in lines if (n := marker_issue(text, "Plans")) is not None), None)
 
 
 def _is_a_delivery(body: str) -> bool:
