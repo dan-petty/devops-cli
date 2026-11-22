@@ -874,6 +874,23 @@ def test_the_stage_plan_pushes_the_plan_commit_from_a_new_repository() -> None:
     ]
 
 
+def test_the_stage_plan_deletes_the_branch_of_a_refused_draft_where_the_push_went() -> None:
+    """The delete of the branch of a draft that GitHub refused goes from a new repository, as the
+    push of the plan commit does, with a lease on the pushed commit (#6710)."""
+    from devops_cli.roadmap.request_plan import stage_requests
+
+    _, writes = stage_requests(REPO)
+
+    cond = MESSAGES.roadmap.stage_request_conditions["delete_failed"]
+    lines = [" ".join(request.argv) for request in writes if request.condition == cond]
+    assert lines == [
+        "git init --quiet <new git folder>",
+        "git -C <new git folder> remote add origin <URL of origin>",
+        "git -C <new git folder> push --quiet --force-with-lease=refs/heads/<branch>:<pushed tip> "
+        "origin :refs/heads/<branch>",
+    ]
+
+
 def test_the_stage_plan_reads_the_tracked_files_of_the_clone_once_for_the_round() -> None:
     from devops_cli.roadmap.request_plan import stage_requests
 

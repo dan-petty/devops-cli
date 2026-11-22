@@ -140,7 +140,8 @@ spec:
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
-                # The blobless clone of the repository and the worktree of the publish.
+                # The blobless clone of the job, the full clone of the run folder of the plan
+                # write and the new repository of publish (#6704).
                 - name: home
                   mountPath: /home/devops
                 - name: config

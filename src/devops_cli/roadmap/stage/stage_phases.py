@@ -33,13 +33,22 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.repo import resolve_data_path
+from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.phases.checkout import clone_branch
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.phases.patch import write_patch
-from devops_cli.roadmap.phases.publish import NewTree, PublishTarget, git_call, publish_patch
+from devops_cli.roadmap.phases.publish import (
+    NewTree,
+    PublishTarget,
+    delete_branch,
+    git_call,
+    publish_patch,
+)
 from devops_cli.roadmap.stage.stage_change import write_change_files
+
+_OPERATION = "roadmap.stage.push"
 
 
 def _runs() -> Path:
@@ -68,11 +77,20 @@ def push_plan(
     of `repo` as one commit of `identity`, the name and the email that the clone of the job
     commits as, with `message`, and give the commit on `origin`. `lease` is the commit that a
     re-stage must find on `origin`; None takes the tip that `prepare` finds. A branch that holds
-    the same tree already gets no new commit, and the commit is its tip."""
+    the same tree already gets no new commit, and the commit is its tip. A re-stage whose branch
+    moved past `lease` pushes nothing, also when the new tree is the tree of `lease` and no push
+    would meet the lease (#3387)."""
     with tempfile.TemporaryDirectory(prefix="devops-stage-", dir=_runs()) as root:
         folders = RunFolders(Path(root)).make()
         url = CONST_GITHUB_CLONE_URL.format(repo=repo)
         clone = clone_branch(folders.work, url=url, issue=issue, branch=branch, identity=identity)
+        if lease is not None and lease != clone.lease:
+            raise GitOperationError(
+                MESSAGES.roadmap.stage_restage_moved.format(
+                    branch=branch, recorded=lease, tip=clone.lease or "none"
+                ),
+                operation=_OPERATION,
+            )
         # The plan replaces the change folder of a pushed branch: the patch holds only the files
         # of the plan, from the commit that the planner read.
         git_call(clone.path, "switch", "--quiet", "-C", branch, staged, home=folders.state)
@@ -95,4 +113,19 @@ def push_plan(
     return published.commit
 
 
-__all__ = ["push_plan"]
+def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
+    """Delete `branch` of `repo`, which `push_plan` pushed at `tip`, from the repository that the
+    push went to, with a lease on `tip`: the cleanup of a draft that GitHub refused (#6710)."""
+    delete_branch(
+        PublishTarget(
+            url=CONST_GITHUB_CLONE_URL.format(repo=repo),
+            branch=branch,
+            base=tip,
+            lease=tip,
+            author="",
+            email="",
+        )
+    )
+
+
+__all__ = ["delete_plan_branch", "push_plan"]

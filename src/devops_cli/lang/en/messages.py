@@ -4522,14 +4522,19 @@ class RoadmapMessages:
         "The checkout has changes that are not committed, so the tools would read files that the "
         "staged commit does not hold."
     )
-    # A re-stage pushes with a lease on the commit that `stage.sha` records, and the record of the
-    # item holds none (#3387).
     stage_push_no_change: str = (
         "The plan of #{number} changes no file of the default branch, so the job pushed nothing."
     )
+    # A re-stage pushes with a lease on the commit that `stage.sha` records, and the record of the
+    # item holds none (#3387).
     stage_restage_no_sha: str = (
         "The record of #{number} holds no `stage.sha`, so the job cannot push the plan that "
         "replaces the one of its draft pull request."
+    )
+    # The branch of a re-stage moved past the commit that `stage.sha` records (#3387, #6710).
+    stage_restage_moved: str = (
+        "The branch `{branch}` is at `{tip}` on origin, past the commit `{recorded}` that the plan "
+        "replaces, so the job pushes nothing."
     )
     git_failed: str = "`git {command}` failed: {reason}"
     # The comments of the stage job; each starts with its marker. The plan-state comment of a plan

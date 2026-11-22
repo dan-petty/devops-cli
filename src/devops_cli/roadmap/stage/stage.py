@@ -298,7 +298,7 @@ from devops_cli.roadmap.stage.stage_paths import (
     record_test_references,
 )
 from devops_cli.roadmap.stage.stage_pending import PendingStage, orphan_mark
-from devops_cli.roadmap.stage.stage_phases import push_plan
+from devops_cli.roadmap.stage.stage_phases import delete_plan_branch, push_plan
 from devops_cli.roadmap.stage.stage_plan_record import (
     PlanFacts,
     RefusedRecord,
@@ -3793,9 +3793,10 @@ def _lease(target: StageTarget) -> str | None:
     return recorded
 
 
-def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
-    """The draft pull request of the pushed branch. When GitHub does not make it, the branch
-    goes from `origin`, so no remote branch stays without an open pull request."""
+def _open_pull(repo: str, source: Path, change: StagedChange, sha: str) -> CreatedPull:
+    """The draft pull request of the branch that the job pushed at `sha`. When GitHub does not
+    make it, the branch goes from `origin`, from the repository that the push went to, so no
+    remote branch stays without an open pull request (#6710)."""
     branch = change.target.branch
     try:
         from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
@@ -3813,7 +3814,7 @@ def _open_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
         )
         return CreatedPull(number=res.number, html_url=res.html_url, labels=res.labels)
     except DevOpsCLIError:
-        _git(source, "push", "origin", "--delete", branch)
+        delete_plan_branch(repo, branch, sha)
         raise
 
 
@@ -3828,12 +3829,12 @@ def _update_pull(repo: str, pull: int, change: StagedChange) -> CreatedPull:
     return CreatedPull(number=pull, html_url="", labels=labels)
 
 
-def _published_pull(repo: str, source: Path, change: StagedChange) -> CreatedPull:
+def _published_pull(repo: str, source: Path, change: StagedChange, sha: str) -> CreatedPull:
     """The draft pull request of the pushed branch: the one that the target names, which the job
     updates, or a new draft (#3387)."""
     replaced = change.target.replace_pull
     if replaced is None:
-        return _open_pull(repo, source, change)
+        return _open_pull(repo, source, change, sha)
     return _update_pull(repo, replaced, change)
 
 
@@ -4025,7 +4026,7 @@ def _stage_one(
         lease=_lease(target),
         identity=(_git(source, "config", "user.name"), _git(source, "config", "user.email")),
     )
-    pull = _published_pull(repo, source, change)
+    pull = _published_pull(repo, source, change, sha)
     store.set_marks(
         target.item,
         {
@@ -4134,17 +4135,13 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
     Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
     that is gone needs only the record cleared. Under #5499, an App-only branch of a Ready item
-    is kept so the stage pipeline can resume on it: its intent mark `stage.pending` stays, which
-    is what a later round resumes on (#6668)."""
-    marks = dict.fromkeys(STAGE_REMOVAL_KEYS)
+    is kept so the stage pipeline can resume on it."""
     if not removal.gone:
         if removal.pull is not None:
             get_github_session().client.close_pull(repo, removal.pull)
-        if removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY:
-            del marks[StageRecordKey.PENDING]
-        else:
+        if not (removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY):
             _git(source, "push", "origin", "--delete", removal.branch)
-    store.set_marks(removal.item, marks)
+    store.set_marks(removal.item, dict.fromkeys(STAGE_REMOVAL_KEYS))
 
 
 def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:

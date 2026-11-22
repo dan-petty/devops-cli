@@ -162,8 +162,8 @@ def test_a_re_stage_pushes_to_the_same_branch_updates_its_draft_and_names_it(
     old = _push_old_plan(stage_repo)
     item = _staged_item(store, old)
     base = stage_repo.git("rev-parse", "HEAD")
-    # The default branch moves after the draft read it, so the rebase rewrites the tip of the
-    # branch and the push is no fast-forward.
+    # The default branch moves after the draft read it, so the new plan commit goes on the new
+    # tip and the push is no fast-forward.
     stage_repo.track({"README.md": "The default branch moved.\n"})
     _route_update(github_api, head=old)
 
@@ -231,6 +231,62 @@ def test_a_branch_that_moved_past_the_recorded_commit_refuses_the_push(
 
     assert applied.staged == ()
     (failure,) = applied.failed
-    # The lease on the recorded commit refuses the push (#3387).
-    assert "stale info" in failure.reason
+    # The branch is past the recorded commit, so the job pushes nothing (#3387).
+    assert (failure.error, f"past the commit `{old}`" in failure.reason) == (
+        "GitOperationError",
+        True,
+    )
     assert stage_repo.origin_git("rev-parse", BRANCH) == moved
+
+
+def test_a_re_stage_of_the_same_plan_refuses_a_branch_that_moved_past_the_recorded_commit(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    """The App pushed a commit on top of `stage.sha`, and the new plan renders the files of
+    `stage.sha` again. The new tree is the tree of the lease, so no push would refuse it: the job
+    compares the lease with the tip that `prepare` found and stops the item (#3387, #6710)."""
+    base = stage_repo.git("rev-parse", "HEAD")
+    planned = _change(store.item(ISSUE) or pytest.fail("no item"), replace_pull=PULL)
+    stage_repo.git("switch", "-q", "-c", BRANCH)
+    for path, text in planned.files.items():
+        (stage_repo.clone / path).parent.mkdir(parents=True, exist_ok=True)
+        (stage_repo.clone / path).write_text(text, encoding="utf-8")
+    stage_repo.git("add", "-A")
+    stage_repo.git("-c", f"user.name={STAGE_NAME}", "commit", "-q", "-m", "plan")
+    recorded = stage_repo.git("rev-parse", "HEAD")
+    stage_repo.git("push", "-q", "origin", BRANCH)
+    stage_repo.git("switch", "-q", "main")
+    stage_repo.git("branch", "-q", "-D", BRANCH)
+    item = _staged_item(store, recorded)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    moved = stage_repo.git("rev-parse", f"origin/{BRANCH}")
+    _route_update(github_api, head=moved)
+
+    applied = _apply(store, stage_repo, _change(item, replace_pull=PULL), base)
+
+    assert (applied.staged, [failure.error for failure in applied.failed]) == (
+        (),
+        ["GitOperationError"],
+    )
+    assert stage_repo.origin_git("rev-parse", BRANCH) == moved
+
+
+def test_a_refused_draft_deletes_the_pushed_branch_where_the_push_went(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """GitHub refuses the draft of a new plan. The delete of the pushed branch goes to the
+    repository on GitHub, as the push of `publish` does, so a push URL in the clone of the job
+    keeps no branch on `origin`, and the item fails with the refusal (#6710)."""
+    stage_repo.git("config", "remote.origin.pushurl", str(tmp_path / "elsewhere.git"))
+    base = stage_repo.git("rev-parse", "HEAD")
+    item = store.item(ISSUE) or pytest.fail("no item")
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls",
+        github_json({"message": "Validation Failed"}, status=422),
+    )
+
+    applied = _apply(store, stage_repo, _change(item, replace_pull=None), base)
+
+    assert [failure.error for failure in applied.failed] == ["RoadmapOpenRefusedError"]
+    assert stage_repo.origin_git("branch", "--format=%(refname:short)").split() == ["main"]

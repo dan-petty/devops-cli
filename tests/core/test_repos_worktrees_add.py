@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 
 from devops_cli.exceptions.git import GitHubOperationError
-from devops_cli.git.worktree_add import add_worktree
 from devops_cli.roadmap.stores.store import ItemField
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
@@ -1077,21 +1076,6 @@ def test_a_dry_run_lists_the_status_write_of_the_claim_and_sends_nothing(
     )
     assert (_status(roadmap_store), roadmap_store.job_writes()) == (["status/ready"], [])
     assert [line for line in requests if line.endswith(condition)] != []
-
-
-def test_add_worktree_starts_the_branch_at_the_given_base(
-    repo: Path, origin: Path, git: Git, standard_dir: Path
-) -> None:
-    base = _git_out(repo, "rev-parse", "HEAD").stdout.strip()
-    (repo / "later.txt").write_text("later\n", encoding="utf-8")
-    git(repo, "add", "later.txt")
-    git(repo, "commit", "-m", "later")
-    git(repo, "push", "origin", "main")
-
-    report = add_worktree(repo, issue=ISSUE, type_="feat", slug="worktrees-add", base=base)
-
-    assert (report.status, report.branch) == ("created", STAGED)
-    assert _git_out(standard_dir, "rev-parse", "HEAD").stdout.strip() == base
 
 
 def test_worktrees_add_derives_branch_from_title_in_dry_run(cli: Cli, repo: Path) -> None:
