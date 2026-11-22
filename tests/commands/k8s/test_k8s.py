@@ -34,6 +34,7 @@ from tests.support.k8s_commands import (
     minikube_stopped,
     name_contexts,
     stock_push_keyring,
+    write_path_applications,
 )
 from tests.support.tcp_probe import TcpProbe
 
@@ -106,7 +107,7 @@ def test_k8s_bootstrap_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_k8s_deploy_stack_dry_run() -> None:
+def test_k8s_deploy_stack_dry_run(process_fake: ProcessFake) -> None:
     """k8s deploy-stack with dry-run active must print dry-run Pydantic model notice."""
     set_dry_run(True)
     try:
@@ -117,7 +118,7 @@ def test_k8s_deploy_stack_dry_run() -> None:
         set_dry_run(False)
 
 
-def test_k8s_teardown_stack_dry_run() -> None:
+def test_k8s_teardown_stack_dry_run(process_fake: ProcessFake) -> None:
     """k8s teardown-stack with dry-run active must print dry-run Pydantic model notice."""
     set_dry_run(True)
     try:
@@ -235,7 +236,9 @@ def _dry_run_details(output: str) -> dict[str, Any]:
     return details
 
 
-def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing() -> None:
+def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
+    process_fake: ProcessFake,
+) -> None:
     """The dry run lists what the push would write, from the table alone, and runs no command."""
     set_dry_run(True)
     try:
@@ -269,7 +272,9 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing()
     )
 
 
-def test_deploy_stack_dry_run_makes_no_request(isolate_devops_cli_config: Path) -> None:
+def test_deploy_stack_dry_run_makes_no_request(
+    isolate_devops_cli_config: Path, process_fake: ProcessFake
+) -> None:
     """No kubectl, helm or gh child, no keyring call and no connection, with the Secret push on
     and the context left to the settings."""
     _configure_service(isolate_devops_cli_config)
@@ -277,7 +282,9 @@ def test_deploy_stack_dry_run_makes_no_request(isolate_devops_cli_config: Path) 
     assert (result.exit_code, result.exception) == (0, None)
 
 
-def test_k8s_deploy_stack_all_dry_run(isolate_devops_cli_config: Path) -> None:
+def test_k8s_deploy_stack_all_dry_run(
+    isolate_devops_cli_config: Path, process_fake: ProcessFake
+) -> None:
     """k8s deploy-stack --stack all must include infra, llm, logging, and devops components."""
     _configure_service(isolate_devops_cli_config)
     set_dry_run(True)
@@ -433,6 +440,7 @@ def _pinned_tree(root: Path, unpinned: str | None = None) -> Path:
     for release in HELM_RELEASES_BY_STACK["infra"]:
         if release["name"] != unpinned:
             _write_chart_application(root / "argocd" / "apps", release["name"], [])
+    write_path_applications(root, "infra")
     return root
 
 
@@ -442,7 +450,7 @@ def _values_options(upgrade: list[str]) -> list[str]:
 
 
 def test_deploy_stack_gives_the_prometheus_chart_the_values_files_of_its_application(
-    cli: Callable[..., Any], tmp_path: Path
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
 ) -> None:
     """The helm command of the prometheus release names the environment values, then the alert
     rules of the product base (#5292), in the order of its Application (#6680), at the version
@@ -490,6 +498,7 @@ def test_deploy_stack_gives_a_chart_the_values_files_of_its_application_in_their
         infra,
         _VALUES_SOURCE,
     )
+    write_path_applications(env, "logging")
 
     res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
     details = _dry_run_details(res.output)
@@ -528,6 +537,176 @@ def test_deploy_stack_stops_on_a_release_that_no_application_pins(
         True,
         True,
     )
+
+
+# The NetworkPolicy of the folder `logging` of a tree, and the NetworkPolicy of the Kustomize
+# component that the folder takes. A test starts no kustomize (ADR 0007): the process fake gives
+# their build.
+_LOKI_PERIMETER = (
+    "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\n"
+    "metadata:\n  name: loki-perimeter\n  namespace: logging\nspec:\n  podSelector: {}\n"
+)
+_DEFAULT_DENY = (
+    "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\n"
+    "metadata:\n  name: default-deny\n  namespace: logging\nspec:\n  podSelector: {}\n"
+)
+_PERIMETER_BUILD = f"{_LOKI_PERIMETER}---\n{_DEFAULT_DENY}"
+
+
+def _path_source_tree(root: Path, source: dict[str, str] | None = None) -> Path:
+    """An environment tree at `root` with the chart Application `loki` and the Application
+    `logging`, whose path source (`source`, else the folder `logging` of the tree) takes the local
+    Kustomize component `components/perimeter`: the shape that Argo CD builds, not the committed
+    tree. The tree is outside any repository, so the source of devops-cli stands for its origin."""
+    apps = root / "argocd" / "apps"
+    _write_chart_application(apps, "loki", [])
+    path = {"repoURL": CONST_CANONICAL_OCI_SOURCE, "targetRevision": "main"}
+    application = {
+        "apiVersion": "argoproj.io/v1alpha1",
+        "kind": "Application",
+        "metadata": {"name": "logging", "namespace": "argocd"},
+        "spec": {"source": source or {**path, "path": f"{root.name}/logging"}},
+    }
+    (apps / "logging.yaml").write_text(yaml.safe_dump(application), "utf-8")
+    component = root / "components" / "perimeter"
+    component.mkdir(parents=True)
+    (component / "kustomization.yaml").write_text(
+        "apiVersion: kustomize.config.k8s.io/v1alpha1\nkind: Component\n"
+        "resources:\n  - default-deny.yaml\n",
+        "utf-8",
+    )
+    (component / "default-deny.yaml").write_text(_DEFAULT_DENY, "utf-8")
+    (root / "logging").mkdir()
+    (root / "logging" / "kustomization.yaml").write_text(
+        "resources:\n  - networkpolicy.yaml\ncomponents:\n  - ../components/perimeter\n", "utf-8"
+    )
+    (root / "logging" / "networkpolicy.yaml").write_text(_LOKI_PERIMETER, "utf-8")
+    return root
+
+
+def test_deploy_stack_dry_run_lists_the_objects_of_the_build_of_each_path_source(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """The dry run builds the path source of Application `logging`, which takes a local
+    component, as a local read, and lists the objects of the build in place of a raw manifest
+    path (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout=_PERIMETER_BUILD))
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+    details = _dry_run_details(res.output)
+    builds = [call for call in process_fake.calls if call.argv[:2] == ("kubectl", "kustomize")]
+
+    assert (
+        res.exit_code,
+        details["path_sources"],
+        details["manifests"],
+        [(call.argv, call.local_read) for call in builds],
+    ) == (
+        0,
+        {
+            "logging: env/logging": [
+                "NetworkPolicy logging/loki-perimeter",
+                "NetworkPolicy logging/default-deny",
+            ]
+        },
+        [],
+        [(("kubectl", "kustomize", str((env / "logging").resolve())), True)],
+    )
+
+
+def test_deploy_stack_applies_the_build_of_each_path_source_and_teardown_deletes_it(
+    cluster: FakeCluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """On a cluster without Argo CD, deploy-stack applies the build of the path source before the
+    chart, and teardown-stack deletes it before the chart uninstalls (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    name_contexts(cluster, "minikube")
+    answer_helm_version(process_fake)
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout=_PERIMETER_BUILD))
+    stack = ["--stack", "logging", "--k8s-dir", str(env), *_CONTEXT]
+
+    deploy = runner.invoke(app, ["deploy-stack", "--no-push-secrets", *stack])
+    deployed = [(list(call.argv), call.stdin) for call in process_fake.calls]
+    process_fake.calls.clear()
+    teardown = runner.invoke(app, ["teardown-stack", *stack])
+    removed = [(list(call.argv), call.stdin) for call in process_fake.calls]
+    apply = (["kubectl", "apply", "-f", "-", *_CONTEXT], _PERIMETER_BUILD)
+    delete = (["kubectl", "delete", "-f", "-", "--ignore-not-found", *_CONTEXT], _PERIMETER_BUILD)
+    upgrade = next(i for i, (cmd, _) in enumerate(deployed) if cmd[:2] == ["helm", "upgrade"])
+    uninstall = next(i for i, (cmd, _) in enumerate(removed) if cmd[:2] == ["helm", "uninstall"])
+
+    assert (
+        deploy.exit_code,
+        teardown.exit_code,
+        apply in deployed[:upgrade],
+        delete in removed[:uninstall],
+    ) == (0, 0, True, True)
+
+
+def test_deploy_stack_stops_before_the_charts_when_the_cluster_refuses_a_build(
+    cluster: FakeCluster, process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A build that kubectl refuses stops the deploy with kubectl's reason, so no chart starts
+    without the perimeter of its namespace (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    name_contexts(cluster, "minikube")
+    answer_helm_version(process_fake)
+    process_fake.answer(("kubectl", "kustomize"), ProcessAnswer(stdout=_PERIMETER_BUILD))
+    process_fake.answer(
+        ("kubectl", "apply", "-f", "-"), ProcessAnswer(returncode=1, stderr="admission denied")
+    )
+
+    res = runner.invoke(
+        app,
+        ["deploy-stack", "--no-push-secrets", "--stack", "logging", "--k8s-dir", str(env)]
+        + _CONTEXT,
+    )
+
+    assert (
+        res.exit_code,
+        "admission denied" in res.output,
+        calls_starting(process_fake, "helm", "upgrade"),
+    ) == (1, True, [])
+
+
+def test_deploy_stack_dry_run_fetches_no_path_source_of_another_repository(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A path source of another repository is fetched only in the real run: the dry run lists the
+    fetch, builds nothing and gives no objects (#6681)."""
+    infra = {"repoURL": "https://example.com/infra.git", "targetRevision": "v1.0.0"}
+    env = _path_source_tree(tmp_path / "env", {**infra, "path": "k8s/logging"})
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+    details = _dry_run_details(res.output)
+
+    assert (
+        res.exit_code,
+        details["path_sources"],
+        [command[-2:] for command in details["source_fetches"] if "fetch" in command],
+        calls_starting(process_fake, "git", "init"),
+        calls_starting(process_fake, "kubectl", "kustomize"),
+    ) == (
+        0,
+        {"logging: k8s/logging": None},
+        [["https://example.com/infra", "v1.0.0"]],
+        [],
+        [],
+    )
+
+
+def test_deploy_stack_stops_on_an_application_that_the_tree_does_not_hold(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path
+) -> None:
+    """A stack whose Application is missing from the tree stops before it touches the cluster, so
+    a perimeter never goes away with no message (#6681)."""
+    env = _path_source_tree(tmp_path / "env")
+    (env / "argocd" / "apps" / "logging.yaml").unlink()
+
+    res = cli("k8s", "deploy-stack", "--stack", "logging", "--k8s-dir", str(env), "--dry-run")
+
+    assert (res.exit_code, "Application logging" in " ".join(res.output.split())) == (1, True)
 
 
 def test_deploy_stack_installs_the_barman_cloud_plugin_after_the_operator_and_cert_manager() -> (
@@ -1594,9 +1773,9 @@ class _Cluster:
     def __call__(self, call: ProcessCall) -> subprocess.CompletedProcess[str]:
         cmd, input = list(call.argv), call.stdin if isinstance(call.stdin, str) else None
         if call.local_read:
-            # A read of the checkout, such as its `origin`, reads no cluster: the empty answer of
-            # a checkout outside any repository.
-            return subprocess.CompletedProcess(cmd, 1, "", "")
+            # A read of the checkout reads no cluster: its `origin` gets the empty answer of a
+            # checkout outside any repository, and the build of a path source holds no object.
+            return subprocess.CompletedProcess(cmd, int(cmd[0] == "git"), "", "")
         self.calls.append((cmd, input))
         if cmd[0] == "git":
             if "fetch" in cmd:
@@ -2237,7 +2416,10 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization(
     ],
 )
 def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
-    stack: str, kustomizations: list[str], isolate_devops_cli_config: Path
+    stack: str,
+    kustomizations: list[str],
+    isolate_devops_cli_config: Path,
+    process_fake: ProcessFake,
 ) -> None:
     """The dry run names each kustomization the stacks apply after the root one (#1297)."""
     _configure_service(isolate_devops_cli_config)
@@ -2278,7 +2460,9 @@ _ARGO_WORKFLOWS_TEMPLATE = str(Path("k8s", "argo-workflows", "workflowtemplate-v
 _OBJECT_STORE = str(Path("k8s", "object-store"))
 
 
-def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template() -> None:
+def test_infra_dry_runs_list_the_argo_workflows_release_perimeter_and_template(
+    process_fake: ProcessFake,
+) -> None:
     """Both dry runs name the chart, the perimeter and the WorkflowTemplate. A dry run makes no
     request, which the hermetic floor enforces (#1535)."""
     deploy = runner.invoke(

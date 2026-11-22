@@ -42,7 +42,9 @@ def test_the_devops_stack_applies_the_rate_limit_before_the_ingress_that_names_i
     )
 
 
-def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
+def test_deploy_stack_devops_dry_run(
+    isolate_devops_cli_config: Path, process_fake: ProcessFake
+) -> None:
     """Verify deploy-stack --stack devops includes devops manifests in dry-run output."""
     from devops_cli.config.settings import reset_settings_cache
 
@@ -63,7 +65,9 @@ def test_deploy_stack_devops_dry_run(isolate_devops_cli_config: Path) -> None:
         set_dry_run(False)
 
 
-def test_deploy_stack_domain_option_in_dry_run(isolate_devops_cli_config: Path) -> None:
+def test_deploy_stack_domain_option_in_dry_run(
+    isolate_devops_cli_config: Path, process_fake: ProcessFake
+) -> None:
     """Verify deploy-stack propagates domain option in dry-run output."""
     from devops_cli.config.settings import reset_settings_cache
 

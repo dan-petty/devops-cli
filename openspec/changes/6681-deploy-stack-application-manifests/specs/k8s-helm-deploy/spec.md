@@ -7,8 +7,15 @@
 - **WHEN** the tree `<tmp>/env` holds the Application `logging` with the path source `env/logging`, whose kustomization takes the local component `env/components/perimeter`, `kubectl kustomize` of `<tmp>/env/logging` gives two NetworkPolicies, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --no-push-secrets` runs on a cluster without Argo CD
 - **THEN** the deploy starts `kubectl apply -f -` with the build as input before the `helm upgrade` of release `loki`
 
+### Requirement: deploy-stack stops when the cluster refuses a build
+When `kubectl apply -f -` of a build exits with an error, `devops k8s deploy-stack` SHALL exit 1 with the reason of kubectl, and SHALL install no chart.
+
+#### Scenario: A refused build stops the deploy before the charts
+- **WHEN** the tree `<tmp>/env` holds the Application `logging` of the scenario above, kubectl refuses `kubectl apply -f -` with `admission denied`, and `devops k8s deploy-stack --stack logging --k8s-dir <tmp>/env --no-push-secrets` runs on a cluster without Argo CD
+- **THEN** the command exits 1, prints `admission denied`, and starts no `helm upgrade`
+
 ### Requirement: teardown-stack deletes the builds of the path sources
-`devops k8s teardown-stack` SHALL build the same path sources as `deploy-stack`, and SHALL delete each build that holds an object with `kubectl delete -f - --ignore-not-found`, in the reverse order of the deploy, before the manifest paths and the Helm uninstalls.
+`devops k8s teardown-stack` SHALL build the same path sources as `deploy-stack`, and SHALL delete each build that holds an object with `kubectl delete -f - --ignore-not-found`, in the reverse order of the deploy, before the manifest paths and the Helm uninstalls. When kubectl refuses a delete, the teardown SHALL print the reason and go on.
 
 #### Scenario: The teardown deletes the build before the chart
 - **WHEN** the tree `<tmp>/env` holds the Application `logging` of the scenario above, and `devops k8s teardown-stack --stack logging --k8s-dir <tmp>/env` runs on a cluster without Argo CD

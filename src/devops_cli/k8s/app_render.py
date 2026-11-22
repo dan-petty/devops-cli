@@ -3,7 +3,8 @@
 Argo CD builds a path source with Kustomize. `render_path_source` builds one as `devops k8s
 image-pins` builds it: a source of the repository that holds the tree reads the checkout, and a
 source of another public repository is fetched at its revision (`devops_cli.k8s.app_sources`). A
-dry run fetches nothing, so it builds no source of another repository.
+dry run fetches nothing, so it builds no source of another repository. `devops k8s deploy-stack`
+builds the path sources of the Applications of each stack with it too (#6681).
 
 `write_path_renders` writes the build of each path source to a file of its own in one folder,
 `<application>-<index>.yaml`, where the index is the place of the source in the Application. The
@@ -39,13 +40,16 @@ _SOURCES_DIR: Final[str] = "sources"
 _WORKERS: Final[int] = 8
 
 
-def render_path_source(trees: SourceTrees, source: Mapping[str, Any]) -> str | None:
+def render_path_source(
+    trees: SourceTrees, source: Mapping[str, Any], *, local_read: bool = False
+) -> str | None:
     """The build of the path source `source` of an Application, or None in a dry run that would
-    fetch its repository."""
+    fetch its repository. With `local_read`, a dry run builds a source of a local folder, as
+    `devops k8s deploy-stack` does (#6681)."""
     tree = trees.tree(str(source.get("repoURL") or trees.origin), source_revision(source))
     if tree.planned:
         return None
-    return build_manifest_path((tree.root / str(source["path"])).resolve())
+    return build_manifest_path((tree.root / str(source["path"])).resolve(), local_read=local_read)
 
 
 def write_path_renders(

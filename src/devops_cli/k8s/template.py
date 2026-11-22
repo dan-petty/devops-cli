@@ -106,8 +106,9 @@ def render_manifest_template(
     return rendered
 
 
-def _build_kustomize_dir(target_dir: Path) -> str:
-    """Run kustomize build on a directory without template substitution."""
+def _build_kustomize_dir(target_dir: Path, *, local_read: bool = False) -> str:
+    """Run kustomize build on a directory without template substitution. With `local_read`, the
+    build runs also in a dry run, as a read of the local folder (#6681)."""
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,
@@ -115,6 +116,7 @@ def _build_kustomize_dir(target_dir: Path) -> str:
         capture_output=True,
         text=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        local_read=local_read,
     )
     if proc.returncode != 0:
         err_msg = (proc.stderr or proc.stdout or "kubectl kustomize failed").strip()
@@ -136,8 +138,9 @@ def _build_yaml_dir(target_dir: Path) -> str:
     return "\n---\n".join(parts)
 
 
-def build_manifest_path(path: str | Path) -> str:
-    """Build a manifest file or directory without domain and template substitution (#1343)."""
+def build_manifest_path(path: str | Path, *, local_read: bool = False) -> str:
+    """Build a manifest file or directory without domain and template substitution (#1343). With
+    `local_read`, a kustomization is built also in a dry run (#6681)."""
     target = Path(path).resolve()
     if not target.exists():
         raise KubernetesContextError(f"Manifest path not found: {path}")
@@ -148,7 +151,7 @@ def build_manifest_path(path: str | Path) -> str:
     if target.is_dir():
         has_kustomize = any((target / kf).exists() for kf in CONST_K8S_KUSTOMIZATION_NAMES)
         if has_kustomize:
-            return _build_kustomize_dir(target)
+            return _build_kustomize_dir(target, local_read=local_read)
         return _build_yaml_dir(target)
 
     raise KubernetesContextError(f"Invalid manifest target path: {path}")

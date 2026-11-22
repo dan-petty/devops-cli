@@ -7,12 +7,14 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
+from tests.support.fakes.process import ProcessFake
 
 runner = CliRunner()
 
 
 def test_deploy_stack_all_renders_ingest_workflow_template_and_cronworkflow(
     isolate_devops_cli_config: Path,
+    process_fake: ProcessFake,
 ) -> None:
     """devops k8s deploy-stack --stack all renders the WorkflowTemplate and CronWorkflow."""
     from devops_cli.config.settings import reset_settings_cache

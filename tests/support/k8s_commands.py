@@ -17,6 +17,7 @@ from devops_cli.config.constants import (
     CONST_ARGO_API_GROUP,
     CONST_ARGO_API_VERSION,
     CONST_ARGO_PLURAL_APPLICATIONS,
+    CONST_CANONICAL_OCI_SOURCE,
 )
 from tests.support.cluster_secret_fakes import FakeCluster as KubectlWorld
 from tests.support.fakes.keyring import FakeKeyring
@@ -47,6 +48,38 @@ def write_chart_applications(tree: Path, stack: str, version: str = "1.0.0") -> 
             },
         }
         (folder / f"{release['name']}.yaml").write_text(yaml.safe_dump(application), "utf-8")
+    write_path_applications(tree, stack)
+
+
+def write_path_applications(tree: Path, stack: str) -> None:
+    """Give each Argo CD Application of `tree` that `APPLICATIONS_BY_STACK` names for `stack` a
+    path source: an empty kustomization of the tree, which deploy-stack builds (#6681). The tree
+    is outside any repository, so the source of devops-cli stands for its origin. An Application
+    of a chart keeps its chart source."""
+    from devops_cli.commands.k8s.stack_lifecycle import APPLICATIONS_BY_STACK
+
+    folder = tree / "argocd" / "apps"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in APPLICATIONS_BY_STACK.get(stack, ()):
+        source = tree / "sources" / name
+        source.mkdir(parents=True, exist_ok=True)
+        (source / "kustomization.yaml").write_text("resources: []\n", "utf-8")
+        file = folder / f"{name}.yaml"
+        application = (
+            yaml.safe_load(file.read_text("utf-8"))
+            if file.is_file()
+            else {"apiVersion": "argoproj.io/v1alpha1", "kind": "Application"}
+        )
+        application.setdefault("metadata", {"name": name})
+        sources = application.setdefault("spec", {}).setdefault("sources", [])
+        sources.append(
+            {
+                "repoURL": CONST_CANONICAL_OCI_SOURCE,
+                "targetRevision": "main",
+                "path": f"{tree.name}/sources/{name}",
+            }
+        )
+        file.write_text(yaml.safe_dump(application), "utf-8")
 
 
 def ingress_list(*routes: tuple[str, str, str]) -> str:
