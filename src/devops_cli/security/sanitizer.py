@@ -512,8 +512,9 @@ def drop_credential_keys(data: Any) -> Any:
     """Drop each entry under a secret-suggesting name, at any depth of dicts and lists (#4147).
 
     The name rule is `is_secret_parameter_name`, the one record of a secret-suggesting name
-    (SECURITY.md rule 12). A value that is a number or a boolean under such a name is a count,
-    such as `token_budget`, and not a credential: every credential of the settings is text.
+    (SECURITY.md rule 12). A number or a boolean under such a name, such as `token_budget`,
+    stays, because a number or a boolean is no credential: every credential of the settings
+    is text.
     """
     if isinstance(data, dict):
         kept: dict[Any, Any] = {}

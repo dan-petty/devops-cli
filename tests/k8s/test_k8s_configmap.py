@@ -16,7 +16,7 @@ from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
-from devops_cli.security.sanitizer import is_secret_parameter_name
+from tests.support.credential_keys import credential_key_paths
 
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
@@ -287,30 +287,6 @@ def test_the_active_config_map_without_the_github_app_is_refused_naming_each_set
     )
 
 
-def _credential_key_paths(value: object, prefix: str = "") -> list[str]:
-    """Each key of `value`, at any depth of maps and lists, that names a credential.
-
-    A number or a boolean under such a name is a count, such as `token_budget`, and not a
-    credential (#4147).
-    """
-    if isinstance(value, dict):
-        paths: list[str] = []
-        for key, item in value.items():
-            path = f"{prefix}.{key}" if prefix else str(key)
-            if is_secret_parameter_name(str(key)) and not isinstance(item, int | float):
-                paths.append(path)
-            else:
-                paths.extend(_credential_key_paths(item, path))
-        return paths
-    if isinstance(value, list):
-        return [
-            path
-            for index, item in enumerate(value)
-            for path in _credential_key_paths(item, f"{prefix}[{index}]")
-        ]
-    return []
-
-
 _SANDBOX_TEMPLATE = (
     SAMPLE_TEMPLATE.replace(
         "    ai:\n",
@@ -372,8 +348,8 @@ def test_the_sandbox_config_map_drops_every_credential_key_and_keeps_its_name(
     inner = yaml.safe_load(manifest["data"]["devops-cli.yaml"])
 
     assert (
-        _credential_key_paths(hand_built),
-        _credential_key_paths(inner),
+        credential_key_paths(hand_built),
+        credential_key_paths(inner),
         manifest["metadata"]["name"],
         list(manifest["data"]),
         inner["ai"]["provider"],
@@ -401,7 +377,7 @@ def test_the_sandbox_config_map_keeps_a_number_under_a_credential_like_name(
     roadmap = inner["roadmap"]
 
     assert (
-        _credential_key_paths(inner),
+        credential_key_paths(inner),
         roadmap["stage"]["step_tokens"],
         roadmap["review"]["token_budget"],
         roadmap["implement"]["step_token_budget"],

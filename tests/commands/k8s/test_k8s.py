@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.dry_run import set_dry_run
 from tests.support.config_writes import written_keys
+from tests.support.credential_keys import credential_key_paths
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.kubernetes import FakeCluster, api_exception, healthy_pod, node, service
@@ -2623,32 +2624,6 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
     )
 
 
-def _credential_key_paths(value: object, prefix: str = "") -> list[str]:
-    """Each key of `value`, at any depth of maps and lists, that names a credential.
-
-    A number or a boolean under such a name is a count, such as `token_budget`, and not a
-    credential (#4147).
-    """
-    from devops_cli.security.sanitizer import is_secret_parameter_name
-
-    if isinstance(value, dict):
-        paths: list[str] = []
-        for key, item in value.items():
-            path = f"{prefix}.{key}" if prefix else str(key)
-            if is_secret_parameter_name(str(key)) and not isinstance(item, int | float):
-                paths.append(path)
-            else:
-                paths.extend(_credential_key_paths(item, path))
-        return paths
-    if isinstance(value, list):
-        return [
-            path
-            for index, item in enumerate(value)
-            for path in _credential_key_paths(item, f"{prefix}[{index}]")
-        ]
-    return []
-
-
 def test_deploy_stack_applies_the_credential_free_sandbox_config_map(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
@@ -2666,7 +2641,7 @@ def test_deploy_stack_applies_the_credential_free_sandbox_config_map(
         sandbox["metadata"]["name"],
         sandbox["metadata"]["namespace"],
         list(sandbox["data"]),
-        _credential_key_paths(inner),
+        credential_key_paths(inner),
     ) == (
         0,
         "devops-cli-config",
