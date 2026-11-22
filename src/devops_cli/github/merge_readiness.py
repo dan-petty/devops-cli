@@ -51,6 +51,7 @@ from devops_cli.github.pr_threads import (
 )
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.session import GitHubSession, get_github_session
+from devops_cli.github.workflow_triggers import PullRequestChange
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.grounding import (
     ChangedFilesRead,
@@ -259,15 +260,37 @@ def _judge_draft(verdict: _Verdict, pr_data: dict[str, Any], pr_num: int, allow:
         )
 
 
-def _can_run_on_pull_request(owner: str, repo_name: str, head_sha: str, reads: _Reads) -> bool:
-    """Whether a workflow at `head_sha` can start a check on the pull request.
+def _pull_request_change(pr_data: dict[str, Any], changed: ChangedFilesRead) -> PullRequestChange:
+    """The base branch and the changed paths that the workflow filters judge (#5408).
 
-    A repository with no such workflow has no CI for the pull request (#5144). A read that fails
-    returns True, so the pending check stays: an unread workflow is no proof of no CI.
+    A renamed file gives its new and its old path, so a filter that matches either one waits. A
+    list that is unread or holds GitHub's limit of files is unknown: None.
+    """
+    files = (
+        tuple(
+            path
+            for entry in changed.files
+            for path in (entry.filename, entry.previous_filename)
+            if path
+        )
+        if changed.complete
+        else None
+    )
+    return PullRequestChange(base=_branch_ref(pr_data, "base"), files=files)
+
+
+def _can_run_on_pull_request(
+    owner: str, repo_name: str, head_sha: str, change: PullRequestChange, reads: _Reads
+) -> bool:
+    """Whether a workflow at `head_sha` can start a check on the pull request of `change`.
+
+    A repository with no workflow whose trigger and filters take the pull request has no CI for
+    it (#5144, #5408). A read that fails returns True, so the pending check stays: an unread
+    workflow is no proof of no CI.
     """
     try:
         session = reads.session or get_github_session()
-        return session.client.pull_request_workflow_at(f"{owner}/{repo_name}", head_sha)
+        return session.client.pull_request_workflow_at(f"{owner}/{repo_name}", head_sha, change)
     except GitHubOperationError, GitHubUnreadError:
         return True
 
@@ -278,13 +301,14 @@ def _judge_checks(
     pr_num: int,
     owner: str,
     repo_name: str,
+    change: PullRequestChange,
     reads: _Reads,
 ) -> None:
     """Failing or unread checks block; running ones block unless excused.
 
-    A head commit that reports no check is no blocker where no workflow can start one (#5144). A payload
-    that names no head commit is no read of the checks: it fails closed, as a failed check read
-    does (#4927)."""
+    A head commit that reports no check is no blocker where no workflow can start one on the pull
+    request of `change` (#5144, #5408). A payload that names no head commit is no read of the
+    checks: it fails closed, as a failed check read does (#4927)."""
     if not head_sha:
         verdict.block(
             BlockerKind.CHECKS_UNREAD,
@@ -314,7 +338,9 @@ def _judge_checks(
             BlockerKind.CHECKS_FAILING,
             f"PR #{pr_num} has {len(failing)} failing check(s): {', '.join(failing)}.",
         )
-    if checks.reports_nothing and not _can_run_on_pull_request(owner, repo_name, head_sha, reads):
+    if checks.reports_nothing and not _can_run_on_pull_request(
+        owner, repo_name, head_sha, change, reads
+    ):
         verdict.no_ci = True
         verdict.inform(
             MESSAGES.pr.readiness_no_ci.format(repo=f"{owner}/{repo_name}", number=pr_num)
@@ -705,11 +731,12 @@ def assess_merge_readiness(
     _judge_mergeable(verdict, pr_data, pr_num, reads.options.allow_blocked_state)
     _judge_draft(verdict, pr_data, pr_num, reads.options.allow_draft)
     head_sha = str(pr_data.get("head", {}).get("sha") or "")
-    _judge_checks(verdict, head_sha, pr_num, owner, repo_name, reads)
-    _judge_threads(verdict, pr_num, owner, repo_name, reads)
     changed = read_changed_files(
         owner, repo_name, _branch_ref(pr_data, "base"), head_sha, session=session
     )
+    change = _pull_request_change(pr_data, changed)
+    _judge_checks(verdict, head_sha, pr_num, owner, repo_name, change, reads)
+    _judge_threads(verdict, pr_num, owner, repo_name, reads)
     _judge_stage_eval(verdict, pr_data, pr_num, changed)
     _judge_grounding(verdict, pr_data, pr_num, owner, repo_name, changed, runner)
     if changed.files and not changed.truncated:
