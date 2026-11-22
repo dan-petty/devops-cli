@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.191.1](https://github.com/dan-petty/devops-cli/compare/v0.191.0...v0.191.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **pr:** Measure the body above its trailer lines ([#6701](https://github.com/dan-petty/devops-cli/issues/6701)) ([ad63da9](https://github.com/dan-petty/devops-cli/commit/ad63da9370a79319a2c4678652bbf6699fcdf6cd))
+
+
+### Performance Improvements
+
+* **roadmap:** Cut review reads with a snapshot and counts ([#6716](https://github.com/dan-petty/devops-cli/issues/6716)) ([df731a7](https://github.com/dan-petty/devops-cli/commit/df731a771cc3d2bad8147097e2932809f675abd4))
+
+
+### Code Refactoring
+
+* **roadmap:** fix-conflict runs on the phases ([#6709](https://github.com/dan-petty/devops-cli/issues/6709)) ([6e497c2](https://github.com/dan-petty/devops-cli/commit/6e497c2b72197891ba4072f64135174283479f0c))
+* **roadmap:** stage pushes the plan commit on the phases ([#6710](https://github.com/dan-petty/devops-cli/issues/6710)) ([f075f16](https://github.com/dan-petty/devops-cli/commit/f075f16ce6350fa028d3c5526bddf82b2ce2b5f8)), closes [#6704](https://github.com/dan-petty/devops-cli/issues/6704)
+
 ## [0.191.0](https://github.com/dan-petty/devops-cli/compare/v0.190.0...v0.191.0) (2026-11-22)
 
 
