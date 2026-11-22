@@ -72,15 +72,22 @@ def test_a_marker_in_a_code_span_a_code_block_or_a_paragraph_is_no_block() -> No
 _A_BLOCK = f"{CONST_ROADMAP_REFINE_START_MARKER}\nX\n{CONST_ROADMAP_REFINE_END_MARKER}"
 
 
-def test_a_marker_that_ends_an_open_comment_of_a_person_bounds_the_block() -> None:
-    """CommonMark ends a comment at the first line that holds `-->`. A person opens a comment
-    above a job block, so the start marker is the last line of that comment, and it bounds the
-    block of refine and of the alternatives job. A marker after other text on that last line is
-    the text of the person."""
-    head = "Text.\n\n<!-- a note\n\n"
+@pytest.mark.parametrize(
+    "opened",
+    [
+        pytest.param("<!-- a note", id="comment"),
+        pytest.param("<!DOCTYPE html", id="declaration"),
+    ],
+)
+def test_a_marker_that_ends_an_open_html_block_of_a_person_bounds_the_block(opened: str) -> None:
+    """CommonMark ends a comment at the first line that holds `-->`, and a declaration at the
+    first line that holds `>`. A person opens such a block above a job block, so the start marker
+    is the last line of that block, and it bounds the block of refine and of the alternatives job.
+    A marker after other text on that last line is the text of the person."""
+    head = f"Text.\n\n{opened}\n\n"
     refine = f"{head}{_A_BLOCK}"
     alternatives = f"{head}{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nX\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
-    same_line = f"Text.\n\n<!-- a note {_A_BLOCK}"
+    same_line = f"Text.\n\n{opened} {_A_BLOCK}"
 
     assert (
         body_hash.job_block_bounds(refine),
@@ -268,3 +275,74 @@ def test_a_block_that_a_close_ends_keeps_the_markers_that_it_quotes() -> None:
         extract_section_and_outside(body),
         body_hash.block_marker_spans(body),
     ) == (body, (body, None), [])
+
+
+def _a_block_with_an_open_block(start: str, opened: str, end: str) -> str:
+    """A job block with `start` and `end`, that holds a block `opened` that a person opens."""
+    return f"{start}\nX\n{opened}\nA block of a person.\n{end}"
+
+
+_A_SECTION_WITH_AN_OPEN_FENCE = _a_block_with_an_open_block(
+    CONST_ROADMAP_REFINE_START_MARKER, "```", CONST_ROADMAP_REFINE_END_MARKER
+)
+_A_SECTION_WITH_AN_OPEN_PRE = _a_block_with_an_open_block(
+    CONST_ROADMAP_REFINE_START_MARKER, "<pre>", CONST_ROADMAP_REFINE_END_MARKER
+)
+_AN_ALTERNATIVES_BLOCK_WITH_AN_OPEN_FENCE = _a_block_with_an_open_block(
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER, "```", CONST_ROADMAP_ALTERNATIVES_END_MARKER
+)
+_AN_ALTERNATIVES_BLOCK_WITH_AN_OPEN_PRE = _a_block_with_an_open_block(
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER, "<pre>", CONST_ROADMAP_ALTERNATIVES_END_MARKER
+)
+
+
+@pytest.mark.parametrize(
+    ("refine", "alternatives", "refine_first"),
+    [
+        pytest.param(
+            _A_SECTION_WITH_AN_OPEN_FENCE,
+            _AN_ALTERNATIVES_BLOCK_WITH_AN_OPEN_PRE,
+            True,
+            id="refine-first",
+        ),
+        pytest.param(
+            _A_SECTION_WITH_AN_OPEN_PRE,
+            _AN_ALTERNATIVES_BLOCK_WITH_AN_OPEN_FENCE,
+            False,
+            id="alternatives-first",
+        ),
+    ],
+)
+def test_each_job_block_marker_can_end_a_block_that_a_person_leaves_open(
+    refine: str, alternatives: str, *, refine_first: bool
+) -> None:
+    """A person leaves a fence open above the job blocks, and a block open in each job block. The
+    start marker of the first job block ends the fence above it, and the end marker of each job
+    block ends the block in it. So one job ends two open blocks, and each reader finds the four
+    markers and both blocks (#6736)."""
+    first, second = (refine, alternatives) if refine_first else (alternatives, refine)
+    refine_markers = [CONST_ROADMAP_REFINE_START_MARKER, CONST_ROADMAP_REFINE_END_MARKER]
+    alternatives_markers = [
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    ]
+    markers = (
+        refine_markers + alternatives_markers
+        if refine_first
+        else alternatives_markers + refine_markers
+    )
+    body = f"Text.\n\n~~~\nA fence of a person.\n\n{first}\n\n{second}"
+    refine_bounds = body_hash.job_block_bounds(body) or (0, 0)
+    alternatives_bounds = body_hash.job_block_bounds(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    ) or (0, 0)
+
+    assert (
+        [marker for marker, _, _ in body_hash.block_marker_spans(body)],
+        body[slice(*refine_bounds)],
+        body[slice(*alternatives_bounds)],
+    ) == (
+        markers,
+        refine,
+        alternatives,
+    )

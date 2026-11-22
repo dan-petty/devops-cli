@@ -146,14 +146,21 @@ _OLD_SECTION = (
 )
 
 
+@pytest.mark.parametrize(
+    ("opened", "close"),
+    [
+        pytest.param("<!-- An open comment of a person.", "-->", id="comment"),
+        pytest.param("<!DOCTYPE An open declaration of a person.", ">", id="declaration"),
+    ],
+)
 def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
-    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str, close: str
 ) -> None:
     """An earlier round of refine wrote and recorded a section, and then a person opens a comment
-    above it. CommonMark ends that comment at the start marker of the section, so the start marker
-    still bounds the section. The first round replaces the section and closes the comment of the
-    person on a line of its own. Each round leaves one section, and only the first round asks the
-    model."""
+    or a declaration above it. CommonMark ends that block at the start marker of the section, so
+    the start marker still bounds the section. The first round replaces the section and closes the
+    block of the person on a line of its own. Each round leaves one section, and only the first
+    round asks the model."""
     earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
     number = seed_with_body(store, earlier)
     body_hash, section_hash = body_hashes(earlier)
@@ -161,9 +168,7 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
         require_item(store, number),
         {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
     )
-    store.write_issue_body(
-        number, f"{_PERSON}\n\n<!-- An open comment of a person.\n\n{_OLD_SECTION}"
-    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{opened}\n\n{_OLD_SECTION}")
     model_fake.answer(READY)
 
     seen, bodies = _rounds(store, git_repo, number, 3)
@@ -178,7 +183,7 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
     ) == (
         [(1, True, True)] * 3,
         1,
-        f"{_PERSON}\n\n<!-- An open comment of a person.\n-->\n\n",
+        f"{_PERSON}\n\n{opened}\n{close}\n\n",
         False,
         [first, first],
     )
