@@ -28,7 +28,7 @@ How `devops repos onboard` reads, compares and writes the settings, the template
 
 #### Scenario: Two modes
 - **WHEN** `--plan --confirm` runs
-- **THEN** the command exits 1 with an error that names both flags and sends no request
+- **THEN** the command exits 2 with an error that names the mode flags and sends no request
 
 ### Requirement: A confirm writes only the differences
 With `--confirm`, each row SHALL write only the values that differ from the baseline. A second `--confirm` on the repository that the first one onboarded SHALL send no write and SHALL exit 0. A run after a failed write SHALL go on from the live state.

@@ -173,6 +173,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_GITEA_URL` | `gitea.url` | No | The HTTPS URL of the Gitea instance (with no path) |
 | `DEVOPS_CLI_GITEA_USERNAME` | `gitea.username` | No | The Gitea user login associated with gitea.token |
 | `DEVOPS_CLI_GITHUB_DEFAULT_ORG` | `github.default_org` | No | Default GitHub organization |
+| `DEVOPS_CLI_GITHUB_RELEASE_APP_CLIENT_ID` | `github.release_app_client_id` | No | Client ID of the release App, which `devops repos onboard` writes to the variable RELEASE_APP_CLIENT_ID of the environment release |
+| `DEVOPS_CLI_GITHUB_RELEASE_APP_PRIVATE_KEY` | `github.release_app_private_key` | 🔒 Yes | PEM private key of the release App, which `devops repos onboard` seals into the secret RELEASE_APP_PRIVATE_KEY of the environment release (stored in OS keyring) |
+| `DEVOPS_CLI_GITHUB_TEMPLATE_REPOSITORY` | `github.template_repository` | No | owner/name of the repository that holds the Copier template and the settings baseline that `devops repos onboard` applies |
 | `DEVOPS_CLI_GRAFANA_PASSWORD` | `grafana.password` | 🔒 Yes | Grafana admin password (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_TOKEN` | `grafana.token` | 🔒 Yes | Grafana API token (stored in OS keyring) |
 | `DEVOPS_CLI_GRAFANA_URL` | `grafana.url` | No | Grafana service URL |

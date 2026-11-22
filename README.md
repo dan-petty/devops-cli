@@ -160,6 +160,12 @@ The roadmap lives on GitHub: the issues are its items, their labels hold their S
 
 ---
 
+## Onboard a Repository
+
+`devops repos onboard <owner>/<name> --confirm` onboards a GitHub repository in one run: it applies the settings baseline of the template repository, opens one pull request with the files of the template, and connects the Service. `--plan`, the default, reads only, and a second run on an onboarded repository writes nothing. The output ends with the steps that only a person can do. [`docs/repos/onboard.md`](docs/repos/onboard.md) gives the rows and the person steps.
+
+---
+
 ## Command Reference
 
 [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) lists each command group with its summary, and the command matrix gives the usage and the purpose of each command. Each group has a page in `docs/commands/` with the full text of each command. `devops docs generate` writes these pages from the command tree, and `devops <group> --help` shows the same text.

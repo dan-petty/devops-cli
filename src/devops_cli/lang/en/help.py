@@ -694,6 +694,49 @@ class ReposCommandHelp:
     remotes_path: str = "Extra repository checkout path outside repos/ to configure and sync."
     remotes_dry_run: str = "List remote configuration and seed operations without making changes."
     sync_no_gitea: str = "Do not push branches to Gitea remotes."
+    onboard: str = (
+        "Onboard one repository from the baseline of the template repository: settings, release "
+        "environment, labels, template pull request, ruleset and Service. Details: "
+        "docs/repos/onboard.md."
+    )
+    onboard_repo: str = "The repository as owner/name."
+    onboard_all: str = "Check each repository of service.repos. Takes --plan or --dry-run only."
+    onboard_plan: str = (
+        "Read and compare only: GET requests and the clone of the template. The default."
+    )
+    onboard_dry_run: str = (
+        "Send no request and start no program; list the reads and the write routes."
+    )
+    onboard_confirm: str = (
+        "Write each difference, open the template pull request and connect the Service."
+    )
+    onboard_create: str = (
+        "Create the repository of the login when it does not exist. Needs --visibility."
+    )
+    onboard_visibility: str = "The visibility of a repository that --create makes."
+    onboard_scope: str = (
+        "A Conventional Commit scope of the repository, for its scope/* label. Give it once for "
+        "each scope. An answer: it applies before .copier-answers.yml exists."
+    )
+    onboard_release_flow: str = (
+        "Give the repository the release flow of release-please, or not. The default: yes when "
+        "the repository can have environments (D2). An answer."
+    )
+    onboard_release_type: str = "The release type of release-please. An answer."
+    onboard_template_ref: str = (
+        "The tag of the template repository to render. The default: _commit of "
+        ".copier-answers.yml, else the latest release."
+    )
+    onboard_release_key_file: str = (
+        "A PEM file that holds the private key of the release App. The default: the credential "
+        "github.release_app_private_key."
+    )
+    onboard_rotate_release_key: str = "Seal the release key again when the environment holds it."
+    onboard_no_deploy: str = (
+        "Add the repository to service.repos, but do not run push-secrets and deploy-stack."
+    )
+    onboard_service: str = "The repository is a service: add the person step of its services entry."
+    onboard_only: str = "Run only these rows, as numbers separated by commas, such as 2,3,8."
 
 
 @dataclass(frozen=True)
@@ -2343,17 +2386,6 @@ class RoadmapCommandHelp:
     )
     release_arg: str = "The issue or item number to release."
     release_confirm: str = "Make the write to GitHub: remove the owner label."
-    onboard: str = (
-        "Check one repository against the roadmap prerequisites and create missing labels. "
-        "Details: docs/roadmap/onboard.md."
-    )
-    onboard_confirm: str = (
-        "Create missing labels, start the RAG pass for the repository, and print human steps."
-    )
-    onboard_plan: str = "Check prerequisites, print the rows, and write nothing."
-    onboard_dry_run: str = (
-        "Make no request: print the requests that a run makes, in order, with placeholders."
-    )
     review_app: str = (
         "Review a version range or a period of a repository: the facts of the window, each with "
         "its source, its query and the time of its read."

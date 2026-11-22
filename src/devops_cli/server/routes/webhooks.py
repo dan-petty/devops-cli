@@ -343,7 +343,7 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
 
 def service_consumers(service_manager: ServiceManager) -> tuple[WebhookConsumer, ...]:
     """The consumers of the Service. Each event that a GitHub consumer takes must be an event
-    that the repository hook sends: `devops roadmap onboard` requires the events of
+    that the repository hook sends: `devops repos onboard` requires the events of
     `CONST_ROADMAP_WEBHOOK_EVENTS` of the hook, and a test holds these consumers to them
     (#5035)."""
     return (roadmap_consumer(service_manager),)

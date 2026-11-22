@@ -147,6 +147,42 @@ devops repos remotes [OPTIONS]
 
 ---
 
+## `devops repos onboard`
+
+**Onboard one repository from the baseline of the template repository: settings, release environment, labels, template pull request, ruleset and Service. Details: docs/repos/onboard.md.**
+
+```bash
+devops repos onboard [OPTIONS] <repo>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | No | The repository as owner/name. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all` | `boolean` | - | Check each repository of service.repos. Takes --plan or --dry-run only. |
+| `--plan` | `boolean` | - | Read and compare only: GET requests and the clone of the template. The default. |
+| `--dry-run` | `boolean` | - | Send no request and start no program; list the reads and the write routes. |
+| `--confirm` | `boolean` | - | Write each difference, open the template pull request and connect the Service. |
+| `--create` | `boolean` | - | Create the repository of the login when it does not exist. Needs --visibility. |
+| `--visibility` | `choice (public|private)` | - | The visibility of a repository that --create makes. |
+| `--scope` | `string` | - | A Conventional Commit scope of the repository, for its scope/* label. Give it once for each scope. An answer: it applies before .copier-answers.yml exists. |
+| `--release-flow` / `--no-release-flow` | `boolean` | - | Give the repository the release flow of release-please, or not. The default: yes when the repository can have environments (D2). An answer. |
+| `--release-type` | `choice (simple|python|node)` | - | The release type of release-please. An answer. |
+| `--template-ref` | `string` | - | The tag of the template repository to render. The default: _commit of .copier-answers.yml, else the latest release. |
+| `--release-key-file` | `path` | - | A PEM file that holds the private key of the release App. The default: the credential github.release_app_private_key. |
+| `--rotate-release-key` | `boolean` | - | Seal the release key again when the environment holds it. |
+| `--no-deploy` | `boolean` | - | Add the repository to service.repos, but do not run push-secrets and deploy-stack. |
+| `--service` | `boolean` | - | The repository is a service: add the person step of its services entry. |
+| `--only` | `string` | - | Run only these rows, as numbers separated by commas, such as 2,3,8. |
+
+---
+
 ## `devops repos worktrees`
 
 ```bash

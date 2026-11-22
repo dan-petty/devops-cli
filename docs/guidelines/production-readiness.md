@@ -35,7 +35,7 @@ The scope `Repo` applies to each repository, `Service` to each workload in the c
 | OWN-3 | Each change has one issue, one OpenSpec change and one pull request. | Repo | Required | The archived changes under `openspec/changes/archive/` | [AGENTS.md](../../AGENTS.md) rule 1 | SRE-32 Engagement |
 | OWN-4 | A choice that is difficult to reverse has an ADR. | Both | Recommended | `manual`: the ADRs of the repository | The ADR index of the project | SSDF PW.1 |
 | OWN-5 | The documents tell how to deploy, configure, check and stop the service. They are correct at the merge. | Both | Required | `devops docs check`; the strict build of the docs site | [AGENTS.md](../../AGENTS.md) rule 8 | BP `documentation_basics`; SRE-E Automation |
-| OWN-6 | The repository meets the prerequisites of the roadmap jobs. | Repo | Required for a repository in `service.repos` | `devops roadmap onboard --repo <owner>/<name> --plan` shows no row `missing` | [Onboard](../roadmap/onboard.md) | - |
+| OWN-6 | The repository meets the prerequisites of the roadmap jobs. | Repo | Required for a repository in `service.repos` | `devops repos onboard <owner>/<name> --plan` exits 0 | [Onboard](../repos/onboard.md) | - |
 | OWN-7 | `AGENTS.md` routes the agents to the shared guidelines: its "Where to look" table has a row with a link to the guideline index. | Repo | Recommended | The "Where to look" table of `AGENTS.md` | This guideline | - |
 
 ## SLOs, monitoring and alerting
@@ -224,7 +224,7 @@ This is the path from an empty repository to a service in production. Each step 
 | 1. Plan | Plan the change with the draft catalog entry, the SLOs, the data class and the dependencies. | `devops openspec new` | OWN-1, SLO-1, DATA-1, DEP-1 |
 | 2. Repository | The owner makes the repository and sets its ruleset and its security settings. | GitHub settings, or the settings as code | REL-1, SEC-1, SEC-2 |
 | 2. Repository | Add the baseline files. Use a generator of devops-cli where one exists, so that no repository holds a hand copy of a generated file. | `devops ai agents --repo <path>` writes `AGENTS.md` and its pointer files | OWN-2, OWN-5, OWN-7 |
-| 2. Repository | Add the labels file and the status workflow, set up OpenSpec and write the project profile. | `devops roadmap onboard --repo <owner>/<name> --confirm`; `openspec init`; `.devops/project.toml` | OWN-3, OWN-6 |
+| 2. Repository | Apply the settings baseline, add the labels and the files of the template, and connect the Service. | `devops repos onboard <owner>/<name> --confirm` | OWN-3, OWN-6 |
 | 2. Repository | The owner installs the App and adds the repository to `service.repos`. | GitHub settings; `devops config set service.repos` | OWN-6, ACC-11 |
 | 2. Repository | Extend the shared Renovate preset of dan-petty/infra, `github>dan-petty/infra//renovate/base`. | `renovate.json` | SEC-6 |
 | 3. Build | Commit the lockfile. Pin each action, image and chart. Give each job its token permissions. | `uv lock`; `devops scan workflows`; `devops k8s image-pins` | SEC-4, SEC-5 |

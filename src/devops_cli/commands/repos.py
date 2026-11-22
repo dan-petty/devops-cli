@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -64,11 +65,13 @@ from devops_cli.output import (
     print_table,
     print_warning,
     track_progress,
+    write_stdout,
 )
 from devops_cli.output.serialization import emit_serialized, resolve_format
 from devops_cli.roadmap.claim import claim_as_agent, claim_request_lines, progress_as_agent
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.security.sanitizer import mask_secrets
+from devops_cli.telemetry import trace_span
 
 app = new_typer(help=HELP.repos.app, no_args_is_help=True)
 
@@ -1004,4 +1007,155 @@ def worktrees_prune(
     else:
         _render_prune_report(report, dry_run=is_plan, confirm=confirm)
     if report.failed_count:
+        raise typer.Exit(1)
+
+
+# =============================================================================
+# Command: devops repos onboard
+# =============================================================================
+
+
+class OnboardVisibility(StrEnum):
+    """The visibility of a repository that `--create` makes."""
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
+class OnboardReleaseType(StrEnum):
+    """The release types of release-please that the template asks."""
+
+    SIMPLE = "simple"
+    PYTHON = "python"
+    NODE = "node"
+
+
+_ONBOARD_ROWS = range(16)
+
+
+def _onboard_rows(only: str | None) -> frozenset[int] | None:
+    """The row numbers of `--only`, or None for every row."""
+    if only is None:
+        return None
+    try:
+        rows = frozenset(int(part) for part in only.split(",") if part.strip())
+    except ValueError:
+        rows = frozenset({-1})
+    if not rows or not rows <= set(_ONBOARD_ROWS):
+        raise typer.BadParameter(MESSAGES.repos.onboard_only_invalid.format(value=only))
+    return rows
+
+
+def _onboard_targets(repo: str | None, *, all_repos: bool, confirm: bool) -> list[str]:
+    """The repositories of the run: the argument, or each of service.repos with --all."""
+    if all_repos:
+        if confirm:
+            raise typer.BadParameter(MESSAGES.repos.onboard_all_confirm)
+        targets = list(load_settings().service.repos)
+        if not targets:
+            raise typer.BadParameter(MESSAGES.repos.onboard_all_empty)
+        return targets
+    if repo is None:
+        raise typer.BadParameter(MESSAGES.repos.onboard_target_needed)
+    return [repo]
+
+
+@app.command("onboard", help=HELP.repos.onboard)
+@dry_run_class("request-plan")
+@trace_span("repos.onboard")
+def onboard(
+    repo: Annotated[str | None, typer.Argument(help=HELP.repos.onboard_repo)] = None,
+    all_repos: Annotated[bool, typer.Option("--all", help=HELP.repos.onboard_all)] = False,
+    plan: Annotated[bool, typer.Option("--plan", help=HELP.repos.onboard_plan)] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.repos.onboard_dry_run)] = False,
+    confirm: Annotated[bool, typer.Option("--confirm", help=HELP.repos.onboard_confirm)] = False,
+    create: Annotated[bool, typer.Option("--create", help=HELP.repos.onboard_create)] = False,
+    visibility: Annotated[
+        OnboardVisibility | None,
+        typer.Option("--visibility", help=HELP.repos.onboard_visibility),
+    ] = None,
+    scope: Annotated[
+        list[str] | None, typer.Option("--scope", help=HELP.repos.onboard_scope)
+    ] = None,
+    release_flow: Annotated[
+        bool | None,
+        typer.Option("--release-flow/--no-release-flow", help=HELP.repos.onboard_release_flow),
+    ] = None,
+    release_type: Annotated[
+        OnboardReleaseType | None,
+        typer.Option("--release-type", help=HELP.repos.onboard_release_type),
+    ] = None,
+    template_ref: Annotated[
+        str | None, typer.Option("--template-ref", help=HELP.repos.onboard_template_ref)
+    ] = None,
+    release_key_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--release-key-file",
+            exists=True,
+            dir_okay=False,
+            help=HELP.repos.onboard_release_key_file,
+        ),
+    ] = None,
+    rotate_release_key: Annotated[
+        bool, typer.Option("--rotate-release-key", help=HELP.repos.onboard_rotate_release_key)
+    ] = False,
+    no_deploy: Annotated[
+        bool, typer.Option("--no-deploy", help=HELP.repos.onboard_no_deploy)
+    ] = False,
+    service: Annotated[bool, typer.Option("--service", help=HELP.repos.onboard_service)] = False,
+    only: Annotated[str | None, typer.Option("--only", help=HELP.repos.onboard_only)] = None,
+) -> None:
+    """Onboard one repository, or check the drift of each repository of service.repos.
+
+    `--plan` (the default) reads only, `--dry-run` sends no request, and `--confirm` writes only
+    the differences. The output ends with the steps that only a person can do.
+    """
+    from devops_cli.github.onboard.model import OnboardOptions
+    from devops_cli.github.onboard.run import onboard_repository, planned_requests, render_report
+    from devops_cli.github.repo_ref import RepoRef
+    from devops_cli.github.session import get_github_session
+
+    if sum((plan, dry_run, confirm)) > 1:
+        raise typer.BadParameter(MESSAGES.repos.onboard_modes_exclusive)
+    if create and visibility is None:
+        raise typer.BadParameter(MESSAGES.repos.onboard_create_visibility)
+    rows = _onboard_rows(only)
+    targets = _onboard_targets(repo, all_repos=all_repos, confirm=confirm)
+
+    def options_for(target: str) -> OnboardOptions:
+        return OnboardOptions(
+            repo=RepoRef(target),
+            confirm=confirm,
+            workdir=Path.cwd(),
+            create=create,
+            visibility=visibility.value if visibility else None,
+            scopes=tuple(scope or ()),
+            release_flow=release_flow,
+            release_type=release_type.value if release_type else None,
+            template_ref=template_ref,
+            release_key_file=release_key_file,
+            rotate_release_key=rotate_release_key,
+            deploy=not no_deploy,
+            service=service,
+            only=rows,
+        )
+
+    if dry_run or is_dry_run():
+        texts = MESSAGES.repos
+        template = load_settings().github.template_repository
+        for target in targets:
+            reads, writes = planned_requests(options_for(target), template)
+            render_request_plan(texts.onboard_plan_title.format(target=target), [])
+            render_request_plan(texts.onboard_plan_reads, reads)
+            render_request_plan(texts.onboard_plan_writes, writes, [texts.onboard_plan_note])
+        return
+    settings = load_settings()
+    session = get_github_session()
+    failing = False
+    for target in targets:
+        report = onboard_repository(options_for(target), session=session, settings=settings)
+        write_stdout(render_report(report) + "\n")
+        failing = failing or report.failing
+    if failing:
         raise typer.Exit(1)

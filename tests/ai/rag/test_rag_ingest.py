@@ -873,3 +873,30 @@ def test_ingest_pass_leaves_no_run_collection(tmp_path: Path) -> None:
     listed = qdrant.list_collections()
     for collection in run_collections:
         assert collection not in listed
+
+
+def test_every_written_point_carries_the_repository_project_name(tmp_path: Path) -> None:
+    """The pass names each point `owner/name`, never the directory that it runs in (#3771)."""
+    bare = _make_bare_remote(
+        tmp_path / "remote.git",
+        {"src/main.py": "def f():\n    return 1\n", "README.md": "# Roadmap\n"},
+    )
+    worktree = tmp_path / "w-3566"
+    worktree.mkdir()
+    fake_qdrant = FakeQdrantClient()
+    indexer = WorkspaceIndexer(
+        qdrant=cast(Any, fake_qdrant), embedder=FixedVectorEngine(), cache_dir=worktree
+    )
+
+    result = ingest_repository(
+        "example/roadmap",
+        data_dir=worktree,
+        remote_url=f"file://{bare}",
+        gh_runner=_make_fake_gh_runner({"example/roadmap": "private"}),
+        indexer=indexer,
+    )
+
+    assert result.success is True
+    points = [point for collection in fake_qdrant.collections.values() for point in collection]
+    assert points
+    assert {point["payload"]["project_name"] for point in points} == {"example/roadmap"}

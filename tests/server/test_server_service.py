@@ -2198,7 +2198,7 @@ def test_a_consumer_receives_only_the_events_it_subscribes_to() -> None:
 def test_each_event_that_the_service_takes_is_an_event_that_the_hook_must_send() -> None:
     """The consumer events are a subset of the hook events (#5035). Each event that a GitHub
     consumer of the Service takes, and each webhook event that a batch key of a due-table row
-    names, is an event that `devops roadmap onboard` and setup step 8 require of the repository
+    names, is an event that `devops repos onboard` and setup step 8 require of the repository
     hook. A consumer of an event that the hook does not send would never get a delivery."""
     manager = ServiceManager(
         config=_make_settings(repos=[REPO_A]).service,
