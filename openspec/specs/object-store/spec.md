@@ -89,7 +89,7 @@ The S3 gateway SHALL set `iam: false` and the arguments `-port.iceberg=0` and `-
 - **THEN** the rule reports a problem that names the Iceberg catalog of the filer
 
 ### Requirement: The S3 gateway refuses a request with no identity
-Secret `object-store/seaweedfs-s3` SHALL hold key `s3.json` with an identities file that has no identity, and the S3 gateway SHALL read it, so a request with no valid signature is refused until a person adds an identity in the admin UI.
+Secret `object-store/seaweedfs-s3` SHALL hold key `s3.json` with an identities file that has no identity, and the S3 gateway SHALL read it, so it refuses a request with no valid signature unless an identity of the filer allows the request. The operator keeps identity `anonymous` in the filer with only `Read` on `reports` and `reports-private`, and a person adds each other identity in the admin UI.
 
 #### Scenario: The table row
 - **WHEN** a test reads the row `object-store/seaweedfs-s3` of `CLUSTER_SECRETS`
@@ -257,42 +257,23 @@ The README section `Build test` SHALL measure the delay until a key written thro
 - **THEN** the cross-gateway delay is 10 seconds or less, the PUT and the GET succeed with one volume pod deleted, the filer pod cannot connect to 33646 and the worker pod connects
 
 ### Requirement: The store declares the platform buckets with their quotas
-The render of `k8s/object-store` SHALL hold a `Bucket` in namespace `devops` for `reports` (20Gi), `reports-private` (20Gi) and `cache` (10Gi), and a `Bucket` in namespace `argo-workflows` for `argo-artifacts` (10Gi). Each `Bucket` SHALL name the `Seaweed` CR `seaweedfs` of namespace `object-store` in `clusterRef`, and SHALL set `quota.size`, a quota that is not `enforce: false`, and `reclaimPolicy: Retain`.
+The render of `k8s/object-store` SHALL hold a `Bucket` for `reports` (20Gi), `reports-private` (20Gi), `cache` (10Gi) and `argo-artifacts` (10Gi). Each `Bucket` SHALL be in namespace `object-store`, SHALL name the `Seaweed` CR `seaweedfs` of its own namespace in `clusterRef`, and SHALL set `quota.size`, a quota that is not `enforce: false`, and `reclaimPolicy: Retain`.
 
 #### Scenario: The committed buckets
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
-- **THEN** the row passes with the four buckets in their namespaces, their quotas, `reclaimPolicy: Retain` and the store in `clusterRef`
+- **THEN** the row passes with the four buckets in `object-store`, their quotas, `reclaimPolicy: Retain` and `seaweedfs` in `clusterRef`
 
 #### Scenario: A bucket that deletes its data
 - **WHEN** `uv run devops ci --check --only k8s` runs the bucket rule on the committed buckets with `reclaimPolicy: Delete` on `cache`
 - **THEN** the rule reports a problem that names `Bucket/cache`
 
-#### Scenario: A bucket in the store namespace
-- **WHEN** `uv run devops ci --check --only k8s` runs the bucket rule on the committed buckets with `cache` in namespace `object-store`
-- **THEN** the rule reports a problem that names `Bucket/cache`
+#### Scenario: A bucket in the namespace of its writer
+- **WHEN** `uv run devops ci --check --only k8s` runs the bucket rule on the committed buckets with `cache` in namespace `devops` and a `clusterRef` to `object-store/seaweedfs`
+- **THEN** the rule reports a problem that names the namespace of `Bucket/cache` and a problem that names its `clusterRef`
 
 #### Scenario: The buckets on the cluster
 - **WHEN** a person runs `kubectl get buckets.seaweed.seaweedfs.com -A -o yaml` after the sync
-- **THEN** the output has `reports` 20Gi, `reports-private` 20Gi and `cache` 10Gi in namespace `devops` and `argo-artifacts` 10Gi in namespace `argo-workflows`, each `Ready` with `reclaimPolicy: Retain` and a `clusterRef` to `object-store/seaweedfs`, and a quota that a person changes with `weed shell` `s3.bucket.quota` goes back to the git value at the next reconcile
-
-### Requirement: One grant admits the buckets to the store
-The render SHALL hold a `ResourceReferenceGrant` in namespace `object-store` that admits each `Bucket` of the render outside `object-store` to the `Seaweed` CR `seaweedfs`. Each grant of the render SHALL be in `object-store`, SHALL admit only the kind `Bucket` of group `seaweed.seaweedfs.com` from a namespace of a `Bucket` of the render, named by name and not by a selector, and SHALL admit it only to the `Seaweed` CR `seaweedfs` by name.
-
-#### Scenario: The committed grant
-- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
-- **THEN** the row passes with one grant that admits the buckets of `devops` and `argo-workflows` to `seaweedfs`
-
-#### Scenario: A bucket namespace with no grant
-- **WHEN** `uv run devops ci --check --only k8s` runs the grant rule on the committed render with `argo-artifacts` in namespace `llm`
-- **THEN** the rule reports a problem that names `Bucket/argo-artifacts`
-
-#### Scenario: A grant to every Seaweed CR
-- **WHEN** `uv run devops ci --check --only k8s` runs the grant rule on the committed render with no `name` in the target of the grant
-- **THEN** the rule reports a problem that names the grant `object-store-buckets`
-
-#### Scenario: The grant on the cluster
-- **WHEN** a person runs `kubectl get buckets.seaweed.seaweedfs.com -A -o jsonpath='{.items[*].status.conditions}'` after the sync
-- **THEN** no bucket has the condition `ClusterRefForbidden` with status `True`
+- **THEN** the output has `reports` 20Gi, `reports-private` 20Gi, `cache` 10Gi and `argo-artifacts` 10Gi, all in namespace `object-store`, each `Ready` with `reclaimPolicy: Retain` and a `clusterRef` to `seaweedfs`, and a quota that a person changes with `weed shell` `s3.bucket.quota` goes back to the git value at the next reconcile
 
 ### Requirement: Only the report buckets have anonymous read
 Only the buckets `reports` and `reports-private` SHALL set `anonymousRead: true`, and no `Bucket` SHALL name the user `anonymous` in `access`. No bucket named `backups-*` SHALL have anonymous access.
@@ -328,31 +309,47 @@ Each `Bucket` of the render SHALL have exactly one `BucketLifecyclePolicy` in it
 - **WHEN** a person runs `kubectl get bucketlifecyclepolicies.seaweed.seaweedfs.com -A -o yaml` after the sync, and on a branch revision with a 1-day expiration rule on prefix `lifecycle-test/` of `cache` puts a test object there and starts a multipart upload
 - **THEN** the output holds the rules of git, and after the S3 lifecycle pass of the next day the test object and the incomplete upload are gone
 
-### Requirement: The operator watches the store and each bucket namespace
-`watchNamespaces` of `k8s/object-store/operator-values.yaml` SHALL hold exactly `object-store` and the namespace of each `Bucket` and `BucketLifecyclePolicy` of the render, each once, so the operator reconciles each bucket and its rules and gets no ClusterRole over every namespace.
+### Requirement: The operator watches only the store namespace
+`watchNamespaces` of `k8s/object-store/operator-values.yaml` SHALL be exactly `[object-store]`, and each `Bucket` and `BucketLifecyclePolicy` of the render SHALL be in that namespace. The chart gives each watched namespace the manager Role of the operator, which can read and write every Secret of the namespace, so the operator SHALL have no Role or RoleBinding in `devops`, `argo-workflows` or another namespace of a writer, and no ClusterRole over the resources of every namespace.
 
 #### Scenario: The committed watch scope
 - **WHEN** `uv run devops ci --check --only k8s` reads the values and renders `k8s/object-store`
-- **THEN** the row passes with `object-store`, `devops` and `argo-workflows`
+- **THEN** the row passes with `object-store` only
 
-#### Scenario: A bucket namespace the operator does not watch
-- **WHEN** `uv run devops ci --check --only k8s` runs the watch rule on values with `watchNamespaces: [object-store]`
-- **THEN** the rule reports a problem that names namespace `devops`
+#### Scenario: A watched writer namespace
+- **WHEN** `uv run devops ci --check --only k8s` runs the watch rule on values with `watchNamespaces: [object-store, devops, argo-workflows]`
+- **THEN** the rule reports a problem that names `watchNamespaces`
+
+#### Scenario: A watch of every namespace
+- **WHEN** `uv run devops ci --check --only k8s` runs the watch rule on values with `watchNamespaces: []`
+- **THEN** the rule reports a problem that names `watchNamespaces`
+
+#### Scenario: The chart render
+- **WHEN** a person runs `helm template seaweedfs-operator seaweedfs-operator --repo https://seaweedfs.github.io/seaweedfs-operator --version <version> --namespace object-store -f k8s/object-store/operator-values.yaml`, with the `targetRevision` of `k8s/argocd/apps/seaweedfs-operator.yaml` as the version
+- **THEN** each Role and RoleBinding of the output is in namespace `object-store`, the one ClusterRoleBinding binds ClusterRole `seaweedfs-operator-manager-role`, which only reads namespaces and storage classes, and the operator arguments hold `--watch-namespaces=object-store`
 
 #### Scenario: The live operator
-- **WHEN** a person runs `kubectl -n object-store get deploy seaweedfs-operator -o jsonpath='{.spec.template.spec.containers[0].args}'` and `kubectl get role -A` after the sync
-- **THEN** the arguments hold `--watch-namespaces=` with the three namespaces, and `seaweedfs-operator-manager-role` exists in each of them
+- **WHEN** a person runs `kubectl -n object-store get deploy seaweedfs-operator -o jsonpath='{.spec.template.spec.containers[0].args}'` and `kubectl get roles,rolebindings -A` after the sync
+- **THEN** the arguments hold `--watch-namespaces=object-store`, and each Role and RoleBinding whose name starts with `seaweedfs-operator-` is in namespace `object-store`
 
 ### Requirement: The store render holds no reconcile workload
-The render of `k8s/object-store` SHALL hold only the kinds `Seaweed`, `Bucket`, `BucketLifecyclePolicy`, `ResourceReferenceGrant`, `NetworkPolicy` and `PodDisruptionBudget`: no Job, CronJob, Pod, workload or script. The AppProject `homelab` SHALL list the namespace of each object of the render in its destinations.
+The render of `k8s/object-store` SHALL hold only the kinds `Seaweed`, `Bucket`, `BucketLifecyclePolicy`, `NetworkPolicy` and `PodDisruptionBudget`, each in namespace `object-store`: no Job, CronJob, Pod, workload or script, and no `ResourceReferenceGrant`, because no CR of another namespace names the store.
 
 #### Scenario: The committed render
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/object-store`
-- **THEN** the row passes with only the kinds of this requirement in `object-store`, `devops` and `argo-workflows`
+- **THEN** the row passes with only the kinds of this requirement, all in `object-store`
 
 #### Scenario: A reconcile Job
 - **WHEN** `uv run devops ci --check --only k8s` runs the kind rule on the committed render with a fixture `Job` `bucket-reconcile`
 - **THEN** the rule reports a problem that names `Job/bucket-reconcile`
+
+#### Scenario: A reference grant
+- **WHEN** `uv run devops ci --check --only k8s` runs the kind rule on the committed render with a fixture `ResourceReferenceGrant` `object-store-buckets`
+- **THEN** the rule reports a problem that names `ResourceReferenceGrant/object-store-buckets`
+
+#### Scenario: A policy in the namespace of its writer
+- **WHEN** `uv run devops ci --check --only k8s` runs the kind rule on the committed render with the policy `argo-artifacts` in namespace `argo-workflows`
+- **THEN** the rule reports a problem that names `BucketLifecyclePolicy/argo-artifacts`
 
 #### Scenario: The live namespace
 - **WHEN** a person runs `kubectl get jobs,cronjobs -n object-store` and `kubectl get pods -n object-store -o jsonpath='{.items[*].spec.containers[*].image}'` after the sync
