@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.193.1](https://github.com/dan-petty/devops-cli/compare/v0.193.0...v0.193.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **roadmap:** ready the phase code for the read-only run folder ([#6745](https://github.com/dan-petty/devops-cli/issues/6745)) ([62bcc35](https://github.com/dan-petty/devops-cli/commit/62bcc3586b08da131a738de657ea2fc2fc5a6bcc)), closes [#6743](https://github.com/dan-petty/devops-cli/issues/6743)
+
+
+### Code Refactoring
+
+* **deps:** take the shared Renovate preset from infra ([#6738](https://github.com/dan-petty/devops-cli/issues/6738)) ([2b1bd4e](https://github.com/dan-petty/devops-cli/commit/2b1bd4e329b64017125e34bafcb4d45b67b2df34))
+
 ## [0.193.0](https://github.com/dan-petty/devops-cli/compare/v0.192.2...v0.193.0) (2026-11-22)
 
 
