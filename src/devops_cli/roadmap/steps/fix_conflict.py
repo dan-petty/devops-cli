@@ -393,17 +393,10 @@ class ConflictRound:
 
 
 def admit_round(
-    store: RoadmapStore,
-    client: Any,
-    repo: str,
-    pull: int,
-    *,
-    head: str | None,
-    cap: bool = True,
+    store: RoadmapStore, client: Any, repo: str, pull: int, *, head: str | None
 ) -> ConflictRound | FixConflictReport:
     """The admission of a round on pull request `pull`, with no clone: the bounds of the step
-    (`admission_bounds`) and, with `cap`, the hard cap of the rounds. The report of a round that
-    ends here."""
+    (`admission_bounds`) and the hard cap of the rounds. The report of a round that ends here."""
     status: PullStatus = client.get_pull_status(repo, pull)
     parts = parse_branch(status.head_ref)
     item_num = parts.issue if parts else None
@@ -420,7 +413,7 @@ def admit_round(
     settings = load_settings().roadmap.fix_conflict
     rounds, prev_files = read_item_conflict_state(item)
     judged = ConflictRound(repo, pull, status, item_num, item, settings, rounds, prev_files)
-    if cap and rounds >= settings.hard_cap_rounds:
+    if rounds >= settings.hard_cap_rounds:
         return judged.report(
             FixConflictResult.STOPPED, f"Hard cap reached ({settings.hard_cap_rounds} rounds)"
         )

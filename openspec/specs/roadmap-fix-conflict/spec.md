@@ -126,6 +126,10 @@ With `--confirm`, the step SHALL take `--phase prepare|agent|publish|all`, with 
 - **WHEN** `prepare`, `agent` and `publish` run one after the other on one run folder for an archive conflict
 - **THEN** the agent phase makes no GitHub call, and `publish` returns `resolved` with the pushed head and one round
 
+#### Scenario: A claim after a stop of the agent
+- **WHEN** the agent phase stops on a conflict that no rule settles, and a person then claims the item
+- **THEN** `publish` returns `stopped` with the reason of the agent, in a separate `publish` as with `--phase all`
+
 #### Scenario: A phase with no run folder
 - **WHEN** the command runs `--phase agent` or `--phase publish` with `--confirm` and no `--work`
 - **THEN** the command exits 1

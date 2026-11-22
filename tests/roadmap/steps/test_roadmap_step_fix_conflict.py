@@ -1508,7 +1508,7 @@ def test_a_separate_publish_takes_no_cap_for_the_round_that_prepare_counted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The record holds 3 rounds, so `prepare` counts the fourth round, which the hard cap of 4
-    rounds still admits. A separate `publish` admits the round again with no cap, and pushes it."""
+    rounds still admits. A separate `publish` checks no cap, and pushes the round."""
     pull = _pull_with_docs_conflict(tmp_path)
     _with_pull_request_code(monkeypatch, pull)
     fix_conflict.record_fix_conflict_marks(
@@ -1525,8 +1525,8 @@ def test_a_separate_publish_takes_no_cap_for_the_round_that_prepare_counted(
 def test_a_claim_before_a_separate_publish_is_recorded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A person claims the item after the agent phase. The admission of a separate `publish`
-    refuses the round, and the record holds the refusal and the round that `prepare` counted."""
+    """A person claims the item after the agent phase. A separate `publish` refuses the push
+    (`before_push`), and the record holds the refusal and the round that `prepare` counted."""
     pull = _pull_with_docs_conflict(tmp_path)
     _with_pull_request_code(monkeypatch, pull)
 
@@ -1545,4 +1545,41 @@ def test_a_claim_before_a_separate_publish_is_recorded(
         "1",
         FixConflictResult.REFUSED.value,
     )
+    assert pull.pushed() == pull.head
+
+
+@pytest.mark.parametrize("separate", [False, True], ids=["phase all", "separate phases"])
+def test_a_claim_after_a_stop_of_the_agent_keeps_the_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, separate: bool
+) -> None:
+    """The agent phase stops on a conflict that no rule settles, and then a person claims the
+    item. The round pushes nothing, so `publish` keeps the stop and the reason of the agent in
+    both run modes: it checks the admission bounds only right before a push (#6703)."""
+    pull = _pull_with_archive_conflict(tmp_path, spec_fix=True)
+    _with_pull_request_code(monkeypatch, pull)
+
+    def claim() -> None:
+        pull.store.add_label(pull.number, "owner/agent")
+
+    if separate:
+        report = _separate_phases(pull, RunFolders(tmp_path / "run"), claim)
+    else:
+        agent = fix_conflict_phases.agent_phase
+
+        def agent_then_claim(folders: RunFolders) -> None:
+            agent(folders)
+            claim()
+
+        monkeypatch.setattr(fix_conflict_phases, "agent_phase", agent_then_claim)
+        report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    item = pull.store.item(pull.number)
+    assert report is not None
+    assert item is not None
+    assert (report.result, report.reason, report.rounds) == (
+        FixConflictResult.STOPPED,
+        _NOT_SETTLED,
+        1,
+    )
+    assert item.job_record.get(FixConflictRecordKey.RESULT) == FixConflictResult.STOPPED.value
     assert pull.pushed() == pull.head

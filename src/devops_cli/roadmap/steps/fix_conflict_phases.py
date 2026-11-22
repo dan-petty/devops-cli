@@ -19,9 +19,10 @@ fix-checks do:
   main. It writes the patches from `onto`: the work up to the archive commit, the archive commit
   alone, and the commits after it. A round that does not end settled, also on an error, aborts the
   rebase and gives the branch back the judged head: one cleanup path.
-- `publish` (App key) reads the outcome as data, checks the admission bounds again with the judged
-  head, and pushes the patches as commits of the bot on `onto` with a lease on the judged head
-  (`publish_patch`). It works in a new repository that no code of the pull request touched, so a
+- `publish` (App key) reads the outcome as data. Right before a push it checks the admission bounds
+  again with the judged head (`before_push`), and it pushes the patches as commits of the bot on
+  `onto` with a lease on the judged head (`publish_patch`). A round that pushes nothing keeps the
+  result of the agent, in a separate `publish` as in `--phase all`. It works in a new repository that no code of the pull request touched, so a
   hook or a setting that tier 1 wrote into the clone changes nothing. `publish` writes the result
   of the round into the record, a refusal too, and adds no round.
 
@@ -32,7 +33,7 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -500,8 +501,9 @@ def publish_phase(
 ) -> FixConflictReport | None:
     """`--phase publish` on the pull request `pull` of `repo`: the state file, read as data, must
     name that pull request. A round that `prepare` ended gives no report here, as `prepare`
-    printed it. Else the round is admitted again on the judged head, with no cap, as `prepare`
-    counted the round, and goes to `publish_round`. A refusal goes into the record."""
+    printed it. Else the round of the state goes to `publish_round`, which checks the admission
+    bounds right before a push (`before_push`), as `--phase all` does: both modes give one
+    result for one round."""
     state = _read_state(folders)
     if (state.repo, state.pull) != (repo, pull):
         raise PhaseOutputError("The state file of the run names another pull request")
@@ -509,20 +511,21 @@ def publish_phase(
         return None
     if state.status is None:
         raise PhaseOutputError("The state file of the run names no judged pull request")
-    judged_head = PullStatus.model_validate(state.status).head_sha
-    if head is not None and head != judged_head:
+    status = PullStatus.model_validate(state.status)
+    if head is not None and head != status.head_sha:
         raise PhaseOutputError("The state file of the run names another head")
-    judged = fix_conflict.admit_round(store, client, repo, pull, head=judged_head, cap=False)
-    if isinstance(judged, FixConflictReport):
-        fix_conflict.record_fix_conflict_marks(
-            store,
-            state.item or None,
-            key=state.key,
-            rounds=state.rounds,
-            files=state.files,
-            result=judged.result,
-        )
-        return replace(judged, rounds=state.rounds, files=state.files)
+    item = store.item(state.item) if state.item else None
+    rounds, prev_files = fix_conflict.read_item_conflict_state(item)
+    judged = ConflictRound(
+        repo,
+        pull,
+        status,
+        state.item or None,
+        item,
+        load_settings().roadmap.fix_conflict,
+        rounds,
+        prev_files,
+    )
     prepared = PreparedRound(judged, state.onto, state.files, state.key, state.rounds)
     return publish_round(store, client, prepared, folders)
 
