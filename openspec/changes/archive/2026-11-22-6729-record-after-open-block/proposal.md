@@ -2,7 +2,7 @@
 
 ## Why
 
-`with_record` writes the job record block as a comment after the body, and `split_record` reads it only when CommonMark parses it as the last block of the body (#2630). When the body ends inside a fenced code block, an HTML comment or a `<pre>` block that it does not close, the record comment becomes part of that block (#6729). Then the read gives an empty record and a body that holds the old block, and GitHub shows the record text as code. Each later write adds one more record to the body. The GitHub store also reads no mark back, so it writes two more times and raises `RoadmapRecordMarkLostError`.
+`with_record` writes the job record block as a comment after the body, and `split_record` reads it only when CommonMark parses it as the last block of the body (#2630). The body can end inside a fenced code block or an HTML block, such as a comment or `<pre>`, that it does not close. Then the record comment becomes part of that block (#6729). So the read gives an empty record and a body that holds the old block. In a fence, GitHub shows the record text as code. Each later write adds one more record to the body. The GitHub store also reads no mark back, so it writes two more times and raises `RoadmapRecordMarkLostError`.
 
 ## What Changes
 

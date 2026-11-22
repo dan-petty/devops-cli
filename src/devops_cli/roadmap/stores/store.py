@@ -959,10 +959,10 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     when the body has no block, or when the block holds no JSON object, which a warning names.
 
     The record block is the comment at the end of the body. The writer's separator before it
-    goes with it, so a body read back after `with_record` is the body written, with the close of
-    a block that the body left open at its end (#6729). A body that does not hold the block's
-    opening text is not parsed: most issues and every pull request of a listing have no record
-    (#4445).
+    goes with it, so a body read back after `with_record` is the body written. If the body left
+    a block open at its end, the read gives the body with the close of that block (#6729). A
+    body that does not hold the block's opening text is not parsed: most issues and every pull
+    request of a listing have no record (#4445).
     """
     if _RECORD_OPENER not in body:
         return body, {}
@@ -1027,10 +1027,12 @@ def with_record(body: str, block: str | None) -> str:
     is no block.
 
     CommonMark reads all text after an open fenced code block or an open HTML block as part of
-    that block, and GitHub then shows the record as code. So a fence or an HTML block that `body`
-    leaves open at its end gets its close on a line of its own before `block` (#6729). The close
-    takes the place of one line break at the end of `body`, so the block gets no new empty line.
-    A body that leaves no block open is written as it is."""
+    that block. In a fence, GitHub then shows the record as code. In an open comment or `<pre>`
+    block, GitHub hides the record. In each case, `split_record` does not find the record. So
+    `with_record` closes a fence or an HTML block that `body` leaves open at its end. The close
+    goes on a line of its own before `block` (#6729). The close takes the place of one line break
+    at the end of `body`, so the block gets no new empty line. A body that leaves no block open
+    is written as it is."""
     if block is None:
         return body
     if not body:
@@ -1039,9 +1041,11 @@ def with_record(body: str, block: str | None) -> str:
 
 
 def closed_body(body: str) -> str:
-    """`body` as `with_record` writes it before a record block: with the close of a fence or an
-    HTML block that it leaves open at its end, or `body` itself when it leaves no block open
-    (#6729). A read of the written text gives this body back, so a writer compares with it."""
+    """`body` as `with_record` writes it before a record block (#6729).
+
+    A fence or an HTML block that `body` leaves open at its end gets its close. A body that
+    leaves no block open stays as it is. A read of the written text gives this body back, so a
+    writer compares with it."""
     # `body_hash` imports this module, so the import waits for the first call.
     from devops_cli.roadmap.body_hash import close_open_block
 
