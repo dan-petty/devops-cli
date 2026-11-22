@@ -12,7 +12,8 @@ Closes #6805. The init container `render-settings` of Deployment `searxng` reads
 - The change fits one pull request.
 
 ## Capabilities
-- `searxng-service`: MODIFIED requirement "The pod renders its settings at start", because the pod now starts without the metrics Secret.
+- `searxng-service`: ADDED requirement "The pod starts without the metrics Secret".
+- `searxng-service`: MODIFIED requirement "The pod renders its settings at start", which gets the scenario of a password that holds the special characters of `sed`.
 - `stack-credential-sync`: MODIFIED requirement "The SearXNG metrics Secret row comes from the keyring", because the password entry is now optional.
 
 ## Impact
