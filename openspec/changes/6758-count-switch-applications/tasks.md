@@ -6,11 +6,11 @@ Reads: `docs/HOMELAB_REPO_SWITCH.md`, `k8s/devops-cli-copy.json` of dan-petty/ho
 
 Changes: `docs/HOMELAB_REPO_SWITCH.md`.
 
-- [ ] 1.1 Define "the Applications of the copy" and "the child Applications of `cluster`" in the rules, and write the finalizer rule with no count
+- [x] 1.1 Define "the Applications of the copy" and "the child Applications of `cluster`" in the rules, and write the finalizer rule with no count
   - Verification: `$ grep -c 'Application of the copy' docs/HOMELAB_REPO_SWITCH.md`
-- [ ] 1.2 Write each count of steps 11, 13, 14, 17 and of the revert as "each Application of the copy" or "each child Application of `cluster`"
+- [x] 1.2 Write each count of steps 11, 13, 14, 17 and of the revert as "each Application of the copy" or "each child Application of `cluster`"
   - Verification: `$ grep -n -E '\b3[1-6]\b' docs/HOMELAB_REPO_SWITCH.md`
-- [ ] 1.3 Keep the dated baseline of 2026-11-13 in step 10, and add the dated baseline of 2026-11-22
+- [x] 1.3 Keep the dated baseline of 2026-11-13 in step 10, and add the dated baseline of 2026-11-22
   - Verification: `$ uv run devops ci --check --only docs,domain`
 
 ## Criteria
