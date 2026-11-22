@@ -93,7 +93,7 @@ class _Change:
 
 def git_call(repo: Path, *args: str, config: Sequence[str] = (), home: Path | None = None) -> str:
     """The output of `git <args>` in `repo`, with no global or system configuration and the
-    credential helper of `gh` (#3702). `prepare` and `publish` use it until #3700. With `home`,
+    credential helper of `gh` (#3702). `prepare` and `publish` use it. With `home`,
     git reads no other file of the home folder either, as `.config/git/attributes` and `.netrc`:
     `publish` gives its own new folder (#6655). The helper gets the token from the environment."""
     values = [part for value in (*_CREDENTIAL, *config) for part in ("-c", value)]

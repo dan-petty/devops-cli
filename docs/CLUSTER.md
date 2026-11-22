@@ -20,8 +20,12 @@ devops k8s run-job --context <context> --no-wait -- ai gateway status --format j
 `run-job --dry-run` reads nothing, not even the CronJob, and prints the kubectl requests a run would make. `run-job` creates the Job from suspended CronJob `devops-cli` (`--template default`) or, with `--template runner`, from suspended CronJob `devops-cli-runner` (Runner Jobs), changing only the args of each container (with `--phase` and `--work` for each of the three containers of the runner template), the name (`devops-cli-<UTC time>-<hex>`, and `devops-cli-runner-<UTC time>-<hex>` for a runner Job) and the label `app.kubernetes.io/name: devops-cli-job`. A Job never retries (`backoffLimit: 0`), stops after two hours and is deleted a day after it finishes. Follow or clean up Jobs with kubectl:
 ```bash
 kubectl -n devops get jobs -l app.kubernetes.io/name=devops-cli-job
-kubectl -n devops logs -f job/<name>
+kubectl -n devops logs -f job/<name>                          # a Job of one container
+kubectl -n devops logs job/<name> --all-containers --prefix   # a runner Job: each container in turn
+kubectl -n devops logs -f job/<name> -c agent                 # one phase of a runner Job
 ```
+
+A runner Job has the three containers `prepare`, `agent` and `publish` (#3700). With no `-c`, kubectl reads `publish`: while `agent` runs it gives `PodInitializing`, and after the end it shows only `publish`. So name the phase with `-c prepare`, `-c agent` or `-c publish`, or read all three with `--all-containers --prefix`, which reads the init containers first.
 
 The spans and the log records of devops-cli name the cluster in `k8s.cluster.name` and the namespace in `k8s.namespace.name`. The tracer reads them from the environment values `K8S_CONTEXT` and `POD_NAMESPACE`. With no `K8S_CONTEXT`, it uses the setting `k8s.context`, whose default is `minikube`. So each devops-cli container in `k8s/devops/` sets `K8S_CONTEXT` to the cluster name of the monitoring stack (`cluster.name` in `k8s/monitoring/k8s-monitoring-values.yaml`) and `POD_NAMESPACE` to the namespace of its pod, from the Downward API. The runner template `devops-cli-runner` sets the namespace as a plain value, because the admission policy `roadmap-service-jobs` refuses `fieldRef` (the Downward API) in a Job of the Service. The check `tests/gate/k8s_checks/telemetry_resource.py` of the `k8s` row of `devops ci` fails when a container does not set both (#4512).
 

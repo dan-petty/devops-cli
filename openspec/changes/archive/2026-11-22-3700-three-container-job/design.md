@@ -3,7 +3,7 @@
 ## Decisions
 - **Two volumes for the run folder.**: `make_out` refuses an `out/` that is there before the outputs, so `out/` cannot be a mount point. The run root is one volume, and `state/` is a second volume on top of it that `agent` does not mount.
 - **One path for the run root in each container.**: `prepare` records the absolute path of the clone, and `agent` opens it, so each container mounts `run` at `/run/roadmap`.
-- **Each container has its own tmp and home.**: `publish` makes its new repository in a temporary folder of its own, and no writable volume of `agent` reaches `publish`.
+- **Each container has its own tmp and home.**: `publish` makes its new repository in a temporary folder of its own (#6743), and no home or tmp of `agent` reaches `publish`. `publish` mounts the run folder read-only and reads only the state and the outputs as data.
 - **The policy pins the mounts and their paths.**: a `state` mounted elsewhere in `publish` would leave the empty folder of the run root in its place, which `agent` can write.
 - **The one-container shape stays only for an UPDATE.**: the Service patches the deadline of a Job that runs, and a Job keeps its pod template.
 - **Sync wave `-1`.**: the policy and the CronJob are in one Application, so the wave orders them.

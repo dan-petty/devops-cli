@@ -7,8 +7,8 @@ A run has one root folder with three folders:
 - `work/`: the clone and the inputs of the agent phase, which `prepare` writes.
 - `out/`: the outputs of the agent phase: the patch, `summary.json` and `outcome.json`.
 
-`publish` holds the App key, and the agent can write each file of the run in a container that it
-shares with `publish`. So `read_run_file` checks the root, the folder and the file with `lstat`,
+`publish` holds the App key, and the agent can write each file of the run in a run folder that
+it shares with `publish`. So `read_run_file` checks the root, the folder and the file with `lstat`,
 opens the file with `O_NOFOLLOW | O_NONBLOCK`, refuses a file that is not a regular file, and reads
 at most the limit after `fstat`. A link to `/proc/self/environ`, a FIFO or a file over the limit
 raises `PhaseOutputError`, whose message names the file and never its text (#3702). `publish` reads

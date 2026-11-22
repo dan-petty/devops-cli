@@ -142,7 +142,7 @@ The row `implement` SHALL run in a lane that holds no row that calls a model. A 
 
 #### Scenario: A Ready Item
 - **WHEN** the command runs for a Ready Item of `example/project` with the cluster faked
-- **THEN** one Job is created from CronJob `devops-cli-runner` with the args `roadmap implement --repo example/project --item 7 --confirm` and the token repository `example/project`, and the exit code of the container is the exit code of the command
+- **THEN** one Job is created from CronJob `devops-cli-runner` with the args `roadmap implement --repo example/project --item 7 --confirm` and the token repository `example/project`, and the first exit code that is not 0 of its containers is the exit code of the command
 
 #### Scenario: No wait
 - **WHEN** the command runs with `--no-wait`
@@ -194,15 +194,15 @@ The comment that reports a Job that ended SHALL name `implement.job_digest` when
 - **THEN** the comment names that digest
 
 ### Requirement: The memory limit of a runner Job stays 8 Gi
-The runner Job that the Service creates SHALL have the memory limit of the setting `roadmap.implement.max_memory_limit`, whose default is 8Gi, whatever the deadline settings and the size of the plan are.
+The container `agent` of the runner Job that the Service creates SHALL have the memory limit of the setting `roadmap.implement.max_memory_limit`, whose default is 8Gi, whatever the deadline settings and the size of the plan are. `prepare` and `publish` SHALL keep their own limit of the template.
 
 #### Scenario: The memory limit
 - **WHEN** a round creates a Job and the setting is not set
-- **THEN** the memory limit of its container is 8Gi
+- **THEN** the memory limit of its container `agent` is 8Gi
 
 #### Scenario: A raised limit
 - **WHEN** the setting is 12Gi and a round creates a Job
-- **THEN** the memory limit of its container is 12Gi
+- **THEN** the memory limit of its container `agent` is 12Gi
 
 ### Requirement: The job runs a project step only where the target declares it
 The job SHALL run the docs step and the archive step only when the default branch of the target repository declares the step in `.devops/roadmap.toml` under `[implement.steps]`. The job SHALL read the file from the default branch and SHALL NOT read the checkout. A default branch with no file SHALL declare no step. A file that is not valid SHALL stop the item and run no step.

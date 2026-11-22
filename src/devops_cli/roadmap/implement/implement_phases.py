@@ -22,8 +22,8 @@ The phases work the issue branch as a developer does, on the run folder of `road
   opens or updates the draft, comments the run and sets the Status. It never marks the draft ready.
   A return to New first takes back what earlier Jobs of the item pushed (`_withdraw`).
 
-`implement_round` runs the three phases in one process, which `--phase all` and the current Job
-template use: the state of `prepare` stays in memory. #3700 runs each phase in its own container.
+`implement_round` runs the three phases in one process, which `--phase all` uses: the state of
+`prepare` stays in memory. The runner template runs each phase in its own container (#3700).
 The marks of the run come at its end, from `publish`.
 """
 

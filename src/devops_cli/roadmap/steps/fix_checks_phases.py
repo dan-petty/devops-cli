@@ -32,9 +32,9 @@ onto that tip, which `prepare` records as `onto`, so `publish` replaces the bran
 alone, the commits after it, and the fix, each one commit. When only main causes the failure, the
 round pushes the rebased branch with no fix, with the result `rebased`, so the new head gets new
 checks. The agent phase needs no network git call: the clone of `prepare` holds `onto` (#6601). `repair_round` runs the three phases in one process, which `--phase all`
-and the current Job template use: the state of `prepare` stays in memory, so `publish` reads no
-file of the run but the outputs of the agent, and the run folder goes when the round ends. #3700
-runs each phase in its own container.
+uses: the state of `prepare` stays in memory, so `publish` reads no file of the run but the
+outputs of the agent, and the run folder goes when the round ends. The runner template runs each
+phase in its own container (#3700).
 """
 
 from __future__ import annotations

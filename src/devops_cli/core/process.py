@@ -216,8 +216,8 @@ def build_subprocess_env(
     The git configuration keys of the environment (`CONST_GIT_CONFIG_ENV_PATTERNS`) reach each
     child of a person, as a shell gives them, so git reads the credential helper that the
     devcontainer sets. A process that acts as the GitHub App gives them to no child, also with
-    isolation off: its image sets the helper in `/etc/gitconfig`, and until #3700 the shell of
-    the agent can start a process with keys of its own (#6653). A caller cannot set them.
+    isolation off: its image sets the helper in `/etc/gitconfig`, and the shell of the agent
+    runs in its own container, which holds no App key (#3700, #6653). A caller cannot set them.
     """
     if not isolate_env:
         base_env = dict(os.environ)
