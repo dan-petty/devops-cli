@@ -1343,9 +1343,8 @@ class GitHubRoadmapStore(RoadmapStore):
         current_body = body if text is None else text
         while True:
             block = encode_job_record(current_held, changes) if current_held or changes else None
-            self._send_edit(
-                issue.number, issue_edit(labels=labels, body=with_record(current_body, block))
-            )
+            written = with_record(current_body, block)
+            self._send_edit(issue.number, issue_edit(labels=labels, body=written))
             attempt += 1
 
             if not normalized_changes:
@@ -1354,7 +1353,8 @@ class GitHubRoadmapStore(RoadmapStore):
             read_back = self._require_issue(issue.number, f"roadmap.{method}.verify")
             back_body, back_held = read_back.split()
 
-            if back_body != current_body:
+            # The written body holds the close of a block that the body left open (#6729).
+            if back_body != split_record(written)[0]:
                 emit(ROADMAP_RECORD_LOST_EDIT_TOTAL, 1)
                 current_body = back_body
 

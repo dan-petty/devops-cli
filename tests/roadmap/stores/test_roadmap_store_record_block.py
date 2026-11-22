@@ -78,10 +78,11 @@ def test_a_second_record_write_keeps_the_body_and_its_hashes(body: str, read_bac
     assert (second, body_hashes(second), held) == (read_back, body_hashes(read_back), NEXT_RECORD)
 
 
-@pytest.mark.parametrize("end", ["", "\n", "\n\n", "\r\n"], ids=["none", "one", "two", "crlf"])
+@pytest.mark.parametrize("end", ["\n", "\n\n", "\r\n"], ids=["one", "two", "crlf"])
 def test_the_code_of_an_open_fence_keeps_its_rendered_form(end: str) -> None:
-    """The close of a fence adds no empty line to its code, so CommonMark renders the body that
-    the read gives back as it renders the body alone."""
+    """The close of a fence adds no empty line to the code of a body that ends in line breaks,
+    so CommonMark renders the body that the read gives back as it renders the body alone. The
+    backtick case of `OPEN_BLOCKS` holds a body with no line break at its end."""
     body = f"Text.\n\n```python\nx = 1{end}"
     render = MarkdownIt("commonmark").render
     assert render(split_record(with_record(body, BLOCK))[0]) == render(body)
