@@ -6,7 +6,7 @@ run starts, each value that only a read gives as a named placeholder.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -36,6 +36,7 @@ from devops_cli.infra.nodes import (
     CRITICAL_ALERTS_QUERY,
     GET_NODES_ARGS,
     VOLUMES_ARGS,
+    cordon_args,
     drain_args,
     get_node_args,
     kubectl_argv,
@@ -48,6 +49,7 @@ from devops_cli.infra.plan import (
     PROJECT_FOLDER,
     host_pattern,
     runner_argv,
+    skips_drain,
 )
 from devops_cli.infra.repo_tree import apply_read_commands, pull_number, read_commands
 from devops_cli.infra.status import REBOOT_REQUIRED_FILE, STAT_MODULE
@@ -311,10 +313,14 @@ def plan_apply(target: ApplyTarget) -> list[PlannedRequest]:
                 argv=runner(host_pattern(",".join(together), "<offline group>"), check_mode=False),
             )
         )
-    alone = [host.host for host in plan.hosts if host.disruptive] if plan else ["<host>"]
+    alone = (
+        [(host.host, host.disruptive) for host in plan.hosts if host.disruptive]
+        if plan
+        else [("<host>", ())]
+    )
     repeat = "" if plan else "for each disruptive host in plan order"
-    for host in alone:
-        requests += _host_steps(target, context, host, runner, repeat)
+    for host, disruptive in alone:
+        requests += _host_steps(target, context, host, disruptive, runner, repeat)
     requests.append(PlannedRequest(method="WRITE", target="the audit record infra.apply"))
     return requests
 
@@ -341,11 +347,14 @@ def _host_steps(
     target: ApplyTarget,
     context: str,
     host: str,
+    disruptive: Collection[str],
     runner: Callable[..., tuple[str, ...]],
     repeat: str,
 ) -> list[PlannedRequest]:
-    """The steps of one disruptive host: read, drain check, drain, fresh check, run, wait for
-    Ready, health, uncordon, and the last read of the node."""
+    """The steps of one disruptive host: read, cordon, or drain check and drain, fresh check, run,
+    wait for Ready, health, uncordon, and the last read of the node. A host whose disruptive
+    classes are all no-drain restarts cordons its node and runs neither the drain check nor the
+    drain (#6338)."""
     node = f"<node of {host}>"
     pattern = f"{host}:!<offline group>"
     wait = "once each poll interval until it passes twice or the wait ends"
@@ -359,21 +368,36 @@ def _host_steps(
             condition=extra.get("condition", ""),
         )
 
-    timeout = target.drain_timeout_seconds
+    def before_change() -> list[PlannedRequest]:
+        if skips_drain(disruptive):
+            return [
+                kubectl(
+                    f"the cordon of {host}",
+                    cordon_args(node),
+                    condition="the node was schedulable before the drain",
+                )
+            ]
+        timeout = target.drain_timeout_seconds
+        return [
+            kubectl(f"the pods of {host}, for their grace periods and volumes", pods_args(node)),
+            kubectl("the PersistentVolumeClaims", CLAIMS_ARGS),
+            kubectl(
+                "the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS
+            ),
+            kubectl(
+                f"the server dry run of the drain of {host}",
+                drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, server_dry_run=True),
+            ),
+            kubectl(
+                f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
+                "and 60 s",
+                drain_args(node, timeout, server_dry_run=False),
+            ),
+        ]
+
     return [
         kubectl(f"the node of {host} before the drain", get_node_args(node)),
-        kubectl(f"the pods of {host}, for their grace periods and volumes", pods_args(node)),
-        kubectl("the PersistentVolumeClaims", CLAIMS_ARGS),
-        kubectl("the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS),
-        kubectl(
-            f"the server dry run of the drain of {host}",
-            drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, server_dry_run=True),
-        ),
-        kubectl(
-            f"the drain of {host}, with the longer of {timeout} s and the longest grace period "
-            "and 60 s",
-            drain_args(node, timeout, server_dry_run=False),
-        ),
+        *before_change(),
         PlannedRequest(
             method="EXEC",
             target=f"the fresh check of {host}, which must give its plan",

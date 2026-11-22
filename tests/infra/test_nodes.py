@@ -306,6 +306,18 @@ def test_force_goes_to_the_drain_and_to_its_check() -> None:
     assert "--force" not in drain_args("node-1", 180, server_dry_run=False)
 
 
+def test_a_cordon_leaves_the_node_cordoned(cluster: FakeCluster) -> None:
+    nodes = Cluster(KUBE_CONTEXT, load_settings())
+
+    assert nodes.cordon("node-1") is None
+    assert cluster.steps == ["cordon node-1"]
+    read = nodes.node("node-1")
+    assert (read.problem, parse_node(read.document or {}).cordoned) == (None, True)
+    assert nodes.uncordon("node-1") == []
+    assert cluster.steps == ["cordon node-1", "uncordon node-1"]
+    assert cluster.nodes["node-1"].cordoned is False
+
+
 def test_the_boot_id_of_a_node_comes_from_its_node_info() -> None:
     assert boot_id(FakeNode("node-1", boot_id="b-7").item()) == "b-7"
     assert boot_id({"status": {}}) is None

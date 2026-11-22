@@ -501,10 +501,10 @@ def _local_volume(node: str, app: str) -> dict[str, Any]:
 
 @dataclass
 class FakeCluster:
-    """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A drain cordons the
-    node, an uncordon makes it schedulable, a drain check of a node in `blocked` fails as a
-    PodDisruptionBudget makes it fail, and while `down` is above zero each call fails as during
-    a restart of the API server, and counts it down. Each change and drain check is added to
+    """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A cordon or a drain
+    cordons the node, an uncordon makes it schedulable, a drain check of a node in `blocked` fails
+    as a PodDisruptionBudget makes it fail, and while `down` is above zero each call fails as
+    during a restart of the API server, and counts it down. Each change and drain check is added to
     `steps`."""
 
     nodes: dict[str, FakeNode]
@@ -570,6 +570,10 @@ class FakeCluster:
 
     def _change(self, args: tuple[str, ...]) -> ProcessAnswer:
         node = self.nodes[args[1]]
+        if args[0] == "cordon":
+            self.steps.append(f"cordon {node.name}")
+            node.cordoned = True
+            return ProcessAnswer(stdout=f"node/{node.name} cordoned\n")
         if args[0] == "drain" and "--dry-run=server" in args:
             self.steps.append(f"drain check {node.name}")
             if node.name in self.blocked:

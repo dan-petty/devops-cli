@@ -31,7 +31,10 @@ the repo's YAML:
   `kubernetes.core.k8s_drain` with the state `drain` is `drain`; a changed `systemd`,
   `systemd_service` or `service` task with the state `restarted`, `reloaded` or `stopped` is
   `service-restart:<unit>`, unless the host variable `devops_infra_nondisruptive_units` lists the
-  unit. `ANSIBLE_INJECT_INVOCATION` puts the rendered arguments in the result; a result with no
+  unit, and `service-restart-nodrain:<unit>` when the host variable
+  `devops_infra_restart_nodrain_units` lists it: the restart of such a unit keeps its containers,
+  so the apply cordons the node and skips the drain check and the drain (`skips_drain`, #6338).
+  `ANSIBLE_INJECT_INVOCATION` puts the rendered arguments in the result; a result with no
   arguments is disruptive, the safe side.
 - **Failed**: a `runner_on_failed` result that the task does not ignore, and a
   `runner_on_unreachable` host.
@@ -98,11 +101,13 @@ from devops_cli.security.sanitizer import mask_secrets
 
 PLAN_ACTION: Final[str] = "devops infra plan"
 NONDISRUPTIVE_UNITS_VARIABLE: Final[str] = "devops_infra_nondisruptive_units"
+NODRAIN_UNITS_VARIABLE: Final[str] = "devops_infra_restart_nodrain_units"
 PLAN_FILE: Final[str] = "plan.json"
 PROJECT_FOLDER: Final[str] = "project"
 REBOOT: Final[str] = "reboot"
 DRAIN: Final[str] = "drain"
 SERVICE_RESTART: Final[str] = "service-restart"
+SERVICE_RESTART_NODRAIN: Final[str] = "service-restart-nodrain"
 # The host pattern when the caller gives no --limit.
 _ALL_HOSTS: Final[str] = "all"
 _STORE: Final[str] = "infra"
@@ -172,16 +177,38 @@ def host_pattern(limit: str | None, offline_group: str | None) -> str:
     return f"{pattern}{separator}!{offline_group}"
 
 
+def _listed_units(inventory: AnsibleInventory, variable: str) -> dict[str, frozenset[str]]:
+    """The units that each host lists in the host variable `variable`. Only Ansible renders a
+    template, so a templated value lists no unit."""
+    found: dict[str, frozenset[str]] = {}
+    for host, variables in inventory.hostvars.items():
+        value = variables.get(variable)
+        if isinstance(value, list) and not any(is_template(unit) for unit in value):
+            found[host] = frozenset(str(unit) for unit in value)
+    return found
+
+
 def nondisruptive_units(inventory: AnsibleInventory) -> dict[str, frozenset[str]]:
     """The units of each host whose restart does not disrupt it (`devops_infra_nondisruptive_units`).
     Only Ansible renders a template, so a templated value lists no unit: every restart stays
     disruptive."""
-    found: dict[str, frozenset[str]] = {}
-    for host, variables in inventory.hostvars.items():
-        value = variables.get(NONDISRUPTIVE_UNITS_VARIABLE)
-        if isinstance(value, list) and not any(is_template(unit) for unit in value):
-            found[host] = frozenset(str(unit) for unit in value)
-    return found
+    return _listed_units(inventory, NONDISRUPTIVE_UNITS_VARIABLE)
+
+
+def nodrain_units(inventory: AnsibleInventory) -> dict[str, frozenset[str]]:
+    """The units of each host whose restart needs a cordon and no drain
+    (`devops_infra_restart_nodrain_units`). Only Ansible renders a template, so a templated value
+    lists no unit: every restart stays disruptive."""
+    return _listed_units(inventory, NODRAIN_UNITS_VARIABLE)
+
+
+def skips_drain(disruptive: Collection[str]) -> bool:
+    """Whether the disruptive classes of a host are all no-drain restarts, so the apply cordons
+    the node and runs neither the drain check nor the drain. A host with no disruptive class runs
+    in the together run, and a host that holds any other class drains (#6338)."""
+    return bool(disruptive) and all(
+        kind.startswith(f"{SERVICE_RESTART_NODRAIN}:") for kind in disruptive
+    )
 
 
 @dataclass
@@ -219,12 +246,15 @@ def host_plans(
     events: Iterable[Mapping[str, Any]],
     project: Path,
     nondisruptive: Mapping[str, Collection[str]],
+    nodrain: Mapping[str, Collection[str]] | None = None,
 ) -> tuple[HostPlan, ...]:
     """The plan of each host that the job events name, sorted by host. `project` is the folder
-    that the task paths are relative to, and `nondisruptive` the units of each host whose restart
-    does not disrupt it."""
+    that the task paths are relative to, `nondisruptive` the units of each host whose restart does
+    not disrupt it, and `nodrain` the units of each host whose restart needs a cordon and no
+    drain."""
     hosts: dict[str, _Host] = {}
     counted: dict[str, int] = {}
+    nodrain = nodrain or {}
     for event in events:
         kind = event.get("event")
         data = event.get("event_data") or {}
@@ -234,7 +264,15 @@ def host_plans(
         host = data.get("host")
         if not host or kind not in (_EVENT_OK, _EVENT_SKIPPED, _EVENT_FAILED, _EVENT_UNREACHABLE):
             continue
-        _add(hosts.setdefault(str(host), _Host()), str(kind), event, data, project, nondisruptive)
+        _add(
+            hosts.setdefault(str(host), _Host()),
+            str(kind),
+            event,
+            data,
+            project,
+            nondisruptive,
+            nodrain,
+        )
     return tuple(hosts[host].plan(host, counted.get(host)) for host in sorted(hosts))
 
 
@@ -245,6 +283,7 @@ def _add(
     data: Mapping[str, Any],
     project: Path,
     nondisruptive: Mapping[str, Collection[str]],
+    nodrain: Mapping[str, Collection[str]],
 ) -> None:
     """Add what one event of a host shows."""
     task = _task(data, project)
@@ -258,17 +297,29 @@ def _add(
     elif kind == _EVENT_UNREACHABLE:
         tasks.failed.append(FailedTask(**task.model_dump(), reason=_reason(res), unreachable=True))
     elif _CENSORED in res:
-        units = nondisruptive.get(str(data.get("host")), ())
         changed = ChangedTask(**task.model_dump(), diff_hidden=True)
-        tasks.changes.append(_Change(changed, disruptive_class(task.action, {}, units), True))
+        kind_of = _class_of(task.action, {}, str(data.get("host")), nondisruptive, nodrain)
+        tasks.changes.append(_Change(changed, kind_of, True))
     else:
         if any(_is_skipped_item(item) for item in res.get("results") or ()):
             tasks.unchecked.append(task)
         if res.get("changed"):
             hidden = "diff" in res and not res["diff"]
             changed = ChangedTask(**task.model_dump(), diff_hidden=hidden)
-            units = nondisruptive.get(str(data.get("host")), ())
-            tasks.changes.append(_Change(changed, disruptive_class(task.action, res, units)))
+            kind_of = _class_of(task.action, res, str(data.get("host")), nondisruptive, nodrain)
+            tasks.changes.append(_Change(changed, kind_of))
+
+
+def _class_of(
+    action: str,
+    res: Mapping[str, Any],
+    host: str,
+    nondisruptive: Mapping[str, Collection[str]],
+    nodrain: Mapping[str, Collection[str]],
+) -> str | None:
+    """The disruptive class of a change of `host`, from the units that the host lists as
+    nondisruptive and as no-drain."""
+    return disruptive_class(action, res, nondisruptive.get(host, ()), nodrain.get(host, ()))
 
 
 def _task(data: Mapping[str, Any], project: Path) -> PlanTask:
@@ -345,9 +396,15 @@ def _module_args(res: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return args if isinstance(args, Mapping) else None
 
 
-def disruptive_class(action: str, res: Mapping[str, Any], units: Collection[str]) -> str | None:
+def disruptive_class(
+    action: str,
+    res: Mapping[str, Any],
+    units: Collection[str],
+    nodrain: Collection[str] = (),
+) -> str | None:
     """The disruptive class of a change by `action` with the result `res`; none for a change that
-    does not disrupt the host. `units` are the units whose restart does not disrupt it."""
+    does not disrupt the host. `units` are the units whose restart does not disrupt it, and
+    `nodrain` the units whose restart needs a cordon and no drain (#6338)."""
     args = _module_args(res)
     if action in _REBOOT_ACTIONS:
         return REBOOT
@@ -361,6 +418,8 @@ def disruptive_class(action: str, res: Mapping[str, Any], units: Collection[str]
     unit = str((args or {}).get("name") or res.get("name") or _HIDDEN_UNIT)
     if unit in units:
         return None
+    if unit in nodrain:
+        return f"{SERVICE_RESTART_NODRAIN}:{unit}"
     return f"{SERVICE_RESTART}:{unit}"
 
 
@@ -576,6 +635,7 @@ def _run(
         key=find_newest_key(settings.ssh.key_dir, prefix=entry.ssh_key_prefix),
         collections=install_collections(tool, project),
         nondisruptive=nondisruptive_units(inventory),
+        nodrain=nodrain_units(inventory),
     )
     write_runner_settings(folder)
     outcome = run.run(pattern)
@@ -618,8 +678,9 @@ class RunOutcome:
 @dataclass(frozen=True)
 class Playbook:
     """A playbook in the export of an infra repo in `<folder>/project`, and what each run of it
-    gets: the inventory, the tags, the key of `devops ssh`, the pinned collections, and the units
-    of each host whose restart does not disrupt it."""
+    gets: the inventory, the tags, the key of `devops ssh`, the pinned collections, the units of
+    each host whose restart does not disrupt it, and the units of each host whose restart needs a
+    cordon and no drain (#6338)."""
 
     tool: AnsibleTool
     folder: Path
@@ -629,6 +690,7 @@ class Playbook:
     key: Path | None
     collections: Path | None
     nondisruptive: Mapping[str, Collection[str]]
+    nodrain: Mapping[str, Collection[str]] = field(default_factory=dict)
 
     @property
     def project(self) -> Path:
@@ -657,7 +719,10 @@ class Playbook:
         )
         artifacts = self.folder / _ARTIFACTS / ident
         hosts = host_plans(
-            read_job_events(artifacts / _JOB_EVENTS), self.project, self.nondisruptive
+            read_job_events(artifacts / _JOB_EVENTS),
+            self.project,
+            self.nondisruptive,
+            self.nodrain,
         )
         detail = _last_line(_read(artifacts / _STDOUT_FILE) or result.stderr or result.stdout)
         return RunOutcome(
@@ -747,12 +812,14 @@ def render_plan_footer(plan: InfraPlan) -> list[str]:
 
 __all__ = [
     "DRAIN",
+    "NODRAIN_UNITS_VARIABLE",
     "NONDISRUPTIVE_UNITS_VARIABLE",
     "PLAN_ACTION",
     "PLAN_FILE",
     "PROJECT_FOLDER",
     "REBOOT",
     "SERVICE_RESTART",
+    "SERVICE_RESTART_NODRAIN",
     "PlanRequest",
     "Playbook",
     "RunOutcome",
@@ -762,6 +829,7 @@ __all__ = [
     "host_plans",
     "install_collections",
     "inventory_hash",
+    "nodrain_units",
     "nondisruptive_units",
     "plan_entry",
     "plan_id",
@@ -774,5 +842,6 @@ __all__ = [
     "runner_argv",
     "runner_env",
     "runner_settings",
+    "skips_drain",
     "write_runner_settings",
 ]
