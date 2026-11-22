@@ -29,7 +29,8 @@ CONST_KEYRING_SERVICE = CONST_APP_NAME
 # An entry never stored: looking it up tells a locked keyring from an unlocked one, reading no
 # secret (`require_persistent_keyring`).
 CONST_KEYRING_UNLOCK_PROBE_KEY = "keyring-unlock-probe"
-# The most `devops config set <key> --from-file` reads into the keyring. A 4096-bit RSA private key
+# The most `devops config set <key> --from-file` reads into the keyring, and the most
+# `devops gh secret sync --from-file` seals (`read_secret_input`). A 4096-bit RSA private key
 # in PEM is about 3.3 KiB, so a key with its certificate chain fits; a wrong path to a large file
 # is refused after this many bytes, not read whole (#1649).
 CONST_SECRET_FILE_MAX_BYTES: Final[int] = 64 * 1024

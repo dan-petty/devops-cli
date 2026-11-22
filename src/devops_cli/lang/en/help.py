@@ -1491,9 +1491,22 @@ class GHCommandHelp:
     app_token_write: str = (
         "The file that gets the token. The command replaces it, and the new file has mode 0600."
     )
-    secret_app: str = "Manage and synchronize libsodium-sealed repository secrets."
+    secret_app: str = (
+        "Seal GitHub Actions secrets into a repository or one of its environments, "
+        "and list the repository secrets."
+    )
     secret_sync: str = (
-        "Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing."
+        "Seal secrets from the OS keyring, HashiCorp Vault or a file with libsodium, and put them "
+        "into the repository or, with --env, into one environment of it. No value shows in the "
+        "output."
+    )
+    secret_env: str = (
+        "Put the secrets into this GitHub Actions environment of the repository, not into the "
+        "repository secrets."
+    )
+    secret_from_file: str = (
+        "Read the value of the one secret of --secret-names from this file, or from stdin to its "
+        "end when the path is -. Every line and the last newline stay as the input has them."
     )
     secret_source: str = "Source store for secrets to synchronize (keyring or vault)."
     secret_names: str = "Comma-separated list of secret names to synchronize."

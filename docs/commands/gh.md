@@ -751,13 +751,15 @@ devops gh branch-protection sync [OPTIONS]
 
 ## `devops gh secret`
 
+**Seal GitHub Actions secrets into a repository or one of its environments, and list the repository secrets.**
+
 ```bash
 devops gh secret COMMAND [ARGS]...
 ```
 
 ### `devops gh secret sync`
 
-**Synchronize repository secrets from OS Keyring or HashiCorp Vault with libsodium sealing.**
+**Seal secrets from the OS keyring, HashiCorp Vault or a file with libsodium, and put them into the repository or, with --env, into one environment of it. No value shows in the output.**
 
 ```bash
 devops gh secret sync [OPTIONS]
@@ -769,7 +771,9 @@ devops gh secret sync [OPTIONS]
 |---|---|---|---|
 | `--secret-names`, `-n` | `string` | - | Comma-separated list of secret names to synchronize. |
 | `--repo`, `-R` | `string` | - | Target repository |
+| `--env` | `string` | - | Put the secrets into this GitHub Actions environment of the repository, not into the repository secrets. |
 | `--source`, `-s` | `string` | `keyring` | Source store for secrets to synchronize (keyring or vault). |
+| `--from-file` | `filename` | - | Read the value of the one secret of --secret-names from this file, or from stdin to its end when the path is -. Every line and the last newline stay as the input has them. |
 | `--vault-path` | `string` | `secret/devops` | Vault KV-v2 secret path when source is vault (default: secret/devops). |
 | `--dry-run` | `boolean` | - | Preview secret synchronization without mutations |
 

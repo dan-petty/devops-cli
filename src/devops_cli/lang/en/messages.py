@@ -7218,6 +7218,21 @@ class GhAppTokenMessages:
 
 
 @dataclass(frozen=True)
+class GhSecretMessages:
+    """Messages of `devops gh secret sync` (#6781). No message holds a secret value."""
+
+    env_empty: str = "Give the name of an environment to --env."
+    from_file_names: str = (
+        "--from-file gives the value of one secret. Give one name to --secret-names, not {count}."
+    )
+    from_file_and_vault: str = "Give --from-file or --source vault, not both."
+    repository_title: str = "Repository Secret Synchronization ({repo})"
+    environment_title: str = "Environment Secret Synchronization ({repo}, environment {env})"
+    repository_plan: str = "Plan for synchronizing secrets ({repo})"
+    environment_plan: str = "Plan for synchronizing secrets ({repo}, environment {env})"
+
+
+@dataclass(frozen=True)
 class ProjectMessages:
     """`devops gh project sync` and `devops gh project reconcile` (#892)."""
 
@@ -7477,6 +7492,7 @@ class LanguageCatalog:
     issues: IssueMessages = field(default_factory=IssueMessages)
     gh_metrics: GhMetricsMessages = field(default_factory=GhMetricsMessages)
     gh_app_token: GhAppTokenMessages = field(default_factory=GhAppTokenMessages)
+    gh_secret: GhSecretMessages = field(default_factory=GhSecretMessages)
 
 
 MESSAGES = LanguageCatalog()

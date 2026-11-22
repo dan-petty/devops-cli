@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from base64 import b64decode
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx2
@@ -19,12 +21,15 @@ from devops_cli.github.secrets import (
     get_repository_public_key,
     list_repository_secrets,
     sync_repository_secrets,
+    sync_secrets_requests,
 )
-from tests.support.fakes.process import ProcessAnswer
+from devops_cli.lang import MESSAGES
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 if TYPE_CHECKING:
     from tests.support.fakes.clock import ClockFake
     from tests.support.fakes.keyring import KeyringFake
+    from tests.support.fakes.otlp import FakeCollector
     from tests.support.fakes.process import ProcessFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -411,3 +416,234 @@ def test_cli_secrets_sync_failure_exit_on_upload_error(
     res = cli("gh", "secret", "sync", "-n", "FAIL_TOKEN", "--repo", "dan-petty/devops-cli")
     assert res.exit_code == 1
     assert "Failed: 1" in res.stdout
+
+
+# Environment secrets (#6781). The known value must never show outside the sealed body.
+KNOWN_VALUE = "known-test-value-6781"
+REPO = "owner/repo"
+REPO_SCOPE = f"repos/{REPO}/actions/secrets"
+RELEASE_SCOPE = f"repos/{REPO}/environments/release/secrets"
+
+
+class ActionsSecretsFake:
+    """GitHub's Actions secrets routes at the `gh api` process edge.
+
+    Each scope (the repository, or one environment) has its own key pair. A GET of a public key
+    or a PUT outside the scopes answers 404, as GitHub answers an environment that does not
+    exist. A PUT is opened with the private key of its scope, as GitHub stores the secret, so
+    `stored` holds the value that a workflow of the scope reads.
+    """
+
+    def __init__(self, *scopes: str) -> None:
+        self._keys = {scope: public.PrivateKey.generate() for scope in scopes}
+        self.stored: dict[str, str] = {}
+        self.put_answer: ProcessAnswer | None = None
+        self.bad_public_key = False
+
+    def install(self, fake: ProcessFake) -> None:
+        fake.answer(self._is_secrets_call, self._answer)
+
+    @staticmethod
+    def _is_secrets_call(call: ProcessCall) -> bool:
+        return call.argv[:2] == ("gh", "api") and any("/secrets" in arg for arg in call.argv)
+
+    def _answer(self, call: ProcessCall) -> ProcessAnswer:
+        route = next(arg for arg in call.argv if "/secrets" in arg)
+        scope, _, name = route.rpartition("/")
+        key = self._keys.get(scope)
+        if key is None:
+            return ProcessAnswer(returncode=1, stderr="gh: Not Found (HTTP 404)")
+        key_id = f"kid-{sorted(self._keys).index(scope)}"
+        if "PUT" not in call.argv:
+            if self.bad_public_key:
+                return ProcessAnswer(stdout=json.dumps({"key_id": key_id, "key": "not-a-key"}))
+            pk_b64 = key.public_key.encode(encoder=encoding.Base64Encoder).decode("utf-8")
+            return ProcessAnswer(stdout=json.dumps({"key_id": key_id, "key": pk_b64}))
+        if self.put_answer is not None:
+            return self.put_answer
+        stdin = call.stdin
+        body = json.loads(stdin.decode() if isinstance(stdin, bytes) else str(stdin))
+        assert set(body) == {"encrypted_value", "key_id"}
+        assert body["key_id"] == key_id
+        sealed = b64decode(body["encrypted_value"])
+        self.stored[f"{scope}/{name}"] = public.SealedBox(key).decrypt(sealed).decode("utf-8")
+        return ProcessAnswer(stdout="")
+
+
+def _gh_calls(fake: ProcessFake) -> list[ProcessCall]:
+    """The `gh` calls the fake saw, without the quota reads of the rate limiter."""
+    return [
+        call
+        for call in fake.calls
+        if call.argv[:1] == ("gh",) and call.argv[1:3] != ("api", "rate_limit")
+    ]
+
+
+def test_environment_sync_seals_the_keyring_value_into_the_environment(
+    cli: Callable[..., Any], keyring_store: KeyringFake, process_fake: ProcessFake
+) -> None:
+    github = ActionsSecretsFake(REPO_SCOPE, RELEASE_SCOPE)
+    github.install(process_fake)
+    keyring_store.set_password("devops-cli", "RELEASE_APP_PRIVATE_KEY", KNOWN_VALUE)
+
+    res = cli(
+        "gh", "secret", "sync", "-n", "RELEASE_APP_PRIVATE_KEY", "-R", REPO, "--env", "release"
+    )
+
+    assert res.exit_code == 0, res.output
+    assert github.stored == {f"{RELEASE_SCOPE}/RELEASE_APP_PRIVATE_KEY": KNOWN_VALUE}
+    assert [list(call.argv[1:]) for call in _gh_calls(process_fake)] == [
+        ["api", f"{RELEASE_SCOPE}/public-key"],
+        ["api", "-X", "PUT", f"{RELEASE_SCOPE}/RELEASE_APP_PRIVATE_KEY", "--input", "-"],
+    ]
+
+
+def test_environment_name_is_url_encoded(
+    keyring_store: KeyringFake, process_fake: ProcessFake
+) -> None:
+    scope = f"repos/{REPO}/environments/prod%2Feu/secrets"
+    github = ActionsSecretsFake(scope)
+    github.install(process_fake)
+    keyring_store.set_password("devops-cli", "TOKEN", KNOWN_VALUE)
+
+    res = sync_repository_secrets(REPO, ["TOKEN"], environment="prod/eu")
+
+    assert res.synced_secrets == ["TOKEN"]
+    assert github.stored == {f"{scope}/TOKEN": KNOWN_VALUE}
+    planned = sync_secrets_requests(REPO, ["TOKEN"], environment="prod/eu")
+    assert all(scope in " ".join(request.argv) for request in planned)
+
+
+def test_an_unknown_environment_exits_1_and_puts_nothing(
+    cli: Callable[..., Any], keyring_store: KeyringFake, process_fake: ProcessFake
+) -> None:
+    ActionsSecretsFake(REPO_SCOPE).install(process_fake)
+    keyring_store.set_password("devops-cli", "TOKEN", KNOWN_VALUE)
+
+    res = cli("gh", "secret", "sync", "-n", "TOKEN", "-R", REPO, "--env", "staging")
+
+    assert res.exit_code == 1
+    assert "environment 'staging'" in res.output
+    assert not [call for call in _gh_calls(process_fake) if "PUT" in call.argv]
+
+
+@pytest.mark.parametrize("from_stdin", [False, True], ids=["file", "stdin"])
+def test_a_file_gives_the_value_with_its_last_newline(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path, from_stdin: bool
+) -> None:
+    github = ActionsSecretsFake(RELEASE_SCOPE)
+    github.install(process_fake)
+    pem = f"first line\n{KNOWN_VALUE}\nlast line\n"
+    key_file = tmp_path / "key.pem"
+    key_file.write_text(pem, encoding="utf-8")
+    path = "-" if from_stdin else str(key_file)
+
+    res = cli(
+        "gh", "secret", "sync", "-n", "RELEASE_APP_PRIVATE_KEY", "-R", REPO,
+        "--env", "release", "--from-file", path,
+        input=pem if from_stdin else None,
+    )  # fmt: skip
+
+    assert res.exit_code == 0, res.output
+    assert github.stored == {f"{RELEASE_SCOPE}/RELEASE_APP_PRIVATE_KEY": pem}
+    assert "file" in res.output
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [["-n", "A,B"], ["-n", "A", "--source", "vault"]],
+    ids=["two-names", "vault-source"],
+)
+def test_a_file_with_a_second_source_exits_2_before_any_call(
+    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path, extra: list[str]
+) -> None:
+    key_file = tmp_path / "key.pem"
+    key_file.write_text(KNOWN_VALUE, encoding="utf-8")
+
+    res = cli("gh", "secret", "sync", *extra, "-R", REPO, "--from-file", str(key_file))
+
+    assert res.exit_code == 2, res.output
+    assert "Invalid value for '--from-file'" in res.output
+    assert _gh_calls(process_fake) == []
+    assert KNOWN_VALUE not in res.output
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        (b"", MESSAGES.config.from_file_empty),
+        (f"{KNOWN_VALUE}\xff".encode("latin-1"), MESSAGES.config.from_file_not_text),
+    ],
+    ids=["empty", "not-utf8"],
+)
+def test_an_unreadable_file_exits_2_and_quotes_no_byte(
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    tmp_path: Path,
+    content: bytes,
+    message: str,
+) -> None:
+    key_file = tmp_path / "key.pem"
+    key_file.write_bytes(content)
+
+    res = cli("gh", "secret", "sync", "-n", "A", "-R", REPO, "--from-file", str(key_file))
+
+    assert res.exit_code == 2, res.output
+    assert "Invalid value for '--from-file'" in res.output
+    assert message in res.output
+    assert _gh_calls(process_fake) == []
+    assert KNOWN_VALUE not in res.output
+    # A decode error names the byte that it could not decode, and that byte is part of the secret.
+    assert "0xff" not in res.output
+
+
+def test_a_value_for_two_secrets_is_refused() -> None:
+    with pytest.raises(GitHubOperationError, match="one secret"):
+        sync_repository_secrets(REPO, ["A", "B"], value=KNOWN_VALUE)
+
+
+def test_environment_dry_run_plans_the_environment_routes_and_starts_no_process(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    res = cli("gh", "secret", "sync", "-n", "TOKEN", "-R", REPO, "--env", "release", "--dry-run")
+
+    assert res.exit_code == 0, res.output
+    assert f"{RELEASE_SCOPE}/public-key" in res.output
+    assert f"{RELEASE_SCOPE}/TOKEN" in res.output
+    assert REPO_SCOPE not in res.output
+    assert process_fake.calls == []
+
+
+@pytest.mark.parametrize("outcome", ["accepted", "rejected", "bad-public-key"])
+def test_the_known_value_reaches_no_output_call_log_or_trace(
+    cli: Callable[..., Any],
+    keyring_store: KeyringFake,
+    process_fake: ProcessFake,
+    otlp: FakeCollector,
+    caplog: pytest.LogCaptureFixture,
+    outcome: str,
+) -> None:
+    from devops_cli.telemetry.exporter import OtlpSignal
+
+    github = ActionsSecretsFake(RELEASE_SCOPE)
+    if outcome == "rejected":
+        github.put_answer = ProcessAnswer(returncode=1, stderr="gh: Validation Failed (HTTP 422)")
+    github.bad_public_key = outcome == "bad-public-key"
+    github.install(process_fake)
+    keyring_store.set_password("devops-cli", "TOKEN", KNOWN_VALUE)
+    caplog.set_level(logging.DEBUG)
+
+    res = cli("gh", "secret", "sync", "-n", "TOKEN", "-R", REPO, "--env", "release")
+
+    assert res.exit_code == (0 if outcome == "accepted" else 1), res.output
+    assert any("PUT" in call.argv for call in _gh_calls(process_fake)) is (
+        outcome != "bad-public-key"
+    )
+    assert KNOWN_VALUE not in res.output
+    for call in process_fake.calls:
+        assert KNOWN_VALUE not in " ".join(call.argv)
+        assert KNOWN_VALUE not in str(call.stdin or "")
+    assert KNOWN_VALUE not in caplog.text
+    exported = json.dumps([otlp.payloads(signal) for signal in OtlpSignal])
+    assert "github.secrets.sync" in exported
+    assert KNOWN_VALUE not in exported
