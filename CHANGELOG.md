@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.196.0](https://github.com/dan-petty/devops-cli/compare/v0.195.4...v0.196.0) (2026-11-22)
+
+
+### Features
+
+* **repos:** onboard a repository in one command ([#6806](https://github.com/dan-petty/devops-cli/issues/6806)) ([0197537](https://github.com/dan-petty/devops-cli/commit/01975372087efd6b91ec8fd77beb55b0d4ac4041)), closes [#6773](https://github.com/dan-petty/devops-cli/issues/6773)
+* **roadmap:** Run several implement Jobs on disjoint files ([#6807](https://github.com/dan-petty/devops-cli/issues/6807)) ([0ce63b3](https://github.com/dan-petty/devops-cli/commit/0ce63b3612edc6060536fcccc6ab20bf0a288db2))
+* **roadmap:** the Service removes the labels of a closed issue ([#6802](https://github.com/dan-petty/devops-cli/issues/6802)) ([f3a1e9a](https://github.com/dan-petty/devops-cli/commit/f3a1e9a4af2bede6e72b9634d0ac96711118013a)), closes [#4660](https://github.com/dan-petty/devops-cli/issues/4660)
+
 ## [0.195.4](https://github.com/dan-petty/devops-cli/compare/v0.195.3...v0.195.4) (2026-11-22)
 
 
