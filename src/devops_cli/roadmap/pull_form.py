@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Collection, Sequence
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 
 from pydantic import AfterValidator
 from pydantic_core import PydanticCustomError
@@ -52,8 +52,11 @@ def summary_length(text: str) -> int:
     return len(text) + sum(ord(char) > 0xFFFF for char in text)
 
 
-# The most characters of a body before its trailers: the text, the `Closes` line and the `Change:`
-# line, as the squash message takes them. It is the limit that the implement job already holds.
+# The most characters of the text above the `Closes` line of a body, or above the `Plans` line of a
+# plan body, with the whitespace at its two ends removed: what the change does and why, as the
+# squash message takes it. The `Closes`, `Change:` and attribution lines do not count, and
+# `measured_body_text` gives the text that each check measures. It is the limit that the implement
+# job already holds.
 BODY_MAX_CHARS: Final[int] = CONST_ROADMAP_IMPLEMENT_BODY_MAX_CHARS
 # The fewest characters of the text above `Closes`: what the change does, and why. A shorter text
 # is a placeholder in all but name.
@@ -74,6 +77,8 @@ _LEAD: Final[re.Pattern[str]] = re.compile(
 )
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
 _PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
+# The line that ends the text that the body limit measures, for each form (#6735).
+_TEXT_ENDS: Final[dict[str, re.Pattern[str]]] = {"Closes": _CLOSES_LINE, "Plans": _PLANS_LINE}
 # GitHub closes the issue that follows one of these words, with an optional colon.
 _CLOSING_REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+(?:[\w.-]+/[\w.-]+)?#\d+", re.IGNORECASE
@@ -246,7 +251,8 @@ def open_body_problems(body: str, *, issue: int | None, plan: bool) -> list[str]
 
     A plan body has the whole form of `plan_body_problems`. A delivery body closes the delivered
     `issue` in one line `Closes #<issue>` and no other issue, and the limit of `BODY_MAX_CHARS`
-    characters measures the text above the line `Closes`, with its trailing blank lines removed.
+    characters measures the text above the line `Closes` that `measured_body_text` gives, as
+    `body_problems` does at ready (#6735).
     A draft that the implement job writes before its final body has no `Change:` line yet, so a
     delivery body needs none here: `body_problems` holds the whole form at ready."""
     texts = MESSAGES.pr
@@ -299,9 +305,9 @@ def body_problems(body: str) -> list[str]:
     The body is the text of what the change does and why, then the line `Closes #<issue>` for the
     one issue it closes, then the line `Change:` with the folder of the change in a code span, then,
     when given, the attribution lines. The limit of `BODY_MAX_CHARS` characters measures the text
-    above the line `Closes`, with its trailing blank lines removed: the `Closes` line, the
-    `Change:` line and the attribution lines do not count. The text is no placeholder and keeps
-    nothing of the pull request template."""
+    above the line `Closes`, with its leading and trailing blank lines removed, that
+    `measured_body_text` gives: the `Closes` line, the `Change:` line and the attribution lines do
+    not count. The text is no placeholder and keeps nothing of the pull request template."""
     texts = MESSAGES.pr
     lines = body.strip().splitlines()
     problems: list[str] = []
@@ -314,7 +320,7 @@ def body_problems(body: str) -> list[str]:
         if closes_at > change_at:
             problems.append(texts.form_order)
         else:
-            problems += _text_problems("\n".join(lines[:closes_at]), line="Closes")
+            problems += _text_problems(measured_body_text(body, "Closes"), line="Closes")
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
     if _TEMPLATE_COMMENT in body:
         problems.append(texts.form_template_text)
@@ -349,7 +355,7 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
             problems.append(texts.form_plan_order)
         else:
             problems += _text_problems(
-                "\n".join(lines[:plans_at]),
+                measured_body_text(body, "Plans"),
                 line="Plans",
                 short_message=texts.form_plan_body_short,
             )
@@ -361,38 +367,41 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     return problems
 
 
-def measured_body_text(body: str, line: str) -> str:
-    """The text of `body` above its first line that starts with `<line> #`, with its trailing blank
-    lines removed, and the whole body when it has no such line: the part that the limit of
-    `BODY_MAX_CHARS` characters measures (#6633)."""
-    lines = body.splitlines()
-    for index, text in enumerate(lines):
-        if text.startswith(f"{line} #"):
-            return "\n".join(lines[:index]).rstrip()
-    return body.rstrip()
+def measured_body_text(body: str, line: Literal["Closes", "Plans"]) -> str:
+    """The text of `body` above its first line that the form takes as `<line> #<issue>`, with the
+    whitespace at its two ends removed, and the whole body when it has no such line: the part that
+    the limit of `BODY_MAX_CHARS` characters measures (#6633).
+
+    The open step, the ready check, the plan form check and the plan check all measure this text,
+    so they agree on one body. The lines are those of `body.strip()`, which the form check reads, so
+    a blank line at the start counts at no check (#6735)."""
+    lines = body.strip().splitlines()
+    end = next((i for i, text in enumerate(lines) if _TEXT_ENDS[line].fullmatch(text)), len(lines))
+    return "\n".join(lines[:end]).rstrip()
 
 
 def _text_problems(text: str, *, line: str, short_message: str | None = None) -> list[str]:
-    """The problems of the text above the line `line`, `Closes` or `Plans`, and of its length: the
-    limit of `BODY_MAX_CHARS` characters measures that text, with its trailing blank lines
-    removed. `short_message` names the line that the text goes above. A text that ends with `...`
-    is cut, and the caller writes the whole text."""
+    """The problems of `text`, the text above the line `line`, `Closes` or `Plans`, that
+    `measured_body_text` gives, and of its length: the limit of `BODY_MAX_CHARS` characters
+    measures that text. `short_message` names the line that the text goes above. A text that ends
+    with `...` is cut, and the caller writes the whole text."""
     texts = MESSAGES.pr
     problems = []
     if _ATTRIBUTION.search(text):
         problems.append(texts.form_attribution_first)
     elif is_placeholder(text):
-        problems.append(texts.form_placeholder.format(part="body", text=text.strip()))
-    elif len(text.strip()) < _BODY_TEXT_MIN_CHARS:
+        problems.append(texts.form_placeholder.format(part="body", text=text))
+    elif len(text) < _BODY_TEXT_MIN_CHARS:
         problems.append(
             (short_message or texts.form_body_short).format(
-                length=len(text.strip()), minimum=_BODY_TEXT_MIN_CHARS
+                length=len(text), minimum=_BODY_TEXT_MIN_CHARS
             )
         )
-    length = len(text.rstrip())
-    if length > BODY_MAX_CHARS:
-        problems.append(texts.form_body_long.format(line=line, length=length, limit=BODY_MAX_CHARS))
-    if text.rstrip().endswith(_CUT_MARKS):
+    if len(text) > BODY_MAX_CHARS:
+        problems.append(
+            texts.form_body_long.format(line=line, length=len(text), limit=BODY_MAX_CHARS)
+        )
+    if text.endswith(_CUT_MARKS):
         problems.append(texts.form_body_cut)
     return problems
 
