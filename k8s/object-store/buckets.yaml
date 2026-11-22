@@ -1,0 +1,136 @@
+# The platform buckets of the object store and their lifecycle rules (#4756). The SeaweedFS
+# operator makes each bucket, sets its quota and its anonymous read, and keeps its lifecycle rules
+# from these CRs. At its next reconcile, it puts back the git value of a quota, a lifecycle rule or
+# a grant that it applied. It removes only the grants that it applied, so a grant that a person
+# adds, for example Read of identity anonymous on cache, stays until a person removes it.
+# k8s/README.md, section Buckets, has the scope and namespace of each CR.
+#
+# Each Bucket and its policy live in namespace object-store, beside the Seaweed CR that clusterRef
+# names, so the operator watches only this namespace and needs no grant (operator-values.yaml). Each
+# Bucket keeps its data when its CR goes (reclaimPolicy: Retain). local-path does not enforce the
+# size of a claim, so the quotas are the limits. Only reports and reports-private have anonymous
+# read: the operator grants the identity `anonymous` Read, which allows GET and not List. The tenant
+# buckets `backups-*` and the writer keys come from the tenant chart of dan-petty/infra.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: reports
+spec:
+  name: reports
+  clusterRef:
+    name: seaweedfs
+  quota:
+    size: 20Gi
+    enforce: true
+  reclaimPolicy: Retain
+  anonymousRead: true
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: reports-private
+spec:
+  name: reports-private
+  clusterRef:
+    name: seaweedfs
+  quota:
+    size: 20Gi
+    enforce: true
+  reclaimPolicy: Retain
+  anonymousRead: true
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: cache
+spec:
+  name: cache
+  clusterRef:
+    name: seaweedfs
+  quota:
+    size: 10Gi
+    enforce: true
+  reclaimPolicy: Retain
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: Bucket
+metadata:
+  name: argo-artifacts
+spec:
+  name: argo-artifacts
+  clusterRef:
+    name: seaweedfs
+  quota:
+    size: 10Gi
+    enforce: true
+  reclaimPolicy: Retain
+---
+# One policy for each bucket, named as the bucket: the operator sets the lifecycle of the bucket
+# to exactly these rules. Each bucket aborts an incomplete multipart upload after 1 day. The S3
+# lifecycle job of the worker applies the rules. The CRD has no expiration date: expiration.days
+# is 1 or more.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: BucketLifecyclePolicy
+metadata:
+  name: reports
+spec:
+  bucketRef:
+    name: reports
+  rules:
+    - id: abort-incomplete-multipart
+      status: Enabled
+      abortIncompleteMultipartUpload:
+        daysAfterInitiation: 1
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: BucketLifecyclePolicy
+metadata:
+  name: reports-private
+spec:
+  bucketRef:
+    name: reports-private
+  rules:
+    - id: abort-incomplete-multipart
+      status: Enabled
+      abortIncompleteMultipartUpload:
+        daysAfterInitiation: 1
+    # The studies expire after 90 days; the other reports have no expiry.
+    - id: studies
+      status: Enabled
+      prefix: studies/
+      expiration:
+        days: 90
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: BucketLifecyclePolicy
+metadata:
+  name: cache
+spec:
+  bucketRef:
+    name: cache
+  rules:
+    - id: abort-incomplete-multipart
+      status: Enabled
+      abortIncompleteMultipartUpload:
+        daysAfterInitiation: 1
+    - id: expire
+      status: Enabled
+      expiration:
+        days: 7
+---
+apiVersion: seaweed.seaweedfs.com/v1
+kind: BucketLifecyclePolicy
+metadata:
+  name: argo-artifacts
+spec:
+  bucketRef:
+    name: argo-artifacts
+  rules:
+    - id: abort-incomplete-multipart
+      status: Enabled
+      abortIncompleteMultipartUpload:
+        daysAfterInitiation: 1
+    - id: expire
+      status: Enabled
+      expiration:
+        days: 7

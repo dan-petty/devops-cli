@@ -566,6 +566,14 @@ def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file
     )
 
 
+def test_no_row_holds_a_key_of_the_object_store() -> None:
+    """The key pair of a writer of the object store comes from an ESO `Password` generator of the
+    tenant chart, not from the keyring, so the table has no row for a store key (#4756)."""
+    assert [
+        secret.ref for secret in CLUSTER_SECRETS if secret.name.startswith("object-store-")
+    ] == []
+
+
 def test_generators_make_the_documented_shapes() -> None:
     gateway, qdrant, runs = (CLUSTER_SECRETS[i].entries[0].generator for i in range(3))
     assert gateway is not None

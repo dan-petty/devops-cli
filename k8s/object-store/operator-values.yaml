@@ -8,8 +8,10 @@
 crds:
   create: true
 
-# The operator reconciles the Seaweed CR of this namespace only, so it gets a Role here and a small
-# ClusterRole for the cluster-scoped reads, not a ClusterRole over every namespace.
+# The operator reconciles the Seaweed CR and the buckets of this namespace only (buckets.yaml), so
+# it gets a Role here and a small ClusterRole for the cluster-scoped reads, not a ClusterRole over
+# every namespace. The chart gives each watched namespace this Role, which can read and write every
+# Secret there, so no namespace of a writer is in the list (#4756).
 watchNamespaces:
   - object-store
 

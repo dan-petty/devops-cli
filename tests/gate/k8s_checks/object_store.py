@@ -235,18 +235,17 @@ def operator_application_problems(app: Mapping[str, Any]) -> list[str]:
 
 
 def operator_values_problems(values: Mapping[str, Any]) -> list[str]:
-    """The values keep the operator of the chart's appVersion, in the store namespace, with the
-    webhook certificate of cert-manager and no dashboard ConfigMap of the chart."""
+    """The values keep the operator of the chart's appVersion, with the webhook certificate of
+    cert-manager and no dashboard ConfigMap of the chart. `object_store_buckets.watch_problems`
+    checks the watched namespaces."""
     expected = {
         "image tag": "",
-        "watchNamespaces": [NAMESPACE],
         "grafanaDashboard.enabled": False,
         "webhook.certManager.enabled": True,
         "crds.create": True,
     }
     found = {
         "image tag": values.get("image", {}).get("tag", ""),
-        "watchNamespaces": values.get("watchNamespaces"),
         "grafanaDashboard.enabled": values.get("grafanaDashboard", {}).get("enabled"),
         "webhook.certManager.enabled": values.get("webhook", {})
         .get("certManager", {})

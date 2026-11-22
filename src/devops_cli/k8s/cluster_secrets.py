@@ -54,8 +54,10 @@ GRAFANA_SECURITY_KEY = "grafana_secret_key"
 # reads it from the keyring to sign in through a port-forward.
 SEAWEEDFS_ADMIN_AUTH_KEY = "seaweedfs_admin_password"
 # The identities file of the S3 gateway of the object store: no identity. With a file, SeaweedFS
-# refuses each request until an identity exists, and it adds the identities that the admin UI keeps
-# in the filer. With no file it allows every request.
+# refuses each request that no identity allows, and it adds the identities that the filer keeps:
+# those of the admin UI, and identity `anonymous` of the anonymous read of the store buckets
+# (k8s/object-store/buckets.yaml). With no file and no identity in the filer it allows every
+# request.
 SEAWEEDFS_S3_NO_IDENTITIES = '{"identities": []}'
 
 

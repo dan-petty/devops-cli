@@ -11,3 +11,4 @@ resources:
   - seaweed.yaml
   - networkpolicy.yaml
   - poddisruptionbudgets.yaml
+  - buckets.yaml
