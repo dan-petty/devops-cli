@@ -762,19 +762,20 @@ facts:
     section: kubernetes
     query: >-
       quantile(0.9, max by (pod) (max_over_time(container_memory_working_set_bytes{
-      namespace="devops", container="runner", pod=~"devops-cli-(implement|runner)-.+"}[{range}])))
+      namespace="devops", container=~"runner|agent", pod=~"devops-cli-(implement|runner)-.+"}[{range}])))
     shape: scalar
     unit: bytes
     definition: >-
       The p90 of the peak working set of the runner pods (Kubernetes Q21): the pods of
-      devops-cli-implement-* and devops-cli-runner-*, not the fix-checks pods, which also have a
-      container runner.
+      devops-cli-implement-* and devops-cli-runner-*, not the fix-checks pods. The container is
+      agent, the one with the size row, on the three containers of #3700, and runner on the one
+      container before it.
   - id: prometheus.runner_cpu_max
     reader: prometheus
     section: kubernetes
     query: >-
       max(max_over_time(rate(container_cpu_usage_seconds_total{namespace="devops",
-      container="runner", pod=~"devops-cli-(implement|runner)-.+"}[5m])[{range}:5m]))
+      container=~"runner|agent", pod=~"devops-cli-(implement|runner)-.+"}[5m])[{range}:5m]))
     shape: scalar
     unit: cores
     definition: >-

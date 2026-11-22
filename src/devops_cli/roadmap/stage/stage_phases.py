@@ -105,9 +105,7 @@ def push_plan(
             author=identity[0],
             email=identity[1],
         )
-        published = publish_patch(
-            target, [(patch.read_bytes(), message)], before_push=_no_check, scratch=folders.root
-        )
+        published = publish_patch(target, [(patch.read_bytes(), message)], before_push=_no_check)
     if published is None:
         raise RoadmapStageError(MESSAGES.roadmap.stage_push_no_change.format(number=issue))
     return published.commit

@@ -43,6 +43,7 @@ from tests.support.roadmap_implement import (
     two_groups,
 )
 from tests.support.roadmap_stage import STAGE_NAME, STAGE_REPO
+from tests.support.run_folders import read_only_run
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
@@ -83,6 +84,24 @@ def test_the_phases_in_separate_calls_take_the_item_to_the_draft(
         ImplementResult.DRAFTED
     )
     assert job_world.origin_log() == [WORK_COMMIT, ARCHIVE_COMMIT]
+
+
+def test_publish_pushes_from_a_run_folder_that_it_cannot_write(
+    job_world: JobWorld, tmp_path: Path
+) -> None:
+    """The container `publish` mounts the run folder read-only (#3700), so its new repository
+    goes to a temporary folder of its own."""
+    folders = RunFolders(tmp_path / "run")
+    _prepare(job_world, folders)
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+
+    with read_only_run(folders):
+        result = publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1)
+
+    assert (result, job_world.origin_log()) == (
+        ImplementResult.DRAFTED,
+        [WORK_COMMIT, ARCHIVE_COMMIT],
+    )
 
 
 def test_a_second_publish_of_the_same_run_pushes_and_comments_nothing(

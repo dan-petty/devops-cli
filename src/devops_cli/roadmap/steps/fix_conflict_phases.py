@@ -455,9 +455,7 @@ def publish_round(
         workflow_paths=merged_workflows(judged.repo, default, number) if item is not None else (),
     )
     try:
-        published = publish_patch(
-            target, _patches(folders, title, number), before_push=before_push, scratch=folders.root
-        )
+        published = publish_patch(target, _patches(folders, title, number), before_push=before_push)
     except _AdmissionError as exc:
         record(FixConflictResult.REFUSED)
         reason = exc.reason

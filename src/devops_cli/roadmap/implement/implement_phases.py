@@ -74,10 +74,11 @@ from devops_cli.github.client import PullRequestFile
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
+from devops_cli.output import print_info
 from devops_cli.roadmap.claim import claimed_by
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.failure import FailureAction, FailureClass, StepName
-from devops_cli.roadmap.implement.implement import GIT_OPERATION, ImplementTarget
+from devops_cli.roadmap.implement.implement import GIT_OPERATION, ImplementPlan, ImplementTarget
 from devops_cli.roadmap.implement.implement_amend import Amendment
 from devops_cli.roadmap.implement.implement_comments import StepComments
 from devops_cli.roadmap.implement.implement_disk import log_disk_use
@@ -162,7 +163,8 @@ class ImplementState(_Model):
     """`state/state.json`, which `prepare` writes and a separate `publish` reads: the item, its
     branch and draft, the base of the patches, the lease, the default branch, the summary of the
     plan from the git log, and whether the target archives a change. `ended` says that `prepare`
-    ended the run and wrote its end."""
+    ended the run and wrote its end, and `reason` says why the plan left the item out, which
+    `publish` prints for the log that the Service reads (#6743)."""
 
     repo: str
     item: int
@@ -174,6 +176,7 @@ class ImplementState(_Model):
     plan_summary: str | None = None
     archive_required: bool = False
     ended: bool = False
+    reason: str = ""
 
 
 class AgentInput(_Model):
@@ -399,6 +402,20 @@ def prepare_implement(
     )
     write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
     return state
+
+
+def prepare_left_out(plan: ImplementPlan, item: int, folders: RunFolders) -> None:
+    """`prepare` of an item that the plan leaves out: a state that says the run ended, and why.
+    `agent` and `publish` run after `prepare` in their own containers (#3700), and they end with
+    nothing to do, as the one process did."""
+    reason = next(
+        (out.reason for out in (*plan.left_out, *plan.unmatched) if out.number == item), ""
+    )
+    folders.make()
+    write_json(
+        folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+        ImplementState(repo=plan.repo, item=item, ended=True, reason=reason),
+    )
 
 
 def _facts(stop: _StopError) -> StopFacts:
@@ -708,7 +725,9 @@ def _push(
             report.delivery_metadata(state.pull, facts.title, facts.body)
         held.append(facts)
 
-    published = publish_patch(target, patches, before_push=before_push, scratch=folders.root)
+    # The new repository goes to the temporary folder: `publish` mounts the run folder read-only
+    # (#3700).
+    published = publish_patch(target, patches, before_push=before_push)
     if published is not None:
         store.set_marks(_fresh(store, number), {ImplementRecordKey.PUBLISHED_SHA: published.commit})
     return published, (held[0] if held else None)
@@ -1007,6 +1026,11 @@ def publish_phase(
     if (state.repo, state.item) != (repo, item):
         raise PhaseOutputError("The state file of the run names another item")
     if state.ended:
+        if state.reason:
+            print_info(
+                MESSAGES.roadmap.implement_phase_left_out.format(item=item, reason=state.reason),
+                safe=True,
+            )
         return None
     recorded = _fresh(store, item).job_record.get(ImplementRecordKey.BRANCH)
     if recorded != state.branch:

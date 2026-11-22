@@ -20,9 +20,11 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 from pydantic import ValidationError
 
 import devops_cli.commands.k8s.cluster_runtime as runtime
@@ -32,6 +34,7 @@ from devops_cli.config.constants import (
     CONST_RUNNER_PHASE_AGENT,
     CONST_RUNNER_PHASE_PREPARE,
     CONST_RUNNER_PHASE_PUBLISH,
+    CONST_RUNNER_PHASE_RUN_DIR,
 )
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.config.env import setting_variables
@@ -39,6 +42,7 @@ from devops_cli.config.settings import GitHubAppConfig
 from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run, render_request_plan
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.github.repo_ref import RepoRef, ServiceRow
 from devops_cli.k8s.cluster_job import (
@@ -69,6 +73,7 @@ from devops_cli.k8s.cluster_job import (
     stage_job_labels,
 )
 from devops_cli.k8s.cluster_job_api import JobState, job_state
+from devops_cli.k8s.environment import resolve_environment
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info
 
@@ -333,6 +338,70 @@ def _env_entries(env: Mapping[str, str] | None) -> list[dict[str, str]]:
     return [{"name": name, "value": value} for name, value in (env or {}).items()]
 
 
+def _cronjob_pod_spec(path: Path, name: str) -> dict[str, Any] | None:
+    """The pod spec of CronJob `name` in the manifest `path`, or None when it holds none."""
+    try:
+        documents = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+    except OSError, UnicodeDecodeError, yaml.YAMLError:
+        return None
+    for document in documents:
+        if not isinstance(document, dict) or document.get("kind") != "CronJob":
+            continue
+        if (document.get("metadata") or {}).get("name") != name:
+            continue
+        pod_spec: dict[str, Any] = document["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+        return pod_spec
+    return None
+
+
+def _template_pod_spec(template: JobTemplate) -> dict[str, Any] | None:
+    """The pod spec of the CronJob of `template` in the environment tree of the checkout, or
+    None when no tree holds it. The dry run reads no cluster, so the shape of the template comes
+    from the manifests of git, which are local files (#6743)."""
+    try:
+        tree = resolve_environment()
+    except ConfigurationError:
+        return None
+    needle = f"name: {template.cronjob}"
+    for path in sorted(tree.root.rglob("*.yaml")):
+        try:
+            held = needle in path.read_text(encoding="utf-8")
+        except OSError, UnicodeDecodeError:
+            continue
+        if held and (pod_spec := _cronjob_pod_spec(path, template.cronjob)) is not None:
+            return pod_spec
+    return None
+
+
+def _preview_containers(
+    args: Sequence[str],
+    template: JobTemplate,
+    env: Mapping[str, str] | None,
+    copied: str,
+    pod_spec: Mapping[str, Any] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """The containers of the previewed Job, from the shape of the template as `build_job` reads
+    it: on the phases (#3700) each container gets its `--phase` and `--work`, and a template of one
+    container keeps the args."""
+
+    def container(name: str, run_args: list[str]) -> dict[str, Any]:
+        return {
+            "name": name,
+            "...": copied,
+            "args": run_args,
+            **({"env": _env_entries(env)} if env else {}),
+        }
+
+    phases = phase_containers(dict(pod_spec)) if pod_spec is not None else ()
+    if not phases:
+        return {"containers": [container(template.container, list(args))]}
+    built = [
+        container(phase, [*args, "--phase", phase, "--work", CONST_RUNNER_PHASE_RUN_DIR])
+        for phase in phases
+    ]
+    return {"initContainers": built[:-1], "containers": built[-1:]}
+
+
 def _job_preview(
     args: Sequence[str],
     template: JobTemplate,
@@ -385,14 +454,9 @@ def _job_preview(
                 "metadata": pod_metadata,
                 "spec": {
                     "...": copied,
-                    "containers": [
-                        {
-                            "name": template.container,
-                            "...": copied,
-                            "args": list(args),
-                            **({"env": _env_entries(env)} if env else {}),
-                        }
-                    ],
+                    **_preview_containers(
+                        args, template, env, copied, _template_pod_spec(template)
+                    ),
                 },
             },
         },

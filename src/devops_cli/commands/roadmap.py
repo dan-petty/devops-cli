@@ -946,7 +946,11 @@ def _implement_phase(
         if phase is RunPhase.PUBLISH:
             phases.publish_phase(store, folders, repo=target, item=item)
             return
-        from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
+        from devops_cli.roadmap.implement.implement import (
+            parse_implement_filters,
+            plan_implement,
+            render_implement_plan,
+        )
         from devops_cli.roadmap.run import model_clone
 
         plan = plan_implement(
@@ -957,6 +961,9 @@ def _implement_phase(
             item_number=item,
             limit=1,
         )
+        write_stdout(render_implement_plan(plan) + "\n")
+        if not plan.selected:
+            phases.prepare_left_out(plan, item, folders)
         for selected in plan.selected:
             phases.prepare_implement(store, target, selected, folders, rebase=rebase)
 

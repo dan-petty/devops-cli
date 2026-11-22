@@ -18,7 +18,11 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "example/roadmap"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
-RUN_JOB = f"devops k8s run-job --template runner --repo {REPO} -- roadmap implement --repo {REPO}"
+# A runner Job runs one item: a phase other than `all` needs `--item` (#3700, #6743).
+RUN_JOB = (
+    f"devops k8s run-job --template runner --repo {REPO} -- roadmap implement --repo {REPO} "
+    "--item <number>"
+)
 
 
 def _label(repo: str) -> str:

@@ -51,6 +51,7 @@ from devops_cli.roadmap.steps.fix_conflict import (
 from devops_cli.roadmap.stores.store import FixConflictRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import STEPS_DECLARATION, STEPS_FILE
+from tests.support.run_folders import read_only_run
 
 if TYPE_CHECKING:
     pass
@@ -905,9 +906,11 @@ def test_the_three_phases_on_one_run_folder_settle_and_push(
     assert ran
     _with_pull_request_code(monkeypatch, pull)
 
-    report = fix_conflict_phases.publish_phase(
-        pull.store, client, folders, repo=REPO, pull=pull.number
-    )
+    # The container `publish` mounts the run folder read-only (#3700).
+    with read_only_run(folders):
+        report = fix_conflict_phases.publish_phase(
+            pull.store, client, folders, repo=REPO, pull=pull.number
+        )
 
     assert report is not None
     assert (report.result, report.rounds) == (FixConflictResult.RESOLVED, 1)

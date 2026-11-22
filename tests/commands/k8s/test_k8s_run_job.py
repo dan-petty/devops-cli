@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,8 +21,10 @@ from tests.support.fakes.cluster_jobs import (
     phase_runner_cronjob_manifest,
     runner_cronjob_manifest,
 )
+from tests.support.job_templates import cronjob_template, phase_cronjob_template
 
 REPO = "example/roadmap"
+PHASES = ("prepare", "agent", "publish")
 PHASES_HELD = "the CronJob holds the init containers prepare and agent"
 REPO_ENV = "DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY"
 LOCK_LABEL = "implement-repo"
@@ -328,6 +331,63 @@ def test_the_dry_run_of_the_runner_template_lists_the_reads_of_each_phase_contai
         [f"-c {phase}" in output for phase in ("prepare", "agent", "publish")],
         "the CronJob holds the init containers prepare and agent" in output,
     ) == (0, [True, True, True], True), result.output
+
+
+@pytest.mark.parametrize(
+    ("make", "shown"),
+    [
+        (cronjob_template, {"runner": []}),
+        (
+            phase_cronjob_template,
+            {phase: ["--phase", phase, "--work", "/run/roadmap"] for phase in PHASES},
+        ),
+    ],
+    ids=["one-container", "phases"],
+)
+def test_the_dry_run_shows_the_containers_of_the_shape_of_the_template(
+    monkeypatch: pytest.MonkeyPatch, make: Any, shown: dict[str, list[str]]
+) -> None:
+    """The preview reads the shape of the template from the manifests of git, as `build_job` reads
+    it from the CronJob: one container `runner` today, and on the phases (#3700) the init
+    containers prepare and agent and the container publish, each with its phase (#6743)."""
+    from devops_cli.commands.k8s import cluster_jobs
+
+    pod_spec = make(RUNNER_TEMPLATE)["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    monkeypatch.setattr(cluster_jobs, "_template_pod_spec", lambda _template: pod_spec)
+    args = ["roadmap", "implement", "--item", "7"]
+    planned = cluster_jobs.dry_run_job(
+        args, None, wait=False, start_timeout=5.0, template=RUNNER_TEMPLATE
+    )
+    (create,) = (r for r in planned.requests if r.stdin)
+    pod = json.loads(create.stdin)["spec"]["template"]["spec"]
+
+    assert {c["name"]: c["args"] for c in [*pod.get("initContainers", []), *pod["containers"]]} == {
+        name: [*args, *extra] for name, extra in shown.items()
+    }
+
+
+def test_the_dry_run_without_a_tree_of_manifests_shows_the_container_of_the_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dry run outside a checkout finds no manifest and reads no cluster, so it shows the one
+    container that the template names."""
+    from devops_cli.commands.k8s import cluster_jobs
+
+    monkeypatch.setattr(cluster_jobs, "resolve_environment", _no_tree)
+    planned = cluster_jobs.dry_run_job(
+        ["--version"], None, wait=False, start_timeout=5.0, template=RUNNER_TEMPLATE
+    )
+    (create,) = (r for r in planned.requests if r.stdin)
+
+    assert [
+        c["name"] for c in json.loads(create.stdin)["spec"]["template"]["spec"]["containers"]
+    ] == ["runner"]
+
+
+def _no_tree(*_args: Any, **_kwargs: Any) -> Any:
+    from devops_cli.exceptions import ConfigurationError
+
+    raise ConfigurationError("no environment tree")
 
 
 def test_an_unknown_template_is_refused() -> None:

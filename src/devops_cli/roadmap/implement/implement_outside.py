@@ -43,9 +43,13 @@ def job_args(repo: str, number: int) -> list[str]:
 
 
 def run_job_command(repo: str) -> str:
-    """The `devops k8s run-job` command that runs the implement job for `repo`, without its
-    options. The options of the job go after it."""
-    return f"devops k8s run-job --template runner --repo {repo} -- roadmap implement --repo {repo}"
+    """The `devops k8s run-job` command that runs the implement job for one item of `repo`,
+    without its options. A runner Job runs one item: each of its phases needs `--item` (#3700,
+    #6743). The options of the job go after it."""
+    return (
+        f"devops k8s run-job --template runner --repo {repo} -- roadmap implement --repo {repo} "
+        "--item <number>"
+    )
 
 
 def runner_only_options(
