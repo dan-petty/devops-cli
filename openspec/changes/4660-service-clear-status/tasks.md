@@ -27,7 +27,7 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/onboard.py`, `src/devops_cli/road
 
 Kind: other. Reads: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/pull_status.py`. Changes: `src/devops_cli/roadmap/inbox.py`, `src/devops_cli/roadmap/pull_status.py`.
 
-- [ ] 3.1 Change the module docstrings of `inbox.py` and `pull_status.py` so that they name the row `implement` of the Service as the remover of the labels of a closed issue
+- [x] 3.1 Change the module docstrings of `inbox.py` and `pull_status.py` so that they name the row `implement` of the Service as the remover of the labels of a closed issue
   - Verification: `$ ! git grep -n clear-status -- src/`
 
 ## 4. Name the Service in the documents
