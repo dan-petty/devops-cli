@@ -6,11 +6,12 @@ Issue #6735 names four defects that PR #6701 (#6633) left. The open step and the
 
 ## What Changes
 
-- `measured_body_text` splits `body.strip()` and ends the text at the first line that the form takes as the `Closes` or the `Plans` line. It is the one measure of the limit.
+- `measured_body_text` splits `body.strip()` and ends the text at the first line that is `Closes #<issue>` or `Plans #<issue>` when the whitespace at the ends of the line is removed. The plan check reads the `Plans` line in the same way. It is the one measure of the limit.
 - `body_problems` and `plan_body_problems` give `_text_problems` the text of `measured_body_text`, so the open step, the form check of `devops pr create`, the ready check and the plan check measure one text.
 - The help text of `devops pr create`, the generated `docs/commands/pr.md` and `docs/commands/gh.md`, and the comment of `BODY_MAX_CHARS` say that the limit measures the text above `Closes`.
 - `tests/roadmap/stage/test_roadmap_stage_plan.py` imports no name of `pull_form` at the top, and its assertion compares with the known text.
 - Two requirements of `pull-request-form` that still say "the body longer than 1,000 characters" say "the text above `Closes`".
+- Two requirements of `pull-request-form` and one of `roadmap-plan-check` that say "with its trailing blank lines removed" say "with the whitespace at its start and at its end removed".
 - The change fits one pull request.
 
 ## Capabilities
@@ -21,7 +22,8 @@ None.
 
 ### Modified Capabilities
 
-- `pull-request-form`: The open step and the ready check measure one text (added), The rules cut no text, devops pr describe refuses and prints nothing
+- `pull-request-form`: The open step and the ready check measure one text (added), The rules cut no text, devops pr describe refuses and prints nothing, The body ends with Closes and the Change line, The plan body limit measures the text above Plans
+- `roadmap-plan-check`: Plan-check checks the body of the pull request
 
 ## Impact
 
@@ -33,6 +35,8 @@ None.
 
 - A probe on the base a3e30286e with the body `"\n" + text + "\n\nCloses #5020\n\nChange: ..."` and a text of 1,000 characters: `open_body_problems` reports "The text above `Closes` has 1001 characters", `body_problems` reports no problem, and `measured_body_text` gives 1001 characters. The same text above `Plans` gives 1001 in `measured_body_text` and no problem in `plan_body_problems`.
 - `grep -rn measured_body_text src tests` finds three readers: `open_body_problems`, `plan_check.py:283` and `tests/roadmap/stage/test_roadmap_stage_plan.py:39`.
+- `grep` for `trailing blank lines` finds the old measure at `openspec/specs/pull-request-form/spec.md:44,371` and `openspec/specs/roadmap-plan-check/spec.md:76`.
+- `plan_check.issue_number` takes `Plans #<issue>` after `line.strip()`. A probe with a text of 990 characters above the line `Plans #6735 ` (a space at its end) gives 990 with the `startswith` match and no problem in the plan check.
 - `grep` for `1,000 characters` finds the old text at `src/devops_cli/commands/pr.py:1380`, `docs/commands/pr.md:236`, `docs/commands/gh.md:1012` and `openspec/specs/pull-request-form/spec.md:114,147,162`.
 
 ## Existing Tool Considered
