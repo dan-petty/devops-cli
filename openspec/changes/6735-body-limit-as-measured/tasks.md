@@ -20,7 +20,7 @@ Kind: other. Changes: `tests/roadmap/stage/test_roadmap_stage_plan.py`.
 
 Kind: other. Changes: `src/devops_cli/commands/pr.py`, `docs/commands/pr.md`, `docs/commands/gh.md`.
 
-- [ ] 3.1 Change the help text of `devops pr create` in `src/devops_cli/commands/pr.py` to say that the text above `Closes` has at most 1,000 characters, and generate `docs/commands/pr.md` and `docs/commands/gh.md` again with `devops docs generate`
+- [x] 3.1 Change the help text of `devops pr create` in `src/devops_cli/commands/pr.py` to say that the text above `Closes` has at most 1,000 characters, and generate `docs/commands/pr.md` and `docs/commands/gh.md` again with `devops docs generate`
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
