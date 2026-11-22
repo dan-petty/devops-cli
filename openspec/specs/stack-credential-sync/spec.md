@@ -217,3 +217,10 @@ Secret `monitoring/grafana-admin` SHALL hold entry `llm-gateway-key` from keyrin
 #### Scenario: Secret entry in cluster secret table
 - **WHEN** the cluster secret table is read
 - **THEN** Secret `monitoring/grafana-admin` defines `llm-gateway-key` with keyring source `llm_gateway_master_key`
+
+### Requirement: The SearXNG metrics Secret row comes from the keyring
+The cluster Secret push table SHALL declare row `devops/searxng-metrics-auth` with secret type `kubernetes.io/basic-auth`, literal user `searxng` and keyring password `searxng_metrics_password`, and a push SHALL restart `deployment/searxng`.
+
+#### Scenario: The metrics Secret row comes from the keyring
+- **WHEN** `uv run devops ci test tests/invariants/test_k8s_searxng.py` runs
+- **THEN** the test finds row `devops/searxng-metrics-auth` of type `kubernetes.io/basic-auth` with user `searxng`, password `keyring searxng_metrics_password` and restart `deployment/searxng`, and the test fails before the change
