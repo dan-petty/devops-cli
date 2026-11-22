@@ -28,6 +28,14 @@ class InfraApplyRefusedError(InfraError):
     error_code = "INFRA_APPLY_REFUSED"
 
 
+class InfraNodeRefusedError(InfraError):
+    """A guard of `devops infra node` refused the run before it changed a node: a host that is not
+    in service in the inventory, a restart with no unit, `--force` from an agent, or host key
+    checks off for an agent (#5128)."""
+
+    error_code = "INFRA_NODE_REFUSED"
+
+
 class InfraReadError(InfraError):
     """A read of an infra repo failed: a git command of the read of its default branch, an Ansible
     command, or its output is not JSON."""
@@ -48,6 +56,7 @@ __all__ = [
     "InfraAccessRefusedError",
     "InfraApplyRefusedError",
     "InfraError",
+    "InfraNodeRefusedError",
     "InfraReadError",
     "InfraRepoNotFoundError",
 ]

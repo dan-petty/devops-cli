@@ -1521,6 +1521,35 @@ class InfraMessages:
         "Each disruptive host runs alone in plan order. The node of a host stays cordoned when it "
         "was cordoned before. The first failure stops the apply."
     )
+    # `devops infra node` (#5128): the problems of a node step, and the report of a node command.
+    node_unhealthy: str = "the cluster is not healthy: {problems}"
+    node_same_boot: str = "{node} gives the boot ID of before the reboot"
+    node_task_failed: str = "the task {module} failed on {host}: {reason}"
+    node_task_unreachable: str = "the task {module} did not reach {host}: {reason}"
+    node_task_no_result: str = (
+        "ansible-runner gave no result of {host} (exit code {code}): {detail}"
+    )
+    node_title: str = "Node {operation} of {repo}: the inventory at {commit}"
+    node_columns: tuple[str, ...] = ("Host", "Node", "Unit", "Result", "Step", "Cordoned", "GPUs")
+    node_caption: str = (
+        "Cordoned and GPUs: before -> after, as the node gave them before the first change and "
+        "after the last step."
+    )
+    node_kernel: str = "Kernel of {host}: {kernels}"
+    node_done: str = "Node {operation} {id}: {result}, in {seconds:.0f} s. Audit record {audit}."
+    node_down: str = (
+        "Down while {host} is cordoned, because only its node can mount their volumes: {workloads}"
+    )
+    node_stopped: str = (
+        "The run stopped: {reason}. The node stays as the step left it, cordoned after a drain. "
+        "Fix the cause, then run the command again."
+    )
+    node_plan_title: str = "Plan for devops infra node {operation} of {repo} at {path}"
+    node_dry_run_note: str = (
+        "One host at a time in the given order. The first failure stops the run and leaves the "
+        "node as the step left it, cordoned after a drain. A node that was cordoned before stays "
+        "cordoned after a restart or a reboot."
+    )
     settings_level: str = "agent access {level}"
     settings_written: str = "agent access {level}; written to {path}"
     settings_step: str = (

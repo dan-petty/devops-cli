@@ -558,6 +558,33 @@ class InfraErrorMessages:
         "{found}. Turn them on in the infra repo, then plan again."
     )
     apply_unhealthy: str = "The cluster is not healthy, so the apply starts no host: {problems}"
+    # `devops infra node` (#5128): the guards that refuse a node command before it changes a node.
+    node_host_unknown: str = (
+        "{host} is not a host of the inventory of {repo}. Give each host as the inventory names "
+        "it; devops infra status {repo} shows them."
+    )
+    node_host_offline: str = (
+        "{host} is in the group {group} of hosts out of service in the inventory of {repo}, so no "
+        "node command reaches it."
+    )
+    node_no_unit: str = (
+        "{host} sets no {variable}, so devops infra node restart does not know which unit to "
+        "restart. Set {variable} for the host in the inventory of {repo}, such as k3s-agent."
+    )
+    node_unit_invalid: str = (
+        "{variable} of {host} gives {unit!r}, which is not a systemd unit name. Use only letters, "
+        "digits and the characters :_.@-."
+    )
+    node_unit_unread: str = "Ansible did not give {variable} of {host}: {reason}"
+    node_force_agent: str = (
+        "An agent cannot give --force to devops infra node {operation}: with --force, the drain "
+        "deletes each pod that no controller owns, and the pod does not come back. Only a person "
+        "gives --force. Run the command again with no --force, or ask a person to run it."
+    )
+    node_host_key_checks_off: str = (
+        "An agent run of devops infra node {operation} needs host key checks on, and the default "
+        "branch of {repo} turns them off: {found}. Turn them on in the infra repo."
+    )
 
 
 @dataclass(frozen=True)

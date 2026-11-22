@@ -930,7 +930,7 @@ INFRA_RUNS_TOTAL = Instrument(
     "devops_cli_infra_runs_total",
     InstrumentKind.COUNTER,
     "1",
-    "Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply) and result: ok, refused or stopped",
+    "Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply, node drain, node uncordon, node restart or node reboot) and result: ok, refused or stopped",
 )
 
 INSTRUMENTS: tuple[Instrument, ...] = (

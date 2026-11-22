@@ -17,12 +17,6 @@ result of each host, and their folder is removed after.
 
 from __future__ import annotations
 
-import json
-import os
-import shlex
-import shutil
-import tempfile
-import uuid
 from collections.abc import Iterable
 from decimal import Decimal
 from pathlib import Path
@@ -30,11 +24,18 @@ from typing import Any, Final
 
 from devops_cli.config.defaults import DEFAULT_INFRA_PING_TIMEOUT_SECONDS
 from devops_cli.config.settings import InfraRepoConfig, Settings
-from devops_cli.core.process import run_subprocess
 from devops_cli.crypto.ssh_keys import find_newest_key
 from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.infra.access import AgentAccess, require_agent_level
+from devops_cli.infra.ad_hoc import (
+    EVENT_FAILED,
+    EVENT_OK,
+    EVENT_UNREACHABLE,
+    AdHoc,
+    AdHocTask,
+    HostResult,
+)
 from devops_cli.infra.ansible_facts import (
     RUNNER_COMMAND,
     AnsibleInventory,
@@ -52,21 +53,16 @@ from devops_cli.project.profile import resolve_profile
 NODE_NAME_VARIABLE: Final[str] = "devops_infra_node_name"
 REBOOT_REQUIRED_FILE: Final[str] = "/run/reboot-required"
 STAT_MODULE: Final[str] = "ansible.builtin.stat"
-# The bound of the SSH connection to one host (`ansible -T`): it ends before the run's bound.
-SSH_CONNECT_TIMEOUT_SECONDS: Final[int] = 10
 _READY: Final[str] = "Ready"
 _UNKNOWN: Final[str] = "Unknown"
 _MEMORY: Final[str] = "memory"
 _GPU_SUFFIX: Final[str] = "/gpu"
 _GIB: Final[int] = 1024**3
-_ARTIFACT_PREFIX: Final[str] = "devops-infra-ping-"
-_EVENT_OK: Final[str] = "runner_on_ok"
-_EVENT_FAILED: Final[str] = "runner_on_failed"
-_EVENT_UNREACHABLE: Final[str] = "runner_on_unreachable"
-_HOST_EVENTS: Final[dict[str, PingState]] = {
-    _EVENT_OK: PingState.REACHABLE,
-    _EVENT_FAILED: PingState.FAILED,
-    _EVENT_UNREACHABLE: PingState.UNREACHABLE,
+_ALL_HOSTS: Final[str] = "all"
+_HOST_STATES: Final[dict[str, PingState]] = {
+    EVENT_OK: PingState.REACHABLE,
+    EVENT_FAILED: PingState.FAILED,
+    EVENT_UNREACHABLE: PingState.UNREACHABLE,
 }
 _NO_VALUE: Final[str] = ""
 
@@ -148,58 +144,6 @@ def host_statuses(
     return rows
 
 
-def ping_argv(
-    tool: AnsibleTool,
-    root: Path,
-    sources: tuple[str, ...],
-    offline_group: str | None,
-    key: Path | None,
-    *,
-    artifact_dir: Path,
-    ident: str,
-) -> list[str]:
-    """`ansible-runner run` of `stat /run/reboot-required` on the hosts in service of the repo
-    at `root`. The options after `--cmdline=` go to `ansible`: the inventory, the connection
-    bound, no `become`, and the key of `devops ssh` when there is one."""
-    words = [word for source in sources for word in ("-i", source)]
-    words += ["-T", str(SSH_CONNECT_TIMEOUT_SECONDS), "-e", "ansible_become=false"]
-    if key is not None:
-        words += ["-e", f"ansible_ssh_private_key_file={key}"]
-    argv = tool.argv(
-        RUNNER_COMMAND,
-        "run",
-        str(root),
-        "--artifact-dir",
-        str(artifact_dir),
-        "--ident",
-        ident,
-        "--omit-env-files",
-        "--quiet",
-        "--hosts",
-        "all",
-    )
-    if offline_group:
-        argv += ["--limit", f"!{offline_group}"]
-    return [
-        *argv,
-        "-m",
-        STAT_MODULE,
-        "-a",
-        f"path={REBOOT_REQUIRED_FILE}",
-        f"--cmdline={shlex.join(words)}",
-    ]
-
-
-def ping_env(tool: AnsibleTool) -> dict[str, str]:
-    """The environment that the run adds: the tool environment first on PATH, so ansible-runner
-    finds `ansible`, and host key checks on."""
-    path = os.environ.get("PATH", "")
-    return {
-        "PATH": os.pathsep.join(filter(None, (str(tool.bin_dir or ""), path))),
-        "ANSIBLE_HOST_KEY_CHECKING": "True",
-    }
-
-
 def ping_hosts(
     tool: AnsibleTool,
     root: Path,
@@ -207,58 +151,35 @@ def ping_hosts(
     offline_group: str | None,
     key: Path | None,
 ) -> dict[str, HostPing]:
-    """The SSH check of each host in service of the repo at `root`, by host.
+    """The SSH check of each host in service of the repo at `root`, by host: one ad-hoc
+    `stat /run/reboot-required` with no `become`.
 
     Raises:
         InfraReadError: the run exits with a status other than 0 and gives no host result.
     """
-    artifact_dir = Path(tempfile.mkdtemp(prefix=_ARTIFACT_PREFIX))
-    ident = uuid.uuid4().hex
-    try:
-        result = run_subprocess(
-            ping_argv(
-                tool, root, sources, offline_group, key, artifact_dir=artifact_dir, ident=ident
-            ),
-            env=ping_env(tool),
-            quiet=True,
-            timeout=DEFAULT_INFRA_PING_TIMEOUT_SECONDS,
-        )
-        pings = _read_events(artifact_dir / ident / "job_events")
-    finally:
-        shutil.rmtree(artifact_dir, ignore_errors=True)
-    if not pings and result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip().splitlines()[-1:] or [""]
+    task = AdHocTask(module=STAT_MODULE, args=f"path={REBOOT_REQUIRED_FILE}")
+    outcome = AdHoc(tool=tool, root=root, sources=sources, key=key).run(
+        task,
+        _ALL_HOSTS,
+        timeout=DEFAULT_INFRA_PING_TIMEOUT_SECONDS,
+        limit=f"!{offline_group}" if offline_group else None,
+    )
+    if not outcome.hosts and outcome.returncode != 0:
         raise InfraReadError(
             ERRORS.infra.read_failed.format(
-                command=RUNNER_COMMAND, code=result.returncode, detail=detail[0]
+                command=RUNNER_COMMAND, code=outcome.returncode, detail=outcome.detail
             )
         )
-    return pings
+    return {host: _ping(result) for host, result in outcome.hosts.items()}
 
 
-def _read_events(folder: Path) -> dict[str, HostPing]:
-    """The result of each host from the job events in `folder`, in the order of the run."""
-    pings: dict[str, HostPing] = {}
-    for path in sorted(folder.glob("*.json"), key=_counter):
-        event = json.loads(path.read_text(encoding="utf-8"))
-        state = _HOST_EVENTS.get(str(event.get("event")))
-        data = event.get("event_data") or {}
-        host = data.get("host")
-        if state is None or not host:
-            continue
-        res = data.get("res") or {}
-        if state is PingState.REACHABLE:
-            exists = (res.get("stat") or {}).get("exists")
-            pings[host] = HostPing(state=state, reboot_required=bool(exists))
-        else:
-            pings[host] = HostPing(state=state, reason=str(res.get("msg") or "") or None)
-    return pings
-
-
-def _counter(path: Path) -> int:
-    """The number of an event file, `<counter>-<uuid>.json`."""
-    head = path.name.split("-", 1)[0]
-    return int(head) if head.isdigit() else 0
+def _ping(result: HostResult) -> HostPing:
+    """The SSH check of a host from the result of its task."""
+    state = _HOST_STATES[result.event]
+    if state is PingState.REACHABLE:
+        exists = (result.res.get("stat") or {}).get("exists")
+        return HostPing(state=state, reboot_required=bool(exists))
+    return HostPing(state=state, reason=result.reason or None)
 
 
 def with_pings(rows: Iterable[HostStatus], pings: dict[str, HostPing]) -> list[HostStatus]:
@@ -400,8 +321,6 @@ __all__ = [
     "memory_bytes",
     "node_name",
     "node_state",
-    "ping_argv",
-    "ping_env",
     "ping_hosts",
     "render_status_header",
     "status_caption",

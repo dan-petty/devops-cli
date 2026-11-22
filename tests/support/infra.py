@@ -57,6 +57,11 @@ An apply (#5125) runs the playbook on a few hosts at a time. `answer_runs` answe
 the recorded events of `site` of the hosts of its `--limit` only (`site_events`), with no failure,
 and `FakeCluster` answers `kubectl` from a set of nodes: the reads, the drain check, the drain and
 the uncordon. Both write each step in one list, so a test reads the order of the steps.
+
+A node command (#5128) runs ad-hoc tasks. `FakeHosts` answers each ad-hoc `ansible-runner run` on
+the nodes of a `FakeCluster`: the render of `devops_infra_node_service`, the restart of a unit and
+the reboot, which gives the node a new kernel and a new boot ID. It writes each task to the list of
+steps of the cluster, and with `reads` the cluster writes its node reads there too.
 """
 
 from __future__ import annotations
@@ -428,6 +433,8 @@ class FakeNode:
     capacity_gib: int = 16
     allocatable_gib: int = 15
     pressure: tuple[str, ...] = ()
+    kernel: str = "6.12.0"
+    boot_id: str = "boot-1"
 
     def item(self) -> dict[str, Any]:
         """The node as `kubectl get node -o json` prints it."""
@@ -446,7 +453,11 @@ class FakeNode:
                 "conditions": conditions,
                 "capacity": {"memory": f"{self.capacity_gib * _GIB_KI}Ki"},
                 "allocatable": allocatable,
-                "nodeInfo": {"kernelVersion": "6.12.0", "kubeletVersion": "v1.37.2+k3s1"},
+                "nodeInfo": {
+                    "kernelVersion": self.kernel,
+                    "kubeletVersion": "v1.37.2+k3s1",
+                    "bootID": self.boot_id,
+                },
             },
         }
 
@@ -505,6 +516,10 @@ class FakeCluster:
     graces: dict[str, int] = field(default_factory=dict)
     # The Deployment on each node whose pod mounts a volume that only that node can mount.
     pinned: dict[str, str] = field(default_factory=dict)
+    # Whether each read of the nodes (`get nodes`) and of one node (`get node <name>`) is a step.
+    reads: bool = False
+    # Runs on each read of one node, before the answer, such as a node that boots after a read.
+    on_node_read: Callable[[FakeNode], None] | None = None
 
     @classmethod
     def of(cls, *nodes: FakeNode) -> FakeCluster:
@@ -523,6 +538,8 @@ class FakeCluster:
         return self._change(args)
 
     def _read(self, args: tuple[str, ...]) -> ProcessAnswer:
+        if self.reads and args[1] in ("nodes", "node"):
+            self.steps.append(" ".join(args[:3]) if args[1] == "node" else "get nodes")
         if args[1] == "nodes":
             items = [node.item() for node in self.nodes.values()]
             return ProcessAnswer(stdout=json.dumps({"items": items}))
@@ -547,6 +564,8 @@ class FakeCluster:
         found = self.nodes.get(args[2])
         if found is None:
             return ProcessAnswer(returncode=1, stderr=f'nodes "{args[2]}" not found\n')
+        if self.on_node_read is not None:
+            self.on_node_read(found)
         return ProcessAnswer(stdout=json.dumps(found.item()))
 
     def _change(self, args: tuple[str, ...]) -> ProcessAnswer:
@@ -568,3 +587,78 @@ class FakeCluster:
             node.cordoned = False
             return ProcessAnswer(stdout=f"node/{node.name} uncordoned\n")
         raise AssertionError(args)
+
+
+_DEBUG: Final[str] = "ansible.builtin.debug"
+_SYSTEMD: Final[str] = "ansible.builtin.systemd_service"
+_REBOOT: Final[str] = "ansible.builtin.reboot"
+
+
+def ad_hoc_option(call: ProcessCall, name: str) -> str:
+    """The value of the option `name` of an ad-hoc `ansible-runner run`."""
+    return call.argv[call.argv.index(name) + 1]
+
+
+def ad_hoc_words(call: ProcessCall) -> list[str]:
+    """The words of `--cmdline=` of an ad-hoc `ansible-runner run`, which go to `ansible`."""
+    prefix = "--cmdline="
+    return shlex.split(next(word[len(prefix) :] for word in call.argv if word.startswith(prefix)))
+
+
+def is_ad_hoc(call: ProcessCall) -> bool:
+    """Whether a call is an ad-hoc `ansible-runner run`: one with an artifact folder of its own."""
+    return Path(call.argv[0]).name == "ansible-runner" and "--artifact-dir" in call.argv
+
+
+@dataclass
+class FakeHosts:
+    """The hosts of the nodes of `cluster`, as ad-hoc `ansible-runner run` tasks reach them. The
+    node of a host is its first DNS label. The render of `devops_infra_node_service` gives the
+    value of `units`, else `k3s-agent`. A restart of a unit or a reboot fails on a host of
+    `failed` with its message. A reboot gives the node `kernel_after` and a new boot ID. A node in
+    `not_ready` is not Ready after its restart or reboot. Each task is a step of the cluster:
+    `render <host>`, `restart <host> <unit>` or `reboot <host>`."""
+
+    cluster: FakeCluster
+    units: dict[str, str] = field(default_factory=dict)
+    failed: dict[str, str] = field(default_factory=dict)
+    not_ready: set[str] = field(default_factory=set)
+    kernel_after: str = "6.12.1"
+
+    def install(self, fake: ProcessFake) -> None:
+        fake.answer(is_ad_hoc, self._answer)
+
+    def _answer(self, call: ProcessCall) -> ProcessAnswer:
+        folder = Path(ad_hoc_option(call, "--artifact-dir")) / ad_hoc_option(call, "--ident")
+        job_events = folder / "job_events"
+        job_events.mkdir(parents=True)
+        module, args = ad_hoc_option(call, "-m"), ad_hoc_option(call, "-a")
+        failed = False
+        for number, host in enumerate(ad_hoc_option(call, "--hosts").split(","), start=1):
+            event, res = self._task(host, module, args)
+            failed = failed or event != "runner_on_ok"
+            body = {"event": event, "counter": number, "event_data": {"host": host, "res": res}}
+            (job_events / f"{number}-{host}.json").write_text(json.dumps(body), encoding="utf-8")
+        return ProcessAnswer(returncode=2 if failed else 0)
+
+    def _task(self, host: str, module: str, args: str) -> tuple[str, dict[str, Any]]:
+        steps = self.cluster.steps
+        if module == _DEBUG:
+            steps.append(f"render {host}")
+            return "runner_on_ok", {"msg": self.units.get(host, "k3s-agent"), "changed": False}
+        node = self.cluster.nodes[host.split(".", 1)[0]]
+        if module == _SYSTEMD:
+            unit = dict(word.split("=", 1) for word in args.split())["name"]
+            steps.append(f"restart {host} {unit}")
+        elif module == _REBOOT:
+            steps.append(f"reboot {host}")
+        else:
+            raise AssertionError(module)
+        if host in self.failed:
+            return "runner_on_failed", {"msg": self.failed[host], "changed": False}
+        if module == _REBOOT:
+            node.kernel = self.kernel_after
+            node.boot_id = f"{node.boot_id}-next"
+        if node.name in self.not_ready:
+            node.ready = "False"
+        return "runner_on_ok", {"changed": True}

@@ -80,6 +80,13 @@ DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS: float = 60.0
 DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS: int = 30
 DEFAULT_INFRA_DRAIN_MARGIN_SECONDS: int = 60
 DEFAULT_INFRA_NODE_POLL_SECONDS: float = 10.0
+# The ad-hoc tasks of `devops infra node restart` and `reboot` (#5128): the bound of the unit
+# restart (`ansible --task-timeout`) and of the wait of `ansible.builtin.reboot` for the host to
+# answer again (`reboot_timeout`). The process bound of each is its bound and the margin, so Ansible
+# stops first and writes its result.
+DEFAULT_INFRA_NODE_RESTART_TIMEOUT_SECONDS: int = 300
+DEFAULT_INFRA_REBOOT_TIMEOUT_SECONDS: int = 600
+DEFAULT_INFRA_NODE_TASK_MARGIN_SECONDS: int = 120
 DEFAULT_DOCS_DIR = CONST_DOCS_DIR_PATH
 DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"

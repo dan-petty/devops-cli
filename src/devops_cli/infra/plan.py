@@ -68,6 +68,7 @@ from devops_cli.crypto.ssh_keys import find_newest_key
 from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.infra.access import AgentAccess, require_agent_level
+from devops_cli.infra.ad_hoc import read_job_events, tool_env
 from devops_cli.infra.ansible_facts import (
     REQUIREMENTS_FILE,
     RUNNER_COMMAND,
@@ -81,7 +82,6 @@ from devops_cli.infra.ansible_facts import (
 )
 from devops_cli.infra.onboard import OnboardTarget
 from devops_cli.infra.repo_tree import export_commit, render_read
-from devops_cli.infra.status import ping_env
 from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.infra import (
     ChangedTask,
@@ -113,7 +113,6 @@ _INSTALL_PREFIX: Final[str] = ".install-"
 _ARTIFACTS: Final[str] = "artifacts"
 _JOB_EVENTS: Final[str] = "job_events"
 _STATUS_FILE: Final[str] = "status"
-_PARTIAL_SUFFIX: Final[str] = "-partial.json"
 _STDOUT_FILE: Final[str] = "stdout"
 _SETTINGS_FILE: Final[tuple[str, str]] = ("env", "settings")
 _PRIVATE: Final[int] = 0o700
@@ -124,7 +123,7 @@ _CHECK_OPTIONS: Final[tuple[str, ...]] = ("--check", "--diff", "-v")
 # The options of the run of an apply (#5125): verbosity 1 and no diffs, so the artifacts of a run
 # that changes a file with a secret do not hold its text.
 _RUN_OPTIONS: Final[tuple[str, ...]] = ("-v",)
-# What the run adds to the environment of `ping_env`: the rendered arguments in each result, the
+# What the run adds to the environment of `tool_env`: the rendered arguments in each result, the
 # results as JSON, a line for each skipped host, and no color, also when the repo's `ansible.cfg`
 # sets `force_color`. A skip result in color does not read as JSON, and the plan counts it as
 # unchecked (#5352).
@@ -432,7 +431,7 @@ def runner_env(tool: AnsibleTool, project: Path, collections: Path | None) -> di
     """The environment that the run adds: the tool environment first on PATH, host key checks on,
     the repo's `ansible.cfg`, the rendered arguments in each result, the results as JSON, a line
     for each skipped host, no color, and the pinned collections."""
-    env = ping_env(tool) | _PLAN_ENV | config_env(project)
+    env = tool_env(tool) | _PLAN_ENV | config_env(project)
     if collections is not None:
         env["ANSIBLE_COLLECTIONS_PATH"] = str(collections)
     return env
@@ -683,18 +682,6 @@ def _playbook(project: Path, playbook: str) -> str:
     return path.relative_to(root).as_posix()
 
 
-def read_job_events(folder: Path) -> list[dict[str, Any]]:
-    """The job events in `folder`, in the order of their counter; none when the run wrote none.
-    ansible-runner writes each event as `<counter>-<uuid>.json` with a rename, and a run that
-    stops can leave the callback's `<uuid>-partial.json`, which is not an event."""
-    events = [
-        json.loads(path.read_text(encoding="utf-8"))
-        for path in folder.glob("*.json")
-        if not path.name.endswith(_PARTIAL_SUFFIX)
-    ]
-    return sorted(events, key=lambda event: int(event.get("counter") or 0))
-
-
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
 
@@ -781,7 +768,6 @@ __all__ = [
     "plan_outcome",
     "plan_tables",
     "plans_folder",
-    "read_job_events",
     "render_plan_footer",
     "render_plan_header",
     "run_plan",

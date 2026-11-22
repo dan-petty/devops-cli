@@ -1,4 +1,5 @@
-"""The node steps and the health gate of `devops infra apply` (#5125).
+"""The node steps and the health gate of `devops infra apply` (#5125) and of `devops infra node`
+(#5128).
 
 Each step is one `kubectl` command of the kube context of the infra repo, started through the
 process runner with a request bound below its process bound:
@@ -9,6 +10,7 @@ process runner with a request bound below its process bound:
   apply before the node is cordoned.
 - **Drain**: `kubectl drain <node> --ignore-daemonsets --delete-emptydir-data`, with no `--force`:
   a pod that no controller owns, and a budget, stop the drain. The drain cordons the node first.
+  Only a person passes `--force` to a node command, which then goes to the drain check too.
   Its bound is `infra.drain_timeout_seconds`, or the longest grace period of a pod that it evicts
   and a margin, when that is longer (`kubectl get pods --field-selector spec.nodeName=<node>`).
 - **Down during the apply**: the workloads of the pods that the drain evicts and that mount a
@@ -16,6 +18,8 @@ process runner with a request bound below its process bound:
   node affinity on `kubernetes.io/hostname`). They cannot start on another node, so they are down
   until the node is uncordoned. The apply names them; it does not stop for them.
 - **Uncordon**: `kubectl uncordon <node>`.
+- **A new boot**: after a reboot, the wait for Ready also needs a boot ID (`nodeInfo.bootID`) other
+  than the one of before, so it does not pass on the status that the node posted before the reboot.
 
 The health gate reads every node of the cluster except the nodes of the hosts out of service:
 each is Ready and has no memory, disk or PID pressure. When `prometheus.url` is set, no alert with
@@ -61,6 +65,7 @@ _UNKNOWN: Final[str] = "Unknown"
 _PRESSURE: Final[tuple[str, ...]] = ("MemoryPressure", "DiskPressure", "PIDPressure")
 _DRAIN_OPTIONS: Final[tuple[str, ...]] = ("--ignore-daemonsets", "--delete-emptydir-data")
 _SERVER_DRY_RUN: Final[str] = "--dry-run=server"
+_FORCE: Final[str] = "--force"
 # A wait ends when its read finds no problem this many times in a row, one poll interval apart.
 _CLEAR_READS: Final[int] = 2
 
@@ -81,9 +86,13 @@ def get_node_args(node: str) -> tuple[str, ...]:
     return ("get", "node", node, "-o", "json")
 
 
-def drain_args(node: str, timeout_seconds: int, *, server_dry_run: bool) -> tuple[str, ...]:
-    """The drain of `node` with no `--force`; with `server_dry_run`, the server dry run of the drain."""
-    args = ("drain", node, *_DRAIN_OPTIONS, f"--timeout={timeout_seconds}s")
+def drain_args(
+    node: str, timeout_seconds: int, *, server_dry_run: bool, force: bool = False
+) -> tuple[str, ...]:
+    """The drain of `node`, with `--force` only when `force` is set; with `server_dry_run`, the
+    server dry run of the drain."""
+    forced = (_FORCE,) if force else ()
+    args = ("drain", node, *_DRAIN_OPTIONS, *forced, f"--timeout={timeout_seconds}s")
     return (*args, _SERVER_DRY_RUN) if server_dry_run else args
 
 
@@ -217,6 +226,12 @@ def parse_node(item: Mapping[str, Any]) -> NodeState:
     )
 
 
+def boot_id(item: Mapping[str, Any]) -> str | None:
+    """The boot ID that the kubelet of a node gives (`nodeInfo.bootID`); none when it gives none."""
+    info = (item.get("status") or {}).get("nodeInfo") or {}
+    return str(info.get("bootID") or "") or None
+
+
 def _condition(item: Mapping[str, Any], kind: str) -> str | None:
     conditions = (item.get("status") or {}).get("conditions") or ()
     return next((str(c.get("status")) for c in conditions if c.get("type") == kind), None)
@@ -320,11 +335,11 @@ class Cluster:
         ]
         return problems
 
-    def drain_check(self, node: str) -> str | None:
+    def drain_check(self, node: str, *, force: bool = False) -> str | None:
         """The problem that would stop the drain of `node`, from a server dry run that changes
         nothing; none when the drain would finish."""
         timeout = DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS
-        args = drain_args(node, timeout, server_dry_run=True)
+        args = drain_args(node, timeout, server_dry_run=True, force=force)
         return self._kubectl(args, timeout + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
     def pods(self, node: str) -> list[dict[str, Any]]:
@@ -357,10 +372,10 @@ class Cluster:
         longest = max((grace_period(item) for item in pods if is_evicted(item)), default=0)
         return max(setting, longest + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS if longest else 0)
 
-    def drain(self, node: str, bound: int) -> str | None:
+    def drain(self, node: str, bound: int, *, force: bool = False) -> str | None:
         """Cordon and drain `node` within `bound` seconds; the problem when the drain does not
         finish."""
-        args = drain_args(node, bound, server_dry_run=False)
+        args = drain_args(node, bound, server_dry_run=False, force=force)
         return self._kubectl(args, bound + DEFAULT_INFRA_DRAIN_MARGIN_SECONDS).problem
 
     def uncordon(self, node: str) -> list[str]:
@@ -373,9 +388,10 @@ class Cluster:
 
         return self._wait(attempt, reads=1, first_wait=False)
 
-    def wait_ready(self, node: str, gpus: int | None) -> list[str]:
-        """Wait until `node` is Ready, has no pressure and has the GPUs `gpus` that it had before,
-        on two reads one poll interval apart; the problems of the last read when the time ends."""
+    def wait_ready(self, node: str, gpus: int | None, *, old_boot: str | None = None) -> list[str]:
+        """Wait until `node` is Ready, has no pressure, has the GPUs `gpus` that it had before and,
+        when `old_boot` is set, gives another boot ID, on two reads one poll interval apart; the
+        problems of the last read when the time ends."""
 
         def check() -> list[str]:
             read = self.node(node)
@@ -388,6 +404,8 @@ class Cluster:
                 problems.append(
                     MESSAGES.infra.apply_gpu_differs.format(node=node, now=now, before=gpus)
                 )
+            if old_boot is not None and boot_id(item) == old_boot:
+                problems.append(MESSAGES.infra.node_same_boot.format(node=node))
             return problems
 
         return self._wait(check)
@@ -473,6 +491,7 @@ __all__ = [
     "Cluster",
     "Read",
     "alert_node",
+    "boot_id",
     "critical_alerts",
     "drain_args",
     "get_node_args",

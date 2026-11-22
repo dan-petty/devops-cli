@@ -112,3 +112,108 @@ devops infra apply [OPTIONS] <repo> <playbook>
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
+
+## `devops infra node`
+
+**Drain, uncordon, restart or reboot the Kubernetes nodes of the hosts of an infra repo, one host at a time in the given order. The hosts come from the inventory at the head of the default branch at origin. The first failure stops the run and leaves the node as the step left it, cordoned after a drain. Each run writes an audit record.**
+
+```bash
+devops infra node COMMAND [ARGS]...
+```
+
+### `devops infra node drain`
+
+**Drain the node of each host: the health gate, the drain check (kubectl drain --dry-run=server), then kubectl drain --ignore-daemonsets --delete-emptydir-data. The drain waits for infra.drain_timeout_seconds, or for the longest grace period of a pod of the node and 60 s when that is longer, and names each workload that is down while the node is cordoned. An agent needs the agent access level full.**
+
+```bash
+devops infra node drain [OPTIONS] <repo> <hosts>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<hosts>` | `string` | Yes | The inventory hosts, in the order to run them. Each must be a host in service. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--force` | `boolean` | - | Pass --force to the drain: it also deletes each pod that no controller owns. Only a person gives it. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops infra node uncordon`
+
+**Uncordon the node of each host, then wait for the health gate. An agent needs the agent access level safe.**
+
+```bash
+devops infra node uncordon [OPTIONS] <repo> <hosts>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<hosts>` | `string` | Yes | The inventory hosts, in the order to run them. Each must be a host in service. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops infra node restart`
+
+**Drain the node of each host, restart the unit of devops_infra_node_service with an Ansible ad-hoc task, wait for Ready with the GPUs of before, uncordon only a node that was schedulable before, and wait for the health gate. A host that sets no devops_infra_node_service is refused before any change. An agent needs the agent access level full and host key checks on.**
+
+```bash
+devops infra node restart [OPTIONS] <repo> <hosts>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<hosts>` | `string` | Yes | The inventory hosts, in the order to run them. Each must be a host in service. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--force` | `boolean` | - | Pass --force to the drain: it also deletes each pod that no controller owns. Only a person gives it. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops infra node reboot`
+
+**Drain the node of each host, reboot the host with an Ansible ad-hoc task, wait for Ready with a new boot and the GPUs of before, uncordon only a node that was schedulable before, and wait for the health gate. The report shows the kernel before and after. An agent needs the agent access level full and host key checks on.**
+
+```bash
+devops infra node reboot [OPTIONS] <repo> <hosts>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<hosts>` | `string` | Yes | The inventory hosts, in the order to run them. Each must be a host in service. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--force` | `boolean` | - | Pass --force to the drain: it also deletes each pod that no controller owns. Only a person gives it. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---

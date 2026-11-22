@@ -804,6 +804,46 @@ class InfraCommandHelp:
     apply_limit: str = "The --limit of the plan. The apply refuses a plan with another limit."
     apply_tags: str = "The --tags of the plan. The apply refuses a plan with other tags."
     apply_auto_approve: str = "Apply with no question. An agent gives it."
+    node: str = (
+        "Drain, uncordon, restart or reboot the Kubernetes nodes of the hosts of an infra repo, "
+        "one host at a time in the given order. The hosts come from the inventory at the head of "
+        "the default branch at origin. The first failure stops the run and leaves the node as "
+        "the step left it, cordoned after a drain. Each run writes an audit record."
+    )
+    node_drain: str = (
+        "Drain the node of each host: the health gate, the drain check (kubectl drain "
+        "--dry-run=server), then kubectl drain --ignore-daemonsets --delete-emptydir-data. The "
+        "drain waits for infra.drain_timeout_seconds, or for the longest grace period of a pod "
+        "of the node and 60 s when that is longer, and names each workload that is down while "
+        "the node is cordoned. An agent needs the agent access level full."
+    )
+    node_uncordon: str = (
+        "Uncordon the node of each host, then wait for the health gate. An agent needs the agent "
+        "access level safe."
+    )
+    node_restart: str = (
+        "Drain the node of each host, restart the unit of devops_infra_node_service with an "
+        "Ansible ad-hoc task, wait for Ready with the GPUs of before, uncordon only a node that "
+        "was schedulable before, and wait for the health gate. A host that sets no "
+        "devops_infra_node_service is refused before any change. An agent needs the agent access "
+        "level full and host key checks on."
+    )
+    node_reboot: str = (
+        "Drain the node of each host, reboot the host with an Ansible ad-hoc task, wait for Ready "
+        "with a new boot and the GPUs of before, uncordon only a node that was schedulable "
+        "before, and wait for the health gate. The report shows the kernel before and after. An "
+        "agent needs the agent access level full and host key checks on."
+    )
+    node_repo: str = (
+        "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
+    )
+    node_hosts: str = (
+        "The inventory hosts, in the order to run them. Each must be a host in service."
+    )
+    node_force: str = (
+        "Pass --force to the drain: it also deletes each pod that no controller owns. Only a "
+        "person gives it."
+    )
 
 
 @dataclass(frozen=True)
