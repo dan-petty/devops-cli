@@ -14,8 +14,11 @@ Closes #5408. `devops pr ready` waits for ever, and then refuses with "A check r
 - The change fits one pull request.
 
 ## Capabilities
-- `pr-merge-readiness`: MODIFIED requirement "pr ready does not wait for checks in a repository with no CI", because the branch and path filters now decide whether a workflow can start a check.
-- `pr-merge-readiness`: MODIFIED requirement "pr ready waits for checks that a workflow can start", because a filter that the verdict cannot judge keeps the wait, and a `pull_request_target` workflow keeps it too.
+- `pr-merge-readiness`: MODIFIED requirement "pr ready does not wait for checks in a repository with no CI", because a workflow that runs on pull requests can still start no check on this one.
+- `pr-merge-readiness`: MODIFIED requirement "pr ready waits for checks that a workflow can start", because the wait now depends on the filters too.
+- `pr-merge-readiness`: MODIFIED requirement "The verdict reads the workflow triggers at the head commit", because the verdict also reads the branch and path filters of each pull request event, and a `pull_request_target` workflow keeps the wait.
+- `pr-merge-readiness`: ADDED requirement "The pull request filters of a workflow follow GitHub's rules".
+- `pr-merge-readiness`: ADDED requirement "A workflow filter that cannot be judged keeps the wait".
 
 ## Impact
 - `devops pr ready` marks a pull request ready with no `--force` when the filters of each workflow skip it, and `devops pr check-readiness` gives no pending-check blocker for it.

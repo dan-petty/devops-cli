@@ -12,7 +12,7 @@ Adds: `PullRequestChange`, `starts_on_pull_request`
 
 ## 2. The verdict gives the changed files to the workflow filters
 
-Kind: behavior. Reads: `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/commands/pr.py`, `tests/support/fakes/github.py`. Changes: `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/lang/en/messages.py`, `tests/github/test_merge_readiness.py`, `tests/commands/test_pr.py`.
+Kind: behavior. Reads: `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/commands/pr.py`, `tests/support/fakes/github.py`. Changes: `src/devops_cli/github/merge_readiness.py`, `src/devops_cli/commands/pr.py`, `src/devops_cli/lang/en/messages.py`, `tests/github/test_merge_readiness.py`, `tests/commands/test_pr.py`.
 
 - [x] 2.1 Write the failing tests. In `tests/github/test_merge_readiness.py`: a workflow whose `pull_request` event has `paths: [k8s/**]` gives `no_ci` for a pull request that changes only `README.md`, and a pending-check blocker for one that changes `k8s/app.yaml`; the same workflow keeps the pending-check blocker when the compare answer holds `CONST_GITHUB_COMPARE_FILES_LIMIT` files and none is under `k8s/`; a workflow that lists only `pull_request_target` keeps the pending-check blocker; the INFO advisory of no CI holds the new line. In `tests/commands/test_pr.py`: `pr ready` marks the pull request ready and exits 0 for the `README.md` case, and exits 8 and marks nothing for the `k8s/app.yaml` case; the no-CI tests assert the new line
   - Verification: `$ uv run devops ci test tests/github/test_merge_readiness.py tests/commands/test_pr.py`
