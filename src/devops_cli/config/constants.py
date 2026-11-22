@@ -1204,6 +1204,8 @@ CONST_RAG_INCOMPLETE_FILE_MARKER: Final[str] = "incomplete"
 """The RAG cache entry of a file only some of whose chunks are stored; it matches no content hash."""
 CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
+CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP: Final[str] = "devops-cli-config-sandbox"
+"""The credential-free copy of the devops ConfigMap that the planner run Job mounts (#4147)."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = (
     "devops",
     "ingress",

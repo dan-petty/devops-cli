@@ -6,7 +6,7 @@ import json
 import os
 import secrets
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, TypedDict, assert_never
@@ -31,6 +31,7 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
+    CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP,
     CONST_KUBECTL_ERROR_PREFIX,
 )
 from devops_cli.config.defaults import DEFAULT_K8S_STACK
@@ -61,7 +62,10 @@ from devops_cli.k8s.cluster_secrets import (
     DETACHED_STACKS,
     secrets_for_stacks,
 )
-from devops_cli.k8s.configmap import render_active_devops_configmap
+from devops_cli.k8s.configmap import (
+    render_active_devops_configmap,
+    render_active_devops_sandbox_configmap,
+)
 from devops_cli.k8s.environment import (
     PRODUCT_OPTION,
     EnvironmentTree,
@@ -1000,10 +1004,30 @@ def _homelab_applications(selected_stacks: Sequence[str]) -> list[str]:
 
 def _render_devops_configmap(product: Path) -> str:
     """ConfigMap devops-cli-config rendered from the active config, or exit naming what is missing."""
+    return _render_from_active_config(
+        product, CONST_K8S_DEVOPS_CONFIGMAP, render_active_devops_configmap
+    )
+
+
+def _render_sandbox_configmap(product: Path) -> str:
+    """ConfigMap devops-cli-config-sandbox rendered from the active config with no credential key,
+    or exit naming what is missing. The planner run Job mounts it (#4147)."""
+    return _render_from_active_config(
+        product, CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP, render_active_devops_sandbox_configmap
+    )
+
+
+def _render_devops_configmaps(product: Path) -> tuple[str, str]:
+    """ConfigMap devops-cli-config and its credential-free copy for the planner run Job (#4147)."""
+    return _render_devops_configmap(product), _render_sandbox_configmap(product)
+
+
+def _render_from_active_config(product: Path, name: str, render: Callable[[Path], str]) -> str:
+    """A ConfigMap that `render` makes from the active config, or exit naming what is missing."""
     try:
-        return render_active_devops_configmap(product)
+        return render(product)
     except (FileNotFoundError, KubernetesContextError, ValidationError) as exc:
-        print_error(f"Cannot render ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}: {exc}", prefix=False)
+        print_error(f"Cannot render ConfigMap {name}: {exc}", prefix=False)
         raise typer.Exit(1) from exc
 
 
@@ -1455,13 +1479,18 @@ def _deploy_native_manifests(
     all_manifests: list[str],
     all_builds: Sequence[_PathBuild],
     config_map: str | None,
+    sandbox_config_map: str | None,
     kubectl_ctx: list[str],
     domain: str | None,
 ) -> None:
-    """Apply the devops ConfigMap rendered from the active config, then the native manifests,
+    """Apply the devops ConfigMaps rendered from the active config, then the native manifests,
     then the builds of the path sources of the Applications."""
     if config_map is not None:
         _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
+    if sandbox_config_map is not None:
+        _apply_rendered(
+            sandbox_config_map, f"ConfigMap {CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}", kubectl_ctx
+        )
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain, builds=all_builds)
 
 
@@ -1470,13 +1499,15 @@ def _handle_argo_managed_deployment(
     effective_context: str | None,
     push_secrets: bool,
     config_map: str | None,
+    sandbox_config_map: str | None,
     domain: str | None = None,
     revision: str | None = None,
 ) -> None:
     """Supply the values git never holds, and leave every manifest to Argo CD.
 
-    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, and the
-    homelab hosts become Kustomize overrides on the Applications that render them (#1290).
+    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, the
+    credential-free ConfigMap devops-cli-config-sandbox from it too, and the homelab hosts become
+    Kustomize overrides on the Applications that render them (#1290, #4147).
     """
     kubectl_ctx = ["--context", effective_context] if effective_context else []
     overrides = _homelab_host_overrides(selected_stacks, domain, revision, kubectl_ctx)
@@ -1485,6 +1516,10 @@ def _handle_argo_managed_deployment(
         push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
     if config_map is not None:
         _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
+    if sandbox_config_map is not None:
+        _apply_rendered(
+            sandbox_config_map, f"ConfigMap {CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}", kubectl_ctx
+        )
     _set_homelab_hosts(overrides, kubectl_ctx)
 
     print_info(
@@ -1560,6 +1595,7 @@ def _render_deploy_stack_dry_run(
     all_kustomizations: Sequence[Path],
     all_post_helm: Sequence[Path],
     config_map: str | None,
+    sandbox_config_map: str | None,
     argocd_revision: str | None,
     helm_ctx: list[str],
     source_fetches: Sequence[Sequence[str]],
@@ -1606,6 +1642,12 @@ def _render_deploy_stack_dry_run(
             "config_map": (
                 f"devops/{CONST_K8S_DEVOPS_CONFIGMAP} (rendered from the active config)"
                 if config_map is not None
+                else None
+            ),
+            "sandbox_config_map": (
+                f"devops/{CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP} (rendered from the active config "
+                "with every credential-named key removed)"
+                if sandbox_config_map is not None
                 else None
             ),
             "argocd_overrides": [
@@ -1683,7 +1725,9 @@ def deploy_stack(
 
         # 1. Render what git does not hold before anything else: a missing setting stops a dry run
         # and a deploy alike, before either touches the cluster
-        config_map = _render_devops_configmap(product) if "devops" in selected_stacks else None
+        config_map, sandbox_config_map = (
+            _render_devops_configmaps(product) if "devops" in selected_stacks else (None, None)
+        )
 
         helm_ctx = ["--kube-context", effective_context] if effective_context else []
 
@@ -1706,6 +1750,7 @@ def deploy_stack(
                 all_kustomizations=all_kustomizations,
                 all_post_helm=all_post_helm,
                 config_map=config_map,
+                sandbox_config_map=sandbox_config_map,
                 argocd_revision=argocd_revision,
                 helm_ctx=helm_ctx,
                 source_fetches=trees.planned,
@@ -1734,6 +1779,7 @@ def deploy_stack(
                 effective_context,
                 push_secrets,
                 config_map,
+                sandbox_config_map,
                 domain=domain,
                 revision=argocd_revision,
             )
@@ -1757,7 +1803,9 @@ def deploy_stack(
         _deploy_helm_repos(selected_stacks)
 
         # 7. Install native manifests
-        _deploy_native_manifests(all_manifests, all_builds, config_map, kubectl_ctx, domain)
+        _deploy_native_manifests(
+            all_manifests, all_builds, config_map, sandbox_config_map, kubectl_ctx, domain
+        )
 
         # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts
         unready_nodes = runtime._get_unready_nodes(context=effective_context)
@@ -1832,6 +1880,18 @@ def sync_secrets(
     print_info(f"Synchronizing Kubernetes credentials for stack ({stack})...", prefix=False)
     if not _report_credential_sync(sync_k8s_credentials(context=effective_context, stack=stack)):
         raise typer.Exit(1)
+
+
+def _delete_rendered_configmaps(kubectl_ctx: list[str]) -> None:
+    """Delete ConfigMaps devops-cli-config and its credential-free copy, which no manifest holds."""
+    for name in (CONST_K8S_DEVOPS_CONFIGMAP, CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP):
+        print_info(f"[bold]Deleting ConfigMap {name}...[/bold]", prefix=False)
+        runtime._run_cmd(
+            ["kubectl", "delete", "configmap", name, "-n", "devops"]
+            + ["--ignore-not-found"]
+            + kubectl_ctx,
+            check=False,
+        )
 
 
 def _teardown_namespaces(stack: str, k8s_dir: Path, kubectl_ctx: list[str]) -> None:
@@ -1915,6 +1975,11 @@ def teardown_stack(
                 "config_map_delete": (
                     f"devops/{CONST_K8S_DEVOPS_CONFIGMAP}" if "devops" in selected_stacks else None
                 ),
+                "sandbox_config_map_delete": (
+                    f"devops/{CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}"
+                    if "devops" in selected_stacks
+                    else None
+                ),
             },
         )
         return
@@ -1959,25 +2024,9 @@ def teardown_stack(
             check=False,
         )
 
-    # 2. Delete the ConfigMap deploy-stack rendered from config, which no manifest file holds
+    # 2. Delete the ConfigMaps deploy-stack rendered from config, which no manifest file holds
     if "devops" in selected_stacks:
-        print_info(
-            f"[bold]Deleting ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}...[/bold]",
-            prefix=False,
-        )
-        runtime._run_cmd(
-            [
-                "kubectl",
-                "delete",
-                "configmap",
-                CONST_K8S_DEVOPS_CONFIGMAP,
-                "-n",
-                "devops",
-            ]
-            + ["--ignore-not-found"]
-            + kubectl_ctx,
-            check=False,
-        )
+        _delete_rendered_configmaps(kubectl_ctx)
 
     # 3. Uninstall Helm releases in reverse order
     for release in all_uninstalls:
