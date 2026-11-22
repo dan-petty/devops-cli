@@ -1,11 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: The Tempo query limits stay under the memory limit
-The Tempo configuration that chart `tempo` renders from `k8s/otel/tempo-values.yaml` SHALL set `query_frontend.max_outstanding_per_tenant`, `query_frontend.search.max_result_limit`, `querier.max_concurrent_queries` and `overrides.defaults.global.max_bytes_per_trace`. The outstanding queries times the result limit times the trace size limit, and the concurrent queries times the trace size limit, SHALL each stay at or under half of the memory limit of the rendered `tempo` container. The concurrent queries SHALL be no more than the outstanding queries. The configuration SHALL also set `query_frontend.api_timeout`, so that the frontend stops a read and cancels its queued jobs.
+The Tempo configuration that chart `tempo` renders from `k8s/otel/tempo-values.yaml` SHALL set `query_frontend.max_outstanding_per_tenant`, `query_frontend.search.max_result_limit`, `query_frontend.api_timeout`, `querier.max_concurrent_queries` and `overrides.defaults.global.max_bytes_per_trace`. The searches and the concurrent reads that these limits admit SHALL hold at most half of the memory limit of the rendered `tempo` container.
 
 #### Scenario: The Tempo values hold each limit
 - **WHEN** I run `uv run devops ci --check --only k8s`
-- **THEN** The row passes, and it fails when the rendered Tempo configuration does not set one of the four keys that this requirement names, or the rendered `tempo` container has no memory limit.
+- **THEN** The row passes, and it fails when the rendered Tempo configuration does not set one of the five keys that this requirement names, or the rendered `tempo` container has no memory limit.
 
 #### Scenario: An edited limit fails the row
 - **WHEN** I run `uv run devops ci --check --only k8s` after an edit sets `tempo.queryFrontend.max_outstanding_per_tenant` to `50`
@@ -30,7 +30,7 @@ The `k8s` row of `devops ci` SHALL render the chart source of the Argo CD Applic
 
 #### Scenario: The rendered configuration parses
 - **WHEN** I run `uv run devops ci --check --only k8s`
-- **THEN** The row passes, because `docker.io/grafana/tempo:3.1.1` parses the rendered `/conf/tempo.yaml` and exits 0.
+- **THEN** The row passes, because the Tempo image of the chart parses the rendered `/conf/tempo.yaml` and exits 0.
 
 #### Scenario: A key that the pinned Tempo does not have fails the row
 - **WHEN** I run `uv run devops ci --check --only k8s` after an edit sets `tempo.queryFrontend.search.max_bytes_per_trace`
