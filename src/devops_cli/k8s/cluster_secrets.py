@@ -224,6 +224,25 @@ _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
 _DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
 
+
+def _object_store_key_pair(writer: str) -> tuple[SecretEntry, SecretEntry]:
+    """The S3 key pair of a writer of the object store, under the default fields of
+    `S3Credentials`, as long as the pair that the SeaweedFS operator makes: a 20-character access
+    key and a 40-character secret key (#4756)."""
+    return (
+        SecretEntry(
+            "accessKey",
+            KeyringSource(f"object_store_{writer}_access_key"),
+            generator=SecretGenerator("hex", 10),
+        ),
+        SecretEntry(
+            "secretKey",
+            KeyringSource(f"object_store_{writer}_secret_key"),
+            generator=SecretGenerator("urlsafe", 30),
+        ),
+    )
+
+
 CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     ClusterSecret(
         namespace="llm",
@@ -698,6 +717,24 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         entries=(SecretEntry("s3.json", LiteralSource(SEAWEEDFS_S3_NO_IDENTITIES)),),
         restarts=(Workload("deployment", "seaweedfs-s3"),),
         labels={"app.kubernetes.io/name": "seaweedfs"},
+    ),
+    # The key pair of each writer of the object store (#4756). The S3Credentials of the writer
+    # in namespace object-store reads the pair from this Secret in the writer namespace, and the
+    # operator never makes a Secret there, so the push makes the pair and the keyring keeps it.
+    # No workload reads the Secret yet; the operator applies a changed pair by itself.
+    ClusterSecret(
+        namespace="devops",
+        name="object-store-devops",
+        stack="devops",
+        entries=_object_store_key_pair("devops"),
+        labels={"app.kubernetes.io/name": "object-store"},
+    ),
+    ClusterSecret(
+        namespace="argo-workflows",
+        name="object-store-argo",
+        stack="infra",
+        entries=_object_store_key_pair("argo"),
+        labels={"app.kubernetes.io/name": "object-store"},
     ),
 )
 

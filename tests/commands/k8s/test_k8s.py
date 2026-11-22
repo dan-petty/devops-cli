@@ -285,6 +285,8 @@ def test_deploy_stack_dry_run_lists_the_secrets_and_key_names_and_runs_nothing(
             "argocd/argocd-notifications-secret: github-appID, github-installationID, github-privateKey, mattermost-deploys-url",
             "object-store/seaweedfs-admin: adminUser, adminPassword",
             "object-store/seaweedfs-s3: s3.json",
+            "devops/object-store-devops: accessKey, secretKey (if namespace devops exists)",
+            "argo-workflows/object-store-argo: accessKey, secretKey",
         ],
         [],
     )

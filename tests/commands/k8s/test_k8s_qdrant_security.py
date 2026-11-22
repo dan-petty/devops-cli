@@ -171,6 +171,7 @@ def test_deploy_stack_pushes_devops_only_where_its_namespace_exists(
                 "devops/mcp-server",
                 "devops/devops-cli",
                 "devops/qdrant-api-key",
+                "devops/object-store-devops",
             ],
         ),
         APP_KEY,

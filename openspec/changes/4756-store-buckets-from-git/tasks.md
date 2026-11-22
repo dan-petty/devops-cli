@@ -2,11 +2,11 @@
 
 ## 1. The writer keys have ClusterSecret rows
 
-Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_cluster_secret_plan.py`, `tests/invariants/test_k8s_manifests.py`. Changes: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_cluster_secret_plan.py`, `tests/invariants/test_k8s_manifests.py`, `k8s/README.md`.
+Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_cluster_secret_plan.py`, `tests/invariants/test_k8s_manifests.py`. Changes: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_cluster_secret_plan.py`, `tests/invariants/test_k8s_manifests.py`, `tests/k8s/test_cluster_secret_push.py`, `tests/commands/k8s/test_k8s.py`, `tests/commands/k8s/test_k8s_qdrant_security.py`, `k8s/README.md`.
 
-- [ ] 1.1 Add the rows `devops/object-store-devops` and `argo-workflows/object-store-argo` to the expected table of `test_table_holds_each_secret_entry_with_its_source_and_restarts`, write `test_each_writer_key_of_the_store_is_generated_in_the_keyring`, and add the four keys `object_store_<writer>_access_key` and `object_store_<writer>_secret_key` to the keyring-only keys of `test_keyring_sources_are_managed_keys_or_declared_keyring_only`
+- [x] 1.1 Add the rows `devops/object-store-devops` and `argo-workflows/object-store-argo` to the expected table of `test_table_holds_each_secret_entry_with_its_source_and_restarts`, write `test_each_writer_key_of_the_store_is_generated_in_the_keyring`, add the four keys `object_store_<writer>_access_key` and `object_store_<writer>_secret_key` to the keyring-only keys of `test_keyring_sources_are_managed_keys_or_declared_keyring_only`, and add the two Secrets to the expected pushes of the `infra` and `devops` stacks
   - Verification: `$ uv run devops ci test tests/k8s/test_cluster_secret_plan.py tests/invariants/test_k8s_manifests.py` fails
-- [ ] 1.2 Add the two rows to `CLUSTER_SECRETS`, and their table rows and note to the Cluster Secrets section of `k8s/README.md`
+- [x] 1.2 Add the two rows to `CLUSTER_SECRETS`, and their table rows and note to the Cluster Secrets section of `k8s/README.md`
   - Verification: `$ uv run devops ci test tests/k8s/test_cluster_secret_plan.py tests/invariants/test_k8s_manifests.py` passes
 
 ## 2. The k8s row checks the buckets, the keys and the watch scope
