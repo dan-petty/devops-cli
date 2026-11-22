@@ -226,6 +226,7 @@ Exits 1 when a row fails or a pod opens a connection. |
 |  | `devops ci bwrap [OPTIONS]` | Run the bwrap check. |
 |  | `devops ci kube-linter [OPTIONS]` | Run the kube-linter check. |
 |  | `devops ci k8s [OPTIONS]` | Run the k8s check. |
+|  | `devops ci charts [OPTIONS]` | Run the charts check. |
 |  | `devops ci test-tree [OPTIONS]` | Run the test-tree check. |
 |  | `devops ci startup-imports [OPTIONS]` | Run the startup-imports check. |
 |  | `devops ci swallowed-failures [OPTIONS]` | Run the swallowed-failures check. |

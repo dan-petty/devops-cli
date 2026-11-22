@@ -12,11 +12,12 @@ Pod `otel/tempo-0` (`docker.io/grafana/tempo:3.1.1`) stops at start, so the clus
   - Remove `queryFrontend.search.target_bytes_per_second`. Tempo 3.1.1 has no limit on the byte rate of a search.
   - Replace `queryFrontend.search.max_duration: 30s` with `queryFrontend.api_timeout: 30s`. In Tempo 3.1.1, `max_duration` is the largest time range of a search, so `30s` refuses each search of the last hour. #6616 meant the time that a read runs, and `api_timeout` is the key of that limit.
   - Keep `queryFrontend.search.max_result_limit: 50`, `queryFrontend.max_outstanding_per_tenant: 10`, `querier.max_concurrent_queries: 4` and the `2048Mi` memory limit.
-- `tests/gate/k8s_render.py` gets `chart_objects`: it renders the chart source of an Argo CD Application with `helm template`, as `devops k8s image-pins` does, once for each run of the `k8s` row.
-- The new check `tests/gate/k8s_checks/tempo_config.py` writes the rendered ConfigMap of Tempo to a folder and starts the Tempo image of the rendered StatefulSet with the arguments of its container and `-config.verify=true`. Tempo then parses the configuration strictly, checks it, and stops. The check fails when Tempo exits with a status other than 0.
-- `tests/gate/k8s_checks/tempo_query_limits.py` reads the rendered Tempo configuration and the rendered memory limit, not the values file. So a key that the chart does not render fails the check. It asserts the bounds of #6616 and no value: the outstanding searches times the result limit times the trace size limit, and the concurrent queries times the trace size limit, stay at or under half of the memory limit, and the concurrent queries are no more than the outstanding queries (docs/TESTING.md, #6060).
-- `NOT_IN_RUNNER` of `src/devops_cli/roadmap/runner_tools.py` gives `helm` and `docker` a reason that stays true: the Tempo checks of the `k8s` row run them, and no step of a Job runs that row.
-- The change modifies the requirement "The Tempo query limits stay under the memory limit" of `workload-resource-limits` and adds a requirement for the parse of the rendered configuration, because a manifest is behavior that a consumer observes.
+- A new row `charts` of `devops ci` runs the checks of the chart sources of the Argo CD Applications (`tests/gate/charts.py`, `tests/gate/charts_checks/`). These checks start `helm` and `docker` and need the network, so they are not in the `k8s` row, which needs only `kubectl` and the files of the checkout. The implement Job runs `uv run devops ci --check --only k8s` when a plan names it as a verification command, and a Job pod has no container engine.
+- `tests/gate/charts_render.py` holds `chart_objects`: it renders the chart source of an Argo CD Application with `helm template`, as `devops k8s image-pins` does, once for each run of the `charts` row.
+- The new check `tests/gate/charts_checks/tempo_config.py` writes the rendered ConfigMap of Tempo to a folder and starts the Tempo image of the rendered StatefulSet with the arguments of its container and `-config.verify=true`. Tempo then parses the configuration strictly, checks it, and stops. The check fails when Tempo exits with a status other than 0.
+- `tests/gate/charts_checks/tempo_query_limits.py` (moved from `tests/gate/k8s_checks/`) reads the rendered Tempo configuration and the rendered memory limit, not the values file. So a key that the chart does not render fails the check. It asserts the bounds of #6616 and no value: the outstanding searches times the result limit times the trace size limit, and the concurrent queries times the trace size limit, stay at or under half of the memory limit, and the concurrent queries are no more than the outstanding queries (docs/TESTING.md, #6060).
+- `NOT_IN_RUNNER` of `src/devops_cli/roadmap/runner_tools.py` gives `helm` and `docker` a reason that stays true: only the `charts` row runs them, the Static Analysis job runs that row, and a Job cannot run it, so no verification command of a plan names it.
+- The change modifies the requirement "The Tempo query limits stay under the memory limit" of `workload-resource-limits` and adds a requirement for the parse of the rendered configuration, because a manifest is behavior that a consumer observes. It adds the requirement of the `charts` row to `ci-gate-rows`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -28,13 +29,14 @@ None.
 ### Modified Capabilities
 
 - `workload-resource-limits`: The Tempo query limits stay under the memory limit; the rendered Tempo configuration parses with the Tempo image of the chart.
+- `ci-gate-rows`: The `charts` row renders the chart sources of the Argo CD Applications, and the `k8s` row needs only `kubectl`.
 
 ## Impact
 
 - Manifests: `k8s/otel/tempo-values.yaml`.
-- Gate: `tests/gate/k8s_render.py`, `tests/gate/k8s.py`, `tests/gate/k8s_checks/tempo_config.py` (new), `tests/gate/k8s_checks/tempo_query_limits.py`.
-- Code: `src/devops_cli/roadmap/runner_tools.py` (two reasons of `NOT_IN_RUNNER`).
-- The `k8s` row now needs `helm`, a container engine with the `docker` command and access to the chart repository and the image registry. A stock GitHub runner and the devcontainer have them. The first run pulls the Tempo image, which takes about 5 s.
+- Gate: `tests/gate/charts.py` (new), `tests/gate/charts_render.py` (new), `tests/gate/charts_checks/tempo_config.py` (new), `tests/gate/charts_checks/tempo_query_limits.py` (moved from `tests/gate/k8s_checks/`).
+- Code: `src/devops_cli/commands/ci.py` and `src/devops_cli/lang/en/messages.py` (the `charts` row and its title), `src/devops_cli/roadmap/runner_tools.py` (two reasons of `NOT_IN_RUNNER`).
+- The `charts` row needs `helm`, a container engine with the `docker` command and access to the chart repository and the image registry. The `k8s` row needs no new program. A stock GitHub runner and the devcontainer have them. The first run pulls the Tempo image, which takes about 5 s.
 
 ## Feasibility
 

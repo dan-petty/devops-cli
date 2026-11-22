@@ -19,7 +19,7 @@ from typing import Any, Final
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
-from tests.gate.k8s_render import ARGOCD_APPLICATIONS, chart_objects
+from tests.gate.charts_render import ARGOCD_APPLICATIONS, chart_objects
 
 TEMPO_APPLICATION: Final = ARGOCD_APPLICATIONS / "tempo.yaml"
 

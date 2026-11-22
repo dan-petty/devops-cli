@@ -40,7 +40,7 @@ tempo:
   # A read holds memory until it ends, so the values bound the reads that wait and run at once, the
   # result count of a search and the time of a read. Ten searches then stay under the 2048Mi memory
   # limit of the pod, which OOM-killed tempo-0 twice in one minute when no limit bounded them
-  # (#6616). The `k8s` row parses the rendered config with the Tempo image of the chart, which
+  # (#6616). The `charts` row parses the rendered config with the Tempo image of the chart, which
   # refuses a key that its version does not have (#6730). Tempo 3.1.1 has no limit on the byte
   # rate of a search, and `search.max_duration` is the largest time range of a search, not the
   # time that it runs, so the values set neither.

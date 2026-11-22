@@ -155,6 +155,7 @@ CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "bwrap",
     "kube-linter",
     "k8s",
+    "charts",
     "test-tree",
     "startup-imports",
     "swallowed-failures",
@@ -1125,6 +1126,17 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=_python_check_cmd("k8s"),
             span_name="ci.step.k8s",
             metric_step="k8s",
+        ),
+        # The chart sources of the Argo CD Applications render with `helm template`, which fetches
+        # each chart from its repository, and a check can start the image of a chart with
+        # `docker` (#6730). So the row needs the network and a container engine, and the `k8s`
+        # row needs only `kubectl` and the files of the checkout.
+        CheckSpec(
+            name="charts",
+            display_title=MESSAGES.ci.chart_renders,
+            cmd=_python_check_cmd("charts"),
+            span_name="ci.step.charts",
+            metric_step="charts",
         ),
         CheckSpec(
             name="test-tree",

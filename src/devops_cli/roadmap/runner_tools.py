@@ -210,14 +210,16 @@ _SCANNER = (
     "them, so the gate reports it as not run, and no step of a Job counts on it."
 )
 _NO_GATE_STEP = "No step of a required job of `ci.yml` runs it."
-# The `k8s` row renders the chart of the Argo CD Application `tempo` with helm and parses the
-# rendered config with the Tempo image of the chart (#6730). The implement Job runs only the
-# `constructs`, `docs` and `openspec` rows, and the fixers of the fix-checks Job run ruff, the
-# tests of a snapshot, the docs and `uv lock`.
-_K8S_ROW_TEMPO = (
-    "Only the Tempo checks of the `k8s` row run it (`tests/gate/k8s_checks/tempo_config.py`), and "
-    "no step of a Job runs that row. The Job has no cluster token, and its pod cannot run a "
-    "container engine: it has no capability and a read-only root."
+# The `charts` row renders the chart sources of the Argo CD Applications with helm, and parses the
+# rendered Tempo config with the Tempo image of the chart (#6730). The `k8s` row needs only
+# kubectl and the files of the checkout, so a plan can name it as a verification command. The
+# implement Job runs only the `constructs`, `docs` and `openspec` rows, and the fixers of the
+# fix-checks Job run ruff, the tests of a snapshot, the docs and `uv lock`.
+_CHARTS_ROW = (
+    "Only the `charts` row of `devops ci` runs it (`tests/gate/charts.py`), and the Static "
+    "Analysis job of `ci.yml` runs that row. A Job cannot run the row: its pod cannot run a "
+    "container engine, because it has no capability and a read-only root. Do not name the "
+    "`charts` row in a verification command of a plan; the `k8s` row needs only kubectl."
 )
 # A hook of `.pre-commit-config.yaml` that runs a program that the image does not hold, with the
 # programs it runs. The Job leaves the hook out of the configuration it gives `pre-commit` when one
@@ -240,14 +242,14 @@ def hooks_without_programs(search_path: str | None = None) -> tuple[str, ...]:
 NOT_IN_RUNNER: dict[str, str] = {
     "vale": "Only the live docs test runs it; no step of a required job of `ci.yml` runs it.",
     "kustomize": _NO_CLUSTER,
-    "helm": _K8S_ROW_TEMPO,
+    "helm": _CHARTS_ROW,
     "argo": _NO_CLUSTER,
     "argocd": _NO_CLUSTER,
     "cloudflared": _NO_CLUSTER,
     "kubectl-argo-rollouts": _NO_CLUSTER,
     "k9s": _NO_CLUSTER,
     "minikube": _NO_CLUSTER,
-    "docker": "The image holds no Docker engine and no `docker` program. " + _K8S_ROW_TEMPO,
+    "docker": "The image holds no Docker engine and no `docker` program. " + _CHARTS_ROW,
     "popeye": _SCANNER,
     "kubeconform": _SCANNER,
     "tflint": _SCANNER,
