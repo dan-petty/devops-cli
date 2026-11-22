@@ -125,8 +125,9 @@ facts:
     definition: >-
       The Actions runs of the push events on main created after the start up to the end, for each
       of the statuses success, failure, cancelled and in progress. n is the total of the window,
-      which also counts a run of another status. The reader reads the total and one count for each
-      status of each created slice, and splits a slice at the count cap of 2,500.
+      which also counts a run of another status. The reader reads the total of each created slice,
+      splits a slice at the count cap of 2,500, and reads one count for each status of each slice
+      under the cap.
   - id: github.code_scanning_opened
     reader: github
     section: activity

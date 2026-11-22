@@ -197,7 +197,7 @@ After a read that gets no answer from the network, a `ServiceRequestError` with 
 - **THEN** the fake records the attempts of the first query only, and each fact has the status `error` with one reason
 
 ### Requirement: The listing reader fills the gap after the snapshot watermark
-The `listing` reader SHALL read the review's own listing snapshot of the release schema, else the intake snapshot, and SHALL send only the issues and pull requests changed at or after the later of its watermark and the window start; with neither snapshot it SHALL read from the window start. It SHALL keep the merged records in the review store and SHALL NOT write the intake snapshot. When the read starts after the watermark, the kept snapshot SHALL cover only the time from the read start.
+The `listing` reader SHALL read the review snapshot of the release schema, else the intake snapshot. It SHALL read the issues and pull requests changed from the later of the watermark and the window start. It SHALL read from the window start when no snapshot fits or the window starts before the first window that the review snapshot covers. It SHALL keep the merged records only in the review store. A read that starts after the watermark SHALL keep a snapshot of only the time from its start.
 
 #### Scenario: An issue after the watermark
 - **WHEN** the review snapshot watermark is 2026-11-11T14:28:04Z, the window ends at 2026-11-11T14:51:23Z, and the fake GitHub gives one issue opened at 2026-11-11T14:40:00Z in the listing changed since the watermark
@@ -469,11 +469,11 @@ The project review SHALL write its listing snapshot to its own store under `revi
 - **THEN** the intake snapshot file is byte-identical after the review, and the review store holds a new snapshot
 
 ### Requirement: The runs reader counts the runs of each status
-The `github_runs` reader SHALL count the Actions runs created after the window start, in whole seconds, up to the window end. It SHALL read the total of a created slice first, SHALL split a slice at the GitHub cap of 2,500 in two halves by created time, and SHALL add, for each slice under the cap, its total and one count for each of the statuses success, failure, cancelled and in progress. It SHALL raise an error for a one-second slice at the cap and for status counts above a total.
+The `github_runs` reader SHALL count the Actions runs created after the window start, in whole seconds, up to the window end. It SHALL read the total of each slice first. It SHALL split a slice at the GitHub cap of 2,500 in two halves by created time. For each slice under the cap, it SHALL add the total and the count of each status: success, failure, cancelled and in progress. It SHALL raise an error for a page with no total, a one-second slice at the cap and status counts above a total.
 
 #### Scenario: A window under the count cap
 - **WHEN** the fake GitHub gives 1,927 successful, 29 failed, 104 cancelled and 12 in-progress runs in a 7-day window, 2,072 runs in all
-- **THEN** the fact's value holds the four counts, its n is 2,072, and the reader counted 5 runs reads
+- **THEN** the fact's value holds the four counts, its n is 2,072, and the review counts 5 reads of the `github_runs` reader
 
 #### Scenario: A window above the count cap
 - **WHEN** the window holds 4,500 runs and the fake GitHub stops each total at 2,500, as GitHub does
@@ -486,6 +486,10 @@ The `github_runs` reader SHALL count the Actions runs created after the window s
 #### Scenario: Status counts above the total
 - **WHEN** the four status counts of a slice add up to 16 and its total is 10
 - **THEN** the reader raises an error that names the sum 16
+
+#### Scenario: A runs page with no total
+- **WHEN** the fake GitHub gives a runs page with no `total_count`
+- **THEN** the runs fact has the status `error` and no count of 0
 
 #### Scenario: A run in the start second
 - **WHEN** one run is created in the start second of the window and one run in its end second

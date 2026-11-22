@@ -203,11 +203,16 @@ def read_github(
     return found
 
 
+def _created(low: datetime, high: datetime) -> str:
+    """The `created` range of GitHub from `low` to `high`, both in whole seconds."""
+    return f"{utc_text(low)}..{utc_text(high)}"
+
+
 def _count_path(path: str, low: datetime, high: datetime, status: str | None) -> str:
     """The listing at `path` of the runs created from `low` to `high`, both in whole seconds, of
     `status` when it is given, of the first entry only: its `total_count` is the count of them."""
     separator = "&" if "?" in path else "?"
-    query = f"{path}{separator}created={utc_text(low)}..{utc_text(high)}&per_page=1"
+    query = f"{path}{separator}created={_created(low, high)}&per_page=1"
     return query if status is None else f"{query}&status={status}"
 
 
@@ -220,10 +225,16 @@ def _run_count(
     status: str | None,
 ) -> int:
     """The count of the Actions runs of `path` created from `low` to `high`, of `status` when it is
-    given, from one request of one entry."""
+    given, from one request of one entry. A page with no `total_count` that is a whole number at or
+    above 0 raises `RoadmapReviewError`, so a missing count is never 0."""
     reads.add(ReaderKind.GITHUB_RUNS)
     page = next(session.pages(_count_path(path, low, high, status)))
-    return int(page.get("total_count", 0))
+    count = page.get("total_count") if isinstance(page, dict) else None
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise RoadmapReviewError(
+            MESSAGES.roadmap.review_runs_no_count.format(slice=_created(low, high))
+        )
+    return count
 
 
 def read_runs(
@@ -236,16 +247,17 @@ def read_runs(
     GitHub reads a `created` range in whole seconds, both ends in, and stops the `total_count` of a
     filtered list at `CONST_ROADMAP_REVIEW_RUN_COUNT_CAP`. The reader reads the total of a slice
     first. A slice at the cap splits in two halves by created time, and a slice under it gets one
-    count for each status, so a window under the cap costs five requests. A slice of one second at
-    the cap, or status counts above the total of a slice, raise `RoadmapReviewError`, so no count
-    is wrong with no message. A run of another status is in `total_count` and in no status count."""
+    count for each status, so a window under the cap costs five requests. A page with no count, a
+    slice of one second at the cap, or status counts above the total of a slice raise
+    `RoadmapReviewError`, so no count is wrong with no message. A run of another status is in
+    `total_count` and in no status count."""
     cap = CONST_ROADMAP_REVIEW_RUN_COUNT_CAP
     statuses = dict.fromkeys(_RUN_STATUSES, 0)
     total = 0
     slices = [(start.replace(microsecond=0) + _SECOND, end.replace(microsecond=0))]
     while slices:
         low, high = slices.pop()
-        named = f"{utc_text(low)}..{utc_text(high)}"
+        named = _created(low, high)
         count = _run_count(session, path, low, high, reads, None)
         if count >= cap:
             if high <= low:

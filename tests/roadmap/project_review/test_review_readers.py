@@ -5,6 +5,7 @@ requests of a 7-day review, and Prometheus and Loki read at the end of the windo
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,6 +19,7 @@ from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.github.session import get_github_session
 from devops_cli.http.egress import EgressLevel
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.project_review.catalog import Catalog, ReaderKind, load_catalog
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
 from devops_cli.roadmap.project_review.dispatch import CatalogResult, ReadContext, read_catalog
@@ -133,6 +135,15 @@ def _counts(total: int, each: int) -> Callable[[httpx2.Request], httpx2.Response
     return answer
 
 
+def _runs_page(page: dict[str, Any]) -> Callable[[httpx2.Request], httpx2.Response | None]:
+    """A runs listing that gives `page` for each request."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        return github_json(page) if request.url.path.endswith("/actions/runs") else None
+
+    return answer
+
+
 def test_a_window_under_the_cap_reads_its_total_then_one_count_for_each_status(
     github_api: GitHubApiFake,
 ) -> None:
@@ -211,6 +222,25 @@ def test_status_counts_above_the_total_of_a_slice_raise(github_api: GitHubApiFak
         read_runs(get_github_session(), RUNS, START, END, Reads())
 
 
+@pytest.mark.parametrize(
+    "page",
+    [{"workflow_runs": []}, {"total_count": -1}, {"total_count": "10"}],
+    ids=["no-total", "negative-total", "text-total"],
+)
+def test_a_runs_page_with_no_count_raises(github_api: GitHubApiFake, page: dict[str, Any]) -> None:
+    """A runs page gives its `total_count` as the count of the slice. A page with no count, or a
+    count that is not a whole number at or above 0, gives no count, so the reader raises in place of
+    a count of 0 (#6603)."""
+    github_api.serve(_runs_page(page))
+    reads = Reads()
+
+    message = MESSAGES.roadmap.review_runs_no_count.format(slice=WINDOW_RANGE)
+    with pytest.raises(RoadmapReviewError, match=re.escape(message)):
+        read_runs(get_github_session(), RUNS, START, END, reads)
+
+    assert reads.counts["github_runs"] == 1
+
+
 def test_a_run_in_the_start_second_counts_in_the_window_before_and_not_in_this_one(
     github_api: GitHubApiFake,
 ) -> None:
@@ -243,8 +273,12 @@ def test_a_skipped_run_is_in_the_total_and_in_no_status_count(github_api: GitHub
     answer = read_runs(get_github_session(), RUNS, START, END, reads)
 
     assert answer["total_count"] == 2000
-    assert sum(answer["statuses"].values()) == 1997
-    assert "skipped" not in answer["statuses"]
+    assert answer["statuses"] == {
+        "success": 1500,
+        "failure": 400,
+        "cancelled": 70,
+        "in_progress": 27,
+    }
     assert reads.counts["github_runs"] == len(github_api.sent) == 5
 
 
@@ -554,7 +588,7 @@ def test_a_window_before_the_review_snapshot_reads_from_its_start(
 ) -> None:
     """The review's own snapshot holds the records of the windows from its first start on. A window
     that starts before that first start holds no record of the snapshot, so the gap starts at the
-    window start and not at the later watermark."""
+    window start and not at the later watermark. The kept snapshot then covers the new window."""
     review, intake = _stores(tmp_path)
     _held(review, full_at=START + timedelta(days=2))
     since = _changed_since(github_api, "2026-11-04T14:51:23Z")
@@ -564,6 +598,9 @@ def test_a_window_before_the_review_snapshot_reads_from_its_start(
     )
 
     assert ([record["number"] for record in records], github_api.requested) == ([2, 1], [since])
+    kept = review.load(REPO)
+    assert kept is not None
+    assert kept.full_at == START
 
 
 def test_the_review_keeps_its_snapshot_apart_from_the_one_of_intake(
@@ -672,21 +709,25 @@ def _review(github_api: GitHubApiFake, tmp_path: Path) -> ReadContext:
     return _context(tmp_path)
 
 
-def test_the_main_push_runs_fact_gives_the_four_counts_and_the_total_of_the_window(
-    github_api: GitHubApiFake, tmp_path: Path
-) -> None:
-    """The shipped fact `github_runs.main_push_runs` of a window of 2,072 runs, under the count cap:
-    its value is the count of each of the four statuses, and its n is the total of the window."""
+def _main_push_runs_catalog() -> Catalog:
+    """The shipped catalog with the fact `github_runs.main_push_runs` and no other fact."""
     shipped = load_catalog()
-    catalog = Catalog(
+    return Catalog(
         sections=shipped.sections,
         readers=shipped.readers,
         facts=tuple(fact for fact in shipped.facts if fact.id == "github_runs.main_push_runs"),
         disagreements=(),
     )
+
+
+def test_the_main_push_runs_fact_gives_the_four_counts_and_the_total_of_the_window(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The shipped fact `github_runs.main_push_runs` of a window of 2,072 runs, under the count cap:
+    its value is the count of each of the four statuses, and its n is the total of the window."""
     github_api.serve(RunsApi(_push_runs(1927, 29, 104, 12)))
 
-    result = read_catalog(catalog, _context(tmp_path))
+    result = read_catalog(_main_push_runs_catalog(), _context(tmp_path))
 
     [fact] = result.facts
     assert (fact.status, fact.value, fact.n) == (
@@ -695,6 +736,22 @@ def test_the_main_push_runs_fact_gives_the_four_counts_and_the_total_of_the_wind
         2072,
     )
     assert result.collection.reads == {ReaderKind.GITHUB_RUNS: 5}
+
+
+def test_the_runs_fact_of_a_page_with_no_count_gives_an_error(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The shipped fact `github_runs.main_push_runs` of a window whose runs page has no
+    `total_count`: the fact gives an error, not a count of 0 (#6603)."""
+    github_api.serve(_runs_page({"workflow_runs": []}))
+
+    result = read_catalog(_main_push_runs_catalog(), _context(tmp_path))
+
+    [fact] = result.facts
+    assert (fact.status, fact.reason) == (
+        FactStatus.ERROR,
+        MESSAGES.roadmap.review_runs_no_count.format(slice=WINDOW_RANGE),
+    )
 
 
 def _github_requests(result: CatalogResult) -> int:

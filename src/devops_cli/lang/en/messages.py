@@ -7157,6 +7157,10 @@ class RoadmapMessages:
         "The Actions runs of the one-second slice {slice} reach the count cap of {cap} that GitHub "
         "sets, so the review cannot count each run."
     )
+    review_runs_no_count: str = (
+        "The Actions runs page of the slice {slice} has no total_count that is a whole number at "
+        "or above 0, so the review cannot count the runs."
+    )
     review_runs_above_total: str = (
         "The status counts of the Actions runs of the slice {slice} add up to {counted}, more than "
         "its total of {total}, so the review cannot trust the counts."
