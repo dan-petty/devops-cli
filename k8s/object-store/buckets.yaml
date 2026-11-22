@@ -1,20 +1,22 @@
 # The platform buckets of the object store and their lifecycle rules (#4756). The SeaweedFS
 # operator makes each bucket, sets its quota and its anonymous read, and keeps its lifecycle rules
 # from these CRs; a value that a person changes goes back at the next reconcile. k8s/README.md,
-# section Buckets and keys, has the writers and the scope and namespace of each CR.
+# section Buckets, has the scope and namespace of each CR.
 #
-# Each Bucket keeps its data when its CR goes (reclaimPolicy: Retain). local-path does not enforce
-# the size of a claim, so the quotas are the limits. Only reports and reports-private have
-# anonymous read: the operator grants the identity `anonymous` Read, which allows GET and not List.
-# The tenant buckets `backups-*` come from the tenant chart of dan-petty/infra.
+# Each Bucket and its policy live in the namespace of the workload that writes the bucket: devops
+# for reports, reports-private and cache, argo-workflows for argo-artifacts. Each Bucket keeps its
+# data when its CR goes (reclaimPolicy: Retain). local-path does not enforce the size of a claim,
+# so the quotas are the limits. Only reports and reports-private have anonymous read: the operator
+# grants the identity `anonymous` Read, which allows GET and not List. The tenant buckets
+# `backups-*` and the writer keys come from the tenant chart of dan-petty/infra.
 apiVersion: seaweed.seaweedfs.com/v1
 kind: Bucket
 metadata:
   name: reports
-  namespace: object-store
+  namespace: devops
 spec:
   name: reports
-  seaweedRef:
+  clusterRef:
     name: seaweedfs
     namespace: object-store
   quota:
@@ -27,10 +29,10 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: Bucket
 metadata:
   name: reports-private
-  namespace: object-store
+  namespace: devops
 spec:
   name: reports-private
-  seaweedRef:
+  clusterRef:
     name: seaweedfs
     namespace: object-store
   quota:
@@ -43,10 +45,10 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: Bucket
 metadata:
   name: cache
-  namespace: object-store
+  namespace: devops
 spec:
   name: cache
-  seaweedRef:
+  clusterRef:
     name: seaweedfs
     namespace: object-store
   quota:
@@ -58,10 +60,10 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: Bucket
 metadata:
   name: argo-artifacts
-  namespace: object-store
+  namespace: argo-workflows
 spec:
   name: argo-artifacts
-  seaweedRef:
+  clusterRef:
     name: seaweedfs
     namespace: object-store
   quota:
@@ -77,7 +79,7 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: BucketLifecyclePolicy
 metadata:
   name: reports
-  namespace: object-store
+  namespace: devops
 spec:
   bucketRef:
     name: reports
@@ -91,7 +93,7 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: BucketLifecyclePolicy
 metadata:
   name: reports-private
-  namespace: object-store
+  namespace: devops
 spec:
   bucketRef:
     name: reports-private
@@ -111,7 +113,7 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: BucketLifecyclePolicy
 metadata:
   name: cache
-  namespace: object-store
+  namespace: devops
 spec:
   bucketRef:
     name: cache
@@ -129,7 +131,7 @@ apiVersion: seaweed.seaweedfs.com/v1
 kind: BucketLifecyclePolicy
 metadata:
   name: argo-artifacts
-  namespace: object-store
+  namespace: argo-workflows
 spec:
   bucketRef:
     name: argo-artifacts
@@ -142,3 +144,25 @@ spec:
       status: Enabled
       expiration:
         days: 7
+---
+# A Bucket names the Seaweed CR of another namespace in its clusterRef, so the operator keeps it
+# Pending (ClusterRefForbidden) until a grant here admits the Buckets of that namespace. The
+# grant names each source namespace and the CR by name. A BucketLifecyclePolicy needs no grant:
+# it takes the cluster from its Bucket.
+apiVersion: seaweed.seaweedfs.com/v1
+kind: ResourceReferenceGrant
+metadata:
+  name: object-store-buckets
+  namespace: object-store
+spec:
+  from:
+    - group: seaweed.seaweedfs.com
+      kind: Bucket
+      namespace: devops
+    - group: seaweed.seaweedfs.com
+      kind: Bucket
+      namespace: argo-workflows
+  to:
+    - group: seaweed.seaweedfs.com
+      kind: Seaweed
+      name: seaweedfs

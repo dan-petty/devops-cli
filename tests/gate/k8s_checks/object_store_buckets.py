@@ -1,10 +1,11 @@
-"""The buckets, the lifecycle rules and the writer keys of the object store (#4756).
+"""The buckets and the lifecycle rules of the object store (#4756).
 
-The SeaweedFS operator makes each bucket, quota, anonymous read, lifecycle rule, identity, policy
-and key of the store from the CRs of `k8s/object-store/buckets.yaml` and `writers.yaml`, so no
-reconcile code runs. These checks read the render of `k8s/object-store`, the values of the operator
-chart and the AppProject. Each rule is a function that returns its problems. One check applies the
-rule to the committed render, and one applies it to a fixture that breaks it and asserts that the
+The SeaweedFS operator makes each bucket, quota, anonymous read and lifecycle rule of the store
+from the CRs of `k8s/object-store/buckets.yaml`, so no reconcile code runs. Each bucket lives in
+the namespace of the workload that writes it, and names the `Seaweed` CR of `object-store` through
+a grant there. These checks read the render of `k8s/object-store`, the values of the operator chart
+and the AppProject. Each rule is a function that returns its problems. One check applies the rule
+to the committed render, and one applies it to a fixture that breaks it and asserts that the
 problem names the object, so a rule that stops finding its problem fails the row too.
 """
 
@@ -18,7 +19,6 @@ from typing import Any, Final
 import yaml
 from kubernetes.utils.quantity import parse_quantity
 
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, ClusterSecret
 from tests.gate.k8s_render import kustomize
 from tests.support.paths import REPO_ROOT
 
@@ -30,15 +30,16 @@ NAMESPACE: Final = "object-store"
 CR_NAME: Final = "seaweedfs"
 PROJECT: Final = "homelab"
 GROUP: Final = "seaweed.seaweedfs.com"
+GRANT_NAME: Final = "object-store-buckets"
 
-# The platform buckets of the devops-cli workloads and their quotas. `local-path` does not
-# enforce the size of a claim, so the quotas are the limits. The tenant buckets `backups-*` come
-# from the tenant chart of dan-petty/infra.
+# The platform buckets of the devops-cli workloads: the namespace of the workload that writes each
+# one, and its quota. `local-path` does not enforce the size of a claim, so the quotas are the
+# limits. The tenant buckets `backups-*` come from the tenant chart of dan-petty/infra.
 PLATFORM_BUCKETS: Final = {
-    "reports": "20Gi",
-    "reports-private": "20Gi",
-    "cache": "10Gi",
-    "argo-artifacts": "10Gi",
+    "reports": ("devops", "20Gi"),
+    "reports-private": ("devops", "20Gi"),
+    "cache": ("devops", "10Gi"),
+    "argo-artifacts": ("argo-workflows", "10Gi"),
 }
 ANONYMOUS_READ: Final = frozenset({"reports", "reports-private"})
 ANONYMOUS_USER: Final = "anonymous"
@@ -50,8 +51,8 @@ EXPIRATIONS: Final = {
     ("argo-artifacts", ""): 7,
 }
 ABORT_MULTIPART_DAYS: Final = 1
-ACCESS_KEY_FIELD: Final = "accessKey"
-SECRET_KEY_FIELD: Final = "secretKey"
+# The kinds of the operator that it reconciles in their own namespace.
+WATCHED_KINDS: Final = frozenset({"Bucket", "BucketLifecyclePolicy"})
 # The kinds the render may hold: the operator CRs, the perimeter and the budgets. No Job, CronJob,
 # workload or script reconciles the store.
 STORE_KINDS: Final = frozenset(
@@ -59,16 +60,11 @@ STORE_KINDS: Final = frozenset(
         "Seaweed",
         "Bucket",
         "BucketLifecyclePolicy",
-        "S3Identity",
-        "S3Policy",
-        "S3PolicyBinding",
-        "S3Credentials",
         "ResourceReferenceGrant",
         "NetworkPolicy",
         "PodDisruptionBudget",
     }
 )
-_ARN_PREFIX: Final = "arn:aws:s3:::"
 
 
 def _load(text: str) -> list[dict[str, Any]]:
@@ -112,32 +108,40 @@ def _bucket_name(bucket: Mapping[str, Any]) -> str:
     return str(bucket.get("spec", {}).get("name") or _name(bucket))
 
 
-def _names_the_store(doc: Mapping[str, Any]) -> bool:
-    ref = doc.get("spec", {}).get("seaweedRef") or {}
-    return ref.get("name") == CR_NAME and (ref.get("namespace") or _namespace(doc)) == NAMESPACE
+def _names_the_store(bucket: Mapping[str, Any]) -> bool:
+    spec = bucket.get("spec", {})
+    ref = spec.get("clusterRef") or {}
+    return (
+        "seaweedRef" not in spec
+        and ref.get("name") == CR_NAME
+        and (ref.get("namespace") or _namespace(bucket)) == NAMESPACE
+    )
 
 
 # The buckets.
 
 
 def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Each platform bucket is there with its quota, and each bucket of the store names the store,
-    keeps an enforced quota and keeps its data when its CR goes."""
+    """Each platform bucket is there in the namespace of its writer with its quota, and each bucket
+    of the store names the store in `clusterRef`, keeps an enforced quota and keeps its data when
+    its CR goes."""
     problems: list[str] = []
     found = {_bucket_name(bucket): bucket for bucket in buckets}
-    for name, size in PLATFORM_BUCKETS.items():
-        quota = found.get(name, {}).get("spec", {}).get("quota", {}).get("size")
-        if name not in found:
+    for name, (namespace, size) in PLATFORM_BUCKETS.items():
+        bucket = found.get(name)
+        if bucket is None:
             problems.append(f"Bucket/{name}: no Bucket in the render")
-        elif quota is None or parse_quantity(quota) != parse_quantity(size):
+            continue
+        quota = bucket.get("spec", {}).get("quota", {}).get("size")
+        if quota is None or parse_quantity(quota) != parse_quantity(size):
             problems.append(f"Bucket/{name}: quota is {quota!r}, not {size}")
+        if _namespace(bucket) != namespace:
+            problems.append(f"Bucket/{name}: namespace is {_namespace(bucket)!r}, not {namespace}")
     for bucket in found.values():
         spec = bucket.get("spec", {})
         quota = spec.get("quota", {})
-        if _namespace(bucket) != NAMESPACE:
-            problems.append(f"{_ref(bucket)}: namespace is {_namespace(bucket)!r}, not {NAMESPACE}")
-        if "clusterRef" in spec or not _names_the_store(bucket):
-            problems.append(f"{_ref(bucket)}: seaweedRef does not name {NAMESPACE}/{CR_NAME}")
+        if not _names_the_store(bucket):
+            problems.append(f"{_ref(bucket)}: clusterRef does not name {NAMESPACE}/{CR_NAME}")
         if "size" not in quota or quota.get("enforce") is False:
             problems.append(f"{_ref(bucket)}: no enforced quota")
         if spec.get("reclaimPolicy") != "Retain":
@@ -156,6 +160,104 @@ def check_the_bucket_rule_names_a_bucket_that_deletes_its_data() -> None:
             bucket["spec"]["reclaimPolicy"] = "Delete"
 
     assert any(p.startswith("Bucket/cache:") for p in bucket_problems(buckets))
+
+
+def check_the_bucket_rule_names_a_bucket_in_the_store_namespace() -> None:
+    buckets = _kind("Bucket")
+    for bucket in buckets:
+        if _bucket_name(bucket) == "cache":
+            bucket["metadata"]["namespace"] = NAMESPACE
+
+    assert any(p.startswith("Bucket/cache: namespace") for p in bucket_problems(buckets))
+
+
+# The grant of the buckets.
+
+
+def _admits(grant: Mapping[str, Any], namespace: str) -> bool:
+    """The grant admits a `Bucket` of the namespace to the `Seaweed` CR of the store."""
+    spec = grant.get("spec", {})
+    return any(
+        source.get("group") == GROUP
+        and source.get("kind") == "Bucket"
+        and source.get("namespace") == namespace
+        for source in spec.get("from", [])
+    ) and any(
+        target.get("group") == GROUP
+        and target.get("kind") == "Seaweed"
+        and target.get("name") == CR_NAME
+        for target in spec.get("to", [])
+    )
+
+
+def _grant_problems(grant: Mapping[str, Any], namespaces: set[str]) -> list[str]:
+    """One grant: in the store namespace, from buckets of the bucket namespaces by name, to the
+    `Seaweed` CR of the store by name."""
+    ref = f"{_ref(grant)} of {_namespace(grant)}"
+    spec = grant.get("spec", {})
+    problems = [f"{ref}: not in namespace {NAMESPACE}"] if _namespace(grant) != NAMESPACE else []
+    problems.extend(
+        f"{ref}: admits {source.get('kind')} from {source.get('namespace') or 'a selector'}"
+        for source in spec.get("from", [])
+        if source.get("group") != GROUP
+        or source.get("kind") != "Bucket"
+        or "namespaceSelector" in source
+        or source.get("namespace") not in namespaces
+    )
+    problems.extend(
+        f"{ref}: admits {target.get('kind')} {target.get('name') or 'of every name'}"
+        for target in spec.get("to", [])
+        if target.get("group") != GROUP
+        or target.get("kind") != "Seaweed"
+        or target.get("name") != CR_NAME
+    )
+    return problems
+
+
+def grant_problems(documents: Iterable[Mapping[str, Any]]) -> list[str]:
+    """A grant in the store namespace admits each bucket of another namespace to the store, and
+    each grant admits only such buckets, to the store only."""
+    docs = list(documents)
+    grants = _kind("ResourceReferenceGrant", docs)
+    outside = [bucket for bucket in _kind("Bucket", docs) if _namespace(bucket) != NAMESPACE]
+    namespaces = {_namespace(bucket) for bucket in outside}
+    problems = [
+        f"{_ref(bucket)}: no grant in {NAMESPACE} admits the Buckets of {_namespace(bucket)}"
+        for bucket in outside
+        if not any(
+            _namespace(grant) == NAMESPACE and _admits(grant, _namespace(bucket))
+            for grant in grants
+        )
+    ]
+    for grant in grants:
+        problems.extend(_grant_problems(grant, namespaces))
+    return problems
+
+
+def check_a_grant_admits_the_buckets_to_the_store() -> None:
+    assert grant_problems(_render()) == []
+
+
+def check_the_grant_rule_names_a_bucket_namespace_with_no_grant() -> None:
+    documents = [copy.deepcopy(doc) for doc in _render()]
+    for doc in documents:
+        if doc.get("kind") == "Bucket" and _bucket_name(doc) == "argo-artifacts":
+            doc["metadata"]["namespace"] = "llm"
+
+    assert any(p.startswith("Bucket/argo-artifacts: no grant") for p in grant_problems(documents))
+
+
+def check_the_grant_rule_names_a_grant_to_every_seaweed_cr() -> None:
+    documents = [copy.deepcopy(doc) for doc in _render()]
+    for doc in documents:
+        if doc.get("kind") == "ResourceReferenceGrant":
+            for target in doc["spec"]["to"]:
+                target.pop("name", None)
+
+    assert any(
+        p.startswith(f"ResourceReferenceGrant/{GRANT_NAME} of {NAMESPACE}: admits Seaweed")
+        for p in grant_problems(documents)
+    )
 
 
 # The anonymous read.
@@ -256,7 +358,9 @@ def check_each_bucket_has_its_lifecycle_rules_in_git() -> None:
 def check_the_lifecycle_rule_names_a_backup_bucket_with_an_expiration_rule() -> None:
     (bucket,) = [b for b in _kind("Bucket") if _bucket_name(b) == "cache"]
     (policy,) = [
-        p for p in _kind("BucketLifecyclePolicy") if p["spec"]["bucketRef"]["name"] == _name(bucket)
+        p
+        for p in _kind("BucketLifecyclePolicy")
+        if p["spec"]["bucketRef"]["name"] == _name(bucket) and _namespace(p) == _namespace(bucket)
     ]
     bucket["metadata"]["name"] = bucket["spec"]["name"] = "backups-example"
     policy["spec"]["bucketRef"]["name"] = "backups-example"
@@ -278,225 +382,23 @@ def check_the_lifecycle_rule_names_a_bucket_with_no_policy() -> None:
     )
 
 
-# The writer policies.
-
-
-def _resource_bucket(resource: str) -> str:
-    return resource.removeprefix(_ARN_PREFIX).split("/", 1)[0]
-
-
-def _statement_problems(policy: Mapping[str, Any], buckets: set[str]) -> list[str]:
-    problems: list[str] = []
-    spec = policy.get("spec", {})
-    if "policyDocument" in spec:
-        problems.append(f"{_ref(policy)}: a raw policyDocument, not statements")
-    for statement in spec.get("statements", []):
-        if statement.get("effect") != "Allow":
-            problems.append(f"{_ref(policy)}: a statement with effect {statement.get('effect')}")
-        if any("*" in action for action in statement.get("actions", [])):
-            problems.append(f"{_ref(policy)}: a wildcard action")
-        for resource in statement.get("resources", []):
-            if "*" in _resource_bucket(resource) or _resource_bucket(resource) not in buckets:
-                problems.append(f"{_ref(policy)}: resource {resource!r} is no bucket of the store")
-    return problems
-
-
-def _policy_buckets(policy: Mapping[str, Any]) -> set[str]:
-    return {
-        _resource_bucket(resource)
-        for statement in policy.get("spec", {}).get("statements", [])
-        for resource in statement.get("resources", [])
-    }
-
-
-def policy_problems(documents: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Each policy allows actions only on buckets of the store, each binding attaches a policy of
-    the render to identities of the render, and no bucket is in the policies of two identities."""
-    docs = list(documents)
-    buckets = {_bucket_name(bucket) for bucket in _kind("Bucket", docs)}
-    identities = {_name(identity) for identity in _kind("S3Identity", docs)}
-    policies = {_name(policy): policy for policy in _kind("S3Policy", docs)}
-    problems = [p for policy in policies.values() for p in _statement_problems(policy, buckets)]
-    owners: dict[str, set[str]] = {}
-    for binding in _kind("S3PolicyBinding", docs):
-        spec = binding.get("spec", {})
-        policy = policies.get(spec.get("policyRef", {}).get("name", ""))
-        if policy is None:
-            problems.append(f"{_ref(binding)}: policyRef names no S3Policy of the render")
-            continue
-        for subject in spec.get("subjects", []):
-            if (
-                subject.get("kind", "S3Identity") != "S3Identity"
-                or subject.get("name") not in identities
-            ):
-                problems.append(
-                    f"{_ref(binding)}: subject {subject.get('name')!r} is no S3Identity"
-                )
-                continue
-            for bucket in _policy_buckets(policy):
-                owners.setdefault(bucket, set()).add(str(subject["name"]))
-    problems.extend(
-        f"bucket {bucket} is in the policies of {', '.join(sorted(names))}"
-        for bucket, names in sorted(owners.items())
-        if len(names) > 1
-    )
-    return problems
-
-
-def _with_policy(policy_name: str, change: Any) -> list[dict[str, Any]]:
-    documents = [copy.deepcopy(dict(doc)) for doc in _render()]
-    for doc in documents:
-        if doc.get("kind") == "S3Policy" and _name(doc) == policy_name:
-            change(doc["spec"]["statements"])
-    return documents
-
-
-def check_each_writer_key_works_only_on_its_own_buckets() -> None:
-    assert policy_problems(_render()) == []
-
-
-def check_the_policy_rule_names_a_policy_on_every_bucket() -> None:
-    documents = _with_policy("argo", lambda statements: statements[0]["resources"].append("*"))
-
-    assert any(p.startswith("S3Policy/argo:") for p in policy_problems(documents))
-
-
-def check_the_policy_rule_names_a_bucket_of_two_identities() -> None:
-    documents = _with_policy("argo", lambda statements: statements[0]["resources"].append("cache"))
-
-    assert any(
-        p.startswith("bucket cache is in the policies of") for p in policy_problems(documents)
-    )
-
-
-# The writer keys and their grants.
-
-
-def _secret_target(credentials: Mapping[str, Any]) -> tuple[str, str, tuple[str, str]]:
-    """The namespace, the name and the two fields of the Secret of a credential, with the defaults
-    of `S3Credentials`."""
-    ref = credentials.get("spec", {}).get("secretRef", {})
-    fields = (
-        ref.get("accessKeyField", ACCESS_KEY_FIELD),
-        ref.get("secretKeyField", SECRET_KEY_FIELD),
-    )
-    return (
-        ref.get("namespace") or _namespace(credentials),
-        ref.get("name") or _name(credentials),
-        fields,
-    )
-
-
-def _grant_admits(grant: Mapping[str, Any], secret: str) -> bool:
-    spec = grant.get("spec", {})
-    return any(
-        f == {"group": GROUP, "kind": "S3Credentials", "namespace": NAMESPACE}
-        for f in spec.get("from", [])
-    ) and any(
-        t.get("group") == "" and t.get("kind") == "Secret" and t.get("name") == secret
-        for t in spec.get("to", [])
-    )
-
-
-def _grant_problems(grant: Mapping[str, Any], secrets: set[tuple[str, str]]) -> list[str]:
-    """A grant admits only the credentials of the store, by namespace name, to only the Secrets
-    that a credential names."""
-    ref = f"ResourceReferenceGrant {_namespace(grant)}/{_name(grant)}"
-    spec = grant.get("spec", {})
-    problems = [
-        f"{ref}: admits {source}, not S3Credentials of namespace {NAMESPACE}"
-        for source in spec.get("from", [])
-        if source != {"group": GROUP, "kind": "S3Credentials", "namespace": NAMESPACE}
-    ]
-    problems.extend(
-        f"{ref}: target {target} is no Secret that a credential names"
-        for target in spec.get("to", [])
-        if target.get("group") != ""
-        or target.get("kind") != "Secret"
-        or (_namespace(grant), target.get("name")) not in secrets
-    )
-    return problems
-
-
-def key_problems(
-    documents: Iterable[Mapping[str, Any]], table: Iterable[ClusterSecret]
-) -> list[str]:
-    """Each credential names an identity of the render and a Secret with a row that holds its
-    fields, through a grant of the Secret namespace that admits only the store."""
-    docs = list(documents)
-    rows = {secret.ref: secret for secret in table}
-    identities = {_name(identity) for identity in _kind("S3Identity", docs)}
-    grants = _kind("ResourceReferenceGrant", docs)
-    problems: list[str] = []
-    secrets: set[tuple[str, str]] = set()
-    for credentials in _kind("S3Credentials", docs):
-        namespace, name, fields = _secret_target(credentials)
-        secrets.add((namespace, name))
-        row = rows.get(f"{namespace}/{name}")
-        if credentials.get("spec", {}).get("identityRef", {}).get("name") not in identities:
-            problems.append(f"{_ref(credentials)}: identityRef names no S3Identity of the render")
-        if not _names_the_store(credentials):
-            problems.append(f"{_ref(credentials)}: seaweedRef does not name {NAMESPACE}/{CR_NAME}")
-        if row is None:
-            problems.append(
-                f"{_ref(credentials)}: Secret {namespace}/{name} has no row in CLUSTER_SECRETS"
-            )
-        elif not set(fields) <= {entry.key for entry in row.entries}:
-            problems.append(f"{_ref(credentials)}: the row of {namespace}/{name} lacks {fields}")
-        if namespace != _namespace(credentials) and not any(
-            _namespace(grant) == namespace and _grant_admits(grant, name) for grant in grants
-        ):
-            problems.append(
-                f"{_ref(credentials)}: no grant of {namespace} admits it to Secret {name}"
-            )
-    problems.extend(p for grant in grants for p in _grant_problems(grant, secrets))
-    return problems
-
-
-def check_each_writer_key_comes_from_a_pushed_secret_through_a_narrow_grant() -> None:
-    assert key_problems(_render(), CLUSTER_SECRETS) == []
-
-
-def check_the_key_rule_names_a_credential_with_no_row() -> None:
-    (credentials, *_) = _kind("S3Credentials")
-    credentials["spec"]["secretRef"] = {"namespace": "devops", "name": "object-store-missing"}
-
-    assert any(
-        "devops/object-store-missing" in p
-        for p in key_problems([*_kind("S3Identity"), credentials], CLUSTER_SECRETS)
-    )
-
-
-def check_the_key_rule_names_a_grant_to_every_secret() -> None:
-    documents = [copy.deepcopy(dict(doc)) for doc in _render()]
-    for doc in documents:
-        if doc.get("kind") == "ResourceReferenceGrant" and _namespace(doc) == "devops":
-            for target in doc["spec"]["to"]:
-                target.pop("name", None)
-
-    assert any(
-        "ResourceReferenceGrant devops/object-store-credentials" in p
-        for p in key_problems(documents, CLUSTER_SECRETS)
-    )
-
-
 # The watch scope of the operator.
 
 
-def watch_problems(
-    values: Mapping[str, Any], credentials: Iterable[Mapping[str, Any]]
-) -> list[str]:
-    """The operator watches the store and the namespace of each Secret of a credential, each once:
-    it reads that Secret and its grants through the cache of these namespaces only, and an empty
-    list gives it a ClusterRole over every namespace."""
+def watch_problems(values: Mapping[str, Any], documents: Iterable[Mapping[str, Any]]) -> list[str]:
+    """The operator watches the store and the namespace of each bucket and lifecycle policy, each
+    once: it sees a CR only through the cache of these namespaces, and an empty list gives it a
+    ClusterRole over every namespace."""
     found = list(values.get("watchNamespaces") or [])
-    expected = {NAMESPACE} | {_secret_target(c)[0] for c in credentials}
+    expected = {NAMESPACE} | {
+        _namespace(doc) for doc in documents if doc.get("kind") in WATCHED_KINDS
+    }
     problems = [
         f"watchNamespaces lacks namespace {namespace}"
         for namespace in sorted(expected - set(found))
     ]
     problems.extend(
-        f"watchNamespaces names namespace {namespace}, which no credential needs"
+        f"watchNamespaces names namespace {namespace}, which no CR of the store needs"
         for namespace in sorted(set(found) - expected)
     )
     if len(found) != len(set(found)):
@@ -504,16 +406,14 @@ def watch_problems(
     return problems
 
 
-def check_the_operator_watches_the_store_and_each_writer_namespace() -> None:
-    assert watch_problems(_values(), _kind("S3Credentials")) == []
+def check_the_operator_watches_the_store_and_each_bucket_namespace() -> None:
+    assert watch_problems(_values(), _render()) == []
 
 
-def check_the_watch_rule_names_a_writer_namespace_the_operator_does_not_watch() -> None:
+def check_the_watch_rule_names_a_bucket_namespace_the_operator_does_not_watch() -> None:
     values = {**_values(), "watchNamespaces": [NAMESPACE]}
 
-    assert "watchNamespaces lacks namespace devops" in watch_problems(
-        values, _kind("S3Credentials")
-    )
+    assert "watchNamespaces lacks namespace devops" in watch_problems(values, _render())
 
 
 # The kinds of the render.

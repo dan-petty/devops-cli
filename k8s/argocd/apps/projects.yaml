@@ -132,13 +132,6 @@ spec:
       - group: ''
         kind: Secret
         name: seaweedfs-operator-webhook-server-cert
-      # `devops k8s push-secrets` writes the key pair of each writer of the object store (#4756).
-      - group: ''
-        kind: Secret
-        name: object-store-devops
-      - group: ''
-        kind: Secret
-        name: object-store-argo
       - group: ''
         kind: Secret
         name: mattermost-db

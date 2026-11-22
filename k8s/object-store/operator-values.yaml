@@ -8,10 +8,10 @@
 crds:
   create: true
 
-# The operator reconciles the CRs of the store namespace, and reads the key pair and the grant of
-# each writer in the writer namespace (#4756): it reads them only through the cache of these
-# namespaces. So it gets a Role in each of them and a small ClusterRole for the cluster-scoped
-# reads, not a ClusterRole over every namespace.
+# The operator reconciles the Seaweed CR of the store namespace, and the buckets and their
+# lifecycle rules in the namespaces of their writers (#4756): it sees a CR only through the cache
+# of these namespaces. So it gets a Role in each of them and a small ClusterRole for the
+# cluster-scoped reads, not a ClusterRole over every namespace.
 watchNamespaces:
   - object-store
   - devops
