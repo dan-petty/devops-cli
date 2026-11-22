@@ -146,3 +146,18 @@ def test_the_description_names_the_smallest_node_that_can_run_a_runner_job() -> 
     assert description is not None
     assert "smallest node that can run a runner Job" in description
     assert "smallest node of the cluster" not in description
+
+
+PARALLEL_VARIABLE = "DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS"
+
+
+def _parallel_limit() -> int:
+    settings.reset_settings_cache()
+    return settings.load_settings().roadmap.implement.max_parallel_jobs
+
+
+def test_the_parallel_limit_defaults_to_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(PARALLEL_VARIABLE, raising=False)
+    assert _parallel_limit() == 1
+    monkeypatch.setenv(PARALLEL_VARIABLE, "3")
+    assert _parallel_limit() == 3

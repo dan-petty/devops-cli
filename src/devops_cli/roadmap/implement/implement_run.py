@@ -54,6 +54,7 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic import ValidationError as ModelValidationError
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.client.network import reset_model_call_limit, set_model_call_limit
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
@@ -80,6 +81,7 @@ from devops_cli.exceptions import (
     ToolExecutionError,
 )
 from devops_cli.exceptions.roadmap import OverWindowError
+from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
 from devops_cli.output import print_muted
@@ -122,6 +124,7 @@ from devops_cli.roadmap.phases.rebase import (
     rebase_onto,
     unmerged,
 )
+from devops_cli.roadmap.stage.stage_job import install_request_budget
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.implement.implement_report import StopFacts
@@ -700,13 +703,20 @@ class _ItemRun:
     def execute(self) -> None:
         """Run the item from the rebase to the scoped checks and the why of the body of the pull
         request. Raises `_StopError`."""
-        self._start()
-        self._groups()
-        if self.returned:
-            return
-        self._finish_change()
-        self._checks()
-        self.why = self._why()
+        set_model_call_limit(1)
+        settings = load_settings().roadmap.stage
+        install_request_budget(settings.github_requests_per_hour)
+        try:
+            self._start()
+            self._groups()
+            if self.returned:
+                return
+            self._finish_change()
+            self._checks()
+            self.why = self._why()
+        finally:
+            reset_model_call_limit()
+            set_request_gate(None)
 
     def _start(self) -> None:
         self.step = MESSAGES.roadmap.implement_step_names["rebase"]

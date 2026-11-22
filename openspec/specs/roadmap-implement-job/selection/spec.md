@@ -397,3 +397,21 @@ The implement selection SHALL read the check runs at the head of the plan pull r
 #### Scenario: The head of the plan pull request names the checks
 - **WHEN** the selection judges one Staged item whose record holds `stage.pr`
 - **THEN** the reader receives the head SHA of that pull request once
+
+### Requirement: The round takes only items whose change files are disjoint
+The round SHALL take items in one round only when their change sets share no path and no parent-child pair. The change sets include `Changes:` paths, capability specs, and generated docs. The round MUST take only one of two overlapping items and leave the other for a later round.
+
+#### Scenario: Two disjoint items
+- **WHEN** two eligible items of one repository have change folders whose `Changes:` lines name no common path and no parent-child path pair, and the limit is 2
+- **THEN** the round returns two Jobs for that round
+
+#### Scenario: Two overlapping items
+- **WHEN** two eligible items of one repository share one changed path and the limit is 2
+- **THEN** the round returns one Job and leaves the other item for a later round
+
+### Requirement: An item with no change set runs alone
+The round MUST select an item alone when the plan of that item names no change file or when the round cannot read the change file set of that plan, and MUST select no other item with it.
+
+#### Scenario: An empty change set
+- **WHEN** the plan of an item that the round selects names no change file
+- **THEN** the round creates one Job and no other Job in that round

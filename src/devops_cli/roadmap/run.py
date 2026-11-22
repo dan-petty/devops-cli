@@ -855,7 +855,7 @@ def _run_implement_adapter(
         len(result.reported),
         len(result.cleared),
         result.waiting,
-        result.created,
+        ",".join(result.created) or "none",
     )
     if result.left is not None:
         logger.info(MESSAGES.roadmap.implement_round_left.format(number=result.left))
@@ -865,7 +865,7 @@ def _run_implement_adapter(
                 number=held.item.number, pull=held.pull, label=FIX_PLAN_LABEL
             )
         )
-    if result.created is not None and result.effort:
+    if result.created and result.effort:
         logger.info(MESSAGES.roadmap.implement_round_effort.format(effort=result.effort))
         if result.fallback:
             logger.info(MESSAGES.roadmap.implement_round_fallback)

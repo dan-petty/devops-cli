@@ -150,6 +150,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
+    DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
@@ -1674,6 +1675,11 @@ class RoadmapImplementConfig(BaseModel):
     mcp: Annotated[bool, Variable()] = Field(
         description="Whether the implement job adds the remote tools of its role from the MCP server",
         default=False,
+    )
+    max_parallel_jobs: Annotated[int, Variable()] = Field(
+        description="The most implement Jobs that the Service creates for one repository at a time, each on a disjoint file set. 1 creates one Job at a time",
+        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS,
+        ge=1,
     )
 
     @field_validator("max_memory_limit")

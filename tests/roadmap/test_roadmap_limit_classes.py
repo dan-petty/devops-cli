@@ -646,6 +646,10 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_LIMIT": ("kept", "items of one round"),
     "DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES": ("other", "a schedule"),
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS": (
+        "setting",
+        "was 1; parallel implement Jobs for disjoint items of one repository",
+    ),
     # ── Shared by the jobs ────────────────────────────────────────────────────────────────
     "CONST_ROADMAP_RUN_ERROR_CHARS": ("kept", "the error text in a log and a reason"),
     "CONST_ROADMAP_RUN_ERROR_READ_CHARS": ("kept", "the secret masking is slower than linear"),
