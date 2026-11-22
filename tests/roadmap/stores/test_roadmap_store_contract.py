@@ -754,8 +754,8 @@ def test_a_mark_write_below_a_block_that_a_person_opens_keeps_the_record(
     world: World, opener: str
 ) -> None:
     """A person opens a block above the record block that a job wrote, and does not close it. The
-    read ends the block at the record, so the Item keeps its record, and the next write keeps
-    the keys of the old record in one record block (#6785)."""
+    read ends the block at the record, so the Item keeps its record. The next write keeps the
+    keys of the old record in one record block (#6785)."""
     written = with_record("Text.\n\nMore text.", encode_job_record({}, {"Status": "Ready"}))
     body = written.replace("More text.", f"{opener}\nMore text.")
     number = world.seed("opened", labels=("priority/p2-medium",), body=body)

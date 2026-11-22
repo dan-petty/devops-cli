@@ -969,17 +969,20 @@ def _json_object(text: str) -> dict[str, Any] | None:
 
 
 def _record_below_open_block(body: str) -> tuple[str, dict[str, Any]] | None:
-    """The text before the last line of `body` and the JSON object of that line, when the line
-    is the record block at the end of a block that `body` opens above it (#6785), or None.
+    """The text before the last line of `body`, and the JSON object of that line, or None. The
+    line must be the record block at the end of a block that `body` opens above it (#6785).
 
     A person can open a fenced code block or an HTML block above the record block that a job
     wrote, and not close it. CommonMark then reads the record line as the last line of that
-    block: a fence or a `<pre>` block runs to the end of the body, and a comment ends at the
-    record line, the first line that holds `-->`. The job block readers end such a block at the
-    job blocks at its end (#6736), and `close_open_block` decides that the block is open. So the
-    record line ends the block for a read when CommonMark parses the line alone as the record
-    block, the line holds a JSON object, and the text before the line leaves a block open. A job
-    writes no other record, so each other line stays the text of the person, with no warning."""
+    block. A fence or a `<pre>` block runs to the end of the body. A comment ends at the record
+    line, because that line is the first line that holds `-->`. The job block readers end such a
+    block at the job blocks at its end (#6736). There, `close_open_block` decides that the block
+    is open. The record line ends the block for a read when three conditions are true. CommonMark
+    parses the line alone as the record block. The line holds a JSON object. The text before the
+    line leaves a block open. A job writes no other record, so each other line stays the text of
+    the person, with no warning. CommonMark cannot tell a quote of the record that holds a JSON
+    object from the record. So such a quote on the last line of an open block reads as the
+    record."""
     # `body_hash` imports this module, so the import waits for the first call.
     from devops_cli.roadmap.body_hash import close_open_block
 

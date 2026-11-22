@@ -23,6 +23,10 @@ The store SHALL read as the job record block only a comment that is the last blo
 - **WHEN** the last line of a body is a quote of the record block that holds no JSON object, in a fence that the body leaves open
 - **THEN** the store returns the body with the quote, reads an empty job record and logs no warning
 
+#### Scenario: A quote in an open block that holds a JSON object
+- **WHEN** the last line of a body is a quote of the record block that holds a JSON object, in a fence that the body leaves open
+- **THEN** the store reads the JSON object of the quote as the job record, and the next write closes the fence before the record block
+
 #### Scenario: The GitHub store keeps the record below an open block
 - **WHEN** the GitHub store writes two marks from one read of an issue in which a person opened a fence above the record block
 - **THEN** it sends one `PATCH` for each mark, the record holds the keys of the old record and both marks, and `devops_cli_roadmap_record_lost_edit_total` does not change

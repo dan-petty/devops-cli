@@ -18,5 +18,5 @@ Kind: other. Reads: `src/devops_cli/roadmap/stores/store.py`. Changes: `docs/ROA
 
 ## Workflow follow-up
 
-- #6791: an HTML block that a blank line ends, directly above a job block marker, hides the job block. This change reads no record directly below such a block either. A job writes a blank line before the record, so only a person who deletes that line makes this case.
+- #6791: an HTML block that a blank line ends, directly above a job block marker, hides the job block. This change reads no record directly below such a block either. A person makes this case with one line, such as `<details>`, directly above the record.
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).

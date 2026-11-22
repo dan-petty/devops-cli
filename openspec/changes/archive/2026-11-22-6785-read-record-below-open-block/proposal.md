@@ -6,14 +6,14 @@ A job writes the record block at the end of the issue body. `split_record` reads
 
 ## What Changes
 
-- `split_record` in `src/devops_cli/roadmap/stores/store.py` also reads the record block on the last line of the body, when that line is a record block of its own and ends a block that the body opens above it. `close_open_block` of `body_hash.py` decides that the block is open, which is the rule of the job block readers (#6736). The parse runs only when the last block is not the record.
+- `split_record` in `src/devops_cli/roadmap/stores/store.py` also reads the record block on the last line of the body. That line must be a record block of its own, and it must end a block that the body opens above it. `close_open_block` of `body_hash.py` decides that the block is open, which is the rule of the job block readers (#6736). The parse runs only when the last block is not the record.
 - A line in an open block that holds no JSON object stays the text of the person, with no warning.
 - The next record write closes the block before the record (`closed_body`, #6729), and it writes one record block with the keys of the old record.
 - `docs/ROADMAP_WORKFLOW.md` says that the read ends an open block at the record.
 
 ## Capabilities
 
-- `roadmap-item-labels`: the requirement "Only the comment at the end of the body is the record block" also reads the record on the last line of a block that a person opens above it.
+- `roadmap-item-labels`: the requirement "Only the comment at the end of the body is the record block" changes. The store also reads the record on the last line of a block that a person opens above it.
 
 ## Impact
 
