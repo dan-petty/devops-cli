@@ -8,10 +8,11 @@ text that the hashes cover, so an approval holds only while the body hashes as r
 The module imports no job, so that `trust` and `refine` can both import it.
 
 A job block marker bounds a block only where CommonMark parses the marker as an HTML block of its
-own (#6627). A marker that a person quotes in a code span, a code block or a paragraph is the
-person's text, so a read keeps it and a write adds its block at the end. A writer closes a fenced
-code block or an HTML block that is open before a marker that it writes (`close_open_block`), so
-the next read finds the block again.
+own (#6627). CommonMark ends a comment at the first line that holds `-->`, so a marker is also a
+bound when it is the whole last line of a comment that a person leaves open above it. A marker that
+a person quotes in a code span, a code block or a paragraph is the person's text, so a read keeps
+it and a write adds its block at the end. A writer closes a fenced code block or an HTML block that
+is open before a marker that it writes (`close_open_block`), so the next read finds the block again.
 """
 
 from __future__ import annotations
@@ -54,20 +55,42 @@ def _line_starts(body: str) -> list[int]:
     return [0, *(found.end() for found in _LINE_BREAK.finditer(body))]
 
 
+_COMMENT_OPEN: Final = "<!--"
+_COMMENT_CLOSE: Final = "-->"
+
+
+def _bounding_marker(content: str, markers: Collection[str]) -> str | None:
+    """The marker of `markers` that bounds a block in the HTML block of `content`, or None. The
+    marker is the whole block, or the whole last line of a comment whose first `-->` ends the
+    marker. CommonMark ends a comment at the first line that holds `-->`, so a comment that a
+    person leaves open above a job block ends at the marker."""
+    block = content.strip()
+    if block in markers:
+        return block
+    last = block.rsplit("\n", 1)[-1].strip()
+    if (
+        last in markers
+        and block.startswith(_COMMENT_OPEN)
+        and block.find(_COMMENT_CLOSE) == len(block) - len(_COMMENT_CLOSE)
+    ):
+        return last
+    return None
+
+
 def _marker_span(
     body: str, token: Token, starts: Sequence[int], markers: Collection[str]
 ) -> tuple[str, int, int] | None:
-    """The marker, its start and its end in `body`, when `token` is an HTML block that holds one
-    of `markers` and nothing else. The span is the text of the marker inside the block, so the
-    quote of a blockquote or the indent of a list item stays in the outside text."""
+    """The marker, its start and its end in `body`, when `token` is an HTML block that one of
+    `markers` bounds (`_bounding_marker`). The span is the text of the marker inside the block, so
+    the quote of a blockquote or the indent of a list item stays in the outside text."""
     if token.type != "html_block" or token.map is None:
         return None
-    marker = token.content.strip()
-    if marker not in markers:
+    marker = _bounding_marker(token.content, markers)
+    if marker is None:
         return None
     first, after = token.map
     block = body[starts[first] : starts[after] if after < len(starts) else len(body)]
-    offset = block.find(marker)
+    offset = block.rfind(marker)
     if offset < 0:
         return None
     start = starts[first] + offset
@@ -78,7 +101,8 @@ def block_marker_spans(
     body: str, markers: Collection[str] = JOB_BLOCK_MARKERS
 ) -> list[tuple[str, int, int]]:
     """The marker, its start and its end in `body`, for each marker of `markers` that CommonMark
-    parses as an HTML block of its own, in the order of the body (#6627)."""
+    parses as an HTML block of its own or as the last line of a comment that the marker ends, in
+    the order of the body (#6627)."""
     starts = _line_starts(body)
     spans = (_marker_span(body, token, starts, markers) for token in _BODY_MARKDOWN.parse(body))
     return [span for span in spans if span is not None]
@@ -90,7 +114,7 @@ def job_block_bounds(
     end_marker: str = CONST_ROADMAP_REFINE_END_MARKER,
 ) -> tuple[int, int] | None:
     """The start of the first `start_marker` and the end of the `end_marker` that follows it, each
-    an HTML block of its own, or None when the body holds no such pair (#6627)."""
+    a bound of a block (`block_marker_spans`), or None when the body holds no such pair (#6627)."""
     spans = block_marker_spans(body, (start_marker, end_marker))
     start = next((span for span in spans if span[0] == start_marker), None)
     if start is None:

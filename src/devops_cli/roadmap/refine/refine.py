@@ -458,25 +458,24 @@ class RefinedItem:
     body without the alternatives job's block and refine's section, which the check for an
     unchanged item compares. For a written body it is the hash of `new_body`, so the close of an
     open block that the write adds before the section is no change on the next round (#6627).
-    `read_hash` is the hash of the body without the section alone, which
-    the check before a write compares, so a block written since the read is not lost.
-    `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652).
-    `deferred` holds the parts that apply files as new issues before it sets the item Ready
-    (#2423). `after_stage_return` is set when the round looked again at the same body after the
-    stage job returned the item, which apply records, so a second return waits on a person
-    (#3483). `judge` is the verdict of the review of the proposal for an item that a bot opened,
-    which apply records, and None for the item of a person (#3502). `failure` is set when the job
-    failed: apply records it with the count of `tries` on this body. With `record_only` apply
-    writes nothing else (#3632); a refusal of the review also writes the body and the Status, and
-    no comment (#4798). `owner_question` is the one owner question that the round asked, which
-    apply records with the hash of its frame (#3077), and `owner_answer` is the answer that a
-    trusted person gave to the frame of the question the record holds, which the request of the
-    item carries and apply records (#3077). `frame` is the item whose comment holds the frame of
-    `owner_question`. `repeated` is set when the result is the one of the round before: the round
-    posts no comment, and apply records `read_at`, the time at which the round read the comments
-    of the item, so a reply made while the round ran ends the wait (#6196). A result that the
-    round built before it read the comments holds the time it was built, and it posts no
-    comment."""
+    `read_hash` is the hash of the body without the section alone, which the check before a write
+    compares, so a block written since the read is not lost. `alternatives_asked` is the URL of
+    the covering tool that the round put to a person (#2652). `deferred` holds the parts that
+    apply files as new issues before it sets the item Ready (#2423). `after_stage_return` is set
+    when the round looked again at the same body after the stage job returned the item, which
+    apply records, so a second return waits on a person (#3483). `judge` is the verdict of the
+    review of the proposal for an item that a bot opened, which apply records, and None for the
+    item of a person (#3502). `failure` is set when the job failed: apply records it with the
+    count of `tries` on this body. With `record_only` apply writes nothing else (#3632); a
+    refusal of the review also writes the body and the Status, and no comment (#4798).
+    `owner_question` is the one owner question that the round asked, which apply records with the
+    hash of its frame (#3077), and `owner_answer` is the answer that a trusted person gave to the
+    frame of the question the record holds, which the request of the item carries and apply
+    records (#3077). `frame` is the item whose comment holds the frame of `owner_question`.
+    `repeated` is set when the result is the one of the round before: the round posts no comment,
+    and apply records `read_at`, the time at which the round read the comments of the item, so a
+    reply made while the round ran ends the wait (#6196). A result that the round built before it
+    read the comments holds the time it was built, and it posts no comment."""
 
     item: Item
     proposal: RefinementProposal

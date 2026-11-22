@@ -2060,49 +2060,76 @@ def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_bloc
     )
 
 
+_SCAN = "The job needs a scan."
+# A block of an earlier check, at the end of the body.
+_OLD_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    "Alternatives check of 2026-01-01: covers.\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
 @pytest.mark.parametrize(
-    ("body", "reason"),
+    ("body", "reason", "head"),
     [
         pytest.param(
-            "The job needs a scan.",
+            _SCAN,
             "The run fails with:\n```\nTraceback (most recent call last):\n",
+            f"{_SCAN}\n\n",
             id="fence-in-the-model-text",
         ),
         pytest.param(
-            "The job needs a scan.\n\n```\nAn open fence of a person.\n", REASON, id="person-fence"
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n",
+            id="person-fence",
         ),
         pytest.param(
-            "The job needs a scan.\n\n<pre>\nAn open pre block of a person.\n",
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n",
             REASON,
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n</pre>\n\n",
             id="person-pre",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<!-- An open comment of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n<!-- An open comment of a person.\n\n",
+            id="person-comment-above-the-block",
         ),
     ],
 )
 def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
-    store: InMemoryRoadmapStore, web_key: None, body: str, reason: str
+    store: InMemoryRoadmapStore, web_key: None, body: str, reason: str, head: str
 ) -> None:
     """CommonMark reads all text after an open fenced code block or an open HTML block as part of
     it. The job closes such a block before its own block (#6627), so each round leaves one block
-    that a read finds, and the next round finds the item unchanged and checks it no more."""
+    of this check that a read finds, and the next round finds the item unchanged and checks it no
+    more. The first round writes `head` before the start marker: the text of the person, the close
+    of the open block on a line of its own, and a blank line. A comment that a person opens above
+    the block ends at its start marker, so the round replaces that block in place."""
     number = _item(store, "Open block", body=body)
     script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
     seen = []
+    bodies = []
     for _ in range(3):
         plan = _plan(store, script)
         apply_alternatives(store, plan)
         written = store.read_issue_body(number)
+        bodies.append(written)
         seen.append(
             (
                 len(plan.checks),
                 written.count(CONST_ROADMAP_ALTERNATIVES_START_MARKER),
-                bool(_block(store, number)),
+                _block(store, number).startswith(f"\nAlternatives check of {NOW.date()}: none.\n"),
             )
         )
 
-    assert (seen, store.read_issue_body(number).startswith(body.rstrip())) == (
-        [(1, 1, True), (0, 1, True), (0, 1, True)],
-        True,
-    )
+    first = bodies[0]
+    assert (
+        seen,
+        first[: first.find(CONST_ROADMAP_ALTERNATIVES_START_MARKER)],
+        bodies[1:],
+    ) == ([(1, 1, True), (0, 1, True), (0, 1, True)], head, [first, first])
 
 
 def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None) -> None:

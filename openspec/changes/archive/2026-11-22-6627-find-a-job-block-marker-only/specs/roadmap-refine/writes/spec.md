@@ -9,16 +9,26 @@ Refine SHALL close a code fence or an HTML block that the model's text leaves op
 
 #### Scenario: The text of a person leaves a code fence open
 - **WHEN** the body of a person ends in a code fence that it does not close, and refine runs three rounds on the item
-- **THEN** the first write adds the close of the fence on a line of its own before the section, the text of the person stays at the start of the body, and after each round the body holds one refine section and the item reads as unchanged
+- **THEN** the first write adds the close of the fence on a line of its own before the section
+- **AND** the text of the person stays at the start of the body
+- **AND** after each round the body holds one refine section and the item reads as unchanged
 
 #### Scenario: The text of a person leaves a pre block open
 - **WHEN** the body of a person ends in a `<pre>` HTML block that it does not close, and refine runs three rounds on the item
 - **THEN** the first write adds `</pre>` on a line of its own before the section, and after each round the body holds one refine section and the item reads as unchanged
 
+#### Scenario: A person opens a comment above the section
+- **WHEN** refine wrote and recorded a section, and then a person opens an HTML comment above it and does not close it
+- **AND** refine runs three rounds on the item
+- **THEN** the start marker ends the comment and still bounds the section
+- **AND** the first write replaces the section and adds `-->` on a line of its own before it
+- **AND** after each round the body holds one refine section, and the item reads as unchanged
+- **AND** only the first round sends a request to the model
+
 ## MODIFIED Requirements
 
 ### Requirement: The hash of the body leaves out the job's block
-The hash that refine records as `refine.body_hash` SHALL be the hash of the body that refine writes, outside the alternatives job's block and refine's section, as the check for an unchanged item computes it. The check before a write SHALL compare the hash of the whole body outside refine's section, so a block that the job wrote after refine read the body is kept. A block SHALL bound the body only at a marker that CommonMark parses as an HTML block of its own.
+The hash that refine records as `refine.body_hash` SHALL be the hash of the body that refine writes, outside the alternatives job's block and refine's section, as the check for an unchanged item computes it. The check before a write SHALL compare the hash of the whole body outside refine's section, so a block that the job wrote after refine read the body is kept. A marker SHALL bound a block only as an HTML block of its own or as the whole last line of a comment.
 
 #### Scenario: An item with a block reads as unchanged
 - **WHEN** refine refines an item whose body holds the job's block, and the next round reads the item with no change

@@ -6,14 +6,14 @@ The job block writers and the readers find their markers with a plain text searc
 
 ## What Changes
 
-- `src/devops_cli/roadmap/body_hash.py` parses the body with markdown-it-py and finds a job block marker only where the marker is the whole text of an `html_block` token.
+- `src/devops_cli/roadmap/body_hash.py` parses the body with markdown-it-py and finds a job block marker only where the marker is the whole text of an `html_block` token. A marker on the whole last line of a comment counts too.
 - `extract_section_and_outside` returns the body unchanged when the start marker and the end marker are not each an HTML block, so `without_alternatives`, `text_of_a_person` and the body hash keep a quoted pair.
 - `src/devops_cli/roadmap/alternatives.py` adds its block at the end of a body that holds no HTML-block marker pair, and replaces a block whose markers are each on a line of their own.
 - `_marker_problem` names an unpaired marker only for an HTML-block marker, so a body that quotes both markers receives its block.
 - `src/devops_cli/roadmap/refine/refine.py` reads the one marker set `JOB_BLOCK_MARKERS` from `src/devops_cli/roadmap/body_hash.py`.
 - `src/devops_cli/roadmap/stage/stage_criteria.py` cuts the refine block with `extract_section_and_outside`, so a quoted marker pair stays in the criteria text.
 - `close_open_block` in `src/devops_cli/roadmap/body_hash.py` closes a code fence or an HTML block that is open before a marker that a job writes. Refine and the alternatives check close their own text and the text before their block, and record the hash of the body that they write, so the next round finds one block and reads the item as unchanged.
-- The tests are new in `tests/roadmap/test_roadmap_body_hash.py` and `tests/roadmap/refine/test_roadmap_refine_block_markers.py`, and added to `tests/roadmap/test_roadmap_alternatives.py` and `tests/roadmap/stage/test_roadmap_stage_criteria.py`.
+- The tests are new in `tests/roadmap/test_roadmap_body_hash.py` and `tests/roadmap/refine/test_roadmap_refine_block_markers.py`, and added to `tests/roadmap/test_roadmap_alternatives.py` and `tests/roadmap/stage/test_roadmap_stage_criteria.py`. `tests/roadmap/refine/test_roadmap_refine_sanitize.py` puts a blank line before the section, as refine writes it.
 - The change fits one pull request.
 
 ## Capabilities

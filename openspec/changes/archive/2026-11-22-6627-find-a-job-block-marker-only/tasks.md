@@ -46,6 +46,10 @@ Adds: `close_open_block`
   - Verification: `$ uv run devops ci test tests/roadmap/refine/test_roadmap_refine_block_markers.py` fails before the change
 - [x] 5.2 Add `close_open_block` to `src/devops_cli/roadmap/body_hash.py`. `render_proposal_section` and the block of the alternatives check close their own text before the end marker. The refine write and `_with_block` close the text before the start marker. Refine records `refine.body_hash` of `new_body`, and the check records `alternatives.body_hash` of the body that it writes
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine tests/roadmap/test_roadmap_alternatives.py` passes
+- [x] 5.3 Write the tests of an open comment of a person above an existing job block first. `test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds` in `tests/roadmap/refine/test_roadmap_refine_block_markers.py` and the `person-comment-above-the-block` case of `test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds` run three rounds of the real write. Each round leaves one block, and the next round reads the item as unchanged. `test_a_marker_that_ends_an_open_comment_of_a_person_bounds_the_block` in `tests/roadmap/test_roadmap_body_hash.py` covers `job_block_bounds`. The three tests fail before the change
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine/test_roadmap_refine_block_markers.py tests/roadmap/test_roadmap_alternatives.py` fails before the change
+- [x] 5.4 Add `_bounding_marker` to `src/devops_cli/roadmap/body_hash.py`. A marker bounds a block when it is the whole `html_block` token, or the whole last line of a comment whose first `-->` ends the marker. `_marker_span` reads the marker with it, so refine and the alternatives check use the same rule
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_body_hash.py tests/roadmap/refine tests/roadmap/test_roadmap_alternatives.py` passes
 
 ## Criteria
 
