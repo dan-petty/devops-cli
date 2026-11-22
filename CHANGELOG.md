@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.194.2](https://github.com/dan-petty/devops-cli/compare/v0.194.1...v0.194.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **deps:** pin the devtools image at its first semantic version ([#6778](https://github.com/dan-petty/devops-cli/issues/6778)) ([8e99f1d](https://github.com/dan-petty/devops-cli/commit/8e99f1da6f8c87a2c028c6afccf32f3d74ca564c)), closes [#6775](https://github.com/dan-petty/devops-cli/issues/6775)
+* **infra:** Restart k3s with a cordon and no drain ([#6744](https://github.com/dan-petty/devops-cli/issues/6744)) ([cc703b6](https://github.com/dan-petty/devops-cli/commit/cc703b6431db5ec4e01ce3a154e14c53599c23db))
+
 ## [0.194.1](https://github.com/dan-petty/devops-cli/compare/v0.194.0...v0.194.1) (2026-11-22)
 
 
