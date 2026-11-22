@@ -1,0 +1,41 @@
+# Proposal: #6708
+
+## Why
+Closes #6708. The network policy controller of the cluster, kube-router, does not apply the ingress rules of a NetworkPolicy with both types, `Ingress` and `Egress`, to traffic that an egress rule of the same policy allows, when the policy selects the source pod and the destination pod. kube-router keeps one chain for each policy, and that chain holds the ingress rules and the egress rules. The chain of each pod jumps to the chain of each policy that selects the pod, and for a policy with both types the jump has no source or destination match (`setupPodNetpolRules` in `pkg/controllers/netpol/pod.go`). So the egress rule marks the traffic, and the destination pod accepts it before its ingress rules run. A policy selects only pods of its own namespace, so the problem is in one namespace. Two single-type policies, one `Ingress` and one `Egress`, are enforced correctly, on one node and across nodes (retest of 2026-11-22). The `k8s` row reads each policy as the NetworkPolicy API says, so it passes on this shape.
+
+## What Changes
+- Each NetworkPolicy with both types in the namespaces `argocd`, `gitea`, `llm`, `logging`, `mattermost`, `monitoring`, `object-store` and `otel` becomes two policies: `<name>-ingress` with the type `Ingress` and the ingress rules, and `<name>-egress` with the type `Egress` and the egress rules. Both keep the pod selector and the labels of the old policy. That is 15 policies.
+- The new row also finds the shape in 4 policies of 4 other namespaces: `argo-workflows-default-perimeter`, `cert-manager-default-perimeter`, `cloudflared-isolation` and `plugin-barman-cloud` (namespace `cnpg-system`). Each has an egress rule to an `ipBlock` that holds the private ranges, or an egress rule with no `to`. kube-router matches an `ipBlock` against pod addresses (`k8s/llm/gateway/networkpolicy.yaml`), so these rules reach the pods that the policy selects. These 4 policies are split in the same way.
+- The rules do not change, with one exception: the in-namespace egress rule of `gitea-default-perimeter-egress` gets TCP 3000, which is the one port that the in-namespace ingress rule admits.
+- A new rule of the `k8s` row, `dual_type_problems` in `tests/gate/k8s_checks/network_policies.py`, reads each NetworkPolicy of the environment tree `k8s/`. It refuses a policy with both types when an egress rule reaches a pod that the policy selects on a port that no ingress rule of the policy admits from those pods. An egress rule reaches such a pod through a pod peer in the same namespace whose selector can select it, a rule with no `to`, or an `ipBlock` that holds a private range. Fixture checks prove that the rule refuses the shape and accepts single-type and aligned policies.
+- The 4 policies of namespace `devops` with both types (`devops-default-perimeter`, `crawl4ai-perimeter`, `renovate-perimeter`, `searxng-perimeter`) stay as they are: no egress rule of them reaches a pod that they select, and the row accepts them.
+- The checks of the `k8s` row and the tests that name a split policy read the new names.
+- `k8s/README.md` gets a section `NetworkPolicy` with the controller behavior and the rule, and its sections that name a split policy use the new names.
+- The change alters manifests and the paths between pods, so it carries spec deltas.
+- The change fits one pull request.
+
+## Capabilities
+- `k8s-network-policies`: ADDED requirement "A policy with both types gives its own pods no path past its ingress rules". MODIFIED requirements "Portkey perimeter admits traffic from stack workloads and monitoring only", "OpenTelemetry perimeter ingress admits monitoring and Traefik in kube-system", "The cert-manager perimeter admits only the metrics scrape and the API server" and "Only the CloudNativePG operator reaches the Barman Cloud plugin".
+- `llm-gateway-database`: MODIFIED requirements "Only the gateway and the operator reach the database" and "Alloy scrapes the metrics exporter of the gateway database".
+- `llm-telemetry-content`: MODIFIED requirement "The gateway sends spans with no message content to the Collector only".
+- `llm-valkey`: MODIFIED requirement "devops-cli's cache Valkey requires its password and admits only namespace devops".
+- `object-store`: MODIFIED requirements "Alloy reaches the metrics port of each component" and "Only the worker reaches the admin gRPC port".
+
+## Impact
+- After Argo CD syncs `main`, the ingress rules of each split policy hold for the pods of its own namespace. Each Application has `prune: true`, so the sync deletes the old policies.
+- No path between pods that the workloads use today stops (Feasibility). In namespace `gitea`, the pods can send to each other on TCP 3000 only. In namespace `llm`, a gateway pod cannot connect to another gateway pod on 4000, and a Portkey pod cannot connect to another Portkey pod on 8787; neither workload calls itself through its Service.
+- A cluster without Argo CD gets the new policies from `devops k8s deploy-stack`, which applies and does not delete. On such a cluster a person deletes the old policies.
+- The checks and the tests that name a policy by name read the new names.
+
+## Feasibility
+- Controller: the probe of #6707 and #6708 on 2026-11-21 (k3s v1.37.2+k3s1, 5 nodes; temporary namespaces, deleted after the test) gave exit 0 for a client that the ingress rule does not admit, when one policy with both types selected the client and the server and had the egress rule `to: [podSelector: {}]` with no ports. With an ingress-only policy, the same client got exit 1. The retest of 2026-11-22 with an ingress-only policy on the server and an egress-only policy on the clients refused the client, on one node and across nodes.
+- Source: the comment of the owner on #6708 reads `setupPodNetpolRules` (`pkg/controllers/netpol/pod.go`), `processIngressRules` and `processEgressRules` (`policy.go`) of kube-router, and gives the mechanism of Why.
+- Census: `kubectl get networkpolicy -A -o json` (read-only, 2026-11-22) gives 42 policies, of which 23 have both types: the 15 of the 8 namespaces, the 4 of the other namespaces and the 4 of namespace `devops`. The committed tree `k8s/` holds 36 policies, and the same 23 have both types. The policies of the Helm charts (`argocd-redis`, `argocd-server`, `argocd-repo-server`, `argocd-application-controller`, `argocd-notifications-controller`, `grafana-image-renderer-ingress`) have the type `Ingress` only.
+- Paths in use (read-only `kubectl get pods,services -o json` of the 12 namespaces, 2026-11-22): in `argocd`, `logging`, `mattermost`, `monitoring`, `otel` and for the pods of `llm-default-perimeter`, an ingress rule of the old policy admits every pod of the namespace on every port, so the split stops no path there. In `gitea`, the only pods are the Gitea pods, which serve 3000 and 2222, and SSH is off. In `llm`, each component policy (the gateway, Portkey, the database, the three Valkeys) admits the peers that call it, and the egress of each caller holds the port. In `object-store`, the in-namespace egress and ingress rules already have the same 9 ports (#6707). In `argo-workflows`, `cert-manager`, `cloudflared` and `cnpg-system`, no pod serves 53, 80, 443, 6443 or 7844, which are the ports of the egress rules that reach the own pods, and no pod calls another pod of its namespace.
+- Open tools: np-guard `netpol-analyzer` and Cyclonus apply the standard rule, in which a connection needs the egress rule of the source and the ingress rule of the destination, so they find no problem in the old policies (#6707).
+
+## Existing Tool Considered
+- The NetworkPolicy API of Kubernetes is the tool of the fix: single-type policies, which the controller enforces correctly. The split adds no code.
+- kube-linter runs in this repository (`.kube-linter.yaml`), but it has no check for this controller behavior. np-guard `netpol-analyzer` (Apache-2.0) and Cyclonus (MIT) apply the standard rule, so they cannot find the shape. No open, maintained tool covers the rule.
+- Build cost of the row: about 120 lines and 5 fixture checks in `tests/gate/k8s_checks/network_policies.py`; about 40k tokens and 1 hour to build, and a low cost to keep, because the rule reads only the policies and uses the selector helper that the module already has.
+- The change deletes no internal code.
