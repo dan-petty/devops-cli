@@ -252,7 +252,7 @@ def test_a_workflow_that_is_not_valid_yaml_is_no_answer() -> None:
         (_filtered("branches", "v[12].[0-9]+.[0-9]+"), _change("a.py", base="v1.10.1")),
         (_filtered("paths", "**.js"), _change("src/js/app.js")),
         (
-            _filtered("branches", "releases/**", "!releases/**-alpha"),
+            _filtered("branches", "releases/**-alpha"),
             _change("a.py", base="releases/beta/3-alpha"),
         ),
         (_workflow({"pull_request": {"types": ["closed"]}}), _change("README.md")),
@@ -268,7 +268,7 @@ def test_a_workflow_that_is_not_valid_yaml_is_no_answer() -> None:
         "question-mark-quantifier",
         "plus-quantifier",
         "globstar-inside-a-segment",
-        "globstar-inside-a-negative-segment",
+        "globstar-inside-a-branch-segment",
         "types-only",
     ],
 )
