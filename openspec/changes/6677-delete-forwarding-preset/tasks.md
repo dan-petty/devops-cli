@@ -4,9 +4,9 @@
 
 Kind: other (deletion). Reads: `.github/renovate/base.json`, the Renovate config of each dan-petty repository. Changes: `.github/renovate/base.json`.
 
-- [ ] 1.1 Confirm that no dan-petty repository outside devops-cli names the old path `devops-cli//.github/renovate/base`
+- [x] 1.1 Confirm that no dan-petty repository outside devops-cli names the old path `devops-cli//.github/renovate/base`
   - Verification: `$ uv run devops gh api -X GET search/code -f q='devops-cli//.github/renovate/base user:dan-petty' --jq '[.items[].repository.full_name] | unique'` prints only `dan-petty/devops-cli`
-- [ ] 1.2 Delete `.github/renovate/base.json`
+- [x] 1.2 Delete `.github/renovate/base.json`
   - Verification: `$ test -z "$(git ls-files .github/renovate/base.json)"` exits 0
 
 ## 2. Check the documents and specs

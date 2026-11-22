@@ -1,7 +1,0 @@
-{
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "A forward to the shared Renovate preset of dan-petty/infra (renovate/base.json). A repository that extends github>dan-petty/devops-cli//.github/renovate/base gets the rules of github>dan-petty/infra//renovate/base. Extend github>dan-petty/infra//renovate/base directly.",
-  "extends": [
-    "github>dan-petty/infra//renovate/base"
-  ]
-}
