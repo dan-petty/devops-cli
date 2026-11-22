@@ -127,6 +127,7 @@ from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
 from devops_cli.roadmap.body_hash import (
     block_marker_spans,
+    close_blocks_before_markers,
     close_open_block,
     extract_section_and_outside,
     hash_text,
@@ -1083,10 +1084,11 @@ def _block_of(check: Check) -> str:
 
 
 def _marker_problem(body: str) -> str | None:
-    """Why the job writes no block to `body`, or None: it holds a marker of the block as an HTML
-    block of its own with no partner, so a write could replace a person's text between the two. A
-    marker that a person quotes in a code span, a code block or a paragraph is the person's text,
-    and the block goes at the end (#6627)."""
+    """Why the job writes no block to `body`, or None: it holds a marker of the block that bounds
+    a block (`block_marker_spans`) with no partner, so a write could replace a person's text
+    between the two. A marker that a person quotes in a code span, a code block or a paragraph is
+    the person's text, and the block goes at the end (#6627). A marker line in a block that a
+    person leaves open to the end of the body bounds a block (#6736)."""
     markers = (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER)
     if job_block_bounds(body, *markers) is None and block_marker_spans(body, markers):
         return MESSAGES.roadmap.alternatives_reason_markers
@@ -1097,7 +1099,10 @@ def _with_block(body: str, block: str) -> str:
     """`body` with its block of the job replaced by `block`, or with `block` at its end when no
     pair of HTML-block markers delimits one (#6627). A code fence or an HTML block that the body
     leaves open at its end gets its close before `block`, so the markers of `block` stay HTML blocks
-    of their own."""
+    of their own. A block that a person leaves open above a job block gets its close before that
+    job block first (`close_blocks_before_markers`), so the old block is replaced in place and each
+    other job block stays readable (#6736)."""
+    body = close_blocks_before_markers(body)
     bounds = job_block_bounds(
         body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )

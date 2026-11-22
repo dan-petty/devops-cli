@@ -218,8 +218,9 @@ from devops_cli.exceptions.roadmap import (
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import (
-    JOB_BLOCK_MARKERS,
+    block_marker_of,
     body_hashes,
+    close_blocks_before_markers,
     close_open_block,
     extract_section_and_outside,
     hash_text,
@@ -1165,11 +1166,12 @@ _QUOTED_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
 
 def _ends_section(token: Token, level: int) -> bool:
     """Whether `token` ends a section under a heading of `level`: a heading of the same or a
-    higher level, or an HTML block that is the start or the end marker of a job block (#6613). A
-    marker in a code span or inside a paragraph is inline text and ends no section."""
+    higher level, or an HTML block that the start or the end marker of a job block bounds (#6613),
+    by the rule of each job block reader (`block_marker_of`, #6736). A marker in a code span or
+    inside a paragraph is inline text and ends no section."""
     if token.type == "heading_open":
         return int(token.tag[1:]) <= level
-    return token.type == "html_block" and token.content.strip() in JOB_BLOCK_MARKERS
+    return block_marker_of(token) is not None
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
@@ -1241,9 +1243,12 @@ def body_dependencies(body: str) -> list[int]:
     start or the end marker of a job block (#6613), so the Lacks list of an alternatives block
     names no blocker. Each block of the section, a paragraph or the text of a list item, names its
     blockers (`_block_blockers`); the body is parsed as CommonMark, so a heading in a code block is
-    not a heading.
+    not a heading. A block that a person leaves open above a job block is closed first
+    (`close_blocks_before_markers`), so the parse finds the job blocks that each reader finds
+    (#6736).
     """
-    section = _section_tokens(MarkdownIt("commonmark").parse(body), _DEPENDENCIES_TITLE_RE)
+    closed = close_blocks_before_markers(body)
+    section = _section_tokens(MarkdownIt("commonmark").parse(closed), _DEPENDENCIES_TITLE_RE)
     return [
         number
         for token in section

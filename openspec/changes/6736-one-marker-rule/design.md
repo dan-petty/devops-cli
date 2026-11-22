@@ -10,6 +10,8 @@
 - **`body_dependencies` parses the body with the closes in place.**: It reads the Dependencies part of the refine section, so it must find that section where the other readers find it.
 - **A marker in a block that a close ends stays a quote.**: A person who quotes a job block in code closes the fence. The tests of #6627 for a quoted pair stay green.
 - **A lone marker in an open block stops the alternatives write.**: The open block ends at that marker, and the marker has no partner, so `_marker_problem` names it. This is the rule for an unpaired marker of #6627.
+- **The body parser of `body_hash` reads only the blocks (`disable("inline")`).**: The rule reads only `html_block` and `fence` tokens, as the record parser of `src/devops_cli/roadmap/stores/store.py` does. The probe of an open block adds a parse, and the parse without inline rules costs about half the time.
+- **The refine round test asserts one section and a body that does not change, not the number of model calls.**: The record block is the last block of the body, so the open block of a person holds it too, and `split_record` then reads no record. Refine then finds a section that it has no record of, and waits for a person. A run with a `with_record` that closes the open block only at the end of the body gave two sections. A run with a `with_record` that first calls `close_blocks_before_markers` gave one. The record is the work of #6729, and this change does not touch `src/devops_cli/roadmap/stores/store.py`.
 - **This decision replaces the rejected alternative "Close the open block before the first marker line in it" of #6627, for a block that no close ends.**: #6736 expects one block after each write. A block in a closed fence is still a quote.
 
 ## Rejected alternatives

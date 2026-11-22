@@ -26,7 +26,7 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-refine/writes`: Refine replaces its section in a block that a person leaves open
+- `roadmap-refine/writes`: Refine finds its section in a block that a person leaves open
 - `roadmap-refine/waits`: A job block marker ends the Dependencies section
 - `roadmap-alternatives`: A check replaces its block in a block that a person leaves open
 
