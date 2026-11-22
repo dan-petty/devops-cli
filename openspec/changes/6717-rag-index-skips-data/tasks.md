@@ -33,7 +33,7 @@ Kind: data. Reads: `.gitattributes`. Changes: `.gitattributes`.
 
 Kind: documents. Reads: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`. Changes: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`.
 
-- [ ] 4.1 In `rag_context_indexing.md`, state that the indexer leaves out the files that `.gitattributes` marks `linguist-generated` or `linguist-vendored`, and that a transient batch failure gets one more attempt, then the run skips the batch, indexes the other batches and exits 1 with the files that it did not index
+- [x] 4.1 In `rag_context_indexing.md`, state that the indexer leaves out the files that `.gitattributes` marks `linguist-generated` or `linguist-vendored`, and that a transient batch failure gets one more attempt, then the run skips the batch, indexes the other batches and exits 1 with the files that it did not index
   - Verification: `$ uv run devops ci docs`
 
 ## Workflow follow-up
