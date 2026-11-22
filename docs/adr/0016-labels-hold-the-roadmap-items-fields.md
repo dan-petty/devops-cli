@@ -47,3 +47,5 @@ On 2026-10-28 the owner decided that labels and milestones hold an Item's state,
 ## Status History
 
 This ADR amends [ADR 0001](0001-github-is-the-roadmap-source.md), [ADR 0002](0002-roadmap-jobs-act-as-a-machine-account.md) and [ADR 0003](0003-polling-is-how-the-roadmap-sees-changes.md).
+
+2026-11-22: Amended by the owner decision in #4627, section One label family for each field: the Service removes the labels of a closed issue (#4660).
