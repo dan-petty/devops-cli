@@ -581,7 +581,7 @@ def test_pr_ready_says_that_a_repository_with_no_ci_has_nothing_to_wait_for(
     exit_code, output = _ready(cli)
     assert (
         exit_code,
-        f"{_REPO} has no workflow that runs on a pull request" in output,
+        f"No workflow of {_REPO} can start a check on PR #335" in output,
         "no checks reported" in output,
     ) == (0, True, False), output
 
@@ -596,6 +596,42 @@ def test_pr_ready_marks_a_pull_request_ready_when_only_push_workflows_exist(
     assert (exit_code, _readied(draft), "has no checks" in output) == (0, True, True), output
 
 
+_K8S_WORKFLOW = """name: K8s
+on:
+  pull_request:
+    paths:
+      - "k8s/**"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+
+
+@pytest.mark.parametrize(
+    ("changed", "code", "marked"),
+    [("README.md", 0, True), ("k8s/app.yaml", 8, False)],
+    ids=["filter-skips", "filter-matches"],
+)
+def test_pr_ready_follows_the_path_filter_of_a_pull_request_workflow(
+    cli: Callable[..., Any], draft: _GitHub, changed: str, code: int, marked: bool
+) -> None:
+    """dan-petty/homelab PR #97 changed only files that the `paths` filter of its `pull_request`
+    workflow skips, so no check started and `pr ready` waited for ever. It marks such a pull
+    request ready, and still waits for one whose change the filter matches (#5408)."""
+    _no_checks(draft, 0)
+    draft.api.route(
+        "GET",
+        _WORKFLOWS_DIR,
+        github_json([{"type": "file", "name": "k8s.yml", "path": ".github/workflows/k8s.yml"}]),
+    )
+    route_file(draft.api, _REPO, ".github/workflows/k8s.yml", _HEAD, _K8S_WORKFLOW)
+    draft.files(_ARCHIVE_704, {"filename": changed, "status": "modified"})
+    exit_code, output = _ready(cli)
+    assert (exit_code, _readied(draft)) == (code, marked), output
+
+
 def test_check_readiness_reports_a_repository_with_no_ci(
     cli: Callable[..., Any], github: _GitHub
 ) -> None:
@@ -605,7 +641,7 @@ def test_check_readiness_reports_a_repository_with_no_ci(
     exit_code, output = _readiness(cli)
     assert (
         exit_code,
-        "has no workflow that runs on a pull request" in output,
+        "can start a check on PR #335" in output,
         "no checks reported" in output,
     ) == (0, True, False), output
 

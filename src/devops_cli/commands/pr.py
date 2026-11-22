@@ -1440,9 +1440,10 @@ def _handle_pr_ready_failure(stderr_text: str, number: int) -> None:
 
 
 def _no_ci(verdict: MergeReadiness) -> bool:
-    """Whether no check will come for the pull request (#3767, #5144): the merge-readiness verdict
-    reads the workflows at its head and finds none that runs on a pull request, so it excuses the
-    missing checks. A workflow read that fails keeps the pending check, so the verdict says no."""
+    """Whether no check will come for the pull request (#3767, #5144, #5408): the merge-readiness
+    verdict reads the workflows at its head and finds none whose trigger and branch and path
+    filters take the pull request, so it excuses the missing checks. A workflow read that fails
+    keeps the pending check, so the verdict says no."""
     return verdict.no_ci
 
 
@@ -1452,8 +1453,9 @@ def _validate_pr_ready(number: int, owner: str, repo_name: str, pr_data: dict[st
 
     Ready for review says the work is done and its checks pass; the merge itself stays gated by
     `check-readiness`, the required checks and a person. The pull request is a draft until this
-    command runs, so its draft state blocks nothing here. A repository with no workflow and a head
-    commit with no check have nothing to wait for, so the checks are not judged (#3767).
+    command runs, so its draft state blocks nothing here. A head commit with no check, and no
+    workflow that can start one on the pull request, have nothing to wait for, so the checks are
+    not judged (#3767, #5408).
     """
     verdict = assess_merge_readiness(
         pr_data, owner, repo_name, number, options=ReadinessOptions(allow_draft=True)
@@ -1532,11 +1534,12 @@ def ready_pr(
     """Mark a draft pull request as ready for review once draft readiness allows it.
 
     It exits 1 for a refusal and 8 while a check runs. A head commit with no check waits for one,
-    unless the repository has no GitHub Actions workflow: then no check will start, and the command
-    says so and marks the pull request ready with no --force. For an implement pull request, it
-    names each unticked task group. Every other blocker of the merge-readiness verdict prints as a
-    warning. --force skips the readiness check. It sets the Status of the roadmap item the pull
-    request closes to In Review.
+    unless no workflow at the head can start a check on the pull request: none runs on pull
+    requests, or branch and path filters skip this one. Then the command says so and marks the
+    pull request ready with no --force. For an implement pull request, it names each unticked task
+    group. Every other blocker of the merge-readiness verdict prints as a warning. --force skips
+    the readiness check. It sets the Status of the roadmap item the pull request closes to In
+    Review.
     """
     if dry_run or is_dry_run():
         plan = plan_pr_ready(number, repo=repo)

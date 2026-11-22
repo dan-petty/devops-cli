@@ -11,7 +11,6 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 from urllib.parse import quote, urlencode
 
-import yaml
 from pydantic import (
     AliasChoices,
     AliasPath,
@@ -39,13 +38,13 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubNotFoundError, GitHubOperationError, GitHubUnreadError
 from devops_cli.github.rate_limiter import run_gh
+from devops_cli.github.workflow_triggers import PullRequestChange, starts_on_pull_request
 
 if TYPE_CHECKING:
     from devops_cli.github.session import GitHubSession
 
 
 _WORKFLOWS_DIR: Final[str] = ".github/workflows"
-_PULL_REQUEST_TRIGGERS: Final[frozenset[str]] = frozenset({"pull_request", "pull_request_target"})
 
 
 class RepoInfo(BaseModel):
@@ -408,32 +407,6 @@ class CompareFiles(NamedTuple):
     merge_base: str
 
 
-def _runs_on_pull_request(text: str) -> bool:
-    """Whether workflow `text` lists a trigger that starts it on a pull request.
-
-    YAML 1.1 reads a bare `on` key as the boolean `True`, so both keys are read. A document that
-    is no workflow mapping, and a trigger that is absent or malformed, starts no check on a pull
-    request. A file that is not valid YAML raises `GitHubUnreadError`, so its caller keeps the
-    pending check rather than call the repository one with no CI.
-    """
-    try:
-        document = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
-        raise GitHubUnreadError(f"GitHub's workflow file is not valid YAML: {exc}") from exc
-    if not isinstance(document, dict):
-        return False
-    triggers = document.get("on", document.get(True))
-    if isinstance(triggers, str):
-        return triggers in _PULL_REQUEST_TRIGGERS
-    if isinstance(triggers, list):
-        return any(
-            trigger in _PULL_REQUEST_TRIGGERS for trigger in triggers if isinstance(trigger, str)
-        )
-    if isinstance(triggers, dict):
-        return any(str(trigger) in _PULL_REQUEST_TRIGGERS for trigger in triggers)
-    return False
-
-
 def _read_as[M: BaseModel](model: type[M], answer: Any, *, path: str) -> M:
     """`answer` as a `model`, raising `GitHubUnreadError` naming `path` when it is none."""
     try:
@@ -722,14 +695,16 @@ class GitHubClient:
                 break
         return hits
 
-    def pull_request_workflow_at(self, repo: str, ref: str) -> bool:
-        """Whether a workflow at `ref` can start a check on a pull request (#5144).
+    def pull_request_workflow_at(self, repo: str, ref: str, change: PullRequestChange) -> bool:
+        """Whether a workflow at `ref` can start a check on the pull request that `change`
+        describes (#5144, #5408).
 
-        It lists the workflow files of `.github/workflows` at `ref` and reads each one's triggers:
-        a workflow that lists `pull_request` or `pull_request_target` can start a check. A
-        repository with no workflow file, or none with such a trigger, has no CI for the pull
-        request. A read that fails raises the session's error, so its caller keeps the pending
-        check rather than call it no CI. A directory answer that is no list reads as no workflow.
+        It lists the workflow files of `.github/workflows` at `ref`, and `starts_on_pull_request`
+        reads each one's triggers and the branch and path filters of each pull request trigger.
+        A repository with no workflow file, or none whose trigger and filters take the pull
+        request, has no CI for it. A read that fails raises the session's error, so its caller
+        keeps the pending check rather than call it no CI. A directory answer that is no list
+        reads as no workflow.
         """
         endpoint = _repo_path(repo, f"contents/{_WORKFLOWS_DIR}?{urlencode({'ref': ref})}")
         try:
@@ -743,7 +718,7 @@ class GitHubClient:
             if entry.type != "file" or not entry.name.endswith((".yml", ".yaml")):
                 continue
             text = self.get_file_at(repo, entry.path, ref)
-            if text is not None and _runs_on_pull_request(text):
+            if text is not None and starts_on_pull_request(text, change):
                 return True
         return False
 

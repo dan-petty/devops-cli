@@ -81,6 +81,33 @@ jobs:
       - run: "true"
 """
 _INVALID_WORKFLOW = "name: [unclosed\n"
+# The `pull_request` event of dan-petty/homelab's `k8s.yml`, cut to one `paths` pattern (#5408).
+_K8S_WORKFLOW = """name: K8s
+on:
+  pull_request:
+    paths:
+      - "k8s/**"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_TARGET_WORKFLOW = """name: Labels
+on: pull_request_target
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "true"
+"""
+_README = {"filename": "README.md", "status": "modified"}
+_K8S_APP = {"filename": "k8s/app.yaml", "status": "modified"}
+_RENAMED_FROM_K8S = {
+    "filename": "docs/app.yaml",
+    "status": "renamed",
+    "previous_filename": "k8s/app.yaml",
+}
 _THREADS = "GetReviewThreads"
 _CLOSING = "closingIssuesReferences"
 _ARCHIVE_704 = {
@@ -581,8 +608,9 @@ def test_a_repository_with_no_pull_request_workflow_has_no_ci(
     assert [(advisory.level, advisory.text) for advisory in verdict.advisories] == [
         (
             AdvisoryLevel.INFO,
-            "dan-petty/devops-cli has no workflow that runs on a pull request, and PR #335 has "
-            "no checks. No check will start, so there is nothing to wait for.",
+            "No workflow of dan-petty/devops-cli can start a check on PR #335: no workflow runs "
+            "on pull requests, or branch and path filters skip this pull request. PR #335 has "
+            "no checks, so there is nothing to wait for.",
         )
     ]
 
@@ -594,6 +622,71 @@ def test_a_workflow_with_only_push_and_dispatch_triggers_has_no_ci(
     github.workflows(("release.yml", _PUSH_ONLY_WORKFLOW))
     verdict = _assess(tmp_path)
     assert (verdict.kinds, verdict.no_ci) == (frozenset(), True)
+
+
+def test_a_path_filter_that_skips_every_changed_file_has_no_ci(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """dan-petty/homelab PR #97 changed only files that the `paths` filters of its `pull_request`
+    workflows skip, so GitHub started no check, and the verdict must not wait for one (#5408)."""
+    github.checks()
+    github.files(_ARCHIVE_704, _README)
+    github.workflows(("k8s.yml", _K8S_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (False, True)
+
+
+@pytest.mark.parametrize("changed", [_K8S_APP, _RENAMED_FROM_K8S], ids=["changed", "renamed-from"])
+def test_a_path_filter_that_matches_a_changed_file_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path, changed: dict[str, str]
+) -> None:
+    """A renamed file gives its old path too, so a filter that matches either path waits."""
+    github.checks()
+    github.files(_ARCHIVE_704, changed)
+    github.workflows(("k8s.yml", _K8S_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_path_filter_keeps_the_pending_check_for_a_file_list_at_the_limit(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    """A compare answer at GitHub's limit can leave out the file that the filter matches."""
+    github.checks()
+    github.files(*_AT_THE_LIMIT)
+    github.workflows(("k8s.yml", _K8S_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_path_filter_keeps_the_pending_check_when_the_changed_files_are_unread(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.api.route("GET", _COMPARE, github_json({"message": "Not Found"}, status=404))
+    github.workflows(("k8s.yml", _K8S_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_a_pull_request_target_workflow_keeps_the_pending_check(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.workflows(("labels.yml", _TARGET_WORKFLOW))
+    verdict = _assess(tmp_path)
+    assert (BlockerKind.CHECKS_PENDING in verdict.kinds, verdict.no_ci) == (True, False)
+
+
+def test_the_workflow_filters_and_the_item_rules_share_one_compare_read(
+    github: _GitHub, tmp_path: Path
+) -> None:
+    github.checks()
+    github.files(_ARCHIVE_704, _README)
+    github.workflows(("k8s.yml", _K8S_WORKFLOW))
+    _assess(tmp_path)
+    compared = [request for request in github.api.requested if "/compare/" in request]
+    assert compared == [f"GET https://api.github.com{_COMPARE}"]
 
 
 def test_an_unread_workflow_keeps_the_pending_check(github: _GitHub, tmp_path: Path) -> None:

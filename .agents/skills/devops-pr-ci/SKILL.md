@@ -28,4 +28,4 @@ Do not run bare `gh` commands. The `devops ci` and `devops pr` commands enforce 
 3. Run `uv run devops pr monitor <number>` to wait until the remote checks settle.
 4. Run `uv run devops pr threads list <number> --unresolved-only` to inspect open review threads.
 5. Run `uv run devops pr threads reply <thread_id> "<body>"` to reply in a review thread.
-6. Run `uv run devops pr ready <number>` to mark the pull request ready after all checks pass. In a repository with no GitHub Actions workflow, a pull request with no checks has nothing to wait for: the command says so and marks it ready with no `--force`.
+6. Run `uv run devops pr ready <number>` to mark the pull request ready after all checks pass. A pull request with no checks has nothing to wait for when no workflow can start a check on it, because no workflow runs on pull requests or because branch and path filters skip it: the command says so and marks it ready with no `--force`.

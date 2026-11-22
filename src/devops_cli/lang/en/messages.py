@@ -1788,12 +1788,14 @@ class PRMessages:
     pr_marked_ready_success: str = "PR #{number} marked as ready for review."
     pr_already_ready: str = "PR #{number} is already marked ready for review."
     ready_no_ci: str = (
-        "{repo} has no workflow that runs on a pull request, and PR #{number} has no checks. "
-        "No check will start, so there is nothing to wait for."
+        "No workflow of {repo} can start a check on PR #{number}: no workflow runs on pull "
+        "requests, or branch and path filters skip this pull request. PR #{number} has no "
+        "checks, so there is nothing to wait for."
     )
     readiness_no_ci: str = (
-        "{repo} has no workflow that runs on a pull request, and PR #{number} has no checks. "
-        "No check will start, so there is nothing to wait for."
+        "No workflow of {repo} can start a check on PR #{number}: no workflow runs on pull "
+        "requests, or branch and path filters skip this pull request. PR #{number} has no "
+        "checks, so there is nothing to wait for."
     )
     pr_already_merged: str = "PR #{number} is already merged into base branch '{base}'."
     pr_closed_unmerged: str = "PR #{number} is closed without being merged."

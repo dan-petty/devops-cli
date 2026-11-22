@@ -89,6 +89,7 @@ dependencies = [
     "tomlkit==0.15.2",
     "numpy==2.5.5",
     "pytrec-eval-terrier==0.5.11",
+    "wcmatch==12.0.4",
 ]
 
 [project.optional-dependencies]
