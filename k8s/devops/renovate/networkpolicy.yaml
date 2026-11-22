@@ -2,12 +2,12 @@
 # repository names, which its docs call an insider-attack risk. So the pod accepts no connection
 # and reaches only CoreDNS, the OTLP/HTTP port of the OTel collector and public HTTPS: GitHub,
 # the registries, the chart repositories, PyPI, npm, the OpenTofu registry and the OSV database.
-# `devops-default-perimeter` skips this pod, so it gets no path to the gateway, the cache Valkey,
-# Qdrant or the API server.
+# The default perimeter (`devops-default-perimeter-ingress` and `devops-default-perimeter-egress`)
+# skips this pod, so it gets no path to the gateway, the cache Valkey, Qdrant or the API server.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: renovate-perimeter
+  name: renovate-perimeter-ingress
   namespace: devops
   labels:
     app.kubernetes.io/name: renovate
@@ -18,6 +18,20 @@ spec:
       app.kubernetes.io/name: renovate
   policyTypes:
     - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: renovate-perimeter-egress
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: renovate
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: renovate
+  policyTypes:
     - Egress
   egress:
     # 1. CoreDNS lookups
@@ -38,9 +52,9 @@ spec:
       ports:
         - protocol: TCP
           port: 4318
-    # 3. Public HTTPS only. The ranges are those of `devops-default-perimeter`: no private range,
-    #    no shared address space, no link-local range, no cloud metadata endpoint, and no IETF
-    #    protocol or benchmarking range.
+    # 3. Public HTTPS only. The ranges are those of `devops-default-perimeter-egress`: no private
+    #    range, no shared address space, no link-local range, no cloud metadata endpoint, and no
+    #    IETF protocol or benchmarking range.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

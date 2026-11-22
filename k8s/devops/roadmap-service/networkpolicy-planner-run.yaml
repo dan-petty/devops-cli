@@ -1,6 +1,7 @@
 # The planner's run Job reaches no network (ADR 0018, #4003). The pod carries its own label, and
-# `devops-default-perimeter` leaves that label out, so this policy alone selects it (#6065):
-# NetworkPolicies add their rules, so a second policy that selects the pod would add its egress.
+# `devops-default-perimeter-ingress` and `devops-default-perimeter-egress` leave that label out,
+# so this policy alone selects it (#6065): NetworkPolicies add their rules, so a second policy
+# that selects the pod would add its egress.
 # A policy with no ingress rule and no egress rule denies all traffic, DNS included.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

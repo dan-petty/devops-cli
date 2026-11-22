@@ -280,7 +280,7 @@ def _egress_to_port(policy: dict[str, Any], port: int) -> list[dict[str, Any]]:
 
 def check_only_the_service_pod_may_reach_the_api_server() -> None:
     policy = _object("NetworkPolicy", "roadmap-service-egress")
-    perimeter = _object("NetworkPolicy", "devops-default-perimeter")
+    perimeter = _object("NetworkPolicy", "devops-default-perimeter-egress")
     others = [
         document["metadata"]["name"]
         for document in _rendered()

@@ -1,7 +1,8 @@
 # The MCP server serves role-scoped tool sets over streamable HTTP to cluster jobs (#3220). Each
 # role has its own endpoint at `/<role>/mcp` behind the bearer token of `mcp.token`. The pod
-# runs under `devops-default-perimeter`, and `networkpolicy.yaml` admits TCP 8001 from the
-# roadmap Service and runner Jobs only.
+# runs under the default perimeter (`devops-default-perimeter-ingress` and
+# `devops-default-perimeter-egress`), and `networkpolicy.yaml` admits TCP 8001 from the roadmap
+# Service and runner Jobs only.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

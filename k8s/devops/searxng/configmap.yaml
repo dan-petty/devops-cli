@@ -39,7 +39,7 @@ data:
           - docker hub
     server:
       # The limiter needs Valkey and refuses a plain machine client. The NetworkPolicy
-      # `searxng-perimeter` is the access control: only roadmap-service reaches the pod.
+      # `searxng-perimeter-ingress` is the access control: only roadmap-service reaches the pod.
       limiter: false
       public_instance: false
       image_proxy: false

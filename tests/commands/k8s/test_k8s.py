@@ -2258,10 +2258,11 @@ def test_deploy_stack_dry_run_lists_the_kustomizations_its_stacks_apply(
 def test_teardown_stack_removes_the_monitoring_perimeter_with_its_namespace(
     stack: str, removal: tuple[str, ...], cluster: FakeCluster, process_fake: ProcessFake
 ) -> None:
-    """teardown-stack removes `monitoring-default-perimeter` with namespace `monitoring` (#913).
+    """teardown-stack removes `monitoring-default-perimeter-ingress` and
+    `monitoring-default-perimeter-egress` with namespace `monitoring` (#913, #6708).
 
     `--stack all` deletes the root kustomization's objects, namespace `monitoring` among them, and
-    `--stack infra` deletes that namespace; either takes the namespace's NetworkPolicy with it.
+    `--stack infra` deletes that namespace; either takes the namespace's NetworkPolicies with it.
     """
     name_contexts(cluster, "minikube")
 
