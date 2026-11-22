@@ -210,27 +210,23 @@ The policy SHALL refuse a Job of the Service unless the CPU request of its conta
 `OriginGit` SHALL end every leftover process before it makes the new folder, and again just before the call with the token.
 
 #### Scenario: The order of the calls
-- **WHEN** the job fetches a branch
-- **THEN** the leftover processes end before the new folder is made, again after the refs are copied, and only then the fetch with the token runs
+- **WHEN** the job reads the heads of a branch
+- **THEN** the leftover processes end before the new folder is made, again after the new git folder is ready, and only then the read with the token runs
 
 #### Scenario: A link at the shallow file before the call
-- **WHEN** the `shallow` file of the clone is a link, and the job fetches a branch in a runner
-- **THEN** the leftover processes end first, the call raises `GitSettingsError` that names `shallow`, and the fetch with the token does not run
+- **WHEN** the `shallow` file of the clone is a link, and the job reads the heads of a branch in a runner
+- **THEN** the leftover processes end first, the call raises `GitSettingsError` that names `shallow`, and the read with the token does not run
 
-### Requirement: The new git folder of a shallow clone gets its shallow file
-The new git folder of a network call SHALL get a copy of the `shallow` file of a shallow clone, which the job SHALL open with `O_NOFOLLOW`. A link, or anything but a regular file, at that place SHALL raise `GitSettingsError` that names `shallow`. A fetch that changes the file SHALL write it back into the clone through a new file with a random name, which then replaces the old file (`os.replace`), so the write follows no link.
+### Requirement: The new git folder of a shallow clone gets a copy of its shallow file
+The new git folder of a network call SHALL get a copy of the `shallow` file of a shallow clone, which the job SHALL open with `O_NOFOLLOW`. A link, or anything but a regular file, at that place SHALL raise `GitSettingsError` that names `shallow`.
 
-#### Scenario: A fetch in a shallow clone
-- **WHEN** the clone was made with `--depth 1`, `origin` gets a new commit on `main`, and the job fetches `main`
-- **THEN** the remote-tracking ref of `main` in the clone is the new commit, and the clone stays shallow
+#### Scenario: A push from a shallow clone
+- **WHEN** the clone was made with `--depth 1`, and the job pushes a new commit of the clone
+- **THEN** `origin` holds the new commit on the branch, and the clone stays shallow
 
 #### Scenario: A link at the shallow file
-- **WHEN** the `shallow` file of the clone is a link, and the job fetches `main`
+- **WHEN** the `shallow` file of the clone is a link, and the job reads the heads of `main`
 - **THEN** the call raises `GitSettingsError` that names `shallow`
-
-#### Scenario: A link at a temporary name
-- **WHEN** a link waits at `shallow.devops-cli` in the git folder of the clone, and a fetch changes the `shallow` file
-- **THEN** the target of the link does not change, `shallow` is a regular file with the new text, and no temporary file stays
 
 ### Requirement: Repository and item labels
 `build_job` SHALL set `roadmap.devops-cli/owner`, `roadmap.devops-cli/repo` and `roadmap.devops-cli/item` on the Job metadata and on the pod template metadata.

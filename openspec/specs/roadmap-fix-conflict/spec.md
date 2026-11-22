@@ -6,15 +6,15 @@ How the roadmap step `fix-conflict` settles merge conflicts on topic branches of
 ## Requirements
 
 ### Requirement: The step admits only bot pull requests and enforces bounds
-The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull requests with human authors, human commits after the bot push, or claims and `owner/*` labels by humans or agents. It SHALL verify that the remote head matches the expected head. It SHALL enforce a soft cap of 2 rounds, a hard cap of 4 rounds, and at most one model round per `<base>:<head>`.
+The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull requests with human authors, or claims and `owner/*` labels by humans or agents, and SHALL verify that the remote head matches the expected head. With `--confirm`, a head branch with a commit past the default branch that the App did not write SHALL fail the round with `failed` (`clone_branch`). It SHALL enforce a soft cap of 2 rounds, a hard cap of 4 rounds, and at most one model round per `<base>:<head>`.
 
 #### Scenario: A person pull request is refused
 - **WHEN** `fix-conflict` runs on a pull request authored by a human
 - **THEN** the step refuses the pull request and makes no changes
 
 #### Scenario: A commit of a person after the bot push is refused
-- **WHEN** the branch holds a human commit after the last bot commit
-- **THEN** the step refuses the pull request and makes no changes
+- **WHEN** `fix-conflict --confirm` runs on a branch that holds a commit past the default branch that the App did not write
+- **THEN** `clone_branch` refuses the branch, the round fails with `failed`, and the step makes no changes
 
 #### Scenario: An item with an owner label is refused
 - **WHEN** the item holds an `owner/human` or `owner/agent` label
@@ -25,7 +25,7 @@ The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull
 - **THEN** the step halts further attempts
 
 ### Requirement: Tier 1 resolves deterministic conflicts with no model call
-In a runner Job, the step SHALL settle each stop of the rebase onto the default branch. It SHALL take the default branch's side for generated documents and `uv.lock` (`git checkout --ours`, or `git rm` when that side has no file). It SHALL drop only the item's archive commit (`git rebase --skip`), which moves the item's change folder into the archive and holds only OpenSpec paths of the item and generated documents. After the rebase it SHALL make these files and the archive again.
+In the agent phase, the step SHALL settle each stop of the rebase with the shared rules (`rebase_onto`). It SHALL take the default branch's side for generated documents and `uv.lock` (`git checkout --ours`, or `git rm` when that side has no file) and make them again at that stop. It SHALL drop only the item's archive commit (`git rebase --skip`), which holds only OpenSpec paths of the item and generated documents, and archive the change again after the rebase.
 
 #### Scenario: An archive commit that is not the tip
 - **WHEN** a confirmed round finds a conflict on archive paths, and a bot commit follows the archive commit
@@ -77,31 +77,16 @@ Before any push of a resolved branch, the step SHALL run `openspec validate --sp
 - **WHEN** conflicts are resolved on a branch
 - **THEN** `openspec validate --specs --strict` runs before `git push`
 
-### Requirement: The runner job calls fix-conflict on rebase conflicts
-When a rebase conflict occurs during an implement runner job, the job SHALL invoke `fix-conflict` instead of immediately stopping with action `wait`. When the conflict cannot be resolved, the stop comment SHALL record that a fix round was executed. A round that does not settle the conflict, also on an error such as a timeout, SHALL give the branch back its tip from before the rebase, and the job SHALL then run no second abort.
-
-#### Scenario: A rebase conflict runs one fix round
-- **WHEN** an implement runner job encounters a rebase conflict
-- **THEN** the job executes one fix round in place of stopping with action wait
-
-#### Scenario: A failed round keeps the commits of the groups
-- **WHEN** `openspec validate` fails after tier 1 settled the rebase of an implement runner job
-- **THEN** the branch is at its tip from before the rebase
-
-#### Scenario: A timeout in tier 1
-- **WHEN** `devops docs generate` runs out of time in the rebase of an implement runner job
-- **THEN** the branch is at its tip, the round is recorded as `failed`, and the error goes on to the job
-
-#### Scenario: The stop claims no failed abort
-- **WHEN** tier 1 does not settle the rebase of an implement runner job
-- **THEN** the stop comment does not say that an abort of the rebase failed
-
 ### Requirement: Tier 1 runs only in a runner Job
-Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the step `fix-conflict` SHALL check out the head branch, rebase, run tier 1 and push only with `--confirm`. The command SHALL accept `--confirm` only in a runner Job (`require_runner`), and SHALL clear the dumpable flag of its process and adopt orphans before the step. Without `--confirm` the step SHALL return `planned`, and SHALL run no code of the checkout, push nothing and write no record.
+Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the step `fix-conflict` SHALL rebase, run tier 1 and push only with `--confirm`. The command SHALL clear the dumpable flag of its process and adopt orphans first, and then accept `--confirm` only in a runner Job (`require_runner`), or in the agent phase of one (`require_agent_runner`). Without `--confirm` the step SHALL return `planned`, and SHALL run no code of the checkout, push nothing and write no record.
 
 #### Scenario: Without --confirm the step gives its plan
 - **WHEN** the step runs without `--confirm` on a bot pull request that conflicts with the default branch
 - **THEN** it returns `planned` with the conflicted files, runs no fixer of tier 1, pushes nothing and writes no record
+
+#### Scenario: A plan on a host with no App
+- **WHEN** the step runs without `--confirm` on a host with no `service.github_app.slug`
+- **THEN** it returns `planned`, as its clone makes no check of the authors, which needs the App
 
 #### Scenario: --confirm outside a runner Job runs no step
 - **WHEN** the command runs with `--confirm` outside a runner Job
@@ -109,41 +94,7 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 
 #### Scenario: A confirmed round hardens its process first
 - **WHEN** the command runs with `--confirm` in a runner Job
-- **THEN** it calls the runner check, then `deny_environment_reads`, then `adopt_orphans`, and only then the step
-
-### Requirement: The step works in a clone of its run and pushes through OriginGit
-The step SHALL clone the repository into a new folder of the run (`ensure_checkout`), read the URL of `origin` before tier 1 runs, switch to the head branch, and push through `OriginGit` to that URL with a lease on the judged head. The step SHALL push only a result that holds a commit past the default branch.
-
-#### Scenario: A setting that tier 1 writes changes no push
-- **WHEN** in a runner Job, tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack` or a `url.<base>.insteadOf` rule into the clone
-- **THEN** the push goes to the URL that the step read after its clone
-
-#### Scenario: No commit past the default branch
-- **WHEN** tier 1 takes the default branch for each change of the pull request
-- **THEN** the round fails with `The rebase left no commit past origin/main`, and the head branch does not change
-
-#### Scenario: A merge of the default branch is no commit of a person
-- **WHEN** the bot merged the default branch into the head branch
-- **THEN** the authors of the pull request leave out the clean merge (`person_authors`), and the plan names the conflict
-
-### Requirement: Each round counts and gives back the tip when it does not settle
-Each round SHALL add one to the rounds of the record. A round that does not end `resolved`, also on an error, SHALL abort the rebase and reset the branch to its tip from before the rebase, then record. An error of git, such as a `--skip` that does not move the rebase on, is a stop; any other error goes on after that.
-
-#### Scenario: A rebase that stops for another cause
-- **WHEN** git refuses the commit of a clean pick, so the rebase stops with no conflicted file
-- **THEN** the round stops with a reason that starts `The rebase failed with no conflicted file`, and the head branch does not change
-
-#### Scenario: A git call of the round that fails
-- **WHEN** a git call of tier 1 fails
-- **THEN** the round stops with the error of git, the rebase is aborted, the stop is recorded, and the head branch does not change
-
-#### Scenario: A skip that git refuses
-- **WHEN** `git rebase --skip` fails and the rebase stays on the same commit
-- **THEN** the round stops with the error of git, and records the stop
-
-#### Scenario: Each round counts
-- **WHEN** a round fails the strict validation, leaves no commit past the default branch, or the remote refuses its push
-- **THEN** the rounds of the record rise by one
+- **THEN** it calls `deny_environment_reads`, then `adopt_orphans`, then the runner check, and only then the step
 
 ### Requirement: The plan says what a confirmed round does
 Without `--confirm`, the reason of the plan SHALL sort the conflicted paths with the classification that the round uses. It SHALL name a stop when `roadmap.fix_conflict.tier1_mode` is not `on`, when `release_conflict` holds, or when a path is no archive, generated document or lockfile path.
@@ -155,3 +106,57 @@ Without `--confirm`, the reason of the plan SHALL sort the conflicted paths with
 #### Scenario: The plan of an archive and a generated document
 - **WHEN** the step runs without `--confirm` on a conflict of a spec and a generated document
 - **THEN** the reason starts `Plan: drop the archive commit of the item`, as a confirmed round drops it
+
+### Requirement: The step runs on the phases prepare, agent and publish
+With `--confirm`, the step SHALL take `--phase prepare|agent|publish|all`, with `all` by default and `--work` for each other phase. `prepare` SHALL admit the round, clone the head branch plainly (`clone_branch`), and record `onto` and the judged head. The agent phase SHALL make no GitHub call. `publish` SHALL push the patches as commits of the bot on `onto` from a new repository, with a lease on the judged head, and only a result that holds a commit past the default branch.
+
+#### Scenario: A setting that tier 1 writes changes no push
+- **WHEN** in a runner Job, tier 1 writes a `pre-push` hook, `remote.origin.pushurl`, `remote.origin.receivepack`, a `url.<base>.insteadOf` rule, or a `reference-transaction` hook that refuses an update of a remote-tracking ref into the clone
+- **THEN** the round ends `resolved`, the push goes to the repository on GitHub, and no program that tier 1 wrote runs
+
+#### Scenario: No commit past the default branch
+- **WHEN** tier 1 takes the default branch for each change of the pull request
+- **THEN** the round fails with `The rebase left no commit past the tip of the default branch`, and the head branch does not change
+
+#### Scenario: A merge of the default branch is no commit of a person
+- **WHEN** the bot merged the default branch into the head branch
+- **THEN** the authors of the pull request leave out the clean merge (`person_authors`), and the plan names the conflict
+
+#### Scenario: The three phases on one run folder
+- **WHEN** `prepare`, `agent` and `publish` run one after the other on one run folder for an archive conflict
+- **THEN** the agent phase makes no GitHub call, and `publish` returns `resolved` with the pushed head and one round
+
+#### Scenario: A claim after a stop of the agent
+- **WHEN** the agent phase stops on a conflict that no rule settles, and a person then claims the item
+- **THEN** `publish` returns `stopped` with the reason of the agent, in a separate `publish` as with `--phase all`
+
+#### Scenario: A phase with no run folder
+- **WHEN** the command runs `--phase agent` or `--phase publish` with `--confirm` and no `--work`
+- **THEN** the command exits 1
+
+### Requirement: Each round counts and gives back the judged head when it does not settle
+`prepare` SHALL add one to the rounds of the record when it gives a round to the agent phase, so a round counts also when the agent phase writes no outcome. `publish` SHALL write the result, a refusal too, and add no round. A round that does not end `resolved`, also on an error, SHALL abort the rebase, reset the clone to the judged head, and push nothing. A failed git call or program of tier 1 is a stop; any other error goes on after the cleanup.
+
+#### Scenario: A git call of the round that fails
+- **WHEN** a git call of tier 1 fails
+- **THEN** the round stops with the error of git, the stop is recorded, and the head branch does not change
+
+#### Scenario: A skip that git refuses
+- **WHEN** `git rebase --skip` fails and the rebase stays on the same commit
+- **THEN** the round stops with the error of git, and records the stop
+
+#### Scenario: Each round counts
+- **WHEN** a round fails the strict validation, leaves no commit past the default branch, or the remote refuses its push
+- **THEN** the rounds of the record rise by one
+
+#### Scenario: A program of tier 1 that fails
+- **WHEN** `uv lock`, `devops docs generate` or the archive of tier 1 exits with a status that is not 0
+- **THEN** the reason of the stop holds the exit status and the last lines of the output of the program, masked
+
+#### Scenario: A program of tier 1 that runs out of time
+- **WHEN** a program of tier 1 runs out of time, so that the agent phase writes no outcome
+- **THEN** the error goes on, the rounds of the record rise by one, and the head branch does not change
+
+#### Scenario: A head that moves before the push
+- **WHEN** the head of the pull request moves while the agent phase runs
+- **THEN** `publish` refuses the push, records the refusal, and the rounds of the record rise by one

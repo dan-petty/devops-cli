@@ -9,19 +9,17 @@ runs as a child of git, with the environment of git. The process runner gives th
 git child that reaches a remote (`git_reaches_remote`), so a local git call of the job, such as
 `git add` or `git commit`, holds none.
 
-**A network call** (`OriginGit`) ends every leftover process of the job, and makes a new folder
-with `tempfile.mkdtemp`. In it, a new bare git folder gets the object folder of the clone as a
-link, and an empty folder becomes the home folder of the call. A
-fetch first gets the remote-tracking refs of the clone, so that it asks only for the objects that
-the clone lacks. The new folder gets a copy of the `shallow` file of a shallow clone, and a fetch
-that changes it writes it back. Neither step follows a link at the `shallow` file or at a
-temporary file: a link at `shallow` stops the item with `GitSettingsError`. The job ends every leftover process again, and then runs the call
-with the token
-(`CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`): git reads no global, system or
-clone configuration, no hook and no attribute file, and gets the credential from the trusted helper
-alone. The remote is the URL of `origin` that the job read before its first step. The job writes
-the remote-tracking ref that the call changed into the clone, and removes the folder. Every call
-but the one with the token runs with no token.
+**A network call** (`OriginGit`: the read of the heads and the push, which the withdraw of the
+review step uses) ends every leftover process of the job, and makes a new folder with
+`tempfile.mkdtemp`. In it, a new bare git folder gets the object folder of the clone as a link,
+and an empty folder becomes the home folder of the call. The new folder gets a copy of the
+`shallow` file of a shallow clone. The copy follows no link at the `shallow` file: a link there
+stops the item with `GitSettingsError`. The job ends every leftover process again, and then runs
+the call with the token (`CONST_GIT_TOKEN_CALL_CONFIG`, `CONST_GIT_ISOLATED_CONFIG_ENV`): git
+reads no global, system or clone configuration, no hook and no attribute file, and gets the
+credential from the trusted helper alone. The remote is the URL of `origin` that the job read
+before its first step. After a push, the job writes the remote-tracking ref of the branch into the
+clone, and removes the folder. Every call but the one with the token runs with no token.
 """
 
 from __future__ import annotations
@@ -129,34 +127,10 @@ def _read_shallow(path: Path) -> bytes | None:
 
 @dataclass(frozen=True)
 class _Folder:
-    """The new git folder of one network call, the empty home folder of the call, the git folder
-    that the clone and its worktrees share, and the text of the clone's `shallow` file that the new
-    git folder got (None when the clone is not shallow)."""
+    """The new git folder of one network call and the empty home folder of the call."""
 
     git_dir: Path
     home: Path
-    common: Path
-    shallow: bytes | None = None
-
-    def keep_shallow(self) -> None:
-        """Write the `shallow` file of the new git folder into the clone when the call changed it.
-        The text goes into a new file with a random name (`tempfile.mkstemp`, which makes the file
-        with `O_EXCL` and so follows no link), and `os.replace` then puts that file in the place of
-        `shallow`: a link there is replaced, not followed. The clone's file is not read again."""
-        made = self.git_dir / CONST_GIT_SHALLOW_FILE
-        if not made.exists():
-            return
-        text = made.read_bytes()
-        if text == self.shallow:
-            return
-        handle, written = tempfile.mkstemp(prefix=f"{CONST_GIT_SHALLOW_FILE}.", dir=self.common)
-        try:
-            with os.fdopen(handle, "wb") as file:
-                file.write(text)
-            os.replace(written, self.common / CONST_GIT_SHALLOW_FILE)
-        except BaseException:
-            Path(written).unlink(missing_ok=True)
-            raise
 
     def call(self, *args: str) -> str:
         """Run `git <args>` with the token in the new git folder, and give its output."""
@@ -195,57 +169,33 @@ class OriginGit:
     url: str
 
     @contextmanager
-    def _folder(self, *, refs: bool) -> Iterator[_Folder]:
-        """A new git folder with the objects of the clone, and with its remote-tracking refs when
-        `refs` is true. The leftover processes end before the folder exists, and again before the
-        caller runs the call with the token. The folder goes when the block ends."""
+    def _folder(self) -> Iterator[_Folder]:
+        """A new git folder with the objects of the clone. The leftover processes end before the
+        folder exists, and again before the caller runs the call with the token. The folder goes
+        when the block ends."""
         _sweep()
         parent = Path(tempfile.mkdtemp(prefix="devops-origin-"))
         try:
             common = _common_dir(self.repository)
             shallow = _read_shallow(common / CONST_GIT_SHALLOW_FILE)
-            folder = _Folder(parent / "repo.git", parent / "home", common, shallow)
+            folder = _Folder(parent / "repo.git", parent / "home")
             folder.home.mkdir()
             _git([], "init", "--quiet", "--bare", str(folder.git_dir))
             shutil.rmtree(folder.git_dir / "objects")
             (folder.git_dir / "objects").symlink_to(common / "objects", target_is_directory=True)
             if shallow is not None:
                 (folder.git_dir / CONST_GIT_SHALLOW_FILE).write_bytes(shallow)
-            if refs:
-                self._copy_refs(["-C", str(self.repository)], [f"--git-dir={folder.git_dir}"])
             _sweep()
             yield folder
         finally:
             shutil.rmtree(parent, ignore_errors=True)
 
-    @staticmethod
-    def _copy_refs(source: Sequence[str], target: Sequence[str], *names: str) -> None:
-        """Write the remote-tracking refs of `source` (only `names` when given) into `target`."""
-        patterns = [f"{_ORIGIN_REFS}{name}" for name in names] or [_ORIGIN_REFS]
-        listed = _git(source, "for-each-ref", "--format=update %(refname) %(objectname)", *patterns)
-        if listed.strip():
-            _git(target, "update-ref", "--stdin", stdin=listed)
-
     def heads(self, *branches: str) -> str:
         """The lines of `git ls-remote --heads` for `branches`, or for every branch."""
-        with self._folder(refs=False) as folder:
+        with self._folder() as folder:
             return folder.call(
                 "ls-remote", "--heads", self.url, *(f"refs/heads/{name}" for name in branches)
             ).strip()
-
-    def fetch(self, *branches: str, depth: int | None = None) -> None:
-        """Fetch `branches` of `origin` into `refs/remotes/origin/<branch>` of the clone, with
-        only the last `depth` commits of each when `depth` is given (#6601)."""
-        specs = [f"+refs/heads/{name}:{_ORIGIN_REFS}{name}" for name in branches]
-        shallow = [f"--depth={depth}"] if depth is not None else []
-        with self._folder(refs=True) as folder:
-            folder.call(
-                "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", *shallow, self.url, *specs
-            )
-            folder.keep_shallow()
-            self._copy_refs(
-                [f"--git-dir={folder.git_dir}"], ["-C", str(self.repository)], *branches
-            )
 
     def push(self, branch: str, tip: str | None, *, lease: str | None = None) -> None:
         """Push the commit `tip` to `branch` of `origin`, or delete the branch when `tip` is None.
@@ -253,7 +203,7 @@ class OriginGit:
         the branch in the clone follows the push."""
         ref = f"refs/heads/{branch}"
         leased = [f"--force-with-lease={ref}:{lease}"] if lease is not None else []
-        with self._folder(refs=False) as folder:
+        with self._folder() as folder:
             folder.call("push", "--quiet", "--no-verify", *leased, self.url, f"{tip or ''}:{ref}")
         tracking = f"{_ORIGIN_REFS}{branch}"
         change = f"update {tracking} {tip}\n" if tip else f"delete {tracking}\n"
