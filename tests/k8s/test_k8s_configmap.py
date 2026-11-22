@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -14,6 +16,7 @@ from devops_cli.k8s.configmap import (
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
+from tests.support.credential_keys import credential_key_paths
 
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
@@ -282,3 +285,101 @@ def test_the_active_config_map_without_the_github_app_is_refused_naming_each_set
         "The roadmap service acts as a GitHub App, so set 'service.github_app.app_id', "
         "'service.github_app.installation_id' in config.yaml."
     )
+
+
+_SANDBOX_TEMPLATE = (
+    SAMPLE_TEMPLATE.replace(
+        "    ai:\n",
+        "    github_token: example-value\n"
+        "    ai:\n"
+        "      api_key: example-value\n"
+        "      db_password: example-value\n",
+    )
+    # The sandbox ConfigMap holds the one data key that the planner run Job mounts.
+    + "  other.yaml: |\n    value: 1\n"
+)
+
+_COUNT_TEMPLATE = SAMPLE_TEMPLATE.replace(
+    "    telemetry:\n",
+    "    roadmap:\n"
+    "      stage:\n"
+    "        step_tokens: 64000\n"
+    "      review:\n"
+    "        token_budget: 16000000\n"
+    "      implement:\n"
+    "        step_token_budget: 32000000\n"
+    "        item_token_budget: 80000000\n"
+    "    telemetry:\n",
+)
+
+
+def _sandbox_manifest(
+    tmp_path: Path,
+    template: str,
+    render: Callable[[Path, Settings | None], str],
+) -> dict[str, Any]:
+    """The sandbox ConfigMap that `render` gives for the active settings and `template`."""
+    devops_dir = tmp_path / "devops"
+    devops_dir.mkdir(parents=True)
+    (devops_dir / "configmap.example.yaml").write_text(template, encoding="utf-8")
+    settings = Settings(service=ServiceConfig(repos=["active/repo"], github_app=APP))
+    manifest: dict[str, Any] = yaml.safe_load(render(devops_dir, settings))
+    return manifest
+
+
+def test_the_sandbox_config_map_drops_every_credential_key_and_keeps_its_name(
+    tmp_path: Path,
+) -> None:
+    """The rendered sandbox ConfigMap holds no credential-named key at any depth, keeps every
+    other key with its value, and keeps the name and the one data key that the planner run Job
+    mounts (#4147)."""
+    from devops_cli.config.constants import CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP
+    from devops_cli.k8s.configmap import render_active_devops_sandbox_configmap
+
+    hand_built = {
+        "github_token": "example-value",
+        "repository": "example/repo",
+        "ai": {"api_key": "example-value", "provider": "gateway"},
+    }
+
+    manifest = _sandbox_manifest(
+        tmp_path, _SANDBOX_TEMPLATE, render_active_devops_sandbox_configmap
+    )
+    inner = yaml.safe_load(manifest["data"]["devops-cli.yaml"])
+
+    assert (
+        credential_key_paths(hand_built),
+        credential_key_paths(inner),
+        manifest["metadata"]["name"],
+        list(manifest["data"]),
+        inner["ai"]["provider"],
+        inner["service"]["repos"],
+    ) == (
+        ["github_token", "ai.api_key"],
+        [],
+        CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP,
+        ["devops-cli.yaml"],
+        "gateway",
+        ["active/repo"],
+    )
+
+
+def test_the_sandbox_config_map_keeps_a_number_under_a_credential_like_name(
+    tmp_path: Path,
+) -> None:
+    """The same walk over a credential-free template names no key, and a number under a
+    credential-like name stays: the four token budgets reach the planner with their values
+    (#4147)."""
+    from devops_cli.k8s.configmap import render_active_devops_sandbox_configmap
+
+    manifest = _sandbox_manifest(tmp_path, _COUNT_TEMPLATE, render_active_devops_sandbox_configmap)
+    inner = yaml.safe_load(manifest["data"]["devops-cli.yaml"])
+    roadmap = inner["roadmap"]
+
+    assert (
+        credential_key_paths(inner),
+        roadmap["stage"]["step_tokens"],
+        roadmap["review"]["token_budget"],
+        roadmap["implement"]["step_token_budget"],
+        roadmap["implement"]["item_token_budget"],
+    ) == ([], 64000, 16000000, 32000000, 80000000)

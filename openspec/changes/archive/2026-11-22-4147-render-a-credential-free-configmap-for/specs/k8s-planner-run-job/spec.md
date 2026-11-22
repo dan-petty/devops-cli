@@ -19,11 +19,11 @@ The rendered `devops-cli-config-sandbox` SHALL omit every key of its `devops-cli
 - **THEN** the rendered devops-cli.yaml value holds none of those four keys and still holds the non-credential keys with their values
 
 ### Requirement: The sandbox ConfigMap keeps a number under a credential-like name
-The rendered `devops-cli-config-sandbox` MUST keep a key whose name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS` when its value is a number or a boolean, because such a value is a count and not a credential.
+The rendered `devops-cli-config-sandbox` MUST keep a key whose name holds a word of `CONST_MCP_SECRET_PARAMETER_WORDS` when its value is a number or a boolean, because a number or a boolean is no credential: each credential of the settings is text.
 
-#### Scenario: Token budgets of the template
-- **WHEN** the sandbox ConfigMap is rendered from the template k8s/devops/configmap.example.yaml
-- **THEN** roadmap.stage.step_tokens, roadmap.review.token_budget, roadmap.implement.step_token_budget and roadmap.implement.item_token_budget keep their template values
+#### Scenario: Token budgets of a template
+- **WHEN** the sandbox ConfigMap is rendered from a template that holds roadmap.stage.step_tokens, roadmap.review.token_budget, roadmap.implement.step_token_budget and roadmap.implement.item_token_budget as numbers
+- **THEN** the rendered devops-cli.yaml value holds the four keys with their template values
 
 ### Requirement: The sandbox ConfigMap keeps the name and the data key the run Job mounts
 The rendered ConfigMap MUST keep the name `devops-cli-config-sandbox` and the single data key `devops-cli.yaml`, so the planner run Job mounts it at `/config` with `DEVOPS_CLI_CONFIG` unchanged.

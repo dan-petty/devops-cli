@@ -1017,3 +1017,34 @@ def test_a_subcommand_after_token_is_not_masked() -> None:
     text = "Run `devops vault " + "token" + " " + "revoke" + "-" + "self`."
 
     assert mask_secrets(text) == text
+
+
+def test_drop_credential_keys_removes_each_credential_key_at_any_depth() -> None:
+    """A credential-named key leaves at any depth of dicts and lists, and a count under such a
+    name stays, because a number or a boolean is no credential (#4147)."""
+    from devops_cli.security import sanitizer
+
+    assert hasattr(sanitizer, "drop_credential_keys"), (
+        "security/sanitizer.py must define drop_credential_keys (#4147)"
+    )
+    data = {
+        "github_token": "example-value",
+        "repository": "example/repo",
+        "database": {"db_password": "example-value", "host": "db.example.com"},
+        "entries": [{"secret": "example-value", "name": "first"}],
+        "roadmap": {"review": {"token_budget": 16000000}},
+        "ai": {"max_tokens": 4096, "use_token": True},
+    }
+
+    dropped = sanitizer.drop_credential_keys(data)
+
+    assert dropped == {
+        "repository": "example/repo",
+        "database": {"host": "db.example.com"},
+        "entries": [{"name": "first"}],
+        "roadmap": {"review": {"token_budget": 16000000}},
+        "ai": {"max_tokens": 4096, "use_token": True},
+    }
+    assert dropped["roadmap"]["review"]["token_budget"] == 16000000
+    assert dropped["ai"]["max_tokens"] == 4096
+    assert dropped["ai"]["use_token"] is True

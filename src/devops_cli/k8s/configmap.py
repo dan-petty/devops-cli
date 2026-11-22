@@ -8,10 +8,12 @@ from typing import Any
 
 import yaml
 
+from devops_cli.config.constants import CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP
 from devops_cli.config.setting_keys import unknown_setting_keys
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.config.yaml_errors import parse_config_yaml
 from devops_cli.exceptions.k8s import KubernetesContextError
+from devops_cli.security.sanitizer import drop_credential_keys
 
 _CONFIG_KEY = "devops-cli.yaml"
 
@@ -61,6 +63,8 @@ def render_devops_configmap_content(
     github_app: GitHubAppConfig,
     poll_interval_seconds: int | None = None,
     github_requests_per_hour: int | None = None,
+    *,
+    drop_secret_keys: bool = False,
 ) -> str:
     """The ConfigMap template with its service section set to `repos` and `github_app`.
 
@@ -72,6 +76,9 @@ def render_devops_configmap_content(
     read of the text that it writes, which is the config that the Service loads. The settings
     models ignore a key that they do not declare, so the render refuses such a key by its dotted
     path, such as a key that a change removed from the settings and left in the template.
+
+    With `drop_secret_keys`, every key that names a credential leaves the config before the write,
+    so the validation and the refusal see the config without it (#4147).
     """
     manifest = yaml.safe_load(template_content)
     data = manifest.get("data") if isinstance(manifest, dict) else None
@@ -85,6 +92,8 @@ def render_devops_configmap_content(
     config["service"] = _service_block(
         repos, github_app, poll_interval_seconds, github_requests_per_hour
     )
+    if drop_secret_keys:
+        config = drop_credential_keys(config)
     data[_CONFIG_KEY] = yaml.dump(config, Dumper=_BlockDumper, sort_keys=False)
     written = parse_config_yaml(data[_CONFIG_KEY])
     Settings.model_validate(written)
@@ -135,12 +144,15 @@ def _configured_app(settings: Settings) -> GitHubAppConfig:
 def render_active_devops_configmap(
     product_dir: Path,
     settings: Settings | None = None,
+    *,
+    drop_secret_keys: bool = False,
 ) -> str:
     """ConfigMap devops-cli-config rendered in memory from the active config and the template
     `configmap.example.yaml` of the product base `product_dir` (`k8s/devops`).
 
     The repository holds only its template, so the homelab's repositories and App never enter
-    git; a deploy applies this rendering and refuses when a setting it needs is unset.
+    git; a deploy applies this rendering and refuses when a setting it needs is unset. With
+    `drop_secret_keys`, every key that names a credential leaves the rendered config (#4147).
     """
     template_path = product_dir / "configmap.example.yaml"
 
@@ -170,4 +182,24 @@ def render_active_devops_configmap(
         github_app=github_app,
         poll_interval_seconds=poll_interval,
         github_requests_per_hour=budget,
+        drop_secret_keys=drop_secret_keys,
     )
+
+
+def render_active_devops_sandbox_configmap(
+    product_dir: Path,
+    settings: Settings | None = None,
+) -> str:
+    """ConfigMap devops-cli-config-sandbox rendered from the active config and the template.
+
+    The planner run Job mounts this copy of the config with no credential (ADR 0018 control 2), so
+    the render drops each key that names a credential at any depth, and keeps a number or a
+    boolean under such a name, such as `token_budget`. The name and the one data key
+    `devops-cli.yaml` stay those that the Job mounts (#4147).
+    """
+    rendered = render_active_devops_configmap(product_dir, settings, drop_secret_keys=True)
+    manifest: dict[str, Any] = yaml.safe_load(rendered)
+    manifest["metadata"]["name"] = CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP
+    data: dict[str, Any] = manifest["data"]
+    manifest["data"] = {_CONFIG_KEY: data[_CONFIG_KEY]}
+    return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)

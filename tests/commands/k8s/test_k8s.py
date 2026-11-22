@@ -23,6 +23,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.dry_run import set_dry_run
 from tests.support.config_writes import written_keys
+from tests.support.credential_keys import credential_key_paths
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.kubernetes import FakeCluster, api_exception, healthy_pod, node, service
@@ -124,14 +125,26 @@ def test_k8s_deploy_stack_dry_run(process_fake: ProcessFake) -> None:
 
 
 def test_k8s_teardown_stack_dry_run(process_fake: ProcessFake) -> None:
-    """k8s teardown-stack with dry-run active must print dry-run Pydantic model notice."""
+    """k8s teardown-stack with dry-run active must print dry-run Pydantic model notice, and the
+    devops stack names both ConfigMaps that deploy-stack rendered (#4147)."""
     set_dry_run(True)
     try:
         result = runner.invoke(app, ["teardown-stack"])
-        assert result.exit_code == 0
-        assert "devops k8s teardown-stack" in result.output
+        devops = runner.invoke(app, ["teardown-stack", "--stack", "devops"])
     finally:
         set_dry_run(False)
+    details = _dry_run_details(devops.output)
+    assert (
+        result.exit_code,
+        "devops k8s teardown-stack" in result.output,
+        details["config_map_delete"],
+        details["sandbox_config_map_delete"],
+    ) == (
+        0,
+        True,
+        "devops/devops-cli-config",
+        "devops/devops-cli-config-sandbox",
+    )
 
 
 def test_k8s_bootstrap_fails_when_minikube_stopped_and_no_auto_start(
@@ -2190,9 +2203,6 @@ class _Cluster:
             if cmd[0] == "kubectl" and cmd[1] in ("apply", "patch", "delete")
         ]
 
-    def stdin_of(self, cmd: list[str]) -> str:
-        return next(given or "" for called, given in self.calls if called == cmd)
-
 
 def _configure_service(config_path: Path) -> None:
     """The active config names the repositories the service works for and its GitHub App."""
@@ -2260,24 +2270,32 @@ _DEVOPS_HOSTS = _hosts("devops", ("Ingress", "roadmap-service", "devops", ["hook
 _INGRESS_HOSTS = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com"]))
 
 
+def _stdin_payloads(cluster: _Cluster) -> list[str]:
+    """The manifest of each `kubectl apply -f -` call, in the order the command sent them."""
+    return [given or "" for cmd, given in cluster.calls if cmd == _APPLY_STDIN]
+
+
 def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each_applications_revision(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
-    """The hosts come from what the Applications render at their revision, not the checkout."""
+    """The hosts come from what the Applications render at their revision, not the checkout, and
+    the ConfigMap and its credential-free copy come from the active config (#4147)."""
     _configure_service(isolate_devops_cli_config)
     cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
-    config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
+    config_map, sandbox = (yaml.safe_load(payload) for payload in _stdin_payloads(cluster)[:2])
     service = yaml.safe_load(config_map["data"]["devops-cli.yaml"])["service"]
     assert (
         res.exit_code,
         cluster.writes(),
         config_map["metadata"]["name"],
+        sandbox["metadata"]["name"],
         (service["repos"], service["github_app"]["slug"]),
     ) == (
         0,
-        [_APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
+        [_APPLY_STDIN, _APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
         "devops-cli-config",
+        "devops-cli-config-sandbox",
         (["owner/repo"], "devops-roadmap"),
     )
 
@@ -2519,7 +2537,7 @@ def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_bef
     ) == (
         0,
         True,
-        ["<push>", "apply", "patch", "patch"],
+        ["<push>", "apply", "apply", "patch", "patch"],
     )
 
 
@@ -2584,16 +2602,54 @@ def test_deploy_stack_on_a_native_cluster_applies_the_rendered_config_map_and_no
     cluster = make_cluster(argo=False)
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     applied = cluster.writes()
-    config_map = yaml.safe_load(cluster.stdin_of(_APPLY_STDIN))
-    # The ConfigMap `devops-cli-config` has no file: it is rendered and sent on stdin, and no
-    # command applies its template.
+    config_map, sandbox = (yaml.safe_load(payload) for payload in _stdin_payloads(cluster)[:2])
+    # The ConfigMaps `devops-cli-config` and `devops-cli-config-sandbox` have no file: they are
+    # rendered and sent on stdin, and no command applies their template.
     assert (
         res.exit_code,
         applied[0][:3],
         applied[1],
+        applied[2],
         config_map["metadata"]["name"],
+        sandbox["metadata"]["name"],
         [cmd for cmd in applied if any("configmap.example" in part for part in cmd)],
-    ) == (0, ["kubectl", "apply", "-k"], _APPLY_STDIN, "devops-cli-config", [])
+    ) == (
+        0,
+        ["kubectl", "apply", "-k"],
+        _APPLY_STDIN,
+        _APPLY_STDIN,
+        "devops-cli-config",
+        "devops-cli-config-sandbox",
+        [],
+    )
+
+
+def test_deploy_stack_applies_the_credential_free_sandbox_config_map(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """The devops stack applies the credential-free copy of the config right after the ConfigMap
+    itself, so the planner run Job mounts a config that holds no credential key (#4147)."""
+    _configure_service(isolate_devops_cli_config)
+    cluster = make_cluster(argo=False)
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    payloads = _stdin_payloads(cluster)
+    config_map, sandbox = (yaml.safe_load(payload) for payload in payloads[:2])
+    inner = yaml.safe_load(sandbox["data"]["devops-cli.yaml"])
+    assert (
+        res.exit_code,
+        config_map["metadata"]["name"],
+        sandbox["metadata"]["name"],
+        sandbox["metadata"]["namespace"],
+        list(sandbox["data"]),
+        credential_key_paths(inner),
+    ) == (
+        0,
+        "devops-cli-config",
+        "devops-cli-config-sandbox",
+        "devops",
+        ["devops-cli.yaml"],
+        [],
+    )
 
 
 def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
@@ -2610,7 +2666,20 @@ def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
         "devops",
         "--ignore-not-found",
     ]
-    assert (res.exit_code, [*delete, *_CONTEXT] in cluster.writes()) == (0, True)
+    sandbox_delete = [
+        "kubectl",
+        "delete",
+        "configmap",
+        "devops-cli-config-sandbox",
+        "-n",
+        "devops",
+        "--ignore-not-found",
+    ]
+    assert (
+        res.exit_code,
+        [*delete, *_CONTEXT] in cluster.writes(),
+        [*sandbox_delete, *_CONTEXT] in cluster.writes(),
+    ) == (0, True, True)
 
 
 def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs_nothing(
@@ -2623,9 +2692,10 @@ def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs
         res.exit_code,
         cluster.calls,
         "devops/devops-cli-config" in res.output,
+        "devops/devops-cli-config-sandbox" in res.output,
         "argocd/devops" in res.output,
         "argocd/ingress" in res.output,
-    ) == (0, [], True, True, True)
+    ) == (0, [], True, True, True, True)
 
 
 def test_deploy_stack_dry_run_says_an_argo_cd_cluster_needs_a_domain_and_runs_nothing(
