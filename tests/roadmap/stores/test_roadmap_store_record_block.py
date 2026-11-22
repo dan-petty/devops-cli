@@ -2,8 +2,8 @@
 
 `with_record` writes the record block as a comment after the body, and `split_record` reads it
 only as the last block of the body. CommonMark reads all text after an open fenced code block or
-an open HTML block as part of that block, so the write closes such a block first: the record then
-stays the last block, and GitHub shows no record text in the code of the person.
+an open HTML block as part of that block. So the write closes such a block first. The record
+then stays the last block, and GitHub shows no record text in the code of the person.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def test_a_second_record_write_keeps_the_body_and_its_hashes(body: str, read_bac
     job that compares the hash sees no new change."""
     first, _ = split_record(with_record(body, BLOCK))
     second, held = split_record(with_record(first, NEXT_BLOCK))
-    assert (second, body_hashes(second), held) == (read_back, body_hashes(read_back), NEXT_RECORD)
+    assert (second, body_hashes(second), held) == (read_back, body_hashes(first), NEXT_RECORD)
 
 
 @pytest.mark.parametrize("end", ["\n", "\n\n", "\r\n"], ids=["one", "two", "crlf"])
