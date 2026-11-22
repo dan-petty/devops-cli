@@ -28,6 +28,8 @@ from devops_cli.roadmap.stores.store import (
     Item,
     ItemField,
     RefineRecordKey,
+    encode_job_record,
+    with_record,
 )
 from devops_cli.telemetry.instruments import (
     ROADMAP_RECORD_LOST_EDIT_TOTAL,
@@ -479,6 +481,43 @@ def test_the_close_of_a_block_that_the_body_leaves_open_is_no_lost_edit(
         [issue_edit_args(REPO, 7)] * 2,
         "Text.\n\n```python\nx = 1\n```",
         {ImplementRecordKey.JOB: "job-1", ImplementRecordKey.PR: "12"},
+    )
+
+
+def test_a_record_below_a_block_that_a_person_opens_keeps_its_keys_and_is_no_lost_edit(
+    otlp: FakeCollector,
+) -> None:
+    """A person opens a fence above the record block and does not close it. The read ends the
+    fence at the record (#6785), so the body of the Item is the text of the person. Each write
+    closes the fence before the record, and the read-back is that body with the close. So both
+    lost-edit checks count no edit of a person, one `PATCH` for each write holds its mark, and
+    the record keeps its old keys."""
+    github = GitHubFake(REPO)
+    written = with_record("Text.\n\nx = 1", encode_job_record({}, {"implement.job": "job-1"}))
+    body = written.replace("x = 1", "```python\nx = 1")
+    github.seed_issue(7, labels=("priority/p2-medium",), body=body)
+    store = fake_store(github)
+    item = read(store, 7)
+
+    store.set_marks(item, {ImplementRecordKey.PR: "12"})
+    store.set_marks(item, {ImplementRecordKey.STOPPED: "group 1"})
+
+    assert (
+        otlp.points(ROADMAP_RECORD_LOST_EDIT_TOTAL.name),
+        [args for args in github.writes() if "PATCH" in args],
+        github.body(7).count(RECORD),
+        store.read_issue_body(7),
+        read(store, 7).job_record,
+    ) == (
+        [],
+        [issue_edit_args(REPO, 7)] * 2,
+        1,
+        "Text.\n\n```python\nx = 1\n```",
+        {
+            ImplementRecordKey.JOB: "job-1",
+            ImplementRecordKey.PR: "12",
+            ImplementRecordKey.STOPPED: "group 1",
+        },
     )
 
 

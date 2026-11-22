@@ -45,6 +45,8 @@ from devops_cli.roadmap.stores.store import (
     RepositoryFacts,
     RepositoryLabel,
     RoadmapStore,
+    encode_job_record,
+    with_record,
 )
 from tests.support.builders import make_item
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
@@ -741,6 +743,32 @@ def test_a_body_that_leaves_a_block_open_keeps_its_record_and_settles(
         [True, True, False, False],
         {RefineRecordKey.BODY_HASH: body_hashes(item.body)[0]},
         1,
+    )
+
+
+OPENERS = {"fence": "```", "pre": "<pre>", "comment": "<!-- a note"}
+
+
+@pytest.mark.parametrize("opener", OPENERS.values(), ids=OPENERS.keys())
+def test_a_mark_write_below_a_block_that_a_person_opens_keeps_the_record(
+    world: World, opener: str
+) -> None:
+    """A person opens a block above the record block that a job wrote, and does not close it. The
+    read ends the block at the record, so the Item keeps its record, and the next write keeps
+    the keys of the old record in one record block (#6785)."""
+    written = with_record("Text.\n\nMore text.", encode_job_record({}, {"Status": "Ready"}))
+    body = written.replace("More text.", f"{opener}\nMore text.")
+    number = world.seed("opened", labels=("priority/p2-medium",), body=body)
+    item = read(world, number)
+    world.store.set_marks(item, {RefineRecordKey.BODY_HASH: "abc"})
+    assert (
+        (item.body, item.job_record),
+        world.raw_body(number).count(RECORD),
+        read(world, number).job_record,
+    ) == (
+        (f"Text.\n\n{opener}\nMore text.", {ItemField.STATUS: "Ready"}),
+        1,
+        {ItemField.STATUS: "Ready", RefineRecordKey.BODY_HASH: "abc"},
     )
 
 
