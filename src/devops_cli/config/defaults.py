@@ -319,6 +319,9 @@ DEFAULT_VULNERABILITY_LOOKUP_TIMEOUT_SECONDS: float = 10.0
 DEFAULT_OSV_MAX_RESPONSE_BYTES: int = 4 * 1024 * 1024  # 4 MiB
 # The most queries that `POST /v1/querybatch` takes (https://google.github.io/osv.dev/post-v1-querybatch/).
 DEFAULT_OSV_BATCH_MAX_QUERIES: int = 1000
+# The repository that holds the Copier template of a new repository and its settings baseline
+# (`devops repos onboard`, ADR 0035).
+DEFAULT_GITHUB_TEMPLATE_REPOSITORY: str = "dan-petty/infra"
 # Bytes of one reply of api.github.com/advisories that the client reads. A page of 100 advisories
 # held about 0.2 MiB on 2026-11-07. A larger reply is refused.
 DEFAULT_GITHUB_ADVISORIES_MAX_RESPONSE_BYTES: int = 4 * 1024 * 1024  # 4 MiB

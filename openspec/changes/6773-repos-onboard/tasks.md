@@ -4,9 +4,9 @@
 
 Kind: behavior. Reads: `src/devops_cli/config/settings.py`, `src/devops_cli/config/env.py`, `src/devops_cli/github/app_installation.py`. Changes: `src/devops_cli/config/settings.py`, `src/devops_cli/config/env.py`, `src/devops_cli/github/app_installation.py`, `tests/github/test_app_installation.py`, `tests/security/test_config_declarations.py`.
 
-- [ ] 1.1 Write the failing test that `repository_installed` sends one `GET /repos/<repo>/installation` signed with the JWT of the App, and gives true for 200 and false for 404
+- [x] 1.1 Write the failing test that `repository_installed` sends one `GET /repos/<repo>/installation` signed with the JWT of the App, and gives true for 200 and false for 404
   - Verification: `$ uv run devops ci test tests/github/test_app_installation.py`
-- [ ] 1.2 Add `repository_installed`, the settings `github.template_repository` and `github.release_app_client_id`, and the credential `github.release_app_private_key`
+- [x] 1.2 Add `repository_installed`, the settings `github.template_repository` and `github.release_app_client_id`, and the credential `github.release_app_private_key`
   - Verification: `$ uv run devops ci test tests/github/test_app_installation.py tests/security/test_config_declarations.py`
 
 ## 2. The command devops repos onboard

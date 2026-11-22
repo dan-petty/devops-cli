@@ -163,6 +163,50 @@ def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, dat
     return token, "", expires_at
 
 
+def repository_installed(app: GitHubApp, repo: str) -> bool:
+    """Whether `app` is installed on `repo`: one `GET /repos/<repo>/installation` that the JWT of
+    the App signs, so a person whose gh token cannot list installations can still read it (#6773).
+
+    200 gives True and 404 gives False. A key that is no RSA key raises `ConfigurationError` and
+    sends no request; any other failure raises the error that `classify_http_error` gives.
+    """
+    import httpx2
+    from anyio.from_thread import start_blocking_portal
+    from gidgethub import HTTPException
+    from gidgethub.httpx import GitHubAPI
+
+    from devops_cli.exceptions.git import GitHubNotFoundError
+    from devops_cli.github.error_classifier import classify_http_error
+    from devops_cli.github.session_transport import session_client
+
+    if not _is_rsa_private_key(app.private_key):
+        raise ConfigurationError(
+            _token_failed(app, ERRORS.git.github_app_key_unreadable), key=app.key_source
+        )
+    path = f"/repos/{repo}/installation"
+
+    async def read() -> None:
+        async with session_client() as client:
+            api = GitHubAPI(
+                client,
+                CONST_GITHUB_USER_AGENT,
+                base_url=CONST_URL_GITHUB_API_BASE,
+                app_id=str(app.app_id),
+                private_key=app.private_key,
+            )
+            await api.getitem(path)
+
+    try:
+        with start_blocking_portal() as portal:
+            portal.call(read)
+    except (HTTPException, httpx2.HTTPError, ValueError, LookupError) as error:
+        failure = classify_http_error(error, method="GET", path=path)
+        if isinstance(failure, GitHubNotFoundError):
+            return False
+        raise failure from error
+    return True
+
+
 def installation_token_path(installation_id: int) -> str:
     """Where an App exchanges its JWT for an installation token of installation `installation_id`."""
     return f"/app/installations/{installation_id}/access_tokens"
