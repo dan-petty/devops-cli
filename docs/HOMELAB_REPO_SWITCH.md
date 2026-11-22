@@ -6,13 +6,14 @@ Before step 10, these items are done:
 
 - The owner made the repository credential, Secret `repo-homelab` in namespace `argocd`. `argocd repo list --core` shows the homelab repository as Successful.
 - The AppProjects `homelab` and `homelab-system` admit `https://github.com/dan-petty/homelab` and keep `https://github.com/dan-petty/devops-cli` (`k8s/argocd/apps/projects.yaml`). Project `homelab` ignores Secret `repo-homelab` as an orphan.
-- dan-petty/homelab#23 copied the environment files at devops-cli commit S. Its metadata file gives S, the release vX, the list of environment paths and their checksums.
+- dan-petty/homelab#23 copied the environment files at devops-cli commit S. Its metadata file `k8s/devops-cli-copy.json` gives S, the release vX, the list of environment paths and their checksums, and the list `applications` with the names of the Applications of the copy.
 
 ## Rules for every step
 
 - Public text, such as a pull request or issue comment, holds exit codes, counts and key names only. The live objects hold the real hosts. So never post `argocd app diff` output, Application YAML, a patch list or a host.
 - This page names roles, not machines: `<homelab-checkout>` and `<devops-cli-checkout>` are clones of the two repositories, and `<temp-dir>` is a new temporary directory.
-- Do not change the name of an Application from S until step 13 is done. 31 of the 34 Applications have the finalizer `resources-finalizer.argocd.argoproj.io`, so a prune of an Application also deletes its objects.
+- The steps give no fixed count of Applications, because each new Application changes the count. "Each Application of the copy" means each name of the list `applications` of `k8s/devops-cli-copy.json` in homelab. "Each child Application of `cluster`" means each Application of the copy, without `bootstrap` and `cluster`. The dated baselines of step 10 give the counts of earlier days.
+- Do not change the name of an Application from S until step 13 is done. Most Applications have the finalizer `resources-finalizer.argocd.argoproj.io`, so a prune of an Application also deletes its objects.
 - Do not start a step while `devops k8s volume move`, `devops infra apply` or a `devops infra node` command runs.
 
 ## Shared checks
@@ -119,7 +120,12 @@ Who: an agent, on the day of the switch.
 4. Record the baseline in a comment on #5134: shared checks 1, 3 and 4, and the exit counts of check 5.
 5. Run shared check 2.
 
-Check: The 2 `git diff` commands of item 2 show no change, with S and vX of the last sync. `git -C <homelab-checkout> status --porcelain` prints nothing, and `<temp-dir>/export` does not exist. Shared check 2 gives 0 and 0. On 2026-11-13, the baseline had 34 Applications, `requiresPruning` only on `argocd` (3 objects), the keys `images` and `patches` on `devops`, and `patches` on `ingress` and `mattermost`.
+Check: The 2 `git diff` commands of item 2 show no change, with S and vX of the last sync. `git -C <homelab-checkout> status --porcelain` prints nothing, and `<temp-dir>/export` does not exist. Shared check 2 gives 0 and 0.
+
+The dated baselines of earlier days, for comparison:
+
+- On 2026-11-13, the baseline had 34 Applications, `requiresPruning` only on `argocd` (3 objects), the keys `images` and `patches` on `devops`, and `patches` on `ingress` and `mattermost`. On 2026-11-12, 31 of the 34 Applications had the finalizer `resources-finalizer.argocd.argoproj.io`.
+- On 2026-11-22, the baseline had 36 Applications: 34 Synced and Healthy, and 2 Synced and Progressing. `requiresPruning` was only on `argocd` (3 objects). 33 of the 36 Applications had the finalizer `resources-finalizer.argocd.argoproj.io`. `argocd`, `bootstrap` and `cluster` had no finalizer.
 
 Revert: None. The step changes nothing.
 
@@ -155,19 +161,19 @@ Do these steps:
    uv run devops argo cd apps bootstrap-gitops --root-app <temp-dir>/bootstrap.yaml
    ```
 
-5. `bootstrap` syncs `cluster` from homelab, and `cluster` applies the 32 child Applications. Wait until `uv run devops argo cd apps status bootstrap` and `uv run devops argo cd apps status cluster` show Synced.
+5. `bootstrap` syncs `cluster` from homelab, and `cluster` applies each of its child Applications. Wait until `uv run devops argo cd apps status bootstrap` and `uv run devops argo cd apps status cluster` show Synced.
 
 Check:
 
 - Shared check 7 prints only 2 lines: Application `devops` with `k8s/devops`, and Application `prometheus` with its value file `k8s/devops/monitoring/prometheus-rules-values.yaml` after the `$` ref. Every other source names homelab.
 - Shared check 1 equals the baseline.
-- Shared check 5 gives exit code 0 for all 34 Applications.
+- Shared check 5 gives exit code 0 for each Application of the copy.
 - Shared check 6 gives 0.
 - Shared check 3 equals the baseline.
 - Shared check 4 equals the baseline.
 - Shared check 9 gives 0 and 0.
 
-Post the exit codes and counts on #5134. Prune is off in all 34 Applications of the copy, `bootstrap` and `cluster` included. The Applications keep their names, so their tracking IDs do not change: Argo CD makes no orphan and no duplicate.
+Post the exit codes and counts on #5134. Prune is off in each Application of the copy, `bootstrap` and `cluster` included. The Applications keep their names, so their tracking IDs do not change: Argo CD makes no orphan and no duplicate.
 
 Revert: [Revert of the switch](#revert-of-the-switch).
 
@@ -198,12 +204,12 @@ Revert: Remove the check with a devops-cli pull request.
 
 Who: an agent. A person merges each pull request.
 
-1. Homelab pull request A turns prune on in the 32 child Applications.
+1. Homelab pull request A turns prune on in each child Application of `cluster`.
 2. After pull request A is synced and its checks pass, homelab pull request B turns prune on in `cluster` and `bootstrap`. One pull request cannot make this order sure.
 
 Check, before each merge:
 
-- Shared check 5 gives exit code 0 for all 34 Applications.
+- Shared check 5 gives exit code 0 for each Application of the copy.
 - Shared check 3 equals the baseline.
 - Shared check 6 gives 0.
 - Shared check 8 prints nothing.
@@ -227,7 +233,7 @@ The render does not change. So no Application loses its sync status, and no agen
 
 Check:
 
-- All 34 Applications are Synced, and shared check 5 gives exit code 0 for each.
+- Each Application of the copy is Synced, and shared check 5 gives exit code 0 for each.
 - The live patch list of each of the three Applications equals the list in its homelab file. The command prints only the exit code of `cmp`, which must be 0.
 
   ```bash
@@ -282,7 +288,7 @@ Check:
 - Shared check 7 prints only `k8s/devops` of Application `devops` and `k8s/devops/monitoring/prometheus-rules-values.yaml` of Application `prometheus`, so no live source names a deleted path.
 - `git grep` finds no file of the path list.
 - `uv run devops ci` passes.
-- All 34 Applications stay Synced.
+- Each Application of the copy stays Synced.
 
 Revert: `git revert` of the devops-cli pull request. After this step, the revert of the switch is not possible.
 
@@ -299,4 +305,4 @@ Use this revert from step 11 until step 17.
    uv run devops argo cd apps bootstrap-gitops --root-app <temp-dir>/bootstrap.yaml
    ```
 
-Check: Shared checks 1, 3 and 4 equal the baseline, shared check 9 gives 0 and 0, and shared check 5 gives exit code 0 for all 34 Applications. The patches and the digests stay, because the field managers `kubectl-patch` and Image Updater also own them.
+Check: Shared checks 1, 3 and 4 equal the baseline, shared check 9 gives 0 and 0, and shared check 5 gives exit code 0 for each Application of the copy. The patches and the digests stay, because the field managers `kubectl-patch` and Image Updater also own them.
