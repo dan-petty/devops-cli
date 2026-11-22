@@ -6,6 +6,7 @@ import json
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
@@ -22,6 +23,7 @@ from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import (
     EmbeddingsEngine,
     EmbeddingsError,
+    is_input_refused_error,
     is_transient_embedding_error,
 )
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
@@ -55,9 +57,11 @@ from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
 
-# The `.gitattributes` attributes that mark a file as tool output or as the data of a third
-# party, such as the tiktoken vocabularies: text with no meaning for a search (#6717).
-_SKIPPED_ATTRIBUTES: Final = ("linguist-generated", "linguist-vendored")
+# The `.gitattributes` attribute that marks a file as the data of a third party, such as the
+# tiktoken vocabularies: text with no meaning for a search (#6717). A `linguist-generated` file
+# stays in the index: the command reference that a tool writes is a document to search, and
+# `_is_lockfile` already leaves out the lock files.
+_SKIPPED_ATTRIBUTES: Final = ("linguist-vendored",)
 
 # A batch that fails with a transient error gets one more attempt after a jittered wait. The new
 # `embed_texts` call splits the texts at the batch size that the embedder lowered after a timeout.
@@ -69,10 +73,21 @@ _BATCH_RETRY_MAX_WAIT_SECONDS: Final = 60.0
 
 
 class _SkippedBatch(NamedTuple):
-    """A batch that failed each attempt: the files of its chunks, and the last error."""
+    """A batch that the run skipped: the files of its chunks, and the last error."""
 
     files: tuple[str, ...]
     error: str
+
+
+@dataclass
+class _BatchRun:
+    """The batch results of one index run, across both collections: the skipped batches, the
+    count of batches that got vectors, and the count of batches whose input the endpoint
+    refused."""
+
+    skipped: list[_SkippedBatch] = field(default_factory=list)
+    embedded: int = 0
+    refused: int = 0
 
 
 def is_text_file(p: Path) -> bool:
@@ -169,7 +184,7 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
 
 def _without_marked_files(root: Path, files: list[Path]) -> list[Path]:
     """`files` without the ones that the `.gitattributes` of the work tree at `root` mark
-    generated or vendored. One git call reads all of them. A root that no work tree holds has no
+    vendored. One git call reads all of them. A root that no work tree holds has no
     attributes, so it keeps all its files."""
     if not files or git_show_toplevel(root) is None:
         return files
@@ -248,26 +263,34 @@ def _batch_failed_error(batch: list[CodeChunk], exc: Exception, model: str) -> E
     det["last_file"] = last_file
     return EmbeddingsError(
         ERRORS.rag.batch_failed.format(first_file=first_file, last_file=last_file, error=str(exc)),
+        status=getattr(exc, "status", None),
         exit_code=CONST_EXIT_FAILURE,
         details=det,
     )
 
 
-def _skipped_batches_error(skipped: list[_SkippedBatch]) -> EmbeddingsError:
-    """The error that ends a run that skipped `skipped`: the first error and each file."""
-    files = sorted({name for batch in skipped for name in batch.files})
+def _skipped_batches_error(run: _BatchRun) -> EmbeddingsError:
+    """The error that ends a run that skipped batches: the first error and each file. It is
+    transient when no skipped batch had a refused input, which fails each run again."""
+    files = sorted({name for batch in run.skipped for name in batch.files})
+    first_error = run.skipped[0].error
     return EmbeddingsError(
         ERRORS.rag.batches_skipped.format(
-            batches=len(skipped),
-            attempts=_BATCH_ATTEMPTS,
+            batches=len(run.skipped),
             count=len(files),
-            error=skipped[0].error,
+            error=first_error,
             files="\n".join(f"  - {name}" for name in files),
         ),
-        is_transient=True,
+        is_transient=not run.refused,
         exit_code=CONST_EXIT_FAILURE,
-        details={"skipped_files": files, "first_error": skipped[0].error},
+        details={"skipped_files": files, "first_error": first_error},
     )
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Whether a batch attempt that failed with `exc` gets one more: a transient error, and not a
+    reply that refuses the input, which a new attempt gets again."""
+    return is_transient_embedding_error(exc) and not is_input_refused_error(exc)
 
 
 def _get_single_collection_stat(
@@ -844,7 +867,7 @@ class WorkspaceIndexer:
     @staticmethod
     def collect_files(root_dir: Path) -> list[Path]:
         """Collect all indexable files under root_dir, respecting .gitignore rules and the
-        generated and vendored marks of .gitattributes."""
+        vendored marks of .gitattributes."""
         import os
 
         root = root_dir.resolve()
@@ -1013,10 +1036,10 @@ class WorkspaceIndexer:
         cache: dict[str, str],
         file_hashes: dict[str, str],
         progress_callback: Callable[[str, int, int], None] | None,
-        skipped: list[_SkippedBatch],
+        run: _BatchRun,
     ) -> tuple[list[CodeChunk], list[CodeChunk]]:
-        """Partition chunks into code and docs, then upsert to Qdrant; a skipped batch goes into
-        `skipped`."""
+        """Partition chunks into code and docs, then upsert to Qdrant; `run` records the result of
+        each batch."""
         code_chunks, doc_chunks = _partition_chunks(all_chunks)
         pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
         if code_chunks:
@@ -1026,7 +1049,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
-                skipped=skipped,
+                run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding code",
             )
@@ -1037,7 +1060,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
-                skipped=skipped,
+                run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding docs",
             )
@@ -1137,9 +1160,9 @@ class WorkspaceIndexer:
                 progress_callback=progress_callback,
             )
 
-            skipped: list[_SkippedBatch] = []
+            run = _BatchRun()
             code_chunks, doc_chunks = self._upsert_partitioned_chunks(
-                all_chunks, cache, file_hashes, progress_callback, skipped
+                all_chunks, cache, file_hashes, progress_callback, run
             )
             self._save_cache(cache)
             self._save_project_counts(scanned_projects)
@@ -1148,9 +1171,9 @@ class WorkspaceIndexer:
             root_span.set_attribute("rag.total_chunks", len(all_chunks))
             root_span.set_attribute("rag.code_chunks", len(code_chunks))
             root_span.set_attribute("rag.doc_chunks", len(doc_chunks))
-            root_span.set_attribute("rag.skipped_batches", len(skipped))
-            if skipped:
-                raise _skipped_batches_error(skipped)
+            root_span.set_attribute("rag.skipped_batches", len(run.skipped))
+            if run.skipped:
+                raise _skipped_batches_error(run)
 
             return {
                 "indexed_files": len(files_to_reindex),
@@ -1173,14 +1196,14 @@ class WorkspaceIndexer:
         file_hashes: dict[str, str],
         *,
         pending: Counter[str],
-        skipped: list[_SkippedBatch],
+        run: _BatchRun,
         progress_callback: Callable[[str, int, int], None] | None = None,
         progress_title: str = "Embedding",
     ) -> None:
         """Embed and upsert a list of chunks in batches.
 
-        `pending` counts each file's chunks not yet stored, across both collections. A batch that
-        fails each attempt with a transient error goes into `skipped`, and the loop goes on.
+        `pending` counts each file's chunks not yet stored, across both collections. `run`
+        records the result of each batch, and the loop goes on after a skipped batch.
         """
         if not chunks:
             return
@@ -1206,7 +1229,7 @@ class WorkspaceIndexer:
                     "rag.total_chunks": total,
                 },
             ):
-                embeddings = self._embed_or_skip(batch, cache, file_hashes, skipped)
+                embeddings = self._embed_or_skip(batch, cache, file_hashes, run)
                 if embeddings is not None:
                     points = [
                         _build_chunk_point(
@@ -1230,13 +1253,16 @@ class WorkspaceIndexer:
         batch: list[CodeChunk],
         cache: dict[str, str],
         file_hashes: dict[str, str],
-        skipped: list[_SkippedBatch],
+        run: _BatchRun,
     ) -> list[list[float]] | None:
-        """The vectors of `batch`, after one more attempt for a transient error.
+        """The vectors of `batch`, or None for a batch that the run skips.
 
-        A batch that fails each attempt goes into `skipped`, its files are cached as incomplete,
-        and the result is None. A permanent error, such as an unserved model, raises at once: no
-        later batch can succeed.
+        A transient error, such as a timeout, a 429 or a 5xx reply, gets one more attempt. A reply
+        that refuses the input of the batch (HTTP 400, 413 or 422) gets none. A skipped batch goes
+        into `run.skipped`, and its files are cached as incomplete. Any other error, such as a
+        refused key or an unserved model, raises at once: no later batch can succeed. The LiteLLM
+        proxy also answers an unknown model with HTTP 400, so a second refused batch before the
+        first embedded batch raises too: two refused inputs and no accepted one point to the model.
         """
         first_file, last_file = batch[0].file_path, batch[-1].file_path
 
@@ -1258,28 +1284,39 @@ class WorkspaceIndexer:
             wait=wait_exponential_jitter(
                 initial=_BATCH_RETRY_WAIT_SECONDS, max=_BATCH_RETRY_MAX_WAIT_SECONDS
             ),
-            retry=retry_if_exception(is_transient_embedding_error),
+            retry=retry_if_exception(_is_retryable),
             before_sleep=warn,
             sleep=clock.sleep,
             reraise=True,
         )
         try:
-            return retrying(self.embedder.embed_texts, [c.content for c in batch])
+            vectors = retrying(self.embedder.embed_texts, [c.content for c in batch])
         except Exception as exc:
-            if not is_transient_embedding_error(exc):
+            refused = is_input_refused_error(exc)
+            if refused:
+                ends_run = run.refused > 0 and run.embedded == 0
+            else:
+                ends_run = not is_transient_embedding_error(exc)
+            if ends_run:
                 raise _batch_failed_error(batch, exc, getattr(self.embedder, "model", "")) from exc
+            if refused:
+                run.refused += 1
             logger.warning(
-                "Skipped the batch from '%s' to '%s' after %d attempts: %s",
+                "Skipped the batch from '%s' to '%s' %s: %s",
                 first_file,
                 last_file,
-                _BATCH_ATTEMPTS,
+                "at once: the endpoint refused its input"
+                if refused
+                else f"after {_BATCH_ATTEMPTS} attempts",
                 exc,
             )
-            skipped.append(
+            run.skipped.append(
                 _SkippedBatch(tuple(dict.fromkeys(c.file_path for c in batch)), str(exc))
             )
             _mark_batch_incomplete(cache, file_hashes, batch, self._save_cache)
             return None
+        run.embedded += 1
+        return vectors
 
     def get_stats(self) -> list[IndexStats]:
         """Fetch index stats from Qdrant and local cache."""

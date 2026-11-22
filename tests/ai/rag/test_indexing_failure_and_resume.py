@@ -30,9 +30,32 @@ def _stored(qdrant: Any) -> set[str]:
 GATEWAY_TIMEOUT = "Gateway 504 Gateway Timeout"
 
 
-def _fail_on_batch(embedder: Any, number: int, *, failures: int | None = None) -> list[list[str]]:
-    """Make the embedder raise a gateway timeout for the batch of its `number`th request, on each
-    try or on the first `failures` tries, and return the tries of that batch."""
+def _reply_error(status: int | None, *, transient: bool) -> EmbeddingsError:
+    """The `EmbeddingsError` of the engine for a reply with the HTTP `status`. With no status, a
+    transient error is a timeout, and a permanent one is a malformed reply."""
+    if status is not None:
+        reason = GATEWAY_TIMEOUT if status == 504 else f"answered HTTP {status}"
+    else:
+        reason = (
+            "failed: ReadTimeout: timed out" if transient else "returned 0 embeddings for 1 texts"
+        )
+    return EmbeddingsError(
+        f"Embedding model m produced no embeddings: https://example.com/v1/embeddings {reason}",
+        status=status,
+        is_transient=transient,
+    )
+
+
+def _fail_on_batch(
+    embedder: Any,
+    number: int,
+    *,
+    failures: int | None = None,
+    status: int | None = 504,
+    transient: bool = True,
+) -> list[list[str]]:
+    """Make the embedder raise the error of a reply with `status` for the batch of its `number`th
+    request, on each try or on the first `failures` tries, and return the tries of that batch."""
     requests = 0
     failing: list[str] | None = None
     tries: list[list[str]] = []
@@ -46,10 +69,23 @@ def _fail_on_batch(embedder: Any, number: int, *, failures: int | None = None) -
             return
         tries.append(texts)
         if failures is None or len(tries) <= failures:
-            raise RuntimeError(GATEWAY_TIMEOUT)
+            raise _reply_error(status, transient=transient)
 
     embedder.before_embed = hook
     return tries
+
+
+def _fail_each_batch(embedder: Any, status: int | None) -> list[list[str]]:
+    """Make the embedder raise the permanent error of a reply with `status` for each request, and
+    return the requests."""
+    requests: list[list[str]] = []
+
+    def hook(texts: list[str], is_query: bool) -> None:
+        requests.append(texts)
+        raise _reply_error(status, transient=False)
+
+    embedder.before_embed = hook
+    return requests
 
 
 def _retry_waits(clock: Any) -> list[float]:
@@ -109,14 +145,15 @@ def test_indexing_text_the_model_cannot_embed_raises_and_stores_nothing(
     assert (retry["indexed_files"], retry["skipped_files"]) == (1, 0)
 
 
+@pytest.mark.parametrize("status", [504, 429, None], ids=["server-error", "rate-limit", "timeout"])
 def test_a_batch_that_fails_each_try_is_skipped_and_the_run_exits_1_naming_its_file(
-    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any, status: int | None
 ) -> None:
-    """The other batches are indexed, the run exits 1 at the end with the file it did not index,
-    and the next run embeds that file (#6717)."""
+    """A transient failure gets one more attempt. The other batches are indexed, the run exits 1
+    at the end with the file it did not index, and the next run embeds that file (#6717)."""
     _three_files(tmp_path)
     embedder.batch_size = 1
-    tries = _fail_on_batch(embedder, 2)
+    tries = _fail_on_batch(embedder, 2, status=status)
     cache_dir = tmp_path / ".cache"
     indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=cache_dir)
 
@@ -129,10 +166,56 @@ def test_a_batch_that_fails_each_try_is_skipped_and_the_run_exits_1_naming_its_f
 
     error = exc_info.value
     assert (error.exit_code, len(tries), len(_retry_waits(clock))) == (CONST_EXIT_FAILURE, 2, 1)
-    assert (GATEWAY_TIMEOUT in error.message, "file_b.py" in error.message) == (True, True)
+    assert (_reply_error(status, transient=True).message in error.message) is True
     assert error.details["skipped_files"] == ["file_b.py"]
     assert stored_after_failure == {"file_a.py", "file_c.py"}
     assert (result["indexed_files"], result["skipped_files"]) == (1, 2)
+
+
+@pytest.mark.parametrize(
+    ("number", "status"),
+    [(1, 400), (2, 413), (3, 422)],
+    ids=["first-batch-400", "middle-batch-413", "last-batch-422"],
+)
+def test_a_batch_whose_input_the_endpoint_refuses_is_skipped_with_no_retry(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any, number: int, status: int
+) -> None:
+    """A reply that refuses the input of one batch, such as a text that is too long, repeats on
+    each try. The run skips the batch at once and indexes the others (#6717)."""
+    _three_files(tmp_path)
+    embedder.batch_size = 1
+    tries = _fail_on_batch(embedder, number, status=status, transient=False)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    refused = f"file_{'abc'[number - 1]}.py"
+    error = exc_info.value
+    assert (error.exit_code, len(tries), _retry_waits(clock)) == (CONST_EXIT_FAILURE, 1, [])
+    assert (f"answered HTTP {status}" in error.message, error.details["skipped_files"]) == (
+        True,
+        [refused],
+    )
+    assert _code_files(qdrant) == {"file_a.py", "file_b.py", "file_c.py"} - {refused}
+
+
+def test_two_refused_batches_before_an_embedded_batch_end_the_run(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+) -> None:
+    """The LiteLLM proxy also answers an unknown model with HTTP 400. Two refused batches and no
+    embedded batch point to the model, so the run stops at the second batch (#6717)."""
+    _three_files(tmp_path)
+    embedder.batch_size = 1
+    requests = _fail_each_batch(embedder, 400)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    assert (len(requests), _retry_waits(clock), _code_files(qdrant)) == (2, [], set())
+    assert (exc_info.value.exit_code, exc_info.value.status) == (CONST_EXIT_FAILURE, 400)
+    assert "Failed to embed batch from 'file_b.py'" in exc_info.value.message
 
 
 def test_a_batch_that_the_retry_embeds_is_indexed(
@@ -149,15 +232,17 @@ def test_a_batch_that_the_retry_embeds_is_indexed(
     assert _code_files(qdrant) == {"file_a.py", "file_b.py", "file_c.py"}
 
 
+@pytest.mark.parametrize(
+    "status", [401, 403, 404, None], ids=["unauthorized", "forbidden", "not-found", "no-status"]
+)
 def test_a_permanent_failure_ends_the_run_with_no_retry(
-    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any, status: int | None
 ) -> None:
-    """An unserved model fails each batch, so the run stops at the first one and asks no more."""
+    """A refused key, an unserved model or a malformed reply fails each batch, so the run stops at
+    the first one and asks no more."""
     _three_files(tmp_path)
     embedder.batch_size = 1
-    embedder.fail("Embedding model m produced no embeddings: x answered HTTP 404")
-    requests: list[list[str]] = []
-    embedder.before_embed = lambda texts, is_query: requests.append(texts)
+    requests = _fail_each_batch(embedder, status)
     indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
 
     with pytest.raises(EmbeddingsError) as exc_info:

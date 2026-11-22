@@ -452,9 +452,9 @@ class RAGErrorMessages:
     )
     batch_failed: str = "Failed to embed batch from '{first_file}' to '{last_file}': {error}"
     batches_skipped: str = (
-        "Failed to embed {batches} batch(es) after {attempts} attempts each. The index does not "
-        "hold the {count} file(s) below, and holds the other files. The next run embeds these "
-        "files again. First error: {error}\n{files}"
+        "Failed to embed {batches} batch(es). The index does not hold the {count} file(s) below, "
+        "and holds the other files. The next run tries these files again. First error: "
+        "{error}\n{files}"
     )
 
 

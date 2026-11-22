@@ -231,6 +231,63 @@ def test_openai_embeddings_does_not_retry_http_400(web: WebFake) -> None:
     assert attempts == 1
 
 
+@pytest.mark.parametrize("status", [400, 404, 413, 422, 503])
+def test_a_gateway_error_reply_gives_its_http_status(
+    web: WebFake, clock: ClockFake, status: int
+) -> None:
+    """The error holds the HTTP status of the reply, so the indexer tells a refused input from an
+    unserved model by the status, not by the text of the reply (#6717)."""
+    serve(web, lambda request: httpx2.Response(status, text="refused"))
+
+    with pytest.raises(EmbeddingsError) as raised:
+        gateway_engine().embed_texts(["one"])
+
+    assert (raised.value.status, raised.value.details["status"]) == (status, status)
+
+
+def test_a_gateway_that_does_not_answer_gives_no_status(web: WebFake, clock: ClockFake) -> None:
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
+        raise httpx2.ReadTimeout("timed out")
+
+    answer_posts(web, fake_post)
+
+    with pytest.raises(EmbeddingsError) as raised:
+        gateway_engine().embed_texts(["one"])
+
+    assert (raised.value.status, raised.value.is_transient) == (None, True)
+
+
+@pytest.mark.parametrize(
+    ("second_node", "status"),
+    [
+        (httpx2.Response(413, text="too large"), 413),
+        (httpx2.Response(404, json={"error": "model not found"}), None),
+        (httpx2.ConnectError("connection refused"), None),
+    ],
+    ids=["same-status", "other-status", "no-reply"],
+)
+def test_an_ollama_error_gives_a_status_only_when_each_node_answered_it(
+    web: WebFake, second_node: httpx2.Response | Exception, status: int | None
+) -> None:
+    """A status names the cause only when each node gave it: one node that refuses the input and
+    one that does not serve the model give no status."""
+
+    def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
+        if httpx2.URL(url).port == 11434:
+            return httpx2.Response(413, text="too large")
+        if isinstance(second_node, Exception):
+            raise second_node
+        return second_node
+
+    answer_posts(web, fake_post)
+    engine = ollama_engine(["http://example.com:11434", "http://example.com:11435"])
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["one"])
+
+    assert raised.value.status == status
+
+
 def test_a_gateway_with_no_deployment_left_gives_a_transient_error(
     web: WebFake, clock: ClockFake
 ) -> None:

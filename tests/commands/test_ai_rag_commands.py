@@ -11,6 +11,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.lang import MESSAGES
 from tests.support.embedding_replies import ollama_reply, serve
@@ -130,7 +131,7 @@ def test_index_with_a_batch_that_fails_each_try_exits_1_and_names_its_file(
 
     def time_out_app(texts: list[str], is_query: bool) -> None:
         if any("run_app" in text for text in texts):
-            raise RuntimeError("Gateway 504 Gateway Timeout")
+            raise EmbeddingsError("Gateway 504 Gateway Timeout", status=504, is_transient=True)
 
     embedder.batch_size = 1
     embedder.before_embed = time_out_app

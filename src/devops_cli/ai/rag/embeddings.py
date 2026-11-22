@@ -15,7 +15,8 @@ from concurrent.futures import as_completed
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from http import HTTPStatus
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 import httpx2
 from cachetools import LRUCache
@@ -92,6 +93,12 @@ logger = logging.getLogger(__name__)
 _JITTER = secrets.SystemRandom()
 
 _DEFAULT_VALKEY: object = object()
+
+# The statuses of a reply that refuses the input of one request, such as a text longer than the
+# model takes (RFC 9110, 15.5.1, 15.5.14 and 15.5.21). A request with other texts can succeed.
+_INPUT_REFUSED_STATUSES: Final = frozenset(
+    {HTTPStatus.BAD_REQUEST, HTTPStatus.CONTENT_TOO_LARGE, HTTPStatus.UNPROCESSABLE_CONTENT}
+)
 
 
 def _calculate_backoff_delay(
@@ -174,6 +181,9 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
     `LLMInferenceError` and exits with a different status, so sharing the code meant one
     machine-readable identifier mapped to two exit statuses -- a caller branching on the
     code could not predict which it would get.
+
+    `status` is the HTTP status of the failed reply, when each endpoint that was asked gave that
+    status, and None for a request with no reply or for endpoints that gave different statuses.
     """
 
     error_code = "EMBEDDINGS_ERROR"
@@ -183,10 +193,12 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
         message: str,
         *,
         is_transient: bool = False,
+        status: int | None = None,
         exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         self.is_transient = is_transient
+        self.status = status
         DevOpsCLIError.__init__(
             self,
             message,
@@ -289,6 +301,7 @@ def _reply_vectors(
                 endpoint=_endpoint_text(endpoint), status=res.status_code, body=body
             ),
             is_transient=is_transient,
+            status=res.status_code,
             details={"endpoint": _endpoint_text(endpoint), "status": res.status_code},
         )
     vectors = _parsed_vectors(res, parse)
@@ -344,6 +357,19 @@ def is_transient_embedding_error(exc: BaseException) -> bool:
             "errno 104",
         )
     )
+
+
+def is_input_refused_error(exc: BaseException) -> bool:
+    """Whether `exc` is a reply that refuses the input of the request: HTTP 400, 413 or 422 from
+    each endpoint that was asked. Another request with other texts can succeed."""
+    return isinstance(exc, EmbeddingsError) and exc.status in _INPUT_REFUSED_STATUSES
+
+
+def _common_status(errors: Sequence[BaseException]) -> int | None:
+    """The HTTP status that each of `errors` holds, or None when one holds no status or another
+    status."""
+    statuses = {exc.status if isinstance(exc, EmbeddingsError) else None for exc in errors}
+    return statuses.pop() if len(statuses) == 1 else None
 
 
 def _compute_retry_delay(attempt: int, res: httpx2.Response | None = None) -> float:
@@ -945,14 +971,27 @@ class EmbeddingsEngine:
         )
 
     def _embedding_error(
-        self, failures: list[str], *, model: str | None = None, is_transient: bool = False
+        self,
+        failures: list[str],
+        *,
+        model: str | None = None,
+        is_transient: bool = False,
+        status: int | None = None,
     ) -> EmbeddingsError:
         """The EmbeddingsError for a request no endpoint answered with embeddings."""
         name = model or self.model
+        details: dict[str, Any] = {
+            "model": name,
+            "provider": self.ai_config.provider,
+            "failures": failures,
+        }
+        if status is not None:
+            details["status"] = status
         return EmbeddingsError(
             ERRORS.rag.embedding_failed.format(model=name, failures="; ".join(failures)),
             is_transient=is_transient,
-            details={"model": name, "provider": self.ai_config.provider, "failures": failures},
+            status=status,
+            details=details,
         )
 
     def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
@@ -1075,16 +1114,18 @@ class EmbeddingsEngine:
     ) -> list[list[float]]:
         """Embed a batch on the first node that answers; raise naming each node's failure."""
         failures: list[str] = []
-        is_transient_flags: list[bool] = []
+        errors: list[Exception] = []
         for attempt, base_url in enumerate(urls):
             try:
                 return self._try_single_candidate(base_url, batch_texts, attempt)
             except Exception as exc:
                 logger.debug("Ollama embedding on %s failed: %s", _endpoint_text(base_url), exc)
                 failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
-                is_transient_flags.append(is_transient_embedding_error(exc))
-        all_transient = bool(is_transient_flags and all(is_transient_flags))
-        raise self._embedding_error(failures, is_transient=all_transient)
+                errors.append(exc)
+        all_transient = bool(errors) and all(map(is_transient_embedding_error, errors))
+        raise self._embedding_error(
+            failures, is_transient=all_transient, status=_common_status(errors)
+        )
 
     def _embed_batch_with_subdivision(
         self, urls: list[str], batch_texts: list[str]
@@ -1288,9 +1329,11 @@ class EmbeddingsEngine:
                     endpoint, headers, model, batches, is_gateway
                 )
         except (DevOpsCLIError, httpx2.HTTPError) as exc:
-            is_transient = is_transient_embedding_error(exc)
             raise self._embedding_error(
-                [_endpoint_failure(endpoint, exc)], model=model, is_transient=is_transient
+                [_endpoint_failure(endpoint, exc)],
+                model=model,
+                is_transient=is_transient_embedding_error(exc),
+                status=_common_status([exc]),
             ) from exc
         if embs:
             self._record_dimension(len(embs[0]))

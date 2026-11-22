@@ -105,24 +105,28 @@ def test_indexing_skips_ignored_lock_and_hidden_files(
     assert _indexed_files(qdrant) == set(kept)
 
 
-def test_indexing_skips_files_that_gitattributes_marks_generated_or_vendored(
+def test_indexing_skips_vendored_files_and_keeps_generated_ones(
     tmp_path: Path, qdrant: Any, embedder: Any
 ) -> None:
-    """A file that the work tree's `.gitattributes` mark generated or vendored is data, not text
-    to search: the tiktoken vocabularies gave thousands of chunks and stopped a full index (#6717)."""
+    """A file that the work tree's `.gitattributes` mark vendored is the data of a third party,
+    not text to search: the tiktoken vocabularies gave thousands of chunks and stopped a full
+    index. A generated file, such as the command reference, is a document to search (#6717)."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True, capture_output=True)
     (tmp_path / ".gitattributes").write_text(
         "*.tiktoken linguist-vendored\n"
-        "gen.py linguist-generated=true\n"
-        "kept.py linguist-generated=false\n",
+        "reference.md linguist-generated\n"
+        "kept.py linguist-vendored=false\n",
         encoding="utf-8",
     )
-    for name in ("main.py", "vocab.tiktoken", "gen.py", "kept.py"):
+    for name in ("main.py", "vocab.tiktoken", "kept.py"):
         (tmp_path / name).write_text(f"print('{name}')\n", encoding="utf-8")
+    (tmp_path / "reference.md").write_text(
+        "# devops ai rag index\n\nIndex the workspace.\n", encoding="utf-8"
+    )
 
     _indexer(tmp_path, qdrant, embedder).index_workspace(tmp_path, include_kb=False)
 
-    assert _indexed_files(qdrant) == {"main.py", "kept.py"}
+    assert _indexed_files(qdrant) == {"main.py", "kept.py", "reference.md"}
 
 
 def _answer_work_tree(process_fake: ProcessFake, root: Path, attributes: str) -> None:
@@ -143,9 +147,9 @@ def test_one_git_call_reads_the_attributes_of_all_files(
     _answer_work_tree(
         process_fake,
         root,
-        "a.py\0linguist-generated\0unspecified\0a.py\0linguist-vendored\0unspecified\0"
-        "b.py\0linguist-generated\0set\0b.py\0linguist-vendored\0unspecified\0"
-        "c.py\0linguist-generated\0unset\0c.py\0linguist-vendored\0false\0",
+        "a.py\0linguist-vendored\0unspecified\0"
+        "b.py\0linguist-vendored\0set\0"
+        "c.py\0linguist-vendored\0false\0",
     )
 
     files = WorkspaceIndexer.collect_files(root)
@@ -153,7 +157,7 @@ def test_one_git_call_reads_the_attributes_of_all_files(
     attribute_reads = [call for call in process_fake.calls if "check-attr" in call.argv]
     assert [(call.argv[3:], call.stdin) for call in attribute_reads] == [
         (
-            ("check-attr", "-z", "--stdin", "linguist-generated", "linguist-vendored"),
+            ("check-attr", "-z", "--stdin", "linguist-vendored"),
             "a.py\0b.py\0c.py\0",
         )
     ]

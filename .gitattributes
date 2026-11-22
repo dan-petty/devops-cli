@@ -13,8 +13,7 @@
 *.whl binary
 
 # Generated files: a tool writes them, and nobody edits them by hand. GitHub folds their diffs,
-# `devops roadmap review run` counts their lines apart from the other lines, and
-# `devops ai rag index` leaves them out of the index.
+# and `devops roadmap review run` counts their lines apart from the other lines.
 uv.lock linguist-generated
 **/package-lock.json linguist-generated
 CHANGELOG.md linguist-generated
