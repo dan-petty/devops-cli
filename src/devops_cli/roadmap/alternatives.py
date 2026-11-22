@@ -1087,8 +1087,9 @@ def _marker_problem(body: str) -> str | None:
     """Why the job writes no block to `body`, or None: it holds a marker of the block that bounds
     a block (`block_marker_spans`) with no partner, so a write could replace a person's text
     between the two. A marker that a person quotes in a code span, a code block or a paragraph is
-    the person's text, and the block goes at the end (#6627). A marker line in a block that a
-    person leaves open to the end of the body bounds a block (#6736)."""
+    the person's text, and the block goes at the end (#6627). In a block that a person leaves open
+    to the end of the body, only the job blocks at its end bound a block, so a lone marker line in
+    it is a quote too (#6736)."""
     markers = (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER)
     if job_block_bounds(body, *markers) is None and block_marker_spans(body, markers):
         return MESSAGES.roadmap.alternatives_reason_markers

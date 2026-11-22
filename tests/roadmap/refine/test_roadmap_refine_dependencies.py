@@ -233,6 +233,6 @@ def test_a_job_block_marker_ends_the_dependencies_section(body: str, blockers: l
     refine block ends at the refine end marker, also when no other job block follows it, a heading
     after an alternatives block still starts a section, and a marker in a code span ends no section
     (#6613). A comment that a person leaves open ends at the start marker, so that marker ends the
-    section too, and a fence that a person leaves open ends at the first job block marker, so the
+    section too, and a fence that a person leaves open ends at the job blocks at its end, so the
     refine block after it names its blockers (#6736)."""
     assert body_dependencies(body) == blockers

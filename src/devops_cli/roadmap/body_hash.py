@@ -15,12 +15,14 @@ it and a write adds its block at the end. A writer closes a fenced code block or
 is open before a marker that it writes (`close_open_block`), so the next read finds the block again.
 
 A fenced code block or an HTML block that no close ends runs to the end of the body, and GitHub
-shows each later line as code, the job blocks too. A person leaves such a block open by accident,
-so its first job block marker line ends it for a read (#6736). The outside text of a block holds
-the close of the open block before that line (`close_blocks_before_markers`), so a write that keeps
-the outside text replaces the old block and adds no second one. A marker in a block that a close
-ends is still a quote. Every reader of a job block marker uses this rule: `block_marker_of` for one
-token, and `block_marker_spans` for a body.
+shows each later line as code, the job blocks too. A person leaves such a block open by accident.
+The jobs write their blocks at the end of the body, so the job blocks at the end of the open block
+end it for a read (#6736): from their first line on, the job block marker lines are whole blocks,
+one for each job at most. The outside text of a block holds the close of the open block before
+that line (`close_blocks_before_markers`), so a write that keeps the outside text replaces the old
+block and adds no second one. Each other marker line in the open block, and each marker in a block
+that a close ends, is still a quote. Every reader of a job block marker uses this rule:
+`block_marker_of` for one token, and `block_marker_spans` for a body.
 """
 
 from __future__ import annotations
@@ -41,16 +43,16 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap.stores.store import Item, RefineRecordKey
 
+# The start and the end marker of the block of each job that writes a block in the body.
+_JOB_BLOCKS: Final[tuple[tuple[str, str], ...]] = (
+    (CONST_ROADMAP_REFINE_START_MARKER, CONST_ROADMAP_REFINE_END_MARKER),
+    (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER),
+)
+_END_OF: Final[dict[str, str]] = dict(_JOB_BLOCKS)
+_START_OF: Final[dict[str, str]] = {end: start for start, end in _JOB_BLOCKS}
 # The start and the end markers of the blocks that the jobs write in the body. Each one ends a
 # section of the body, because the text of a job block is not text of the section (#6613).
-JOB_BLOCK_MARKERS: Final[frozenset[str]] = frozenset(
-    {
-        CONST_ROADMAP_REFINE_START_MARKER,
-        CONST_ROADMAP_REFINE_END_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
-    }
-)
+JOB_BLOCK_MARKERS: Final[frozenset[str]] = frozenset(_END_OF) | frozenset(_START_OF)
 
 # GitHub reads a body as CommonMark: an `html_block` is a real comment, and a code span, a code
 # block and a paragraph are other tokens, so a marker that a person quotes there is text. The rule
@@ -132,38 +134,76 @@ def _open_block(
     return first, probed
 
 
-def _open_block_end(text: str, tokens: Sequence[Token]) -> int | None:
-    """The offset in `text` of the first line that ends a block open to the end of `text`, or None.
-    The line is in the block after its first line, and CommonMark reads it on its own as a job
-    block marker (#6736). `tokens` are the tokens of `text`."""
+def _marker_lines(text: str, starts: Sequence[int], first: int) -> list[tuple[int, str]]:
+    """The offset in `text` and the marker of each line after line `first` that CommonMark reads
+    on its own as a job block marker (`block_marker_of`). `starts` are the starts of the lines."""
+    lines: list[tuple[int, str]] = []
+    for line in range(first + 1, len(starts)):
+        own = text[starts[line] : starts[line + 1] if line + 1 < len(starts) else len(text)]
+        marker = own.strip()
+        if marker in JOB_BLOCK_MARKERS and any(
+            block_marker_of(token) for token in _BODY_MARKDOWN.parse(own)
+        ):
+            lines.append((starts[line], marker))
+    return lines
+
+
+def _are_job_blocks(markers: Sequence[str], before: Sequence[tuple[str, int, int]]) -> bool:
+    """Whether `markers`, the last job block marker lines of an open block in their order, are
+    the blocks of the jobs (#6736). `before` are the bounds before the open block. The first
+    marker can be the end marker of a job whose block starts in `before`. Each other pair is the
+    start and the end marker of one job, at most one pair for each job, and none of a job with a
+    start marker in `before`. So a quote of a person is no block: a lone marker, a block of a job
+    that a later block of the job follows, and a block of a job whose block comes first."""
+    bound = {marker for marker, _, _ in before}
+    used: set[str] = set()
+    rest = list(markers)
+    if rest and (opened := _START_OF.get(rest[0])) is not None:
+        if opened not in bound or _bounds(before, opened, rest[0]) is not None:
+            return False
+        used.add(opened)
+        rest = rest[1:]
+    if len(rest) % 2:
+        return False
+    for start, end in zip(rest[::2], rest[1::2], strict=True):
+        if _END_OF.get(start) != end or start in used or start in bound:
+            return False
+        used.add(start)
+    return True
+
+
+def _open_block_end(
+    text: str, tokens: Sequence[Token], before: Sequence[tuple[str, int, int]]
+) -> int | None:
+    """The offset in `text` of the line that ends a block open to the end of `text`, or None: the
+    first line of the job blocks at the end of the block (`_are_job_blocks`, #6736). Jobs write
+    their blocks at the end of the body, so the most lines that are blocks of the jobs win.
+    `tokens` are the tokens of `text`, and `before` the bounds before `text`."""
     starts = _line_starts(text)
     found = _open_block(text, tokens, starts)
     if found is None:
         return None
-    for line in range(found[0] + 1, len(starts)):
-        start = starts[line]
-        end = starts[line + 1] if line + 1 < len(starts) else len(text)
-        own = text[start:end]
-        if own.strip() in JOB_BLOCK_MARKERS and any(
-            block_marker_of(token) for token in _BODY_MARKDOWN.parse(own)
-        ):
-            return start
+    lines = _marker_lines(text, starts, found[0])
+    for count in range(min(len(lines), 2 * len(_JOB_BLOCKS)), 0, -1):
+        if _are_job_blocks([marker for _, marker in lines[-count:]], before):
+            return lines[-count][0]
     return None
 
 
 def _parts(body: str) -> list[tuple[int, list[Token]]]:
     """The start of each part of `body` and the tokens of the text from that start (#6736). A block
-    that no close ends runs to the end of the body, and its first job block marker line ends it
-    (`_open_block_end`): a new part starts at that line. A body with no such block is one part."""
-    parts: list[tuple[int, list[Token]]] = []
-    start = 0
-    while True:
-        tokens = _BODY_MARKDOWN.parse(body[start:])
-        parts.append((start, tokens))
-        end = _open_block_end(body[start:], tokens)
+    that no close ends runs to the end of the body, and the job blocks at its end end it
+    (`_open_block_end`): a new part starts at their first line. The first marker of a part bounds
+    a block, so a job ends one open block at most, and a body has at most one part more than there
+    are jobs. A body with no such block is one part."""
+    parts = [(0, _BODY_MARKDOWN.parse(body))]
+    while len(parts) <= len(_JOB_BLOCKS):
+        start, tokens = parts[-1]
+        end = _open_block_end(body[start:], tokens, _spans(body, parts, JOB_BLOCK_MARKERS))
         if end is None:
-            return parts
-        start += end
+            break
+        parts.append((start + end, _BODY_MARKDOWN.parse(body[start + end :])))
+    return parts
 
 
 def _spans(
@@ -187,8 +227,8 @@ def block_marker_spans(
 ) -> list[tuple[str, int, int]]:
     """The marker, its start and its end in `body`, for each marker of `markers` that bounds a
     block (`block_marker_of`), in the order of the body (#6627). A block that a person leaves open
-    ends at its first job block marker line, so a marker after that line is read as in a body with
-    the close in place (#6736)."""
+    ends at the job blocks at its end (`_parts`), so a marker of these blocks is read as in a body
+    with the close in place (#6736)."""
     return _spans(body, _parts(body), markers)
 
 
