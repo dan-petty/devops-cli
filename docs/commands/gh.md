@@ -751,7 +751,7 @@ devops gh branch-protection sync [OPTIONS]
 
 ## `devops gh secret`
 
-**Seal GitHub Actions secrets into a repository or one of its environments, and list them.**
+**Seal GitHub Actions secrets into a repository or one of its environments, and list the repository secrets.**
 
 ```bash
 devops gh secret COMMAND [ARGS]...

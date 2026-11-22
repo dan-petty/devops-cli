@@ -1492,7 +1492,8 @@ class GHCommandHelp:
         "The file that gets the token. The command replaces it, and the new file has mode 0600."
     )
     secret_app: str = (
-        "Seal GitHub Actions secrets into a repository or one of its environments, and list them."
+        "Seal GitHub Actions secrets into a repository or one of its environments, "
+        "and list the repository secrets."
     )
     secret_sync: str = (
         "Seal secrets from the OS keyring, HashiCorp Vault or a file with libsodium, and put them "
