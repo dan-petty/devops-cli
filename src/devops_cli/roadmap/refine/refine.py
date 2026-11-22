@@ -218,7 +218,9 @@ from devops_cli.exceptions.roadmap import (
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import (
+    JOB_BLOCK_MARKERS,
     body_hashes,
+    close_open_block,
     extract_section_and_outside,
     hash_text,
     is_unchanged,
@@ -454,25 +456,26 @@ class RefinedItem:
     questions, the split or the blockers) and the open items `blocked_by` (#1758), and
     `block_paths` the paths whose code causes the block (#2005). `body_hash` is the hash of the
     body without the alternatives job's block and refine's section, which the check for an
-    unchanged item compares; `read_hash` is the hash of the body without the section alone, which
-    the check before a write compares, so a block written since the read is not lost.
-    `alternatives_asked` is the URL of the covering tool that the round put to a person (#2652).
-    `deferred` holds the parts that apply files as new issues before it sets the item Ready
-    (#2423). `after_stage_return` is set when the round looked again at the same body after the
-    stage job returned the item, which apply records, so a second return waits on a person
-    (#3483). `judge` is the verdict of the review of the proposal for an item that a bot opened,
-    which apply records, and None for the item of a person (#3502). `failure` is set when the job
-    failed: apply records it with the count of `tries` on this body. With `record_only` apply
-    writes nothing else (#3632); a refusal of the review also writes the body and the Status, and
-    no comment (#4798). `owner_question` is the one owner question that the round asked, which
-    apply records with the hash of its frame (#3077), and `owner_answer` is the answer that a
-    trusted person gave to the frame of the question the record holds, which the request of the
-    item carries and apply records (#3077). `frame` is the item whose comment holds the frame of
-    `owner_question`. `repeated` is set when the result is the one of the round before: the round
-    posts no comment, and apply records `read_at`, the time at which the round read the comments
-    of the item, so a reply made while the round ran ends the wait (#6196). A result that the
-    round built before it read the comments holds the time it was built, and it posts no
-    comment."""
+    unchanged item compares. For a written body it is the hash of `new_body`, so the close of an
+    open block that the write adds before the section is no change on the next round (#6627).
+    `read_hash` is the hash of the body without the section alone, which the check before a write
+    compares, so a block written since the read is not lost. `alternatives_asked` is the URL of
+    the covering tool that the round put to a person (#2652). `deferred` holds the parts that
+    apply files as new issues before it sets the item Ready (#2423). `after_stage_return` is set
+    when the round looked again at the same body after the stage job returned the item, which
+    apply records, so a second return waits on a person (#3483). `judge` is the verdict of the
+    review of the proposal for an item that a bot opened, which apply records, and None for the
+    item of a person (#3502). `failure` is set when the job failed: apply records it with the
+    count of `tries` on this body. With `record_only` apply writes nothing else (#3632); a
+    refusal of the review also writes the body and the Status, and no comment (#4798).
+    `owner_question` is the one owner question that the round asked, which apply records with the
+    hash of its frame (#3077), and `owner_answer` is the answer that a trusted person gave to the
+    frame of the question the record holds, which the request of the item carries and apply
+    records (#3077). `frame` is the item whose comment holds the frame of `owner_question`.
+    `repeated` is set when the result is the one of the round before: the round posts no comment,
+    and apply records `read_at`, the time at which the round read the comments of the item, so a
+    reply made while the round ran ends the wait (#6196). A result that the round built before it
+    read the comments holds the time it was built, and it posts no comment."""
 
     item: Item
     proposal: RefinementProposal
@@ -1158,16 +1161,6 @@ _DEPENDENCIES_TITLE_RE = re.compile(r"Dependencies\b", re.IGNORECASE)
 _REFERENCE_PUNCTUATION: Final[str] = ".,;:()[]"
 # A text in straight or curly double quotes, such as the title of a dependency (#4803).
 _QUOTED_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
-# The start and the end markers of the blocks that the jobs write in the body. Each one ends a
-# section of the body, because the text of a job block is not text of the section (#6613).
-_JOB_BLOCK_MARKERS: Final[frozenset[str]] = frozenset(
-    {
-        CONST_ROADMAP_REFINE_START_MARKER,
-        CONST_ROADMAP_REFINE_END_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
-    }
-)
 
 
 def _ends_section(token: Token, level: int) -> bool:
@@ -1176,7 +1169,7 @@ def _ends_section(token: Token, level: int) -> bool:
     marker in a code span or inside a paragraph is inline text and ends no section."""
     if token.type == "heading_open":
         return int(token.tag[1:]) <= level
-    return token.type == "html_block" and token.content.strip() in _JOB_BLOCK_MARKERS
+    return token.type == "html_block" and token.content.strip() in JOB_BLOCK_MARKERS
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:
@@ -2353,7 +2346,9 @@ def render_proposal_section(
     after the design, the open questions, Fit, the suspected block and the dependencies come the
     files whose change ends a wait (`block_paths`, sorted, so their order changes no section), and
     last the new issues of the deferred parts (`deferred`). A dependency cycle (`cycle`) is the
-    cause of the wait, so it goes under the suspected block (#6449).
+    cause of the wait, so it goes under the suspected block (#6449). A code fence or an HTML block
+    that the model's text leaves open gets its close before the end marker, so the end marker stays
+    an HTML block of its own and the next round finds the section (#6627).
     """
     lines: list[str] = [
         "## Proposed design",
@@ -2413,7 +2408,7 @@ def render_proposal_section(
         lines.append(MESSAGES.roadmap.refine_block_paths)
         lines.extend(f"- `{path}`" for path in sorted(set(block_paths)))
 
-    section = sanitize_text("\n".join(lines), allowed_urls)
+    section = close_open_block(sanitize_text("\n".join(lines), allowed_urls))
     return (
         f"{CONST_ROADMAP_REFINE_START_MARKER}\n<!-- checked-at: sha={sha} -->\n{section}"
         f"{_moved_part(deferred)}\n{CONST_ROADMAP_REFINE_END_MARKER}"
@@ -3720,8 +3715,10 @@ def refine_one_item(
     rendered_section = render_proposal_section(
         proposal, shown, sha, allowed_urls, block_paths=block_paths, deferred=moved, cycle=cycle
     )
+    # A block that the text outside leaves open gets its close before the section, so the markers
+    # stay HTML blocks of their own and the next round finds the section (#6627)
     outside, _ = extract_section_and_outside(current_body)
-    new_body = outside.rstrip() + "\n\n" + rendered_section
+    new_body = close_open_block(outside.rstrip()) + "\n\n" + rendered_section
 
     if len(new_body) > CONST_ROADMAP_REFINE_MAX_BODY_CHARS:
         seen_body_hash, seen_section_hash = body_hashes(current_body)
@@ -3777,7 +3774,7 @@ def refine_one_item(
         needs_split=needs_split,
         reason_comment=None if repeated else comment,
         new_body=new_body,
-        body_hash=body_hashes(current_body)[0],
+        body_hash=body_hashes(new_body)[0],
         section_hash=s_hash,
         next_step=step,
         step_details=details,

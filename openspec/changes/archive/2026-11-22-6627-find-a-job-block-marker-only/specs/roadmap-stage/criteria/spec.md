@@ -10,3 +10,7 @@ The stage job SHALL cut the refine block from the body only at a start marker an
 #### Scenario: A real refine block is cut
 - **WHEN** a body holds a refine block whose start marker and end marker are each an HTML block on a line of its own, with a `Chosen` line inside
 - **THEN** `refine_decisions` returns that decision and the acceptance criteria outside the block are read
+
+#### Scenario: A start marker with no end marker
+- **WHEN** a body holds a refine start marker as an HTML block on a line of its own, then a `Chosen` line and an acceptance criterion, and no end marker
+- **THEN** `refine_decisions` returns no decision, and `acceptance_criteria` returns that criterion

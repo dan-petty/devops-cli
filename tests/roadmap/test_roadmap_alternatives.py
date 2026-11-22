@@ -2018,6 +2018,120 @@ def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
     )
 
 
+_QUOTED_MARKERS = (
+    f"The markers `{CONST_ROADMAP_ALTERNATIVES_START_MARKER}` to "
+    f"`{CONST_ROADMAP_ALTERNATIVES_END_MARKER}` bound the block of the check."
+)
+_REAL_BLOCK = (
+    "Intro\n\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    "Alternatives check of 2026-01-01: covers.\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    "\nOutro"
+)
+# The block of a check of `NOW` with the verdict `none` and the reason `REASON`, as the job writes it.
+_NONE_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    f"Alternatives check of {NOW.date()}: none.\n"
+    "Tool: none found.\n"
+    f"Reason: {REASON}\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
+def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_block(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    quoted = _item(store, "Quoted", body=_QUOTED_MARKERS)
+    real = _item(store, "Real block", body=_REAL_BLOCK)
+
+    written = apply_alternatives(
+        store, _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
+    )
+
+    assert (
+        written,
+        store.read_issue_body(quoted),
+        store.read_issue_body(real),
+    ) == (
+        2,
+        f"{_QUOTED_MARKERS}\n\n{_NONE_BLOCK}",
+        f"Intro\n\n{_NONE_BLOCK}\n\nOutro",
+    )
+
+
+_SCAN = "The job needs a scan."
+# A block of an earlier check, at the end of the body.
+_OLD_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    "Alternatives check of 2026-01-01: covers.\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "reason", "head"),
+    [
+        pytest.param(
+            _SCAN,
+            "The run fails with:\n```\nTraceback (most recent call last):\n",
+            f"{_SCAN}\n\n",
+            id="fence-in-the-model-text",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n",
+            id="person-fence",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n",
+            REASON,
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n</pre>\n\n",
+            id="person-pre",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<!-- An open comment of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n<!-- An open comment of a person.\n\n",
+            id="person-comment-above-the-block",
+        ),
+    ],
+)
+def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
+    store: InMemoryRoadmapStore, web_key: None, body: str, reason: str, head: str
+) -> None:
+    """CommonMark reads all text after an open fenced code block or an open HTML block as part of
+    it. The job closes such a block before its own block (#6627), so each round leaves one block
+    of this check that a read finds, and the next round finds the item unchanged and checks it no
+    more. The first round writes `head` before the start marker: the text of the person, the close
+    of the open block on a line of its own, and a blank line. A comment that a person opens above
+    the block ends at its start marker, so the round replaces that block in place."""
+    number = _item(store, "Open block", body=body)
+    script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
+    seen = []
+    bodies = []
+    for _ in range(3):
+        plan = _plan(store, script)
+        apply_alternatives(store, plan)
+        written = store.read_issue_body(number)
+        bodies.append(written)
+        seen.append(
+            (
+                len(plan.checks),
+                written.count(CONST_ROADMAP_ALTERNATIVES_START_MARKER),
+                _block(store, number).startswith(f"\nAlternatives check of {NOW.date()}: none.\n"),
+            )
+        )
+
+    first = bodies[0]
+    assert (
+        seen,
+        first[: first.find(CONST_ROADMAP_ALTERNATIVES_START_MARKER)],
+        bodies[1:],
+    ) == ([(1, 1, True), (0, 1, True), (0, 1, True)], head, [first, first])
+
+
 def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None) -> None:
     number = _item(store)
     reply = AlternativesReply(reason=REASON, verdict=Verdict.NONE)
