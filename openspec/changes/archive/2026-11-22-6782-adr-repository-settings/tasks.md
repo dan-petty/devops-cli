@@ -18,7 +18,7 @@ Changes: `docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md`,
 - [x] 2.1 Add `amended-by: ["0032", "0035"]` and a dated `Amended by ADR 0035` line to ADR 0026
   - Verification: `$ uv run devops ci test tests/invariants/test_adr_records.py`
 - [x] 2.2 Change row ACC-3 of the production readiness guideline to the command and the organization stacks
-  - Verification: `$ grep -n 'ACC-3' docs/guidelines/production-readiness.md`
+  - Verification: `$ uv run devops ci test tests/invariants/test_guidelines.py`
 
 ## Criteria
 
