@@ -16,7 +16,7 @@ Adds: `APPLICATIONS_BY_STACK`, `application_not_found`
 
 Kind: other. Reads: `k8s/README.md`. Changes: `k8s/README.md`.
 
-- [ ] 2.1 In `k8s/README.md`, state that deploy-stack builds the path sources of the Applications of `APPLICATIONS_BY_STACK`, applies each build before the charts and lists its objects in the dry run, and that a row of `MANIFESTS_BY_STACK` stays only where the build of its Application holds more objects
+- [x] 2.1 In `k8s/README.md`, state that deploy-stack builds the path sources of the Applications of `APPLICATIONS_BY_STACK`, applies each build before the charts and lists its objects in the dry run, and that a row of `MANIFESTS_BY_STACK` stays only where the build of its Application holds more objects
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
