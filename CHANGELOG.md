@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.195.0](https://github.com/dan-petty/devops-cli/compare/v0.194.2...v0.195.0) (2026-11-22)
+
+
+### Features
+
+* **gh:** seal a secret into an environment with secret sync ([#6789](https://github.com/dan-petty/devops-cli/issues/6789)) ([f9627cd](https://github.com/dan-petty/devops-cli/commit/f9627cdd9c99abf98f5940bcbe5bb1c91f8b18c1))
+
 ## [0.194.2](https://github.com/dan-petty/devops-cli/compare/v0.194.1...v0.194.2) (2026-11-22)
 
 
