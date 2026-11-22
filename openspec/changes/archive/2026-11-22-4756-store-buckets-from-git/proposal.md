@@ -17,7 +17,7 @@ Closes #4756. The object store of #4750 runs, but its buckets, quotas, anonymous
 - The change fits one pull request.
 
 ## Capabilities
-- `object-store`: ADDED requirements for the buckets, the anonymous read, the lifecycle rules, the watch scope, the kinds of the render and the absence of key rows in `CLUSTER_SECRETS`. MODIFIED requirement of the S3 gateway: it allows the requests that an identity of the filer allows, and the operator keeps identity `anonymous` there.
+- `object-store`: ADDED requirements for the buckets, one CR for each bucket, the anonymous read, the lifecycle rules, the watch scope, the kinds of the render and the absence of key rows in `CLUSTER_SECRETS`. MODIFIED requirement of the S3 gateway: it allows the requests that an identity of the filer allows, and the operator keeps identity `anonymous` there.
 
 ## Impact
 - After Argo CD syncs `main`, the operator makes the four buckets in `object-store` with their quotas, the anonymous read of the two report buckets and the lifecycle rules. A quota or a rule that a person changes goes back to the git value at the next reconcile of the operator.

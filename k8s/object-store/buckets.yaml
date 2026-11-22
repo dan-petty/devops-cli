@@ -1,7 +1,9 @@
 # The platform buckets of the object store and their lifecycle rules (#4756). The SeaweedFS
 # operator makes each bucket, sets its quota and its anonymous read, and keeps its lifecycle rules
-# from these CRs; a value that a person changes goes back at the next reconcile. k8s/README.md,
-# section Buckets, has the scope and namespace of each CR.
+# from these CRs. At its next reconcile, it puts back the git value of a quota, a lifecycle rule or
+# a grant that it applied. It removes only the grants that it applied, so a grant that a person
+# adds, for example Read of identity anonymous on cache, stays until a person removes it.
+# k8s/README.md, section Buckets, has the scope and namespace of each CR.
 #
 # Each Bucket and its policy live in namespace object-store, beside the Seaweed CR that clusterRef
 # names, so the operator watches only this namespace and needs no grant (operator-values.yaml). Each

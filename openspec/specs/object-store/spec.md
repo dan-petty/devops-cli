@@ -89,7 +89,7 @@ The S3 gateway SHALL set `iam: false` and the arguments `-port.iceberg=0` and `-
 - **THEN** the rule reports a problem that names the Iceberg catalog of the filer
 
 ### Requirement: The S3 gateway refuses a request with no identity
-Secret `object-store/seaweedfs-s3` SHALL hold key `s3.json` with an identities file that has no identity, and the S3 gateway SHALL read it, so it refuses a request with no valid signature unless an identity of the filer allows the request. The operator keeps identity `anonymous` in the filer with only `Read` on `reports` and `reports-private`, and a person adds each other identity in the admin UI.
+Secret `object-store/seaweedfs-s3` SHALL hold key `s3.json` with an identities file that has no identity, and the S3 gateway SHALL read it, so it refuses a request with no valid signature unless an identity of the filer allows the request. The operator gives identity `anonymous` in the filer `Read` on `reports` and `reports-private`, and revokes only the grants that it applied, so a grant that a person adds stays. A person adds each other identity in the admin UI.
 
 #### Scenario: The table row
 - **WHEN** a test reads the row `object-store/seaweedfs-s3` of `CLUSTER_SECRETS`
@@ -274,6 +274,17 @@ The render of `k8s/object-store` SHALL hold a `Bucket` for `reports` (20Gi), `re
 #### Scenario: The buckets on the cluster
 - **WHEN** a person runs `kubectl get buckets.seaweed.seaweedfs.com -A -o yaml` after the sync
 - **THEN** the output has `reports` 20Gi, `reports-private` 20Gi, `cache` 10Gi and `argo-artifacts` 10Gi, all in namespace `object-store`, each `Ready` with `reclaimPolicy: Retain` and a `clusterRef` to `seaweedfs`, and a quota that a person changes with `weed shell` `s3.bucket.quota` goes back to the git value at the next reconcile
+
+### Requirement: One CR makes each bucket
+No two `Bucket` CRs of the render SHALL have the same bucket name: `spec.name`, else the name of the CR. The bucket rule SHALL check each CR, so a second CR of a bucket cannot hide behind the first.
+
+#### Scenario: Two CRs of one bucket
+- **WHEN** `uv run devops ci --check --only k8s` runs the bucket rule on the committed buckets with a second CR `cache-copy` whose `spec.name` is `cache`
+- **THEN** the rule reports a problem that names `Bucket/cache` and both CRs
+
+#### Scenario: A second CR that deletes the data of a bucket
+- **WHEN** `uv run devops ci --check --only k8s` runs the bucket rule on the committed buckets with a second CR `cache-copy` of `cache`, before the committed CR, with `reclaimPolicy: Delete`
+- **THEN** the rule reports a problem that names `Bucket/cache-copy`
 
 ### Requirement: Only the report buckets have anonymous read
 Only the buckets `reports` and `reports-private` SHALL set `anonymousRead: true`, and no `Bucket` SHALL name the user `anonymous` in `access`. No bucket named `backups-*` SHALL have anonymous access.

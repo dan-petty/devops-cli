@@ -1130,7 +1130,7 @@ The version rule of the owner (2026-11-11) has no minimum release age. Pin the n
 
 ### Buckets
 
-The CRs of `object-store/buckets.yaml` hold the buckets, the quotas, the anonymous read and the lifecycle rules of the store (#4756). The operator makes each of them, and a value that a person changes in the admin UI or with `weed shell` goes back to the git value at its next reconcile. No Job or script reconciles the store.
+The CRs of `object-store/buckets.yaml` hold the buckets, the quotas, the anonymous read and the lifecycle rules of the store (#4756). The operator makes each of them. If a person changes a quota, a lifecycle rule or a grant that the operator applied, in the admin UI or with `weed shell`, the operator puts back the git value at its next reconcile. The operator removes only the grants that it applied (`internal/controller/bucket_controller.go` of operator 1.0.45). Thus a grant that a person adds, for example `Read` of identity `anonymous` on `cache`, stays until a person removes it. A value that no CR sets, such as the versioning or the owner of a bucket, also stays. No Job or script reconciles the store.
 
 | Bucket | Namespace of the writer | Quota | Anonymous read | Lifecycle rules |
 | :--- | :--- | :--- | :--- | :--- |
@@ -1150,7 +1150,7 @@ The CRs of `object-store/buckets.yaml` hold the buckets, the quotas, the anonymo
   ```
 - The anonymous read is identity `anonymous` in the filer: the operator gives it `Read` on `reports` and `reports-private`, and the S3 gateways add it to their identities file. Thus an unsigned GET of an object of these buckets gets 200, and an unsigned List, ListBuckets or write gets 403.
 - No key can write a bucket yet. The tenant chart of `dan-petty/infra` brings the writer identities and their keys, from an ESO `Password` generator, and the tenant buckets `backups-*`. No row of [Cluster Secrets](#cluster-secrets) holds a key of the store.
-- The `k8s` row checks the buckets and their quotas, the anonymous read, the lifecycle rules, the watch scope and the kinds and namespace of the render, with no `ResourceReferenceGrant` (`tests/gate/k8s_checks/object_store_buckets.py`).
+- The `k8s` row checks the buckets and their quotas, one CR for each bucket, the anonymous read, the lifecycle rules, the watch scope and the kinds and namespace of the render, with no `ResourceReferenceGrant` (`tests/gate/k8s_checks/object_store_buckets.py`).
 
 ### Clients
 
