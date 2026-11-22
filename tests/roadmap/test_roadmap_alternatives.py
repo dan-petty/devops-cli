@@ -2067,6 +2067,11 @@ _OLD_BLOCK = (
     "Alternatives check of 2026-01-01: covers.\n"
     f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
 )
+# A section of an earlier round of refine.
+_REFINE_SECTION = (
+    f"{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\nA design.\n"
+    f"{CONST_ROADMAP_REFINE_END_MARKER}"
+)
 
 
 @pytest.mark.parametrize(
@@ -2096,6 +2101,24 @@ _OLD_BLOCK = (
             f"{_SCAN}\n\n<!-- An open comment of a person.\n\n",
             id="person-comment-above-the-block",
         ),
+        pytest.param(
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n",
+            id="person-fence-above-the-block",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n</pre>\n\n",
+            id="person-pre-above-the-block",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n\n{_REFINE_SECTION}\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n{_REFINE_SECTION}\n\n",
+            id="person-fence-above-a-refine-section",
+        ),
     ],
 )
 def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
@@ -2106,7 +2129,10 @@ def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
     of this check that a read finds, and the next round finds the item unchanged and checks it no
     more. The first round writes `head` before the start marker: the text of the person, the close
     of the open block on a line of its own, and a blank line. A comment that a person opens above
-    the block ends at its start marker, so the round replaces that block in place."""
+    the block ends at its start marker, so the round replaces that block in place. A fence or a
+    `<pre>` block that a person opens above the block runs to the end of the body, and its first job
+    block marker line ends it (#6736). So the round closes it before that line, replaces the block
+    in place, and keeps a refine section before the block readable."""
     number = _item(store, "Open block", body=body)
     script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
     seen = []

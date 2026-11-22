@@ -133,3 +133,55 @@ def test_a_text_with_no_open_block_stays_as_it_is(text: str) -> None:
     """A text that holds no open block, or only a block that the blank line before a job block
     ends, gets no close."""
     assert body_hash.close_open_block(text) == text
+
+
+_AN_ALTERNATIVES_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nY\n{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
+@pytest.mark.parametrize(
+    ("opened", "close"),
+    [
+        pytest.param("```\nA fence of a person.", "```", id="fence"),
+        pytest.param("<pre>\nA pre block of a person.", "</pre>", id="pre"),
+        pytest.param("<?php echo 1;", "?>", id="processing-instruction"),
+    ],
+)
+def test_a_block_that_a_person_leaves_open_ends_at_the_first_job_block_marker(
+    opened: str, close: str
+) -> None:
+    """A person leaves a block open above the refine section and the alternatives block, so it
+    runs to the end of the body. The first job block marker line in it ends it, so each reader
+    finds both blocks in the body, and the outside text holds the close of the block on a line of
+    its own before the first marker (#6736)."""
+    body = f"Text.\n\n{opened}\n\n{_A_BLOCK}\n\n{_AN_ALTERNATIVES_BLOCK}"
+    closed = f"Text.\n\n{opened}\n{close}\n\n{_A_BLOCK}\n\n{_AN_ALTERNATIVES_BLOCK}"
+    start, end = body_hash.job_block_bounds(body) or (0, 0)
+
+    assert (
+        body[start:end],
+        body_hash.close_blocks_before_markers(body),
+        extract_section_and_outside(body),
+        extract_section_and_outside(
+            body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+        )[1],
+    ) == (
+        _A_BLOCK,
+        closed,
+        (f"Text.\n\n{opened}\n{close}\n\n\n\n{_AN_ALTERNATIVES_BLOCK}", "\nX\n"),
+        "\nY\n",
+    )
+
+
+def test_a_block_that_a_close_ends_keeps_the_markers_that_it_quotes() -> None:
+    """A person quotes a job block in a closed fence and leaves a later fence open. The quote is
+    the text of the person, and the open fence holds no job block marker, so the body has no
+    block and the text stays as it is (#6736)."""
+    body = f"Text.\n\n```\n{_A_BLOCK}\n```\n\n```\nAn open fence."
+
+    assert (
+        body_hash.close_blocks_before_markers(body),
+        extract_section_and_outside(body),
+        body_hash.block_marker_spans(body),
+    ) == (body, (body, None), [])

@@ -1,11 +1,12 @@
-"""Refine finds its own section again after each write (#6627).
+"""Refine finds its own section again after each write (#6627, #6736).
 
 A marker of refine bounds its section only where CommonMark reads the marker as an HTML block of
 its own, or as the last line of a comment that the marker ends. CommonMark reads all text after an
 open fenced code block or an open HTML block as part of that block. So refine closes such a block at
 the end of its own text, and at the end of the text of a person that its section follows. The next
-round then replaces the section, adds no second one, and reads the item as unchanged. A marker that
-a person quotes stays in the text of the person.
+round then replaces the section, adds no second one, and reads the item as unchanged. A block that a
+person leaves open above the section ends at its first job block marker line, so a read still finds
+the section. A marker that a person quotes stays in the text of the person.
 
 The roadmap is the in-memory store, the model edge is the fake, and git is the fake of the refine
 support module.
@@ -178,4 +179,36 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
         f"{_PERSON}\n\n<!-- An open comment of a person.\n-->\n\n",
         False,
         [first, first],
+    )
+
+
+@pytest.mark.parametrize(
+    "opened",
+    [
+        pytest.param("```\nAn open fence of a person.", id="fence"),
+        pytest.param("<pre>\nAn open pre block of a person.", id="pre"),
+    ],
+)
+def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_three_rounds(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str
+) -> None:
+    """An earlier round of refine wrote and recorded a section, and then a person opens a code
+    fence or a `<pre>` block above it and does not close it. The block runs to the end of the body,
+    and the start marker of the section ends it for a read (#6736). So each round finds the section,
+    leaves one section in the body, and does not change the body after the first round."""
+    earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
+    number = seed_with_body(store, earlier)
+    body_hash, section_hash = body_hashes(earlier)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
+    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{opened}\n\n{_OLD_SECTION}")
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    assert ([(count, found) for count, found, _ in seen], bodies[1:]) == (
+        [(1, True)] * 3,
+        [bodies[0], bodies[0]],
     )
