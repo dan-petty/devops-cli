@@ -190,23 +190,22 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
 
 
 @pytest.mark.parametrize(
-    "opened",
+    ("opened", "close"),
     [
-        pytest.param("```\nAn open fence of a person.", id="fence"),
-        pytest.param("<pre>\nAn open pre block of a person.", id="pre"),
+        pytest.param("```\nAn open fence of a person.", "```", id="fence"),
+        pytest.param("<pre>\nAn open pre block of a person.", "</pre>", id="pre"),
     ],
 )
 def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_three_rounds(
-    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str, close: str
 ) -> None:
     """An earlier round of refine wrote and recorded a section, and then a person opens a code
     fence or a `<pre>` block above it and does not close it. The block runs to the end of the body,
-    and the start marker of the section ends it for a read (#6736). So each round finds the section
-    and leaves one section in the body. The open block also holds the record block at the end of
-    the body, so the round reads no record. Refine then finds a section that it has no record of,
-    and waits for a person: no round asks the model or writes. The read of the record is the work
-    of #6729. When a round reads the record, this test fails, and it then asserts one write that
-    replaces the section in place."""
+    and the start marker of the section ends it for a read (#6736). The fake store writes the body
+    through `with_record`, which closes the block there, so the round reads the record (#6799). A
+    person's edit on GitHub does not pass through `with_record`; #6785 holds that read. The first
+    round replaces the section in place, and the block of the person keeps its close. Each round
+    leaves one section, and only the first round asks the model."""
     earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
     number = seed_with_body(store, earlier)
     body_hash, section_hash = body_hashes(earlier)
@@ -215,12 +214,24 @@ def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_t
         {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
     )
     store.write_issue_body(number, f"{_PERSON}\n\n{opened}\n\n{_OLD_SECTION}")
-    written = store.read_issue_body(number)
     model_fake.answer(READY)
 
     seen, bodies = _rounds(store, git_repo, number, 3)
 
-    assert (seen, len(model_fake.calls), bodies) == ([(1, True, False)] * 3, 0, [written] * 3)
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.find(CONST_ROADMAP_REFINE_START_MARKER)],
+        "An old design." in first,
+        bodies[1:],
+    ) == (
+        [(1, True, True)] * 3,
+        1,
+        f"{_PERSON}\n\n{opened}\n{close}\n\n",
+        False,
+        [first, first],
+    )
 
 
 def test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text(
