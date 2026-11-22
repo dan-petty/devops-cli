@@ -1027,10 +1027,10 @@ def publish_phase(
         raise PhaseOutputError("The state file of the run names another item")
     if state.ended:
         if state.reason:
-            print_info(
-                MESSAGES.roadmap.implement_phase_left_out.format(item=item, reason=state.reason),
-                safe=True,
-            )
+            # The Service reads the log of `publish`, so the reason is masked as each line of the
+            # log of the runner is.
+            line = MESSAGES.roadmap.implement_phase_left_out.format(item=item, reason=state.reason)
+            print_info(mask_secrets(line), safe=True)
         return None
     recorded = _fresh(store, item).job_record.get(ImplementRecordKey.BRANCH)
     if recorded != state.branch:

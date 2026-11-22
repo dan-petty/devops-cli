@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
 Cli = Callable[..., Any]
+# A token form in a reason: the Service reads the log of `publish`, so the reason is masked.
+TOKEN = "ghp_" + "a1B2c3D4e5" * 3 + "f6G7h8"
 
 
 @pytest.mark.parametrize(
@@ -123,7 +125,7 @@ def test_a_publish_after_a_prepare_that_left_the_item_out_ends_with_its_reason(
 
     plan = ImplementPlan(
         repo="example/project",
-        left_out=(LeftOut(number=1, title="Item one", reason="the item is not Ready"),),
+        left_out=(LeftOut(number=1, title="Item one", reason=f"the item is not Ready {TOKEN}"),),
     )
     monkeypatch.setattr(implement_run, "require_runner", lambda _repo: None)
     monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
@@ -142,4 +144,5 @@ def test_a_publish_after_a_prepare_that_left_the_item_out_ends_with_its_reason(
         "Item one" in prepared.output,
         published.exit_code,
         "the item is not Ready" in published.output,
-    ) == (0, True, 0, True)
+        TOKEN in published.output,
+    ) == (0, True, 0, True, False)

@@ -6,7 +6,7 @@
 ## What Changes
 - The `publish` of implement, fix-checks, fix-conflict and stage makes its new repository in the temporary folder.
 - A `prepare` that the plan leaves out prints the plan and writes an ended state with the reason; `publish` prints the reason and exits 0.
-- The dry run of `run-job` shows the containers of the shape of the template, which it reads from the manifests of the checkout.
+- The dry run of `run-job` reads no CronJob, so for the runner template it shows the create of each shape under its condition.
 - The refusal outside a runner names a run-job command for one item, with `--item <number>`.
 - The catalog reads the container `runner` or `agent`.
 - The disk-use line names the worktree and the home.
@@ -16,6 +16,7 @@
 - `roadmap-implement-job/runner-job`: the disk-use line.
 
 ## Impact
+- The change fits one pull request.
 - Each change works on the template of one container of today and on the three containers of #3700. The temporary folder of the runner is 1 Gi, which holds the repository of a push (158 MB).
 
 ## Feasibility

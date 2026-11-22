@@ -3855,9 +3855,16 @@ class RoadmapMessages:
     )
     implement_outside_refused: str = (
         "{why} A step runs only when roadmap.implement.in_runner is true, which only the pod of "
-        "a runner Job sets. A runner Job runs one item. To run the job with other options, put "
-        "them after the `--` of this command: {command} <options> --confirm"
+        "a runner Job sets.{advice}"
     )
+    implement_outside_item_only: str = (
+        " A runner Job runs only the item that --item names, so {options} do not apply."
+    )
+    implement_outside_pass_options: str = (
+        " To run the job with {options}, put them after the `--` of this command: "
+        "{command} <options> --confirm"
+    )
+    implement_outside_run_item: str = " To run the job for one item, run: {command} --confirm"
     implement_outside_not_item: str = "Issue #{number} is not an item of the roadmap."
     implement_outside_closed: str = "Issue #{number} is closed."
     implement_outside_claimed: str = (

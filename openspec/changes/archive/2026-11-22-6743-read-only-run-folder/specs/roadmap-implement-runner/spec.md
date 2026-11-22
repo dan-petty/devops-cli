@@ -14,9 +14,9 @@ When the plan leaves the named item out, `prepare` SHALL print the plan and writ
 - **WHEN** the plan leaves item 1 out because it is not Ready, and `prepare` and then `publish` run on one run folder
 - **THEN** both exit 0, the output of `prepare` holds the plan, and the output of `publish` holds the reason
 
-### Requirement: The dry run shows the containers of the shape of the template
-The dry run of `devops k8s run-job` SHALL read the CronJob of the template from the manifests of the checkout, a local read, and SHALL show its one container, or on the phases the init containers `prepare` and `agent` and the container `publish`, each with its `--phase` and `--work`. With no manifest, it SHALL show the container that the template names.
+### Requirement: The dry run shows each shape of the runner template under its condition
+The dry run of `devops k8s run-job` SHALL read no CronJob. For the runner template, it SHALL show the create of a Job of one container `runner` with the args, under the condition that the CronJob holds one container, and the create of a Job of the init containers `prepare` and `agent` and the container `publish`, each with the args and its `--phase` and `--work`, under the condition that the CronJob holds them.
 
 #### Scenario: Both shapes
-- **WHEN** the dry run of `--template runner` reads a template of one container, and then a template on the phases
-- **THEN** it shows the container `runner` with the args, and then the three containers with their phase args
+- **WHEN** the dry run of `--template runner` runs
+- **THEN** it sends no request, and shows the container `runner` and the three containers, each under its condition

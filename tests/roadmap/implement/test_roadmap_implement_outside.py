@@ -394,3 +394,31 @@ def test_in_a_runner_the_command_starts_no_job_and_keeps_the_guard(
         "runs only as the GitHub App" in _output(result),
         cluster_jobs.calls,
     ) == (1, True, [])
+
+
+@pytest.mark.parametrize(
+    ("options", "item_only", "passed"),
+    [
+        (["--filter"], True, False),
+        (["--limit"], True, False),
+        (["--source"], False, True),
+        (["--no-rebase"], False, True),
+        (["--filter", "--source"], True, True),
+        ([], False, False),
+    ],
+    ids=["filter", "limit", "source", "no-rebase", "filter-and-source", "no-item"],
+)
+def test_the_refusal_says_which_options_a_runner_job_takes(
+    options: list[str], item_only: bool, passed: bool
+) -> None:
+    """A runner Job runs only the item that `--item` names, so `--filter` and `--limit` do not
+    apply, and only `--source` and `--no-rebase` go after the `--` of the command (#6743)."""
+    from devops_cli.roadmap.implement.implement_outside import refusal
+
+    text = refusal(REPO, options=options)
+
+    assert (
+        RUN_JOB in text,
+        "do not apply" in text,
+        "put them after the `--`" in text,
+    ) == (True, item_only, passed)
