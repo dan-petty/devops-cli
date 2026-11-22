@@ -70,7 +70,7 @@ round: the failures come back in `SubmitResult.status_failed` for the row to rai
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import partial
@@ -93,8 +93,8 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_REPAIR_ROUNDS,
     CONST_SERVICE_METRIC_IMPLEMENT_TOKENS,
 )
-from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_LIMIT
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef, ServiceRow
@@ -126,10 +126,11 @@ from devops_cli.roadmap.implement.implement import (
     plan_implement,
 )
 from devops_cli.roadmap.implement.implement_deadline import manage_deadlines
+from devops_cli.roadmap.implement.implement_parallel import change_files, conflicts
 from devops_cli.roadmap.implement.implement_size import RunnerSize, plan_file_count, runner_size
 from devops_cli.roadmap.job_launcher import RunnerUnit, launch, model_slots
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
-from devops_cli.roadmap.plan_read import tasks_at
+from devops_cli.roadmap.plan_read import tasks_at, tree_files
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
 from devops_cli.roadmap.round_log import log_implement_attempt
 from devops_cli.roadmap.stage.stage import StageFailure
@@ -146,6 +147,7 @@ from devops_cli.roadmap.stores.store import (
     ImplementResult,
     Item,
     RoadmapStore,
+    StageRecordKey,
 )
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -169,7 +171,7 @@ class SubmitResult:
 
     reported: tuple[str, ...] = ()
     waiting: bool = False
-    created: str | None = None
+    created: tuple[str, ...] = ()
     left: int | None = None
     status_failed: tuple[StageFailure, ...] = ()
     cleared: tuple[int, ...] = ()
@@ -543,7 +545,10 @@ def _create(
         size=size,
         name=name,
         deadline=settings.deadline_extension_seconds,
-        labels={CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label},
+        labels={
+            CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label,
+            ITEM_LABEL: str(number),
+        },
         annotations={
             CONST_ROADMAP_IMPLEMENT_ANNOTATION_PROGRESS_AT: str(int(datetime.now(UTC).timestamp()))
         },
@@ -585,6 +590,117 @@ def _runs(api: ClusterJobs, label: str) -> bool:
     return any(job.state is JobState.RUNNING for job in jobs)
 
 
+def _collect_running_change_sets(
+    active_jobs: list[ClusterJob],
+    store: RoadmapStore,
+    planned: PlannedChanges,
+    source: Path | str,
+) -> tuple[set[int], list[frozenset[str]]]:
+    running_items: set[int] = set()
+    running_change_sets: list[frozenset[str]] = []
+    for job in active_jobs:
+        item_text = job.labels.get(ITEM_LABEL, "")
+        if not item_text.isdigit():
+            continue
+        n = int(item_text)
+        running_items.add(n)
+        item = store.item(n)
+        branch = item.job_record.get(StageRecordKey.BRANCH) if item else None
+        rev = f"origin/{branch}" if branch else f"origin/{planned.default}"
+        try:
+            r_files = tree_files(Path(source), rev, operation=GIT_OPERATION)
+            tasks_text = tasks_at(Path(source), rev, n, operation=GIT_OPERATION)
+            running_change_sets.append(change_files(tasks_text, files=r_files))
+        except GitOperationError, FileNotFoundError, ValueError, KeyError:
+            running_change_sets.append(frozenset())
+    return running_items, running_change_sets
+
+
+def _change_folder_for_target(
+    source: Path | str, planned: PlannedChanges, target: ImplementTarget
+) -> Path | None:
+    if target.planned and target.item.number in planned.active:
+        return Path(source) / "openspec" / "changes" / planned.active[target.item.number]
+    if not target.planned:
+        return (
+            Path(source)
+            / "openspec"
+            / "changes"
+            / f"{target.item.number}-{target.branch.split('-', 1)[-1]}"
+        )
+    return None
+
+
+def _target_change_files(
+    source: Path | str, planned: PlannedChanges, target: ImplementTarget
+) -> frozenset[str]:
+    rev = f"origin/{planned.default if target.planned else target.branch}"
+    change_folder = _change_folder_for_target(source, planned, target)
+    try:
+        r_files = tree_files(Path(source), rev, operation=GIT_OPERATION)
+        tasks = tasks_at(Path(source), rev, target.item.number, operation=GIT_OPERATION)
+        return change_files(tasks, change_path=change_folder, files=r_files)
+    except GitOperationError, FileNotFoundError, ValueError, KeyError:
+        return frozenset()
+
+
+def _select_disjoint_targets(
+    targets: Iterable[ImplementTarget],
+    slots: int,
+    running_items: set[int],
+    running_change_sets: list[frozenset[str]],
+    planned: PlannedChanges,
+    source: Path | str,
+) -> tuple[list[ImplementTarget], int | None]:
+    selected_targets: list[ImplementTarget] = []
+    selected_change_sets: list[frozenset[str]] = []
+    left_number: int | None = None
+
+    for target in targets:
+        if len(selected_targets) >= slots:
+            break
+        if target.item.number in running_items:
+            continue
+        if claimed_by(target.item) in ("agent", "human"):
+            if left_number is None:
+                left_number = target.item.number
+            continue
+
+        c_files = _target_change_files(source, planned, target)
+        if any(conflicts(c_files, r_set) for r_set in running_change_sets):
+            continue
+        if any(conflicts(c_files, s_set) for s_set in selected_change_sets):
+            continue
+
+        selected_targets.append(target)
+        selected_change_sets.append(c_files)
+        if not c_files:
+            break
+
+    return selected_targets, left_number
+
+
+def _submit_selected_targets(
+    store: RoadmapStore,
+    api: ClusterJobs,
+    repo: str,
+    selected_targets: list[ImplementTarget],
+    label: str,
+    source: Path | str,
+    planned: PlannedChanges,
+    left_number: int | None,
+) -> tuple[list[str], int | None]:
+    created_jobs: list[str] = []
+    for target in selected_targets:
+        size = _size_of(source, planned, target)
+        created_name = _create(store, api, repo, target, label, size)
+        if created_name is not None:
+            created_jobs.append(created_name)
+        elif left_number is None:
+            left_number = target.item.number
+    return created_jobs, left_number
+
+
 def run_implement_round(
     store: RoadmapStore, *, repo: str, source: Path | str, jobs: ClusterJobs | None = None
 ) -> SubmitResult:
@@ -612,16 +728,28 @@ def run_implement_round(
         store, planned=planned, digest=partial(api.template_digest, RUNNER_TEMPLATE)
     )
     failed = (*swept, *closed, *stops.failed)
-    if any(job.state is JobState.RUNNING for job in held.values()):
+    active_jobs = [job for job in held.values() if job.state is JobState.RUNNING]
+    if any(job.started is None for job in active_jobs):
         return SubmitResult(
             reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
         )
+    max_parallel = load_settings().roadmap.implement.max_parallel_jobs
+    free_model = model_slots(api).for_new
+    if len(active_jobs) >= max_parallel or free_model <= 0:
+        return SubmitResult(
+            reported=reported, waiting=True, status_failed=failed, cleared=stops.cleared
+        )
+
+    running_items, running_change_sets = _collect_running_change_sets(
+        active_jobs, store, planned, source
+    )
+
     plan = plan_implement(
         store,
         repo=repo,
         source=source,
         filters=parse_implement_filters(()),
-        limit=DEFAULT_ROADMAP_IMPLEMENT_LIMIT,
+        limit=max_parallel + len(active_jobs),
         planned=planned,
     )
     needs_fix = _note_needs_fix(store, plan)
@@ -629,7 +757,11 @@ def run_implement_round(
         return SubmitResult(
             reported=reported, status_failed=failed, cleared=stops.cleared, needs_fix=needs_fix
         )
-    if _runs(api, label) or model_slots(api).for_new <= 0:
+
+    latest_jobs = api.list_jobs({CONST_ROADMAP_IMPLEMENT_JOB_LABEL: label})
+    latest_active = [job for job in latest_jobs if job.state is JobState.RUNNING]
+    free_slots = min(max_parallel - len(latest_active), model_slots(api).for_new)
+    if any(job.started is None for job in latest_active) or free_slots <= 0:
         return SubmitResult(
             reported=reported,
             waiting=True,
@@ -637,14 +769,19 @@ def run_implement_round(
             cleared=stops.cleared,
             needs_fix=needs_fix,
         )
-    number = plan.selected[0].item.number
-    size = _size_of(source, planned, plan.selected[0])
-    created = _create(store, api, repo, plan.selected[0], label, size)
+    selected_targets, left_number = _select_disjoint_targets(
+        plan.selected, free_slots, running_items, running_change_sets, planned, source
+    )
+    created_jobs, left_number = _submit_selected_targets(
+        store, api, repo, selected_targets, label, source, planned, left_number
+    )
+
     failed = (*closed, *stops.failed, *sync_statuses(store, repo=repo, planned=planned).failed)
     return SubmitResult(
         reported=reported,
-        created=created,
-        left=number if created is None else None,
+        waiting=not created_jobs and bool(active_jobs),
+        created=tuple(created_jobs),
+        left=left_number,
         status_failed=failed,
         cleared=stops.cleared,
         effort=plan.effort,

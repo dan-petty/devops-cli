@@ -16,16 +16,16 @@ The job SHALL run a step only when the setting `roadmap.implement.in_runner` is 
 - **WHEN** `apply_implement` runs with `roadmap.implement.in_runner` false
 - **THEN** it raises `RoadmapImplementError` that names `roadmap.implement.in_runner`, the model is not asked, and no git command and no GitHub request runs
 
-### Requirement: The Service submits one implement Job per repository at a time
-The status lane of the Service SHALL have a row `implement` after the row `metrics`, due every ten minutes and on a first run, that runs in the job clone of the lane. A round SHALL list the Jobs that carry the label of the repository, and SHALL create no Job while one of them has not ended. Else it SHALL plan the Staged and Planned items that the default filter names, and create one Job from CronJob `devops-cli-runner` for the first of them. The Service SHALL run no step itself.
+### Requirement: The Service submits implement Jobs for the disjoint items of one repository
+The status lane of the Service SHALL have a row `implement` after `metrics`, due every ten minutes and on a first run. It runs in the job clone. A round SHALL count the Jobs with the repository label that have not ended, against the setting `roadmap.implement.max_parallel_jobs`. It SHALL plan the Staged and Planned items of the default filter up to the free slots. It creates one Job for each from CronJob `devops-cli-runner`, in plan order. The Service SHALL run no step itself.
 
 #### Scenario: A Staged low-effort P1 bug
 - **WHEN** the Kubernetes API is faked with CronJob `devops-cli-runner`, and a round of the row runs on a Staged Ready P1 bug of low effort
 - **THEN** the API receives one Job create, and a second round with the Job still running creates no second Job
 
 #### Scenario: A running Job of another item
-- **WHEN** a Job of the repository has no Complete or Failed condition, and a second Staged item is ready
-- **THEN** the round creates no Job
+- **WHEN** a Job of the repository has no Complete or Failed condition and carries the item label of one item, a second Staged item is ready with a disjoint change set, and the setting is 2
+- **THEN** the round creates one Job, for the second item
 
 #### Scenario: The template is missing
 - **WHEN** CronJob `devops-cli-runner` does not exist
@@ -338,3 +338,21 @@ The round SHALL comment on the item only for a Job whose runner left no result, 
 #### Scenario: A Job whose runner wrote its stop
 - **WHEN** the Job of an item has the condition Failed, and its runner set the item Blocked with `implement.stopped` and `implement.result` equal to `stopped`
 - **THEN** the item gets no comment, and `implement.job_state` is `failed`
+
+### Requirement: The parallel limit is a setting
+The Service SHALL read the setting `roadmap.implement.max_parallel_jobs` as a whole number of at least 1. It SHALL use 1 when the configuration holds no value. The setting SHALL have the default 1 and the variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS`.
+
+#### Scenario: Default limit
+- **WHEN** the configuration holds no value for the parallel limit setting
+- **THEN** the implement round reports a limit of 1 and creates at most one implement Job
+
+#### Scenario: A limit of two
+- **WHEN** the setting is 2 and two eligible items of one repository have disjoint change file sets
+- **THEN** the round creates two implement Jobs
+
+### Requirement: An item with a claim or a labelled Job gets no second Job
+The Service SHALL create no second Job for an item with a claim or a running Job carrying its item label.
+
+#### Scenario: Claimed item
+- **WHEN** an eligible item has a claim or a running Job with its item label
+- **THEN** the round creates no Job for that item and creates the Jobs of the other selected items

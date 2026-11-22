@@ -147,7 +147,7 @@ Taking a Staged or Planned item to a draft pull request with the final title and
 _Avoid_: building, executing
 
 **Runner**:
-The pod of a cluster Job in which the implement job runs its steps. The Service creates the Job from CronJob `devops-cli-runner`, for one Staged or Planned item, and creates no second Job for a repository while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
+The pod of a cluster Job in which the implement job runs its steps. The Service creates one Job for one item from CronJob `devops-cli-runner`. It may create several Jobs for one repository when their change sets are disjoint, and creates no second Job for an item while one runs. The shell of a step checks only the first word of a command and is no security boundary, so the runner is the sandbox: the pod has no Kubernetes token, the installation token of the job names one repository, the step's shell gets none of the job's variables, and the job process is not dumpable. The setting `roadmap.implement.in_runner` says a process is one.
 _Avoid_: agent host, worker
 
 **Unit of work**:

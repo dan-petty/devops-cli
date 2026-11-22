@@ -32,7 +32,7 @@ from devops_cli.config.env import setting_variables
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.github.repo_ref import RepoRef
-from devops_cli.k8s.cluster_job import OWNER_LABEL, REPO_LABEL, RUNNER_TEMPLATE
+from devops_cli.k8s.cluster_job import ITEM_LABEL, OWNER_LABEL, REPO_LABEL, RUNNER_TEMPLATE
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass, failure_lines
 from devops_cli.roadmap.implement.implement import parse_implement_filters, plan_implement
@@ -2193,3 +2193,323 @@ def test_each_ended_job_logs_one_attempt_line_with_its_counts_and_digest(
         f"implement attempt: repo={STAGE_REPO} item=#{number} state=failed class=oom "
         f"repair_rounds=0 tokens=0 digest={DIGEST_A}"
     ]
+
+
+_PARALLEL_TASKS_ONE = """\
+# Tasks
+
+## 1. Group 1
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/foo.py` (new), `tests/test_foo.py` (new).
+
+- [ ] 1.1 Add `src/devops_cli/foo.py`
+  - Verification: `$ uv run devops ci test tests/test_foo.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+"""
+
+_PARALLEL_TASKS_TWO = """\
+# Tasks
+
+## 1. Group 1
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/bar.py` (new), `tests/test_bar.py` (new).
+
+- [ ] 1.1 Add `src/devops_cli/bar.py`
+  - Verification: `$ uv run devops ci test tests/test_bar.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+"""
+
+_PARALLEL_TASKS_SHARED_PATH = """\
+# Tasks
+
+## 1. Group 1
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/foo.py` (new), `tests/test_foo.py` (new).
+
+- [ ] 1.1 Add `src/devops_cli/foo.py`
+  - Verification: `$ uv run devops ci test tests/test_foo.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+"""
+
+_PARALLEL_TASKS_CAP_ONE = """\
+# Tasks
+
+## 1. Group 1
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/foo.py` (new), `tests/test_foo.py` (new), `specs/shared-cap/spec.md` (new).
+
+- [ ] 1.1 Add `src/devops_cli/foo.py`
+  - Verification: `$ uv run devops ci test tests/test_foo.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+"""
+
+_PARALLEL_TASKS_CAP_TWO = """\
+# Tasks
+
+## 1. Group 1
+
+Reads: `CONTEXT.md`. Changes: `src/devops_cli/bar.py` (new), `tests/test_bar.py` (new), `specs/shared-cap/spec.md` (new).
+
+- [ ] 1.1 Add `src/devops_cli/bar.py`
+  - Verification: `$ uv run devops ci test tests/test_bar.py`
+
+## Criteria
+
+- Group 1: The job keeps every comment.
+"""
+
+
+def test_two_disjoint_items_of_one_repository_get_two_jobs(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    push_staged_branch(stage_repo, number=2, tasks=_PARALLEL_TASKS_TWO)
+    n1 = seed_staged(store)
+    n2 = seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+
+    jobs = _jobs(kube)
+    assert len(jobs) == 2
+    item_labels = {job["metadata"]["labels"].get(ITEM_LABEL) for job in jobs}
+    assert item_labels == {str(n1), str(n2)}
+
+
+def test_two_items_that_share_a_path_get_one_job(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    push_staged_branch(stage_repo, number=2, tasks=_PARALLEL_TASKS_SHARED_PATH)
+    n1 = seed_staged(store)
+    seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+
+    jobs = _jobs(kube)
+    assert len(jobs) == 1
+    assert jobs[0]["metadata"]["labels"].get(ITEM_LABEL) == str(n1)
+
+
+def test_two_items_that_share_a_capability_spec_get_one_job(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_CAP_ONE)
+    push_staged_branch(stage_repo, number=2, tasks=_PARALLEL_TASKS_CAP_TWO)
+    n1 = seed_staged(store)
+    seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+
+    jobs = _jobs(kube)
+    assert len(jobs) == 1
+    assert jobs[0]["metadata"]["labels"].get(ITEM_LABEL) == str(n1)
+
+
+def test_running_job_does_not_starve_available_slot(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 1}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    push_staged_branch(stage_repo, number=2, tasks=_PARALLEL_TASKS_TWO)
+    n1 = seed_staged(store)
+    n2 = seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+    assert len(_jobs(kube)) == 1
+    job1 = _jobs(kube)[0]
+    job1["status"] = {"startTime": "2026-11-22T20:00:00Z", "active": 1}
+
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    _round(store, stage_repo)
+    jobs = _jobs(kube)
+    assert len(jobs) == 2
+    item_labels = {job["metadata"]["labels"].get(ITEM_LABEL) for job in jobs}
+    assert item_labels == {str(n1), str(n2)}
+
+
+def test_pending_runner_pod_blocks_new_jobs(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 1}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    push_staged_branch(stage_repo, number=2, tasks=_PARALLEL_TASKS_TWO)
+    seed_staged(store)
+    seed_staged(store, pull=SECOND_PULL)
+
+    _round(store, stage_repo)
+    assert len(_jobs(kube)) == 1
+    job1 = _jobs(kube)[0]
+    job1["status"] = {"active": 1}
+
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    _round(store, stage_repo)
+    assert len(_jobs(kube)) == 1
+
+
+def test_request_budget_and_model_lane_limits_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+
+    from devops_cli.roadmap.implement import implement_run
+    from devops_cli.roadmap.implement.implement_run import _ItemRun
+
+    calls: list[str] = []
+    monkeypatch.setattr(implement_run, "set_model_call_limit", lambda n: calls.append(f"limit:{n}"))
+    monkeypatch.setattr(
+        implement_run, "reset_model_call_limit", lambda: calls.append("reset_limit")
+    )
+    monkeypatch.setattr(
+        implement_run, "install_request_budget", lambda limit: calls.append(f"budget:{limit}")
+    )
+    monkeypatch.setattr(
+        implement_run, "set_request_gate", lambda gate: calls.append(f"gate:{gate}")
+    )
+
+    run = MagicMock(spec=_ItemRun)
+    run.returned = None
+    _ItemRun.execute(run)
+
+    assert "limit:1" in calls
+    assert any(c.startswith("budget:") for c in calls)
+    assert "reset_limit" in calls
+    assert "gate:None" in calls
+
+    run_err = MagicMock(spec=_ItemRun)
+    run_err._start.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        _ItemRun.execute(run_err)
+    assert calls[-2:] == ["reset_limit", "gate:None"]
+
+
+def test_claimed_item_sets_left_and_creates_no_job(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    n1 = seed_staged(store)
+    item1 = store.item(n1)
+    assert item1 is not None
+    store.set_field(item1, ItemField.OWNER, "Human")
+    _round(store, stage_repo)
+    assert len(_jobs(kube)) == 0
+
+
+def test_running_job_without_digit_label_is_ignored(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    api: GitHubApiFake,
+    kube: FakeCluster,
+    config: Callable[..., Path],
+) -> None:
+    config(roadmap={"implement": {"max_parallel_jobs": 2}})
+    push_staged_branch(stage_repo, number=1, tasks=_PARALLEL_TASKS_ONE)
+    n1 = seed_staged(store)
+    _round(store, stage_repo)
+    job1 = _jobs(kube)[0]
+    job1["status"] = {"startTime": "2026-11-22T20:00:00Z", "active": 1}
+    job1["metadata"]["labels"][ITEM_LABEL] = "not-a-digit"
+
+    _round(store, stage_repo)
+    jobs = _jobs(kube)
+    assert len(jobs) == 2
+    assert jobs[1]["metadata"]["labels"].get(ITEM_LABEL) == str(n1)
+
+
+def test_target_change_files_error_returns_frozenset(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+
+    from devops_cli.exceptions.git import GitOperationError
+    from devops_cli.roadmap.implement import implement_submit
+    from devops_cli.roadmap.planned import PlannedChanges
+
+    monkeypatch.setattr(
+        implement_submit,
+        "tree_files",
+        MagicMock(side_effect=GitOperationError("err", operation="test")),
+    )
+    target = MagicMock()
+    target.planned = False
+    target.branch = "feat/1-foo"
+    target.item.number = 1
+    planned = MagicMock(spec=PlannedChanges)
+    res = implement_submit._target_change_files(Path("."), planned, target)
+    assert res == frozenset()
+
+
+def test_collect_running_change_sets_error_returns_frozenset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import MagicMock
+
+    from devops_cli.exceptions.git import GitOperationError
+    from devops_cli.k8s.cluster_job_api import ClusterJob
+    from devops_cli.roadmap.implement import implement_submit
+    from devops_cli.roadmap.planned import PlannedChanges
+
+    job = MagicMock(spec=ClusterJob)
+    job.labels = {ITEM_LABEL: "1"}
+    monkeypatch.setattr(
+        implement_submit,
+        "tree_files",
+        MagicMock(side_effect=GitOperationError("err", operation="test")),
+    )
+    store = MagicMock()
+    store.item.return_value = None
+    planned = MagicMock(spec=PlannedChanges)
+    planned.default = "main"
+    items, sets = implement_submit._collect_running_change_sets([job], store, planned, Path("."))
+    assert items == {1}
+    assert sets == [frozenset()]
+
+
+def test_change_folder_for_target_unplanned() -> None:
+    from unittest.mock import MagicMock
+
+    from devops_cli.roadmap.implement import implement_submit
+    from devops_cli.roadmap.planned import PlannedChanges
+
+    target = MagicMock()
+    target.planned = False
+    target.branch = "feat/1-foo"
+    target.item.number = 1
+    planned = MagicMock(spec=PlannedChanges)
+    folder = implement_submit._change_folder_for_target(Path("/root"), planned, target)
+    assert folder == Path("/root/openspec/changes/1-foo")
