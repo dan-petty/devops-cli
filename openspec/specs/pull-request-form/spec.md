@@ -403,4 +403,19 @@ The open step, the form check of `devops pr create`, the ready check and the pla
 
 #### Scenario: A Closes line with a space at its end
 - **WHEN** a body has a text of 1,000 characters, then `Closes #5020` with a space at its end, and a `Change:` line
-- **THEN** the open step finds one problem, and its text names the missing `Closes` line, not the length
+- **THEN** the open step and the ready check find no problem, and the measured text is the text of 1,000 characters
+
+### Requirement: Each reader takes the marker line by one rule
+The form check of `devops pr create`, the open step, the ready check, the measure of the body limit, the plan check and the grounding of a plan SHALL take a line as the `Closes` line or the `Plans` line by one rule. The rule takes a line that is `Closes #<issue>` or `Plans #<issue>` when the whitespace at its ends is removed. The issue SHALL have ASCII digits only, because GitHub links no other digit. The form check SHALL count each line that the rule takes, so a second such line is a problem.
+
+#### Scenario: A padded Plans line above the Plans line
+- **WHEN** a plan body has a text of 58 characters, then `Plans #5020` with a space at its end, a text of 2,000 characters, the line `Plans #5020` and the `Change:` line
+- **THEN** the plan form check finds one problem, and its text names the single line `Plans #5020`
+
+#### Scenario: A Plans line with whitespace at its ends
+- **WHEN** a plan body has the line `Plans #3215` with a space at its end, or with a tab at its start
+- **THEN** the plan form check, the plan check, the grounding of a plan and the measure each take that line as the `Plans` line
+
+#### Scenario: A Plans line with digits that are not ASCII
+- **WHEN** a plan body has the line `Plans #` with the full-width digits of 3215
+- **THEN** no reader takes that line as the `Plans` line, and the plan form check finds the problem of the missing `Plans` line

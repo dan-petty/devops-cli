@@ -8,6 +8,7 @@ Issue #6735 names four defects that PR #6701 (#6633) left. The open step and the
 
 - `measured_body_text` splits `body.strip()` and ends the text at the first line that is `Closes #<issue>` or `Plans #<issue>` when the whitespace at the ends of the line is removed. The plan check reads the `Plans` line in the same way. It is the one measure of the limit.
 - `body_problems` and `plan_body_problems` give `_text_problems` the text of `measured_body_text`, so the open step, the form check of `devops pr create`, the ready check and the plan check measure one text.
+- One function, `marker_issue`, takes the `Closes` line and the `Plans` line: strip the line, then match the whole line, with ASCII digits only. `measured_body_text`, `_closing_problems`, `plan_body_problems`, `plan_check.issue_number` and `grounding.plan_blockers` use it. Thus a padded `Plans` line above the `Plans` line is a second `Plans` line, and the text below it cannot pass the limit unmeasured.
 - The help text of `devops pr create`, the generated `docs/commands/pr.md` and `docs/commands/gh.md`, and the comment of `BODY_MAX_CHARS` say that the limit measures the text above `Closes`.
 - `tests/roadmap/stage/test_roadmap_stage_plan.py` imports no name of `pull_form` at the top, and its assertion compares with the known text.
 - Two requirements of `pull-request-form` that still say "the body longer than 1,000 characters" say "the text above `Closes`".
@@ -22,12 +23,12 @@ None.
 
 ### Modified Capabilities
 
-- `pull-request-form`: The open step and the ready check measure one text (added), The rules cut no text, devops pr describe refuses and prints nothing, The body ends with Closes and the Change line, The plan body limit measures the text above Plans
+- `pull-request-form`: The open step and the ready check measure one text (added), Each reader takes the marker line by one rule (added), The rules cut no text, devops pr describe refuses and prints nothing, The body ends with Closes and the Change line, The plan body limit measures the text above Plans
 - `roadmap-plan-check`: Plan-check checks the body of the pull request
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/commands/pr.py`
+- Code: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/roadmap/plan_check.py`, `src/devops_cli/roadmap/grounding.py`, `src/devops_cli/commands/pr.py`
 - Documents: `docs/commands/pr.md`, `docs/commands/gh.md`
 - Tests: `tests/roadmap/test_roadmap_pull_form.py`, `tests/roadmap/test_roadmap_plan_check.py`, `tests/roadmap/stage/test_roadmap_stage_plan.py`
 
