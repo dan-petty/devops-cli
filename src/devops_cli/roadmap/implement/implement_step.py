@@ -97,7 +97,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import RoadmapImplementConfig, load_settings
 from devops_cli.core.process import run_subprocess
-from devops_cli.core.process_hardening import end_leftover_processes
 from devops_cli.exceptions.ai_pydantic import LimitReached, OutputCapReached
 from devops_cli.exceptions.roadmap import OverWindowError, RoadmapImplementError
 from devops_cli.lang import MESSAGES
@@ -1399,15 +1398,6 @@ def _tests_failure(source: Path, start: str, recorded: frozenset[str]) -> str | 
     return texts.implement_stop_tests_lost.format(files=_paths_text(files, separator="\n"))
 
 
-def _link_failure(source: Path, files: Sequence[str]) -> str | None:
-    """Why the step stops when one of `files` is a symbolic link, else None. The formatter writes
-    through a link, also to a file outside the checkout, so no tool gets a link."""
-    links = [path for path in files if (source / path).is_symlink()]
-    if not links:
-        return None
-    return MESSAGES.roadmap.implement_stop_link.format(paths=_paths_text(links))
-
-
 def _format_failure(
     source: Path, changed: Sequence[str], trace: ImplementTrace | None = None
 ) -> str | None:
@@ -1418,9 +1408,6 @@ def _format_failure(
     files = _python_files(changed)
     if not files:
         return None
-    link = _link_failure(source, files)
-    if link is not None:
-        return link
     argv = [BIN_UV, "run", BIN_RUFF, "format", "--", *files]
     failure = _command_failure(source, argv, shlex.join(argv), trace=trace)
     if failure is not None:
@@ -1949,7 +1936,7 @@ def _read_discarded_diff(source: Path, start: str, reason: str) -> tuple[str, bo
 def _commit(source: Path, message: str) -> tuple[str, str]:
     """Commit the staged changes. The commit, and why the step stops when git refuses it. The
     hooks of the repository ran as an exit check (`_hooks_failure`). A hook that the agent wrote
-    runs at the commit, and it gets no token."""
+    runs at the commit. The agent phase of a runner Job holds no GitHub token (#3700)."""
     done = _git(source, "commit", "-m", message)
     if done.returncode != 0:
         return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=output_tail(done))
@@ -1957,31 +1944,6 @@ def _commit(source: Path, message: str) -> tuple[str, str]:
 
 
 # ── The step ──────────────────────────────────────────────────────────────────────────────
-
-
-def _end_agent_processes() -> None:
-    """End every process the agent's shell left, in a runner, before the job runs a program that
-    gets the session's token. A `git` or `gh` child holds the token in its environment, and a
-    process of the same user could read it. Raises `RoadmapImplementError` when one survives."""
-    if load_settings().roadmap.implement.in_runner:
-        end_leftover_processes()
-
-
-def _turn(
-    agent: Agent[None, str],
-    model: Any,
-    log: ToolCallLog,
-    message: str,
-    conversation: Conversation | None = None,
-    *,
-    usage_limits: UsageLimits,
-) -> _Run:
-    """One turn of the agent under `usage_limits`. When it ends, so does every process of the
-    agent's shell, before the job runs a program that gets the session's token."""
-    try:
-        return _run_agent(agent, model, log, message, conversation, usage_limits=usage_limits)
-    finally:
-        _end_agent_processes()
 
 
 def _tree(source: Path) -> str:
@@ -2089,7 +2051,7 @@ def _extra_turn(
     limit ended, and a change that `ask` does not allow, give a failure that gets no more turns."""
     tree = _tree(source)
     run = first.then(
-        _turn(
+        _run_agent(
             agent,
             model,
             log,
@@ -2331,7 +2293,7 @@ def _attempt(
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _turn(agent, tier_model, log, message, usage_limits=usage_limits)
+            run = _run_agent(agent, tier_model, log, message, usage_limits=usage_limits)
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)

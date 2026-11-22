@@ -5,8 +5,7 @@ patch is the only data that goes from it to `publish`, so its format does not de
 of the clone or of the home folder: the flags turn off an external diff program, a textconv
 driver and color, and fix the context lines to 3 and the path prefixes. `git add -A` stages every
 file of the checkout, so a commit of a fixer and a file that no commit holds are both in the
-patch. The phase ends its
-leftover processes before it writes the patch (`end_leftover_processes`, in a runner).
+patch.
 """
 
 from __future__ import annotations

@@ -564,17 +564,19 @@ def _one_container_job() -> dict[str, Any]:
     )
 
 
-def check_the_one_container_of_the_old_template_is_admitted_only_on_an_update() -> None:
-    """The Service patches the deadline of a Job that runs, so during the switch an UPDATE admits
-    a Job that the Service made from the template before #3700, and a CREATE does not."""
+def check_the_one_container_of_the_old_template_is_refused_also_on_an_update() -> None:
+    """No running runner Job of the template before #3700 is left in the cluster, and the ended
+    ones go at their TTL. So the policy refuses the one container `runner` on a CREATE and on an
+    UPDATE (#6691)."""
     job = _one_container_job()
-    refused = _refusals(job)
-
-    assert (len(refused), "only an UPDATE" in refused[0], _refusals(job, update=True)) == (
-        1,
-        True,
-        [],
+    shape = (
+        "A runner Job must have the init containers prepare and agent and the container publish."
     )
+
+    assert [
+        any(message.endswith(shape) for message in refused)
+        for refused in (_refusals(job), _refusals(job, update=True))
+    ] == [True, True]
 
 
 def check_the_job_of_every_row_of_the_size_table_passes_also_with_a_raised_memory_limit() -> None:
@@ -944,26 +946,8 @@ ENV_FROM_SECRET = {"secretRef": {"name": "devops-cli"}}
 
 
 def _env_from_refused(refusals: list[str]) -> bool:
-    """True when the envFrom rule alone refuses, with its whole message: YAML ends a plain scalar
-    at ` #`, so a message cut there does not end with the name of the Secret."""
-    return (
-        len(refusals) == 1
-        and refusals[0].startswith("A Job must not use envFrom")
-        and refusals[0].endswith("envFrom of Secret devops-cli.")
-    )
-
-
-def check_a_runner_job_with_env_from_is_refused_on_create_and_admitted_only_on_update() -> None:
-    """A runner Job that the Service made from the template before #6518 takes the whole Secret
-    with `envFrom`. The Service still patches such a Job (its deadline, its resume), so the policy
-    admits `envFrom` of Secret devops-cli on an UPDATE. A Job keeps its pod template, so an UPDATE
-    cannot add `envFrom`, and the policy refuses it on a CREATE."""
-    made_before = _changed(_drop_secret_keys, _set_env_from(ENV_FROM_SECRET))
-
-    assert (_env_from_refused(_refusals(made_before)), _refusals(made_before, update=True)) == (
-        True,
-        [],
-    )
+    """True when the envFrom rule alone refuses, with its whole message."""
+    return refusals == ["A Job must not use envFrom."]
 
 
 def check_the_plain_env_names_of_a_stage_job_are_those_of_the_template_and_the_service() -> None:
@@ -1208,6 +1192,10 @@ def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
     "job",
     [
         pytest.param(
+            lambda: _changed(_drop_secret_keys, _set_env_from(ENV_FROM_SECRET)),
+            id="runner-the-secret",
+        ),
+        pytest.param(
             lambda: _changed(_drop_secret_keys, _set_env_from({"secretRef": {"name": "x"}})),
             id="runner-other-secret",
         ),
@@ -1219,13 +1207,21 @@ def check_a_planner_job_with_a_key_of_the_secret_is_refused(key: str) -> None:
         pytest.param(lambda: _with_env_from(_planner_job(), ENV_FROM_SECRET), id="planner"),
     ],
 )
-def check_an_update_with_env_from_is_refused_but_of_a_runner_job_with_the_secret(
+def check_a_job_with_env_from_is_refused_on_create_and_on_update(
     job: Callable[[], dict[str, Any]],
 ) -> None:
-    """Only a runner Job made before #6518 has `envFrom`, and only of Secret devops-cli. So the
-    policy refuses `envFrom` in the UPDATE of a stage Job or a planner run Job, and `envFrom` of a
-    ConfigMap or of another Secret in the UPDATE of a runner Job."""
-    assert _env_from_refused(_refusals(job(), update=True))
+    """No runner Job made before #6518, which took the whole Secret with `envFrom`, is left in the
+    cluster (#6691). So the policy refuses `envFrom` in the CREATE and in the UPDATE of each Job:
+    of Secret devops-cli, of another Secret and of a ConfigMap."""
+    made = job()
+
+    assert (
+        _env_from_refused(_refusals(made)),
+        _env_from_refused(_refusals(made, update=True)),
+    ) == (
+        True,
+        True,
+    )
 
 
 def _with_env_from(job: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:

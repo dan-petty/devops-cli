@@ -78,7 +78,7 @@ Before any push of a resolved branch, the step SHALL run `openspec validate --sp
 - **THEN** `openspec validate --specs --strict` runs before `git push`
 
 ### Requirement: Tier 1 runs only in a runner Job
-Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the step `fix-conflict` SHALL rebase, run tier 1 and push only with `--confirm`. The command SHALL clear the dumpable flag of its process and adopt orphans first, and then accept `--confirm` only in a runner Job (`require_runner`), or in the agent phase of one (`require_agent_runner`). Without `--confirm` the step SHALL return `planned`, and SHALL run no code of the checkout, push nothing and write no record.
+Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the step `fix-conflict` SHALL rebase, run tier 1 and push only with `--confirm`. The command SHALL clear the dumpable flag of its process first, and then accept `--confirm` only in a runner Job (`require_runner`), or in the agent phase of one (`require_agent_runner`). Without `--confirm` the step SHALL return `planned`, and SHALL run no code of the checkout, push nothing and write no record.
 
 #### Scenario: Without --confirm the step gives its plan
 - **WHEN** the step runs without `--confirm` on a bot pull request that conflicts with the default branch
@@ -94,7 +94,7 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 
 #### Scenario: A confirmed round hardens its process first
 - **WHEN** the command runs with `--confirm` in a runner Job
-- **THEN** it calls `deny_environment_reads`, then `adopt_orphans`, then the runner check, and only then the step
+- **THEN** it calls `deny_environment_reads`, then the runner check, and only then the step
 
 ### Requirement: The plan says what a confirmed round does
 Without `--confirm`, the reason of the plan SHALL sort the conflicted paths with the classification that the round uses. It SHALL name a stop when `roadmap.fix_conflict.tier1_mode` is not `on`, when `release_conflict` holds, or when a path is no archive, generated document or lockfile path.

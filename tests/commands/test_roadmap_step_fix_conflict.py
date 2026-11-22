@@ -53,7 +53,6 @@ def test_confirm_outside_a_runner_job_runs_no_step(
     from devops_cli.roadmap.steps import fix_conflict
 
     monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: None)
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: None)
     seen: list[str] = []
     monkeypatch.setattr(fix_conflict, "run_fix_conflict", lambda *_, **__: seen.append("step"))
 
@@ -69,8 +68,8 @@ def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_s
     cli: Cli, roadmap_store: InMemoryRoadmapStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Tier 1 runs code of the pull request as the user of the Job, so the Job clears its dumpable
-    flag and adopts the orphans of that code first, then checks that it is a runner, as the
-    fix-checks Job does. The spies replace the kernel calls, which would change the test run."""
+    flag first, then checks that it is a runner, as the fix-checks Job does. The spy replaces the
+    kernel call, which would change the test run."""
     from devops_cli.core import process_hardening
     from devops_cli.roadmap.implement import implement_run
     from devops_cli.roadmap.steps import fix_conflict
@@ -81,7 +80,6 @@ def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_s
     monkeypatch.setattr(
         process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
     )
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
 
     def step(*_: Any, **kwargs: Any) -> FixConflictReport:
         seen.append(f"step confirm={kwargs['confirm']}")
@@ -94,7 +92,7 @@ def test_a_confirmed_round_in_a_runner_makes_its_process_unreadable_before_the_s
     )
 
     assert result.exit_code == 0
-    assert seen == ["unreadable", "orphans", "runner", "step confirm=True"]
+    assert seen == ["unreadable", "runner", "step confirm=True"]
 
 
 @pytest.mark.parametrize(
@@ -114,9 +112,9 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_the_phase(
     runs: str,
     runner: str,
 ) -> None:
-    """Each phase of a confirmed round clears its dumpable flag and adopts orphans first. The agent
-    phase checks that it holds no App key, and the other phases that they act as the App, as the
-    phases of fix-checks do (#6703)."""
+    """Each phase of a confirmed round clears its dumpable flag first. The agent phase checks that
+    it holds no App key, and the other phases that they act as the App, as the phases of
+    fix-checks do (#6703)."""
     from devops_cli.core import process_hardening
     from devops_cli.roadmap.implement import implement_run
     from devops_cli.roadmap.steps import fix_conflict_phases
@@ -127,7 +125,6 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_the_phase(
     monkeypatch.setattr(
         process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
     )
-    monkeypatch.setattr(process_hardening, "adopt_orphans", lambda: seen.append("orphans"))
     monkeypatch.setattr(fix_conflict_phases, runs, lambda *_, **__: seen.append("phase"))
 
     result = cli(
@@ -146,7 +143,7 @@ def test_each_confirmed_phase_makes_its_process_unreadable_before_the_phase(
     )
 
     assert result.exit_code == 0, result.output
-    assert seen == ["unreadable", "orphans", runner, "phase"]
+    assert seen == ["unreadable", runner, "phase"]
 
 
 @pytest.mark.parametrize("phase", ["agent", "publish"])

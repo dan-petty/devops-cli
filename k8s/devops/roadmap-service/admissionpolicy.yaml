@@ -21,8 +21,7 @@
 # containers `prepare` and `agent` and the container `publish`. Only `prepare` and `publish` read
 # the App key, only `agent` reads the model key, `agent` mounts neither the state folder nor a
 # home of the other two, and `publish` mounts the run folder read only. No container restarts in
-# the pod, and the pod shares no process namespace. An UPDATE admits the one container of the
-# template before #3700, because the Service patches the deadline of a Job that runs.
+# the pod, and the pod shares no process namespace.
 # The CPU and the memory request of `agent` are a row of the size table of the Service
 # (`RUNNER_SIZES` in src/devops_cli/roadmap/implement/implement_size.py, #3193); a gate check holds the two
 # equal. `prepare` and `publish` have one small fixed row. The memory limit is not pinned, because the setting `roadmap.implement.max_memory_limit`
@@ -85,12 +84,12 @@ spec:
         (size(object.spec.template.spec.containers) == 1 &&
         (!has(object.spec.template.spec.initContainers) ||
         size(object.spec.template.spec.initContainers) == 0) &&
-        (variables.stage || variables.planner || request.operation == "UPDATE")) ||
+        (variables.stage || variables.planner)) ||
         (!variables.stage && !variables.planner &&
         has(object.spec.template.spec.initContainers) &&
         object.spec.template.spec.initContainers.map(c, c.name) == ["prepare", "agent"] &&
         object.spec.template.spec.containers.map(c, c.name) == ["publish"])
-      message: A stage Job and a planner run Job must have one container and no init container. A runner Job must have the init containers prepare and agent and the container publish, and only an UPDATE may keep the one container of the template before issue 3700.
+      message: A stage Job and a planner run Job must have one container and no init container. A runner Job must have the init containers prepare and agent and the container publish.
       reason: Forbidden
     # A container that restarts runs at the same time as another one (a native sidecar), or runs
     # `publish` again, which pushes and comments twice.
@@ -164,16 +163,10 @@ spec:
       message: The pod must set automountServiceAccountToken to false, so that it has no token.
       reason: Forbidden
     # A Job takes no envFrom: a stage Job and a runner Job read their keys of the Secret with
-    # valueFrom (#6518). A runner Job that the Service made from the template before #6518 names
-    # Secret devops-cli in envFrom, and the Service still patches it (its deadline, its resume). A
-    # Job keeps its pod template, so an UPDATE cannot add envFrom: the policy admits envFrom of
-    # Secret devops-cli in an UPDATE of a runner Job and nowhere else.
+    # valueFrom (#6518).
     - expression: >-
-        variables.containers.all(c, !has(c.envFrom) ||
-        (request.operation == "UPDATE" && !variables.stage && !variables.planner &&
-        c.envFrom.all(e, has(e.secretRef) && !has(e.configMapRef) &&
-        e.secretRef.name == "devops-cli")))
-      message: A Job must not use envFrom, but an UPDATE of a runner Job that has the old template (before issue 6518) may keep envFrom of Secret devops-cli.
+        variables.containers.all(c, !has(c.envFrom))
+      message: A Job must not use envFrom.
       reason: Forbidden
     # `valueFrom` reads one key of any Secret, which `envFrom` does not allow. A stage Job and a
     # runner Job (#6518) read the keys of `CONST_ROADMAP_STAGE_JOB_SECRET_KEYS`, each in the

@@ -13,8 +13,8 @@ pushes the commits of the bot, writes the comments and the record, and sets the 
 step's shell checks the first word of a command and is no security boundary, so the pod of a
 runner Job is the sandbox. The job clears the dumpable flag of its own process, so that the shell,
 a child of the same user, cannot read the job's environment (#2667). Every `git` command and every
-model call of the agent phase runs in this process, never in the agent's shell. The job ends every
-process of a step when the step ends.
+model call of the agent phase runs in this process, never in the agent's shell. The runner Job runs
+the agent phase in its own container, with the model key and no GitHub credential (#3700).
 
 **One item.** The agent phase rebases the branch onto the tip of the default branch that `prepare`
 recorded, and settles each stop of the rebase as a developer does: it skips an archive commit,
@@ -70,7 +70,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import acts_as_github_app, run_subprocess
-from devops_cli.core.process_hardening import adopt_orphans, deny_environment_reads
+from devops_cli.core.process_hardening import deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubUnauthenticatedError,
@@ -1427,14 +1427,12 @@ def apply_implement(
     is reported while the others still run. Rejected GitHub or model credentials stop the run.
     Raises `RoadmapImplementError` before anything runs unless the process is a runner Job for
     the plan's repository (`require_runner`). It then makes its own process unreadable by the shell
-    of an agent, which runs as the same user (`deny_environment_reads`), and adopts the orphans of a
-    step (`adopt_orphans`). `prepare` makes a new clone for each item, so `source`, the clone of the
-    plan, holds no work of an agent."""
+    of an agent, which runs as the same user (`deny_environment_reads`). `prepare` makes a new clone
+    for each item, so `source`, the clone of the plan, holds no work of an agent."""
     from devops_cli.roadmap.implement.implement_phases import AgentTools, implement_round
 
     require_runner(plan.repo)
     deny_environment_reads()
-    adopt_orphans()
     del source
     tools = AgentTools(model, window, model_for_tier, splitter, rewriter, rebase)
     ended: dict[ImplementResult, list[int]] = {kind: [] for kind in ImplementResult}

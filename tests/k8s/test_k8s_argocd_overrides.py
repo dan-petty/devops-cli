@@ -10,7 +10,7 @@ import pytest
 import yaml
 from syrupy.assertion import SnapshotAssertion
 
-from devops_cli.core.process import git_reaches_remote, run_subprocess
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.argocd_overrides import (
     ApplicationSource,
@@ -383,17 +383,16 @@ def test_a_private_github_repository_is_fetched_with_the_credential_of_the_githu
 ) -> None:
     """An Application can name a private repository on github.com (#5294). The fetch names no
     credential helper: git reads the helper that the devcontainer or the image configures,
-    `gh auth git-credential`. The fetch reaches a remote, so the process runner gives it the
-    session's token as GH_TOKEN, which that helper reads (#6653)."""
+    `gh auth git-credential`. The process runner gives each git child the session's token as
+    GH_TOKEN, which that helper reads (#6653, #6691)."""
     source = ApplicationSource("https://github.com/example/private-repository", "main", "k8s/app")
     started = _started_commands(source, tmp_path / "work")
 
     fetch = next(cmd for cmd, _ in started if "fetch" in cmd)
     assert (
         [value for value in _config_before_subcommand(fetch, "fetch") if "credential" in value],
-        git_reaches_remote(fetch[1:]),
         fetch[-2:],
-    ) == ([], True, [source.repo_url, source.revision])
+    ) == ([], [source.repo_url, source.revision])
 
 
 @pytest.mark.parametrize(

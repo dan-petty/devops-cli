@@ -234,8 +234,8 @@ IMPLEMENT_SHELL_PROGRAMS: tuple[str, ...] = tuple(program.name for program in SH
 IMPLEMENT_ALLOWED_PROGRAMS: tuple[str, ...] = (*IMPLEMENT_SHELL_PROGRAMS, *VERIFICATION_PROGRAMS)
 # The first words of a verification command other than the `!` of a negative search. git is not
 # one: the step runs a verification command in the checkout, where git reads the configuration that
-# the agent can write, and the process runner gives a git call that reaches a remote the token
-# (GHSA). So a verification command runs git only as the negative search, which reaches no remote.
+# the agent can write, and the process runner gives each git call the token of the process (GHSA).
+# So a verification command runs git only as the negative search, which reaches no remote.
 VERIFICATION_FIRST_WORDS: tuple[str, ...] = tuple(
     name for name in IMPLEMENT_ALLOWED_PROGRAMS if name != BIN_GIT
 )

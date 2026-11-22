@@ -16,6 +16,9 @@ from devops_cli.output import print_error, write_stdout
 if TYPE_CHECKING:
     from devops_cli.roadmap.steps.review import Withdraw
 
+# The operation that a failed git call of the withdraw names.
+_OPERATION = "roadmap.step.review"
+
 
 def _repository(repo: str | None) -> str:
     """`--repo`, or the origin of the checkout, which reads no network."""
@@ -33,13 +36,14 @@ def job_withdraw(repo: str, source: Path | None) -> Withdraw:
     a call that ends an earlier discard can run it again (#6024)."""
 
     def withdraw(branch: str, lease: str) -> None:
-        from devops_cli.roadmap.implement.git_isolation import OriginGit, origin_url
+        from devops_cli.roadmap.clone_git import git
         from devops_cli.roadmap.run import model_clone
 
         clone = source or model_clone(repo)
-        origin = OriginGit(clone, origin_url(clone))
-        if origin.heads(branch):
-            origin.push(branch, None, lease=lease)
+        ref = f"refs/heads/{branch}"
+        if git(clone, "ls-remote", "--heads", "origin", ref, operation=_OPERATION):
+            lease_on = f"--force-with-lease={ref}:{lease}"
+            git(clone, "push", "--quiet", lease_on, "origin", f":{ref}", operation=_OPERATION)
 
     return withdraw
 

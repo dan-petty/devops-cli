@@ -11,8 +11,7 @@ The phases work the issue branch as a developer does, on the run folder of `road
   rebase choice.
 - `agent` (no GitHub credential) reads its inputs, rebases onto the base and settles each stop as a
   developer does, runs the steps of the open groups, the documents, the archive and the scoped
-  checks, and writes the why of the body. It ends its leftover processes and writes the patches
-  from the base: `work.patch` up to the archive commit, `archive.patch` with the archive commit
+  checks, and writes the why of the body. It writes the patches from the base: `work.patch` up to the archive commit, `archive.patch` with the archive commit
   alone and `after.patch` with the commits after it, so the archive stays its own commit. `outcome.json` holds the end of the run (done, returned,
   question or stopped) and the data of the run for the writes of `publish`.
 - `publish` (App token, no code of the pull request) reads the outputs as data, masks each text of
@@ -59,7 +58,6 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core import process_hardening
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import (
     DevOpsCLIError,
@@ -532,8 +530,6 @@ def agent_implement(folders: RunFolders, tools: AgentTools) -> None:
     outcome, push = _agent_outcome(run)
     if push and outcome.kind is not OutcomeKind.DONE:
         run._drop_uncommitted()
-    if load_settings().roadmap.implement.in_runner:
-        process_hardening.end_leftover_processes()
     out = folders.make_out()
     patches = [out / name for name in _PATCH_FILES]
     if push:

@@ -812,8 +812,8 @@ def _with_pull_request_code(
 ) -> list[list[str]]:
     """Run the step against `pull`: GitHub gives its status, each `uv` process is the code of the
     pull request, `openspec archive` moves the change folder and `openspec validate` gives
-    `valid`. git runs for real through the process runner, which gives the token to each git child
-    that reaches a remote. The list holds each `uv` process."""
+    `valid`. git runs for real through the process runner, which gives the token to each git
+    child. The list holds each `uv` process."""
     ran: list[list[str]] = []
 
     def archive(cwd: Path) -> None:

@@ -1256,9 +1256,8 @@ CONST_GIT_GITHUB_CREDENTIAL_CONFIG: Final[tuple[str, ...]] = (
 """The `git -c` values that make git get a github.com credential from `gh auth git-credential`,
 which reads the GH_TOKEN that the process runner pins on a git child (#5162). The empty value
 first clears the helpers of the config files. Only the git calls that read no config file use
-them: the network calls of the implement job (`CONST_GIT_TOKEN_CALL_CONFIG`) and `git_call` of
-`publish`. Each other git child reads the helper that the devcontainer or the image configures
-(#6653)."""
+them: `git_call` of `prepare` and `publish`. Each other git child reads the helper that the
+devcontainer or the image configures (#6653)."""
 CONST_GIT_CONFIG_ENV_PATTERNS: Final[tuple[str, ...]] = (
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_KEY_*",
@@ -1272,7 +1271,7 @@ CONST_GIT_ISOLATED_CONFIG_ENV: Final[Mapping[str, str]] = MappingProxyType(
 )
 """The two git keys that `build_subprocess_env` accepts from a caller, each with this value only.
 Each turns a configuration file off (the global file and `/etc/gitconfig`), and neither names a
-program or a file that git reads. The network git calls of the implement job set both (GHSA)."""
+program or a file that git reads. The git calls of `prepare` and `publish` set both (GHSA)."""
 CONST_GIT_LOCAL_ONLY_ENV: Final[Mapping[str, str]] = MappingProxyType(
     {"GIT_ALLOW_PROTOCOL": "file", "GIT_SSH_COMMAND": "false"}
 )
@@ -1319,35 +1318,10 @@ address, and reads no `/etc/gitconfig`."""
 CONST_KUBECTL_ERROR_PREFIX: Final[str] = "error: "
 """The prefix of the error that kubectl prints when a command fails. A warning of Kustomize can
 come before it on stderr (#6681)."""
-CONST_GIT_NETWORK_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
-    {"push", "fetch", "pull", "ls-remote", "clone"}
-)
-"""The git subcommands that reach a remote. Only such a child gets the session's token (GHSA)."""
-CONST_GIT_REMOTE_NETWORK_ACTIONS: Final[frozenset[str]] = frozenset(
-    {"set-head", "show", "update", "prune"}
-)
-"""The actions of `git remote` that can reach the remote (git-remote(1))."""
-CONST_GIT_VALUE_OPTIONS: Final[frozenset[str]] = frozenset(
-    {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--attr-source"}
-)
-"""The global options of git that take the next word as their value (git.c `handle_options`)."""
 CONST_GIT_NO_EDITOR_CONFIG: Final[str] = "core.editor=true"
 """The `git -c` value that makes git keep each commit message as it is, as `git rebase --continue`
 needs with no terminal. It is an argument, because the guard of `build_subprocess_env` refuses
 `GIT_EDITOR`."""
-CONST_GIT_TOKEN_CALL_CONFIG: Final[tuple[str, ...]] = (
-    "credential.helper=",
-    *CONST_GIT_GITHUB_CREDENTIAL_CONFIG,
-    "core.hooksPath=/dev/null",
-    "gc.auto=0",
-    "maintenance.auto=false",
-)
-"""The `git -c` values of a network git call of the implement job (GHSA). The empty helper clears
-every helper before the trusted one, and no hook runs. The git folder of the call shares the
-objects of the clone, so git packs and prunes nothing from it."""
-CONST_GIT_SHALLOW_FILE: Final[str] = "shallow"
-"""The file of a git folder that names the commits whose parents a shallow clone does not hold
-(gitrepository-layout(5))."""
 CONST_GIT_ACCEPTED_ENV: Final[frozenset[str]] = frozenset(
     {
         "GIT_TERMINAL_PROMPT",
@@ -1637,18 +1611,8 @@ CONST_CI_WORKFLOW_FILE = "ci.yml"
 CONST_GIT_CLI = "git"
 CONST_GH_AUTH_SUBCOMMAND = "auth"
 # The variable gh and `gh auth git-credential` read the token from first; the session pins it on
-# each git child that reaches a remote (#767).
+# each gh and git child (#767).
 CONST_GH_AUTH_ENV_VAR = "GH_TOKEN"
-# The variables and files of gh's own configuration folder. A gh child of the process runner gets a
-# new private folder whose `hosts.yml` holds the session's token, and no token in its environment:
-# gh gives its environment to a `--jq` filter (GHSA).
-CONST_GH_CONFIG_DIR_ENV: Final[str] = "GH_CONFIG_DIR"
-CONST_GH_HOST_ENV: Final[str] = "GH_HOST"
-CONST_GH_HOSTS_FILE: Final[str] = "hosts.yml"
-CONST_GH_CONFIG_FILE: Final[str] = "config.yml"
-CONST_GH_PRIVATE_CONFIG_DIRNAME: Final[str] = "gh-config"
-# The prefix of the private gh configuration folder of one call in the temp folder of the system.
-CONST_GH_TEMP_FOLDER_PREFIX: Final[str] = "devops-cli-gh-"
 # Every variable gh reads a token from, so a pinned child is given none but the session's.
 CONST_GH_TOKEN_ENV_VARS: Final[tuple[str, ...]] = (CONST_GH_AUTH_ENV_VAR, "GITHUB_TOKEN")
 # Where `gh auth token` finds a stored login: its config directory and the keyring's session bus.

@@ -67,15 +67,6 @@ class RoadmapImplementError(DevOpsCLIError):
     error_code = "ROADMAP_IMPLEMENT_REFUSED"
 
 
-class GitSettingsError(RoadmapImplementError):
-    """Raised when the `shallow` file of the clone of the implement job is a link or is not a
-    regular file. `settings` names the file, and holds no value."""
-
-    def __init__(self, message: str, *, settings: tuple[str, ...]) -> None:
-        self.settings = settings
-        super().__init__(message, details={"settings": ", ".join(settings)[:256]})
-
-
 class PhaseOutputError(RoadmapImplementError):
     """Raised when `publish` cannot read an output of the agent phase as data: a link in its path, a
     file that is not a regular file, a file over its size limit, or text that is not the model of

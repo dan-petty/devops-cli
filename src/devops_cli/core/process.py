@@ -4,20 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import errno
 import fnmatch
 import json
 import logging
 import os
-import shutil
 import signal
-import stat
 import subprocess
-import tempfile
 import threading
 import time
-import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -30,25 +25,15 @@ from devops_cli.config.constants import (
     CONST_GH_AUTH_ENV_VAR,
     CONST_GH_AUTH_SUBCOMMAND,
     CONST_GH_CLI,
-    CONST_GH_CONFIG_DIR_ENV,
-    CONST_GH_CONFIG_FILE,
-    CONST_GH_HOST_ENV,
-    CONST_GH_HOSTS_FILE,
     CONST_GH_LOGIN_ENV_VARS,
     CONST_GH_NON_API_COMMANDS,
-    CONST_GH_PRIVATE_CONFIG_DIRNAME,
-    CONST_GH_TEMP_FOLDER_PREFIX,
     CONST_GH_TOKEN_ENV_VARS,
     CONST_GIT_ACCEPTED_ENV,
     CONST_GIT_CLI,
     CONST_GIT_CONFIG_ENV_PATTERNS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_LOCAL_ONLY_ENV,
-    CONST_GIT_NETWORK_SUBCOMMANDS,
-    CONST_GIT_REMOTE_NETWORK_ACTIONS,
-    CONST_GIT_VALUE_OPTIONS,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
-    CONST_GITHUB_HOST,
 )
 from devops_cli.config.defaults import (
     DEFAULT_GH_AUTH_TOKEN_ATTEMPTS,
@@ -71,6 +56,10 @@ from devops_cli.telemetry.instruments import SUBPROCESS_DURATION, emit
 from devops_cli.telemetry.tracer import get_tracer, trace_span
 
 logger = logging.getLogger(__name__)
+
+# How long a child of its own session has to end after the SIGINT of a Ctrl+C, before its group
+# gets SIGKILL: the wait of `subprocess.run` for a child after a Ctrl+C (#6691).
+_SIGINT_WAIT_SECONDS = 0.25
 
 _QUIET_SUBPROCESS_ARGS = frozenset(
     {
@@ -301,10 +290,12 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
 # The process's one GitHub identity (#767): None until a lookup finds a token, then that token.
 # gh's token is kept for the life of the process. A GitHub App's installation token keeps when it
 # expires, and the next call after it comes within DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS of that
-# time mints a new one (ADR 0015). A lookup that finds none is not kept, so the next call looks
-# again (#6671).
+# time mints a new one (ADR 0015). A lookup that finds none is not kept, so the next gh call looks
+# again (#6671). A git child of a person keeps that failed lookup (`_git_lookup_failed`), so a
+# process with no login starts no `gh auth token` before each git call (#6691).
 _github_token: str | None = None
 _github_token_expires_at: datetime | None = None
+_git_lookup_failed = False
 _GITHUB_TOKEN_LOCK = threading.Lock()
 
 
@@ -455,11 +446,27 @@ def github_token() -> str:
     return token
 
 
-def reset_github_token() -> None:
-    """Forget the token, so the next GitHub call looks it up or mints it again."""
-    global _github_token, _github_token_expires_at
+def _git_github_token() -> str:
+    """The session's token for a git child of a person, or "" when there is none. A lookup that
+    finds no token is kept for git for the life of the process, so the next git child starts no
+    lookup; a token that a later gh call finds reaches the next git child (#6671, #6691)."""
+    global _git_lookup_failed
     with _GITHUB_TOKEN_LOCK:
-        _github_token, _github_token_expires_at = None, None
+        if _git_lookup_failed and not _github_token:
+            return ""
+    token = _session_github_token()[0]
+    if not token:
+        with _GITHUB_TOKEN_LOCK:
+            _git_lookup_failed = True
+    return token
+
+
+def reset_github_token() -> None:
+    """Forget the token and a failed lookup, so the next GitHub call looks it up or mints it
+    again."""
+    global _github_token, _github_token_expires_at, _git_lookup_failed
+    with _GITHUB_TOKEN_LOCK:
+        _github_token, _github_token_expires_at, _git_lookup_failed = None, None, False
 
 
 def is_local_gh_command(gh_args: list[str]) -> bool:
@@ -476,232 +483,51 @@ def _github_client_name(cmd: list[str]) -> str | None:
     return name if name in (CONST_GH_CLI, CONST_GIT_CLI) else None
 
 
-def git_reaches_remote(args: Sequence[str]) -> bool:
-    """Whether git's arguments `args` run a subcommand that reaches a remote: a subcommand of
-    `CONST_GIT_NETWORK_SUBCOMMANDS`, or `remote` with an action of
-    `CONST_GIT_REMOTE_NETWORK_ACTIONS`. The global options before the subcommand are skipped, and
-    an option of `CONST_GIT_VALUE_OPTIONS` takes the next word with it. An option that is not known
-    makes its value read as the subcommand, which reaches no remote: such a call gets no token."""
-    words = iter(args)
-    for word in words:
-        if word in CONST_GIT_VALUE_OPTIONS:
-            next(words, None)
-        elif not word.startswith("-"):
-            if word != "remote":
-                return word in CONST_GIT_NETWORK_SUBCOMMANDS
-            action = next((later for later in words if not later.startswith("-")), "")
-            return action in CONST_GIT_REMOTE_NETWORK_ACTIONS
-    return False
-
-
-def _refuse_root(root: Path, reason: str) -> None:
-    raise PermissionError(errno.EACCES, reason, str(root))
-
-
-def _check_private(root: Path) -> None:
-    """Raise `OSError` when `root` is a link, no folder, a folder of another user or a folder that
-    others can read. `lstat` reads the entry itself, so a link in its place is not followed."""
-    held = root.lstat()
-    shared = os.name == "posix" and (held.st_mode & 0o077 or held.st_uid != os.getuid())
-    if not stat.S_ISDIR(held.st_mode) or shared:
-        from devops_cli.lang import MESSAGES
-
-        _refuse_root(root, MESSAGES.config.gh_config_root_not_private)
-
-
-def _check_outside_current_folder(root: Path) -> None:
-    """Raise `OSError` when `root` resolves to the current folder or into it. tempfile uses the
-    current folder, which can be a working tree, when it can write no temp folder, and the runtime
-    fallback of platformdirs is in the temp folder. The root of the file system holds every
-    folder, so it counts as no current folder."""
-    try:
-        current = Path.cwd().resolve()
-    except OSError:
-        return
-    if current.parent != current and root.resolve().is_relative_to(current):
-        from devops_cli.lang import MESSAGES
-
-        _refuse_root(root, MESSAGES.config.gh_config_root_in_current_folder)
-
-
-def _private_root(root: Path) -> Path:
-    """A new folder (mode 0700) in `root`, which is made private when it is missing. Raises
-    `OSError` when `root` cannot be made, or is a link, a folder of another user or a folder that
-    others can read."""
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    _check_private(root)
-    return Path(tempfile.mkdtemp(prefix="gh-", dir=root))
-
-
-def _runtime_folder() -> Path:
-    """A new folder directly in the runtime folder of the user, with no folder of devops-cli
-    between them, so no link below the runtime folder can move it. platformdirs gives the runtime
-    folder (`$XDG_RUNTIME_DIR` when it is a private folder of the user and no link, else its own
-    fallback). Raises `OSError` when the runtime folder is a link, is not private or resolves into
-    the current folder."""
-    import platformdirs
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", platformdirs.RuntimeDirWarning)
-        runtime = Path(platformdirs.user_runtime_path(ensure_exists=True))
-    _check_private(runtime)
-    _check_outside_current_folder(runtime)
-    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX, dir=runtime))
-
-
-def _temp_folder() -> Path:
-    """A new folder (mode 0700) directly in the temp folder of the system (`TMPDIR`). Raises
-    `OSError` when the temp folder resolves into the current folder."""
-    temp = Path(tempfile.gettempdir())
-    _check_outside_current_folder(temp)
-    return Path(tempfile.mkdtemp(prefix=CONST_GH_TEMP_FOLDER_PREFIX, dir=temp))
-
-
-def _data_folder() -> Path:
-    """A new folder in `<data directory>/gh-config`, only when the data directory is absolute: a
-    relative one resolves under the current folder, which can be the working tree of a project."""
-    from devops_cli.config.settings import load_settings
-
-    data = Path(load_settings().data.dir).expanduser()
-    if not data.is_absolute():
-        from devops_cli.lang import MESSAGES
-
-        raise NotADirectoryError(
-            errno.ENOTDIR, MESSAGES.config.gh_config_data_dir_relative, str(data)
-        )
-    return _private_root(data / CONST_GH_PRIVATE_CONFIG_DIRNAME)
-
-
-def _private_gh_folder() -> Path:
-    """A new private folder for the configuration of one gh child: in the runtime folder of the
-    user, else in the temp folder of the system, else in `<data directory>/gh-config` when the data
-    directory is absolute. The runtime and the temp candidates are skipped when they resolve into
-    the current folder, which tempfile uses when it can write no temp folder. So a token file goes
-    into the current folder, which can be a working tree, only when `data.dir` names a folder there.
-    A candidate that raises `OSError` gives way to the next. Raises `ConfigurationError`, which
-    names the settings, when none works."""
-    reasons: list[str] = []
-    for candidate in (_runtime_folder, _temp_folder, _data_folder):
-        try:
-            return candidate()
-        except OSError as exc:
-            reasons.append(f"{exc.filename or candidate.__name__}: {exc.strerror or exc}")
-    from devops_cli.exceptions.config import ConfigurationError
-    from devops_cli.lang import MESSAGES
-
-    raise ConfigurationError(
-        MESSAGES.config.gh_config_folder_failed.format(reasons="; ".join(reasons)),
-        key="data.dir",
-    )
-
-
-def _private_gh_config(token: str) -> Path:
-    """A new folder (mode 0700) that holds `token` in `hosts.yml` (mode 0600) for one gh child.
-    `config.yml` names the version of the configuration, so gh moves nothing on its start. A
-    folder that fails half-way is removed."""
-    folder = _private_gh_folder()
-    hosts = json.dumps(token)
-    files = {
-        CONST_GH_HOSTS_FILE: f"{CONST_GITHUB_HOST}:\n    oauth_token: {hosts}\n    git_protocol: https\n",
-        CONST_GH_CONFIG_FILE: 'version: "1"\n',
-    }
-    try:
-        for name, text in files.items():
-            handle = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(handle, "w", encoding="utf-8") as written:
-                written.write(text)
-    except BaseException:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    return folder
-
-
 @dataclass(frozen=True)
 class _GitHubPin:
-    """The GitHub token that one child gets. `env` holds the token variables of its environment,
-    and `gh_token` the token that a gh child reads from a private configuration folder. `session`
-    says that the child gets the session's token."""
+    """The GitHub token that one child gets: `env` holds the token variables of its environment,
+    and `session` says that the child gets the session's token."""
 
     env: dict[str, str] = field(default_factory=dict)
-    gh_token: str = ""
     session: bool = False
 
 
 def _github_pin(cmd: list[str], caller_env: dict[str, str] | None = None) -> _GitHubPin | None:
     """The GitHub token that the child `cmd` gets, or None for a program that is no GitHub client.
-    It looks the token up and writes no file, so an async call can run it in a thread.
+    It looks the token up and changes no environment, so an async call can run it in a thread.
 
-    A git child that reaches a remote gets the session's token as GH_TOKEN, which the credential
-    helper that git is configured with, `gh auth git-credential`, reads. Any other git child gets no
-    GitHub token and starts no lookup: a program that the configuration of its repository names
-    runs as its child (GHSA). A gh child gets no token in its environment: gh gives its environment
-    to each `--jq` filter. It reads the token from its own configuration folder.
+    A gh or git child gets the session's token as GH_TOKEN, and no other GitHub token. git reads it
+    through the credential helper that it is configured with, `gh auth git-credential`.
 
     gh's local commands (`gh auth` subcommands, version and help) are exempt: they get the
     GH_TOKEN and GITHUB_TOKEN of the environment, or of `caller_env` where the caller set them,
     unchanged. Other gh calls without a token raise the unauthenticated error before they run.
-    So does a git child that reaches a remote when the process acts as the GitHub App: the failed
-    mint is the cause of its failure. A person's git child runs without a token, and the remote
-    gives its own answer (#6671).
+    So does a git child when the process acts as the GitHub App: the failed mint is the cause of
+    its failure. A person's git child runs without a token, and the remote gives its own answer
+    (#6671). git keeps a failed lookup of a person for the life of the process (#6691).
     """
     client = _github_client_name(cmd)
     if client is None or is_dry_run():
         return None
-    if client == CONST_GIT_CLI:
-        if not git_reaches_remote(cmd[1:]):
-            return _GitHubPin()
-        token = github_token() if acts_as_github_app() else _session_github_token()[0]
-        return _GitHubPin({CONST_GH_AUTH_ENV_VAR: token}, session=True) if token else _GitHubPin()
-    if is_local_gh_command(cmd[1:]):
+    if client == CONST_GH_CLI and is_local_gh_command(cmd[1:]):
         given = {**os.environ, **(caller_env or {})}
         return _GitHubPin(
             {name: str(given[name]) for name in CONST_GH_TOKEN_ENV_VARS if name in given}
         )
-    return _GitHubPin(gh_token=github_token(), session=True)
+    if client == CONST_GIT_CLI and not acts_as_github_app():
+        token = _git_github_token()
+    else:
+        token = github_token()
+    return _GitHubPin({CONST_GH_AUTH_ENV_VAR: token}, session=True) if token else _GitHubPin()
 
 
-def _end_leftover_processes_in_runner() -> None:
-    """In a runner, end every process that the job started, before and after each child that gets
-    the session's token. The job runs code of the checkout (tests, hooks, the agent's shell), and a
-    process that such code left would read the token of the child. The sweep ends every descendant
-    of the job, so a runner runs its children that get the token one at a time. Raises
-    `RoadmapImplementError`, which stops the item, when a process survives."""
-    from devops_cli.config.settings import load_settings
-
-    if load_settings().roadmap.implement.in_runner:
-        from devops_cli.core import process_hardening
-
-        process_hardening.end_leftover_processes()
-
-
-@contextlib.contextmanager
-def _pinned(pin: _GitHubPin | None, sub_env: dict[str, str]) -> Iterator[None]:
-    """Give the child of `sub_env` the token of `pin`, and no other GitHub token, for the life of
-    the block. Before and after a child that gets the session's token, the leftover processes end
-    in a runner. A gh child gets a new private configuration folder (`GH_CONFIG_DIR`) whose
-    `hosts.yml` holds the token, and `GH_HOST` set to github.com. The folder goes when the block
-    ends, also after an error, a timeout or a cancel."""
+def _pin(pin: _GitHubPin | None, sub_env: dict[str, str]) -> None:
+    """Give the child of `sub_env` the token of `pin`, and no other GitHub token."""
     if pin is None:
-        yield
         return
     for name in CONST_GH_TOKEN_ENV_VARS:
         sub_env.pop(name, None)
-    if pin.session:
-        _end_leftover_processes_in_runner()
     sub_env.update(pin.env)
-    folder = _private_gh_config(pin.gh_token) if pin.gh_token else None
-    try:
-        if folder is not None:
-            sub_env[CONST_GH_CONFIG_DIR_ENV] = str(folder)
-            sub_env[CONST_GH_HOST_ENV] = CONST_GITHUB_HOST
-        yield
-    finally:
-        try:
-            if pin.session:
-                _end_leftover_processes_in_runner()
-        finally:
-            if folder is not None:
-                shutil.rmtree(folder, ignore_errors=True)
 
 
 def _run_in_own_session(
@@ -716,7 +542,8 @@ def _run_in_own_session(
     """`subprocess.run` for a child that gets the session's token: the child starts in a session
     of its own, and a timeout or another error while it runs kills its whole process group, as
     `run_async` stops a group. `subprocess.run` kills only the child, and a helper that the child
-    started, such as `git-remote-https`, holds the token in its environment."""
+    started, such as `git-remote-https`, holds the token in its environment. After a Ctrl+C the
+    group first gets the SIGINT of the terminal (`_interrupt_group`)."""
     if input is not None:
         kwargs["stdin"] = subprocess.PIPE
     if capture_output:
@@ -724,15 +551,30 @@ def _run_in_own_session(
     with subprocess.Popen(cmd, start_new_session=True, **kwargs) as child:
         try:
             stdout, stderr = child.communicate(input, timeout=timeout)
-        except BaseException:
-            if not _signal_process_group(child.pid, signal.SIGKILL):
-                child.kill()
-            child.wait()
+        except BaseException as error:
+            try:
+                if isinstance(error, KeyboardInterrupt):
+                    _interrupt_group(child)
+            finally:
+                if not _signal_process_group(child.pid, signal.SIGKILL):
+                    child.kill()
+                child.wait()
             raise
         returncode = child.wait()
     if check and returncode:
         raise subprocess.CalledProcessError(returncode, cmd, output=stdout, stderr=stderr)
     return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+
+def _interrupt_group(child: subprocess.Popen[Any]) -> None:
+    """Give the process group of `child` the SIGINT of a Ctrl+C, and wait up to
+    `_SIGINT_WAIT_SECONDS` for the child to end, as `subprocess.run` waits for a child after a
+    Ctrl+C. The child runs in a session of its own, so the SIGINT of the terminal does not reach
+    it. git removes its lock files on SIGINT, so `.git/index.lock` and a half-made worktree do not
+    stay. The caller kills what is left of the group: a SIGKILL reaches no group that ended."""
+    if _signal_process_group(child.pid, signal.SIGINT):
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            child.wait(timeout=_SIGINT_WAIT_SECONDS)
 
 
 class PlannedProcessResult(subprocess.CompletedProcess[str], PlannedRequest):
@@ -933,9 +775,9 @@ class DefaultProcessRunner:
             extra_allowed_keys=extra_allowed_env,
         )
         pin = _github_pin(full_cmd, env)
+        _pin(pin, sub_env)
 
         with (
-            _pinned(pin, sub_env),
             trace_span(
                 f"subprocess.{bin_name}",
                 attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),
@@ -1067,9 +909,9 @@ class DefaultProcessRunner:
             extra_allowed_keys=extra_allowed_env,
         )
         pin = await asyncio.to_thread(_github_pin, full_cmd, env)
+        _pin(pin, sub_env)
 
         with (
-            _pinned(pin, sub_env),
             trace_span(
                 f"subprocess.{bin_name}",
                 attributes=_subprocess_span_attributes(full_cmd, bin_name, cwd, timeout),

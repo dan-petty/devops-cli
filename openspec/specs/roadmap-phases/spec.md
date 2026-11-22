@@ -35,6 +35,10 @@ A roadmap step that runs an agent splits its run into three phases, so the agent
 - **WHEN** the patch adds a link, a gitlink, `.gitmodules`, a path in `.git` or a workflow file that the plan does not name
 - **THEN** `publish_patch` raises `PublishRefusedError` and pushes nothing
 
+#### Scenario: A changed link
+- **WHEN** the patch points a link of the base at another file, makes a file of the base a link, or makes a link of the base a file
+- **THEN** `publish_patch` raises `PublishRefusedError` and pushes nothing
+
 #### Scenario: A workflow file that the plan names
 - **WHEN** the patch changes a workflow file that the merged plan names
 - **THEN** the commit holds the change

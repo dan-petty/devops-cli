@@ -159,6 +159,60 @@ def test_publish_refuses_a_hostile_patch_and_pushes_nothing(
     assert stage_repo.origin_git("rev-parse", BRANCH) == branch
 
 
+def _linked_base(stage_repo: StageRepo) -> str:
+    """The head branch on `origin` at a commit that holds the link `linked` to `CONTEXT.md` and the
+    file `plain.txt`, as the commit that `prepare` judged."""
+    (stage_repo.clone / "linked").symlink_to("CONTEXT.md")
+    (stage_repo.clone / "plain.txt").write_text("plain\n", encoding="utf-8")
+    stage_repo.git("switch", "-q", "-c", BRANCH)
+    stage_repo.git("add", "-A")
+    stage_repo.git("commit", "-q", "-m", "a link and a file")
+    stage_repo.git("push", "-q", "origin", BRANCH)
+    return stage_repo.git("rev-parse", "HEAD")
+
+
+def _retarget(root: Path) -> None:
+    (root / "linked").unlink()
+    (root / "linked").symlink_to("/proc/self/environ")
+
+
+def _file_to_link(root: Path) -> None:
+    (root / "plain.txt").unlink()
+    (root / "plain.txt").symlink_to("/proc/self/environ")
+
+
+def _link_to_file(root: Path) -> None:
+    (root / "linked").unlink()
+    (root / "linked").write_text("now a file\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (_retarget, "is a new or changed link"),
+        (_file_to_link, "is a new or changed link"),
+        (_link_to_file, "changes a link or gitlink"),
+    ],
+    ids=["retarget", "file-to-link", "link-to-file"],
+)
+def test_publish_refuses_a_changed_link_and_pushes_nothing(
+    stage_repo: StageRepo,
+    real_git: ProcessFake,
+    change: Callable[[Path], None],
+    reason: str,
+) -> None:
+    """A change of mode 120000 on the base, as the agent phase can write it, stops the publish
+    before the push. The agent phase formats a link like any file, so this refusal is the one
+    stop of a link (#6691)."""
+    base = _linked_base(stage_repo)
+    patch = _patch(stage_repo, base, change)
+
+    with pytest.raises(PublishRefusedError, match=reason):
+        publish_patch(_target(stage_repo, base), [(patch, "fix: x")], before_push=_none)
+
+    assert stage_repo.origin_git("rev-parse", BRANCH) == base
+
+
 def test_a_workflow_file_that_the_plan_names_is_published(
     stage_repo: StageRepo, branch: str
 ) -> None:
