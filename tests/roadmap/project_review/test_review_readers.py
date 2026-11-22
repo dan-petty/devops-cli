@@ -30,6 +30,8 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     LISTING_SCHEMA_KEY,
     FileSnapshotStore,
     ListingSnapshot,
+    review_listing,
+    snapshot_root,
 )
 from devops_cli.roadmap.stores.store import IssueRecord
 from tests.support.fakes.clock import ClockFake
@@ -399,6 +401,41 @@ def test_a_stale_review_snapshot_reads_from_the_window_start(
     assert kept.counts["listing"] == empty.counts["listing"]
     assert len(sent) == kept.counts["listing"]
     assert all(_since(request) >= START for request in sent)
+
+
+def test_a_window_before_the_review_snapshot_reads_from_its_start(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The review's own snapshot holds the records of the windows from its first start on. A window
+    that starts before that first start holds no record of the snapshot, so the gap starts at the
+    window start and not at the later watermark."""
+    review, intake = _stores(tmp_path)
+    _held(review, full_at=START + timedelta(days=2))
+    since = _changed_since(github_api, "2026-11-04T14:51:23Z")
+
+    records = read_listing(
+        get_github_session(), REPO, intake, Reads(), start=START, review_snapshots=review, now=END
+    )
+
+    assert ([record["number"] for record in records], github_api.requested) == ([2, 1], [since])
+
+
+def test_the_review_keeps_its_snapshot_apart_from_the_one_of_intake(
+    tmp_path: Path, isolate_data_dir: Path
+) -> None:
+    """The review keeps `review-listing` in the state directory of the roadmap, and intake keeps
+    `listing` there, so each snapshot file has one writer (#4854). Each store reads the state
+    directory that a caller gives, and the state directory of the roadmap with none."""
+    state = isolate_data_dir / "roadmap"
+    owner, _, name = REPO.partition("/")
+    kept = state / "review-listing" / owner / f"{name}.json"
+    held = state / "listing"
+
+    assert (review_listing().path(REPO), snapshot_root()) == (kept, held)
+    assert (review_listing(tmp_path).path(REPO), snapshot_root(tmp_path)) == (
+        tmp_path / "review-listing" / owner / f"{name}.json",
+        tmp_path / "listing",
+    )
 
 
 class ListingApi:
