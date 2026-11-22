@@ -237,7 +237,12 @@ devops tf drift [OPTIONS] <directory>
 
 ## `devops tf deploy-cloud`
 
-**Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP.**
+**Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP from an infra checkout.**
+
+Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP from an infra checkout.
+
+Runs `tofu init` and `tofu apply` in `tf/examples/<provider>` of the infra checkout that holds
+the working folder, with `<provider>.tfvars.example` there as the default variable file.
 
 ```bash
 devops tf deploy-cloud [OPTIONS]

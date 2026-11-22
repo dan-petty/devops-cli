@@ -928,10 +928,12 @@ CONST_SPECS_DIR_PATH = Path(CONST_SPECS_DIR_NAME)
 # ── OpenTofu & Infrastructure ──────────────────────────────────────────────────
 CONST_TF_DIR_NAME = "tf"
 CONST_TF_DIR_PATH = Path(CONST_TF_DIR_NAME)
-CONST_TF_AWS_DIR = CONST_TF_DIR_PATH / "aws"
-CONST_TF_AZURE_DIR = CONST_TF_DIR_PATH / "azure"
-CONST_TF_GCP_DIR = CONST_TF_DIR_PATH / "gcp"
-CONST_TF_ENVIRONMENTS_DIR = CONST_TF_DIR_PATH / "environments"
+# The example root modules of an infra checkout, one for each cloud provider, with the values of
+# each in `<provider>.tfvars.example` beside it (ADR 0032, #6679).
+CONST_TF_EXAMPLES_DIR = CONST_TF_DIR_PATH / "examples"
+CONST_TF_AWS_DIR = CONST_TF_EXAMPLES_DIR / "aws"
+CONST_TF_AZURE_DIR = CONST_TF_EXAMPLES_DIR / "azure"
+CONST_TF_GCP_DIR = CONST_TF_EXAMPLES_DIR / "gcp"
 CONST_OPENTOFU_BINARIES: tuple[str, ...] = ("tofu", "terraform")
 
 
