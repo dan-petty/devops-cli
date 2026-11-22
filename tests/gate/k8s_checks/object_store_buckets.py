@@ -110,31 +110,53 @@ def _names_the_store(bucket: Mapping[str, Any]) -> bool:
 # The buckets.
 
 
-def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
-    """Each platform bucket is there in the store namespace with its quota, and each bucket of the
-    store names the store in `clusterRef`, keeps an enforced quota and keeps its data when its CR
-    goes."""
+def _platform_problems(bucket: Mapping[str, Any]) -> list[str]:
+    """A CR of a platform bucket is in the store namespace with the quota of the bucket."""
+    size = PLATFORM_BUCKETS.get(_bucket_name(bucket))
+    if size is None:
+        return []
     problems: list[str] = []
-    found = {_bucket_name(bucket): bucket for bucket in buckets}
-    for name, size in PLATFORM_BUCKETS.items():
-        bucket = found.get(name)
-        if bucket is None:
-            problems.append(f"Bucket/{name}: no Bucket in the render")
-            continue
-        quota = bucket.get("spec", {}).get("quota", {}).get("size")
-        if quota is None or parse_quantity(quota) != parse_quantity(size):
-            problems.append(f"Bucket/{name}: quota is {quota!r}, not {size}")
-        if _namespace(bucket) != NAMESPACE:
-            problems.append(f"Bucket/{name}: namespace is {_namespace(bucket)!r}, not {NAMESPACE}")
-    for bucket in found.values():
-        spec = bucket.get("spec", {})
-        quota = spec.get("quota", {})
-        if not _names_the_store(bucket):
-            problems.append(f"{_ref(bucket)}: clusterRef does not name {NAMESPACE}/{CR_NAME}")
-        if "size" not in quota or quota.get("enforce") is False:
-            problems.append(f"{_ref(bucket)}: no enforced quota")
-        if spec.get("reclaimPolicy") != "Retain":
-            problems.append(f"{_ref(bucket)}: reclaimPolicy is not Retain")
+    quota = bucket.get("spec", {}).get("quota", {}).get("size")
+    if quota is None or parse_quantity(quota) != parse_quantity(size):
+        problems.append(f"{_ref(bucket)}: quota is {quota!r}, not {size}")
+    if _namespace(bucket) != NAMESPACE:
+        problems.append(f"{_ref(bucket)}: namespace is {_namespace(bucket)!r}, not {NAMESPACE}")
+    return problems
+
+
+def _cr_problems(bucket: Mapping[str, Any]) -> list[str]:
+    """A CR names the store in `clusterRef`, keeps an enforced quota and keeps its data when it
+    goes."""
+    problems = _platform_problems(bucket)
+    spec = bucket.get("spec", {})
+    quota = spec.get("quota", {})
+    if not _names_the_store(bucket):
+        problems.append(f"{_ref(bucket)}: clusterRef does not name {NAMESPACE}/{CR_NAME}")
+    if "size" not in quota or quota.get("enforce") is False:
+        problems.append(f"{_ref(bucket)}: no enforced quota")
+    if spec.get("reclaimPolicy") != "Retain":
+        problems.append(f"{_ref(bucket)}: reclaimPolicy is not Retain")
+    return problems
+
+
+def bucket_problems(buckets: Iterable[Mapping[str, Any]]) -> list[str]:
+    """Each platform bucket is there, one CR makes each bucket, and each CR meets the rules of
+    `_cr_problems`. The rule reads each CR, so a second CR of a name cannot hide behind the
+    first."""
+    bucket_list = list(buckets)
+    found: dict[str, list[Mapping[str, Any]]] = {}
+    for bucket in bucket_list:
+        found.setdefault(_bucket_name(bucket), []).append(bucket)
+    problems = [
+        f"Bucket/{name}: no Bucket in the render" for name in PLATFORM_BUCKETS if name not in found
+    ]
+    problems.extend(
+        f"Bucket/{name}: {len(listed)} CRs ({', '.join(sorted(map(_ref, listed)))}), not 1"
+        for name, listed in found.items()
+        if len(listed) > 1
+    )
+    for bucket in bucket_list:
+        problems.extend(_cr_problems(bucket))
     return problems
 
 
@@ -162,6 +184,28 @@ def check_the_bucket_rule_names_a_bucket_in_the_namespace_of_its_writer() -> Non
 
     assert "Bucket/cache: namespace is 'devops', not object-store" in problems
     assert f"Bucket/cache: clusterRef does not name {NAMESPACE}/{CR_NAME}" in problems
+
+
+def _second_cache_cr() -> list[dict[str, Any]]:
+    """A second CR `cache-copy` of the bucket `cache`, before the committed buckets, so a rule that
+    keeps one CR for each name keeps the committed one."""
+    buckets = _kind("Bucket")
+    (bucket,) = [copy.deepcopy(b) for b in buckets if _bucket_name(b) == "cache"]
+    bucket["metadata"]["name"] = "cache-copy"
+    return [bucket, *buckets]
+
+
+def check_the_bucket_rule_names_two_crs_of_one_bucket() -> None:
+    assert "Bucket/cache: 2 CRs (Bucket/cache, Bucket/cache-copy), not 1" in bucket_problems(
+        _second_cache_cr()
+    )
+
+
+def check_the_bucket_rule_names_a_second_cr_that_deletes_the_data() -> None:
+    buckets = _second_cache_cr()
+    buckets[0]["spec"]["reclaimPolicy"] = "Delete"
+
+    assert "Bucket/cache-copy: reclaimPolicy is not Retain" in bucket_problems(buckets)
 
 
 # The anonymous read.
