@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.192.0](https://github.com/dan-petty/devops-cli/compare/v0.191.1...v0.192.0) (2026-11-22)
+
+
+### Features
+
+* **k8s:** apply the Application path builds in deploy-stack ([#6713](https://github.com/dan-petty/devops-cli/issues/6713)) ([d905dbd](https://github.com/dan-petty/devops-cli/commit/d905dbdfe8f821d6da04daab10c0531cac5a1350))
+* **k8s:** render a credential-free planner ConfigMap ([#6723](https://github.com/dan-petty/devops-cli/issues/6723)) ([745108e](https://github.com/dan-petty/devops-cli/commit/745108e78412eb208eb95072fa6bb3e59ca70b09))
+
+
+### Bug Fixes
+
+* **k8s:** split the network policies whose egress skips their ingress ([#6721](https://github.com/dan-petty/devops-cli/issues/6721)) ([235fea0](https://github.com/dan-petty/devops-cli/commit/235fea04b23eefab12dbba88b044bd981f5f6c56))
+
 ## [0.191.1](https://github.com/dan-petty/devops-cli/compare/v0.191.0...v0.191.1) (2026-11-22)
 
 
