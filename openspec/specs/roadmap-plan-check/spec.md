@@ -73,7 +73,7 @@ The command SHALL report a problem when the pull request title is not of the for
 - **THEN** the command reports no title problem.
 
 ### Requirement: Plan-check checks the body of the pull request
-The command SHALL report a problem when the body is longer than `BODY_MAX_CHARS`, holds no `Plans #<issue>` reference, or holds a closing keyword before an issue reference.
+The command SHALL report a problem when the text above the `Plans` line, with its trailing blank lines removed, is longer than `BODY_MAX_CHARS`, when the body holds no `Plans #<issue>` reference, or when the body holds a closing keyword before an issue reference. The `Plans` line, the `Change:` line and the lines after it SHALL NOT count toward the limit.
 
 #### Scenario: A missing plan reference is reported
 - **WHEN** the pull request body holds no `Plans #` line
@@ -84,8 +84,12 @@ The command SHALL report a problem when the body is longer than `BODY_MAX_CHARS`
 - **THEN** the output names the closing keyword and the exit code is 1.
 
 #### Scenario: A long body is reported
-- **WHEN** the body is longer than `BODY_MAX_CHARS` characters
+- **WHEN** the text above `Plans` has 1,001 characters and the `Plans` and `Change:` lines add 120 characters
 - **THEN** the output names the body length rule and the exit code is 1.
+
+#### Scenario: A body at the limit above Plans is accepted
+- **WHEN** the text above `Plans` has 1,000 characters and the `Plans` and `Change:` lines add 120 characters
+- **THEN** the output reports no body length problem
 
 ### Requirement: Plan-check reads the Semantic PR title check
 The command MUST report the `Semantic PR title` check as a problem unless its conclusion is `success`.

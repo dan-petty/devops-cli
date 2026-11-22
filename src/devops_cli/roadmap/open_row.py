@@ -191,9 +191,9 @@ def delivery_request(
     folder = _change_folder(files, item.number)
     closing = f"\n\nCloses #{item.number}"
     if folder is None:
-        body = delivery_why(None, item.title, BODY_MAX_CHARS - len(closing)) + closing
+        body = delivery_why(None, item.title, BODY_MAX_CHARS) + closing
     else:
-        room = BODY_MAX_CHARS - len(f"{closing}\n\nChange: `{folder}/`")
+        room = BODY_MAX_CHARS
         why = delivery_why(_proposal(store, folder, candidate.sha), item.title, room)
         try:
             body = build_body(why=why, issue=item.number, change=folder)

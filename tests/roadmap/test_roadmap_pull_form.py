@@ -255,6 +255,38 @@ def test_a_body_over_the_limit_before_its_trailers_is_refused() -> None:
     assert [f"The limit is {BODY_MAX_CHARS}" in p for p in problems] == [True]
 
 
+def _body_above_closes(text: str) -> str:
+    """A delivery body whose text above `Closes` is `text`, and whose `Closes` and `Change:` lines
+    add 120 characters (#6633)."""
+    change = f"openspec/changes/3198-{'a' * 71}"
+    body = f"{text}\n\nCloses #3198\n\nChange: `{change}/`"
+    assert len(body) - len(text) == 120
+    return body
+
+
+def test_a_body_over_the_limit_above_closes_is_refused() -> None:
+    """The limit measures the text above `Closes`: the `Closes` and `Change:` lines add 120
+    characters, and they do not count (#6633)."""
+    problems = body_problems(_body_above_closes("a" * (BODY_MAX_CHARS + 1)))
+
+    (problem,) = problems
+    assert f"has {BODY_MAX_CHARS + 1} characters" in problem
+    assert "Closes" in problem
+
+
+def test_a_body_at_the_limit_above_closes_has_no_problem() -> None:
+    assert body_problems(_body_above_closes("a" * BODY_MAX_CHARS)) == []
+
+
+def test_the_docstring_of_the_body_check_names_the_text_above_closes() -> None:
+    documented = body_problems.__doc__ or ""
+
+    assert ("above the line `Closes`" in documented, "trailing blank lines" in documented) == (
+        True,
+        True,
+    )
+
+
 def test_the_trailers_do_not_count_toward_the_limit_of_the_body() -> None:
     body = f"{GOOD_BODY}\n\n" + "\n".join(ATTRIBUTION)
     assert len(body) > len(GOOD_BODY)
@@ -449,20 +481,19 @@ def test_a_plan_text_that_closes_an_issue_is_refused() -> None:
 
 
 def test_a_plan_text_over_the_limit_is_refused_and_not_cut() -> None:
-    with pytest.raises(ValidationError, match="Shorten the text above `Closes`"):
+    with pytest.raises(ValidationError, match="Shorten the text above `Plans`"):
         build_plan_body(why="A reason that is long. " * 50, issue=3215, change=PLAN_CHANGE)
 
 
-def test_the_room_of_a_plan_text_is_the_text_that_the_plan_form_takes() -> None:
-    """A caller measures a text against the room before it builds the body (#6319): a text that
-    fills the room builds, and one more character breaks the limit."""
-    room = plan_body_room(3215, PLAN_CHANGE)
+def test_the_room_of_a_plan_text_is_the_body_limit() -> None:
+    """`plan_body_room` is `BODY_MAX_CHARS`: the limit measures the text above `Plans`, so the
+    `Plans` line and the `Change:` line leave the room of the text whole (#6633)."""
+    assert plan_body_room(3215, PLAN_CHANGE) == BODY_MAX_CHARS
+    at_limit = build_plan_body(why="a" * BODY_MAX_CHARS, issue=3215, change=PLAN_CHANGE)
+    assert plan_body_problems(at_limit, issue=3215) == []
 
-    body = build_plan_body(why="a" * room, issue=3215, change=PLAN_CHANGE)
-
-    assert len(body) == BODY_MAX_CHARS
-    with pytest.raises(ValidationError, match=f"The limit is {BODY_MAX_CHARS}"):
-        build_plan_body(why="a" * (room + 1), issue=3215, change=PLAN_CHANGE)
+    with pytest.raises(ValidationError, match="Shorten the text above `Plans`"):
+        build_plan_body(why="a" * (BODY_MAX_CHARS + 1), issue=3215, change=PLAN_CHANGE)
 
 
 def test_a_short_plan_text_names_plans_and_where_the_text_goes() -> None:

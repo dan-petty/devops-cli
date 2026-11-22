@@ -1738,8 +1738,8 @@ class PRMessages:
         "change does, and why."
     )
     form_body_long: str = (
-        "The body has {length} characters before its trailers. The limit is {limit}. Shorten the "
-        "text above `Closes`."
+        "The text above `{line}` has {length} characters. The limit is {limit}. Shorten the "
+        "text above `{line}`."
     )
     form_trailer_long: str = (
         "The lines after `Change:` have {length} characters. The limit is {limit}. Keep only the "
@@ -5726,7 +5726,9 @@ class RoadmapMessages:
         "The body holds the closing keyword `{keyword}` before an issue reference. A plan pull "
         "request closes no issue."
     )
-    plan_check_body_long: str = "The body has {length} characters, and the limit is {limit}."
+    plan_check_body_long: str = (
+        "The text above `Plans` has {length} characters, and the limit is {limit}."
+    )
     plan_check_check_missing: str = "The pull request has no check `{name}`."
     plan_check_check_failed: str = (
         "The check `{name}` has the state `{state}`, and it needs `success`."

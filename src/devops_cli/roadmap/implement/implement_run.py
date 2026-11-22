@@ -1293,9 +1293,10 @@ class _ItemRun:
     def _why(self) -> str:
         """The why of the body of the pull request (#3215): the "why" of the proposal on one line,
         or the title of the item when the proposal has none, when it is too long, or when it holds
-        a closing keyword. A why that breaks the form of the body gets one rewrite of the model.
-        `publish` checks the why again, and builds the body itself. A change with no folder has no
-        body, and the step `ready` of `publish` stops the item."""
+        a closing keyword. The limit of `BODY_MAX_CHARS` characters measures the text above
+        `Closes`, so a why of the whole limit fits (#6633). A why that breaks the form of the body
+        gets one rewrite of the model. `publish` checks the why again, and builds the body itself.
+        A change with no folder has no body, and the step `ready` of `publish` stops the item."""
         archived = self._archived_name()
         active = self._active_change()
         if archived:
@@ -1305,7 +1306,7 @@ class _ItemRun:
         else:
             return ""
         self.step = MESSAGES.roadmap.implement_step_names["pull_request"]
-        room = BODY_MAX_CHARS - len(f"\n\nCloses #{self.number}\n\nChange: `{change}/`")
+        room = BODY_MAX_CHARS
         proposal = self.path / change / "proposal.md"
         text = ""
         if proposal.is_file():
