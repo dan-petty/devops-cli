@@ -8,7 +8,8 @@ import threading
 import urllib.parse
 import uuid
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol, runtime_checkable
+from http import HTTPStatus
+from typing import Any, Final, Protocol, runtime_checkable
 
 import httpx2
 
@@ -65,13 +66,31 @@ class QdrantClientError(DevOpsCLIError, RuntimeError):
     """Raised when an interaction with Qdrant fails."""
 
 
+# A server that limits the rate, or a proxy in front of Qdrant whose backend does not answer. A
+# retry can succeed. Each other error status, such as 400, 401, 403, 404, 408 or 500, is permanent.
+_RETRY_STATUSES: Final[frozenset[HTTPStatus]] = frozenset(
+    {
+        HTTPStatus.TOO_MANY_REQUESTS,
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }
+)
+
+
 def _is_transient_qdrant_error(exc: Exception) -> bool:
-    """Check if an exception is a transient connection, timeout, or server disconnect error."""
+    """Check if an exception is a transient connection, timeout, server disconnect or gateway error.
+
+    For an answer with an error status (`UnexpectedResponse`) the status alone decides (#6757):
+    the words of the answer, such as "Timeout" in the reason phrase of a 408, do not.
+    """
     try:
-        from qdrant_client.http.exceptions import ResponseHandlingException
+        from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
         if isinstance(exc, ResponseHandlingException):
             return True
+        if isinstance(exc, UnexpectedResponse):
+            return exc.status_code in _RETRY_STATUSES
     except ImportError:
         pass
     err_str = str(exc).lower()
