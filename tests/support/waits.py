@@ -30,6 +30,7 @@ from collections.abc import Callable
 from typing import Any, Final
 
 from devops_cli.core import clock
+from tests.support.sleep_budget import poll_sleep
 
 THREAD_HANDOFF_BOUND_SECONDS: Final[float] = 30.0
 """How long a test waits for an event it expects another thread or process to cause."""
@@ -41,12 +42,14 @@ POLL_INTERVAL_SECONDS: Final[float] = 0.01
 def wait_until(condition: Callable[[], bool], bound: float = THREAD_HANDOFF_BOUND_SECONDS) -> bool:
     """Whether `condition` came to hold within `bound` seconds, read again every poll interval
     until it does; a condition that holds already is read once. The deadline is checked after
-    each sleep and before the next read, so a sleep that overruns it counts no later event."""
+    each sleep and before the next read, so a sleep that overruns it counts no later event. The
+    poll waits for another thread, so the real-sleep budget charges it nothing (#6696)."""
     deadline = time.monotonic() + bound
     while True:
         if condition():
             return True
-        clock.sleep(POLL_INTERVAL_SECONDS)
+        with poll_sleep():
+            clock.sleep(POLL_INTERVAL_SECONDS)
         if time.monotonic() >= deadline:
             return False
 

@@ -757,28 +757,24 @@ def unexpected_loopback_connects() -> Iterator[list[str]]:
 # ── refuse real sleeps floor (#4669) ──────────────────────────────────────────
 
 _REAL_SLEEP_HOOK_INSTALLED = False
-_REAL_SLEEP_LOCK = threading.Lock()
-_REAL_SLEEP_TOTAL: float = 0.0
-REAL_SLEEP_BUDGET_SECONDS: float = 0.25
 
 
 def _install_real_sleep_hook() -> None:
-    """Install the PEP 578 audit hook for time.sleep (#4669)."""
+    """Install the PEP 578 audit hook for time.sleep, which charges the sleep through
+    `tests.support.sleep_budget` (#4669, #6696)."""
     global _REAL_SLEEP_HOOK_INSTALLED
     if _REAL_SLEEP_HOOK_INSTALLED:
         return
     _REAL_SLEEP_HOOK_INSTALLED = True
+    from tests.support.sleep_budget import charge
 
     def _sleep_audit_hook(event: str, args: tuple[Any, ...]) -> None:
         if event == "time.sleep" and args:
-            global _REAL_SLEEP_TOTAL
             try:
                 seconds = float(args[0])
             except TypeError, ValueError:
                 return
-            if seconds > 0:
-                with _REAL_SLEEP_LOCK:
-                    _REAL_SLEEP_TOTAL += seconds
+            charge(seconds)
 
     sys.addaudithook(_sleep_audit_hook)
 
@@ -791,16 +787,17 @@ def refuse_real_sleeps_session() -> None:
 
 @pytest.fixture(autouse=True)
 def refuse_real_sleeps(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Fail a test whose real sleep passes 0.25 s unless marked real_sleep (#4669)."""
+    """Fail a test whose real sleep passes 0.25 s unless marked real_sleep (#4669). A poll of
+    `wait_until` is charged nothing (#6696)."""
+    from tests.support.sleep_budget import REAL_SLEEP_BUDGET_SECONDS, charged_seconds
+
     _install_real_sleep_hook()
     has_marker = request.node.get_closest_marker("real_sleep") is not None
-    with _REAL_SLEEP_LOCK:
-        before = _REAL_SLEEP_TOTAL
+    before = charged_seconds()
     yield
     if has_marker:
         return
-    with _REAL_SLEEP_LOCK:
-        slept = _REAL_SLEEP_TOTAL - before
+    slept = charged_seconds() - before
     if slept > REAL_SLEEP_BUDGET_SECONDS:
         pytest.fail(
             f"real sleep of {slept:.2f} s exceeded {REAL_SLEEP_BUDGET_SECONDS} s budget; "
