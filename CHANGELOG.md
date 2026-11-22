@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.192.2](https://github.com/dan-petty/devops-cli/compare/v0.192.1...v0.192.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* **ai:** rag index skips data fixtures and survives a failed batch ([#6719](https://github.com/dan-petty/devops-cli/issues/6719)) ([568475e](https://github.com/dan-petty/devops-cli/commit/568475e984f74e4eddf2b39b206bfd5595f715fb)), closes [#6717](https://github.com/dan-petty/devops-cli/issues/6717)
+* **k8s:** Tempo starts again with config keys of its version ([#6733](https://github.com/dan-petty/devops-cli/issues/6733)) ([0cdd324](https://github.com/dan-petty/devops-cli/commit/0cdd32456f157a5b7b59c17f0712d458e0369be0)), closes [#6730](https://github.com/dan-petty/devops-cli/issues/6730)
+
 ## [0.192.1](https://github.com/dan-petty/devops-cli/compare/v0.192.0...v0.192.1) (2026-11-22)
 
 
