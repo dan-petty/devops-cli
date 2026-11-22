@@ -21,7 +21,7 @@ The shared preset `github>dan-petty/infra//renovate/base` SHALL label each updat
 
 #### Scenario: A patch release on the day it is published
 - **WHEN** a dependency that devops-cli pins publishes a patch release, and the next run of CronJob `renovate` ends
-- **THEN** Renovate has opened the pull request of the patch, or the Dependency Dashboard issue lists the patch as held by the hourly or the concurrent limit
+- **THEN** Renovate has opened the pull request of the patch, or the Dependency Dashboard issue lists the patch as held by the hourly or the concurrent limit, or by the schedule or the Dashboard approval that a package rule sets (the Renovate and SearXNG images)
 - **AND** no Renovate pull request or Dashboard line holds the update for a release age
 
 ### Requirement: Renovate updates on a fixed schedule within the CI cap
