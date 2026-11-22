@@ -70,6 +70,7 @@ def test_request_plan_commands_make_no_external_request(
     argv: list[str],
     refuse_requests: list[str],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Criterion 4 & 5: request-plan commands make no external calls and output plans."""
     cmd_args = list(argv)
@@ -77,6 +78,11 @@ def test_request_plan_commands_make_no_external_request(
         cmd_args.insert(3, str(tmp_path))
     elif name in {"tf init", "tf plan", "tf apply", "tf destroy", "tf output", "tf lint"}:
         cmd_args.insert(2, str(tmp_path))
+    elif name == "tf deploy-cloud":
+        # deploy-cloud runs in an infra checkout, which holds tf/examples/<provider> (#6679).
+        (tmp_path / ".git").mkdir()
+        (tmp_path / "tf" / "examples" / "aws").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
 
     result = runner.invoke(app, cmd_args)
     assert result.exit_code == 0, f"Command '{name}' failed with {result.output}"
