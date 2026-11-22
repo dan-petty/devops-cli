@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.195.2](https://github.com/dan-petty/devops-cli/compare/v0.195.1...v0.195.2) (2026-11-22)
+
+
+### Code Refactoring
+
+* **roadmap:** delete the interim git controls of the Jobs ([#6790](https://github.com/dan-petty/devops-cli/issues/6790)) ([8f363e6](https://github.com/dan-petty/devops-cli/commit/8f363e6c1bf3e0dfea0d072111472fd9029fda70))
+
 ## [0.195.1](https://github.com/dan-petty/devops-cli/compare/v0.195.0...v0.195.1) (2026-11-22)
 
 
