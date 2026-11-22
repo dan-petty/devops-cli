@@ -39,6 +39,50 @@ spec:
         fsGroup: 977
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # `general.open_metrics` reads no environment variable, so the settings file is written at
+        # pod start from the ConfigMap and the metrics password (#4201). The init container runs the
+        # pinned image of the `searxng` container, which holds `sh` and `sed`, so it adds no pin.
+        - name: render-settings
+          image: docker.io/searxng/searxng:2026.10.30-ffa88e3ba@sha256:f4aa660c54d062dedb268be84e821ea24e39f48c7a496af8dd02cc9eedb93847
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+          # `&`, `\` and `|` are special in a sed replacement, so the password is escaped first.
+          args:
+            - |
+              set -eu
+              escaped=$(printf '%s' "$SEARXNG_METRICS_PASSWORD" | sed 's/[\\&|]/\\&/g')
+              sed "s|\${SEARXNG_METRICS_PASSWORD}|$escaped|g" \
+                /etc/searxng-template/settings.yml > /etc/searxng-rendered/settings.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: SEARXNG_METRICS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: searxng-metrics-auth
+                  key: password
+          volumeMounts:
+            - name: settings
+              mountPath: /etc/searxng-template
+              readOnly: true
+            - name: settings-rendered
+              mountPath: /etc/searxng-rendered
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+              ephemeral-storage: 16Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+              ephemeral-storage: 64Mi
       containers:
         - name: searxng
           image: docker.io/searxng/searxng:2026.10.30-ffa88e3ba@sha256:f4aa660c54d062dedb268be84e821ea24e39f48c7a496af8dd02cc9eedb93847
@@ -71,7 +115,7 @@ spec:
           volumeMounts:
             # One file, so that /etc/searxng stays the directory of the image, which user 977 owns.
             # A mount of the whole directory is owned by root, and the entrypoint warns of it.
-            - name: settings
+            - name: settings-rendered
               mountPath: /etc/searxng/settings.yml
               subPath: settings.yml
               readOnly: true
@@ -114,9 +158,14 @@ spec:
               memory: 1Gi
               ephemeral-storage: 256Mi
       volumes:
+        # The ConfigMap reaches the pod through the `render-settings` init container, which writes
+        # the rendered file into this volume.
         - name: settings
           configMap:
             name: searxng-settings
+        - name: settings-rendered
+          emptyDir:
+            sizeLimit: 8Mi
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi

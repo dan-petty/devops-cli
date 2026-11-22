@@ -69,10 +69,11 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     assert crawl4ai[0] == "Deployment"
     containers.discard(crawl4ai)
     # Deployment `searxng` pins a third-party image by tag and digest (#3924). A bump updates like
-    # any other image (owner, 2026-11-16, #6063).
-    searxng = next(c for c in containers if c[1] == "searxng")
-    assert searxng[0] == "Deployment"
-    containers.discard(searxng)
+    # any other image (owner, 2026-11-16, #6063). Its init container `render-settings` runs the
+    # same image to write the settings file (#4201), so the two name one pin.
+    searxng = {c for c in containers if c[1] in ("searxng", "render-settings")}
+    containers -= searxng
+    assert ({c[0] for c in searxng}, len({c[2] for c in searxng})) == ({"Deployment"}, 1)
     # CronJob `renovate` pins the Renovate release by tag and digest, and its init container
     # `seed` runs the same image (#4905). Its init container `token` runs the Service image, so
     # Image Updater's digest reaches it as it reaches the other containers of that image.

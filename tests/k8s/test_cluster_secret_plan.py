@@ -63,6 +63,7 @@ RUNS_PASSWORD = "runs-keyring-value-0001"
 CACHE_PASSWORD = "cache-keyring-value-0001"
 DEVOPS_CACHE_PASSWORD = "devops-cache-keyring-value-0001"
 TUNNEL_TOKEN = "tunnel-keyring-value-0001"
+SEARXNG_METRICS_PASSWORD = "searxng-metrics-keyring-value-0001"
 FULL_KEYRING = {
     LLM_GATEWAY_MASTER_KEY: GATEWAY_KEY,
     "qdrant_api_key": QDRANT_KEY,
@@ -72,6 +73,7 @@ FULL_KEYRING = {
     DEVOPS_CACHE_VALKEY_AUTH_KEY: DEVOPS_CACHE_PASSWORD,
     "cloudflare_tunnel_token": TUNNEL_TOKEN,
     "service_github_app_private_key": APP_KEY,
+    "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
 }
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -282,6 +284,24 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "devops",
             True,
             SecretGenerator("hex", 32),
+            None,
+            ("deployment/searxng",),
+        ),
+        (
+            "devops/searxng-metrics-auth",
+            "username",
+            "devops",
+            True,
+            None,
+            None,
+            ("deployment/searxng",),
+        ),
+        (
+            "devops/searxng-metrics-auth",
+            "password",
+            "devops",
+            True,
+            None,
             None,
             ("deployment/searxng",),
         ),

@@ -45,6 +45,9 @@ MATTERMOST_DB_AUTH_KEY = "mattermost_db_password"
 _BASIC_AUTH_SECRET_TYPE: SecretType = "kubernetes.io/basic-auth"
 # The server secret of SearXNG (#3924). No Settings option reads it: only the pod does.
 SEARXNG_SERVER_KEY = "searxng_secret_key"
+# The password of the OpenMetrics endpoint of SearXNG (#4201). No Settings option reads it: the
+# render-settings init container writes it into the settings file, and the scrape reads it.
+SEARXNG_METRICS_AUTH_KEY = "searxng_metrics_password"
 # The token that Grafana sends to its image renderer (#5185). No Settings option reads it: only
 # the two pods do.
 GRAFANA_RENDERER_AUTH_KEY = "grafana_renderer_token"
@@ -373,6 +376,21 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 KeyringSource(SEARXNG_SERVER_KEY),
                 generator=SecretGenerator("hex", 32),
             ),
+        ),
+        restarts=(Workload("deployment", "searxng"),),
+        labels={"app.kubernetes.io/name": "searxng"},
+    ),
+    # The basic-auth Secret of the OpenMetrics endpoint of SearXNG (#4201). The render-settings
+    # init container writes its password into the rendered settings file, and the ServiceMonitor
+    # sends both keys to the scrape, so a change restarts the pod that serves it.
+    ClusterSecret(
+        namespace="devops",
+        name="searxng-metrics-auth",
+        stack="devops",
+        secret_type=_BASIC_AUTH_SECRET_TYPE,
+        entries=(
+            SecretEntry("username", LiteralSource("searxng")),
+            SecretEntry("password", KeyringSource(SEARXNG_METRICS_AUTH_KEY)),
         ),
         restarts=(Workload("deployment", "searxng"),),
         labels={"app.kubernetes.io/name": "searxng"},

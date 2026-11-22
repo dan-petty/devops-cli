@@ -1,0 +1,35 @@
+# Design
+
+## Decisions
+
+- **Measure each engine through the OpenMetrics endpoint of SearXNG, scraped by a ServiceMonitor.**: The endpoint gives the request, error and reliability counts of each engine, and the cluster already scrapes the ServiceMonitors of its workloads.
+- **Set `general.open_metrics` in the ConfigMap to the placeholder `${SEARXNG_METRICS_PASSWORD}`.**: The key holds the password, so the settings stay in git under review and the password stays out of git.
+- **Write Secret `searxng-metrics-auth` as a basic-auth row of the cluster Secret table, from keyring entry `searxng_metrics_password`, and restart `deployment/searxng` on a push.**: The push table is the one place that writes a Secret from the keyring, and the staged table already declares the `kubernetes.io/basic-auth` type and the keyring-only key shape.
+- **Render `settings.yml` at pod start with a `render-settings` init container of the pinned SearXNG image into a `settings-rendered` `emptyDir`.**: `general.open_metrics` reads no environment variable, and reusing the pinned image adds no image pin and no new tool.
+- **Scrape port `http` at `/metrics` every 15 s, the interval of the gateway monitor.**: The container port and the Service port both carry the name `http`, and the gateway monitor uses the same interval.
+- **Create `k8s/devops/searxng/servicemonitor.yaml`, list it in `k8s/devops/searxng/kustomization.yaml`, and add it to `PRODUCT_POST_HELM_BY_STACK` of the devops stack.**: The monitor needs the `monitoring.coreos.com` CRDs, so `check_prometheus_operator_crds_install_before_every_service_monitor` refuses it in the pre-Helm table; the kustomization stays the path that Argo CD applies, as `k8s/llm/kustomization.yaml` does for the gateway monitor.
+- **Admit the scrape in a new ingress rule of the SearXNG policy that selects the `monitoring` namespace on TCP 8080, and keep the two pod selector peers in their own rule.**: The comment of the policy states that kube-router refused a namespace and pod selector peer paired with `ports`, so the namespace peer stands alone in its rule.
+- **Count a peer of a NetworkPolicy as admitting a devops pod only when its `namespaceSelector` names no namespace or namespace `devops`.**: A peer with only a namespace selector admitted every pod of namespace `devops` in `_admits`, so the new `monitoring` peer would make `check_the_service_and_the_stage_job_reach_searxng_and_the_runner_job_does_not` fail on the runner Job pod.
+- **Add TCP port 8080 to the `devops` peer of `monitoring-default-perimeter-egress` and change no manifest test for it.**: The `k8s` row proves the manifest, and no test asserts a value of a manifest.
+- **Write the `k8s/README.md` rows of the new Secret in the same group as the table row.**: `test_readme_lists_the_table` fails on a table row that the README lacks, so a later group would leave the tree red.
+- **Modify the base requirement `Only the roadmap Service calls the pod` instead of adding a second ingress requirement.**: The base requirement admits ingress only from the roadmap Service pods, so after the archive the living spec would contradict the new `monitoring` peer and the stage Job peer.
+- **Modify the base requirement `The pod meets Pod Security restricted` to name the `settings-rendered` `emptyDir`.**: That requirement allows only `/tmp` and `/var/cache/searxng` as writable paths, so the new volume would make it false after the archive.
+- **Modify the base requirement `The deploy stack and the kustomizations list every file` to name the post-Helm table.**: The monitor needs the CRDs, so it is not a path of `MANIFESTS_BY_STACK["devops"]` and the base requirement would be false after the archive.
+- **Hold the Secret row under `stack-credential-sync`, the settings, the render and the scrape under `searxng-service`, and the monitoring egress under `k8s-network-policies`.**: Each capability already holds the rule that the change makes, so the living spec keeps one place for each.
+- **Leave the engine set of `keep_only` unchanged and add no alert rule.**: #5595 chooses the engine set from the measure, the open change of #4141 edits the same ConfigMap, and the series name and the reliability threshold are unverified until the first scrape.
+
+## Rejected alternatives
+
+- **Add the new ServiceMonitor to `PRODUCT_MANIFESTS_BY_STACK`.**: `deploy_stack_manifests` applies that table before the charts, and `check_prometheus_operator_crds_install_before_every_service_monitor` refuses a pre-Helm path that holds a ServiceMonitor, so the `k8s` row fails on a cluster without the CRDs.
+- **Measure the throttle with `devops_cli_web_searches_total` by backend and result.**: A reply that another engine filled counts `ok` in that counter, so a refused engine leaves no trace, and the counter measures the client's view and not the engine's.
+- **Add a new counter on the web-search chain.**: It measures the client's view and not the engine's, and it adds code that the project keeps.
+- **Read the metrics password from an environment variable.**: `general.open_metrics` reads no environment variable, so the password cannot reach the settings that way.
+- **Put the whole `settings.yml` in a Secret.**: The engine set would leave git, and no check could review it.
+- **Put the metrics password in the ConfigMap.**: It would put a secret in git, and the header comment of the ConfigMap states that the file holds no secret.
+- **Add the `monitoring` namespace as one more peer of the ingress rule that pairs pod selectors with ports.**: The policy comment records that kube-router refused that pairing, and `_admits` counts a peer with no pod selector as admitting every devops pod.
+- **Add the alert on the reliability series in this change.**: The alternatives check of the issue records that the series name and the threshold are unverified and must be confirmed on the first scrape, so a rule would name a series that may not exist, and #6753 reads that series first.
+- **Add a retry loop around a refused engine.**: The issue holds the criterion that the settings add no retry loop (#4094), and the settings carry no retry key.
+
+## Security
+
+The metrics password crosses the boundary between the workstation keyring and the cluster: `devops k8s push-secrets` writes Secret `searxng-metrics-auth` from keyring entry `searxng_metrics_password`, and only the rendered settings file and the scrape read it. The two NetworkPolicy rules also widen the boundary: namespace `monitoring` reaches the SearXNG pod on TCP 8080, and namespace `devops` is reachable from the monitoring namespace on TCP 8080. A person must confirm the keyring entry before the real push, confirm that the rendered settings file is the only file that holds the password, and confirm that no other namespace or port joins either rule. The `cluster-secret-keys` check fails when the Deployment references a Secret key that the table lacks, `uv run devops ci --check --only k8s` fails when a policy admits another namespace or port, and `tests/gate/k8s_checks/network_policies.py` fails when a pod that is no client reaches SearXNG.

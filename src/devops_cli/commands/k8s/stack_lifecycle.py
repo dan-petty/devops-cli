@@ -381,6 +381,7 @@ PRODUCT_POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "devops": (
         Path("workflowtemplate-rag-ingest.yaml"),
         Path("cronworkflow-rag-ingest.yaml"),
+        Path("searxng", "servicemonitor.yaml"),
     ),
 }
 
