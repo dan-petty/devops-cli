@@ -2067,6 +2067,11 @@ _OLD_BLOCK = (
     "Alternatives check of 2026-01-01: covers.\n"
     f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
 )
+# A section of an earlier round of refine.
+_REFINE_SECTION = (
+    f"{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\nA design.\n"
+    f"{CONST_ROADMAP_REFINE_END_MARKER}"
+)
 
 
 @pytest.mark.parametrize(
@@ -2096,6 +2101,24 @@ _OLD_BLOCK = (
             f"{_SCAN}\n\n<!-- An open comment of a person.\n\n",
             id="person-comment-above-the-block",
         ),
+        pytest.param(
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n",
+            id="person-fence-above-the-block",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n<pre>\nAn open pre block of a person.\n</pre>\n\n",
+            id="person-pre-above-the-block",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n\n{_REFINE_SECTION}\n\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n{_REFINE_SECTION}\n\n",
+            id="person-fence-above-a-refine-section",
+        ),
     ],
 )
 def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
@@ -2106,7 +2129,10 @@ def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
     of this check that a read finds, and the next round finds the item unchanged and checks it no
     more. The first round writes `head` before the start marker: the text of the person, the close
     of the open block on a line of its own, and a blank line. A comment that a person opens above
-    the block ends at its start marker, so the round replaces that block in place."""
+    the block ends at its start marker, so the round replaces that block in place. A fence or a
+    `<pre>` block that a person opens above the block runs to the end of the body, and the start
+    marker line of the job blocks at its end ends it (#6736). So the round closes it before that
+    line, replaces the block in place, and keeps a refine section before the block readable."""
     number = _item(store, "Open block", body=body)
     script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
     seen = []
@@ -2130,6 +2156,51 @@ def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
         first[: first.find(CONST_ROADMAP_ALTERNATIVES_START_MARKER)],
         bodies[1:],
     ) == ([(1, 1, True), (0, 1, True), (0, 1, True)], head, [first, first])
+
+
+# A block of the check that a person quotes in a log.
+_QUOTED_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nQUOTED PERSON LINE\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "written"),
+    [
+        pytest.param(
+            f"{_SCAN}\n\nThe log:\n```\n{_QUOTED_BLOCK}\nmore log\n\n{_OLD_BLOCK}",
+            f"{_SCAN}\n\nThe log:\n```\n{_QUOTED_BLOCK}\nmore log\n```\n\n{_NONE_BLOCK}",
+            id="quoted-block-above-the-block",
+        ),
+        pytest.param(
+            f"Intro\n\n```\nAn open fence.\n\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+            "PERSON TEXT\n",
+            f"Intro\n\n```\nAn open fence.\n\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+            f"PERSON TEXT\n```\n\n{_NONE_BLOCK}",
+            id="start-only-in-an-open-fence",
+        ),
+    ],
+)
+def test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text_over_three_rounds(
+    store: InMemoryRoadmapStore, web_key: None, body: str, written: str
+) -> None:
+    """A person quotes markers of the check in a fence and does not close it. A quoted block that
+    the old block of the check follows, and a lone marker, stay the text of the person (#6736). So
+    the first round closes the fence before the old block and replaces that block in place, or
+    closes the fence at the end of the body and adds its block after it. The quote keeps each of
+    its lines, and only the first round checks the item."""
+    number = _item(store, "Quoted marker", body=body)
+    script = _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+    checks = []
+    bodies = []
+    for _ in range(3):
+        plan = _plan(store, script)
+        apply_alternatives(store, plan)
+        checks.append(len(plan.checks))
+        bodies.append(store.read_issue_body(number))
+
+    assert (checks, bodies) == ([1, 0, 0], [written] * 3)
 
 
 def test_a_none_verdict_names_no_tool(store: InMemoryRoadmapStore, web_key: None) -> None:

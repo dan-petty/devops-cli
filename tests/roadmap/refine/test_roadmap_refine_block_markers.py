@@ -1,11 +1,12 @@
-"""Refine finds its own section again after each write (#6627).
+"""Refine finds its own section again after each write (#6627, #6736).
 
 A marker of refine bounds its section only where CommonMark reads the marker as an HTML block of
 its own, or as the last line of a comment that the marker ends. CommonMark reads all text after an
 open fenced code block or an open HTML block as part of that block. So refine closes such a block at
 the end of its own text, and at the end of the text of a person that its section follows. The next
-round then replaces the section, adds no second one, and reads the item as unchanged. A marker that
-a person quotes stays in the text of the person.
+round then replaces the section, adds no second one, and reads the item as unchanged. A block that a
+person leaves open above the section ends at the job blocks at the end of the body, so a read still
+finds the section. A marker that a person quotes stays in the text of the person.
 
 The roadmap is the in-memory store, the model edge is the fake, and git is the fake of the refine
 support module.
@@ -19,6 +20,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from devops_cli.config.constants import (
+    CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
@@ -143,14 +146,21 @@ _OLD_SECTION = (
 )
 
 
+@pytest.mark.parametrize(
+    ("opened", "close"),
+    [
+        pytest.param("<!-- An open comment of a person.", "-->", id="comment"),
+        pytest.param("<!DOCTYPE An open declaration of a person.", ">", id="declaration"),
+    ],
+)
 def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
-    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str, close: str
 ) -> None:
     """An earlier round of refine wrote and recorded a section, and then a person opens a comment
-    above it. CommonMark ends that comment at the start marker of the section, so the start marker
-    still bounds the section. The first round replaces the section and closes the comment of the
-    person on a line of its own. Each round leaves one section, and only the first round asks the
-    model."""
+    or a declaration above it. CommonMark ends that block at the start marker of the section, so
+    the start marker still bounds the section. The first round replaces the section and closes the
+    block of the person on a line of its own. Each round leaves one section, and only the first
+    round asks the model."""
     earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
     number = seed_with_body(store, earlier)
     body_hash, section_hash = body_hashes(earlier)
@@ -158,9 +168,7 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
         require_item(store, number),
         {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
     )
-    store.write_issue_body(
-        number, f"{_PERSON}\n\n<!-- An open comment of a person.\n\n{_OLD_SECTION}"
-    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{opened}\n\n{_OLD_SECTION}")
     model_fake.answer(READY)
 
     seen, bodies = _rounds(store, git_repo, number, 3)
@@ -175,7 +183,101 @@ def test_an_open_comment_above_the_section_leaves_one_section_over_three_rounds(
     ) == (
         [(1, True, True)] * 3,
         1,
-        f"{_PERSON}\n\n<!-- An open comment of a person.\n-->\n\n",
+        f"{_PERSON}\n\n{opened}\n{close}\n\n",
         False,
+        [first, first],
+    )
+
+
+@pytest.mark.parametrize(
+    "opened",
+    [
+        pytest.param("```\nAn open fence of a person.", id="fence"),
+        pytest.param("<pre>\nAn open pre block of a person.", id="pre"),
+    ],
+)
+def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_three_rounds(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str
+) -> None:
+    """An earlier round of refine wrote and recorded a section, and then a person opens a code
+    fence or a `<pre>` block above it and does not close it. The block runs to the end of the body,
+    and the start marker of the section ends it for a read (#6736). So each round finds the section
+    and leaves one section in the body. The open block also holds the record block at the end of
+    the body, so the round reads no record. Refine then finds a section that it has no record of,
+    and waits for a person: no round asks the model or writes. The read of the record is the work
+    of #6729. When a round reads the record, this test fails, and it then asserts one write that
+    replaces the section in place."""
+    earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
+    number = seed_with_body(store, earlier)
+    body_hash, section_hash = body_hashes(earlier)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
+    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{opened}\n\n{_OLD_SECTION}")
+    written = store.read_issue_body(number)
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    assert (seen, len(model_fake.calls), bodies) == ([(1, True, False)] * 3, 0, [written] * 3)
+
+
+def test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person quotes the start marker of refine in a fence and does not close it. No end marker
+    follows the quote, so it is no section, and it stays the text of the person (#6736). The first
+    round closes the fence at the end of the body and adds the section after it. Each round then
+    finds the section, the item reads as unchanged, and only the first round asks the model."""
+    body = f"{_PERSON}\n\nExample:\n\n```\n{CONST_ROADMAP_REFINE_START_MARKER}\nperson text"
+    number = seed_with_body(store, body)
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.rfind(CONST_ROADMAP_REFINE_START_MARKER)],
+        bodies[1:],
+    ) == ([(2, True, True)] * 3, 1, f"{body}\n```\n\n", [first, first])
+
+
+_ALTERNATIVES_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nAlternatives check of 2026-01-01: covers.\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+
+
+def test_a_write_closes_a_block_that_a_person_opens_above_the_block_of_another_job(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person opens a code fence above the block of the alternatives job and does not close it,
+    and the body has no section. The start marker of that block ends the fence for a read (#6736),
+    and the outside text of refine holds the close of the fence before the block. So the round
+    writes the close there and adds the section at the end, and the block of the other job stays
+    a block that a read finds. Only the first round asks the model."""
+    opened = f"{_PERSON}\n\n```\nAn open fence of a person."
+    number = seed_with_body(store, f"{opened}\n\n{_ALTERNATIVES_BLOCK}")
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.find(CONST_ROADMAP_REFINE_START_MARKER)],
+        extract_section_and_outside(
+            first, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+        )[1],
+        bodies[1:],
+    ) == (
+        [(1, True, True)] * 3,
+        1,
+        f"{opened}\n```\n\n{_ALTERNATIVES_BLOCK}\n\n",
+        "\nAlternatives check of 2026-01-01: covers.\n",
         [first, first],
     )

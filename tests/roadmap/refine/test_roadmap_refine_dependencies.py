@@ -213,6 +213,18 @@ def test_the_hold_line_names_its_hold_issue_and_not_the_tracker() -> None:
             [4989],
             id="marker-in-code-span",
         ),
+        pytest.param(
+            "## Dependencies\n- #4989\n<!-- note\n" + _alternatives_block("A tool that #5506 adds"),
+            [4989],
+            id="comment-open-above-alternatives",
+        ),
+        pytest.param(
+            f"Body\n\n```\nAn open fence.\n\n{CONST_ROADMAP_REFINE_START_MARKER}\n"
+            f"## Proposed design\n\n### Dependencies\n- #4989\n{CONST_ROADMAP_REFINE_END_MARKER}\n\n"
+            + _alternatives_block("A tool that #5506 adds"),
+            [4989],
+            id="fence-open-above-the-refine-block",
+        ),
     ],
 )
 def test_a_job_block_marker_ends_the_dependencies_section(body: str, blockers: list[int]) -> None:
@@ -220,5 +232,7 @@ def test_a_job_block_marker_ends_the_dependencies_section(body: str, blockers: l
     list of an alternatives block after it names no blocker. The `### Dependencies` part of the
     refine block ends at the refine end marker, also when no other job block follows it, a heading
     after an alternatives block still starts a section, and a marker in a code span ends no section
-    (#6613)."""
+    (#6613). A comment that a person leaves open ends at the start marker, so that marker ends the
+    section too, and a fence that a person leaves open ends at the job blocks at its end, so the
+    refine block after it names its blockers (#6736)."""
     assert body_dependencies(body) == blockers
