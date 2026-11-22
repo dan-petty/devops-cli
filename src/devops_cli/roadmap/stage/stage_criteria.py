@@ -32,11 +32,8 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
-from devops_cli.config.constants import (
-    CONST_ROADMAP_REFINE_END_MARKER,
-    CONST_ROADMAP_REFINE_START_MARKER,
-)
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import extract_section_and_outside
 
 PENDING_PERSON: Final[str] = "pending-person"
 RequirementKind = Literal["command", "path", "decision", "bullet"]
@@ -115,22 +112,17 @@ class RequirementLine(BaseModel):
 
 
 def _without_refine_block(body: str) -> str:
-    start = body.find(CONST_ROADMAP_REFINE_START_MARKER)
-    if start < 0:
-        return body
-    end = body.find(CONST_ROADMAP_REFINE_END_MARKER, start)
-    after = "" if end < 0 else body[end + len(CONST_ROADMAP_REFINE_END_MARKER) :]
-    return f"{body[:start]}\n{after}"
+    """`body` without the block of the refine job, which has its own `Acceptance criteria`
+    heading. A marker bounds the block only as an HTML block, so a quoted marker pair stays in
+    the text that a person wrote (#6627)."""
+    outside, _ = extract_section_and_outside(body)
+    return outside
 
 
 def _refine_block(body: str) -> str:
-    start = body.find(CONST_ROADMAP_REFINE_START_MARKER)
-    if start < 0:
-        return ""
-    end = body.find(CONST_ROADMAP_REFINE_END_MARKER, start)
-    if end < 0:
-        return body[start + len(CONST_ROADMAP_REFINE_START_MARKER) :]
-    return body[start + len(CONST_ROADMAP_REFINE_START_MARKER) : end]
+    """The text inside the block of the refine job, or `""` when the body holds no such block."""
+    _, section = extract_section_and_outside(body)
+    return section or ""
 
 
 def _is_repository_path(word: str) -> bool:

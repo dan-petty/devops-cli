@@ -289,6 +289,17 @@ def _block(store: RoadmapStore, number: int) -> str:
     return block or ""
 
 
+def _block_with_markers(store: RoadmapStore, number: int) -> str:
+    """The block of item `number`, with the two markers of the job around it."""
+    return "\n".join(
+        [
+            CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+            _block(store, number).strip(),
+            CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+        ]
+    )
+
+
 def _prompt_of(messages: list[ModelMessage]) -> dict[str, Any]:
     """The request document of a model request."""
     text = next(
@@ -2015,6 +2026,40 @@ def test_a_body_with_an_unpaired_marker_is_skipped_and_a_persons_text_is_kept(
         [(number, "the body holds a marker of the check with no partner")],
         0,
         body,
+    )
+
+
+_QUOTED_MARKERS = (
+    f"The markers `{CONST_ROADMAP_ALTERNATIVES_START_MARKER}` to "
+    f"`{CONST_ROADMAP_ALTERNATIVES_END_MARKER}` bound the block of the check."
+)
+_REAL_BLOCK = (
+    "Intro\n\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    "Alternatives check of 2026-01-01: covers.\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    "\nOutro"
+)
+
+
+def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_block(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    quoted = _item(store, "Quoted", body=_QUOTED_MARKERS)
+    real = _item(store, "Real block", body=_REAL_BLOCK)
+
+    written = apply_alternatives(
+        store, _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
+    )
+
+    assert (
+        written,
+        store.read_issue_body(quoted),
+        store.read_issue_body(real),
+    ) == (
+        2,
+        f"{_QUOTED_MARKERS}\n\n{_block_with_markers(store, quoted)}",
+        f"Intro\n\n{_block_with_markers(store, real)}\n\nOutro",
     )
 
 

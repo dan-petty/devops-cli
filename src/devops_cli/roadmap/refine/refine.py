@@ -218,6 +218,7 @@ from devops_cli.exceptions.roadmap import (
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import (
+    JOB_BLOCK_MARKERS,
     body_hashes,
     extract_section_and_outside,
     hash_text,
@@ -1158,16 +1159,6 @@ _DEPENDENCIES_TITLE_RE = re.compile(r"Dependencies\b", re.IGNORECASE)
 _REFERENCE_PUNCTUATION: Final[str] = ".,;:()[]"
 # A text in straight or curly double quotes, such as the title of a dependency (#4803).
 _QUOTED_RE = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
-# The start and the end markers of the blocks that the jobs write in the body. Each one ends a
-# section of the body, because the text of a job block is not text of the section (#6613).
-_JOB_BLOCK_MARKERS: Final[frozenset[str]] = frozenset(
-    {
-        CONST_ROADMAP_REFINE_START_MARKER,
-        CONST_ROADMAP_REFINE_END_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
-        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
-    }
-)
 
 
 def _ends_section(token: Token, level: int) -> bool:
@@ -1176,7 +1167,7 @@ def _ends_section(token: Token, level: int) -> bool:
     marker in a code span or inside a paragraph is inline text and ends no section."""
     if token.type == "heading_open":
         return int(token.tag[1:]) <= level
-    return token.type == "html_block" and token.content.strip() in _JOB_BLOCK_MARKERS
+    return token.type == "html_block" and token.content.strip() in JOB_BLOCK_MARKERS
 
 
 def _section_tokens(tokens: Sequence[Token], title_re: re.Pattern[str]) -> list[Token]:

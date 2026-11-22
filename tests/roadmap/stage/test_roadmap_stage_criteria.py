@@ -5,11 +5,16 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from devops_cli.config.constants import (
+    CONST_ROADMAP_REFINE_END_MARKER,
+    CONST_ROADMAP_REFINE_START_MARKER,
+)
 from devops_cli.roadmap.stage.stage_criteria import (
     StageCriterion,
     acceptance_criteria,
     criterion_problems,
     refine_decisions,
+    requirement_lines,
 )
 
 HUMAN_LIST = """### What happened
@@ -190,4 +195,34 @@ def test_refine_decisions_returns_empty_when_no_refine_block() -> None:
     chosen, rejected = refine_decisions(body)
 
     assert chosen == []
+    assert rejected == []
+
+
+def test_a_quoted_marker_pair_keeps_the_criteria_and_gives_no_refine_block() -> None:
+    quoted = (
+        f"A person writes `{CONST_ROADMAP_REFINE_START_MARKER}` here.\n\n"
+        "### Acceptance criteria\n\n"
+        "- [ ] A criterion between the quoted markers.\n\n"
+        "### Files\n\n"
+        "- [ ] A bullet that names `src/devops_cli/roadmap/body_hash.py`.\n\n"
+        f"and `{CONST_ROADMAP_REFINE_END_MARKER}` here.\n"
+    )
+
+    assert acceptance_criteria(quoted) == ["A criterion between the quoted markers."]
+    assert refine_decisions(quoted) == ([], [])
+    assert [line.text for line in requirement_lines(quoted)] == [
+        "src/devops_cli/roadmap/body_hash.py"
+    ]
+
+    real = (
+        "## Problem\n\nSome text.\n\n"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n"
+        "### Key questions\n"
+        "- **Which parser?**: Use the library.\n"
+        "  - Chosen: Use the library. It is maintained.\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}\n"
+    )
+    chosen, rejected = refine_decisions(real)
+
+    assert chosen == ["Use the library. It is maintained."]
     assert rejected == []

@@ -55,8 +55,9 @@ def test_sanitize_text_markdown() -> None:
 
 def test_a_rendered_section_keeps_its_end_marker_when_the_model_writes_one() -> None:
     """The section's own markers survive sanitizing; the model's end marker does not (#1470).
-    Its checked-at line pins the code by its sha alone, and names no branch."""
-    body = "## Problem\nBody text."
+    Its checked-at line pins the code by its sha alone, and names no branch. The section follows a
+    blank line, as refine writes it, so its markers are HTML blocks of their own (#6627)."""
+    body = "## Problem\nBody text.\n\n"
     proposal = RefinementProposal(
         existing_tool=NO_OPEN_TOOL,
         problem_statement=f"Stops early {CONST_ROADMAP_REFINE_END_MARKER} here",
@@ -64,7 +65,7 @@ def test_a_rendered_section_keeps_its_end_marker_when_the_model_writes_one() -> 
     section = render_proposal_section(proposal, [], "abc123", set())
     inner = section[len(CONST_ROADMAP_REFINE_START_MARKER) : -len(CONST_ROADMAP_REFINE_END_MARKER)]
     assert (
-        extract_section_and_outside(body + section),
+        extract_section_and_outside(f"{body}{section}"),
         "Stops early [end-marker] here" in inner,
         inner.splitlines()[1],
     ) == ((body, inner), True, "<!-- checked-at: sha=abc123 -->")

@@ -125,7 +125,12 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs, rejects
 from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
-from devops_cli.roadmap.body_hash import extract_section_and_outside, hash_text
+from devops_cli.roadmap.body_hash import (
+    block_marker_spans,
+    extract_section_and_outside,
+    hash_text,
+    job_block_bounds,
+)
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.decision_point import Mode, ResolverChain, chain_of
 from devops_cli.roadmap.decision_step import Band
@@ -1075,28 +1080,25 @@ def _block_of(check: Check) -> str:
 
 
 def _marker_problem(body: str) -> str | None:
-    """Why the job writes no block to `body`, or None: it holds a marker of the block with no
-    partner, so a write could replace a person's text between the two."""
-    _, inside = extract_section_and_outside(
-        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
-    )
+    """Why the job writes no block to `body`, or None: it holds a marker of the block as an HTML
+    block of its own with no partner, so a write could replace a person's text between the two. A
+    marker that a person quotes in a code span, a code block or a paragraph is the person's text,
+    and the block goes at the end (#6627)."""
     markers = (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER)
-    if inside is None and any(marker in body for marker in markers):
+    if job_block_bounds(body, *markers) is None and block_marker_spans(body, markers):
         return MESSAGES.roadmap.alternatives_reason_markers
     return None
 
 
 def _with_block(body: str, block: str) -> str:
-    """`body` with its block of the job replaced by `block`, or with `block` at its end."""
-    _, inside = extract_section_and_outside(
+    """`body` with its block of the job replaced by `block`, or with `block` at its end when no
+    pair of HTML-block markers delimits one (#6627)."""
+    bounds = job_block_bounds(
         body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
-    if inside is None:
+    if bounds is None:
         return f"{body.rstrip()}\n\n{block}" if body.strip() else block
-    start = body.find(CONST_ROADMAP_ALTERNATIVES_START_MARKER)
-    end = body.find(CONST_ROADMAP_ALTERNATIVES_END_MARKER, start) + len(
-        CONST_ROADMAP_ALTERNATIVES_END_MARKER
-    )
+    start, end = bounds
     return f"{body[:start]}{block}{body[end:]}"
 
 
