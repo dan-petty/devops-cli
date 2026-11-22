@@ -94,9 +94,35 @@ def _retry_waits(clock: Any) -> list[float]:
     return [wait for wait in clock.waits if wait >= 10.0]
 
 
-def _three_files(root: Path) -> None:
-    for name in ("file_a", "file_b", "file_c"):
+def _files(root: Path, count: int) -> None:
+    """Write `file_a.py` and the next files up to `count`, each with one function of its name."""
+    for letter in "abcdefg"[:count]:
+        name = f"file_{letter}"
         (root / f"{name}.py").write_text(f"def {name}(): pass\n", encoding="utf-8")
+
+
+def _three_files(root: Path) -> None:
+    _files(root, 3)
+
+
+def _fail_files(embedder: Any, errors: dict[str, EmbeddingsError]) -> list[list[str]]:
+    """Make the embedder raise `errors[name]` for each request that holds the function `name`, and
+    return those requests."""
+    requests: list[list[str]] = []
+
+    def hook(texts: list[str], is_query: bool) -> None:
+        for name, error in errors.items():
+            if any(f"def {name}()" in text for text in texts):
+                requests.append(texts)
+                raise error
+
+    embedder.before_embed = hook
+    return requests
+
+
+def _time_out(*letters: str, status: int | None = 504) -> dict[str, EmbeddingsError]:
+    """The transient error of a reply with `status` for the file of each of `letters`."""
+    return {f"file_{letter}": _reply_error(status, transient=True) for letter in letters}
 
 
 def _code_files(qdrant: Any) -> set[str]:
@@ -230,6 +256,89 @@ def test_a_batch_that_the_retry_embeds_is_indexed(
 
     assert (result["indexed_files"], len(tries), len(_retry_waits(clock))) == (3, 2, 1)
     assert _code_files(qdrant) == {"file_a.py", "file_b.py", "file_c.py"}
+
+
+def test_a_skipped_code_batch_does_not_stop_the_docs_collection(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+) -> None:
+    """The symptom of #6717: a code batch that timed out ended the run before the docs phase, so
+    `devops_docs` stayed empty."""
+    _files(tmp_path, 2)
+    (tmp_path / "guide.md").write_text("# Guide\n\nRun the app.\n", encoding="utf-8")
+    embedder.batch_size = 1
+    _fail_files(embedder, _time_out("b", status=None))
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    docs = {p["payload"]["file_path"] for p in qdrant.collections["devops_docs"]}
+    assert (exc_info.value.details["skipped_files"], _code_files(qdrant), docs) == (
+        ["file_b.py"],
+        {"file_a.py"},
+        {"guide.md"},
+    )
+
+
+@pytest.mark.parametrize("status", [504, 429, None], ids=["server-error", "rate-limit", "timeout"])
+def test_a_transient_failure_of_the_first_batch_ends_the_run(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any, status: int | None
+) -> None:
+    """An endpoint that fails the first batch of a run, before any batch got vectors, is down. The
+    run stops after the two tries of that batch, and does not wait on each later batch."""
+    _three_files(tmp_path)
+    embedder.batch_size = 1
+    requests = _fail_files(embedder, _time_out("a", "b", "c", status=status))
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    error = exc_info.value
+    assert (error.exit_code, len(requests), len(_retry_waits(clock))) == (CONST_EXIT_FAILURE, 2, 1)
+    assert (error.details["skipped_files"], _stored(qdrant)) == (["file_a.py"], set())
+    assert (_reply_error(status, transient=True).message in error.message) is True
+
+
+def test_three_batches_in_a_row_that_fail_end_the_run(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any
+) -> None:
+    """An endpoint that goes down in a run fails each later batch. After three batches in a row
+    fail both tries, the run stops and sends no request for the other files."""
+    _files(tmp_path, 6)
+    embedder.batch_size = 1
+    requests = _fail_files(embedder, _time_out("b", "c", "d", "e", "f"))
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    error = exc_info.value
+    assert (error.exit_code, len(requests), len(_retry_waits(clock))) == (CONST_EXIT_FAILURE, 6, 3)
+    assert error.details["skipped_files"] == ["file_b.py", "file_c.py", "file_d.py"]
+    assert (GATEWAY_TIMEOUT in error.message, _code_files(qdrant)) == (True, {"file_a.py"})
+
+
+@pytest.mark.parametrize("between", ["embedded", "refused"])
+def test_a_batch_that_the_endpoint_answers_sets_the_count_of_failed_batches_to_0(
+    tmp_path: Path, qdrant: Any, embedder: Any, clock: Any, between: str
+) -> None:
+    """Two failed batches, a batch that gets vectors or whose input the endpoint refuses, and two
+    more failed batches are not three failed batches in a row: the run goes on to the last file."""
+    _files(tmp_path, 7)
+    embedder.batch_size = 1
+    errors = _time_out("b", "c", "e", "f")
+    if between == "refused":
+        errors["file_d"] = _reply_error(400, transient=False)
+    _fail_files(embedder, errors)
+    indexer = WorkspaceIndexer(qdrant=qdrant, embedder=embedder, cache_dir=tmp_path / ".cache")
+
+    with pytest.raises(EmbeddingsError) as exc_info:
+        indexer.index_workspace(tmp_path, include_kb=False)
+
+    skipped = sorted(f"{name}.py" for name in errors)
+    assert exc_info.value.details["skipped_files"] == skipped
+    assert _code_files(qdrant) == {f"file_{letter}.py" for letter in "abcdefg"} - set(skipped)
 
 
 @pytest.mark.parametrize(

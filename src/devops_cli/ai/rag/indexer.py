@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
+from pybreaker import STATE_OPEN, CircuitBreaker
 from tenacity import (
     RetryCallState,
     Retrying,
@@ -71,6 +72,12 @@ _BATCH_ATTEMPTS: Final = 2
 _BATCH_RETRY_WAIT_SECONDS: Final = 10.0
 _BATCH_RETRY_MAX_WAIT_SECONDS: Final = 60.0
 
+# The run stops after this count of batches in a row that fail each attempt with a transient
+# error: the endpoint is down or hangs, and each later batch would wait and fail too. A batch that
+# gets vectors sets the count back to 0. One failed batch can take about 12 min, so 3 bound an
+# outage in a run to about 36 min, not one retry and wait for each batch of the workspace (#6717).
+_FAILED_BATCHES_IN_A_ROW: Final = 3
+
 
 class _SkippedBatch(NamedTuple):
     """A batch that the run skipped: the files of its chunks, and the last error."""
@@ -79,15 +86,30 @@ class _SkippedBatch(NamedTuple):
     error: str
 
 
+def _batch_breaker() -> CircuitBreaker:
+    """The pybreaker circuit breaker of one run, which counts the batches in a row that fail each
+    attempt with a transient error. It opens at `_FAILED_BATCHES_IN_A_ROW`. A batch whose input the
+    endpoint refuses is not such a failure: the endpoint answered, so it sets the count back to 0,
+    as a batch that gets vectors does. The run stops when the breaker opens, so the breaker never
+    lets a call through again."""
+    return CircuitBreaker(
+        fail_max=_FAILED_BATCHES_IN_A_ROW,
+        exclude=[lambda exc: not _is_retryable(exc)],
+        throw_new_error_on_trip=False,
+        name="rag-index-batches",
+    )
+
+
 @dataclass
 class _BatchRun:
     """The batch results of one index run, across both collections: the skipped batches, the
-    count of batches that got vectors, and the count of batches whose input the endpoint
-    refused."""
+    count of batches that got vectors, the count of batches whose input the endpoint refused, and
+    the breaker that counts the failed batches in a row."""
 
     skipped: list[_SkippedBatch] = field(default_factory=list)
     embedded: int = 0
     refused: int = 0
+    breaker: CircuitBreaker = field(default_factory=_batch_breaker)
 
 
 def is_text_file(p: Path) -> bool:
@@ -284,6 +306,25 @@ def _skipped_batches_error(run: _BatchRun) -> EmbeddingsError:
         is_transient=not run.refused,
         exit_code=CONST_EXIT_FAILURE,
         details={"skipped_files": files, "first_error": first_error},
+    )
+
+
+def _endpoint_down_error(run: _BatchRun, exc: Exception) -> EmbeddingsError:
+    """The error that stops a run whose endpoint is down: the last error, and each file of the
+    batches that the run skipped. The files after them get no request."""
+    files = sorted({name for batch in run.skipped for name in batch.files})
+    return EmbeddingsError(
+        ERRORS.rag.endpoint_down.format(
+            failed=run.breaker.fail_counter,
+            embedded=run.embedded,
+            count=len(files),
+            error=str(exc),
+            files="\n".join(f"  - {name}" for name in files),
+        ),
+        is_transient=True,
+        status=getattr(exc, "status", None),
+        exit_code=CONST_EXIT_FAILURE,
+        details={"skipped_files": files, "last_error": str(exc)},
     )
 
 
@@ -1263,6 +1304,9 @@ class WorkspaceIndexer:
         refused key or an unserved model, raises at once: no later batch can succeed. The LiteLLM
         proxy also answers an unknown model with HTTP 400, so a second refused batch before the
         first embedded batch raises too: two refused inputs and no accepted one point to the model.
+        `run.breaker` counts the batches in a row that fail each attempt with a transient error.
+        When it opens, or when such a batch comes before the first embedded batch, the endpoint is
+        down, and the run stops after it records the batch.
         """
         first_file, last_file = batch[0].file_path, batch[-1].file_path
 
@@ -1290,33 +1334,53 @@ class WorkspaceIndexer:
             reraise=True,
         )
         try:
-            vectors = retrying(self.embedder.embed_texts, [c.content for c in batch])
+            with run.breaker.calling():
+                vectors = retrying(self.embedder.embed_texts, [c.content for c in batch])
         except Exception as exc:
-            refused = is_input_refused_error(exc)
-            if refused:
-                ends_run = run.refused > 0 and run.embedded == 0
-            else:
-                ends_run = not is_transient_embedding_error(exc)
-            if ends_run:
-                raise _batch_failed_error(batch, exc, getattr(self.embedder, "model", "")) from exc
-            if refused:
-                run.refused += 1
-            logger.warning(
-                "Skipped the batch from '%s' to '%s' %s: %s",
-                first_file,
-                last_file,
-                "at once: the endpoint refused its input"
-                if refused
-                else f"after {_BATCH_ATTEMPTS} attempts",
-                exc,
-            )
-            run.skipped.append(
-                _SkippedBatch(tuple(dict.fromkeys(c.file_path for c in batch)), str(exc))
-            )
-            _mark_batch_incomplete(cache, file_hashes, batch, self._save_cache)
+            stop = self._skip_batch(batch, exc, cache, file_hashes, run)
+            if stop is not None:
+                raise stop from exc
             return None
         run.embedded += 1
         return vectors
+
+    def _skip_batch(
+        self,
+        batch: list[CodeChunk],
+        exc: Exception,
+        cache: dict[str, str],
+        file_hashes: dict[str, str],
+        run: _BatchRun,
+    ) -> EmbeddingsError | None:
+        """Record `batch`, which failed with `exc`, as skipped, and return None. When no later
+        batch can succeed, return the error that ends the run and record nothing. When the endpoint
+        is down, record the batch, then return the error that stops the run."""
+        first_file, last_file = batch[0].file_path, batch[-1].file_path
+        refused = is_input_refused_error(exc)
+        if refused:
+            ends_run = run.refused > 0 and run.embedded == 0
+        else:
+            ends_run = not is_transient_embedding_error(exc)
+        if ends_run:
+            return _batch_failed_error(batch, exc, getattr(self.embedder, "model", ""))
+        if refused:
+            run.refused += 1
+        logger.warning(
+            "Skipped the batch from '%s' to '%s' %s: %s",
+            first_file,
+            last_file,
+            "at once: the endpoint refused its input"
+            if refused
+            else f"after {_BATCH_ATTEMPTS} attempts",
+            exc,
+        )
+        run.skipped.append(
+            _SkippedBatch(tuple(dict.fromkeys(c.file_path for c in batch)), str(exc))
+        )
+        _mark_batch_incomplete(cache, file_hashes, batch, self._save_cache)
+        if not refused and (run.breaker.current_state == STATE_OPEN or run.embedded == 0):
+            return _endpoint_down_error(run, exc)
+        return None
 
     def get_stats(self) -> list[IndexStats]:
         """Fetch index stats from Qdrant and local cache."""

@@ -129,21 +129,21 @@ def test_index_with_a_batch_that_fails_each_try_exits_1_and_names_its_file(
     """The run indexes the other files, then exits 1 with the file it did not index (#6717)."""
     (tmp_path / "other.py").write_text("def other():\n    return 1\n", encoding="utf-8")
 
-    def time_out_app(texts: list[str], is_query: bool) -> None:
-        if any("run_app" in text for text in texts):
+    def time_out_other(texts: list[str], is_query: bool) -> None:
+        if any("def other" in text for text in texts):
             raise EmbeddingsError("Gateway 504 Gateway Timeout", status=504, is_transient=True)
 
     embedder.batch_size = 1
-    embedder.before_embed = time_out_app
+    embedder.before_embed = time_out_other
 
     result = cli(*RAG, "index", str(_app(tmp_path)), "--no-include-kb")
 
-    assert (result.exit_code, "app.py" in result.output, "Gateway 504" in result.output) == (
+    assert (result.exit_code, "other.py" in result.output, "Gateway 504" in result.output) == (
         1,
         True,
         True,
     )
-    assert {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]} == {"other.py"}
+    assert {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]} == {"app.py"}
 
 
 def test_index_reports_the_files_it_pruned(

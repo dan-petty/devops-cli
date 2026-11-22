@@ -37,6 +37,16 @@ Kind: documents. Reads: `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_c
 - [x] 4.1 In `rag_context_indexing.md`, state that the indexer leaves out the files that `.gitattributes` marks `linguist-vendored` and keeps the `linguist-generated` files, that a transient batch failure gets one more attempt and a refused input none, and that the run then skips the batch, indexes the other batches and exits 1 with the files that it did not index
   - Verification: `$ uv run devops ci docs`
 
+## 5. A run stops when the embedding endpoint is not available
+
+Kind: behavior. Reads: `src/devops_cli/ai/rag/investigator.py`, `src/devops_cli/ai/rag/indexer.py`. Changes: `src/devops_cli/ai/rag/indexer.py`, `src/devops_cli/lang/en/errors.py`, `tests/ai/rag/test_indexing_failure_and_resume.py`, `tests/commands/test_ai_rag_commands.py`, `src/devops_cli/ai/knowledge_base/devops_cli/tasks/rag_context_indexing.md`.
+Adds: `ERRORS.rag.endpoint_down`
+
+- [x] 5.1 In `tests/ai/rag/test_indexing_failure_and_resume.py`, add `test_a_transient_failure_of_the_first_batch_ends_the_run` (504, 429, timeout), `test_three_batches_in_a_row_that_fail_end_the_run`, `test_a_batch_that_the_endpoint_answers_sets_the_count_of_failed_batches_to_0` (an embedded and a refused batch) and `test_a_skipped_code_batch_does_not_stop_the_docs_collection`. In `tests/commands/test_ai_rag_commands.py`, fail the second file, not the first
+  - Verification: `$ uv run devops ci test tests/ai/rag/test_indexing_failure_and_resume.py` fails before 5.2
+- [x] 5.2 In `src/devops_cli/ai/rag/indexer.py`, give each run a pybreaker `CircuitBreaker` (`fail_max=_FAILED_BATCHES_IN_A_ROW`, an `exclude` for each error that `_is_retryable` refuses, `throw_new_error_on_trip=False`) around the two attempts of a batch. After a transient skip, when the breaker is open or no batch got vectors, raise `EmbeddingsError` with `ERRORS.rag.endpoint_down`, exit status 1 and `details` `skipped_files` and `last_error`. State the stop in `rag_context_indexing.md`
+  - Verification: `$ uv run devops ci test tests/ai/rag/test_indexing_failure_and_resume.py tests/commands/test_ai_rag_commands.py` passes
+
 ## Workflow follow-up
 
 - Pending a person: after the merge, run `devops ai rag index --include-kb` on this repository, and check that `devops ai rag status` shows points in `devops_code` and `devops_docs` (acceptance criterion 2 of #6717).

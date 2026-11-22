@@ -456,6 +456,12 @@ class RAGErrorMessages:
         "and holds the other files. The next run tries these files again. First error: "
         "{error}\n{files}"
     )
+    endpoint_down: str = (
+        "Stopped the index: the embedding endpoint is not available. {failed} batch(es) in a row "
+        "failed each attempt with a transient error, after {embedded} batch(es) of the run got "
+        "vectors. The index does not hold the {count} file(s) below, or the files after them. "
+        "The next run tries these files again. Last error: {error}\n{files}"
+    )
 
 
 @dataclass(frozen=True)
