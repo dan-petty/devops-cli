@@ -156,8 +156,11 @@ spec:
   s3:
     replicas: 2
     port: 8333
-    # The identities file of Secret seaweedfs-s3 holds no identity, so the gateway refuses each
-    # request until a person adds an identity in the admin UI. With no file it allows every request.
+    # The identities file of Secret seaweedfs-s3 holds no identity. The gateway adds the identities
+    # that the filer keeps, and it refuses each request that none of them allows. The operator keeps
+    # identity `anonymous` there with Read on reports and reports-private (buckets.yaml), so an
+    # unsigned GET of an object of these buckets works. A person adds the other identities in the
+    # admin UI. With no file and no identity in the filer, the gateway allows every request.
     configSecret:
       name: seaweedfs-s3
       key: s3.json

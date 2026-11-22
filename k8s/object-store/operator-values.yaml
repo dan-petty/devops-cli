@@ -8,14 +8,12 @@
 crds:
   create: true
 
-# The operator reconciles the Seaweed CR of the store namespace, and the buckets and their
-# lifecycle rules in the namespaces of their writers (#4756): it sees a CR only through the cache
-# of these namespaces. So it gets a Role in each of them and a small ClusterRole for the
-# cluster-scoped reads, not a ClusterRole over every namespace.
+# The operator reconciles the Seaweed CR and the buckets of this namespace only (buckets.yaml), so
+# it gets a Role here and a small ClusterRole for the cluster-scoped reads, not a ClusterRole over
+# every namespace. The chart gives each watched namespace this Role, which can read and write every
+# Secret there, so no namespace of a writer is in the list (#4756).
 watchNamespaces:
   - object-store
-  - devops
-  - argo-workflows
 
 # The Grafana sidecar loads only the ConfigMaps of namespace monitoring, so the dashboard is in
 # k8s/monitoring/dashboards/seaweedfs.json and the chart writes no dashboard ConfigMap here.
