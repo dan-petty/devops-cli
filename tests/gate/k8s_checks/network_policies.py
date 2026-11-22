@@ -401,109 +401,54 @@ def _tree_network_policies() -> tuple[dict[str, Any], ...]:
     )
 
 
-def _fixture(name: str, selector: dict[str, Any], **spec: Any) -> dict[str, Any]:
-    """A NetworkPolicy named `name` in namespace `fixture` that selects `selector`."""
-    types = [kind for kind, key in (("Ingress", "ingress"), ("Egress", "egress")) if key in spec]
+def _fixture(name: str, types: list[str] | None, **spec: Any) -> dict[str, Any]:
+    """A NetworkPolicy named `name` in namespace `fixture` that selects each pod. `types` None
+    leaves `policyTypes` out, so the API server sets the types."""
+    written = {} if types is None else {"policyTypes": types}
     return {
         "kind": "NetworkPolicy",
         "metadata": {"name": name, "namespace": "fixture"},
-        "spec": {"podSelector": selector, "policyTypes": types, **spec},
+        "spec": {"podSelector": {}, **written, **spec},
     }
 
 
-_TCP_3000 = [{"protocol": "TCP", "port": 3000}]
-_APP_A = {"matchLabels": {"app": "a"}}
+_INGRESS = [{"from": [{"podSelector": {}}], "ports": [{"protocol": "TCP", "port": 3000}]}]
+_EGRESS = [{"to": [{"podSelector": {}}]}]
 
 
-def check_the_dual_type_rule_names_an_in_namespace_egress_rule_with_no_ports() -> None:
+def check_the_dual_type_rule_names_a_policy_that_writes_both_types() -> None:
     # The probe of #6708: the egress rule lets each pod reach each other pod on every port, and
     # kube-router applies no ingress rule of the policy to that traffic.
-    fixture = _fixture(
-        "fixture-no-ports",
-        {},
-        ingress=[{"from": [{"podSelector": {}}], "ports": _TCP_3000}],
-        egress=[{"to": [{"podSelector": {}}]}],
-    )
+    fixture = _fixture("fixture-written", ["Ingress", "Egress"], ingress=_INGRESS, egress=_EGRESS)
 
     (problem,) = dual_type_problems([fixture])
-    assert ("fixture/fixture-no-ports" in problem, "kube-router" in problem) == (True, True)
+    assert ("fixture/fixture-written" in problem, "kube-router" in problem) == (True, True)
 
 
-def check_the_dual_type_rule_names_an_ingress_rule_that_limits_the_peer() -> None:
-    fixture = _fixture(
-        "fixture-peer",
-        _APP_A,
-        ingress=[
-            {
-                "from": [{"podSelector": {"matchLabels": {"app": "a", "role": "client"}}}],
-                "ports": _TCP_3000,
-            }
-        ],
-        egress=[{"to": [{"podSelector": _APP_A}], "ports": _TCP_3000}],
-    )
+def check_the_dual_type_rule_names_a_policy_with_no_types_and_an_egress_rule() -> None:
+    # The API server gives a policy with no `policyTypes` the type Ingress, and Egress when the
+    # policy has an egress rule.
+    public = [{"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]}]
+    fixture = _fixture("fixture-defaulted", None, egress=public)
 
     (problem,) = dual_type_problems([fixture])
-    assert ("fixture/fixture-peer" in problem, "TCP 3000" in problem) == (True, True)
+    assert "fixture/fixture-defaulted" in problem
 
 
-def check_the_dual_type_rule_reads_an_ip_block_and_a_rule_with_no_peer() -> None:
-    # kube-router matches an ipBlock against pod addresses, and a rule with no `to` reaches every
-    # pod. An ipBlock without the private ranges reaches no pod.
-    public = {
-        "cidr": "0.0.0.0/0",
-        "except": ["10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.168.0.0/16"],
-    }
-    fixture = _fixture(
-        "fixture-ip-block",
-        {},
-        ingress=[],
-        egress=[
-            {
-                "to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            },
-            {"ports": [{"protocol": "UDP", "port": 53}]},
-            {"to": [{"ipBlock": public}], "ports": [{"protocol": "TCP", "port": 80}]},
-        ],
-    )
-
-    problems = dual_type_problems([fixture])
-    assert (
-        len(problems),
-        any("TCP 443" in p for p in problems),
-        any("UDP 53" in p for p in problems),
-    ) == (2, True, True)
-
-
-def check_the_dual_type_rule_accepts_single_type_and_aligned_policies() -> None:
-    other_namespace = {"namespaceSelector": {"matchLabels": {NAMESPACE_NAME_LABEL: "other"}}}
+def check_the_dual_type_rule_accepts_single_type_policies() -> None:
     policies = [
-        _fixture(
-            "ingress-only", {}, ingress=[{"from": [{"podSelector": _APP_A}], "ports": _TCP_3000}]
-        ),
-        _fixture("egress-only", {}, egress=[{"to": [{"podSelector": {}}]}]),
-        _fixture(
-            "aligned",
-            {},
-            ingress=[{"from": [{"podSelector": {}}], "ports": _TCP_3000}],
-            egress=[{"to": [{"podSelector": {}}], "ports": _TCP_3000}],
-        ),
-        _fixture("other-namespace", {}, ingress=[], egress=[{"to": [other_namespace]}]),
-        _fixture(
-            "other-pods",
-            _APP_A,
-            ingress=[],
-            egress=[{"to": [{"podSelector": {"matchLabels": {"app": "b"}}}]}],
-        ),
+        _fixture("ingress-only", ["Ingress"], ingress=_INGRESS),
+        _fixture("egress-only", ["Egress"], egress=_EGRESS),
+        _fixture("defaulted-ingress", None, ingress=_INGRESS),
+        _fixture("defaulted-no-egress-rule", None, ingress=_INGRESS, egress=[]),
     ]
 
     assert dual_type_problems(policies) == []
 
 
-def check_no_network_policy_of_the_tree_lets_its_egress_skip_its_ingress() -> None:
-    """Each NetworkPolicy of the environment tree: kube-router applies no ingress rule of a
-    policy with both types to traffic that an egress rule of the policy allows between two pods
-    that it selects (#6708), so such a policy keeps its egress to its own pods on the ports that
-    its ingress rules admit from them."""
+def check_no_network_policy_of_the_tree_has_both_types() -> None:
+    """Each NetworkPolicy of the environment tree has one type, `Ingress` or `Egress`: kube-router
+    lets the rules of one type of a policy with both types skip the rules of the other type for
+    traffic between two pods that the policy selects (#6708)."""
     problems = dual_type_problems(_tree_network_policies())
     assert not problems, "\n".join(problems)
