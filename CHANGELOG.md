@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.195.1](https://github.com/dan-petty/devops-cli/compare/v0.195.0...v0.195.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **pr:** state the body limit as the checks measure it ([#6793](https://github.com/dan-petty/devops-cli/issues/6793)) ([7a81fd2](https://github.com/dan-petty/devops-cli/commit/7a81fd2fbae06ab470c5c03dd444a010b9106f47))
+* **roadmap:** a job record reads back after an open block ([#6792](https://github.com/dan-petty/devops-cli/issues/6792)) ([0895098](https://github.com/dan-petty/devops-cli/commit/089509871cb0b1e71f5482cce833d408873a77b0))
+
 ## [0.195.0](https://github.com/dan-petty/devops-cli/compare/v0.194.2...v0.195.0) (2026-11-22)
 
 
