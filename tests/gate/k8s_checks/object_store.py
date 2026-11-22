@@ -235,18 +235,17 @@ def operator_application_problems(app: Mapping[str, Any]) -> list[str]:
 
 
 def operator_values_problems(values: Mapping[str, Any]) -> list[str]:
-    """The values keep the operator of the chart's appVersion, in the store namespace, with the
-    webhook certificate of cert-manager and no dashboard ConfigMap of the chart."""
+    """The values keep the operator of the chart's appVersion, with the webhook certificate of
+    cert-manager and no dashboard ConfigMap of the chart. `object_store_buckets.watch_problems`
+    checks the watched namespaces."""
     expected = {
         "image tag": "",
-        "watchNamespaces": [NAMESPACE],
         "grafanaDashboard.enabled": False,
         "webhook.certManager.enabled": True,
         "crds.create": True,
     }
     found = {
         "image tag": values.get("image", {}).get("tag", ""),
-        "watchNamespaces": values.get("watchNamespaces"),
         "grafanaDashboard.enabled": values.get("grafanaDashboard", {}).get("enabled"),
         "webhook.certManager.enabled": values.get("webhook", {})
         .get("certManager", {})
@@ -1014,13 +1013,15 @@ def check_each_store_workload_is_restricted_budgeted_and_scraped() -> None:
 # The Secrets.
 
 
-def _secret_names(node: Any) -> Iterator[str]:
+def _secret_names(node: Any) -> Iterator[tuple[str | None, str]]:
+    """The namespace, when the reference names one (the `secretRef` of an `S3Credentials`), and
+    the name of each Secret that the node references."""
     if isinstance(node, dict):
         for key, value in node.items():
             if key in _SECRET_OBJECT_KEYS and isinstance(value, dict) and value.get("name"):
-                yield str(value["name"])
+                yield value.get("namespace"), str(value["name"])
             elif key in _SECRET_NAME_KEYS and isinstance(value, str):
-                yield value
+                yield None, value
             else:
                 yield from _secret_names(value)
     elif isinstance(node, list):
@@ -1031,13 +1032,14 @@ def _secret_names(node: Any) -> Iterator[str]:
 def secret_reference_problems(
     documents: Iterable[Mapping[str, Any]], refs: Iterable[str]
 ) -> list[str]:
-    """Each Secret that an object references has a row in `CLUSTER_SECRETS`."""
+    """Each Secret that an object references has a row in `CLUSTER_SECRETS`. The Secret is in the
+    namespace that the reference names, else in the namespace of the object."""
     known = set(refs)
     return [
         f"{_ref(doc)}: Secret {namespace}/{name} has no row in CLUSTER_SECRETS"
         for doc in documents
-        for namespace in [doc.get("metadata", {}).get("namespace", NAMESPACE)]
-        for name in _secret_names(doc.get("spec", {}))
+        for named, name in _secret_names(doc.get("spec", {}))
+        for namespace in [named or doc.get("metadata", {}).get("namespace", NAMESPACE)]
         if f"{namespace}/{name}" not in known
     ]
 
@@ -1055,6 +1057,19 @@ def check_the_secret_rule_names_a_reference_with_no_row() -> None:
 
     assert any(
         f"{NAMESPACE}/seaweedfs-missing" in p for p in secret_reference_problems([seaweed], refs)
+    )
+
+
+def check_the_secret_rule_names_a_cross_namespace_reference_with_no_row() -> None:
+    credentials = {
+        "kind": "S3Credentials",
+        "metadata": {"name": "devops", "namespace": NAMESPACE},
+        "spec": {"secretRef": {"namespace": "devops", "name": "object-store-missing"}},
+    }
+    refs = [secret.ref for secret in CLUSTER_SECRETS]
+
+    assert any(
+        "devops/object-store-missing" in p for p in secret_reference_problems([credentials], refs)
     )
 
 
