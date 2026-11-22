@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Renovate manages Terraform, devcontainers, pre-commit, and action digests under taxonomy labels
-The shared preset `github>dan-petty/infra//renovate/base`, which `.github/renovate.json` extends, SHALL label each update `type/chore` and `scope/deps`, add `scope/ci` to github-actions, pre-commit and devcontainer updates, add `scope/infra` to dockerfile, docker-compose, kubernetes, argocd, helm-values and terraform updates, pin the digests of github-actions and dockerfile, and turn the pre-commit manager on. Each label of the preset and of `.github/renovate.json` SHALL exist in `.github/labels.yml` or in the workflow labels.
+The shared preset `github>dan-petty/infra//renovate/base` SHALL label each update `type/chore` and `scope/deps`, add `scope/ci` to github-actions, pre-commit and devcontainer updates, add `scope/infra` to dockerfile, docker-compose, kubernetes, argocd, helm-values and terraform updates, pin the digests of github-actions and dockerfile, and turn the pre-commit manager on. Each label SHALL exist in `.github/labels.yml` or in the workflow labels.
 
 #### Scenario: The Renovate configuration is read
 - **WHEN** Renovate opens a pull request in devops-cli that updates an action, and a person runs `devops gh api repos/dan-petty/devops-cli/issues/<number> --jq '[.labels[].name]'`
