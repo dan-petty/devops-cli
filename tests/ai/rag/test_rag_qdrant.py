@@ -214,6 +214,30 @@ def test_search_skips_a_point_whose_expiry_passed(contract_client: QdrantProtoco
     assert [hit["payload"]["expiry"] for hit in hits] == [_LIVE]
 
 
+def test_a_scroll_ordered_by_indexed_at_gives_the_newest_point_first(
+    contract_client: QdrantProtocol,
+) -> None:
+    """Qdrant orders the scroll by the payload value and leaves out a point with no value (#6774)."""
+    old, new = "2026-11-22T04:26:15.426174+00:00", "2026-11-22T14:31:05.512000+00:00"
+    contract_client.ensure_collection("docs", vector_size=4)
+    contract_client.upsert_points(
+        "docs",
+        [
+            {"id": "old", "vector": [1.0, 0.0, 0.0, 0.0], "payload": {"indexed_at": old}},
+            {"id": "none", "vector": [0.0, 1.0, 0.0, 0.0], "payload": {"file_path": "a.py"}},
+            {"id": "new", "vector": [0.0, 0.0, 1.0, 0.0], "payload": {"indexed_at": new}},
+        ],
+    )
+
+    newest = contract_client.scroll_points("docs", limit=1, order_by="indexed_at", descending=True)
+    oldest = contract_client.scroll_points("docs", limit=2, order_by="indexed_at")
+
+    assert (
+        [point["payload"]["indexed_at"] for point in newest],
+        [point["payload"]["indexed_at"] for point in oldest],
+    ) == ([new], [old, new])
+
+
 def test_qdrant_must_not_list_filter(memory_qdrant_client: QdrantClient) -> None:
     memory_qdrant_client.ensure_collection("filter_col", vector_size=4)
     p1 = {

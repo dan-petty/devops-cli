@@ -434,6 +434,22 @@ def _extract_payload_field(sample_pts: Any, field: str) -> str | None:
     return None
 
 
+def _newest_index_time(qdrant: Any, coll_name: str) -> str:
+    """The `indexed_at` time of the newest point of the collection, or `—` when Qdrant cannot say.
+
+    An index run writes only the chunks that changed, so the first point of an unordered scroll
+    can come from any older run (#6774). Qdrant orders the scroll by the datetime index of
+    `indexed_at` that each index run creates, and refuses the order before that run.
+    """
+    try:
+        newest = qdrant.scroll_points(coll_name, limit=1, order_by="indexed_at", descending=True)
+    except DevOpsCLIError as exc:
+        logger.debug("Failed reading the newest point of collection %s: %s", coll_name, exc)
+        return "—"
+    idx_at = _extract_payload_field(newest, "indexed_at")
+    return idx_at[:19].replace("T", " ") if idx_at else "—"
+
+
 def _render_collection_row(qdrant: Any, coll_name: str) -> list[str]:
     """Extract summary row for a single collection."""
     from devops_cli.config.constants import CONST_RAG_KB_PROJECT
@@ -459,8 +475,7 @@ def _render_collection_row(qdrant: Any, coll_name: str) -> list[str]:
         try:
             sample = qdrant.scroll_points(coll_name, limit=1)
             model = _extract_payload_field(sample, "embedding_model") or "—"
-            idx_at = _extract_payload_field(sample, "indexed_at")
-            last_indexed = idx_at[:19].replace("T", " ") if idx_at else "—"
+            last_indexed = _newest_index_time(qdrant, coll_name)
 
             kb_sample = qdrant.scroll_points(
                 coll_name, filter_payload={"project_name": CONST_RAG_KB_PROJECT}, limit=1
