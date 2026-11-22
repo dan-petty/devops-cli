@@ -2,9 +2,9 @@
 
 ## 1. The row for policies with both types (behavior)
 
-- [ ] 1.1 Write the fixture checks of `dual_type_problems` in `tests/gate/k8s_checks/network_policies.py`: an in-namespace egress rule with no ports, an ingress rule that limits the peer, an `ipBlock` with a private range and a rule with no `to`, single-type and aligned policies, and the scan of the tree
+- [x] 1.1 Write the fixture checks of `dual_type_problems` in `tests/gate/k8s_checks/network_policies.py`: an in-namespace egress rule with no ports, an ingress rule that limits the peer, an `ipBlock` with a private range and a rule with no `to`, single-type and aligned policies, and the scan of the tree
   - Verification: `$ uv run devops ci --check --only k8s`
-- [ ] 1.2 Write `dual_type_problems` and its helpers for the peers, the selectors and the ports
+- [x] 1.2 Write `dual_type_problems` and its helpers for the peers, the selectors and the ports
   - Verification: `$ uv run devops ci --check --only k8s`
 
 ## 2. Single-type policies (manifests)
@@ -14,7 +14,7 @@
 - [ ] 2.2 Split `argo-workflows-default-perimeter`, `cert-manager-default-perimeter`, `cloudflared-isolation` and `plugin-barman-cloud` in the same way
   - Verification: `$ uv run devops ci --check --only k8s`
 - [ ] 2.3 Make the checks of the `k8s` row and the tests that look up a split policy read the new name
-  - Verification: `$ uv run devops ci test tests/ai/benchmark/test_k8s_llm_gateway.py tests/ai/test_ai_gateway_portkey.py tests/k8s/test_k8s_argo_workflows.py`
+  - Verification: `$ uv run devops ci test tests/ai/benchmark/test_k8s_llm_gateway.py tests/ai/test_ai_gateway_portkey.py tests/k8s/test_k8s_argo_workflows.py tests/server/routes/test_k8s_roadmap_service.py`
 
 ## 3. Documents
 
