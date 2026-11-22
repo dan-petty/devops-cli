@@ -11,18 +11,18 @@ Kind: behavior. Reads: `k8s/devops/searxng/deployment.yaml`, `k8s/devops/searxng
 
 ## 2. The password of the metrics Secret is optional
 
-Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/invariants/test_k8s_manifests.py`. Changes: `tests/invariants/test_k8s_searxng.py`, `src/devops_cli/k8s/cluster_secrets.py`, `k8s/README.md`.
+Kind: behavior. Reads: `src/devops_cli/k8s/cluster_secrets.py`, `tests/invariants/test_k8s_manifests.py`. Changes: `tests/invariants/test_k8s_searxng.py`, `src/devops_cli/k8s/cluster_secrets.py`, `k8s/README.md`, `tests/k8s/test_cluster_secret_plan.py`.
 
 - [x] 2.1 Extend `test_the_metrics_secret_row` in `tests/invariants/test_k8s_searxng.py` to assert that entry `password` is not required and that `OPTIONAL_FEATURE_SECRETS` names the row. The test fails on the base
   - Verification: `$ uv run devops ci test tests/invariants/test_k8s_searxng.py` fails on the base
-- [x] 2.2 In `src/devops_cli/k8s/cluster_secrets.py`, set `required=False` on entry `password` of row `devops/searxng-metrics-auth`, change the comment of the row, and add the row to `OPTIONAL_FEATURE_SECRETS`. Change the row of key `password` in the Cluster Secrets table of `k8s/README.md` to the text that `test_readme_lists_the_table` computes
+- [x] 2.2 In `src/devops_cli/k8s/cluster_secrets.py`, set `required=False` on entry `password` of row `devops/searxng-metrics-auth`, change the comment of the row, and add the row to `OPTIONAL_FEATURE_SECRETS`. Change the row of key `password` in the Cluster Secrets table of `k8s/README.md` to the text that `test_readme_lists_the_table` computes, and the expected row of key `password` in `test_table_holds_each_secret_entry_with_its_source_and_restarts` of `tests/k8s/test_cluster_secret_plan.py` to an entry that is not required
   - Verification: `$ uv run devops ci test tests/invariants/test_k8s_searxng.py tests/invariants/test_k8s_manifests.py tests/k8s/test_cluster_secret_plan.py tests/k8s/test_cluster_secret_push.py tests/commands/k8s/test_k8s.py tests/k8s/test_grafana_renderer_optional.py` passes
 
 ## 3. The documents say that the Secret is optional
 
 Kind: other. Reads: `k8s/README.md`, `docs/CLUSTER.md`. Changes: `k8s/README.md`, `docs/CLUSTER.md`.
 
-- [ ] 3.1 In the paragraph of `devops/searxng-metrics-auth` under the Cluster Secrets table of `k8s/README.md`, say that the Secret is optional, what the pod does without it, and that a push with no keyring value skips the password. In the SearXNG section of `docs/CLUSTER.md`, change The secrets so that only Secret `searxng` is needed before the first sync, and add to The metrics what `render-settings`, `/metrics` and Alloy do while the Secret is missing
+- [x] 3.1 In the paragraph of `devops/searxng-metrics-auth` under the Cluster Secrets table of `k8s/README.md`, say that the Secret is optional, what the pod does without it, and that a push with no keyring value skips the password. In the SearXNG section of `docs/CLUSTER.md`, change The secrets so that only Secret `searxng` is needed before the first sync, and add to The metrics what `render-settings`, `/metrics` and Alloy do while the Secret is missing
   - Verification: `$ uv run devops ci --check --only docs` passes
 
 ## Workflow follow-up
