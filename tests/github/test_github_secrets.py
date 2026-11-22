@@ -23,6 +23,7 @@ from devops_cli.github.secrets import (
     sync_repository_secrets,
     sync_secrets_requests,
 )
+from devops_cli.lang import MESSAGES
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 if TYPE_CHECKING:
@@ -568,12 +569,19 @@ def test_a_file_with_a_second_source_exits_2_before_any_call(
 
 
 @pytest.mark.parametrize(
-    "content",
-    [b"", f"{KNOWN_VALUE}\xff".encode("latin-1")],
+    ("content", "message"),
+    [
+        (b"", MESSAGES.config.from_file_empty),
+        (f"{KNOWN_VALUE}\xff".encode("latin-1"), MESSAGES.config.from_file_not_text),
+    ],
     ids=["empty", "not-utf8"],
 )
 def test_an_unreadable_file_exits_2_and_quotes_no_byte(
-    cli: Callable[..., Any], process_fake: ProcessFake, tmp_path: Path, content: bytes
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    tmp_path: Path,
+    content: bytes,
+    message: str,
 ) -> None:
     key_file = tmp_path / "key.pem"
     key_file.write_bytes(content)
@@ -582,8 +590,11 @@ def test_an_unreadable_file_exits_2_and_quotes_no_byte(
 
     assert res.exit_code == 2, res.output
     assert "Invalid value for '--from-file'" in res.output
+    assert message in res.output
     assert _gh_calls(process_fake) == []
     assert KNOWN_VALUE not in res.output
+    # A decode error names the byte that it could not decode, and that byte is part of the secret.
+    assert "0xff" not in res.output
 
 
 def test_a_value_for_two_secrets_is_refused() -> None:
