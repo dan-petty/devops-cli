@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.191.0](https://github.com/dan-petty/devops-cli/compare/v0.190.0...v0.191.0) (2026-11-22)
+
+
+### Features
+
+* **infra:** add node drain, uncordon, restart and reboot ([#6706](https://github.com/dan-petty/devops-cli/issues/6706)) ([8af846c](https://github.com/dan-petty/devops-cli/commit/8af846cb741a96d478e400260b4999fe373ffd14)), closes [#5128](https://github.com/dan-petty/devops-cli/issues/5128)
+* **monitoring:** keep the cAdvisor container_threads series ([#6711](https://github.com/dan-petty/devops-cli/issues/6711)) ([349adda](https://github.com/dan-petty/devops-cli/commit/349adda78f7a62b85dfc2e339b738339b42e7c47))
+
+
+### Bug Fixes
+
+* **ci:** check release image job times in devops ci job-time ([#6635](https://github.com/dan-petty/devops-cli/issues/6635)) ([1b1a25e](https://github.com/dan-petty/devops-cli/commit/1b1a25eaf04dd40527b968302d06d9bb84792908))
+* **k8s:** narrow the in-namespace egress of the object store ([#6712](https://github.com/dan-petty/devops-cli/issues/6712)) ([f14cb8b](https://github.com/dan-petty/devops-cli/commit/f14cb8b00c29f27e43ea665e3f1236f83c56f021)), closes [#6707](https://github.com/dan-petty/devops-cli/issues/6707)
+
 ## [0.190.0](https://github.com/dan-petty/devops-cli/compare/v0.189.0...v0.190.0) (2026-11-21)
 
 
