@@ -127,6 +127,7 @@ from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
 from devops_cli.roadmap.body_hash import (
     block_marker_spans,
+    close_open_block,
     extract_section_and_outside,
     hash_text,
     job_block_bounds,
@@ -1050,7 +1051,9 @@ def _comment_of(check: Check) -> str:
 def _block_of(check: Check) -> str:
     """The block of the body, between the job's two markers: the current result of the check. Its
     first lines give the date and the verdict, the skip class, the basis of a verdict of the job,
-    the tool and the reason of the model; then what the tool covers and what it lacks (#6195)."""
+    the tool and the reason of the model; then what the tool covers and what it lacks (#6195). A
+    code fence or an HTML block that its text leaves open gets its close before the end marker, so
+    the end marker stays an HTML block of its own (#6627)."""
     texts = MESSAGES.roadmap
     detail = texts.alternatives_block_no_tool if check.tool is None else _tool_line(check.tool)
     skip = (
@@ -1073,7 +1076,7 @@ def _block_of(check: Check) -> str:
         _list_section(texts.alternatives_block_covers, check.covers),
         _list_section(texts.alternatives_block_lacks, check.lacks),
     ]
-    inside = "\n\n".join("\n".join(section) for section in sections if section)
+    inside = close_open_block("\n\n".join("\n".join(section) for section in sections if section))
     return "\n".join(
         [CONST_ROADMAP_ALTERNATIVES_START_MARKER, inside, CONST_ROADMAP_ALTERNATIVES_END_MARKER]
     )
@@ -1092,12 +1095,14 @@ def _marker_problem(body: str) -> str | None:
 
 def _with_block(body: str, block: str) -> str:
     """`body` with its block of the job replaced by `block`, or with `block` at its end when no
-    pair of HTML-block markers delimits one (#6627)."""
+    pair of HTML-block markers delimits one (#6627). A code fence or an HTML block that the body
+    leaves open at its end gets its close before `block`, so the markers of `block` stay HTML blocks
+    of their own."""
     bounds = job_block_bounds(
         body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
     )
     if bounds is None:
-        return f"{body.rstrip()}\n\n{block}" if body.strip() else block
+        return f"{close_open_block(body.rstrip())}\n\n{block}" if body.strip() else block
     start, end = bounds
     return f"{body[:start]}{block}{body[end:]}"
 
@@ -1611,7 +1616,9 @@ class AlternativesWriter:
         `devops_cli_roadmap_alternatives_searches` (#2950). A failure is recorded in the job record
         of its item: the time and the class of the error. Each written check and each failure logs
         one result line for the repository (#4845); a check whose body a person changed since the
-        read logs none, as the next run checks the item again."""
+        read logs none, as the next run checks the item again. The recorded body hash is the hash
+        of the body that the check writes, so the close of an open block that the write adds
+        before the block is no change on the next run (#6627)."""
         if isinstance(outcome, CheckFailure):
             self._store.set_marks(
                 outcome.item,
@@ -1629,7 +1636,7 @@ class AlternativesWriter:
         posts = _posts_comment(outcome)
         marks: dict[str, str | None] = {
             AlternativesRecordKey.CHECKED_AT: outcome.checked_at.isoformat(),
-            AlternativesRecordKey.BODY_HASH: outcome.body_hash,
+            AlternativesRecordKey.BODY_HASH: body_hash_of(outcome.new_body),
             AlternativesRecordKey.VERDICT: outcome.verdict.value,
             AlternativesRecordKey.TOOL: outcome.tool.url if outcome.tool else None,
             AlternativesRecordKey.TOOL_ID: outcome.tool.canonical_id if outcome.tool else None,

@@ -289,17 +289,6 @@ def _block(store: RoadmapStore, number: int) -> str:
     return block or ""
 
 
-def _block_with_markers(store: RoadmapStore, number: int) -> str:
-    """The block of item `number`, with the two markers of the job around it."""
-    return "\n".join(
-        [
-            CONST_ROADMAP_ALTERNATIVES_START_MARKER,
-            _block(store, number).strip(),
-            CONST_ROADMAP_ALTERNATIVES_END_MARKER,
-        ]
-    )
-
-
 def _prompt_of(messages: list[ModelMessage]) -> dict[str, Any]:
     """The request document of a model request."""
     text = next(
@@ -2040,6 +2029,14 @@ _REAL_BLOCK = (
     f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
     "\nOutro"
 )
+# The block of a check of `NOW` with the verdict `none` and the reason `REASON`, as the job writes it.
+_NONE_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+    f"Alternatives check of {NOW.date()}: none.\n"
+    "Tool: none found.\n"
+    f"Reason: {REASON}\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
 
 
 def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_block(
@@ -2058,8 +2055,53 @@ def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_bloc
         store.read_issue_body(real),
     ) == (
         2,
-        f"{_QUOTED_MARKERS}\n\n{_block_with_markers(store, quoted)}",
-        f"Intro\n\n{_block_with_markers(store, real)}\n\nOutro",
+        f"{_QUOTED_MARKERS}\n\n{_NONE_BLOCK}",
+        f"Intro\n\n{_NONE_BLOCK}\n\nOutro",
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    [
+        pytest.param(
+            "The job needs a scan.",
+            "The run fails with:\n```\nTraceback (most recent call last):\n",
+            id="fence-in-the-model-text",
+        ),
+        pytest.param(
+            "The job needs a scan.\n\n```\nAn open fence of a person.\n", REASON, id="person-fence"
+        ),
+        pytest.param(
+            "The job needs a scan.\n\n<pre>\nAn open pre block of a person.\n",
+            REASON,
+            id="person-pre",
+        ),
+    ],
+)
+def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
+    store: InMemoryRoadmapStore, web_key: None, body: str, reason: str
+) -> None:
+    """CommonMark reads all text after an open fenced code block or an open HTML block as part of
+    it. The job closes such a block before its own block (#6627), so each round leaves one block
+    that a read finds, and the next round finds the item unchanged and checks it no more."""
+    number = _item(store, "Open block", body=body)
+    script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
+    seen = []
+    for _ in range(3):
+        plan = _plan(store, script)
+        apply_alternatives(store, plan)
+        written = store.read_issue_body(number)
+        seen.append(
+            (
+                len(plan.checks),
+                written.count(CONST_ROADMAP_ALTERNATIVES_START_MARKER),
+                bool(_block(store, number)),
+            )
+        )
+
+    assert (seen, store.read_issue_body(number).startswith(body.rstrip())) == (
+        [(1, 1, True), (0, 1, True), (0, 1, True)],
+        True,
     )
 
 

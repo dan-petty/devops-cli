@@ -9,7 +9,9 @@ The module imports no job, so that `trust` and `refine` can both import it.
 
 A job block marker bounds a block only where CommonMark parses the marker as an HTML block of its
 own (#6627). A marker that a person quotes in a code span, a code block or a paragraph is the
-person's text, so a read keeps it and a write adds its block at the end.
+person's text, so a read keeps it and a write adds its block at the end. A writer closes a fenced
+code block or an HTML block that is open before a marker that it writes (`close_open_block`), so
+the next read finds the block again.
 """
 
 from __future__ import annotations
@@ -97,6 +99,39 @@ def job_block_bounds(
     if end is None:
         return None
     return start[1], end[2]
+
+
+# The close of each kind of HTML block that only an end tag or an end text ends, by the start of
+# its first line (CommonMark kinds 1 to 5). A blank line ends each other kind of HTML block.
+_HTML_BLOCK_CLOSES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    (re.compile(r"<(script|pre|style|textarea)(?=[\s>]|$)", re.IGNORECASE), "</{tag}>"),
+    (re.compile(r"<!--"), "-->"),
+    (re.compile(r"<\?"), "?>"),
+    (re.compile(r"<![A-Za-z]"), ">"),
+    (re.compile(r"<!\[CDATA\["), "]]>"),
+)
+
+
+def close_open_block(text: str) -> str:
+    """`text` with a close on a line of its own for the fenced code block or the HTML block that
+    is open at its end, or `text` itself when no such block is open.
+
+    CommonMark reads all text after an open fenced code block or an open HTML block as part of
+    that block. A job block marker after `text` is then no HTML block of its own, and the next
+    read does not find the block of the job (#6627). A blank line ends each other block, and a
+    writer puts one before its block. The close keeps the text of the open block in that block."""
+    probe = CONST_ROADMAP_REFINE_START_MARKER
+    last = _BODY_MARKDOWN.parse(f"{text}\n\n{probe}")[-1]
+    if last.type == "fence":
+        return f"{text}\n{last.markup}"
+    if last.type != "html_block" or last.content.strip() == probe:
+        return text
+    first = last.content.lstrip()
+    for opener, close in _HTML_BLOCK_CLOSES:
+        if (found := opener.match(first)) is not None:
+            tag = found.group(1).lower() if found.groups() else ""
+            return f"{text}\n{close.format(tag=tag)}"
+    return text
 
 
 def extract_section_and_outside(

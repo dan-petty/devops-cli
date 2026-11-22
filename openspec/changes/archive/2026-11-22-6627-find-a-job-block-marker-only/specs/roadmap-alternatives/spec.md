@@ -11,6 +11,21 @@ A check SHALL treat a marker as a block boundary only where CommonMark parses it
 - **WHEN** the body holds an alternatives block whose start marker and end marker are each an HTML block on a line of its own
 - **THEN** the check replaces that block and keeps every character outside it unchanged
 
+### Requirement: A check keeps its block readable after an open block
+The check SHALL close a code fence or an HTML block that its own text leaves open, before its end marker. When the body ends in an open code fence or HTML block where the check adds its block, the check SHALL close that block on a line of its own before the start marker. The check SHALL record as `alternatives.body_hash` the hash of the body that it writes, so the next run finds one block and reads the item as unchanged.
+
+#### Scenario: The text of a person leaves a code fence open
+- **WHEN** the body of a person ends in a code fence that it does not close, and the check runs three times on the item
+- **THEN** the first write adds the close of the fence on a line of its own before the block, the text of the person stays at the start of the body, and after each run the body holds one block that a read finds, and only the first run checks the item
+
+#### Scenario: The text of a person leaves a pre block open
+- **WHEN** the body of a person ends in a `<pre>` HTML block that it does not close, and the check runs three times on the item
+- **THEN** the first write adds `</pre>` on a line of its own before the block, and after each run the body holds one block and only the first run checks the item
+
+#### Scenario: The reason of the model opens a code fence
+- **WHEN** the reason in the reply of the model opens a code fence and does not close it, and the check runs three times on the item
+- **THEN** after each run the body holds one block that a read finds, and only the first run checks the item
+
 ## MODIFIED Requirements
 
 ### Requirement: A check writes a comment, a block and a record

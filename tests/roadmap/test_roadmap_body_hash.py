@@ -7,12 +7,15 @@ text, so a read keeps it and a write adds its block at the end.
 
 from __future__ import annotations
 
+import pytest
+
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
+from devops_cli.roadmap import body_hash
 from devops_cli.roadmap.body_hash import extract_section_and_outside, without_alternatives
 
 _QUOTED_REFINE = (
@@ -63,3 +66,48 @@ def test_a_marker_in_a_code_span_a_code_block_or_a_paragraph_is_no_block() -> No
         extract_section_and_outside(paragraph),
         extract_section_and_outside(quoted_end),
     ) == ((fenced, None), (indented, None), (paragraph, None), (quoted_end, None))
+
+
+_A_BLOCK = f"{CONST_ROADMAP_REFINE_START_MARKER}\nX\n{CONST_ROADMAP_REFINE_END_MARKER}"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("Text.\n\n```python\ncode", id="backtick-fence"),
+        pytest.param("Text.\n\n~~~~\ncode", id="tilde-fence"),
+        pytest.param("Text.\n\n<pre>\ncode", id="pre"),
+        pytest.param("Text.\n\n<!-- a note", id="comment"),
+        pytest.param("Text.\n\n<?php echo 1;", id="processing-instruction"),
+        pytest.param("Text.\n\n<!DOCTYPE html", id="declaration"),
+        pytest.param("Text.\n\n<![CDATA[ data", id="cdata"),
+    ],
+)
+def test_an_open_block_is_closed_so_that_a_block_after_it_is_found(text: str) -> None:
+    """CommonMark reads all text after an open fenced code block or an open HTML block as part of
+    it. The close goes on a line of its own after the text, so a job block after it is found and
+    the text stays as it was."""
+    closed = body_hash.close_open_block(text)
+
+    assert (
+        closed.startswith(f"{text}\n"),
+        extract_section_and_outside(f"{closed}\n\n{_A_BLOCK}")[1],
+    ) == (True, "\nX\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("Text.", id="paragraph"),
+        pytest.param("Text.\n\n```\ncode\n```", id="closed-fence"),
+        pytest.param("Text.\n\n<pre>\ncode\n</pre>", id="closed-pre"),
+        pytest.param("Text.\n\n<div>\ncode", id="div-that-a-blank-line-ends"),
+        pytest.param("Text.\n\n    ```\n    indented code", id="indented-code"),
+        pytest.param("> ```\n> code in a quote", id="fence-in-a-quote"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_a_text_with_no_open_block_stays_as_it_is(text: str) -> None:
+    """A text that holds no open block, or only a block that the blank line before a job block
+    ends, gets no close."""
+    assert body_hash.close_open_block(text) == text

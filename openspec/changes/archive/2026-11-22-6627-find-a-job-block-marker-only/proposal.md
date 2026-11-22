@@ -12,7 +12,8 @@ The job block writers and the readers find their markers with a plain text searc
 - `_marker_problem` names an unpaired marker only for an HTML-block marker, so a body that quotes both markers receives its block.
 - `src/devops_cli/roadmap/refine/refine.py` reads the one marker set `JOB_BLOCK_MARKERS` from `src/devops_cli/roadmap/body_hash.py`.
 - `src/devops_cli/roadmap/stage/stage_criteria.py` cuts the refine block with `extract_section_and_outside`, so a quoted marker pair stays in the criteria text.
-- The tests are new in `tests/roadmap/test_roadmap_body_hash.py` and added to `tests/roadmap/test_roadmap_alternatives.py` and `tests/roadmap/stage/test_roadmap_stage_criteria.py`.
+- `close_open_block` in `src/devops_cli/roadmap/body_hash.py` closes a code fence or an HTML block that is open before a marker that a job writes. Refine and the alternatives check close their own text and the text before their block, and record the hash of the body that they write, so the next round finds one block and reads the item as unchanged.
+- The tests are new in `tests/roadmap/test_roadmap_body_hash.py` and `tests/roadmap/refine/test_roadmap_refine_block_markers.py`, and added to `tests/roadmap/test_roadmap_alternatives.py` and `tests/roadmap/stage/test_roadmap_stage_criteria.py`.
 - The change fits one pull request.
 
 ## Capabilities
@@ -23,14 +24,14 @@ None.
 
 ### Modified Capabilities
 
-- `roadmap-alternatives`: A marker bounds a block only as an HTML block, A check writes a comment, a block and a record
-- `roadmap-refine/writes`: The hash of the body leaves out the job's block
+- `roadmap-alternatives`: A marker bounds a block only as an HTML block, A check keeps its block readable after an open block, A check writes a comment, a block and a record
+- `roadmap-refine/writes`: Refine keeps its section readable after an open block, The hash of the body leaves out the job's block
 - `roadmap-stage/criteria`: The refine block starts and ends at an HTML block marker
 
 ## Impact
 
 - Code: `src/devops_cli/roadmap/body_hash.py`, `src/devops_cli/roadmap/refine/refine.py`, `src/devops_cli/roadmap/alternatives.py`, `src/devops_cli/roadmap/stage/stage_criteria.py`
-- Tests: `tests/roadmap/test_roadmap_body_hash.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/stage/test_roadmap_stage_criteria.py`
+- Tests: `tests/roadmap/test_roadmap_body_hash.py`, `tests/roadmap/refine/test_roadmap_refine_block_markers.py`, `tests/roadmap/refine/test_roadmap_refine_sanitize.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/stage/test_roadmap_stage_criteria.py`
 
 ## Feasibility
 

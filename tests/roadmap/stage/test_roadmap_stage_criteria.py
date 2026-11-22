@@ -226,3 +226,23 @@ def test_a_quoted_marker_pair_keeps_the_criteria_and_gives_no_refine_block() -> 
 
     assert chosen == ["Use the library. It is maintained."]
     assert rejected == []
+
+
+def test_a_start_marker_with_no_end_marker_gives_no_refine_block() -> None:
+    """A real start marker of refine on a line of its own, with no end marker, bounds no block: the
+    job reads no decision from the text after it, and reads its criteria as text of the person
+    (#6627)."""
+    body = (
+        "## Problem\n\nSome text.\n\n"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n\n"
+        "### Key questions\n"
+        "- **Which parser?**: Use the library.\n"
+        "  - Chosen: Use the library. It is maintained.\n\n"
+        "### Acceptance criteria\n\n"
+        "- [ ] A criterion after the start marker.\n"
+    )
+
+    assert (refine_decisions(body), acceptance_criteria(body)) == (
+        ([], []),
+        ["A criterion after the start marker."],
+    )
