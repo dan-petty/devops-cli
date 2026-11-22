@@ -83,17 +83,17 @@ ServiceAccount `roadmap-service` SHALL be the account of the Service pod. A Role
 - **THEN** the Role holds exactly those rules, the RoleBinding names one subject, the Deployment `roadmap-service` uses ServiceAccount `roadmap-service` with `automountServiceAccountToken: false` and a projected volume with a token of 3600 seconds, and no pod template of a CronJob mounts a token
 
 ### Requirement: Only the Service pod may reach the API server
-A NetworkPolicy SHALL admit egress of the pods labeled `app.kubernetes.io/name=roadmap-service` to TCP 6443 through an `ipBlock` that excludes `169.254.169.254/32`. No policy SHALL admit a Job pod to port 6443. The Job pods SHALL keep the egress of `devops-default-perimeter`: DNS, the gateway on 4000, the cache on 6379, the OTLP collector on 4318 and public HTTPS.
+A NetworkPolicy SHALL admit egress of the pods labeled `app.kubernetes.io/name=roadmap-service` to TCP 6443 through an `ipBlock` that excludes `169.254.169.254/32`. No policy SHALL admit a Job pod to port 6443. The Job pods SHALL keep the egress of `devops-default-perimeter-egress`: DNS, the gateway on 4000, the cache on 6379, the OTLP collector on 4318 and public HTTPS.
 
 #### Scenario: The policies are read
 - **WHEN** a test reads the rendered NetworkPolicies of namespace `devops`
 - **THEN** the policy for `roadmap-service` holds one egress rule, to port 6443 with the metadata address excluded, and no other policy of the namespace names port 6443
 
 ### Requirement: Public HTTPS excludes the non-public ranges
-Rule 4 of `devops-default-perimeter` SHALL exclude the private ranges, the shared address space `100.64.0.0/10`, the link-local range `169.254.0.0/16`, `169.254.169.254/32`, `192.0.0.0/24` and `198.18.0.0/15`.
+The public HTTPS rule of `devops-default-perimeter-egress` SHALL exclude the private ranges, the shared address space `100.64.0.0/10`, the link-local range `169.254.0.0/16`, `169.254.169.254/32`, `192.0.0.0/24` and `198.18.0.0/15`.
 
 #### Scenario: The policy is read
-- **WHEN** `uv run devops ci --check --only k8s` renders Application `devops`, and a person reads NetworkPolicy `devops-default-perimeter` of the render
+- **WHEN** `uv run devops ci --check --only k8s` renders Application `devops`, and a person reads NetworkPolicy `devops-default-perimeter-egress` of the render
 - **THEN** the `except` list of the port 443 rule holds exactly those ranges
 
 ### Requirement: Image Updater keeps the runner image on its latest digest

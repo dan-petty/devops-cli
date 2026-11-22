@@ -75,7 +75,7 @@ The policy that selects the Qdrant pod SHALL admit ingress from namespace `devop
 - **THEN** the connect from `devops` succeeds, and the connect from `default` times out
 
 ### Requirement: The planner run Job denies all egress
-The stack SHALL hold a NetworkPolicy that selects the pod label `app.kubernetes.io/name: devops-cli-planner-run`, sets `policyTypes: [Egress]` and holds no egress rule. The default perimeter NetworkPolicy `devops-default-perimeter` SHALL exclude `devops-cli-planner-run` from its pod selector so that the planner run pod reaches no network.
+The stack SHALL hold a NetworkPolicy that selects the pod label `app.kubernetes.io/name: devops-cli-planner-run`, sets `policyTypes: [Egress]` and holds no egress rule. The default perimeter NetworkPolicies `devops-default-perimeter-ingress` and `devops-default-perimeter-egress` SHALL exclude `devops-cli-planner-run` from their pod selectors so that the planner run pod reaches no network.
 
 #### Scenario: The egress rules of the planner run Job pod
 - **WHEN** `uv run devops ci --check --only k8s` renders `k8s/devops`
@@ -85,23 +85,19 @@ The stack SHALL hold a NetworkPolicy that selects the pod label `app.kubernetes.
 - **WHEN** a throwaway pod with the label `app.kubernetes.io/name: devops-cli-planner-run` in namespace `devops` runs `nc -w 3 <CoreDNS Service address> 53`, started with `kubectl run --rm -i --restart=Never`
 - **THEN** the connect times out, so the pod reaches not even DNS
 
-### Requirement: A policy with both types gives its own pods no path past its ingress rules
-The `k8s` row SHALL refuse each NetworkPolicy of `k8s/` with the types `Ingress` and `Egress` whose egress rule reaches a pod that the policy selects on a port that no ingress rule of the policy admits from all its pods. A rule with no `to`, a pod peer of the own namespace and an `ipBlock` with a private range reach such a pod. The problem SHALL name the policy, the rule, the port and kube-router, which applies no ingress rule to that traffic.
+### Requirement: No NetworkPolicy has both types
+The `k8s` row SHALL refuse each NetworkPolicy of `k8s/` whose types hold `Ingress` and `Egress`. The row SHALL read the types as the API server sets them: `policyTypes` as written; with no `policyTypes`, `Ingress`, and `Egress` when the policy has an egress rule. The problem SHALL name the policy and kube-router, which lets the rules of one type of such a policy skip the rules of the other type for traffic between two pods that the policy selects.
 
-#### Scenario: An in-namespace egress rule with no ports
-- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a fixture policy with both types, the pod selector `{}`, an ingress rule from `podSelector: {}` on TCP 3000 and an egress rule to `podSelector: {}` with no `ports`
+#### Scenario: A policy that writes both types
+- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a fixture policy with `policyTypes: [Ingress, Egress]`
 - **THEN** the rule reports a problem that names the fixture policy and kube-router
 
-#### Scenario: An ingress rule that limits the peer
-- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a fixture policy with both types whose ingress rule admits only some of its pods, and whose egress rule to the own pods names TCP 3000
-- **THEN** the rule reports a problem that names the fixture policy and TCP 3000
+#### Scenario: A policy with no types and an egress rule
+- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a fixture policy with no `policyTypes` and an egress rule
+- **THEN** the rule reports a problem that names the fixture policy
 
-#### Scenario: An ipBlock and a rule with no peer
-- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a fixture policy with both types, an egress rule to `ipBlock: 0.0.0.0/0` on TCP 443 and an egress rule with no `to` on UDP 53
-- **THEN** the rule reports one problem for each of the two rules, and no problem for an `ipBlock` that excepts the private ranges
-
-#### Scenario: Single-type and aligned policies
-- **WHEN** `uv run devops ci --check --only k8s` runs the rule on an ingress-only policy, an egress-only policy with an in-namespace egress rule with no ports, a policy with both types whose in-namespace egress rule names the port that its ingress rule admits from `podSelector: {}`, a policy with both types whose egress peer is in another namespace, and a policy with both types whose egress peer selects other pods
+#### Scenario: Single-type policies
+- **WHEN** `uv run devops ci --check --only k8s` runs the rule on a policy with `policyTypes: [Ingress]`, a policy with `policyTypes: [Egress]`, a policy with no `policyTypes` and no egress section, and a policy with no `policyTypes` and an empty egress list
 - **THEN** the rule reports no problem
 
 #### Scenario: The environment tree
@@ -109,5 +105,5 @@ The `k8s` row SHALL refuse each NetworkPolicy of `k8s/` with the types `Ingress`
 - **THEN** the rule reports no problem
 
 #### Scenario: The live cluster
-- **WHEN** a person runs `kubectl get networkpolicy -A -o json` after Argo CD syncs `main`, and selects each policy with both types
-- **THEN** only the 4 policies of namespace `devops` have both types, and in each namespace with split policies a probe pod that the ingress rules do not admit cannot connect to a limited port, on the node of the server pod and on a second node
+- **WHEN** a person runs `kubectl get networkpolicy -A -o json` after Argo CD syncs `main`, and selects each policy whose `policyTypes` hold `Ingress` and `Egress`
+- **THEN** no policy is selected, and in each namespace with split policies a probe pod that the ingress rules do not admit cannot connect to a limited port, on the node of the server pod and on a second node

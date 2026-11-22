@@ -37,7 +37,7 @@ The settings SHALL set `server.limiter`, `server.public_instance` and `server.im
 - **THEN** the service answers each of the six search rows, all sent with `format=json`, with no HTTP 403 and no HTTP 429, and the command exits 0
 
 ### Requirement: Only the roadmap Service calls the pod
-NetworkPolicy `searxng-perimeter` SHALL admit ingress to the pod only from the pods labeled `app.kubernetes.io/name: roadmap-service`, on TCP 8080. No Ingress, Traefik route or tunnel entry SHALL name the service. No NetworkPolicy of namespace `devops` but `searxng-clients` SHALL allow egress to port 8080.
+NetworkPolicy `searxng-perimeter-ingress` SHALL admit ingress to the pod only from the pods labeled `app.kubernetes.io/name: roadmap-service`, on TCP 8080. No Ingress, Traefik route or tunnel entry SHALL name the service. No NetworkPolicy of namespace `devops` but `searxng-clients` SHALL allow egress to port 8080.
 
 #### Scenario: Another pod may call the service
 - **WHEN** a person runs `uv run devops k8s searxng-check` and `kubectl get ingress --all-namespaces`
@@ -45,7 +45,7 @@ NetworkPolicy `searxng-perimeter` SHALL admit ingress to the pod only from the p
 - **AND** `uv run devops ci --check --only k8s` passes only when the Service pod and the stage Job pod reach the service and the runner Job pod does not
 
 ### Requirement: The pod reaches DNS and public HTTPS only
-NetworkPolicy `searxng-perimeter` SHALL allow egress to CoreDNS and to `0.0.0.0/0` on TCP 443, less the private, shared, link-local, cloud metadata and special-purpose ranges that `devops-default-perimeter` removes. `devops-default-perimeter` SHALL NOT select the pod.
+NetworkPolicy `searxng-perimeter-egress` SHALL allow egress to CoreDNS and to `0.0.0.0/0` on TCP 443, less the private, shared, link-local, cloud metadata and special-purpose ranges that `devops-default-perimeter-egress` removes. `devops-default-perimeter-ingress` and `devops-default-perimeter-egress` SHALL NOT select the pod.
 
 #### Scenario: The pod reaches a private range
 - **WHEN** a person runs `uv run devops k8s searxng-check`
