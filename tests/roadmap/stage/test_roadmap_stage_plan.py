@@ -36,7 +36,6 @@ from devops_cli.git.worktree_add import issue_holder, read_remote_heads
 from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import isolated_openspec
-from devops_cli.roadmap.pull_form import measured_body_text
 from devops_cli.roadmap.pull_retry import BODY_TASK, BodyReply
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
@@ -1347,7 +1346,7 @@ def test_a_body_that_fills_its_room_gets_no_rewrite(
     (change,) = plan.ready
     assert len(model_fake.calls) == 1
     assert change.body.startswith(f"{text}\n\nPlans #{item}\n")
-    assert len(measured_body_text(change.body, "Plans")) == 1000
+    assert change.body.index(f"\n\nPlans #{item}\n") == 1000
 
 
 @pytest.mark.usefixtures("openspec")

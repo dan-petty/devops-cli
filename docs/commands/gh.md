@@ -1013,10 +1013,10 @@ and scope/ai.
 
 It opens nothing when the title or the body breaks the form of CONTRIBUTING.md section 4: a
 Conventional Commit title with a summary of at most 60 characters (an emoji counts as two)
-and a scope that .github/labels.yml declares, and a body of at most 1,000 characters that
-ends with Closes #\<issue\> and the Change line. devops pr describe builds a title and a body in
-that form. The rules of the body apply where the base branch holds openspec/config.yaml. In
-another repository, the command does not check the body.
+and a scope that .github/labels.yml declares, and a body that ends with Closes #\<issue\> and the
+Change line, with at most 1,000 characters of text above Closes. devops pr describe builds a
+title and a body in that form. The rules of the body apply where the base branch holds
+openspec/config.yaml. In another repository, the command does not check the body.
 
 ```bash
 devops gh pr create [OPTIONS]

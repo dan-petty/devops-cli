@@ -73,7 +73,7 @@ The command SHALL report a problem when the pull request title is not of the for
 - **THEN** the command reports no title problem.
 
 ### Requirement: Plan-check checks the body of the pull request
-The command SHALL report a problem when the text above the `Plans` line, with its trailing blank lines removed, is longer than `BODY_MAX_CHARS`, when the body holds no `Plans #<issue>` reference, or when the body holds a closing keyword before an issue reference. The `Plans` line, the `Change:` line and the lines after it SHALL NOT count toward the limit.
+The command SHALL report a problem when the text above the `Plans` line, with the whitespace at its start and at its end removed, is longer than `BODY_MAX_CHARS`, when the body holds no `Plans #<issue>` reference, or when the body holds a closing keyword before an issue reference. The `Plans` line, the `Change:` line and the lines after it SHALL NOT count toward the limit.
 
 #### Scenario: A missing plan reference is reported
 - **WHEN** the pull request body holds no `Plans #` line

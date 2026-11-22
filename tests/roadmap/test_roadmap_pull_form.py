@@ -7,13 +7,18 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from pydantic import BaseModel
 from pydantic import ValidationError as ModelValidationError
 
 from devops_cli.exceptions import ValidationError
+from devops_cli.github.client import PullRequestFile
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap import grounding, plan_check, pull_form
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
     PLACEHOLDER_ERROR_TYPE,
@@ -278,13 +283,80 @@ def test_a_body_at_the_limit_above_closes_has_no_problem() -> None:
     assert body_problems(_body_above_closes("a" * BODY_MAX_CHARS)) == []
 
 
+def _lengths(problems: list[str]) -> list[str]:
+    """The lengths that the problems of the body limit name, as texts."""
+    return [n for p in problems for n in re.findall(r"has (\d+) characters\.", p)]
+
+
+@pytest.mark.parametrize(("length", "problems"), [(1000, []), (1001, ["1001"])])
+def test_a_body_that_starts_with_a_blank_line_gets_one_measure(
+    length: int, problems: list[str]
+) -> None:
+    """The open step and the ready check measure one text: the text above `Closes`, with the
+    whitespace at its two ends removed, so a leading blank line counts at neither (#6735)."""
+    text = "a" * length
+    body = f"\n{text}\n\nCloses #5020\n\nChange: `openspec/changes/5020-one-measure/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert _lengths(pull_form.open_body_problems(body, issue=5020, plan=False)) == problems
+    assert _lengths(pull_form.body_problems(body)) == problems
+
+
+def test_a_line_that_the_form_takes_as_no_closes_line_stays_in_the_measured_text() -> None:
+    """The text ends at the line that the form takes as `Closes`, at open and at ready, and not at
+    a line such as `Closes #abc` above it (#6735)."""
+    text = f"{'a' * 995}\nCloses #abc"
+    body = f"{text}\n\nCloses #5020\n\nChange: `openspec/changes/5020-one-measure/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert _lengths(pull_form.open_body_problems(body, issue=5020, plan=False)) == ["1007"]
+    assert _lengths(pull_form.body_problems(body)) == ["1007"]
+
+
+@pytest.mark.parametrize("closes", ["Closes #5020 ", " Closes #5020", "\tCloses #5020\t"])
+def test_a_marker_line_with_whitespace_at_its_ends_is_the_marker_line(closes: str) -> None:
+    """The form check takes a `Closes` or `Plans` line with whitespace at its ends as the line, by
+    the rule that ends the measured text, so a text at the limit has no problem (#6735)."""
+    text = "a" * BODY_MAX_CHARS
+    body = f"{text}\n\n{closes}\n\nChange: `openspec/changes/5020-one-measure/`"
+    plan = f"{text}\n\n{closes.replace('Closes', 'Plans')}\n\nChange: `openspec/changes/5020-x/`"
+
+    assert pull_form.measured_body_text(body, "Closes") == text
+    assert pull_form.measured_body_text(plan, "Plans") == text
+    assert pull_form.open_body_problems(body, issue=5020, plan=False) == []
+    assert pull_form.body_problems(body) == []
+    assert pull_form.plan_body_problems(plan, 5020) == []
+
+
+@pytest.mark.parametrize("line", ["Closes", "Plans"])
+def test_a_padded_marker_line_above_the_marker_line_is_a_second_marker_line(
+    line: Literal["Closes", "Plans"],
+) -> None:
+    """A padded `Plans` or `Closes` line ends the measured text, so the form check counts it as a
+    line too, and the text below it cannot pass the limit unmeasured (#6735)."""
+    change = "Change: `openspec/changes/5020-one-measure/`"
+    body = f"{'a' * 58}\n{line} #5020 \n{'b' * 2000}\n\n{line} #5020\n\n{change}"
+    problems = (
+        pull_form.plan_body_problems(body, 5020)
+        if line == "Plans"
+        else pull_form.body_problems(body)
+    )
+
+    assert len(pull_form.measured_body_text(body, line)) == 58
+    assert problems == [
+        MESSAGES.pr.form_plans_missing.format(issue=5020)
+        if line == "Plans"
+        else MESSAGES.pr.form_closes_many.format(count=2)
+    ]
+
+
 def test_the_docstring_of_the_body_check_names_the_text_above_closes() -> None:
     documented = body_problems.__doc__ or ""
 
-    assert ("above the line `Closes`" in documented, "trailing blank lines" in documented) == (
-        True,
-        True,
-    )
+    assert (
+        "above the line `Closes`" in documented,
+        "the whitespace at its start and at its end removed" in documented,
+    ) == (True, True)
 
 
 def test_the_trailers_do_not_count_toward_the_limit_of_the_body() -> None:
@@ -494,6 +566,49 @@ def test_the_room_of_a_plan_text_is_the_body_limit() -> None:
 
     with pytest.raises(ValidationError, match="Shorten the text above `Plans`"):
         build_plan_body(why="a" * (BODY_MAX_CHARS + 1), issue=3215, change=PLAN_CHANGE)
+
+
+@pytest.mark.parametrize(("length", "problems"), [(1000, []), (1001, ["1001"])])
+def test_a_plan_body_that_starts_with_a_blank_line_gets_one_measure(
+    length: int, problems: list[str]
+) -> None:
+    """The plan form check and the plan check measure the text above `Plans`, with the whitespace
+    at its two ends removed (#6735)."""
+    text = "a" * length
+    body = f"\n{text}\n\nPlans #3215\n\nChange: `{PLAN_CHANGE}/`"
+
+    assert pull_form.measured_body_text(body, "Plans") == text
+    assert _lengths(pull_form.plan_body_problems(body, 3215)) == problems
+
+
+@pytest.mark.parametrize(
+    ("plans", "taken"),
+    [
+        ("Plans #3215", True),
+        ("Plans #3215 ", True),
+        ("\tPlans #3215", True),
+        ("Plans #\uff13\uff12\uff11\uff15", False),
+        ("Plans #3215.", False),
+    ],
+)
+def test_each_reader_of_a_plan_body_takes_the_plans_line_by_one_rule(
+    plans: str, taken: bool
+) -> None:
+    """The plan form check, the plan check, the grounding of a plan and the measure take the
+    `Plans` line by one rule, so they cannot disagree on the line of one body (#6735). A digit
+    that is not ASCII names no issue: GitHub links no such reference."""
+    text = "a" * 100
+    body = f"{text}\n\n{plans}\n\nChange: `{PLAN_CHANGE}/`"
+    files = [PullRequestFile(filename=f"{PLAN_CHANGE}/proposal.md", status="added")]
+    changed = grounding.ChangedFilesRead(files, truncated=False)
+
+    assert (
+        MESSAGES.pr.form_plans_missing.format(issue=3215)
+        not in pull_form.plan_body_problems(body, 3215),
+        plan_check.issue_number(body) == 3215,
+        grounding.plan_blockers(1, 3215, body, changed, "main") == [],
+        pull_form.measured_body_text(body, "Plans") == text,
+    ) == (taken, taken, taken, taken)
 
 
 def test_a_short_plan_text_names_plans_and_where_the_text_goes() -> None:
