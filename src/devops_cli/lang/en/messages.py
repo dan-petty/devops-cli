@@ -7115,8 +7115,8 @@ class RoadmapMessages:
     review_plan_snapshot: str = "a listing snapshot of this record schema is kept, of any age"
     review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"
-    review_plan_each_slice: str = (
-        "for each created slice, split in halves while a slice reaches 1,000 runs"
+    review_plan_each_status: str = (
+        "for each status of a run and for the total of the window, one count each"
     )
     review_plan_probe: str = "the answer of {fact} has no series"
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
@@ -7152,10 +7152,6 @@ class RoadmapMessages:
     )
     review_openspec_not_json: str = "openspec show {change} printed no JSON: {text}"
     review_page_not_a_list: str = "A page of {path} holds no list of entries."
-    review_runs_at_cap: str = (
-        "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
-        "review cannot read each run."
-    )
     review_catalog_unknown_fact: str = (
         "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )

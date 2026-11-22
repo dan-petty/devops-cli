@@ -95,6 +95,7 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     FileSnapshotStore,
     SnapshotStore,
     changed_listing,
+    review_listing,
     snapshot_root,
 )
 
@@ -156,8 +157,9 @@ def _github_session() -> PagedSession:
 @dataclass(frozen=True)
 class ReadContext:
     """What the readers of one review read: the checkout, the repository as `owner/name`, the
-    window, the settings and the time now. `snapshots` keeps the listing of intake, and `session`
-    gives the GitHub session."""
+    window, the settings and the time now. `snapshots` keeps the listing of intake,
+    `review_snapshots` keeps the review's own snapshot of the listing, and `session` gives the
+    GitHub session."""
 
     checkout: Path
     repo: str
@@ -165,6 +167,7 @@ class ReadContext:
     settings: Settings
     now: datetime
     snapshots: SnapshotStore | None = None
+    review_snapshots: SnapshotStore | None = None
     session: Callable[[], PagedSession] = _github_session
 
 
@@ -266,7 +269,13 @@ def _read(fact: CatalogFact, query: str, context: ReadContext, reads: Reads) -> 
         case ReaderKind.LISTING:
             snapshots = context.snapshots or FileSnapshotStore(snapshot_root())
             return read_listing(
-                context.session(), context.repo, snapshots, reads, start=window.start
+                context.session(),
+                context.repo,
+                snapshots,
+                reads,
+                start=window.start,
+                review_snapshots=context.review_snapshots or review_listing(),
+                now=context.now,
             )
         case ReaderKind.GITHUB:
             return read_github(
@@ -641,7 +650,7 @@ def plan_catalog(
                 target=f"{fact.id}: {render_query(fact.query, values)}",
                 condition=condition,
                 repeat=(
-                    MESSAGES.roadmap.review_plan_each_slice
+                    MESSAGES.roadmap.review_plan_each_status
                     if fact.reader is ReaderKind.GITHUB_RUNS
                     else ""
                 ),

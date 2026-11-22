@@ -1,17 +1,19 @@
 """The readers of the project review catalog (#4692), each a thin wrapper of an existing client.
 
-- `listing`: the issue listing that intake keeps as a snapshot, with the issues and pull requests
-  changed at or after its watermark (`issues?since=<watermark>`), read through the roadmap store.
-  The snapshot can be of any age when its records have the schema of this release. With no such
-  snapshot, the reader reads only the issues and pull requests changed at or after the window
-  start, not the whole listing: a listing fact counts what was opened, closed, merged or written
-  in the window, and each of these moves `updated_at`. The review never writes a snapshot, so each
-  snapshot file keeps one writer (#4854).
+- `listing`: the issue listing of the repository, read through the roadmap store. The review keeps
+  its own snapshot of the listing (`review_listing`), and reads the issues and pull requests changed
+  at or after the later of its watermark and the window start, or from the window start when the
+  window starts before the first window that its snapshot covers. With no snapshot of its own it
+  reads the snapshot of intake that way, and with neither it reads only the issues and pull requests
+  changed at or after the window start, not the whole listing: a listing fact counts what was
+  opened, closed, merged or written in the window, and each of these moves `updated_at`. It writes
+  the review's snapshot and no snapshot of intake, so each snapshot file keeps one writer (#4854,
+  #6603).
 - `github`: a REST listing read through `GitHubSession.pages`. A newest-first listing stops after
   the first page that holds an item at or before the window start.
-- `github_runs`: the Actions runs of a query. GitHub gives at most 1,000 results of a filtered list
-  of runs, so a `created` slice whose `total_count` reaches the cap splits in two halves until
-  each slice holds fewer runs. Each run is given once.
+- `github_runs`: the Actions runs of a query, as a count for each status and a count of the window.
+  GitHub gives the exact `total_count` of a filtered list, above its result cap of 1,000, so five
+  requests of one entry replace the pages of runs (#6603).
 - `prometheus` and `loki`: one instant query at the end of the window (`time`), through
   `PrometheusClient` and `query_loki_metrics`.
 
@@ -24,13 +26,10 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
-from devops_cli.config.defaults import (
-    DEFAULT_GH_REST_PER_PAGE,
-    DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP,
-)
+from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.lang import MESSAGES
@@ -38,14 +37,17 @@ from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.roadmap.project_review.catalog import ReaderKind, utc_text
 from devops_cli.roadmap.stores.listing_snapshot import (
     LISTING_SCHEMA_KEY,
+    ListingSnapshot,
     SnapshotStore,
     changed_listing,
     merged,
+    snapshot_of,
 )
 from devops_cli.roadmap.stores.store import IssueRecord
 
-_RUNS_KEY: Final = "workflow_runs"
-_SECOND: Final = timedelta(seconds=1)
+# The statuses of a run whose count the review reads, each with one request: GitHub answers the
+# `status` of a request with the runs of that status or of that conclusion.
+_RUN_STATUSES: Final = ("success", "failure", "cancelled", "in_progress")
 
 
 class PagedSession(Protocol):
@@ -96,20 +98,54 @@ class _CountedPages:
 @dataclass(frozen=True)
 class _ReviewListing:
     """How the review reads every issue and pull request of a repository: the snapshot that
-    `snapshots` keeps, whatever the age of its last full read, and the changes after its watermark;
-    or only the changes at or after `start` when no snapshot of this record schema is kept. It
-    writes no snapshot."""
+    `review_snapshots` keeps, else the one of intake, and the changes after the later of its
+    watermark and `start`; or only the changes at or after `start` when neither snapshot has this
+    record schema. Each read keeps the merged records in `review_snapshots`, and leaves the snapshot
+    of intake as it is (#6603)."""
 
+    review_snapshots: SnapshotStore
     snapshots: SnapshotStore
     start: datetime
+    now: datetime
 
     def read(
         self, repo: str, read_issues: Callable[[str], list[IssueRecord]]
     ) -> dict[int, IssueRecord]:
-        held = self.snapshots.load(repo)
-        if held is None or held.schema_key != LISTING_SCHEMA_KEY:
-            return {issue.number: issue for issue in read_issues(changed_listing(self.start))}
-        return merged(held.issues, read_issues(changed_listing(held.watermark)))
+        held, own = self._held(repo)
+        if held is None:
+            gap = full_at = self.start
+            listed = {issue.number: issue for issue in read_issues(changed_listing(gap))}
+        else:
+            gap = self._gap(held, own=own)
+            full_at = min(held.full_at, self.start)
+            listed = merged(held.issues, read_issues(changed_listing(gap)))
+        self.review_snapshots.save(
+            snapshot_of(
+                repo, listed, schema_key=LISTING_SCHEMA_KEY, full_at=full_at, started=self.now
+            )
+        )
+        return listed
+
+    def _gap(self, held: ListingSnapshot, *, own: bool) -> datetime:
+        """Where the changes are read from: the later of the watermark of `held` and `start`, or
+        `start` when it is before the first window that the review's own snapshot covers, which
+        holds no record from before it."""
+        if own and self.start < held.full_at:
+            return self.start
+        return max(held.watermark, self.start)
+
+    def _held(self, repo: str) -> tuple[ListingSnapshot | None, bool]:
+        """The snapshot the changes are read from, and whether it is the review's own: the review's
+        own first, then the one of intake, each when its records have this schema."""
+        own = self._fit(self.review_snapshots.load(repo))
+        if own is not None:
+            return own, True
+        return self._fit(self.snapshots.load(repo)), False
+
+    @staticmethod
+    def _fit(held: ListingSnapshot | None) -> ListingSnapshot | None:
+        """`held` when its records have the schema of this release."""
+        return held if held is not None and held.schema_key == LISTING_SCHEMA_KEY else None
 
 
 def read_listing(
@@ -119,14 +155,17 @@ def read_listing(
     reads: Reads,
     *,
     start: datetime,
+    review_snapshots: SnapshotStore,
+    now: datetime,
 ) -> list[dict[str, Any]]:
     """The issues and pull requests of `repo` as JSON, the highest number first: the snapshot that
-    `snapshots` keeps and the changes after its watermark, or only the changes at or after `start`
-    when no snapshot of this record schema is kept. The snapshot is not written, and the body of an
-    issue is left out."""
+    the review keeps, else the one of intake, and the changes after the later of its watermark and
+    `start`, or only the changes at or after `start` when neither snapshot has this record schema.
+    The review keeps the merged records in `review_snapshots` and writes no snapshot of intake. The
+    body of an issue is left out."""
     from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 
-    listing = _ReviewListing(snapshots, start)
+    listing = _ReviewListing(review_snapshots, snapshots, start, now)
     store = GitHubRoadmapStore(repo, session=_CountedPages(session, reads), listing=listing)
     records = sorted(store.listing(), key=lambda record: record.number, reverse=True)
     return [record.model_dump(mode="json", exclude={"body"}) for record in records]
@@ -159,43 +198,43 @@ def read_github(
     return found
 
 
-def _slice_path(path: str, low: datetime, high: datetime) -> str:
+def _count_path(path: str, start: datetime, end: datetime, status: str | None) -> str:
+    """The listing at `path` of the runs created in the window, of `status` when it is given, of
+    the first entry only: its `total_count` is the count of them."""
     separator = "&" if "?" in path else "?"
-    return _with_page_size(f"{path}{separator}created={utc_text(low)}..{utc_text(high)}")
+    query = f"{path}{separator}created={utc_text(start)}..{utc_text(end)}&per_page=1"
+    return query if status is None else f"{query}&status={status}"
+
+
+def _run_count(
+    session: PagedSession,
+    path: str,
+    start: datetime,
+    end: datetime,
+    reads: Reads,
+    status: str | None,
+) -> int:
+    """The count of the Actions runs of `path` created in the window, of `status` when it is given,
+    from one request of one entry."""
+    reads.add(ReaderKind.GITHUB_RUNS)
+    page = next(session.pages(_count_path(path, start, end, status)))
+    return int(page.get("total_count", 0))
 
 
 def read_runs(
     session: PagedSession, path: str, start: datetime, end: datetime, reads: Reads
 ) -> dict[str, Any]:
-    """The Actions runs of the listing at `path` created after `start` up to `end`, each once, as
-    `{"total_count", "workflow_runs"}`, newest first.
+    """The Actions runs of the listing at `path` created in the window, as `{"statuses",
+    "total_count"}`: the count of the runs of each status of `_RUN_STATUSES`, and the count of every
+    run of the window, each from one request of one entry (#6603).
 
-    GitHub reads a `created` range in whole seconds, both ends in. A slice whose `total_count`
-    reaches the result cap splits in two halves by created time, and only a slice under the cap
-    is read to its last page. A slice of one second at the cap raises `RoadmapReviewError`, so
-    no run is lost with no message."""
-    cap = DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP
-    runs: dict[Any, Any] = {}
-    slices = [(start.replace(microsecond=0) + _SECOND, end.replace(microsecond=0))]
-    while slices:
-        low, high = slices.pop()
-        pages = session.pages(_slice_path(path, low, high))
-        for number, page in enumerate(pages, start=1):
-            reads.add(ReaderKind.GITHUB_RUNS)
-            if number == 1 and int(page.get("total_count", 0)) >= cap:
-                if high <= low:
-                    raise RoadmapReviewError(
-                        MESSAGES.roadmap.review_runs_at_cap.format(
-                            cap=f"{cap:,}", slice=f"{utc_text(low)}..{utc_text(high)}"
-                        )
-                    )
-                middle = low + timedelta(seconds=int((high - low).total_seconds()) // 2)
-                slices.extend([(middle + _SECOND, high), (low, middle)])
-                break
-            for run in page.get(_RUNS_KEY, []):
-                runs[run["id"]] = run
-    ordered = sorted(runs.values(), key=lambda run: str(run.get("created_at", "")), reverse=True)
-    return {"total_count": len(ordered), _RUNS_KEY: ordered}
+    GitHub gives the exact `total_count` of a filtered list above its result cap, so the five counts
+    replace the pages of runs. A run of another status is in `total_count` and in no status count."""
+    statuses = {
+        status: _run_count(session, path, start, end, reads, status) for status in _RUN_STATUSES
+    }
+    total = _run_count(session, path, start, end, reads, None)
+    return {"statuses": statuses, "total_count": total}
 
 
 def read_prometheus(
