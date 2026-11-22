@@ -209,7 +209,8 @@ def _record_retry(
     name becomes a metric label (#975). qdrant_client raises every transport error as a
     `ResponseHandlingException`, so the type is the error it wraps: a dropped keep-alive
     connection (`RemoteProtocolError`), retried at once, and a read that waited out the
-    timeout (`ReadTimeout`) would otherwise share one label.
+    timeout (`ReadTimeout`) would otherwise share one label. A 429, 502, 503 or 504 answer is
+    not wrapped, so it counts as `UnexpectedResponse`.
     """
     logger.warning(
         "Transient error in Qdrant %s(%s) (attempt %d/%d): %s. Reconnecting...",
