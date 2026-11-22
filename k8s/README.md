@@ -805,13 +805,8 @@ Every Secret the stacks read comes from the workstation's OS keyring. `devops k8
 | `object-store/seaweedfs-admin` | `adminUser` | literal | yes | fail | infra | `statefulset/seaweedfs-admin` |
 | `object-store/seaweedfs-admin` | `adminPassword` | keyring `seaweedfs_admin_password` | yes | adopt the live value; else generate `token_urlsafe(32)` | infra | `statefulset/seaweedfs-admin` |
 | `object-store/seaweedfs-s3` | `s3.json` | literal | yes | fail | infra | `deployment/seaweedfs-s3` |
-| `devops/object-store-devops` | `accessKey` | keyring `object_store_devops_access_key` | yes | adopt the live value; else generate 20 hex | devops | none |
-| `devops/object-store-devops` | `secretKey` | keyring `object_store_devops_secret_key` | yes | adopt the live value; else generate `token_urlsafe(30)` | devops | none |
-| `argo-workflows/object-store-argo` | `accessKey` | keyring `object_store_argo_access_key` | yes | adopt the live value; else generate 20 hex | infra | none |
-| `argo-workflows/object-store-argo` | `secretKey` | keyring `object_store_argo_secret_key` | yes | adopt the live value; else generate `token_urlsafe(30)` | infra | none |
 
-- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request until an `S3Identity` of the store exists ([Buckets and keys](#buckets-and-keys)). The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security-config`, which the `Seaweed` CR owns.
-- `devops/object-store-devops` and `argo-workflows/object-store-argo` hold the S3 key pair of the writers `devops` and `argo` of the object store, under the default fields `accessKey` and `secretKey` of `S3Credentials` ([Buckets and keys](#buckets-and-keys)). The `S3Credentials` of each writer in namespace `object-store` reads the pair from the Secret in the writer namespace, and the operator never makes a Secret in another namespace, so the push makes the pair and the keyring keeps it. Until the push, the credential stays `Pending` with `SecretNotFound` and retries. No workload reads the Secrets yet; the operator sees a changed Secret and applies the new pair. Run `uv run devops k8s push-secrets --only devops/object-store-devops --only argo-workflows/object-store-argo`.
+- `object-store/seaweedfs-admin` holds the login of the admin UI of the object store. With no password, the admin HTTP API has no authentication (GHSA-m3m8-mrgq-hf9h). The push makes the password, and the keyring keeps it as `seaweedfs_admin_password` for a sign-in through a port-forward ([Object Store](#object-store)). `object-store/seaweedfs-s3` holds the identities file of the S3 gateway, which has no identity: the gateway refuses each request until a person adds an identity in the admin UI. The JWT signing keys of the store have no row: the SeaweedFS operator mints them in Secret `object-store/seaweedfs-security-config`, which the `Seaweed` CR owns.
 - A Secret that a CloudNativePG `Cluster` without `bootstrap.initdb.secret` creates, such as `llm/llm-gateway-db-app`, has no row. The operator generates its password when it creates the database, and the Deployment reads it with `secretKeyRef`.
 - The keyring must be unlocked (`devops devcontainer unlock-keyring`); a locked or missing keyring stops the push before anything is read or written, and stops deploy-stack before it applies anything.
 - A value the keyring lacks but the cluster holds is adopted into the keyring, so a first push changes nothing live. Only values nobody types are generated, and each is stored in the keyring before it is pushed.
@@ -1098,7 +1093,7 @@ The SeaweedFS object store gives the cluster an S3 API that keeps the second cop
 | Helm release and Argo CD Application | What it applies | Namespace |
 | :--- | :--- | :--- |
 | `seaweedfs-operator` | Chart `seaweedfs-operator` 0.1.48 of `https://seaweedfs.github.io/seaweedfs-operator` (operator 1.0.45) with its CRDs and `object-store/operator-values.yaml`, at sync-wave `-1` | `object-store` |
-| `object-store` (Application only) | `object-store/`: the `Seaweed` CR, the five NetworkPolicies and the PodDisruptionBudgets. deploy-stack applies the folder after the charts | `object-store` |
+| `object-store` (Application only) | `object-store/`: the `Seaweed` CR, the five NetworkPolicies, the PodDisruptionBudgets, the buckets and their lifecycle rules ([Buckets](#buckets)). deploy-stack applies the folder after the charts | `object-store`; the buckets in `devops` and `argo-workflows` |
 
 ### What runs where
 
@@ -1133,42 +1128,31 @@ The version rule of the owner (2026-11-11) has no minimum release age. Pin the n
 - **Network.** `object-store-perimeter-ingress` admits the pods of the namespace on the HTTP and gRPC ports of each component, the worker alone on 33646, each namespace with the label `backup-client: "true"` on 8333, and namespace `monitoring` on 9327. The egress of `monitoring-default-perimeter-egress` lets Alloy reach `object-store` on 9327. The egress of `object-store-perimeter-egress` is CoreDNS, and the pods of the namespace on the 9 ports of its in-namespace ingress rule only: 9333, 19333, 8444, 18444, 8888, 18888, 8333, 18333 and 23646. Each policy has one type, so the ingress rules hold for the pods of the namespace (see NetworkPolicy). The egress rules also keep 33646 and 9327 closed between the pods, except the worker to 33646, so the ports stay closed if a policy gets both types again (#6707). The components and the operator use only ports of the list between them. `object-store-operator-ingress` admits the API server to the webhook port 9443, and `object-store-operator-egress` lets the operator reach TCP 6443, the port of the API server, on any address except the metadata address. No SeaweedFS pod has internet egress, and `-telemetry=false` stops the usage report of the masters.
 - **Forbidden command.** No manifest holds `fs.mergeVolumes`: `seaweedfs/seaweedfs#12521` can lose a completed object. The `k8s` row refuses it.
 
-### Buckets and keys
+### Buckets
 
-The CRs of `object-store/buckets.yaml` and `object-store/writers.yaml` hold the buckets, the quotas, the anonymous read, the lifecycle rules and the keys of the store (#4756). The operator makes each of them, and a value that a person changes in the admin UI or with `weed shell` goes back to the git value at its next reconcile. No Job or script reconciles the store.
+The CRs of `object-store/buckets.yaml` hold the buckets, the quotas, the anonymous read and the lifecycle rules of the store (#4756). The operator makes each of them, and a value that a person changes in the admin UI or with `weed shell` goes back to the git value at its next reconcile. No Job or script reconciles the store.
 
-| Bucket | Quota | Anonymous read | Lifecycle rules | Writer |
+| Bucket | Namespace | Quota | Anonymous read | Lifecycle rules |
 | :--- | :--- | :--- | :--- | :--- |
-| `reports` | 20Gi | GET, no List | Abort an incomplete multipart upload after 1 day | `devops` |
-| `reports-private` | 20Gi | GET, no List | Abort after 1 day; prefix `studies/` expires after 90 days | `devops` |
-| `cache` | 10Gi | None | Abort after 1 day; expire after 7 days | `devops` |
-| `argo-artifacts` | 10Gi | None | Abort after 1 day; expire after 7 days | `argo` |
+| `reports` | `devops` | 20Gi | GET, no List | Abort an incomplete multipart upload after 1 day |
+| `reports-private` | `devops` | 20Gi | GET, no List | Abort after 1 day; prefix `studies/` expires after 90 days |
+| `cache` | `devops` | 10Gi | None | Abort after 1 day; expire after 7 days |
+| `argo-artifacts` | `argo-workflows` | 10Gi | None | Abort after 1 day; expire after 7 days |
 
 - Each bucket has `reclaimPolicy: Retain`, so its data stays when its CR goes. `local-path` does not enforce the size of a claim, so the quotas are the limits. The S3 lifecycle job of the worker applies the rules.
-- Each writer `<writer>` has the same five objects: `S3Identity`, `S3Policy`, `S3PolicyBinding` and `S3Credentials` `<writer>` in `object-store`, and `ResourceReferenceGrant` `object-store-credentials` in the writer namespace. The policy names only the buckets of the writer, with the list, get, put, delete and multipart actions. SeaweedFS authorizes an identity with a policy by its policies alone, so the key gets `AccessDenied` on every other bucket.
-- The credential reads its key pair from Secret `object-store-<writer>` of the writer namespace ([Cluster Secrets](#cluster-secrets)), and stays `Pending` until the push makes it. The grant admits only the `S3Credentials` of namespace `object-store`, and only to that Secret.
-- The operator watches `object-store`, `devops` and `argo-workflows` (`watchNamespaces` of `object-store/operator-values.yaml`), because it reads the Secret and the grant of a writer only through the cache of a watched namespace. The chart gives it its manager Role in each of the three, and no ClusterRole over every namespace.
-- The tenant buckets `backups-*` and their keys come from the tenant chart of `dan-petty/infra`. The read-only identity `cloud-backup` comes with the cloud copy of the store (#4770).
-
-Every CRD of the operator is Namespaced. The scope and the namespace of each object:
-
-| Kind | Namespace | Why |
-| :--- | :--- | :--- |
-| `Bucket`, `BucketLifecyclePolicy` | `object-store` | A `seaweedRef` to the `Seaweed` CR of its own namespace needs no grant, and a `bucketRef` names a `Bucket` of its own namespace |
-| `S3Identity`, `S3Policy`, `S3PolicyBinding`, `S3Credentials` | `object-store` | The binding and the credential name the identity and the policy in their own namespace |
-| `ResourceReferenceGrant` | The writer namespace | The operator checks a `secretRef` to another namespace against the grants of that namespace |
-| Secret `object-store-<writer>` | The writer namespace | `devops k8s push-secrets` writes it; the operator never makes a Secret in another namespace |
-
-The `k8s` row checks the buckets and their quotas, the anonymous read, the lifecycle rules, the policies, the keys and grants, the watch scope and the kinds of the render (`tests/gate/k8s_checks/object_store_buckets.py`).
+- Every CRD of the operator is Namespaced. Each `Bucket` and its `BucketLifecyclePolicy` live in the namespace of the workload that writes the bucket, and the `Bucket` names `seaweedfs` of `object-store` in `clusterRef`. The operator refuses a `clusterRef` to another namespace with no grant, so `ResourceReferenceGrant` `object-store-buckets` in `object-store` admits the kind `Bucket` from `devops` and `argo-workflows`, each by name, to `seaweedfs` only. A `BucketLifecyclePolicy` needs no grant: it takes the cluster from its bucket.
+- The operator watches `object-store`, `devops` and `argo-workflows` (`watchNamespaces` of `object-store/operator-values.yaml`), because it sees a CR only through the cache of a watched namespace. The chart gives it its manager Role in each of the three, and no ClusterRole over every namespace.
+- No key can write a bucket yet. The tenant chart of `dan-petty/infra` brings the writer identities and their keys, from an ESO `Password` generator, and the tenant buckets `backups-*`. No row of [Cluster Secrets](#cluster-secrets) holds a key of the store.
+- The `k8s` row checks the buckets and their quotas, the grant, the anonymous read, the lifecycle rules, the watch scope and the kinds of the render (`tests/gate/k8s_checks/object_store_buckets.py`).
 
 ### Clients
 
-A client namespace gets the label `backup-client: "true"` and reaches `http://seaweedfs-s3.object-store.svc.cluster.local:8333`. No rule of the store names a client namespace. A platform client is a writer of [Buckets and keys](#buckets-and-keys): its five objects in `object-store/writers.yaml`, the row of its Secret in [Cluster Secrets](#cluster-secrets), and its namespace in `watchNamespaces`. The `k8s` row fails when one of them is missing. A tenant namespace gets its bucket and key from the tenant chart of `dan-petty/infra`. The writers `devops` and `argo` have no client pod yet, so their namespaces have no label; the change that adds a client adds the label and its egress.
+A client namespace gets the label `backup-client: "true"` and reaches `http://seaweedfs-s3.object-store.svc.cluster.local:8333`. No rule of the store names a client namespace. Give each client its own identity in the admin UI, and keep its keys in a Secret of the client.
 
 ### Rollout
 
 1. Merge. Application `base` creates namespace `object-store`, Application `seaweedfs-operator` installs the operator, and Application `object-store` applies the CRs. The admin and S3 pods wait in `ContainerCreating`, with a `FailedMount` event that names the Secret, until their Secrets exist.
-2. Run `uv run devops k8s push-secrets --only object-store/seaweedfs-admin --only object-store/seaweedfs-s3 --only devops/object-store-devops --only argo-workflows/object-store-argo`. The push makes the admin password and the key pair of each writer, and keeps them in the keyring.
+2. Run `uv run devops k8s push-secrets --only object-store/seaweedfs-admin --only object-store/seaweedfs-s3`. The push makes the admin password and keeps it in the keyring.
 3. Run the same command with `--plan` until each key shows `unchanged`.
 4. Check the store:
    ```bash
@@ -1177,7 +1161,7 @@ A client namespace gets the label `backup-client: "true"` and reaches `http://se
    kubectl -n argocd get applications seaweedfs-operator object-store   # Synced and Healthy
    kubectl get ingress -A                     # no host for seaweedfs-master, -volume, -filer or -admin
    kubectl -n object-store get pod seaweedfs-master-0 -o jsonpath='{.spec.containers[0].command}' | grep -c -- -telemetry=false   # 1
-   kubectl -n object-store get buckets.seaweed.seaweedfs.com,s3credentials.seaweed.seaweedfs.com   # 4 buckets and 2 credentials Ready
+   kubectl get buckets.seaweed.seaweedfs.com,bucketlifecyclepolicies.seaweed.seaweedfs.com -A   # 4 buckets and 4 policies Ready
    ```
 5. Run the [build test](#build-test).
 
@@ -1572,13 +1556,12 @@ k8s/
 │   ├── plugin-barman-cloud-values.yaml # Helm values for cloudnative-pg/plugin-barman-cloud
 │   └── networkpolicy.yaml    # The plugin pod: the operator in on 9090, DNS and the API server out
 ├── object-store/             # The SeaweedFS object store (#4750); not in the root kustomization
-│   ├── kustomization.yaml    # The Seaweed CR, the perimeters, the budgets, the buckets and the writers, as Application object-store syncs them
+│   ├── kustomization.yaml    # The Seaweed CR, the perimeters, the budgets and the buckets, as Application object-store syncs them
 │   ├── seaweed.yaml          # Seaweed CR seaweedfs: 3 masters, 3 volume servers, 2 filers, 2 S3 gateways, the admin and the worker
 │   ├── networkpolicy.yaml    # Default-deny perimeter: the worker alone on 33646, backup-client namespaces on 8333, DNS out; the operator to the API server
 │   ├── poddisruptionbudgets.yaml # One budget for each component and the operator
-│   ├── buckets.yaml          # The 4 platform buckets with their quotas, anonymous read and lifecycle rules
-│   ├── writers.yaml          # The identity, policy, binding, credentials and grant of the writers devops and argo
-│   ├── operator-values.yaml  # Helm values for seaweedfs-operator/seaweedfs-operator: the store and the writer namespaces watched, cert-manager webhook certificate
+│   ├── buckets.yaml          # The 4 platform buckets with their quotas, anonymous read and lifecycle rules, and their grant
+│   ├── operator-values.yaml  # Helm values for seaweedfs-operator/seaweedfs-operator: the store and the bucket namespaces watched, cert-manager webhook certificate
 │   └── build-test/           # The build test of the store: a client namespace with a boto3 Job and a minio-go Job; no Application applies it
 ├── gitea/                    # Gitea, the internal forge and container registry (#1081); not in the root kustomization
 │   ├── kustomization.yaml    # The perimeter, as Application gitea-manifests syncs it
