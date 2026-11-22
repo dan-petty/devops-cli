@@ -119,14 +119,15 @@ facts:
     reader: github_runs
     section: activity
     query: repos/{repo}/actions/runs?branch=main&event=push
-    value: >-
-      .workflow_runs | group_by(.conclusion // "none")
-      | map({key: (.[0].conclusion // "none"), value: length}) | from_entries
+    value: .statuses
     n: .total_count
     unit: runs
     definition: >-
-      The Actions runs of the push events on main created in the window, for each conclusion.
-      n is the sum. The reader splits the window while a slice reaches 1,000 runs.
+      The Actions runs of the push events on main created after the start up to the end, for each
+      of the statuses success, failure, cancelled and in progress. n is the total of the window,
+      which also counts a run of another status. The reader reads the total of each created slice,
+      splits a slice at the count cap of 2,500, and reads one count for each status of each slice
+      under the cap.
   - id: github.code_scanning_opened
     reader: github
     section: activity

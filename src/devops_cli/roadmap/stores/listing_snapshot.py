@@ -22,6 +22,11 @@ so each file has one writer. `intake_listing` and `lane_listing` put the local f
 `TieredSnapshotStore` (`listing_shared`, #4668), which shares one copy of each public repository
 through the cache Valkey: a cold process starts from the newest copy, and the newest watermark
 wins. While Valkey fails, the local file is the only tier.
+
+The project review reads a snapshot of the listing too, and keeps its own one under
+`review-listing` (`review_listing`, #6603): the review reads the gap after its watermark and writes
+no snapshot of intake, so each file has one writer (#4854). `snapshot_of` builds the snapshot of a
+listing for either reader.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -55,6 +60,9 @@ CHANGED_LISTING: Final = f"{FULL_LISTING}&sort=updated&direction=desc&since={{si
 
 # The directory of the snapshots in the state directory of the roadmap.
 _SNAPSHOT_DIRNAME: Final = "listing"
+# The directory of the review's own snapshot, apart from the one of intake and from the
+# `listing-<lane>` directory of each lane of the Service.
+_REVIEW_DIRNAME: Final = "review-listing"
 
 # The key of the schema of the records that a snapshot holds: the first 16 hex characters of the
 # sha256 of the JSON schema of `IssueRecord`. A snapshot with another key is read again in full.
@@ -146,14 +154,27 @@ def _report(message: str, path: Path, error: Exception) -> None:
     logger.warning(message.format(path=path, reason=reason))
 
 
+def _state_dir(state_dir: Path | None) -> Path:
+    """`state_dir`, or the state directory of the roadmap, which is `roadmap` under the data
+    directory."""
+    if state_dir is not None:
+        return state_dir
+    from devops_cli.roadmap.run import service_state_dir
+
+    return service_state_dir()
+
+
 def snapshot_root(state_dir: Path | None = None) -> Path:
     """Where the snapshots are kept: `listing` in `state_dir`, the state directory of the
     roadmap, which is `roadmap` under the data directory when it is None."""
-    if state_dir is None:
-        from devops_cli.roadmap.run import service_state_dir
+    return _state_dir(state_dir) / _SNAPSHOT_DIRNAME
 
-        state_dir = service_state_dir()
-    return state_dir / _SNAPSHOT_DIRNAME
+
+def review_listing(state_dir: Path | None = None) -> FileSnapshotStore:
+    """Where the project review keeps its own snapshot of the listing (#6603): `review-listing` in
+    `state_dir`, the state directory of the roadmap, apart from the snapshot of intake and from the
+    directory `listing-<lane>` of each lane of the Service, so each file has one writer (#4854)."""
+    return FileSnapshotStore(_state_dir(state_dir) / _REVIEW_DIRNAME)
 
 
 class ListingRead(Protocol):
@@ -207,20 +228,32 @@ class IncrementalListing:
     def _keep(
         self, repo: str, listed: dict[int, IssueRecord], *, full_at: datetime, started: datetime
     ) -> None:
-        """Keep the listing as the new snapshot. Its watermark is the earlier of the start of the
-        read and GitHub's newest change, less the overlap, so a local clock ahead of GitHub's
-        skips no change."""
-        changes = [issue.updated_at for issue in listed.values() if issue.updated_at is not None]
-        newest = min(started, max(changes)) if changes else started
+        """Keep the listing as the new snapshot, see `snapshot_of`."""
         self.snapshots.save(
-            ListingSnapshot(
-                repo=repo,
-                schema_key=self.schema_key,
-                full_at=full_at,
-                watermark=newest - _OVERLAP,
-                issues=tuple(listed.values()),
-            )
+            snapshot_of(repo, listed, schema_key=self.schema_key, full_at=full_at, started=started)
         )
+
+
+def snapshot_of(
+    repo: str,
+    listed: Mapping[int, IssueRecord],
+    *,
+    schema_key: str,
+    full_at: datetime,
+    started: datetime,
+) -> ListingSnapshot:
+    """The snapshot of the listing `listed`: its records, the key of their schema, the time of the
+    last full read, and a watermark that is the earlier of the start of the read and GitHub's newest
+    change, less the overlap, so a local clock ahead of GitHub's skips no change."""
+    changes = [issue.updated_at for issue in listed.values() if issue.updated_at is not None]
+    newest = min(started, max(changes)) if changes else started
+    return ListingSnapshot(
+        repo=repo,
+        schema_key=schema_key,
+        full_at=full_at,
+        watermark=newest - _OVERLAP,
+        issues=tuple(listed.values()),
+    )
 
 
 def intake_listing(state_dir: Path | None = None, *, full: bool = False) -> IncrementalListing:
@@ -298,5 +331,7 @@ __all__ = [
     "lane_listing",
     "lane_snapshot_dirs",
     "merged",
+    "review_listing",
+    "snapshot_of",
     "snapshot_root",
 ]

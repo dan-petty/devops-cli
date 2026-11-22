@@ -8,9 +8,9 @@ A 7-day project review with no intake snapshot sends 49 GitHub requests (#6603),
 
 - The review keeps its own listing snapshot under review-listing in the roadmap state directory, saves it after each read, and never writes the intake snapshot.
 - The review reads the gap from the later of its watermark and the window start, and from the window start when the window starts before the first window that its snapshot covers.
-- The runs reader reads one count for each of the statuses success, failure, cancelled and in progress, plus one total, so five requests replace about 25 pages of runs.
+- The runs reader reads the total of each created slice and splits a slice at the count cap of 2,500. For each slice under the cap, it reads one count for each of the statuses success, failure, cancelled and in progress. A window under the cap costs five requests in place of about 25 pages of runs.
 - The shipped catalog's run fact takes its value from the four status counts and its n from the total of the window.
-- The unused result-cap constant and its error message go, and the limit table records the removal.
+- The result-cap constant goes, and the limit table records the removal. `CONST_ROADMAP_REVIEW_RUN_COUNT_CAP`, 2,500, replaces it. The error message `review_runs_at_cap` stays and names the count cap.
 - A 7-day review stays at or under 45 GitHub requests with and without a review snapshot.
 - The change fits one pull request.
 
@@ -26,7 +26,7 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/stores/listing_snapshot.py`, `src/devops_cli/roadmap/project_review/readers.py`, `src/devops_cli/roadmap/project_review/dispatch.py`, `src/devops_cli/roadmap/project_review/catalog.yaml`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/config/defaults.py`
+- Code: `src/devops_cli/roadmap/stores/listing_snapshot.py`, `src/devops_cli/roadmap/project_review/readers.py`, `src/devops_cli/roadmap/project_review/dispatch.py`, `src/devops_cli/roadmap/project_review/catalog.yaml`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/config/defaults.py`, `src/devops_cli/config/constants.py`
 - Documents: `docs/ROADMAP_WORKFLOW.md`
 - Tests: `tests/roadmap/project_review/test_review_readers.py`, `tests/roadmap/test_roadmap_limit_classes.py`
 
@@ -55,7 +55,7 @@ None.
 - GitHub gives an exact count for each run status above the 1,000 result cap: the request `repos/dan-petty/devops-cli/actions/runs?per_page=1&branch=main&event=push&created=>=<7 days ago>&status=<status>` gave `total_count` 1830 for success, 29 for failure, 71 for cancelled and 12 for in_progress on 2026-11-21, and 1942 with no status filter, which is the sum of the four. A status with no run, skipped, gave 0. The 45-request limit is the issue body of #4692, and the 49 measured requests are the issue body of #6603.
 - First real check: run `uv run devops roadmap review run --last 7d` twice on a checkout with no review snapshot, then read `collection.reads` of each written data file; the first sum is at most 45 and the second listing count is lower.
 - First real check: run `uv run devops roadmap review run --last 7d` with no snapshot, then check that the runs fact holds four status counts whose sum is its n, and that the roadmap state directory holds one review snapshot for the repository.
-- First real check: run `uv run devops roadmap review run --last 7d --dry-run`, then check that the request plan lists one count request for each status and one for the total, with no created slice.
+- First real check: run `uv run devops roadmap review run --last 7d --dry-run`, then check that the request plan lists the total and one count request for each status, for each created slice.
 - The issue can be built as written: each cited path, class and constant exists at the staged commit, and no commit renamed or removed them.
 
 ## Existing Tool Considered

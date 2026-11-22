@@ -7116,7 +7116,8 @@ class RoadmapMessages:
     review_plan_no_snapshot: str = "no listing snapshot of this record schema is kept"
     review_plan_each_change: str = "for each archived change that holds specs/"
     review_plan_each_slice: str = (
-        "for each created slice, split in halves while a slice reaches 1,000 runs"
+        "for each created slice, split in halves while its total reaches 2,500 runs: the total, "
+        "then one count for each status"
     )
     review_plan_probe: str = "the answer of {fact} has no series"
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
@@ -7153,8 +7154,16 @@ class RoadmapMessages:
     review_openspec_not_json: str = "openspec show {change} printed no JSON: {text}"
     review_page_not_a_list: str = "A page of {path} holds no list of entries."
     review_runs_at_cap: str = (
-        "The Actions runs of the one-second slice {slice} reach the result cap of {cap}, so the "
-        "review cannot read each run."
+        "The Actions runs of the one-second slice {slice} reach the count cap of {cap} that GitHub "
+        "sets, so the review cannot count each run."
+    )
+    review_runs_no_count: str = (
+        "The Actions runs page of the slice {slice} has no total_count that is a whole number at "
+        "or above 0, so the review cannot count the runs."
+    )
+    review_runs_above_total: str = (
+        "The status counts of the Actions runs of the slice {slice} add up to {counted}, more than "
+        "its total of {total}, so the review cannot trust the counts."
     )
     review_catalog_unknown_fact: str = (
         "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
