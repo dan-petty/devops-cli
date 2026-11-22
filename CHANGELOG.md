@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.192.1](https://github.com/dan-petty/devops-cli/compare/v0.192.0...v0.192.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **roadmap:** Find a job block marker only as an HTML block ([#6720](https://github.com/dan-petty/devops-cli/issues/6720)) ([9e3b092](https://github.com/dan-petty/devops-cli/commit/9e3b092d0e2a421bc62d418f611427cca6065836))
+* **tests:** Exempt wait_until polls from the sleep budget ([#6737](https://github.com/dan-petty/devops-cli/issues/6737)) ([dafda4a](https://github.com/dan-petty/devops-cli/commit/dafda4a73948d9b390bd2684847423dba07e121c))
+
 ## [0.192.0](https://github.com/dan-petty/devops-cli/compare/v0.191.1...v0.192.0) (2026-11-22)
 
 
