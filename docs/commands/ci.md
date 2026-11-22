@@ -352,7 +352,7 @@ devops ci mutate [OPTIONS] <paths>
 
 ## `devops ci job-time`
 
-**Fail when the last runs of a CI job average more than the limit. By default, reads the test job of ci.yml over 20 runs and the two release image jobs of release.yml over 10 runs on main, each at the 360 s limit. An option narrows the run to one check. Reads the job times from GitHub's Actions API and fails when any mean is over the limit or a read is short.**
+**Fail when the last runs of a CI job average more than the limit. By default, reads the test job of ci.yml over 20 runs, and the jobs Build, Verify and Attest & Tag of the MCP Server and Runner images of release.yml over 10 runs, on main, each at the 360 s limit. An option narrows the run to one check. Reads the job times from GitHub's Actions API: one read serves the checks of one workflow and stops after a fixed count of runs. Fails when any mean is over the limit or a read is short.**
 
 ```bash
 devops ci job-time [OPTIONS]
@@ -363,7 +363,7 @@ devops ci job-time [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--repo`, `-R` | `string` | - | Repository as owner/name. Default: the origin of the current checkout. |
-| `--job` | `string` | - | Name of the check whose time is read. By default, reads the test job and the two release image jobs. An option narrows the run to one check. |
+| `--job` | `string` | - | Name of the check whose time is read, as the Actions API names the job, such as 'Runner Image / Build'. The time is the run time of the job of that name plus the run time of the slowest of its shard jobs named '\<name\> (...)'. Time in the queue is shown but not counted. By default, reads the test job and the six release image jobs. An option narrows the run to one check. |
 | `--workflow` | `string` | - | Workflow file that holds the job. |
 | `--branch`, `-b` | `string` | - | Branch whose push runs are read. |
 | `--runs` | `integer` | - | How many of the last runs the mean covers. |

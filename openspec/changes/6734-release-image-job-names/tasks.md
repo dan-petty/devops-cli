@@ -33,9 +33,9 @@ Adds: `DEFAULT_CI_JOB_TIME_MAX_RUNS`
 
 Kind: other. Reads: `src/devops_cli/ci/job_time.py`. Changes: `src/devops_cli/lang/en/help.py`, `docs/commands/ci.md`, `docs/CLI_REFERENCE.md`, `docs/TESTING.md`, `.github/workflows/ci.yml`.
 
-- [ ] 4.1 In `src/devops_cli/lang/en/help.py`, make `HELP.ci.job_time` name the six release image jobs and the bound of 100 runs, and put the shard and queue sentences back into `HELP.ci.job_time_job`. Run `uv run devops docs generate`
+- [x] 4.1 In `src/devops_cli/lang/en/help.py`, make `HELP.ci.job_time` name the six release image jobs and the bound of 100 runs, and put the shard and queue sentences back into `HELP.ci.job_time_job`. Run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 4.2 In the comment of the `Test Job Duration` job of `.github/workflows/ci.yml`, name the six release image jobs, and say that the job writes its report into the body of the open P0 issue of the check, or files one when none is open. In the Run time paragraph of `docs/TESTING.md`, name the six jobs, the shared read and the bound, and say that the alarm line of `src/devops_cli/ci/job_time.py` names the job, the workflow and the branch
+- [x] 4.2 In the comment of the `Test Job Duration` job of `.github/workflows/ci.yml`, name the six release image jobs, and say that the job writes its report into the body of the open P0 issue of the check, or files one when none is open. In the Run time paragraph of `docs/TESTING.md`, name the six jobs, the shared read and the bound, and say that the alarm line of `src/devops_cli/ci/job_time.py` names the job, the workflow and the branch
   - Verification: `$ uv run devops ci --check --only actionlint,docs` passes
 
 ## Workflow follow-up
