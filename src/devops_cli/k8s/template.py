@@ -112,8 +112,8 @@ def _build_kustomize_dir(
 ) -> str:
     """Run kustomize build on a directory without template substitution. With `local_read`, the
     build runs also in a dry run, as a read of the local folder. With `offline`, the build gets
-    the environment `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`, which gives it no route to the network, so
-    a remote target fails the build at once (#6681)."""
+    the environment `CONST_K8S_KUSTOMIZE_OFFLINE_ENV`, so a remote target at a host that is not a
+    loopback address fails the build at once (#6681)."""
     cmd = ["kubectl", "kustomize", str(target_dir)]
     proc = run_subprocess(
         cmd,
@@ -149,7 +149,7 @@ def build_manifest_path(
 ) -> str:
     """Build a manifest file or directory without domain and template substitution (#1343). With
     `local_read`, a kustomization is built also in a dry run. With `offline`, its build has no
-    route to the network (#6681)."""
+    route to a host that is not a loopback address (#6681)."""
     target = Path(path).resolve()
     if not target.exists():
         raise KubernetesContextError(f"Manifest path not found: {path}")

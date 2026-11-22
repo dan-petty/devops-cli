@@ -232,6 +232,10 @@ class K8sErrorMessages:
         "Application under {folders} has that name. Add the Application, or give --k8s-dir with "
         "the tree that holds it."
     )
+    path_source_leaves_repository: str = (
+        "The path {path} of the git source {repo} goes out of the folder of its repository, and "
+        "Argo CD builds no such path. Give a path in the repository."
+    )
     product_root_not_found: str = (
         "The product base of devops-cli is not at {path}. Run the command in a checkout of "
         "devops-cli, or give {option} with its k8s/devops folder."

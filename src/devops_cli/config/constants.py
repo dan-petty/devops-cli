@@ -1300,14 +1300,17 @@ CONST_K8S_KUSTOMIZE_OFFLINE_ENV: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 """The environment of `kubectl kustomize` in the stack dry runs, which gives the build no route to
-the network (#6681). Kustomize downloads a file with `net/http` of Go, and the default transport
-of Go sends each http and https request to the proxy of `HTTP_PROXY` or `HTTPS_PROXY` (or the
-lower-case names), unless `NO_PROXY` names the host (`ProxyFromEnvironment`,
-`golang.org/x/net/http/httpproxy`). So each download fails at once with a `proxyconnect` error.
-Go does not use the proxy for `localhost` or a loopback address, so a URL of a loopback address
-is a local read that this environment does not block. libcurl, the HTTP transport of git, also
-reads `all_proxy`. Kustomize clones a repository with the `git` program, which gets this
-environment: git refuses each transport but `file`, and reads no `/etc/gitconfig`."""
+a host that is not a loopback address (#6681). Kustomize downloads a file with `net/http` of Go,
+and the default transport of Go sends each http and https request to the proxy of `HTTP_PROXY` or
+`HTTPS_PROXY` (or the lower-case names), unless `NO_PROXY` names the host
+(`ProxyFromEnvironment`, `golang.org/x/net/http/httpproxy`). So each download fails at once with
+a `proxyconnect` error. Go never uses the proxy for `localhost` or a loopback address, and no
+environment key changes this. So this environment does not block an http or https download of a
+loopback address, also of the URL of a remote base, which Kustomize first loads as a file. Such a
+request can reach a server of the host, such as a `kubectl port-forward` or a tunnel to a cluster.
+libcurl, the HTTP transport of git, also reads `all_proxy`. Kustomize clones a repository with
+the `git` program, which gets this environment: git refuses each transport but `file`, at each
+address, and reads no `/etc/gitconfig`."""
 CONST_KUBECTL_ERROR_PREFIX: Final[str] = "error: "
 """The prefix of the error that kubectl prints when a command fails. A warning of Kustomize can
 come before it on stderr (#6681)."""
