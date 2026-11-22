@@ -628,7 +628,7 @@ def _title(
 def _body(item: Item, change: str, why: str) -> str:
     """The body of the pull request from the why of the agent, checked again (#3215): masked, on
     one line, short enough, and with no closing keyword; else the title of the item."""
-    room = BODY_MAX_CHARS - len(f"\n\nCloses #{item.number}\n\nChange: `{change}/`")
+    room = BODY_MAX_CHARS
     for text in (safe_text(mask_secrets(why)), safe_text(item.title)):
         if not text or len(text) > room or closing_keyword_in(text) is not None:
             continue

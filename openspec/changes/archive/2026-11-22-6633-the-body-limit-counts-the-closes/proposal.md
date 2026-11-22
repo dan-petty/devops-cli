@@ -11,7 +11,7 @@ The delivery body limit has two meanings in the code and in the text that a pers
 - `measured_body_text` holds the one measure of the text above a trailer line, and `open_body_problems` and the plan check read it.
 - `form_body_long` names the line that it measured through a `{line}` placeholder, and `plan_check_body_long` names the text above `Plans`.
 - `plan_body_room` gives the whole limit as the room of a plan text, so a plan text of 1,000 characters builds.
-- `_why` of the implement job sets the room of the why to the whole limit, so a why of 990 characters is kept instead of giving way to the title of the item.
+- `_why` of the implement job, `_body` of publish, and `delivery_request` of open row set the room of the why to the whole limit, so a why of 990 characters is kept instead of giving way to the title of the item.
 - `title_body_problems` of the plan check measures the text above `Plans`, not the whole body.
 - `CONTRIBUTING.md` and `docs/roadmap/plan-check.md` state the part that the 1,000-character limit measures.
 - The change fits one pull request.
@@ -29,9 +29,9 @@ None.
 
 ## Impact
 
-- Code: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/plan_check.py`
+- Code: `src/devops_cli/roadmap/pull_form.py`, `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/implement/implement_run.py`, `src/devops_cli/roadmap/implement/implement_phases.py`, `src/devops_cli/roadmap/open_row.py`, `src/devops_cli/roadmap/plan_check.py`
 - Documents: `CONTRIBUTING.md`, `docs/roadmap/plan-check.md`
-- Tests: `tests/roadmap/test_roadmap_pull_form.py`, `tests/roadmap/steps/test_roadmap_step_open.py`, `tests/core/test_roadmap_implement_planned_run.py`, `tests/roadmap/test_roadmap_plan_check.py`
+- Tests: `tests/roadmap/test_roadmap_pull_form.py`, `tests/roadmap/steps/test_roadmap_step_open.py`, `tests/core/test_roadmap_implement_planned_run.py`, `tests/roadmap/test_roadmap_plan_check.py`, `tests/roadmap/stage/test_roadmap_stage_plan.py`
 
 ## Feasibility
 

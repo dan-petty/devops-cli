@@ -691,3 +691,16 @@ def test_a_body_that_breaks_the_keyword_rule_is_refused(
         open_or_update(request)
 
     assert [r for r in github_api.requested if r.startswith("POST")] == []
+
+
+def test_a_draft_body_over_the_limit_above_closes_is_refused() -> None:
+    """A draft body has no `Change:` line yet, and the limit measures the text above `Closes`, so
+    the `Closes` line does not count (#6633)."""
+    from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, open_body_problems
+
+    at_limit = f"{'a' * BODY_MAX_CHARS}\n\nCloses #5020"
+    over_limit = f"{'a' * (BODY_MAX_CHARS + 1)}\n\nCloses #5020"
+
+    assert open_body_problems(at_limit, issue=5020, plan=False) == []
+    problems = open_body_problems(over_limit, issue=5020, plan=False)
+    assert [f"has {BODY_MAX_CHARS + 1} characters" in problem for problem in problems] == [True]

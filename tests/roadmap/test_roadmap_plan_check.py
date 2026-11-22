@@ -18,6 +18,7 @@ from devops_cli.github.client import CommitRef, IssueView, PullRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.plan_check import CheckReader, PlanCheckResult, plan_check
+from devops_cli.roadmap.pull_form import BODY_MAX_CHARS
 from devops_cli.roadmap.stage.stage_change import (
     REQUIREMENT_MAX_CHARS,
     StageGroup,
@@ -507,11 +508,34 @@ def test_a_long_title_is_reported(stage_repo: StageRepo) -> None:
 
 def test_a_long_body_is_reported(stage_repo: StageRepo) -> None:
     sha = _push(stage_repo, _change())
-    body = f"{BODY}\n\n{'text ' * 200}"
+    body = f"{'text ' * 201}\n\n{BODY}"
 
     result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
 
     assert [p.rule for p in result.problems] == ["body-length"]
+
+
+def test_a_body_over_the_limit_above_plans_is_reported(stage_repo: StageRepo) -> None:
+    """The limit measures the text above `Plans`: the `Plans` and `Change:` lines add 120
+    characters, and they do not count (#6633)."""
+    sha = _push(stage_repo, _change())
+    body = f"{'a' * (BODY_MAX_CHARS + 1)}\n\n{BODY}"
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
+
+    assert [p.rule for p in result.problems] == ["body-length"]
+    (problem,) = result.problems
+    assert f"has {BODY_MAX_CHARS + 1} characters" in problem.message
+    assert "Plans" in problem.message
+
+
+def test_a_body_at_the_limit_above_plans_has_no_problem(stage_repo: StageRepo) -> None:
+    sha = _push(stage_repo, _change())
+    body = f"{'a' * BODY_MAX_CHARS}\n\n{BODY}"
+
+    result = _run(stage_repo, _facts(stage_repo, sha=sha, body=body))
+
+    assert [p.rule for p in result.problems] == []
 
 
 def test_an_unread_check_is_reported(stage_repo: StageRepo) -> None:

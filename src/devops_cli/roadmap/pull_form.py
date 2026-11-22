@@ -245,10 +245,10 @@ def open_body_problems(body: str, *, issue: int | None, plan: bool) -> list[str]
     text for each problem, and none when the body is right.
 
     A plan body has the whole form of `plan_body_problems`. A delivery body closes the delivered
-    `issue` in one line `Closes #<issue>` and no other issue, and the text up to its trailers has
-    at most `BODY_MAX_CHARS` characters: the whole body when it has no `Change:` line. A draft that
-    the implement job writes before its final body has no `Change:` line yet, so a delivery body
-    needs none here: `body_problems` holds the whole form at ready."""
+    `issue` in one line `Closes #<issue>` and no other issue, and the limit of `BODY_MAX_CHARS`
+    characters measures the text above the line `Closes`, with its trailing blank lines removed.
+    A draft that the implement job writes before its final body has no `Change:` line yet, so a
+    delivery body needs none here: `body_problems` holds the whole form at ready."""
     texts = MESSAGES.pr
     if plan:
         return plan_body_problems(body, issue) if issue is not None else []
@@ -256,10 +256,11 @@ def open_body_problems(body: str, *, issue: int | None, plan: bool) -> list[str]
     problems, closes, _ = _closing_problems(body, lines)
     if closes is not None and issue is not None and closes != issue:
         problems.append(texts.form_closes_other.format(closes=closes, issue=issue))
-    _, _, change_at = _change_problems(lines)
-    measured = "\n".join(lines if change_at is None else lines[: change_at + 1])
+    measured = measured_body_text(body, "Closes")
     if len(measured) > BODY_MAX_CHARS:
-        problems.append(texts.form_body_long.format(length=len(measured), limit=BODY_MAX_CHARS))
+        problems.append(
+            texts.form_body_long.format(line="Closes", length=len(measured), limit=BODY_MAX_CHARS)
+        )
     return problems
 
 
@@ -297,9 +298,10 @@ def body_problems(body: str) -> list[str]:
 
     The body is the text of what the change does and why, then the line `Closes #<issue>` for the
     one issue it closes, then the line `Change:` with the folder of the change in a code span, then,
-    when given, the attribution lines. The text, the `Closes` line and the `Change:` line have at
-    most `BODY_MAX_CHARS` characters. The text is no placeholder and keeps nothing of the pull
-    request template."""
+    when given, the attribution lines. The limit of `BODY_MAX_CHARS` characters measures the text
+    above the line `Closes`, with its trailing blank lines removed: the `Closes` line, the
+    `Change:` line and the attribution lines do not count. The text is no placeholder and keeps
+    nothing of the pull request template."""
     texts = MESSAGES.pr
     lines = body.strip().splitlines()
     problems: list[str] = []
@@ -312,9 +314,7 @@ def body_problems(body: str) -> list[str]:
         if closes_at > change_at:
             problems.append(texts.form_order)
         else:
-            problems += _text_problems(
-                "\n".join(lines[:closes_at]), "\n".join(lines[: change_at + 1])
-            )
+            problems += _text_problems("\n".join(lines[:closes_at]), line="Closes")
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
     if _TEMPLATE_COMMENT in body:
         problems.append(texts.form_template_text)
@@ -350,7 +350,7 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
         else:
             problems += _text_problems(
                 "\n".join(lines[:plans_at]),
-                "\n".join(lines[: change_at + 1]),
+                line="Plans",
                 short_message=texts.form_plan_body_short,
             )
             problems += _trailer_problems("\n".join(lines[change_at + 1 :]))
@@ -361,10 +361,22 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
     return problems
 
 
-def _text_problems(text: str, measured: str, *, short_message: str | None = None) -> list[str]:
-    """The problems of the text above `Closes` or `Plans`, and of the length of `measured`: the
-    body up to the `Change:` line. `short_message` names the line that the text goes above. A text
-    that ends with `...` is cut, and the caller writes the whole text."""
+def measured_body_text(body: str, line: str) -> str:
+    """The text of `body` above its first line that starts with `<line> #`, with its trailing blank
+    lines removed, and the whole body when it has no such line: the part that the limit of
+    `BODY_MAX_CHARS` characters measures (#6633)."""
+    lines = body.splitlines()
+    for index, text in enumerate(lines):
+        if text.startswith(f"{line} #"):
+            return "\n".join(lines[:index]).rstrip()
+    return body.rstrip()
+
+
+def _text_problems(text: str, *, line: str, short_message: str | None = None) -> list[str]:
+    """The problems of the text above the line `line`, `Closes` or `Plans`, and of its length: the
+    limit of `BODY_MAX_CHARS` characters measures that text, with its trailing blank lines
+    removed. `short_message` names the line that the text goes above. A text that ends with `...`
+    is cut, and the caller writes the whole text."""
     texts = MESSAGES.pr
     problems = []
     if _ATTRIBUTION.search(text):
@@ -377,8 +389,9 @@ def _text_problems(text: str, measured: str, *, short_message: str | None = None
                 length=len(text.strip()), minimum=_BODY_TEXT_MIN_CHARS
             )
         )
-    if len(measured) > BODY_MAX_CHARS:
-        problems.append(texts.form_body_long.format(length=len(measured), limit=BODY_MAX_CHARS))
+    length = len(text.rstrip())
+    if length > BODY_MAX_CHARS:
+        problems.append(texts.form_body_long.format(line=line, length=length, limit=BODY_MAX_CHARS))
     if text.rstrip().endswith(_CUT_MARKS):
         problems.append(texts.form_body_cut)
     return problems
@@ -447,9 +460,10 @@ def build_plan_body(*, why: str, issue: int, change: str) -> str:
 
 def plan_body_room(issue: int, change: str) -> int:
     """The most characters of a one-line `why` that `build_plan_body` takes for `issue` and the
-    folder `change` (#6319): `BODY_MAX_CHARS` less the `Plans` line and the `Change:` line. A
-    caller measures a text against it and asks for a shorter text, so nothing is cut."""
-    return BODY_MAX_CHARS - len(_plan_lines(issue, change))
+    folder `change` (#6319): the whole limit of `BODY_MAX_CHARS` characters, which measures the text
+    above the line `Plans` and leaves the `Plans` and `Change:` lines out. A caller measures a text
+    against it and asks for a shorter text, so nothing is cut."""
+    return BODY_MAX_CHARS
 
 
 def _plan_lines(issue: int, change: str) -> str:

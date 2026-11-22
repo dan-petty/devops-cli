@@ -56,7 +56,12 @@ from devops_cli.roadmap.plan_read import (
     specs_at,
     tree_files,
 )
-from devops_cli.roadmap.pull_form import BODY_MAX_CHARS, SUMMARY_MAX_CHARS, summary_length
+from devops_cli.roadmap.pull_form import (
+    BODY_MAX_CHARS,
+    SUMMARY_MAX_CHARS,
+    measured_body_text,
+    summary_length,
+)
 from devops_cli.roadmap.request_plan import planned_session_read
 from devops_cli.roadmap.stage.stage_change import (
     STAGING_TYPE,
@@ -275,7 +280,7 @@ def title_body_problems(title: str, body: str, *, number: int) -> list[PlanProbl
                 "body", "body-closing", texts.plan_check_body_closes.format(keyword=keyword)
             )
         )
-    measured = len(body)
+    measured = len(measured_body_text(body, "Plans"))
     if measured > BODY_MAX_CHARS:
         problems.append(
             PlanProblem(

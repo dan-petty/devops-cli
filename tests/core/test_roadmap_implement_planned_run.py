@@ -8,12 +8,14 @@ are faked at their edges.
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stop_clear import clear_stops
 from tests.support.fakes.github import github_json
-from tests.support.fakes.process import ProcessAnswer
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 from tests.support.implement_step import command_text
 from tests.support.model_script import ModelScript, say, tool_calls
 from tests.support.roadmap_implement import (
@@ -25,6 +27,7 @@ from tests.support.roadmap_implement import (
     TICKED_FIRST,
     WORK_COMMIT,
     JobWorld,
+    archive_effect,
     group_one_calls,
     group_two_calls,
     two_groups,
@@ -232,3 +235,29 @@ def test_the_plan_alone_runs_nothing_for_a_planned_item(planned_world: JobWorld)
     assert _on_origin(planned_world) == ["main"]
     assert planned_world.sent("POST", "pulls") == []
     assert _item(planned_world)[0] == "Ready"
+
+
+def test_a_why_of_the_whole_body_limit_is_kept(planned_world: JobWorld) -> None:
+    why = "A reason that is kept. " * 43
+    assert len(why) == 989
+
+    def archive_with_why(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        done = archive_effect(call)
+        assert call.cwd is not None
+        change = command_text(call).split()[-1]
+        proposal = call.cwd / "openspec/changes/archive" / f"2026-10-29-{change}" / "proposal.md"
+        text = proposal.read_text(encoding="utf-8")
+        proposal.write_text(
+            text.replace("The job drops the last comment of a thread (#1). It must keep it.", why),
+            encoding="utf-8",
+        )
+        return done
+
+    planned_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops openspec archive"),
+        ProcessAnswer(side_effect=archive_with_why),
+    )
+    planned_world.run(two_groups())
+
+    (patched,) = planned_world.sent("PATCH", f"pulls/{PULL}")
+    assert patched["body"].startswith(f"{why.strip()}\n\nCloses #1")

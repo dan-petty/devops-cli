@@ -74,8 +74,8 @@ the head commit, whatever the working tree of the checkout holds.
   estimated line above the first. For any other group, the two figures are equal.
 - The title: `docs(openspec): plan #<issue> <summary>`, with at most `SUMMARY_MAX_CHARS`
   characters after the colon.
-- The body: at most `BODY_MAX_CHARS` characters, one `Plans #<issue>` line, and no closing keyword
-  before an issue reference.
+- The body: at most `BODY_MAX_CHARS` characters above the `Plans` line, one `Plans #<issue>` line,
+  and no closing keyword before an issue reference.
 - The check `Semantic PR title`: it must exist and it must pass.
 - A `MODIFIED` requirement whose text in the base spec changed, or went, since the plan commit.
   For a requirement under the new name of a `RENAMED` entry, the command compares the base text
