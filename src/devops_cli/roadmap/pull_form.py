@@ -77,7 +77,8 @@ _LEAD: Final[re.Pattern[str]] = re.compile(
 )
 _CLOSES_LINE: Final[re.Pattern[str]] = re.compile(r"Closes #(?P<issue>\d+)")
 _PLANS_LINE: Final[re.Pattern[str]] = re.compile(r"Plans #(?P<issue>\d+)")
-# The line that ends the text that the body limit measures, for each form (#6735).
+# The line that ends the text that the body limit measures, for each form, when the whitespace at
+# the ends of the line is removed: the plan check reads the `Plans` line so (#6735).
 _TEXT_ENDS: Final[dict[str, re.Pattern[str]]] = {"Closes": _CLOSES_LINE, "Plans": _PLANS_LINE}
 # GitHub closes the issue that follows one of these words, with an optional colon.
 _CLOSING_REFERENCE: Final[re.Pattern[str]] = re.compile(
@@ -368,15 +369,19 @@ def plan_body_problems(body: str, issue: int) -> list[str]:
 
 
 def measured_body_text(body: str, line: Literal["Closes", "Plans"]) -> str:
-    """The text of `body` above its first line that the form takes as `<line> #<issue>`, with the
-    whitespace at its two ends removed, and the whole body when it has no such line: the part that
-    the limit of `BODY_MAX_CHARS` characters measures (#6633).
+    """The text of `body` above its first line that is `<line> #<issue>` when the whitespace at the
+    ends of that line is removed, with the whitespace at the two ends of the text removed, and the
+    whole body when it has no such line: the part that the limit of `BODY_MAX_CHARS` characters
+    measures (#6633).
 
     The open step, the ready check, the plan form check and the plan check all measure this text,
     so they agree on one body. The lines are those of `body.strip()`, which the form check reads, so
-    a blank line at the start counts at no check (#6735)."""
+    a blank line at the start counts at no check. The plan check takes a `Plans` line with
+    whitespace at its ends as the plan of the issue, so the text ends at that line too, and the
+    open step names a `Closes` line with a space at its end, not a false length (#6735)."""
     lines = body.strip().splitlines()
-    end = next((i for i, text in enumerate(lines) if _TEXT_ENDS[line].fullmatch(text)), len(lines))
+    ends = _TEXT_ENDS[line]
+    end = next((i for i, text in enumerate(lines) if ends.fullmatch(text.strip())), len(lines))
     return "\n".join(lines[:end]).rstrip()
 
 
