@@ -1,0 +1,40 @@
+# Proposal: #6717
+
+## Why
+Closes #6717. On 2026-11-22, a full `devops ai rag index --include-kb` stopped at 24576 of 41385 code chunks with `Failed to embed batch from 'tests/fixtures/tiktoken/o200k_base.tiktoken' ...: ReadTimeout`. The run ended before the docs phase, so the collection `devops_docs` stayed empty. There are two causes:
+- The indexer embeds data files. `_is_indexable_file` in `src/devops_cli/ai/rag/indexer.py` leaves out lock files, hidden files, git-ignored files and files over 50 MB. The two tiktoken vocabularies in `tests/fixtures/tiktoken/` (1.7 MB and 3.6 MB of base64 tokens) pass, and give thousands of chunks with no meaning for a search.
+- One failed batch ends the run. The upsert loop of `WorkspaceIndexer._upsert_chunks` raises `EmbeddingsError` on the first exception of `embed_texts`, so no file after that batch gets indexed.
+
+## What Changes
+- `WorkspaceIndexer.collect_files` leaves out each file that the `.gitattributes` of the working tree mark `linguist-vendored`. A file marked `linguist-generated` stays: the generated command reference (`docs/commands/*.md`, `docs/CLI_REFERENCE.md`) is a document to search, and `_is_lockfile` already leaves out the lock files by name. One `git check-attr -z --stdin` call reads the attributes of all the files of a walk. A directory outside a git work tree has no attributes, so the indexer keeps all its files. The git read is the new `paths_with_attributes` in `src/devops_cli/git/operations.py`, which runs git through `run_subprocess`.
+- `.gitattributes` marks `tests/fixtures/tiktoken/*.tiktoken` `linguist-vendored`: they are the data of tiktoken.
+- `EmbeddingsError` gets `status`: the HTTP status of the failed reply, when each endpoint that was asked gave that status. The indexer sorts a failed batch by this status, not by the text of the reply.
+- A batch that fails with a transient error (a timeout, a connect error, a 408, 429 or 5xx reply) gets one more attempt after a jittered wait, through `tenacity.Retrying`. A batch that fails both attempts is skipped: the indexer records its files, marks them incomplete in the index cache, and embeds the other batches, of both collections. At the end of the run, `index_workspace` raises `EmbeddingsError` with exit status 1. The message gives the first error and each file that is not indexed. The next run embeds those files again.
+- A batch whose reply refuses its input (HTTP 400, 413 or 422, such as a text that is too long) is skipped at once with no new attempt, and recorded like a batch that failed both attempts.
+- A pybreaker `CircuitBreaker` of each run counts the batches in a row that fail both attempts with a transient error. The run stops after 3 such batches, or after the first one when no batch of the run got vectors. It exits 1 with the last error and the files that it skipped, and sends no request for the later batches. A batch that gets vectors, or whose input the endpoint refuses, sets the count back to 0.
+- Any other error (a refused key with 401 or 403, an unserved model with 404, a malformed reply) still ends the run at once with exit status 1, because no later batch can succeed. The LiteLLM proxy answers an unknown model with HTTP 400 too, so a second refused batch before the first embedded batch also ends the run.
+- `is_transient_embedding_error` in `src/devops_cli/ai/rag/embeddings.py` becomes public, and `is_input_refused_error` is new, so the indexer uses the same rules as the embedder.
+- The change alters which files `devops ai rag index` and `devops ai rag drift` read, and how an index run ends after a failed batch. That is observable, so the change carries a spec delta.
+- The change fits one pull request.
+
+## Capabilities
+- `rag-index` (new): the files that the workspace indexer reads, and how a run handles a failed embedding batch.
+
+## Impact
+- `devops ai rag index`, `index-kb`, `drift` and the ingest Job read no file that `.gitattributes` marks vendored. In this repository, the new mark leaves out the two tiktoken fixtures, and no other file. The 46 files marked `linguist-generated` that the indexer reads stay in the index: the 42 pages of `docs/commands/`, `docs/CLI_REFERENCE.md`, `CHANGELOG.md`, `tests/module_durations.json` and `.release-please-manifest.json`.
+- A run with a transient failure or a refused input indexes all the other batches, and exits 1 at the end with the files that it did not index. A run whose endpoint is not available stops after 1 or 3 failed batches. It does not wait on each batch of the workspace. `drift --auto-sync` and the ingest pass record no synced state after such a run, because the error reaches them as before.
+- The live reindex of this repository is a step after the merge.
+
+## Feasibility
+- Code on origin/main `f14cb8b00`: `_is_indexable_file` (`src/devops_cli/ai/rag/indexer.py:110`) has no attribute check. `_upsert_chunks` (`src/devops_cli/ai/rag/indexer.py:1104-1121`) raises `EmbeddingsError` from the first exception of `embed_texts`.
+- git 2.55.0: `git check-attr -z --stdin linguist-generated linguist-vendored` reads paths separated by NUL on standard input and writes `<path> NUL <attribute> NUL <value> NUL` for each path and attribute. It gives `set` for `uv.lock linguist-generated`, `unspecified` for the tiktoken fixtures, and exits 128 with `fatal: not a git repository` outside a work tree.
+- Census: a scratch script ran `WorkspaceIndexer.collect_files` on the checkout and one `git check-attr` over its 12636 files. It found 46 files marked `linguist-generated` and none marked `linguist-vendored`. With the new mark, `git ls-files | git check-attr --stdin linguist-vendored` gives `set` for the two tiktoken fixtures only.
+- Status codes: `_reply_vectors` in `src/devops_cli/ai/rag/embeddings.py` raises `EmbeddingsError` for a reply other than 200 and keeps the status only in `details`. `_embedding_error` makes a new error that drops it. The engine sends gateway requests with httpx2, not through the AI client of `src/devops_cli/ai/client/`. The gateway is LiteLLM (`k8s/llm/gateway/deployment.yaml`). Its proxy raises `ProxyModelNotFoundError` with `HTTP_400_BAD_REQUEST` for a model name that no deployment serves (`litellm/proxy/route_llm_request.py`, 1.109.1), with only message text in the body. An Ollama node answers 404 for a model that it does not have.
+- The embedder already retries one HTTP request up to `ai.max_retries` (3) times (`_post_openai_batch_with_retry`). Each retry sends the same sub-batch. After a timeout, `_apply_aimd_decrease` halves the batch size of the engine, and a new `embed_texts` call splits its texts at that size. So a batch attempt sends smaller requests than the attempt that failed.
+- The issue names "the bounded retry helper that `src/devops_cli/ai/rag/investigator.py` uses". The investigator has no retry helper: it uses the pybreaker `CircuitBreaker` (`_LOOKUP_BREAKER`), which pauses lookups after 3 transient failures and does not try a lookup again. The project's retry library is tenacity (`tenacity==9.1.4` in `pyproject.toml`), which `src/devops_cli/http/retry.py`, `src/devops_cli/k8s/informer.py` and `src/devops_cli/cloudflare/client.py` use. This change uses tenacity for the retry, and a pybreaker breaker of each run to stop the run after failed batches in a row.
+
+## Existing Tool Considered
+- git (`git check-attr`) reads `.gitattributes` with the rules of git: patterns, macros, nested files and `info/attributes`. No Python library of the dependency set parses attributes. `pathspec` reads ignore patterns only.
+- tenacity 9.1.4 (Apache-2.0, maintained) gives the bounded retry: `stop_after_attempt`, `wait_exponential_jitter`, `retry_if_exception` and the `sleep` parameter for the clock seam.
+- pybreaker 1.4.1 (BSD, maintained), which the investigator and the Valkey cache already use, counts the failed batches in a row: `fail_max`, `exclude` and `throw_new_error_on_trip`.
+- The change deletes no internal code. It replaces the `raise` of the upsert loop with the retry and the skip. `http.HTTPStatus` names the statuses.

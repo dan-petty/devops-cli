@@ -11,6 +11,7 @@ from typing import Any
 import httpx2
 import pytest
 
+from devops_cli.ai.rag.embeddings import EmbeddingsError
 from devops_cli.core.command_resolver import resolve_devops_argv
 from devops_cli.lang import MESSAGES
 from tests.support.embedding_replies import ollama_reply, serve
@@ -119,6 +120,30 @@ def test_index_stores_the_workspace_and_reports_it(
     assert {p["payload"]["project_name"] for p in qdrant.collections["devops_code"]} == {
         "test_proj"
     }
+
+
+@pytest.mark.usefixtures("clock")
+def test_index_with_a_batch_that_fails_each_try_exits_1_and_names_its_file(
+    cli: Callable[..., Any], tmp_path: Path, qdrant: Any, embedder: Any
+) -> None:
+    """The run indexes the other files, then exits 1 with the file it did not index (#6717)."""
+    (tmp_path / "other.py").write_text("def other():\n    return 1\n", encoding="utf-8")
+
+    def time_out_other(texts: list[str], is_query: bool) -> None:
+        if any("def other" in text for text in texts):
+            raise EmbeddingsError("Gateway 504 Gateway Timeout", status=504, is_transient=True)
+
+    embedder.batch_size = 1
+    embedder.before_embed = time_out_other
+
+    result = cli(*RAG, "index", str(_app(tmp_path)), "--no-include-kb")
+
+    assert (result.exit_code, "other.py" in result.output, "Gateway 504" in result.output) == (
+        1,
+        True,
+        True,
+    )
+    assert {p["payload"]["file_path"] for p in qdrant.collections["devops_code"]} == {"app.py"}
 
 
 def test_index_reports_the_files_it_pruned(

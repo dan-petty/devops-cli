@@ -21,3 +21,8 @@ CHANGELOG.md linguist-generated
 tests/module_durations.json linguist-generated
 docs/CLI_REFERENCE.md linguist-generated
 docs/commands/*.md linguist-generated
+
+# Vendored files: the data of a third party, which nobody edits. GitHub leaves them out of the
+# language counts, and `devops ai rag index` leaves them out of the index. The tiktoken
+# vocabularies are the data of tiktoken.
+tests/fixtures/tiktoken/*.tiktoken linguist-vendored

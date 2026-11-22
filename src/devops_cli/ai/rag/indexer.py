@@ -6,12 +6,27 @@ import json
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
+
+from pybreaker import STATE_OPEN, CircuitBreaker
+from tenacity import (
+    RetryCallState,
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from devops_cli.ai.rag.chunker import SemanticChunker
-from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
+from devops_cli.ai.rag.embeddings import (
+    EmbeddingsEngine,
+    EmbeddingsError,
+    is_input_refused_error,
+    is_transient_embedding_error,
+)
 from devops_cli.ai.rag.models import CodeChunk, IndexStats
 
 if TYPE_CHECKING:
@@ -33,13 +48,68 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_COLLECTION,
     DEFAULT_RAG_DOCS_COLLECTION,
 )
+from devops_cli.core import clock
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
+from devops_cli.git.operations import git_show_toplevel, paths_with_attributes
 from devops_cli.lang.en.errors import ERRORS
 from devops_cli.output.file_writer import write_json_file
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
+
+# The `.gitattributes` attribute that marks a file as the data of a third party, such as the
+# tiktoken vocabularies: text with no meaning for a search (#6717). A `linguist-generated` file
+# stays in the index: the command reference that a tool writes is a document to search, and
+# `_is_lockfile` already leaves out the lock files.
+_SKIPPED_ATTRIBUTES: Final = ("linguist-vendored",)
+
+# A batch that fails with a transient error gets one more attempt after a jittered wait. The new
+# `embed_texts` call splits the texts at the batch size that the embedder lowered after a timeout.
+# The embedder tries each request 3 times with a batch timeout of up to 120 s, so a third attempt
+# could hold the run for about 18 min on one batch (#6717).
+_BATCH_ATTEMPTS: Final = 2
+_BATCH_RETRY_WAIT_SECONDS: Final = 10.0
+_BATCH_RETRY_MAX_WAIT_SECONDS: Final = 60.0
+
+# The run stops after this count of batches in a row that fail each attempt with a transient
+# error: the endpoint is down or hangs, and each later batch would wait and fail too. A batch that
+# gets vectors sets the count back to 0. One failed batch can take about 12 min, so 3 bound an
+# outage in a run to about 36 min, not one retry and wait for each batch of the workspace (#6717).
+_FAILED_BATCHES_IN_A_ROW: Final = 3
+
+
+class _SkippedBatch(NamedTuple):
+    """A batch that the run skipped: the files of its chunks, and the last error."""
+
+    files: tuple[str, ...]
+    error: str
+
+
+def _batch_breaker() -> CircuitBreaker:
+    """The pybreaker circuit breaker of one run, which counts the batches in a row that fail each
+    attempt with a transient error. It opens at `_FAILED_BATCHES_IN_A_ROW`. A batch whose input the
+    endpoint refuses is not such a failure: the endpoint answered, so it sets the count back to 0,
+    as a batch that gets vectors does. The run stops when the breaker opens, so the breaker never
+    lets a call through again."""
+    return CircuitBreaker(
+        fail_max=_FAILED_BATCHES_IN_A_ROW,
+        exclude=[lambda exc: not _is_retryable(exc)],
+        throw_new_error_on_trip=False,
+        name="rag-index-batches",
+    )
+
+
+@dataclass
+class _BatchRun:
+    """The batch results of one index run, across both collections: the skipped batches, the
+    count of batches that got vectors, the count of batches whose input the endpoint refused, and
+    the breaker that counts the failed batches in a row."""
+
+    skipped: list[_SkippedBatch] = field(default_factory=list)
+    embedded: int = 0
+    refused: int = 0
+    breaker: CircuitBreaker = field(default_factory=_batch_breaker)
 
 
 def is_text_file(p: Path) -> bool:
@@ -134,6 +204,18 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
     return is_text_file(p)
 
 
+def _without_marked_files(root: Path, files: list[Path]) -> list[Path]:
+    """`files` without the ones that the `.gitattributes` of the work tree at `root` mark
+    vendored. One git call reads all of them. A root that no work tree holds has no
+    attributes, so it keeps all its files."""
+    if not files or git_show_toplevel(root) is None:
+        return files
+    marked = paths_with_attributes(
+        root, (p.relative_to(root).as_posix() for p in files), _SKIPPED_ATTRIBUTES
+    )
+    return [p for p in files if p.relative_to(root).as_posix() not in marked]
+
+
 def _collect_all_indexing_files(
     collector: Callable[[Path], list[Path]], root_dir: Path, include_kb: bool
 ) -> list[Path]:
@@ -175,6 +257,81 @@ def _update_incremental_cache(
             done = pending[ckey] == 0
             cache[ckey] = file_hashes[ckey] if done else CONST_RAG_INCOMPLETE_FILE_MARKER
     save_fn(cache)
+
+
+def _mark_batch_incomplete(
+    cache: dict[str, str],
+    file_hashes: dict[str, str],
+    batch: list[CodeChunk],
+    save_fn: Callable[[dict[str, str]], None],
+) -> None:
+    """Cache each file of a skipped batch as incomplete, then persist, so that a run without
+    `--force` embeds the file again. Its pending count keeps the skipped chunks, so a later batch
+    of the file does not cache it as complete."""
+    for c in batch:
+        ckey = f"{c.project_name}:{c.file_path}"
+        if ckey in file_hashes:
+            cache[ckey] = CONST_RAG_INCOMPLETE_FILE_MARKER
+    save_fn(cache)
+
+
+def _batch_failed_error(batch: list[CodeChunk], exc: Exception, model: str) -> EmbeddingsError:
+    """The error that ends a run at a batch that failed with a permanent error."""
+    first_file = batch[0].file_path
+    last_file = batch[-1].file_path
+    det = dict(getattr(exc, "details", {}) or {})
+    det.setdefault("model", model)
+    det["first_file"] = first_file
+    det["last_file"] = last_file
+    return EmbeddingsError(
+        ERRORS.rag.batch_failed.format(first_file=first_file, last_file=last_file, error=str(exc)),
+        status=getattr(exc, "status", None),
+        exit_code=CONST_EXIT_FAILURE,
+        details=det,
+    )
+
+
+def _skipped_batches_error(run: _BatchRun) -> EmbeddingsError:
+    """The error that ends a run that skipped batches: the first error and each file. It is
+    transient when no skipped batch had a refused input, which fails each run again."""
+    files = sorted({name for batch in run.skipped for name in batch.files})
+    first_error = run.skipped[0].error
+    return EmbeddingsError(
+        ERRORS.rag.batches_skipped.format(
+            batches=len(run.skipped),
+            count=len(files),
+            error=first_error,
+            files="\n".join(f"  - {name}" for name in files),
+        ),
+        is_transient=not run.refused,
+        exit_code=CONST_EXIT_FAILURE,
+        details={"skipped_files": files, "first_error": first_error},
+    )
+
+
+def _endpoint_down_error(run: _BatchRun, exc: Exception) -> EmbeddingsError:
+    """The error that stops a run whose endpoint is down: the last error, and each file of the
+    batches that the run skipped. The files after them get no request."""
+    files = sorted({name for batch in run.skipped for name in batch.files})
+    return EmbeddingsError(
+        ERRORS.rag.endpoint_down.format(
+            failed=run.breaker.fail_counter,
+            embedded=run.embedded,
+            count=len(files),
+            error=str(exc),
+            files="\n".join(f"  - {name}" for name in files),
+        ),
+        is_transient=True,
+        status=getattr(exc, "status", None),
+        exit_code=CONST_EXIT_FAILURE,
+        details={"skipped_files": files, "last_error": str(exc)},
+    )
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """Whether a batch attempt that failed with `exc` gets one more: a transient error, and not a
+    reply that refuses the input, which a new attempt gets again."""
+    return is_transient_embedding_error(exc) and not is_input_refused_error(exc)
 
 
 def _get_single_collection_stat(
@@ -750,12 +907,14 @@ class WorkspaceIndexer:
 
     @staticmethod
     def collect_files(root_dir: Path) -> list[Path]:
-        """Collect all indexable files under root_dir, respecting .gitignore rules."""
+        """Collect all indexable files under root_dir, respecting .gitignore rules and the
+        vendored marks of .gitattributes."""
         import os
 
         root = root_dir.resolve()
         if root.is_file():
-            return [root] if _is_indexable_file(root, root.parent) else []
+            kept = [root] if _is_indexable_file(root, root.parent) else []
+            return _without_marked_files(root.parent, kept)
 
         gitignore_spec = _load_gitignore_spec(root)
         indexable_files: list[Path] = []
@@ -769,7 +928,7 @@ class WorkspaceIndexer:
                 if _is_indexable_file(p, root, gitignore_spec=gitignore_spec):
                     indexable_files.append(p)
 
-        return sorted(indexable_files)
+        return _without_marked_files(root, sorted(indexable_files))
 
     def index_knowledge_base(
         self,
@@ -918,8 +1077,10 @@ class WorkspaceIndexer:
         cache: dict[str, str],
         file_hashes: dict[str, str],
         progress_callback: Callable[[str, int, int], None] | None,
+        run: _BatchRun,
     ) -> tuple[list[CodeChunk], list[CodeChunk]]:
-        """Partition chunks into code and docs, then upsert to Qdrant."""
+        """Partition chunks into code and docs, then upsert to Qdrant; `run` records the result of
+        each batch."""
         code_chunks, doc_chunks = _partition_chunks(all_chunks)
         pending = Counter(f"{c.project_name}:{c.file_path}" for c in all_chunks)
         if code_chunks:
@@ -929,6 +1090,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
+                run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding code",
             )
@@ -939,6 +1101,7 @@ class WorkspaceIndexer:
                 cache,
                 file_hashes,
                 pending=pending,
+                run=run,
                 progress_callback=progress_callback,
                 progress_title="Embedding docs",
             )
@@ -1038,8 +1201,9 @@ class WorkspaceIndexer:
                 progress_callback=progress_callback,
             )
 
+            run = _BatchRun()
             code_chunks, doc_chunks = self._upsert_partitioned_chunks(
-                all_chunks, cache, file_hashes, progress_callback
+                all_chunks, cache, file_hashes, progress_callback, run
             )
             self._save_cache(cache)
             self._save_project_counts(scanned_projects)
@@ -1048,6 +1212,9 @@ class WorkspaceIndexer:
             root_span.set_attribute("rag.total_chunks", len(all_chunks))
             root_span.set_attribute("rag.code_chunks", len(code_chunks))
             root_span.set_attribute("rag.doc_chunks", len(doc_chunks))
+            root_span.set_attribute("rag.skipped_batches", len(run.skipped))
+            if run.skipped:
+                raise _skipped_batches_error(run)
 
             return {
                 "indexed_files": len(files_to_reindex),
@@ -1070,12 +1237,14 @@ class WorkspaceIndexer:
         file_hashes: dict[str, str],
         *,
         pending: Counter[str],
+        run: _BatchRun,
         progress_callback: Callable[[str, int, int], None] | None = None,
         progress_title: str = "Embedding",
     ) -> None:
         """Embed and upsert a list of chunks in batches.
 
-        `pending` counts each file's chunks not yet stored, across both collections.
+        `pending` counts each file's chunks not yet stored, across both collections. `run`
+        records the result of each batch, and the loop goes on after a skipped batch.
         """
         if not chunks:
             return
@@ -1101,41 +1270,117 @@ class WorkspaceIndexer:
                     "rag.total_chunks": total,
                 },
             ):
-                texts = [c.content for c in batch]
-                try:
-                    embeddings = self.embedder.embed_texts(texts)
-                except Exception as exc:
-                    first_file = batch[0].file_path
-                    last_file = batch[-1].file_path
-                    det = dict(getattr(exc, "details", {}) or {})
-                    det.setdefault("model", getattr(self.embedder, "model", ""))
-                    det["first_file"] = first_file
-                    det["last_file"] = last_file
-                    raise EmbeddingsError(
-                        ERRORS.rag.batch_failed.format(
-                            first_file=first_file,
-                            last_file=last_file,
-                            error=str(exc),
-                        ),
-                        exit_code=CONST_EXIT_FAILURE,
-                        details=det,
-                    ) from exc
-                points = [
-                    _build_chunk_point(
-                        chunk,
-                        vec,
-                        embedding_model=embedding_model,
-                        kb_digest=kb_digest,
-                    )
-                    for chunk, vec in zip(batch, embeddings, strict=False)
-                ]
-                self.qdrant.upsert_points(collection_name, points)
+                embeddings = self._embed_or_skip(batch, cache, file_hashes, run)
+                if embeddings is not None:
+                    points = [
+                        _build_chunk_point(
+                            chunk,
+                            vec,
+                            embedding_model=embedding_model,
+                            kb_digest=kb_digest,
+                        )
+                        for chunk, vec in zip(batch, embeddings, strict=False)
+                    ]
+                    self.qdrant.upsert_points(collection_name, points)
 
-                # Persist incremental progress to cache
-                _update_incremental_cache(cache, file_hashes, batch, self._save_cache, pending)
+                    # Persist incremental progress to cache
+                    _update_incremental_cache(cache, file_hashes, batch, self._save_cache, pending)
 
             if progress_callback:
                 progress_callback(progress_title, min(i + len(batch), total), total)
+
+    def _embed_or_skip(
+        self,
+        batch: list[CodeChunk],
+        cache: dict[str, str],
+        file_hashes: dict[str, str],
+        run: _BatchRun,
+    ) -> list[list[float]] | None:
+        """The vectors of `batch`, or None for a batch that the run skips.
+
+        A transient error, such as a timeout, a 429 or a 5xx reply, gets one more attempt. A reply
+        that refuses the input of the batch (HTTP 400, 413 or 422) gets none. A skipped batch goes
+        into `run.skipped`, and its files are cached as incomplete. Any other error, such as a
+        refused key or an unserved model, raises at once: no later batch can succeed. The LiteLLM
+        proxy also answers an unknown model with HTTP 400, so a second refused batch before the
+        first embedded batch raises too: two refused inputs and no accepted one point to the model.
+        `run.breaker` counts the batches in a row that fail each attempt with a transient error.
+        When it opens, or when such a batch comes before the first embedded batch, the endpoint is
+        down, and the run stops after it records the batch.
+        """
+        first_file, last_file = batch[0].file_path, batch[-1].file_path
+
+        def warn(state: RetryCallState) -> None:
+            error = state.outcome.exception() if state.outcome else None
+            logger.warning(
+                "Failed to embed batch from '%s' to '%s' (attempt %d of %d): %s. "
+                "Trying again in %.0fs",
+                first_file,
+                last_file,
+                state.attempt_number,
+                _BATCH_ATTEMPTS,
+                error,
+                state.upcoming_sleep,
+            )
+
+        retrying = Retrying(
+            stop=stop_after_attempt(_BATCH_ATTEMPTS),
+            wait=wait_exponential_jitter(
+                initial=_BATCH_RETRY_WAIT_SECONDS, max=_BATCH_RETRY_MAX_WAIT_SECONDS
+            ),
+            retry=retry_if_exception(_is_retryable),
+            before_sleep=warn,
+            sleep=clock.sleep,
+            reraise=True,
+        )
+        try:
+            with run.breaker.calling():
+                vectors = retrying(self.embedder.embed_texts, [c.content for c in batch])
+        except Exception as exc:
+            stop = self._skip_batch(batch, exc, cache, file_hashes, run)
+            if stop is not None:
+                raise stop from exc
+            return None
+        run.embedded += 1
+        return vectors
+
+    def _skip_batch(
+        self,
+        batch: list[CodeChunk],
+        exc: Exception,
+        cache: dict[str, str],
+        file_hashes: dict[str, str],
+        run: _BatchRun,
+    ) -> EmbeddingsError | None:
+        """Record `batch`, which failed with `exc`, as skipped, and return None. When no later
+        batch can succeed, return the error that ends the run and record nothing. When the endpoint
+        is down, record the batch, then return the error that stops the run."""
+        first_file, last_file = batch[0].file_path, batch[-1].file_path
+        refused = is_input_refused_error(exc)
+        if refused:
+            ends_run = run.refused > 0 and run.embedded == 0
+        else:
+            ends_run = not is_transient_embedding_error(exc)
+        if ends_run:
+            return _batch_failed_error(batch, exc, getattr(self.embedder, "model", ""))
+        if refused:
+            run.refused += 1
+        logger.warning(
+            "Skipped the batch from '%s' to '%s' %s: %s",
+            first_file,
+            last_file,
+            "at once: the endpoint refused its input"
+            if refused
+            else f"after {_BATCH_ATTEMPTS} attempts",
+            exc,
+        )
+        run.skipped.append(
+            _SkippedBatch(tuple(dict.fromkeys(c.file_path for c in batch)), str(exc))
+        )
+        _mark_batch_incomplete(cache, file_hashes, batch, self._save_cache)
+        if not refused and (run.breaker.current_state == STATE_OPEN or run.embedded == 0):
+            return _endpoint_down_error(run, exc)
+        return None
 
     def get_stats(self) -> list[IndexStats]:
         """Fetch index stats from Qdrant and local cache."""
