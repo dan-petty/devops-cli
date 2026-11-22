@@ -2,7 +2,9 @@
 
 ## Decisions
 - **The phases as fix-checks has them.** `prepare` admits the round (`admit_round`: the bounds and the hard cap), clones, finds the conflicts and the release rule with `git merge-tree`, and checks the caps. A round that ends there gives its report and writes a state that says so. Else the state file and the inputs go to the agent, and the agent's outcome to `publish`.
-- **One cleanup path, one record.** The release rule is decided in `prepare` and passed to the agent, so each round that reaches the agent ends in `publish`, which writes the rounds, the files and the result. The agent aborts the rebase and resets the clone to the judged head for each round that does not end `resolved`.
+- **One cleanup path, one count.** `prepare` adds one to the rounds of the record when it gives the round to the agent, so a round counts also when the agent phase writes no outcome or its container ends. `publish` writes the result, a refusal too, and adds no round; its admission takes no cap. The agent aborts the rebase and resets the clone to the judged head for each round that does not end `resolved`.
+- **The output of tier 1 in the stop.** A failed program of tier 1 puts its exit status and the last lines of its output into the reason, as implement does (`implement_stop_program_failed`, `output_tail`). The round masks the reason; no log holds the output.
+- **A plan needs no App.** Without `--confirm`, `clone_branch` makes no check of the authors, so a host with no `service.github_app.slug` gets the plan, as on `main`.
 - **The claim before the push.** `publish` checks the admission bounds again with the judged head right before the push, as the other phased steps check the claim.
 - **Tier 1 at each stop.** The shared rules make the generated documents and `uv.lock` again at the stop where they conflict, as implement does (owner answer of 2026-11-21).
 - **The archive function.** `archive_change` takes the program runner and the commit of the step. implement keeps its documents step, its step labels, the `pre-commit` stage of its commit and the class `plan_defect` around the call.

@@ -225,30 +225,6 @@ def test_a_push_runs_no_hook_of_the_hooks_folder_of_the_clone(
     )
 
 
-def test_a_fetch_writes_the_new_objects_and_the_ref_into_the_clone(stage_repo: StageRepo) -> None:
-    other = stage_repo.origin.parent / "other"
-    run_git(other.parent, "clone", "-q", str(stage_repo.origin), str(other))
-    run_git(
-        other,
-        "-c",
-        "user.name=b",
-        "-c",
-        "user.email=b@example.com",
-        "commit",
-        "-q",
-        "--allow-empty",
-        "-m",
-        "moved",
-    )
-    run_git(other, "push", "-q", "origin", "main")
-    moved = run_git(other, "rev-parse", "HEAD")
-
-    OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
-
-    assert run_git(stage_repo.clone, "rev-parse", "refs/remotes/origin/main") == moved
-    assert run_git(stage_repo.clone, "cat-file", "-t", moved) == "commit"
-
-
 def test_a_lease_that_no_longer_holds_refuses_the_push(stage_repo: StageRepo, work: str) -> None:
     origin = OriginGit(stage_repo.clone, str(stage_repo.origin))
     origin.push(BRANCH, work)
@@ -294,26 +270,26 @@ def recorded(
 def test_the_leftover_processes_end_before_the_folder_and_before_the_token_call(
     stage_repo: StageRepo, recorded: list[str], process_fake: ProcessFake
 ) -> None:
-    OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
+    OriginGit(stage_repo.clone, str(stage_repo.origin)).heads("main")
 
-    token_call = recorded.index("fetch")
+    token_call = recorded.index("ls-remote")
     first, second = (i for i, word in enumerate(recorded) if word == "sweep")
     assert first == 0
-    assert first < recorded.index("mkdtemp") < recorded.index("update-ref") < second
+    assert first < recorded.index("mkdtemp") < recorded.index("init") < second
     assert second == token_call - 1
-    fetch = next(call for call in process_fake.calls if _words(call) == "fetch")
-    assert fetch.env is not None
-    assert {key: fetch.env.get(key) for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")} == {
+    read = next(call for call in process_fake.calls if _words(call) == "ls-remote")
+    assert read.env is not None
+    assert {key: read.env.get(key) for key in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")} == {
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_CONFIG_NOSYSTEM": "1",
     }
-    assert [word for word in fetch.argv if word.startswith(("credential.", "core.hooksPath"))] == [
+    assert [word for word in read.argv if word.startswith(("credential.", "core.hooksPath"))] == [
         "credential.helper=",
         "credential.https://github.com.helper=",
         "credential.https://github.com.helper=!gh auth git-credential",
         "core.hooksPath=/dev/null",
     ]
-    assert not Path(fetch.env["HOME"]).exists()
+    assert not Path(read.env["HOME"]).exists()
 
 
 def test_a_link_at_the_shallow_file_ends_the_leftover_processes_before_the_refusal(
@@ -324,9 +300,9 @@ def test_a_link_at_the_shallow_file_ends_the_leftover_processes_before_the_refus
     link_shallow(stage_repo)
 
     with pytest.raises(GitSettingsError) as refused:
-        OriginGit(stage_repo.clone, str(stage_repo.origin)).fetch("main")
+        OriginGit(stage_repo.clone, str(stage_repo.origin)).heads("main")
 
-    assert (refused.value.settings, recorded[0], "fetch" in recorded) == (
+    assert (refused.value.settings, recorded[0], "ls-remote" in recorded) == (
         ("shallow",),
         "sweep",
         False,
@@ -350,7 +326,7 @@ def test_a_push_gives_the_token_only_to_the_call_in_the_new_folder(
 # ── The shallow file ──────────────────────────────────────────────────────────────────────
 
 
-def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
+def test_a_push_from_a_shallow_clone_sends_the_new_commit(
     stage_repo: StageRepo, tmp_path: Path
 ) -> None:
     """A run with `--source` can point to a shallow clone. The new git folder gets the `shallow`
@@ -361,23 +337,34 @@ def test_a_fetch_in_a_shallow_clone_gets_the_new_commit(
     run_git(stage_repo.clone, "push", "-q", "origin", "HEAD:main")
     shallow = tmp_path / "shallow"
     run_git(tmp_path, "clone", "-q", "--depth", "1", url, str(shallow))
-    run_git(stage_repo.clone, "commit", "-q", "--allow-empty", "-m", "three")
-    run_git(stage_repo.clone, "push", "-q", "origin", "HEAD:main")
-    moved = run_git(stage_repo.clone, "rev-parse", "HEAD")
+    run_git(
+        shallow,
+        "-c",
+        "user.name=b",
+        "-c",
+        "user.email=b@example.com",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "three",
+    )
+    tip = run_git(shallow, "rev-parse", "HEAD")
 
-    OriginGit(shallow, url).fetch("main")
+    OriginGit(shallow, url).push(BRANCH, tip)
 
     assert (
-        run_git(shallow, "rev-parse", "refs/remotes/origin/main"),
+        run_git(stage_repo.origin, "rev-parse", f"refs/heads/{BRANCH}"),
+        run_git(shallow, "rev-parse", f"refs/remotes/origin/{BRANCH}"),
         run_git(shallow, "rev-parse", "--is-shallow-repository"),
-    ) == (moved, "true")
+    ) == (tip, tip, "true")
 
 
-def test_a_link_at_the_shallow_file_of_the_clone_stops_the_fetch(
+def test_a_link_at_the_shallow_file_of_the_clone_stops_the_call(
     stage_repo: StageRepo, tmp_path: Path
 ) -> None:
     """git never makes `shallow` a link. The copy into the new git folder does not follow a link
-    there: the fetch stops with `GitSettingsError`, which gives the class `git_config`."""
+    there: the call stops with `GitSettingsError`, which gives the class `git_config`."""
     url = f"file://{stage_repo.origin}"
     victim = tmp_path / "victim"
     victim.write_text(run_git(stage_repo.clone, "rev-parse", "HEAD") + "\n", encoding="utf-8")
@@ -385,51 +372,6 @@ def test_a_link_at_the_shallow_file_of_the_clone_stops_the_fetch(
     (Path(common) / "shallow").symlink_to(victim)
 
     with pytest.raises(GitSettingsError) as refused:
-        OriginGit(stage_repo.clone, url).fetch("main")
+        OriginGit(stage_repo.clone, url).heads("main")
 
     assert refused.value.settings == ("shallow",)
-
-
-def test_the_write_back_of_the_shallow_file_follows_no_link_at_a_temporary_name(
-    tmp_path: Path,
-) -> None:
-    """The new text goes into a new file with a random name, so a link that waits at a fixed
-    temporary name, such as `shallow.devops-cli`, is not followed, and no temporary file stays."""
-    common, made = tmp_path / "common", tmp_path / "repo.git"
-    common.mkdir()
-    made.mkdir()
-    victim = tmp_path / "victim"
-    victim.write_text("kept\n", encoding="utf-8")
-    (common / "shallow.devops-cli").symlink_to(victim)
-    (made / "shallow").write_text("a" * 40 + "\n", encoding="utf-8")
-
-    git_isolation._Folder(made, tmp_path / "home", common).keep_shallow()
-
-    held = common / "shallow"
-    assert (
-        victim.read_text(encoding="utf-8"),
-        held.is_symlink(),
-        held.read_text(encoding="utf-8"),
-        sorted(entry.name for entry in common.iterdir()),
-    ) == ("kept\n", False, "a" * 40 + "\n", ["shallow", "shallow.devops-cli"])
-
-
-def test_a_changed_shallow_file_goes_back_into_the_clone_and_replaces_a_link(
-    tmp_path: Path,
-) -> None:
-    common, made = tmp_path / "common", tmp_path / "repo.git"
-    common.mkdir()
-    made.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.write_text("kept\n", encoding="utf-8")
-    (common / "shallow").symlink_to(elsewhere)
-    (made / "shallow").write_text("a" * 40 + "\n", encoding="utf-8")
-
-    git_isolation._Folder(made, tmp_path / "home", common).keep_shallow()
-
-    held = common / "shallow"
-    assert (held.is_symlink(), held.read_text(encoding="utf-8"), elsewhere.read_text()) == (
-        False,
-        "a" * 40 + "\n",
-        "kept\n",
-    )

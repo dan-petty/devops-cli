@@ -27,6 +27,7 @@ from typing import Final
 
 from devops_cli.config.commands import BIN_DEVOPS, BIN_UV
 from devops_cli.config.constants import (
+    CONST_GIT_NO_EDITOR_CONFIG,
     CONST_OPENSPEC_ARCHIVED_FOLDER_RE,
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
     CONST_OPENSPEC_CHANGES_DIR,
@@ -146,7 +147,7 @@ def settle_stop(
     if docs and any(is_generated_docs_path(n) for n in stopped):
         generate([BIN_UV, "run", BIN_DEVOPS, "docs", "generate"])
     git(path, "add", "-A", operation=operation)
-    return ("-c", "core.editor=true", "rebase", "--continue")
+    return ("-c", CONST_GIT_NO_EDITOR_CONFIG, "rebase", "--continue")
 
 
 def rebase_onto(

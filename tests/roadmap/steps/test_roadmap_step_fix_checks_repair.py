@@ -14,6 +14,7 @@ import json
 import subprocess
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import pytest
@@ -1149,3 +1150,29 @@ def test_a_rebase_that_git_refuses_to_start_stops_the_round(
     fixed = rebase_branch(repo.clone, onto, 1)
 
     assert fixed == Fixed(done=False, reason="git refused to start the rebase onto main")
+
+
+def test_a_skip_that_git_refuses_stops_the_rebase_with_the_error_of_git(
+    stage_repo: StageRepo, process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rule settles the stop on the archive commit with `--skip`, and git refuses it and stays
+    on the same commit. The round stops with the error of git, which names the cause, and not
+    with a stop that no rule settles (#6703)."""
+    from devops_cli.roadmap import clone_git
+
+    repo = _rebase_world(stage_repo, process_fake, {SPEC: "# Sample\n\nbase\n"})
+    onto = _archived_branch(repo)
+    code = clone_git.run_subprocess
+
+    def refused(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if cmd[-2:] == ["rebase", "--skip"]:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: could not discard changes")
+        return code(cmd, **kwargs)
+
+    monkeypatch.setattr(clone_git, "run_subprocess", refused)
+
+    fixed = rebase_branch(repo.clone, onto, 1)
+
+    assert not fixed.done
+    assert fixed.reason.startswith("Conflict: ")
+    assert "could not discard changes" in fixed.reason

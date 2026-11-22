@@ -9,15 +9,17 @@
 - The round keeps its contract from #6620: one cleanup path, and one more round for each round that reaches the agent phase.
 - One archive function, `archive_change`, which fix-checks, fix-conflict and the archive step of implement call.
 - The shared rebase loop stops when git refuses `--skip` or `--continue` and stays on the same commit, and the archive skip takes only a commit whose change paths are the item's own.
+- `OriginGit` loses its fetch and the write-back of the `shallow` file, which have no caller now; the withdraw of the review step keeps the read of the heads and the push.
 - Deleted from `fix_conflict.py`: the clone, fetch and push through `OriginGit`, `resolve_tier1` and its helpers, its own `_archive_again`, `_check_no_human_commit_after_bot`, and the unused `fix_rebase_conflict`.
-- The spec `roadmap-fix-conflict` gets a delta, because the command and the push change.
+- The specs `roadmap-fix-conflict` and `roadmap-implement-runner` get a delta, because the command, the push and `OriginGit` change.
 
 ## Capabilities
 - `roadmap-fix-conflict`: the step runs on the phases, tier 1 runs in the agent phase, and a round gives back the judged head when it does not settle.
+- `roadmap-implement-runner`: the network calls of `OriginGit` are the read of the heads and the push.
 
 ## Impact
 - A hook or a setting that tier 1 writes into the clone changes no pushed round: `publish` works in a new repository.
-- A branch with a commit that the App did not write fails the round with the message of `clone_branch`, where it was `refused` before. No code reads the result of the step.
+- With `--confirm`, a branch with a commit that the App did not write fails the round with the message of `clone_branch`, where it was `refused` before. No code reads the result of the step.
 - The change fits one pull request. The shared model step for the conflicts that the rules do not settle comes in #6640, after this item.
 
 ## Feasibility

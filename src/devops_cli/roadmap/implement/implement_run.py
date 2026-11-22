@@ -1163,12 +1163,14 @@ class _ItemRun:
             return
         self.step = names["archive"]
         try:
-            archive_change(
+            # The commit comes after the rule of `plan_defect`: a hook that fails on the archive
+            # commit is no failed archive (#6703).
+            archived = archive_change(
                 self.path,
                 self.number,
                 self.profile.preset,
                 self._program,
-                self._commit_if_changed,
+                lambda _message: None,
                 docs=False,
             )
         except _StopError as stop:
@@ -1182,6 +1184,8 @@ class _ItemRun:
             ):
                 stop.failure_class = FailureClass.PLAN_DEFECT
             raise
+        if archived:
+            self._commit_if_changed(_ARCHIVE_MESSAGE.format(number=self.number))
 
     def _scoped_run(self) -> ScopedResult | None:
         """Run the scoped checks for the paths the item changed, and keep their results for the

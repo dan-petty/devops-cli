@@ -1153,7 +1153,7 @@ def _git(source: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _tail(done: subprocess.CompletedProcess[str]) -> str:
+def output_tail(done: subprocess.CompletedProcess[str]) -> str:
     """The last lines of what a command printed, each line escaped by `shown` and cut to
     `CONST_ROADMAP_IMPLEMENT_REASON_CHARS` characters, so the output holds no raw control
     character or bidi override when it reaches the comment of a stop."""
@@ -1170,7 +1170,7 @@ def _git_output(source: Path, *args: str) -> str:
     if done.returncode != 0:
         raise RoadmapImplementError(
             MESSAGES.roadmap.implement_git_failed.format(
-                command=shlex.join(args), output=_tail(done)
+                command=shlex.join(args), output=output_tail(done)
             )
         )
     return done.stdout or ""
@@ -1312,7 +1312,9 @@ def _command_failure(
         trace.check(named, done.returncode)
     if verified is not None:
         verified.append(
-            VerifiedCommand(command=named, status=done.returncode, output=mask_secrets(_tail(done)))
+            VerifiedCommand(
+                command=named, status=done.returncode, output=mask_secrets(output_tail(done))
+            )
         )
     if done.returncode == (1 if negative else 0):
         return None
@@ -1323,10 +1325,10 @@ def _command_failure(
         )
     if negative and done.returncode == 0:
         return MESSAGES.roadmap.implement_stop_search_found.format(
-            command=named, output=_tail(done)
+            command=named, output=output_tail(done)
         )
     return MESSAGES.roadmap.implement_stop_command_failed.format(
-        command=named, status=done.returncode, output=_tail(done)
+        command=named, status=done.returncode, output=output_tail(done)
     )
 
 
@@ -1631,7 +1633,7 @@ def _form_failure(source: Path, form: TestForm, trace: ImplementTrace | None) ->
     if done.returncode != 0:
         return _Failure(
             MESSAGES.roadmap.implement_stop_command_failed.format(
-                command=shlex.join(argv), status=done.returncode, output=_tail(done)
+                command=shlex.join(argv), status=done.returncode, output=output_tail(done)
             ),
             frozenset({form.path}),
             klass=FailureClass.TEST,
@@ -1732,7 +1734,7 @@ def _reset_moved_head(source: Path, expected: str) -> _Failure | None:
                 head=head,
                 command=shlex.join([BIN_GIT, *reset]),
                 status=done.returncode,
-                output=_tail(done),
+                output=output_tail(done),
             ),
             klass=FailureClass.HEAD_MOVED,
         )
@@ -1950,7 +1952,7 @@ def _commit(source: Path, message: str) -> tuple[str, str]:
     runs at the commit, and it gets no token."""
     done = _git(source, "commit", "-m", message)
     if done.returncode != 0:
-        return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=_tail(done))
+        return "", MESSAGES.roadmap.implement_stop_commit_failed.format(output=output_tail(done))
     return _git_output(source, "rev-parse", "HEAD").strip(), ""
 
 

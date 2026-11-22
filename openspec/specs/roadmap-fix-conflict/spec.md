@@ -6,15 +6,15 @@ How the roadmap step `fix-conflict` settles merge conflicts on topic branches of
 ## Requirements
 
 ### Requirement: The step admits only bot pull requests and enforces bounds
-The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull requests with human authors, human commits after the bot push, or claims and `owner/*` labels by humans or agents. It SHALL verify that the remote head matches the expected head. It SHALL enforce a soft cap of 2 rounds, a hard cap of 4 rounds, and at most one model round per `<base>:<head>`.
+The step `fix-conflict` SHALL judge only bot pull requests. It SHALL refuse pull requests with human authors, or claims and `owner/*` labels by humans or agents, and SHALL verify that the remote head matches the expected head. With `--confirm`, a head branch with a commit past the default branch that the App did not write SHALL fail the round with `failed` (`clone_branch`). It SHALL enforce a soft cap of 2 rounds, a hard cap of 4 rounds, and at most one model round per `<base>:<head>`.
 
 #### Scenario: A person pull request is refused
 - **WHEN** `fix-conflict` runs on a pull request authored by a human
 - **THEN** the step refuses the pull request and makes no changes
 
 #### Scenario: A commit of a person after the bot push is refused
-- **WHEN** the branch holds a human commit after the last bot commit
-- **THEN** the step refuses the pull request and makes no changes
+- **WHEN** `fix-conflict --confirm` runs on a branch that holds a commit past the default branch that the App did not write
+- **THEN** `clone_branch` refuses the branch, the round fails with `failed`, and the step makes no changes
 
 #### Scenario: An item with an owner label is refused
 - **WHEN** the item holds an `owner/human` or `owner/agent` label
@@ -84,6 +84,10 @@ Tier 1 runs code of the checkout (`devops docs generate`, `uv lock`), so the ste
 - **WHEN** the step runs without `--confirm` on a bot pull request that conflicts with the default branch
 - **THEN** it returns `planned` with the conflicted files, runs no fixer of tier 1, pushes nothing and writes no record
 
+#### Scenario: A plan on a host with no App
+- **WHEN** the step runs without `--confirm` on a host with no `service.github_app.slug`
+- **THEN** it returns `planned`, as its clone makes no check of the authors, which needs the App
+
 #### Scenario: --confirm outside a runner Job runs no step
 - **WHEN** the command runs with `--confirm` outside a runner Job
 - **THEN** it stops with the error of the runner check before the step
@@ -127,7 +131,7 @@ With `--confirm`, the step SHALL take `--phase prepare|agent|publish|all`, with 
 - **THEN** the command exits 1
 
 ### Requirement: Each round counts and gives back the judged head when it does not settle
-Each round that reaches the agent phase SHALL add one to the rounds of the record, which `publish` writes. A round that does not end `resolved`, also on an error, SHALL abort the rebase and reset the clone to the judged head, and push nothing. A failed git call or a failed program of tier 1 is a stop; any other error goes on after the cleanup.
+`prepare` SHALL add one to the rounds of the record when it gives a round to the agent phase, so a round counts also when the agent phase writes no outcome. `publish` SHALL write the result, a refusal too, and add no round. A round that does not end `resolved`, also on an error, SHALL abort the rebase, reset the clone to the judged head, and push nothing. A failed git call or program of tier 1 is a stop; any other error goes on after the cleanup.
 
 #### Scenario: A git call of the round that fails
 - **WHEN** a git call of tier 1 fails
@@ -140,3 +144,15 @@ Each round that reaches the agent phase SHALL add one to the rounds of the recor
 #### Scenario: Each round counts
 - **WHEN** a round fails the strict validation, leaves no commit past the default branch, or the remote refuses its push
 - **THEN** the rounds of the record rise by one
+
+#### Scenario: A program of tier 1 that fails
+- **WHEN** `uv lock`, `devops docs generate` or the archive of tier 1 exits with a status that is not 0
+- **THEN** the reason of the stop holds the exit status and the last lines of the output of the program, masked
+
+#### Scenario: A program of tier 1 that runs out of time
+- **WHEN** a program of tier 1 runs out of time, so that the agent phase writes no outcome
+- **THEN** the error goes on, the rounds of the record rise by one, and the head branch does not change
+
+#### Scenario: A head that moves before the push
+- **WHEN** the head of the pull request moves while the agent phase runs
+- **THEN** `publish` refuses the push, records the refusal, and the rounds of the record rise by one

@@ -7,8 +7,10 @@ the default branch for generated documents and `uv.lock` (`git checkout --ours`,
 that side has no file) and makes them again at that stop. It drops only the archive commit of the
 item, which touches no other change (`git rebase --skip`), and archives the change again after the
 rebase, in a commit of its own. Tier 2 (model) is not built: another conflict stops the round. Each
-round that reaches the agent phase counts in the record; one that does not end `resolved`, also on
-an error, aborts the rebase and gives the clone back the judged head.
+round that reaches the agent phase counts in the record, which `prepare` writes before the agent
+runs; one that does not end `resolved`, also on an error, aborts the rebase and gives the clone back
+the judged head. A failed program of tier 1 gives its exit status and the end of its output in the
+reason of the stop.
 
 The round runs on the phases `prepare`, `agent` and `publish` (`fix_conflict_phases.py`, #6703).
 This module holds the admission (`admit_round`), the release rule, the caps, the plan and the
@@ -20,8 +22,9 @@ orphans of that code, as fix-checks does. Without `confirm`, as on a workstation
 
 Stops immediately if a release path conflicts: CHANGELOG.md, a file of release-please, or the
 version line of pyproject.toml (#6623).
-Enforces safety bounds: bot pull requests only, no human commits after bot push, no human claims
-or owner/* labels, soft cap 2 rounds (extendable to 3 if conflicted files decrease), hard cap 4.
+Enforces safety bounds: bot pull requests only, no human claims or owner/* labels, soft cap 2
+rounds (extendable to 3 if conflicted files decrease), hard cap 4. With `confirm`, a commit past the
+default branch that the App did not write fails the round (`clone_branch`).
 Runs `openspec validate --specs --strict` before pushing.
 """
 
@@ -30,6 +33,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shlex
+import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -50,7 +55,9 @@ from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.claim import claim_labels, claimed_by
+from devops_cli.roadmap.implement.implement_step import output_tail
 from devops_cli.roadmap.stores.store import (
     FixConflictRecordKey,
     Item,
@@ -386,10 +393,17 @@ class ConflictRound:
 
 
 def admit_round(
-    store: RoadmapStore, client: Any, repo: str, pull: int, *, head: str | None
+    store: RoadmapStore,
+    client: Any,
+    repo: str,
+    pull: int,
+    *,
+    head: str | None,
+    cap: bool = True,
 ) -> ConflictRound | FixConflictReport:
     """The admission of a round on pull request `pull`, with no clone: the bounds of the step
-    (`admission_bounds`) and the hard cap of the rounds. The report of a round that ends here."""
+    (`admission_bounds`) and, with `cap`, the hard cap of the rounds. The report of a round that
+    ends here."""
     status: PullStatus = client.get_pull_status(repo, pull)
     parts = parse_branch(status.head_ref)
     item_num = parts.issue if parts else None
@@ -406,32 +420,42 @@ def admit_round(
     settings = load_settings().roadmap.fix_conflict
     rounds, prev_files = read_item_conflict_state(item)
     judged = ConflictRound(repo, pull, status, item_num, item, settings, rounds, prev_files)
-    if rounds >= settings.hard_cap_rounds:
+    if cap and rounds >= settings.hard_cap_rounds:
         return judged.report(
             FixConflictResult.STOPPED, f"Hard cap reached ({settings.hard_cap_rounds} rounds)"
         )
     return judged
 
 
-def run_program(cwd: Path, argv: Sequence[str]) -> bool:
-    """Run a program of tier 1 in the checkout `cwd`, which runs code of the pull request: whether
-    it exited 0. The log names the program and its exit status, and no output of it."""
+def run_program(cwd: Path, argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
+    """Run a program of tier 1 in the checkout `cwd`, which runs code of the pull request. The log
+    names the program and its exit status, and no output of it: the output goes only into the
+    stop of the round (`tier1_failure`)."""
     proc = run_subprocess(list(argv), cwd=cwd, check=False, quiet=True)
     if proc.returncode != 0:
         logger.warning("%s exited %d", " ".join(argv[:5]), proc.returncode)
-    return proc.returncode == 0
+    return proc
 
 
-def tier1_failure(argv: Sequence[str]) -> RoadmapImplementError:
-    """The stop of a round whose program of tier 1 failed, which names what tier 1 made again."""
+def tier1_failure(
+    argv: Sequence[str], done: subprocess.CompletedProcess[str]
+) -> RoadmapImplementError:
+    """The stop of a round whose program of tier 1 failed: what tier 1 made again, and the exit
+    status and the last lines of the output, as implement gives them (`output_tail`). The round
+    masks the reason before it writes it."""
     words = list(argv)
     if words[:2] == [BIN_UV, "lock"]:
-        return RoadmapImplementError("uv lock failed")
-    if words[-2:] == ["docs", "generate"]:
-        return RoadmapImplementError("devops docs generate failed")
-    if "archive" in words:
-        return RoadmapImplementError("The change could not be archived again")
-    return RoadmapImplementError(f"`{' '.join(words[:5])}` failed")
+        lead = "uv lock failed"
+    elif words[-2:] == ["docs", "generate"]:
+        lead = "devops docs generate failed"
+    elif "archive" in words:
+        lead = "The change could not be archived again"
+    else:
+        lead = f"`{' '.join(words[:5])}` failed"
+    detail = MESSAGES.roadmap.implement_stop_program_failed.format(
+        command=shlex.join(words), status=done.returncode, output=output_tail(done)
+    )
+    return RoadmapImplementError(f"{lead}: {detail}")
 
 
 def run_fix_conflict(

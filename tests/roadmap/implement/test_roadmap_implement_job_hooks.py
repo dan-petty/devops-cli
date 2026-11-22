@@ -195,3 +195,34 @@ def test_no_change_runs_no_hook(job_world: JobWorld) -> None:
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
     # Archive commit still ran
     assert "docs(openspec): archive the change (#1)" in job_world.origin_log()
+
+
+def test_a_hook_that_fails_on_the_archive_commit_is_lint_and_no_plan_defect(
+    job_world: JobWorld,
+) -> None:
+    """The archive of the change passes, and the `pre-commit` stage then fails on the archive
+    commit. The stop has the class `lint`, which a fix step repairs, and not `plan_defect`,
+    which is for an archive that fails (#6703)."""
+    _enable_hooks(job_world)
+    job_world.programs.answer(
+        lambda call: command_text(call).startswith("uv run devops docs generate"),
+        ProcessAnswer(side_effect=docs_effect),
+    )
+
+    def hook_on_archive(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+        assert call.cwd is not None
+        archive = call.cwd / "openspec" / "changes" / "archive"
+        if archive.exists() and any(archive.iterdir()):
+            return subprocess.CompletedProcess(call.argv, 1, stdout="markdownlint...Failed\n")
+        return subprocess.CompletedProcess(call.argv, 0, stdout="passed\n")
+
+    job_world.programs.answer(
+        lambda call: STAGE_CMD in command_text(call),
+        ProcessAnswer(side_effect=hook_on_archive),
+    )
+
+    job_world.run(two_groups())
+
+    item = job_world.store.item(1)
+    assert item is not None
+    assert item.job_record.get("implement.failure") == "lint"

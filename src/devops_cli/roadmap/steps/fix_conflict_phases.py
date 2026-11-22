@@ -4,12 +4,14 @@ Each phase reads and writes the run folder (`roadmap/phases`), as the phases of 
 fix-checks do:
 
 - `prepare` (App key, no code of the pull request) takes the round that `run_fix_conflict` admitted.
-  It clones the repository plainly into `work/` on the head branch (`clone_branch`), which refuses
-  a commit past main that the App did not write, and records `onto`, the tip of main that the clone
+  It clones the repository plainly into `work/` on the head branch (`clone_branch`), which fails
+  the round on a commit past main that the App did not write, and records `onto`, the tip of main that the clone
   read, and the lease, the judged head. It finds the conflicted files and the release rule with
   `git merge-tree`, which runs no code of the pull request. A round that ends there gives its
-  report: no conflict, a cap, or the plan without `--confirm`. Else it writes the state file and
-  the inputs of the agent.
+  report: no conflict, a cap, or the plan without `--confirm`, whose clone makes no check of the
+  authors, which needs the App. Else it adds one to the rounds of the record, as each round that
+  reaches the agent counts (#6620), also when the agent phase ends with no outcome, and writes the
+  state file and the inputs of the agent.
 - `agent` (model key only, no GitHub call) runs tier 1: it rebases onto `onto` and settles each stop
   with the shared rules (`rebase_onto`). A skipped archive commit is archived again, and the
   generated documents and `uv.lock` take the side of main and are made again, which runs code of
@@ -20,8 +22,8 @@ fix-checks do:
 - `publish` (App key) reads the outcome as data, checks the admission bounds again with the judged
   head, and pushes the patches as commits of the bot on `onto` with a lease on the judged head
   (`publish_patch`). It works in a new repository that no code of the pull request touched, so a
-  hook or a setting that tier 1 wrote into the clone changes nothing. Each round that reaches the
-  agent counts in the record (#6620): `publish` writes the rounds, the files and the result.
+  hook or a setting that tier 1 wrote into the clone changes nothing. `publish` writes the result
+  of the round into the record, a refusal too, and adds no round.
 
 `repair_round` runs the three phases in one process (`--phase all`); the state stays in memory.
 """
@@ -30,7 +32,7 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -113,11 +115,12 @@ class _Model(BaseModel):
 class ConflictState(_Model):
     """`state/state.json`, which `prepare` writes and a separate `publish` reads: that the round
     ended in `prepare`, or the facts of the round: the judged status, the item, `onto`, the
-    conflicted files and the key of the record."""
+    conflicted files, the key of the record and the rounds that `prepare` recorded."""
 
     repo: str
     pull: int
     item: int = 0
+    rounds: int = 0
     ended: bool = False
     status: dict[str, Any] | None = None
     onto: str = Field(default="", pattern=r"^([0-9a-f]{40})?$")
@@ -139,13 +142,14 @@ class ConflictInput(_Model):
 
 @dataclass(frozen=True)
 class PreparedRound:
-    """What `publish` takes from `prepare`: the admitted round, `onto`, the conflicted files and
-    the key of the record."""
+    """What `publish` takes from `prepare`: the admitted round, `onto`, the conflicted files, the
+    key of the record and the rounds that `prepare` recorded."""
 
     round: ConflictRound
     onto: str
     files: tuple[str, ...]
     key: str
+    rounds: int
 
 
 # ── prepare ──
@@ -163,11 +167,11 @@ def _end(
 
 
 def prepare_round(
-    judged: ConflictRound, folders: RunFolders, *, confirm: bool
+    store: RoadmapStore, judged: ConflictRound, folders: RunFolders, *, confirm: bool
 ) -> PreparedRound | FixConflictReport:
     """The part of `prepare` after the admission: the clone, the conflicted files, the caps, the
-    release rule and, with `confirm`, the state file and the inputs of the agent. The report of a
-    round that ends here, or the prepared round."""
+    release rule and, with `confirm`, the round in the record, the state file and the inputs of
+    the agent. The report of a round that ends here, or the prepared round."""
     folders.make()
     status = judged.status
     try:
@@ -176,6 +180,7 @@ def prepare_round(
             url=CONST_GITHUB_CLONE_URL.format(repo=judged.repo),
             issue=judged.item_num or judged.pull,
             branch=status.head_ref,
+            authors=confirm,
         )
     except GitOperationError as exc:
         return _end(
@@ -199,10 +204,15 @@ def prepare_round(
         reason = fix_conflict.plan_reason(files, settings.tier1_mode, release)
         return _end(folders, judged, judged.report(FixConflictResult.PLANNED, reason, files=files))
     key = f"{clone.base}:{status.head_sha}"
+    rounds = judged.rounds + 1
+    fix_conflict.record_fix_conflict_marks(
+        store, judged.item, key=key, rounds=rounds, files=files, result=FixConflictResult.FAILED
+    )
     state = ConflictState(
         repo=judged.repo,
         pull=judged.pull,
         item=judged.item_num or 0,
+        rounds=rounds,
         status=status.model_dump(mode="json"),
         onto=clone.base,
         files=tuple(files),
@@ -218,7 +228,7 @@ def prepare_round(
         tier1=settings.tier1_mode == "on",
     )
     write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
-    return PreparedRound(judged, clone.base, tuple(files), key)
+    return PreparedRound(judged, clone.base, tuple(files), key, rounds)
 
 
 def prepare_phase(
@@ -240,7 +250,7 @@ def prepare_phase(
             ConflictState(repo=repo, pull=pull, ended=True),
         )
         return judged
-    prepared = prepare_round(judged, folders, confirm=True)
+    prepared = prepare_round(store, judged, folders, confirm=True)
     return prepared if isinstance(prepared, FixConflictReport) else None
 
 
@@ -250,8 +260,9 @@ def prepare_phase(
 def _program(path: Path, argv: Sequence[str]) -> None:
     """Run a program of tier 1 in the checkout, which runs code of the pull request. Raises
     `RoadmapImplementError` with the reason of the round when it fails."""
-    if not fix_conflict.run_program(path, argv):
-        raise fix_conflict.tier1_failure(argv)
+    done = fix_conflict.run_program(path, argv)
+    if done.returncode != 0:
+        raise fix_conflict.tier1_failure(argv, done)
 
 
 def _rebase(path: Path, inputs: ConflictInput) -> AgentOutcome | None:
@@ -374,7 +385,7 @@ def _result(outcome: AgentOutcome) -> FixConflictResult:
 
 def _text(text: str) -> str:
     """A reason of the agent for the report: masked and on one line."""
-    return mask_secrets(" ".join(text.split()))[:2000]
+    return mask_secrets(" ".join(text.split()))
 
 
 class _AdmissionError(Exception):
@@ -400,14 +411,14 @@ def publish_round(
     store: RoadmapStore, client: Any, prepared: PreparedRound, folders: RunFolders
 ) -> FixConflictReport:
     """The publish of the outcome of the agent phase for the prepared round, as the module text
-    says. Each round that reaches here counts in the record."""
+    says. It writes the result into the record with the rounds of `prepare`, a refusal too."""
     judged = prepared.round
     status = judged.status
     outcome = read_outcome(folders)
     result = _result(outcome)
     number = judged.item_num or judged.pull
     item = store.item(judged.item_num) if judged.item_num else None
-    rounds = fix_conflict.read_item_conflict_state(item)[0] + 1
+    rounds = prepared.rounds
 
     def record(result: FixConflictResult) -> None:
         resolved = result is FixConflictResult.RESOLVED
@@ -447,7 +458,9 @@ def publish_round(
             target, _patches(folders, title, number), before_push=before_push, scratch=folders.root
         )
     except _AdmissionError as exc:
-        return judged.report(FixConflictResult.REFUSED, exc.reason)
+        record(FixConflictResult.REFUSED)
+        reason = exc.reason
+        return judged.report(FixConflictResult.REFUSED, reason, rounds=rounds, files=prepared.files)
     except (GitOperationError, PublishRefusedError) as exc:
         record(FixConflictResult.STOPPED)
         reason = mask_secrets(str(exc))
@@ -487,8 +500,8 @@ def publish_phase(
 ) -> FixConflictReport | None:
     """`--phase publish` on the pull request `pull` of `repo`: the state file, read as data, must
     name that pull request. A round that `prepare` ended gives no report here, as `prepare`
-    printed it. Else the round is admitted again on the judged head, and goes to
-    `publish_round`."""
+    printed it. Else the round is admitted again on the judged head, with no cap, as `prepare`
+    counted the round, and goes to `publish_round`. A refusal goes into the record."""
     state = _read_state(folders)
     if (state.repo, state.pull) != (repo, pull):
         raise PhaseOutputError("The state file of the run names another pull request")
@@ -499,10 +512,18 @@ def publish_phase(
     judged_head = PullStatus.model_validate(state.status).head_sha
     if head is not None and head != judged_head:
         raise PhaseOutputError("The state file of the run names another head")
-    judged = fix_conflict.admit_round(store, client, repo, pull, head=judged_head)
+    judged = fix_conflict.admit_round(store, client, repo, pull, head=judged_head, cap=False)
     if isinstance(judged, FixConflictReport):
-        return judged
-    prepared = PreparedRound(judged, state.onto, state.files, state.key)
+        fix_conflict.record_fix_conflict_marks(
+            store,
+            state.item or None,
+            key=state.key,
+            rounds=state.rounds,
+            files=state.files,
+            result=judged.result,
+        )
+        return replace(judged, rounds=state.rounds, files=state.files)
+    prepared = PreparedRound(judged, state.onto, state.files, state.key, state.rounds)
     return publish_round(store, client, prepared, folders)
 
 
@@ -513,7 +534,7 @@ def repair_round(
     round ends in `prepare` with its plan: no code of the pull request runs."""
     with tempfile.TemporaryDirectory(prefix="devops-fix-conflict-") as root:
         folders = RunFolders(Path(root))
-        prepared = prepare_round(judged, folders, confirm=confirm)
+        prepared = prepare_round(store, judged, folders, confirm=confirm)
         if isinstance(prepared, FixConflictReport):
             return prepared
         agent_phase(folders)

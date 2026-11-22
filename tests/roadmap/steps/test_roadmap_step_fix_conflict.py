@@ -3,14 +3,14 @@
 Verifies:
 - Dry-run sees 0 requests
 - A person pull request is refused
-- A person commit after bot push is refused
+- A person commit past the default branch fails a confirmed round
 - An item with an owner label or human claim is refused
 - Conflict on a release path stops with class conflict
 - Archive-only conflict ends with clean push and 0 model requests
 - Soft and hard caps hold
 - Strict validation runs before push
 - Without --confirm the step runs no code of the pull request and writes nothing
-- A confirmed round pushes only to the URL of origin that the step read after its clone
+- A confirmed round pushes from a new repository to the repository on GitHub
 """
 
 from __future__ import annotations
@@ -69,14 +69,17 @@ def _app_bot(config: Callable[..., Path]) -> None:
     config(service={"github_app": {"slug": BOT_USER.removesuffix("[bot]")}})
 
 
-def _fake_github(monkeypatch: pytest.MonkeyPatch, status: PullStatus, origin: Path) -> None:
+def _fake_github(
+    monkeypatch: pytest.MonkeyPatch, status: PullStatus, origin: Path
+) -> list[PullStatus]:
     """GitHub gives `status` and the identity of the bot, and the repository on GitHub is the bare
     repository `origin`, which `prepare` clones and `publish` pushes to. The merged plan names no
-    workflow file."""
+    workflow file. GitHub gives the last status of the list, which a test can extend."""
+    statuses = [status]
 
     class FakeClient:
         def get_pull_status(self, repo: str, number: int) -> PullStatus:
-            return status
+            return statuses[-1]
 
     class FakeSession:
         client = FakeClient()
@@ -87,6 +90,7 @@ def _fake_github(monkeypatch: pytest.MonkeyPatch, status: PullStatus, origin: Pa
         monkeypatch.setattr(module, "get_github_session", lambda: FakeSession())
     monkeypatch.setattr(fix_conflict_phases, "CONST_GITHUB_CLONE_URL", str(origin))
     monkeypatch.setattr(fix_conflict_phases, "merged_workflows", lambda *_: ())
+    return statuses
 
 
 BRANCH = "feat/42-fix-conflict"
@@ -437,7 +441,7 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     rep = run_fix_conflict(store, REPO, num)
     assert rep.result == FixConflictResult.NO_CONFLICT
 
-    # 2. A commit of a person: the clone of the branch refuses it
+    # 2. A commit of a person: the clone of a confirmed round fails on it
     _git(clone_dir, "config", "user.name", "Alice Human")
     (clone_dir / "human.txt").write_text("human\n", encoding="utf-8")
     _git(clone_dir, "add", "-A")
@@ -446,7 +450,7 @@ def test_run_fix_conflict_scenarios(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     _fake_github(
         monkeypatch, _pull_status(_git(clone_dir, "rev-parse", "HEAD"), branch_clean), origin_dir
     )
-    rep_human = run_fix_conflict(store, REPO, num)
+    rep_human = run_fix_conflict(store, REPO, num, confirm=True)
     assert rep_human.result == FixConflictResult.FAILED
     assert "Alice Human, not by the App" in rep_human.reason
 
@@ -479,7 +483,7 @@ def test_fix_conflict_internal_helpers(tmp_path: Path, monkeypatch: pytest.Monke
     assert not is_release_path("some/file.py", '+version = "1.2.3"')
     assert not is_release_path("some/file.py", "+something_else = 1")
 
-    # 3. _record_fix_conflict_marks with None store or None item
+    # 3. record_fix_conflict_marks with None store or None item
     fix_conflict.record_fix_conflict_marks(
         None, None, rounds=1, files=[], result=FixConflictResult.RESOLVED
     )
@@ -488,7 +492,7 @@ def test_fix_conflict_internal_helpers(tmp_path: Path, monkeypatch: pytest.Monke
         store, None, rounds=1, files=[], result=FixConflictResult.RESOLVED
     )
 
-    # 4. _read_item_conflict_state with None or invalid json
+    # 4. read_item_conflict_state with None or invalid json
     assert fix_conflict.read_item_conflict_state(None) == (0, [])
     num = store.seed_issue(title="feat: item", labels=("status/in-progress", "priority/p2-medium"))
     item = store.item(num)
@@ -510,7 +514,7 @@ def test_fix_conflict_internal_helpers(tmp_path: Path, monkeypatch: pytest.Monke
     )
     assert fix_conflict.validate_strict_specs(tmp_path) is False
 
-    # 6. _check_admission_bounds with claimed_by and owner label
+    # 6. admission_bounds with claimed_by and owner label
     num_owner = store.seed_issue(
         title="feat: item owner", labels=("owner/infra", "priority/p2-medium")
     )
@@ -803,6 +807,7 @@ def _with_pull_request_code(
     *,
     valid: bool = True,
     fails: str | None = None,
+    timeout: str | None = None,
 ) -> list[list[str]]:
     """Run the step against `pull`: GitHub gives its status, each `uv` process is the code of the
     pull request, `openspec archive` moves the change folder and `openspec validate` gives
@@ -819,7 +824,9 @@ def _with_pull_request_code(
         if cmd[0] == BIN_UV:
             ran.append(cmd)
             if fails is not None and fails in cmd:
-                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="it failed")
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="it failed: MARK-7f3a")
+            if timeout is not None and timeout in cmd:
+                raise subprocess.TimeoutExpired(cmd, 1800)
             if "openspec" in cmd and "archive" in cmd:
                 archive(Path(kwargs["cwd"]))
             _write_into_clone(pull, Path(kwargs["cwd"]), written)
@@ -859,8 +866,8 @@ def test_a_confirmed_round_pushes_only_to_the_url_that_it_read_after_the_clone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path], written: str
 ) -> None:
     """With --confirm, in a runner Job, tier 1 runs code of the pull request, and that code can
-    write a hook or a git setting into the clone. The push still goes through `OriginGit` to the URL
-    of origin that the step read after its clone, before that code ran."""
+    write a hook or a git setting into the clone. `publish` pushes from a new repository, which no
+    code of the pull request touched, to the repository on GitHub."""
     config(roadmap={"implement": {"in_runner": True}})
     pull = _pull_with_archive_conflict(tmp_path)
     ran = _with_pull_request_code(monkeypatch, pull, written)
@@ -1275,24 +1282,25 @@ def test_a_program_of_tier_1_that_fails_stops_the_round(
 
     item = pull.store.item(pull.number)
     assert item is not None
-    assert (report.result, report.reason, report.rounds) == (FixConflictResult.STOPPED, reason, 1)
+    assert (report.result, report.rounds) == (FixConflictResult.STOPPED, 1)
+    assert report.reason.startswith(reason)
+    assert "MARK-7f3a" in report.reason
     assert (item.job_record.get(FixConflictRecordKey.ROUNDS), pull.pushed()) == ("1", pull.head)
 
 
 def test_an_archive_that_fails_after_the_skip_stops_the_round(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The rebase skips the archive commit, and the archive again fails: the round stops and
-    pushes nothing."""
+    """The rebase skips the archive commit, and the archive again fails: the round stops with the
+    output of the archive, and pushes nothing."""
     pull = _pull_with_archive_conflict(tmp_path)
     _with_pull_request_code(monkeypatch, pull, fails="archive")
 
     report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
 
-    assert (report.result, report.reason) == (
-        FixConflictResult.STOPPED,
-        "The change could not be archived again",
-    )
+    assert report.result == FixConflictResult.STOPPED
+    assert report.reason.startswith("The change could not be archived again: ")
+    assert report.reason.endswith("exited with status 1. it failed: MARK-7f3a")
     assert pull.pushed() == pull.head
 
 
@@ -1365,9 +1373,11 @@ def test_a_claim_during_the_round_refuses_the_push(
 
     report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
 
+    item = pull.store.item(pull.number)
+    assert item is not None
     assert report.result == FixConflictResult.REFUSED
     assert "owner label" in report.reason
-    assert pull.pushed() == pull.head
+    assert (pull.pushed(), item.job_record.get(FixConflictRecordKey.ROUNDS)) == (pull.head, "1")
 
 
 def test_a_separate_publish_takes_only_the_state_of_its_round(
@@ -1413,3 +1423,126 @@ def test_a_separate_publish_takes_only_the_state_of_its_round(
         fix_conflict_phases.publish_phase(pull.store, client, ended, repo=REPO, pull=pull.number)
         is None
     )
+
+
+def test_a_timeout_of_tier_1_counts_the_round_and_pushes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`uv lock` runs out of time, which is no stop of the step: the error goes on. The round still
+    counts, because `prepare` records it when it gives the round to the agent phase, so the caps
+    hold, and nothing is pushed (#6703)."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull, timeout="lock")
+
+    with pytest.raises(subprocess.TimeoutExpired) as raised:
+        run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    assert raised.value.timeout == 1800
+
+    item = pull.store.item(pull.number)
+    assert item is not None
+    record = item.job_record
+    assert (record.get(FixConflictRecordKey.ROUNDS), record.get(FixConflictRecordKey.RESULT)) == (
+        "1",
+        FixConflictResult.FAILED.value,
+    )
+    assert pull.pushed() == pull.head
+
+
+def test_a_head_that_moves_before_the_push_counts_the_round(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another writer moves the head while the agent phase runs. `publish` refuses the push on
+    the admission bounds, and the round that ran tier 1 still counts (#6703)."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+    statuses = _fake_github(monkeypatch, pull.status(), pull.upstream)
+    agent = fix_conflict_phases.agent_phase
+
+    def agent_then_move(folders: RunFolders) -> None:
+        agent(folders)
+        statuses.append(_pull_status("5" * 40, pull.branch))
+
+    monkeypatch.setattr(fix_conflict_phases, "agent_phase", agent_then_move)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number, confirm=True)
+
+    item = pull.store.item(pull.number)
+    assert item is not None
+    assert (report.result, "head moved" in report.reason) == (FixConflictResult.REFUSED, True)
+    assert (pull.pushed(), item.job_record.get(FixConflictRecordKey.ROUNDS)) == (pull.head, "1")
+
+
+def test_a_plan_on_a_host_with_no_app_gives_the_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: Callable[..., Path]
+) -> None:
+    """Without `--confirm` the round makes a plan and pushes nothing, so its clone needs no App:
+    a host with no `service.github_app.slug` gets the plan (#6703)."""
+    config(service={"github_app": {"slug": None}})
+    pull = _pull_with_archive_conflict(tmp_path)
+    ran = _with_pull_request_code(monkeypatch, pull)
+
+    report = run_fix_conflict(pull.store, REPO, pull.number)
+
+    assert (report.result, ran) == (FixConflictResult.PLANNED, [])
+
+
+def _separate_phases(
+    pull: _Pull, folders: RunFolders, between: Callable[[], None] = lambda: None
+) -> FixConflictReport | None:
+    """`prepare`, `agent` and `publish` as separate calls on one run folder, with `between` after
+    the agent phase."""
+    client = fix_conflict.get_github_session().client
+    prepared = fix_conflict_phases.prepare_phase(
+        pull.store, client, REPO, pull.number, head=pull.head, folders=folders
+    )
+    assert prepared is None
+    fix_conflict_phases.agent_phase(folders)
+    between()
+    return fix_conflict_phases.publish_phase(
+        pull.store, client, folders, repo=REPO, pull=pull.number
+    )
+
+
+def test_a_separate_publish_takes_no_cap_for_the_round_that_prepare_counted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record holds 3 rounds, so `prepare` counts the fourth round, which the hard cap of 4
+    rounds still admits. A separate `publish` admits the round again with no cap, and pushes it."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+    fix_conflict.record_fix_conflict_marks(
+        pull.store, pull.number, rounds=3, files=["a", "b", "c"], result=FixConflictResult.FAILED
+    )
+
+    report = _separate_phases(pull, RunFolders(tmp_path / "run"))
+
+    assert report is not None
+    assert (report.result, report.rounds) == (FixConflictResult.RESOLVED, 4)
+    assert pull.pushed() == report.head != pull.head
+
+
+def test_a_claim_before_a_separate_publish_is_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A person claims the item after the agent phase. The admission of a separate `publish`
+    refuses the round, and the record holds the refusal and the round that `prepare` counted."""
+    pull = _pull_with_docs_conflict(tmp_path)
+    _with_pull_request_code(monkeypatch, pull)
+
+    report = _separate_phases(
+        pull,
+        RunFolders(tmp_path / "run"),
+        lambda: pull.store.add_label(pull.number, "owner/agent"),
+    )
+
+    item = pull.store.item(pull.number)
+    assert report is not None
+    assert item is not None
+    assert (report.result, report.rounds) == (FixConflictResult.REFUSED, 1)
+    record = item.job_record
+    assert (record.get(FixConflictRecordKey.ROUNDS), record.get(FixConflictRecordKey.RESULT)) == (
+        "1",
+        FixConflictResult.REFUSED.value,
+    )
+    assert pull.pushed() == pull.head

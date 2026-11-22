@@ -68,7 +68,13 @@ from devops_cli.roadmap.implement.implement_strays import plan_paths
 from devops_cli.roadmap.phases.checkout import clone_branch
 from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget, publish_patch
-from devops_cli.roadmap.phases.rebase import archive_change, commit_changed, rebase_onto, unmerged
+from devops_cli.roadmap.phases.rebase import (
+    RebaseEnd,
+    archive_change,
+    commit_changed,
+    rebase_onto,
+    unmerged,
+)
 from devops_cli.roadmap.plan_read import PlanReadError, merged_recorded_tests
 from devops_cli.roadmap.project_profile import resolve_profile
 from devops_cli.roadmap.runner_tools import bootstrap_checkout, checkout_environment
@@ -268,6 +274,15 @@ def tier1_fix(path: Path, item: int, check: str, log: str) -> Fixed:
     return Fixed(done=True, files=written)
 
 
+def _conflict_reason(ended: RebaseEnd, files: Sequence[str]) -> str:
+    """The reason of a rebase that a stop ended: the error of git when it refused to go on from
+    a settled stop (`stuck`), else the conflicted files that no rule settles."""
+    if ended.stuck:
+        return f"Conflict: {mask_secrets(str(ended.error))}"
+    named = ", ".join(f"`{mask_secrets(name)}`" for name in files)
+    return f"Conflict: the rebase onto main stops on {named or 'no file'}, which no rule settles"
+
+
 def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
     """Rebase the checkout `path` onto `onto`, the tip of the default branch that `prepare` read,
     and settle each stop as implement does (`rebase_onto`, #6639). Done when the branch sits on
@@ -293,12 +308,7 @@ def rebase_branch(path: Path, onto: str, item: int) -> Fixed:
     if not ended.started:
         return Fixed(done=False, reason="git refused to start the rebase onto main")
     if ended.error is not None:
-        files = ", ".join(f"`{mask_secrets(name)}`" for name in abort())
-        return Fixed(
-            done=False,
-            reason=f"Conflict: the rebase onto main stops on {files or 'no file'}, "
-            "which no rule settles",
-        )
+        return Fixed(done=False, reason=_conflict_reason(ended, abort()))
     if ended.skipped:
 
         def commit(message: str) -> None:
