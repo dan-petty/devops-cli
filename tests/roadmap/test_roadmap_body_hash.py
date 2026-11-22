@@ -148,13 +148,13 @@ _AN_ALTERNATIVES_BLOCK = (
         pytest.param("<?php echo 1;", "?>", id="processing-instruction"),
     ],
 )
-def test_a_block_that_a_person_leaves_open_ends_at_the_first_job_block_marker(
+def test_a_block_that_a_person_leaves_open_ends_at_the_blocks_of_the_jobs(
     opened: str, close: str
 ) -> None:
     """A person leaves a block open above the refine section and the alternatives block, so it
-    runs to the end of the body. The first job block marker line in it ends it, so each reader
-    finds both blocks in the body, and the outside text holds the close of the block on a line of
-    its own before the first marker (#6736)."""
+    runs to the end of the body. The start marker line of the first of these job blocks ends it,
+    so each reader finds both blocks in the body, and the outside text holds the close of the block
+    on a line of its own before the first marker (#6736)."""
     body = f"Text.\n\n{opened}\n\n{_A_BLOCK}\n\n{_AN_ALTERNATIVES_BLOCK}"
     closed = f"Text.\n\n{opened}\n{close}\n\n{_A_BLOCK}\n\n{_AN_ALTERNATIVES_BLOCK}"
     start, end = body_hash.job_block_bounds(body) or (0, 0)
@@ -172,6 +172,89 @@ def test_a_block_that_a_person_leaves_open_ends_at_the_first_job_block_marker(
         (f"Text.\n\n{opened}\n{close}\n\n\n\n{_AN_ALTERNATIVES_BLOCK}", "\nX\n"),
         "\nY\n",
     )
+
+
+# A block of the alternatives job that a person quotes in a log.
+_A_QUOTED_ALTERNATIVES_BLOCK = (
+    f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nQUOTED PERSON LINE\n"
+    f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
+)
+_A_FENCE_IN_THE_SECTION = (
+    f"Text.\n\n{CONST_ROADMAP_REFINE_START_MARKER}\nX\n```\nA fence of a person.\n"
+    f"{CONST_ROADMAP_REFINE_END_MARKER}\n\n{_AN_ALTERNATIVES_BLOCK}"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "closed", "refine", "alternatives"),
+    [
+        pytest.param(
+            f"Text.\n\nThe log:\n```\n{_A_QUOTED_ALTERNATIVES_BLOCK}\nmore log\n\n"
+            f"{_AN_ALTERNATIVES_BLOCK}",
+            f"Text.\n\nThe log:\n```\n{_A_QUOTED_ALTERNATIVES_BLOCK}\nmore log\n```\n\n"
+            f"{_AN_ALTERNATIVES_BLOCK}",
+            None,
+            "\nY\n",
+            id="quoted-block-above-the-block",
+        ),
+        pytest.param(
+            f"## Problem\nExample:\n\n```\n{CONST_ROADMAP_REFINE_START_MARKER}\nperson text",
+            None,
+            None,
+            None,
+            id="lone-refine-start",
+        ),
+        pytest.param(
+            f"Intro\n\n```\nAn open fence.\n\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+            "PERSON TEXT\n",
+            None,
+            None,
+            None,
+            id="lone-alternatives-start",
+        ),
+        pytest.param(
+            f"Text.\n\n{_A_BLOCK}\n\n```\n{_A_BLOCK}\nmore",
+            None,
+            "\nX\n",
+            None,
+            id="quoted-block-after-the-block-of-the-job",
+        ),
+        pytest.param(
+            f"Text.\n\n```\nAn open fence.\n\n{_A_BLOCK}\n\nA note after the block.",
+            f"Text.\n\n```\nAn open fence.\n```\n\n{_A_BLOCK}\n\nA note after the block.",
+            "\nX\n",
+            None,
+            id="text-after-the-block",
+        ),
+        pytest.param(
+            _A_FENCE_IN_THE_SECTION,
+            _A_FENCE_IN_THE_SECTION.replace(
+                f"person.\n{CONST_ROADMAP_REFINE_END_MARKER}",
+                f"person.\n```\n\n{CONST_ROADMAP_REFINE_END_MARKER}",
+            ),
+            "\nX\n```\nA fence of a person.\n```\n\n",
+            "\nY\n",
+            id="fence-in-the-section",
+        ),
+    ],
+)
+def test_a_block_that_a_person_leaves_open_holds_their_quotes_up_to_the_blocks_of_the_jobs(
+    body: str, closed: str | None, refine: str | None, alternatives: str | None
+) -> None:
+    """A block that a person leaves open ends at the job blocks at the end of the body: from that
+    line on, the job block marker lines are whole blocks, one for each job at most, and none of a
+    job whose block comes before the open block. The end marker of a section that a person opens
+    a fence in ends that fence. Each other marker line in the open block is a quote of the person:
+    a lone marker, a block that a later block of the same job follows, and a block of a job whose
+    block comes first. So no write replaces the text of the person (#6736). `closed` None means
+    that the body does not change."""
+    assert (
+        body_hash.close_blocks_before_markers(body),
+        extract_section_and_outside(body)[1],
+        extract_section_and_outside(
+            body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+        )[1],
+    ) == (body if closed is None else closed, refine, alternatives)
 
 
 def test_a_block_that_a_close_ends_keeps_the_markers_that_it_quotes() -> None:
