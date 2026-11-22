@@ -87,7 +87,8 @@ REMOVED: Final[tuple[str, ...]] = (
     # Replaced by DEFAULT_ROADMAP_WATCH_INTERVAL_MINUTES (#5024)
     "DEFAULT_ROADMAP_STAGE_READY_INTERVAL_MINUTES",
     "DEFAULT_ROADMAP_PR_CONFLICTS_INTERVAL_MINUTES",
-    # The review reads no page of runs (#6603): one count for each status and one for the total.
+    # The review reads no page of runs (#6603), so the page cap of 1,000 is gone. It splits a slice
+    # at the count cap `CONST_ROADMAP_REVIEW_RUN_COUNT_CAP`.
     "DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP",
 )
 
@@ -714,6 +715,11 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "a policy value (#4448): the overlap of the read of the changed issues; it cuts no work",
     ),
     "DEFAULT_ROADMAP_INTAKE_LIMIT": ("kept", "candidates of one round"),
+    "CONST_ROADMAP_REVIEW_RUN_COUNT_CAP": (
+        "kept",
+        "GitHub sets it (#6603): the total_count of a filtered list of Actions runs stops at "
+        "2,500; the review splits a slice at the cap, so it cuts no run",
+    ),
     "DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS": (
         "other",
         "a policy value (#4692): the workers of the openspec show calls of a review; it cuts "

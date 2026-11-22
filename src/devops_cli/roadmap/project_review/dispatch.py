@@ -650,7 +650,7 @@ def plan_catalog(
                 target=f"{fact.id}: {render_query(fact.query, values)}",
                 condition=condition,
                 repeat=(
-                    MESSAGES.roadmap.review_plan_each_status
+                    MESSAGES.roadmap.review_plan_each_slice
                     if fact.reader is ReaderKind.GITHUB_RUNS
                     else ""
                 ),

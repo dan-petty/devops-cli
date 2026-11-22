@@ -1,10 +1,11 @@
-"""The readers of the project review catalog (#4692): the count of the Actions runs of each status,
-a newest-first listing that stops at the window start, the review's own listing snapshot with the
-changes after its watermark (#6603), the GitHub requests of a 7-day review, and Prometheus and Loki
-read at the end of the window."""
+"""The readers of the project review catalog (#4692): the count of the Actions runs of each status
+by created slices under the count cap of GitHub, a newest-first listing that stops at the window
+start, the review's own listing snapshot with the changes after its watermark (#6603), the GitHub
+requests of a 7-day review, and Prometheus and Loki read at the end of the window."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -12,11 +13,13 @@ from typing import Any
 import httpx2
 import pytest
 
+import devops_cli.roadmap.stores.listing_snapshot as listing_snapshot
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.github.session import get_github_session
 from devops_cli.http.egress import EgressLevel
 from devops_cli.roadmap.project_review.catalog import Catalog, ReaderKind, load_catalog
-from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
+from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
 from devops_cli.roadmap.project_review.dispatch import CatalogResult, ReadContext, read_catalog
 from devops_cli.roadmap.project_review.readers import (
     Reads,
@@ -30,7 +33,6 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     LISTING_SCHEMA_KEY,
     FileSnapshotStore,
     ListingSnapshot,
-    review_listing,
     snapshot_root,
 )
 from devops_cli.roadmap.stores.store import IssueRecord
@@ -43,9 +45,13 @@ START = datetime(2026, 11, 4, 14, 51, 23, tzinfo=UTC)
 END = datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC)
 WATERMARK = datetime(2026, 11, 11, 14, 28, 4, tzinfo=UTC)
 RUNS = f"/repos/{REPO}/actions/runs?branch=main&event=push"
-# GitHub gives at most 1,000 results of a filtered list of runs, and 100 entries of a page.
-CAP = 1000
+# GitHub stops the `total_count` of a filtered list of Actions runs at 2,500: on 2026-11-22 a
+# 30-day window of main push runs gave the total 2,500 and 2,500 successful runs (#6603).
+CAP = 2500
+# The entries of a page of the issue listing.
 PER_PAGE = 100
+# The `created` range of the window: after its start, in whole seconds, up to its end.
+WINDOW_RANGE = "2026-11-04T14:51:24Z..2026-11-11T14:51:23Z"
 # The pages of the issue listing that a 7-day window reads in this repository (#6603).
 LISTING_PAGES = 19
 # The reader kinds that read GitHub, which the 45-request limit of #4692 bounds.
@@ -80,10 +86,21 @@ def _push_runs(success: int, failure: int, cancelled: int, running: int) -> list
     ]
 
 
+def _run(number: int, moment: datetime, conclusion: str) -> dict[str, Any]:
+    """A completed run with `conclusion`, created at `moment`."""
+    return {
+        "id": number,
+        "created_at": moment.strftime(_TIME),
+        "status": "completed",
+        "conclusion": conclusion,
+    }
+
+
 class RunsApi:
-    """The Actions runs of the window as GitHub answers them: the runs of a `created` range, newest
-    first, at most the result cap of them in pages of `per_page`, beside the exact `total_count` of
-    the range and of the status that the request filters on."""
+    """The Actions runs of the window as GitHub counts them: the runs of a `created` range, both
+    ends in and in whole seconds, of the status or the conclusion that the request filters on. As
+    on GitHub, the `total_count` of such a filtered list stops at the cap of 2,500, and the page
+    holds the first `per_page` runs, newest first."""
 
     def __init__(self, runs: list[dict[str, Any]]) -> None:
         self.runs = runs
@@ -100,18 +117,28 @@ class RunsApi:
             and (status is None or status in (run["status"], run["conclusion"]))
         ]
         per_page = int(request.url.params.get("per_page", str(PER_PAGE)))
-        page = int(request.url.params.get("page", "1"))
-        rows = found[:CAP][(page - 1) * per_page : page * per_page]
-        more = page * per_page < min(len(found), CAP)
-        link = (
-            next_page(str(request.url.copy_merge_params({"page": str(page + 1)}))) if more else None
-        )
-        return github_json({"total_count": len(found), "workflow_runs": rows}, headers=link)
+        return github_json({"total_count": min(len(found), CAP), "workflow_runs": found[:per_page]})
 
 
-def test_the_runs_reader_counts_each_status_with_one_request(github_api: GitHubApiFake) -> None:
-    """A window of more runs than the result cap: one request for each status and one for the total,
-    each of one entry, so five requests replace the pages of runs (#6603)."""
+def _counts(total: int, each: int) -> Callable[[httpx2.Request], httpx2.Response | None]:
+    """A runs listing that gives the `total_count` `total` with no status filter, and `each` for
+    each status."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if not request.url.path.endswith("/actions/runs"):
+            return None
+        count = total if request.url.params.get("status") is None else each
+        return github_json({"total_count": count, "workflow_runs": []})
+
+    return answer
+
+
+def test_a_window_under_the_cap_reads_its_total_then_one_count_for_each_status(
+    github_api: GitHubApiFake,
+) -> None:
+    """A 7-day window of 2,000 runs is under the count cap: the reader reads the total of the
+    window first, then one count for each status, each of one entry, so five requests replace the
+    pages of runs (#6603)."""
     github_api.serve(RunsApi(_push_runs(1800, 150, 30, 20)))
     reads = Reads()
 
@@ -126,56 +153,99 @@ def test_the_runs_reader_counts_each_status_with_one_request(github_api: GitHubA
     assert answer["total_count"] == 2000
     assert reads.counts["github_runs"] == len(github_api.sent) == 5
     assert [request.url.params["per_page"] for request in github_api.sent] == ["1"] * 5
+    assert [request.url.params["created"] for request in github_api.sent] == [WINDOW_RANGE] * 5
     assert [request.url.params.get("status") for request in github_api.sent] == [
+        None,
         "success",
         "failure",
         "cancelled",
         "in_progress",
-        None,
     ]
 
 
-def test_two_thousand_runs_split_into_slices_under_the_cap_and_no_run_is_lost(
+def test_a_window_above_the_cap_splits_in_halves_whose_counts_add_up(
     github_api: GitHubApiFake,
 ) -> None:
-    """A window of 2,000 runs is above the result cap of 1,000, and one of them was skipped: the
-    total of the window holds every run, and the four status counts hold the others, so no run of
-    the window is lost (#6603). The case keeps the name that it had while the reader split a window
-    into slices under the cap."""
-    skipped = {
-        "id": 2001,
-        "created_at": (END - timedelta(minutes=1)).strftime(_TIME),
-        "status": "completed",
-        "conclusion": "skipped",
+    """A window of 4,500 runs gives the total 2,500, the cap, so the reader splits it in two halves
+    by created time in whole seconds. Each half is under the cap, and the counts of the halves add
+    up to the exact counts of the window (#6603)."""
+    github_api.serve(RunsApi(_push_runs(4000, 300, 150, 50)))
+    reads = Reads()
+
+    answer = read_runs(get_github_session(), RUNS, START, END, reads)
+
+    assert answer["statuses"] == {
+        "success": 4000,
+        "failure": 300,
+        "cancelled": 150,
+        "in_progress": 50,
     }
-    github_api.serve(RunsApi([*_push_runs(1500, 400, 70, 29), skipped]))
+    assert answer["total_count"] == 4500
+    assert reads.counts["github_runs"] == len(github_api.sent) == 11
+    totals = [request for request in github_api.sent if "status" not in request.url.params]
+    assert [request.url.params["created"] for request in totals] == [
+        WINDOW_RANGE,
+        "2026-11-04T14:51:24Z..2026-11-08T02:51:23Z",
+        "2026-11-08T02:51:24Z..2026-11-11T14:51:23Z",
+    ]
+
+
+def test_a_slice_of_one_second_at_the_cap_raises(github_api: GitHubApiFake) -> None:
+    """One second holds 2,500 runs, the count cap of GitHub. A slice of one second cannot split,
+    so the reader cannot count each run, and it raises in place of a count that is too low."""
+    github_api.serve(RunsApi([_run(number, END, "success") for number in range(1, CAP + 1)]))
+    reads = Reads()
+
+    with pytest.raises(RoadmapReviewError, match="2,500"):
+        read_runs(get_github_session(), RUNS, END - timedelta(seconds=1), END, reads)
+
+    assert reads.counts["github_runs"] == 1
+
+
+def test_status_counts_above_the_total_of_a_slice_raise(github_api: GitHubApiFake) -> None:
+    """The four status counts of a slice add up to 16, and its total is 10. GitHub cut or changed
+    a count, so the reader raises in place of a wrong count."""
+    github_api.serve(_counts(total=10, each=4))
+
+    with pytest.raises(RoadmapReviewError, match="16"):
+        read_runs(get_github_session(), RUNS, START, END, Reads())
+
+
+def test_a_run_in_the_start_second_counts_in_the_window_before_and_not_in_this_one(
+    github_api: GitHubApiFake,
+) -> None:
+    """GitHub reads both ends of a `created` range in whole seconds. The window holds the runs
+    after its start up to its end, so a run in the start second counts in the window that ends
+    there, and in no other window."""
+    github_api.serve(RunsApi([_run(1, START, "success"), _run(2, END, "failure")]))
+    session = get_github_session()
+
+    this = read_runs(session, RUNS, START, END, Reads())
+    before = read_runs(session, RUNS, START - timedelta(days=7), START, Reads())
+
+    assert (this["total_count"], this["statuses"]["success"], this["statuses"]["failure"]) == (
+        1,
+        0,
+        1,
+    )
+    assert (before["total_count"], before["statuses"]["success"]) == (1, 1)
+
+
+def test_a_skipped_run_is_in_the_total_and_in_no_status_count(github_api: GitHubApiFake) -> None:
+    """A window of 2,000 runs holds 3 skipped runs: the total of the window holds every run, and
+    the four status counts hold the others, with no key for the skipped runs (#6603)."""
+    skipped = [
+        _run(2000 + minutes, END - timedelta(minutes=minutes), "skipped") for minutes in (1, 2, 3)
+    ]
+    github_api.serve(RunsApi([*_push_runs(1500, 400, 70, 27), *skipped]))
     reads = Reads()
 
     answer = read_runs(get_github_session(), RUNS, START, END, reads)
 
     assert answer["total_count"] == 2000
-    assert sum(answer["statuses"].values()) == 1999
+    assert sum(answer["statuses"].values()) == 1997
     assert "skipped" not in answer["statuses"]
     assert reads.counts["github_runs"] == len(github_api.sent) == 5
-
-
-def test_a_slice_of_one_second_at_the_cap_raises(github_api: GitHubApiFake) -> None:
-    """A window of one second holds 1,000 runs, the result cap. The reader reads the exact count of
-    each status and of the total of that second, so it loses no run and raises nothing (#6603). The
-    case keeps the name that it had while such a window raised."""
-    moment = END.strftime(_TIME)
-    runs = [
-        {"id": number, "created_at": moment, "status": "completed", "conclusion": "success"}
-        for number in range(1, CAP + 1)
-    ]
-    github_api.serve(RunsApi(runs))
-    reads = Reads()
-
-    answer = read_runs(get_github_session(), RUNS, END - timedelta(seconds=1), END, reads)
-
-    assert answer["statuses"]["success"] == CAP
-    assert answer["total_count"] == CAP
-    assert reads.counts["github_runs"] == 5
 
 
 def test_a_newest_first_listing_stops_at_the_page_that_reaches_the_window_start(
@@ -344,32 +414,108 @@ def test_with_no_snapshot_of_this_schema_the_listing_reads_the_changes_since_the
 def test_a_second_review_over_a_new_window_reads_only_the_gap_pages(
     github_api: GitHubApiFake, tmp_path: Path
 ) -> None:
-    """The review keeps its own snapshot, so a review whose window holds its watermark reads the
-    gap after it: one page, where a review with no store reads three."""
+    """The first review reads its window and keeps its own snapshot. The second review is over a
+    new window one day later, which holds the watermark of the first one, so it reads only the gap
+    after that watermark: one page, where a review of the new window with no store reads three."""
     review, intake = _stores(tmp_path)
-    _held(review, full_at=START)
-    _changed_pages(github_api, "2026-11-11T14:28:04Z", [[2]])
+    day = timedelta(days=1)
     _changed_pages(github_api, "2026-11-04T14:51:23Z", [[7, 8], [9, 10], [11]])
-    kept = Reads()
-    empty = Reads()
+    _changed_pages(github_api, "2026-11-05T14:51:23Z", [[7, 8], [9, 10], [11]])
+    # The watermark of the first review: its newest change, 2026-11-11T14:40:00Z, less 60 s.
+    _changed_pages(github_api, "2026-11-11T14:39:00Z", [[2]])
+    first, second, empty = Reads(), Reads(), Reads()
+    session = get_github_session()
 
+    read_listing(session, REPO, intake, first, start=START, review_snapshots=review, now=END)
+    sent = len(github_api.requested)
     records = read_listing(
-        get_github_session(), REPO, intake, kept, start=START, review_snapshots=review, now=END
+        session, REPO, intake, second, start=START + day, review_snapshots=review, now=END + day
     )
+    gap = github_api.requested[sent:]
     read_listing(
-        get_github_session(),
+        session,
         REPO,
         intake,
         empty,
-        start=START,
+        start=START + day,
         review_snapshots=FileSnapshotStore(tmp_path / "empty"),
-        now=END,
+        now=END + day,
     )
 
-    assert ([record["number"] for record in records], kept.counts["listing"]) == ([2, 1], 1)
-    assert kept.counts["listing"] < empty.counts["listing"]
-    assert (kept.counts["listing"], empty.counts["listing"]) == (1, 3)
-    assert "since=2026-11-11T14:28:04Z" in github_api.requested[0]
+    assert [record["number"] for record in records] == [11, 10, 9, 8, 7, 2]
+    assert (first.counts["listing"], second.counts["listing"], empty.counts["listing"]) == (3, 1, 3)
+    assert [_since(request) for request in gap] == [_utc("2026-11-11T14:39:00Z")]
+
+
+def _issue(number: int, changed: str, *, closed: bool = False) -> dict[str, Any]:
+    """An issue as the issue listing gives it, last changed at `changed`, closed then when
+    `closed`."""
+    return {
+        "number": number,
+        "title": f"Issue {number}",
+        "html_url": f"https://github.com/{REPO}/issues/{number}",
+        "state": "closed" if closed else "open",
+        "created_at": "2026-08-01T00:00:00Z",
+        "updated_at": changed,
+        "closed_at": changed if closed else None,
+    }
+
+
+class ChangedApi:
+    """The issue listing as GitHub answers a read of the changes: each issue whose `updated_at` is
+    at or after `since`, newest change first, on one page. `change` gives an issue a new record."""
+
+    def __init__(self, *issues: dict[str, Any]) -> None:
+        self.issues = {issue["number"]: issue for issue in issues}
+
+    def change(self, issue: dict[str, Any]) -> None:
+        self.issues[issue["number"]] = issue
+
+    def __call__(self, request: httpx2.Request) -> httpx2.Response | None:
+        if not request.url.path.endswith("/issues"):
+            return None
+        since = _utc(request.url.params["since"])
+        found = [issue for issue in self.issues.values() if _utc(issue["updated_at"]) >= since]
+        found.sort(key=lambda issue: str(issue["updated_at"]), reverse=True)
+        return github_json(found)
+
+
+def test_a_wider_review_reads_a_change_between_the_watermark_and_a_later_window_start(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """Review A keeps a snapshot with the watermark 2026-09-14T23:59:00Z. Issue 2 closes on
+    2026-10-06. Review B starts on 2026-10-14, after that watermark, so it reads the changes only
+    from its start, and its snapshot covers only the time from there. Review C starts on
+    2026-09-21, before the start of B, so it reads from its own start and gives the closed record
+    of issue 2, not the open record that A kept."""
+    review, intake = _stores(tmp_path)
+    issues = ChangedApi(_issue(1, "2026-09-15T00:00:00Z"), _issue(2, "2026-09-10T00:00:00Z"))
+    github_api.serve(issues)
+    session = get_github_session()
+
+    def run(start: str, now: str) -> list[dict[str, Any]]:
+        return read_listing(
+            session,
+            REPO,
+            intake,
+            Reads(),
+            start=_utc(start),
+            review_snapshots=review,
+            now=_utc(now),
+        )
+
+    run("2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z")
+    issues.change(_issue(2, "2026-10-06T00:00:00Z", closed=True))
+    issues.change(_issue(3, "2026-10-18T00:00:00Z"))
+    run("2026-10-14T00:00:00Z", "2026-10-21T00:00:00Z")
+    records = run("2026-09-21T00:00:00Z", "2026-10-22T00:00:00Z")
+
+    assert [(record["number"], record["state"]) for record in records] == [
+        (3, "open"),
+        (2, "closed"),
+        (1, "open"),
+    ]
+    assert _since(github_api.requested[-1]) == _utc("2026-09-21T00:00:00Z")
 
 
 def test_a_stale_review_snapshot_reads_from_the_window_start(
@@ -431,8 +577,8 @@ def test_the_review_keeps_its_snapshot_apart_from_the_one_of_intake(
     kept = state / "review-listing" / owner / f"{name}.json"
     held = state / "listing"
 
-    assert (review_listing().path(REPO), snapshot_root()) == (kept, held)
-    assert (review_listing(tmp_path).path(REPO), snapshot_root(tmp_path)) == (
+    assert (listing_snapshot.review_listing().path(REPO), snapshot_root()) == (kept, held)
+    assert (listing_snapshot.review_listing(tmp_path).path(REPO), snapshot_root(tmp_path)) == (
         tmp_path / "review-listing" / owner / f"{name}.json",
         tmp_path / "listing",
     )
@@ -501,13 +647,10 @@ def _route_github_listings(github_api: GitHubApiFake) -> None:
         )
 
 
-def _review(github_api: GitHubApiFake, tmp_path: Path) -> ReadContext:
-    """Answer the GitHub reads of a 7-day review, and give its context: no snapshot of any kind, a
-    window whose issue listing holds 19 pages, and 3,000 runs in it."""
+def _context(tmp_path: Path) -> ReadContext:
+    """The context of a 7-day review that ends at `END`, with an empty review store and an empty
+    intake store under `tmp_path`."""
     review, intake = _stores(tmp_path)
-    github_api.serve(ListingApi(LISTING_PAGES))
-    github_api.serve(RunsApi(_push_runs(2700, 200, 70, 30)))
-    _route_github_listings(github_api)
     return ReadContext(
         checkout=tmp_path,
         repo=REPO,
@@ -517,6 +660,41 @@ def _review(github_api: GitHubApiFake, tmp_path: Path) -> ReadContext:
         snapshots=intake,
         review_snapshots=review,
     )
+
+
+def _review(github_api: GitHubApiFake, tmp_path: Path) -> ReadContext:
+    """Answer the GitHub reads of a 7-day review, and give its context: no snapshot of any kind, a
+    window whose issue listing holds 19 pages, and 1,853 runs in it, the count of the main push
+    runs of the week to 2026-11-22."""
+    github_api.serve(ListingApi(LISTING_PAGES))
+    github_api.serve(RunsApi(_push_runs(1743, 27, 77, 6)))
+    _route_github_listings(github_api)
+    return _context(tmp_path)
+
+
+def test_the_main_push_runs_fact_gives_the_four_counts_and_the_total_of_the_window(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """The shipped fact `github_runs.main_push_runs` of a window of 2,072 runs, under the count cap:
+    its value is the count of each of the four statuses, and its n is the total of the window."""
+    shipped = load_catalog()
+    catalog = Catalog(
+        sections=shipped.sections,
+        readers=shipped.readers,
+        facts=tuple(fact for fact in shipped.facts if fact.id == "github_runs.main_push_runs"),
+        disagreements=(),
+    )
+    github_api.serve(RunsApi(_push_runs(1927, 29, 104, 12)))
+
+    result = read_catalog(catalog, _context(tmp_path))
+
+    [fact] = result.facts
+    assert (fact.status, fact.value, fact.n) == (
+        FactStatus.OK,
+        {"success": 1927, "failure": 29, "cancelled": 104, "in_progress": 12},
+        2072,
+    )
+    assert result.collection.reads == {ReaderKind.GITHUB_RUNS: 5}
 
 
 def _github_requests(result: CatalogResult) -> int:
@@ -544,15 +722,17 @@ def test_a_second_seven_day_review_sends_at_most_45_requests(
     """The second review reads the gap after the watermark that the first one kept, so it sends
     fewer requests than the first and 45 at most (#4692, #6603)."""
     context = _review(github_api, tmp_path)
-    first = _github_requests(read_catalog(_github_catalog(), context))
+    first = read_catalog(_github_catalog(), context)
     sent = len(github_api.sent)
 
     second = read_catalog(_github_catalog(), context)
 
     reads = _github_requests(second)
     assert reads == len(github_api.sent) - sent
-    assert reads < first
+    assert reads < _github_requests(first)
     assert reads <= 45
+    listing = ReaderKind.LISTING
+    assert second.collection.reads[listing] < first.collection.reads[listing]
 
 
 def _vector(request: httpx2.Request) -> httpx2.Response:

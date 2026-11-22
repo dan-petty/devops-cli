@@ -123,9 +123,10 @@ facts:
     n: .total_count
     unit: runs
     definition: >-
-      The Actions runs of the push events on main created in the window, for each of the statuses
-      success, failure, cancelled and in progress. n is the total of the window, which also counts
-      a run of another status. The reader reads one count for each status and one for the total.
+      The Actions runs of the push events on main created after the start up to the end, for each
+      of the statuses success, failure, cancelled and in progress. n is the total of the window,
+      which also counts a run of another status. The reader reads the total and one count for each
+      status of each created slice, and splits a slice at the count cap of 2,500.
   - id: github.code_scanning_opened
     reader: github
     section: activity

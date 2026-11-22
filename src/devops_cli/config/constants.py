@@ -4270,6 +4270,11 @@ CONST_ROADMAP_TRUSTED_AUTHORS: Final[frozenset[str]] = frozenset(
 # opened, as they take an item of the Service App's bot (`service.github_app.bot_login`), when a
 # review approves the item (#3502).
 CONST_ROADMAP_ACTIONS_BOT_LOGIN: Final[str] = "github-actions[bot]"
+# GitHub stops the `total_count` of a filtered list of Actions runs at 2,500: on 2026-11-22 a
+# 30-day window of the main push runs gave the total 2,500, 2,500 successful, 436 failed and 896
+# cancelled runs. The project review splits a `created` slice in two halves while its total
+# reaches the cap, so it cuts no run (#6603).
+CONST_ROADMAP_REVIEW_RUN_COUNT_CAP: Final[int] = 2500
 # What each kind of P0 evidence looks like: a GHSA ID, an Actions run id, a commit SHA.
 CONST_ROADMAP_EVIDENCE_PATTERNS: Final[dict[str, re.Pattern[str]]] = {
     "advisory": re.compile(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}"),

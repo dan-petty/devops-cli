@@ -6,14 +6,15 @@
   window starts before the first window that its snapshot covers. With no snapshot of its own it
   reads the snapshot of intake that way, and with neither it reads only the issues and pull requests
   changed at or after the window start, not the whole listing: a listing fact counts what was
-  opened, closed, merged or written in the window, and each of these moves `updated_at`. It writes
-  the review's snapshot and no snapshot of intake, so each snapshot file keeps one writer (#4854,
-  #6603).
+  opened, closed, merged or written in the window, and each of these moves `updated_at`. A read
+  that starts after the watermark leaves the changes before its start unread, so the kept snapshot
+  then covers only the time from that start. It writes the review's snapshot and no snapshot of
+  intake, so each snapshot file keeps one writer (#4854, #6603).
 - `github`: a REST listing read through `GitHubSession.pages`. A newest-first listing stops after
   the first page that holds an item at or before the window start.
-- `github_runs`: the Actions runs of a query, as a count for each status and a count of the window.
-  GitHub gives the exact `total_count` of a filtered list, above its result cap of 1,000, so five
-  requests of one entry replace the pages of runs (#6603).
+- `github_runs`: the Actions runs of a query, as a count for each status and a count of the window,
+  each the `total_count` of a request of one entry. GitHub stops that count at 2,500, so a `created`
+  slice whose total reaches the cap splits in two halves until each slice is under it (#6603).
 - `prometheus` and `loki`: one instant query at the end of the window (`time`), through
   `PrometheusClient` and `query_loki_metrics`.
 
@@ -26,9 +27,10 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Protocol
 
+from devops_cli.config.constants import CONST_ROADMAP_REVIEW_RUN_COUNT_CAP
 from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.http.egress import EgressLevel
@@ -48,6 +50,7 @@ from devops_cli.roadmap.stores.store import IssueRecord
 # The statuses of a run whose count the review reads, each with one request: GitHub answers the
 # `status` of a request with the runs of that status or of that conclusion.
 _RUN_STATUSES: Final = ("success", "failure", "cancelled", "in_progress")
+_SECOND: Final = timedelta(seconds=1)
 
 
 class PagedSession(Protocol):
@@ -101,7 +104,9 @@ class _ReviewListing:
     `review_snapshots` keeps, else the one of intake, and the changes after the later of its
     watermark and `start`; or only the changes at or after `start` when neither snapshot has this
     record schema. Each read keeps the merged records in `review_snapshots`, and leaves the snapshot
-    of intake as it is (#6603)."""
+    of intake as it is (#6603). The `full_at` of the kept snapshot is the first time from which it
+    holds each change: the gap start when the gap starts after the watermark, as no change between
+    the two was read."""
 
     review_snapshots: SnapshotStore
     snapshots: SnapshotStore
@@ -117,7 +122,7 @@ class _ReviewListing:
             listed = {issue.number: issue for issue in read_issues(changed_listing(gap))}
         else:
             gap = self._gap(held, own=own)
-            full_at = min(held.full_at, self.start)
+            full_at = gap if gap > held.watermark else min(held.full_at, self.start)
             listed = merged(held.issues, read_issues(changed_listing(gap)))
         self.review_snapshots.save(
             snapshot_of(
@@ -198,42 +203,70 @@ def read_github(
     return found
 
 
-def _count_path(path: str, start: datetime, end: datetime, status: str | None) -> str:
-    """The listing at `path` of the runs created in the window, of `status` when it is given, of
-    the first entry only: its `total_count` is the count of them."""
+def _count_path(path: str, low: datetime, high: datetime, status: str | None) -> str:
+    """The listing at `path` of the runs created from `low` to `high`, both in whole seconds, of
+    `status` when it is given, of the first entry only: its `total_count` is the count of them."""
     separator = "&" if "?" in path else "?"
-    query = f"{path}{separator}created={utc_text(start)}..{utc_text(end)}&per_page=1"
+    query = f"{path}{separator}created={utc_text(low)}..{utc_text(high)}&per_page=1"
     return query if status is None else f"{query}&status={status}"
 
 
 def _run_count(
     session: PagedSession,
     path: str,
-    start: datetime,
-    end: datetime,
+    low: datetime,
+    high: datetime,
     reads: Reads,
     status: str | None,
 ) -> int:
-    """The count of the Actions runs of `path` created in the window, of `status` when it is given,
-    from one request of one entry."""
+    """The count of the Actions runs of `path` created from `low` to `high`, of `status` when it is
+    given, from one request of one entry."""
     reads.add(ReaderKind.GITHUB_RUNS)
-    page = next(session.pages(_count_path(path, start, end, status)))
+    page = next(session.pages(_count_path(path, low, high, status)))
     return int(page.get("total_count", 0))
 
 
 def read_runs(
     session: PagedSession, path: str, start: datetime, end: datetime, reads: Reads
 ) -> dict[str, Any]:
-    """The Actions runs of the listing at `path` created in the window, as `{"statuses",
-    "total_count"}`: the count of the runs of each status of `_RUN_STATUSES`, and the count of every
-    run of the window, each from one request of one entry (#6603).
+    """The Actions runs of the listing at `path` created after `start` up to `end`, as
+    `{"statuses", "total_count"}`: the count of the runs of each status of `_RUN_STATUSES`, and the
+    count of every run of the window (#6603).
 
-    GitHub gives the exact `total_count` of a filtered list above its result cap, so the five counts
-    replace the pages of runs. A run of another status is in `total_count` and in no status count."""
-    statuses = {
-        status: _run_count(session, path, start, end, reads, status) for status in _RUN_STATUSES
-    }
-    total = _run_count(session, path, start, end, reads, None)
+    GitHub reads a `created` range in whole seconds, both ends in, and stops the `total_count` of a
+    filtered list at `CONST_ROADMAP_REVIEW_RUN_COUNT_CAP`. The reader reads the total of a slice
+    first. A slice at the cap splits in two halves by created time, and a slice under it gets one
+    count for each status, so a window under the cap costs five requests. A slice of one second at
+    the cap, or status counts above the total of a slice, raise `RoadmapReviewError`, so no count
+    is wrong with no message. A run of another status is in `total_count` and in no status count."""
+    cap = CONST_ROADMAP_REVIEW_RUN_COUNT_CAP
+    statuses = dict.fromkeys(_RUN_STATUSES, 0)
+    total = 0
+    slices = [(start.replace(microsecond=0) + _SECOND, end.replace(microsecond=0))]
+    while slices:
+        low, high = slices.pop()
+        named = f"{utc_text(low)}..{utc_text(high)}"
+        count = _run_count(session, path, low, high, reads, None)
+        if count >= cap:
+            if high <= low:
+                raise RoadmapReviewError(
+                    MESSAGES.roadmap.review_runs_at_cap.format(cap=f"{cap:,}", slice=named)
+                )
+            middle = low + timedelta(seconds=int((high - low).total_seconds()) // 2)
+            slices.extend([(middle + _SECOND, high), (low, middle)])
+            continue
+        counts = {
+            status: _run_count(session, path, low, high, reads, status) for status in statuses
+        }
+        if (counted := sum(counts.values())) > count:
+            raise RoadmapReviewError(
+                MESSAGES.roadmap.review_runs_above_total.format(
+                    slice=named, counted=f"{counted:,}", total=f"{count:,}"
+                )
+            )
+        total += count
+        for status, number in counts.items():
+            statuses[status] += number
     return {"statuses": statuses, "total_count": total}
 
 

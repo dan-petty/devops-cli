@@ -170,7 +170,7 @@ def snapshot_root(state_dir: Path | None = None) -> Path:
     return _state_dir(state_dir) / _SNAPSHOT_DIRNAME
 
 
-def review_listing(state_dir: Path | None = None) -> SnapshotStore:
+def review_listing(state_dir: Path | None = None) -> FileSnapshotStore:
     """Where the project review keeps its own snapshot of the listing (#6603): `review-listing` in
     `state_dir`, the state directory of the roadmap, apart from the snapshot of intake and from the
     directory `listing-<lane>` of each lane of the Service, so each file has one writer (#4854)."""
