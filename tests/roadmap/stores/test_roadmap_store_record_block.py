@@ -161,9 +161,9 @@ def test_a_record_write_keeps_a_job_block_in_an_open_block_readable(body: str) -
 
 
 # A body that a job wrote, and the opener of a block that a person then puts above "More text."
-# and does not close. CommonMark reads the record as part of that block: a fence and a `<pre>`
-# block run to the end of the body, and a comment ends at the record line, the first line that
-# holds `-->`.
+# and does not close. CommonMark reads the record as part of that block. A fence and a `<pre>`
+# block run to the end of the body. A comment ends at the record line, the first line that holds
+# `-->`.
 _WRITTEN = with_record("Text.\n\nMore text.", BLOCK)
 OPENED_BLOCKS = {
     "backtick-fence": "```python",
@@ -186,7 +186,7 @@ def _opened(opener: str, line_break: str) -> str:
 def test_a_record_below_a_block_that_a_person_opens_reads_back(
     opener: str, line_break: str
 ) -> None:
-    """The record line at the end of the body ends the block that the person opened above it, so
+    """The record line at the end of the body ends the block that the person opened above it. So
     the read gives the record, and the body of the person without the record block."""
     person = f"Text.\n\n{opener}\nMore text.".replace("\n", line_break)
     assert split_record(_opened(opener, line_break)) == (person, RECORD)
@@ -198,8 +198,8 @@ def test_the_next_write_closes_the_block_that_a_person_opens_before_the_record(
     opener: str, line_break: str
 ) -> None:
     """The next write closes the block of the person before the record (`closed_body`). So
-    CommonMark parses the record of the written body as its last HTML block, and the body holds
-    one record block with the keys of the old record."""
+    CommonMark parses the record of the written body as its last HTML block. The body holds one
+    record block with the keys of the old record."""
     person, held = split_record(_opened(opener, line_break))
     written = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
     last = [token for token in _BLOCKS.parse(written) if token.level == 0][-1]
@@ -216,8 +216,8 @@ def test_the_code_of_a_fence_that_a_person_opens_keeps_its_rendered_form(
     opener: str, line_break: str
 ) -> None:
     """Until the next write, GitHub shows the record line as code of the fence. The next write
-    closes the fence after the lines of the person, so CommonMark renders the code as the lines
-    of the person, each with its line break, and the record lines leave the code. An HTML block
+    closes the fence after the lines of the person. So CommonMark renders the code as the lines of
+    the person, each with its line break, and the record lines leave the code. An HTML block
     renders as its own text, so only its close is new in the HTML."""
     lines = f"Text.\n\n{opener}\nMore text.\n".replace("\n", line_break)
     person, held = split_record(_opened(opener, line_break))
@@ -227,8 +227,8 @@ def test_the_code_of_a_fence_that_a_person_opens_keeps_its_rendered_form(
 
 def test_a_fence_above_the_job_block_and_the_record_leaves_no_stale_record() -> None:
     """A person opens a fence above the refine block and the record. The read gives the old
-    record, so the next write takes it out: the body holds one record block, with the keys of the
-    old record, and a read finds the section of the refine block."""
+    record, so the next write takes it out. The body then holds one record block, with the keys of
+    the old record. A read finds the section of the refine block."""
     edited = with_record(f"Text.\n\n{_JOB_BLOCK}", BLOCK).replace("Text.", "Text.\n\n```")
     person, held = split_record(edited)
     written = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
@@ -240,26 +240,40 @@ def test_a_fence_above_the_job_block_and_the_record_leaves_no_stale_record() -> 
     ) == (RECORD, 1, NEXT_RECORD, "\nThe section.\n")
 
 
-QUOTES_IN_AN_OPEN_BLOCK = {
+QUOTES_ON_THE_LAST_LINE = {
     "not-json": f"Example:\n\n```text\n<!-- {CONST_ROADMAP_RECORD_MARKER} {{...}} -->",
     "not-an-object": f"Example:\n\n```text\n<!-- {CONST_ROADMAP_RECORD_MARKER} [1] -->",
     "indented": f"Example:\n\n```text\n    {BLOCK}",
+    "in-a-list-item": f"- item\n\n  {BLOCK}",
 }
 
 
 @pytest.mark.parametrize(
-    "body", QUOTES_IN_AN_OPEN_BLOCK.values(), ids=QUOTES_IN_AN_OPEN_BLOCK.keys()
+    "body", QUOTES_ON_THE_LAST_LINE.values(), ids=QUOTES_ON_THE_LAST_LINE.keys()
 )
-def test_a_quote_on_the_last_line_of_an_open_block_stays_the_text_of_the_person(
+def test_a_quote_on_the_last_line_stays_the_text_of_the_person(
     body: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A job writes the record with no indent and with a JSON object. So a quote of the record
-    format on the last line of an open fence that holds no JSON object, or that CommonMark does
-    not parse alone as an HTML block, stays in the body, reads as no record and logs no
-    warning."""
+    """A job writes the record with no indent and with a JSON object. The record line is the last
+    line of a block only when the text before it leaves that block open. So these quotes of the
+    record format on the last line stay in the body, read as no record and log no warning. The
+    first two hold no JSON object. CommonMark does not parse the third alone as an HTML block.
+    The text before the fourth leaves no block open."""
     with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.stores.store"):
         found = split_record(body)
     assert (found, caplog.messages) == ((body, {}), [])
+
+
+def test_a_quote_with_a_json_object_in_an_open_block_reads_as_the_record() -> None:
+    """CommonMark cannot tell this quote from a record below a block that a person opens. So the
+    read gives the JSON object of the quote as the record. The next write closes the fence of the
+    person before the record block."""
+    person, held = split_record(f"Example:\n\n```text\n{encode_job_record({}, {'quote': 'x'})}")
+    assert (person, held, with_record(person, BLOCK)) == (
+        "Example:\n\n```text\n",
+        {"quote": "x"},
+        f"Example:\n\n```text\n```\n\n{BLOCK}",
+    )
 
 
 _OPENERS = st.sampled_from(["```", "~~~~", "<pre>", "<!-- a note", "<script>", "<?php"])
