@@ -8,7 +8,7 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Final, NamedTuple, cast
 
 from devops_cli.ai.rag.chunker import SemanticChunker
 from devops_cli.ai.rag.embeddings import EmbeddingsEngine, EmbeddingsError
@@ -35,11 +35,16 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.core.repo import is_ignored_by_git
 from devops_cli.exceptions import ConfigurationError, DevOpsCLIError
+from devops_cli.git.operations import git_show_toplevel, paths_with_attributes
 from devops_cli.lang.en.errors import ERRORS
 from devops_cli.output.file_writer import write_json_file
 from devops_cli.telemetry import trace_span
 
 logger = logging.getLogger(__name__)
+
+# The `.gitattributes` attributes that mark a file as tool output or as the data of a third
+# party, such as the tiktoken vocabularies: text with no meaning for a search (#6717).
+_SKIPPED_ATTRIBUTES: Final = ("linguist-generated", "linguist-vendored")
 
 
 def is_text_file(p: Path) -> bool:
@@ -132,6 +137,18 @@ def _is_indexable_file(p: Path, root: Path, *, gitignore_spec: Any = None) -> bo
         return False
 
     return is_text_file(p)
+
+
+def _without_marked_files(root: Path, files: list[Path]) -> list[Path]:
+    """`files` without the ones that the `.gitattributes` of the work tree at `root` mark
+    generated or vendored. One git call reads all of them. A root that no work tree holds has no
+    attributes, so it keeps all its files."""
+    if not files or git_show_toplevel(root) is None:
+        return files
+    marked = paths_with_attributes(
+        root, (p.relative_to(root).as_posix() for p in files), _SKIPPED_ATTRIBUTES
+    )
+    return [p for p in files if p.relative_to(root).as_posix() not in marked]
 
 
 def _collect_all_indexing_files(
@@ -750,12 +767,14 @@ class WorkspaceIndexer:
 
     @staticmethod
     def collect_files(root_dir: Path) -> list[Path]:
-        """Collect all indexable files under root_dir, respecting .gitignore rules."""
+        """Collect all indexable files under root_dir, respecting .gitignore rules and the
+        generated and vendored marks of .gitattributes."""
         import os
 
         root = root_dir.resolve()
         if root.is_file():
-            return [root] if _is_indexable_file(root, root.parent) else []
+            kept = [root] if _is_indexable_file(root, root.parent) else []
+            return _without_marked_files(root.parent, kept)
 
         gitignore_spec = _load_gitignore_spec(root)
         indexable_files: list[Path] = []
@@ -769,7 +788,7 @@ class WorkspaceIndexer:
                 if _is_indexable_file(p, root, gitignore_spec=gitignore_spec):
                     indexable_files.append(p)
 
-        return sorted(indexable_files)
+        return _without_marked_files(root, sorted(indexable_files))
 
     def index_knowledge_base(
         self,

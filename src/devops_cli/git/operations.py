@@ -13,9 +13,10 @@ import functools
 import logging
 import os
 import subprocess
-from collections.abc import Generator
+from collections.abc import Generator, Iterable, Sequence
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import Final
 from urllib.parse import urlsplit
 
 from devops_cli.config.constants import (
@@ -53,6 +54,9 @@ _REMOTES_PREFIX = "refs/remotes/"
 _CONFIG_KEY_UNSET = 1
 """The exit status of `git config --get` for a key that is not set (git-config(1)). Any other
 status above 0 is a failure, such as a configuration file that cannot be read."""
+# The values that `git check-attr` gives for an attribute set as `attr` or `attr=true`
+# (gitattributes(5)). `unset`, `unspecified` and any other value do not set it.
+_ATTRIBUTE_SET_VALUES: Final = frozenset({"set", "true"})
 
 
 def _normalize_clone_url(url: str) -> str:
@@ -626,6 +630,35 @@ def _parse_name_status(output: str) -> list[ChangedFile]:
             ChangedFile(change_type=change_type, path=next(fields, ""), old_path=old_path)
         )
     return changes
+
+
+def paths_with_attributes(
+    repo_dir: Path, paths: Iterable[str], attributes: Sequence[str]
+) -> frozenset[str]:
+    """The paths of `paths` that the `.gitattributes` of the working tree set one of
+    `attributes` for, as `set` or `true`.
+
+    One `git check-attr --stdin` reads all the paths, relative to `repo_dir`. The `-z` form keeps
+    a path with a space or a newline whole. A git that exits with a status other than 0, such as
+    a git outside a work tree, raises `GitOperationError`.
+    """
+    ordered = sorted(set(paths))
+    if not ordered:
+        return frozenset()
+    proc = _git(
+        repo_dir,
+        "check-attr",
+        "-z",
+        "--stdin",
+        *attributes,
+        read=True,
+        input="".join(f"{path}\0" for path in ordered),
+    )
+    if proc.returncode != 0:
+        raise GitOperationError(_reason(proc), operation="check_attr")
+    words = proc.stdout.split("\0")
+    triples = zip(words[0::3], words[1::3], words[2::3], strict=False)
+    return frozenset(path for path, _, value in triples if value in _ATTRIBUTE_SET_VALUES)
 
 
 def git_show_toplevel(path: Path) -> Path | None:
