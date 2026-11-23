@@ -1065,7 +1065,7 @@ dev = [
     { name = "deptry", specifier = "==0.25.1" },
     { name = "diff-cover", specifier = "==11.0.4" },
     { name = "fakeredis", extras = ["lua", "valkey"], specifier = "==2.40.0" },
-    { name = "grafana-foundation-sdk", specifier = "==0.0.22" },
+    { name = "grafana-foundation-sdk", specifier = "==1769699998!10.1.0" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "hypothesis", specifier = "==6.170.17" },
     { name = "mutmut", specifier = "==3.8.1" },
@@ -1502,11 +1502,11 @@ wheels = [
 
 [[package]]
 name = "grafana-foundation-sdk"
-version = "0.0.22"
+version = "1769699998!10.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/93/64/6c6d835e194148aefbb65ae30efd9748e3e8791b02d97647b5ea5e75758a/grafana_foundation_sdk-0.0.22.tar.gz", hash = "sha256:be93f9d2bc8728d07613d7fdf40076e301743113d53436715819b5ac301dfe1c", size = 783372, upload-time = "2026-10-29T15:01:37.823Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/16/ce146db5395857ddc19f71f7b7b6bbe76689f5085467ddc93cbd638ef6f3/grafana_foundation_sdk-1769699998!10.1.0.tar.gz", hash = "sha256:8ecfb7dc8b66fc5cbdbf7ea48dc19169aed03e698ba490f1001bc501a194c5c7", size = 410531, upload-time = "2026-01-29T15:39:41.171Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/1a/363f2ccda66ec4332f850a96f88a07483f8c94fab79502b654d5eea2a97e/grafana_foundation_sdk-0.0.22-py3-none-any.whl", hash = "sha256:075f0bfa5da8a4d59cd7c834e171ef6296114605b3bbc7ecf344c4c80808d4cc", size = 535160, upload-time = "2026-10-29T15:01:35.648Z" },
+    { url = "https://files.pythonhosted.org/packages/17/3b/49dd4a2137dd193b7c77a034f077c370119ecee9cb45fd0b819023d19bad/grafana_foundation_sdk-1769699998!10.1.0-py3-none-any.whl", hash = "sha256:d131ffe49057fb669ba31ce7e28a303c96b3aecf4332b20de33cfa55110d498c", size = 318469, upload-time = "2026-01-29T15:39:40.08Z" },
 ]
 
 [[package]]
