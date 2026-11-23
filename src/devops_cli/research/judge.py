@@ -92,25 +92,11 @@ class JudgeReport(BaseModel):
 class ReadOnlyCorpus(Protocol):
     """Protocol for read-only research corpus access."""
 
-    def record_text(self, record_id: str) -> str | None:
-        """Lookup stored text by record id."""
-        ...
-
-    def holds_url(self, url: str) -> bool:
-        """Check if URL exists in corpus."""
-        ...
-
-    def stored_texts(self, query: str, regex: bool = False) -> list[str]:
-        """Match stored texts."""
-        ...
-
-    def components(self) -> list[Component]:
-        """List tracked components."""
-        ...
-
-    def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
-        """Search repository via RAG."""
-        ...
+    def record_text(self, record_id: str) -> str | None: ...
+    def holds_url(self, url: str) -> bool: ...
+    def stored_texts(self, query: str, regex: bool = False) -> list[str]: ...
+    def components(self) -> list[Component]: ...
+    def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]: ...
 
 
 JUDGE_INSTRUCTIONS: Final[str] = (
@@ -339,10 +325,7 @@ def judge_records(
 
         usage = getattr(result, "usage", None)
         if usage is not None:
-            tokens = getattr(usage, "total_tokens", 0)
-            if not tokens:
-                tokens = getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0)
-            report.tokens_used += tokens
+            report.tokens_used += getattr(usage, "total_tokens", 0)
 
         finding = result.output
         if isinstance(finding, JudgeFinding):

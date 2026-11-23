@@ -306,3 +306,119 @@ def test_token_limit_spent() -> None:
     assert isinstance(report.stop, JudgeStop)
     assert "daily_token_limit" in report.stop.setting
     assert report.stop.value == 100
+
+
+def test_judge_intake_candidate_with_component() -> None:
+    from types import SimpleNamespace
+
+    comp = Component(
+        kind=ComponentKind.PYTHON_PACKAGE,
+        ecosystem=Ecosystem.PYPI,
+        name="aiofile",
+        version="3.12.3",
+        file="pyproject.toml",
+        line=10,
+    )
+    record = SimpleNamespace(component=comp, id="GHSA-1234")
+    judgment = JudgeFinding(
+        affects_us=JudgeVerdict.yes,
+        why="Vulnerability in used component",
+        severity="high",
+        action="upgrade to 3.12.4",
+        evidence_record_ids=["GHSA-1234"],
+        evidence_urls=["https://example.com/GHSA-1234"],
+    )
+    candidate = judge_intake_candidate(judgment, record)
+    assert candidate.title == "fix(deps): update aiofile for GHSA-1234"
+
+
+def test_record_text_and_id_fallbacks() -> None:
+    from devops_cli.research.judge import _record_id, _record_text
+
+    assert _record_text({"text": "hello"}) == "hello"
+    assert _record_id({"id": "id-1"}) == "id-1"
+
+    bare = object()
+    assert _record_text(bare) == str(bare)
+    assert _record_id(bare) == str(bare)
+
+
+def test_judge_records_dropped_citation() -> None:
+    def reply(messages: list[Any], info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "final_result",
+                    {
+                        "affects_us": "yes",
+                        "why": "Hallucinated citation",
+                        "severity": "high",
+                        "action": "none",
+                        "evidence_record_ids": ["nonexistent-id"],
+                        "evidence_urls": [],
+                    },
+                )
+            ]
+        )
+
+    model = FunctionModel(reply)
+    corpus = FakeCorpus()
+    records = [RecordFake("rec-1", "Advisory 1")]
+    report = judge_records(records, corpus, model)
+    assert len(report.findings) == 0
+    assert len(report.dropped) == 1
+
+
+def test_judge_agreement_rate_and_fn_fallbacks() -> None:
+    from devops_cli.research.judge import (
+        EvalRecord,
+        LabeledJudgment,
+        false_negative_ids,
+        judge_agreement_rate,
+    )
+
+    # Empty labeled list
+    assert judge_agreement_rate([], []) == 1.0
+
+    comp = Component(
+        kind=ComponentKind.PYTHON_PACKAGE,
+        ecosystem=Ecosystem.PYPI,
+        name="aiofile",
+        version="3.12.3",
+        file="pyproject.toml",
+        line=10,
+    )
+    # Fallback to index when rec_id not in evidence_record_ids
+    labeled = [
+        LabeledJudgment(
+            record=EvalRecord(
+                id="rec-fallback",
+                text="Advisory text",
+                url="https://example.com/a",
+                component=comp,
+            ),
+            label=JudgeVerdict.yes,
+            component="test-comp",
+        )
+    ]
+    finding = JudgeFinding(
+        affects_us=JudgeVerdict.no,
+        why="Not affected",
+        severity="low",
+        action="none",
+        evidence_record_ids=["different-id"],
+        evidence_urls=[],
+    )
+    # false_negative_ids should match by index and report rec-fallback
+    assert false_negative_ids(labeled, [finding]) == ["rec-fallback"]
+
+    finding_yes = JudgeFinding(
+        affects_us=JudgeVerdict.yes,
+        why="Affected",
+        severity="high",
+        action="upgrade",
+        evidence_record_ids=["different-id"],
+        evidence_urls=[],
+    )
+    # judge_agreement_rate should match by index and return 1.0
+    assert judge_agreement_rate(labeled, [finding_yes]) == 1.0
