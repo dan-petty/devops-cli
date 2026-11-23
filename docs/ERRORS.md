@@ -26,12 +26,14 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when an AI provider request fails with a user-actionable message. |
 | `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when a provider rejects the request's credentials; retrying cannot help. |
 | `AgentAuditFilingError` | `AGENT_AUDIT_FILING_FAILED` | `1` | Core | Raised when `devops roadmap intake` does not file one draft of `devops ai agent-audit` (#2346). |
+| `AnswerFlagError` | `ONBOARD_ANSWER_DIFFERS` | `2` | Devops_cli.github.onboard.baseline | A flag gives an answer that differs from `.copier-answers.yml` of the repository. |
 | `ApplicationSourceError` | `K8S_APPLICATION_SOURCE_ERROR` | `1` | K8s | Raised when a git source of an Argo CD Application cannot be read (#5131). |
 | `ApprovalRequired` | `APPROVAL_REQUIRED` | `17` | Ai | Raised by a tool or validator when human approval is required to proceed. |
 | `ArgoCDGateError` | `ARGOCD_GATE_ERROR` | `1` | K8s | Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343). |
 | `ArgoError` | `ARGO_ERROR` | `1` | Argo | Base exception for Argo CD, Rollouts, and Workflows operations. |
 | `ArgoResourceNotFoundError` | `ARGO_RESOURCE_NOT_FOUND` | `1` | Argo | Raised when an Argo custom resource does not exist in the target cluster. |
 | `ArgoWorkflowTimeoutError` | `ARGO_WORKFLOW_TIMEOUT` | `1` | Argo | Raised when an Argo Workflow does not reach a terminal phase within the wait budget. |
+| `BaselineUnreadableError` | `ONBOARD_BASELINE_UNREADABLE` | `1` | Devops_cli.github.onboard.baseline | The baseline cannot be read: no ref, no `copier` program, a failed render, or a settings |
 | `BranchAlreadyExistsError` | `BRANCH_ALREADY_EXISTS` | `1` | Git | Raised when attempting to create a branch that already exists. |
 | `CallDeferred` | `CALL_DEFERRED` | `18` | Ai | Raised by a tool when execution is deferred to an external worker or async system. |
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
@@ -132,6 +134,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `RoadmapStageError` | `ROADMAP_STAGE_FAILED` | `1` | Roadmap | Raised after a stage run in which one or more items failed (#2654). |
 | `RoadmapStatusLostError` | `ROADMAP_STATUS_LOST` | `1` | Roadmap | Raised after a Status write when the issue, read again, holds another Status (#5018). |
 | `RoadmapTimeBudgetError` | `ROADMAP_TIME_BUDGET` | `1` | Roadmap | Raised before a model call of a step whose time budget is spent (#5363). |
+| `RouteRefusedError` | `ONBOARD_ROUTE_REFUSED` | `1` | Devops_cli.github.onboard.routes | A row asked for a write that no route of `ROUTES` holds. |
+| `RouteWriteError` | `ONBOARD_WRITE_FAILED` | `1` | Devops_cli.github.onboard.routes | A write of a route failed: the row that sent it fails, and the next run continues. |
 | `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
 | `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Devops_cli.github.ssh | Raised when SSH/signing key registration on GitHub fails. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |

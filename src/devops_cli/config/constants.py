@@ -188,6 +188,8 @@ CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
     "devops_cli.ai.rag.qdrant",
     "devops_cli.ai.run_store",
     "devops_cli.core.templating",
+    "devops_cli.github.onboard.baseline",
+    "devops_cli.github.onboard.routes",
     "devops_cli.github.ssh",
     "devops_cli.http.client",
     "devops_cli.k8s.node_port",
