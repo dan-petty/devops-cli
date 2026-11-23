@@ -294,16 +294,23 @@ def criterion_problems(
     criteria: Sequence[StageCriterion], issue_body: str, group_count: int
 ) -> list[str]:
     """One problem for each acceptance criterion of the issue that no entry of `criteria` holds,
-    and for each entry that names a group the plan does not have. A problem quotes the exact text
-    to copy."""
+    for each entry that no person wrote in the issue body (#3391), and for each entry that names
+    a group the plan does not have. A problem quotes the exact text to copy."""
     texts = MESSAGES.roadmap
     accepted = acceptance_criteria(issue_body)
-    mapped = {one_line(entry.criterion) for entry in _resolved(criteria, accepted)}
+    accepted_set = {one_line(c) for c in accepted}
+    resolved = _resolved(criteria, accepted)
+    mapped = {one_line(entry.criterion) for entry in resolved}
     problems = [
         texts.stage_problem_criterion.format(criterion=criterion)
         for criterion in accepted
         if criterion not in mapped
     ]
+    problems.extend(
+        texts.stage_problem_criterion_unknown.format(criterion=entry.criterion)
+        for entry in resolved
+        if one_line(entry.criterion) not in accepted_set
+    )
     problems.extend(
         texts.stage_problem_criterion_group.format(
             criterion=entry.criterion, group=entry.group, count=group_count

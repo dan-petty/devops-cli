@@ -5370,6 +5370,11 @@ class RoadmapMessages:
         "this text. Add an entry that copies the text, with the number of the group that "
         "delivers it or pending-person and a reason."
     )
+    stage_problem_criterion_unknown: str = (
+        'The entry of `criteria` for "{criterion}" is no acceptance criterion that a '
+        "person wrote in the issue body. Copy the text of a top-level item under the heading "
+        "`Acceptance criteria` or give an empty list."
+    )
     stage_problem_criterion_group: str = (
         'The entry of `criteria` for "{criterion}" names group {group}, and the plan has '
         "{count} groups."

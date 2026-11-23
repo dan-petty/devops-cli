@@ -1054,3 +1054,13 @@ def test_the_verification_prompt_names_the_rejected_alternatives() -> None:
     assert "`rejected`" in verify
     assert "false_premise" in verify
     assert "fact that the repository contradicts" in verify
+
+
+# ── Unknown criteria entries refused (#3391) ─────────────────────────────────
+
+
+def test_the_stage_prompt_states_the_unknown_criterion_refusal() -> None:
+    prompt = load_task_prompt(_CHANGE_PROMPT)
+    assert (
+        "The check refuses an entry whose text is not one of the person-written criteria." in prompt
+    )
