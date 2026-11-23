@@ -17,7 +17,7 @@ The error catalog, `docs/ERRORS.md`, is the generated table of the `DevOpsCLIErr
 - **THEN** both runs pass
 
 ### Requirement: The catalog rows give the whole description and the area
-Each row of `docs/ERRORS.md` SHALL give the whole first paragraph of the docstring of its class on one line, and SHALL escape each bar in it. The domain of a row SHALL be the area of devops-cli, the first name below the package, and never a module path.
+Each row of `docs/ERRORS.md` SHALL give the whole first paragraph of the docstring of its class on one line. The row SHALL escape each bar in it. The domain of a row SHALL be the area of devops-cli, the first name below the package, and never a module path.
 
 #### Scenario: A docstring that wraps its first sentence
 - **WHEN** the docstring of a class wraps its first sentence over two lines

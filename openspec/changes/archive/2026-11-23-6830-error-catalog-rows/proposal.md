@@ -2,7 +2,7 @@
 
 ## Why
 
-Two columns of `docs/ERRORS.md` are wrong. The description holds only the first line of the docstring, so 15 rows end in the middle of a sentence. The domain of a class outside `devops_cli.exceptions` is its whole module path, such as `Devops_cli.github.onboard.baseline`, in 21 rows. Closes #6830.
+Two columns of `docs/ERRORS.md` are wrong. The description holds only the first line of the docstring, so 16 rows end in the middle of a sentence. The domain of a class outside `devops_cli.exceptions` is its whole module path, such as `Devops_cli.github.onboard.baseline`, in 22 rows. Closes #6830.
 
 ## What Changes
 
@@ -20,8 +20,8 @@ Only `docs/ERRORS.md` changes. The error codes and exit statuses do not change.
 
 ## Feasibility
 
-On origin/main, 15 rows end mid-sentence and 21 rows show a module path as the domain. A scratch count of the generated file confirms both numbers.
+On origin/main, 16 rows end mid-sentence and 22 rows show a module path as the domain. A scratch count of the generated file confirms both numbers.
 
 ## Existing Tool Considered
 
-`inspect.cleandoc` of the standard library cleans the docstring. No other tool is needed.
+`inspect.cleandoc` of the standard library cleans the docstring. The library `docstring-parser` gives only the first line as its short description, so it does not fix the wrapped rows. No other tool is needed.
