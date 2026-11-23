@@ -1102,6 +1102,29 @@ def _recheck_branches(target: str, source: Path | None, *, confirm: bool) -> Non
     write_stdout(render_branch_run(run) + "\n")
 
 
+def _refuse_recheck_options(
+    *,
+    source: Path | None,
+    branch: str | None,
+    branches: bool,
+    base: str | None,
+    candidate: Path | None,
+    json_output: bool,
+    confirm: bool,
+) -> None:
+    """Refuse the options of `plan-recheck` that do not go together."""
+    if confirm and source is None:
+        _refuse(MESSAGES.roadmap.plan_rewrite_need_source)
+    if branches and branch is not None:
+        _refuse(MESSAGES.roadmap.plan_recheck_branches_with_branch)
+    if branches and json_output:
+        _refuse(MESSAGES.roadmap.plan_recheck_branches_json)
+    if base is not None and branch is None:
+        _refuse(MESSAGES.roadmap.plan_recheck_base_needs_branch)
+    if candidate is not None and base is None:
+        _refuse(MESSAGES.roadmap.plan_recheck_candidate_needs_base)
+
+
 @app.command("plan-recheck", help=HELP.roadmap.plan_recheck)
 @dry_run_class("request-plan")
 def plan_recheck_cmd(
@@ -1115,6 +1138,13 @@ def plan_recheck_cmd(
     branches: Annotated[
         bool, typer.Option("--branches", help=HELP.roadmap.plan_recheck_branches)
     ] = False,
+    base: Annotated[str | None, typer.Option("--base", help=HELP.roadmap.plan_recheck_base)] = None,
+    candidate: Annotated[
+        Path | None, typer.Option("--candidate", help=HELP.roadmap.plan_recheck_candidate)
+    ] = None,
+    issues: Annotated[
+        Path | None, typer.Option("--issues", help=HELP.roadmap.plan_recheck_issues)
+    ] = None,
     json_output: Annotated[
         bool, typer.Option("--json", help=HELP.roadmap.plan_recheck_json)
     ] = False,
@@ -1128,24 +1158,37 @@ def plan_recheck_cmd(
     """Judge each change folder on the default branch again, with one result for each. With a
     branch, compare its refusals with those of the default branch. With --branches, judge the change
     folder of each open plan branch, and with --confirm, rebase, rewrite and push it. With
-    --confirm, write the rewrite of each `rewrite` folder to the working tree of --source."""
+    --confirm, write the rewrite of each `rewrite` folder to the working tree of --source. With
+    --base, judge only the folders that the branch changes from the base, with the rules of the
+    stage plan, and exit 1 when one is not ok (#6705)."""
     _one_mode(dry_run=dry_run, confirm=confirm)
-    if confirm and source is None:
-        _refuse(MESSAGES.roadmap.plan_rewrite_need_source)
-    if branches and branch is not None:
-        _refuse(MESSAGES.roadmap.plan_recheck_branches_with_branch)
-    if branches and json_output:
-        _refuse(MESSAGES.roadmap.plan_recheck_branches_json)
+    _refuse_recheck_options(
+        source=source,
+        branch=branch,
+        branches=branches,
+        base=base,
+        candidate=candidate,
+        json_output=json_output,
+        confirm=confirm,
+    )
     target = _target(repo)
     from devops_cli.openspec.tool import isolated_openspec
-    from devops_cli.roadmap.plan_recheck import recheck_plans, render_recheck
+    from devops_cli.roadmap.clone_git import default_branch
+    from devops_cli.roadmap.plan_recheck import (
+        GIT_OPERATION,
+        ListingIssues,
+        recheck_plans,
+        render_recheck,
+    )
     from devops_cli.roadmap.plan_rewrite import write_rewrite
     from devops_cli.roadmap.request_plan import branches_requests, plan_recheck_requests
     from devops_cli.roadmap.run import model_clone
 
     if dry_run or is_dry_run():
         reads, writes = (
-            branches_requests(target) if branches else plan_recheck_requests(target, branch)
+            branches_requests(target)
+            if branches
+            else plan_recheck_requests(target, branch, base=base, listing=issues is not None)
         )
         render_dry_run("plan-recheck", target, reads, writes)
         return
@@ -1153,13 +1196,28 @@ def plan_recheck_cmd(
         _recheck_branches(target, source, confirm=confirm)
         return
     with _exit_on_failure("Could not check the plans again"):
-        _, store = _open_store(target)
+        issue_reads = (
+            ListingIssues.parse(issues.read_bytes())
+            if issues is not None
+            else _open_store(target)[1]
+        )
+        clone = source or model_clone(target)
         with isolated_openspec() as tool:
-            recheck = recheck_plans(source or model_clone(target), store, tool=tool, branch=branch)
+            recheck = recheck_plans(
+                clone,
+                issue_reads,
+                tool=tool,
+                branch=branch,
+                base=base,
+                default=None if base is None else default_branch(clone, operation=GIT_OPERATION),
+                candidate=None if candidate is None else candidate.read_text(encoding="utf-8"),
+            )
     if json_output:
         write_stdout(json.dumps(recheck.as_dict()) + "\n")
     else:
         write_stdout(render_recheck(recheck) + "\n")
+    if base is not None and recheck.branch is not None and recheck.branch.failed:
+        raise typer.Exit(1)
     if confirm and source is not None:
         with _exit_on_failure("Could not write the rewritten plans"):
             rewrites = [r.rewrite for r in recheck.records if r.rewrite is not None]

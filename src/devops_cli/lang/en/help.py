@@ -2172,6 +2172,21 @@ class RoadmapCommandHelp:
         "A ref of the clone, such as HEAD or origin/<branch>. The command judges its change "
         "folders on its own tree and compares them with the default branch."
     )
+    plan_recheck_base: str = (
+        "A commit, with --branch: make no fetch, read no ref of the default branch, and judge "
+        "only the change folders that the branch changes from this commit, with the rules of the "
+        "stage plan. The command exits 1 when one of these folders is not ok. The stage agent "
+        "runs it on its clone."
+    )
+    plan_recheck_candidate: str = (
+        "The body candidate of the stage agent, with --base: the line '# <summary>', then the "
+        "text of the body. The title and the body rules judge the texts that the stage Job "
+        "builds from it."
+    )
+    plan_recheck_issues: str = (
+        "An issue listing, a JSON list of issues with the number, the title, the URL and the "
+        "state: the command reads the issues from it and opens no store."
+    )
     plan_recheck_branches: str = (
         "Judge the change folder of each open draft plan pull request whose base is the default "
         "branch. Without --confirm, it prints the result of each branch and pushes nothing. With "

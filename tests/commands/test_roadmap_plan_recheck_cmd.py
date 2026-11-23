@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -13,6 +14,7 @@ from typer.testing import CliRunner
 
 from devops_cli.commands.roadmap import app
 from devops_cli.roadmap.stage.stage_change import render_change
+from devops_cli.roadmap.stores.store import ItemField, install_roadmap_store
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json, pull_request_payload
 from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
@@ -431,3 +433,143 @@ def test_the_branches_option_takes_no_json(stage_repo: StageRepo) -> None:
 
     assert result.exit_code == 1
     assert "takes no --json" in result.output
+
+
+# A run with a base, a candidate and an issue listing (#6705): the check of the stage agent.
+MISSING_READ = "src/devops_cli/missing.py"
+ISSUE_TITLE = "fix(roadmap): keep the last comment"
+
+
+def _refused_plan() -> dict[str, str]:
+    """The stock plan of the item, whose group reads a file that no commit holds."""
+    group = make_stage_proposal().groups[0].model_copy(update={"reads": [MISSING_READ]})
+    return render_change(
+        CHANGE,
+        make_stage_proposal(groups=[group]),
+        {"comment-thread"},
+        created=datetime(2026, 11, 4, tzinfo=UTC).date(),
+    )
+
+
+def _base_branch(repo: StageRepo, files: Mapping[str, str]) -> str:
+    """Commit `files` on the local branch `topic` from `main`, and give the commit of `main`."""
+    base = repo.git("rev-parse", "main")
+    repo.git("switch", "-q", "-c", "topic")
+    for path, text in files.items():
+        (repo.clone / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo.clone / path).write_text(text, encoding="utf-8")
+    repo.git("add", "-A")
+    repo.git("commit", "-q", "-m", "plan")
+    repo.git("switch", "-q", "main")
+    return base
+
+
+def _base_run(repo: StageRepo, base: str, *extra: str) -> Result:
+    args = [
+        "plan-recheck",
+        "--repo",
+        REPO,
+        "--source",
+        str(repo.clone),
+        "--branch",
+        "topic",
+        "--base",
+        base,
+        *extra,
+    ]
+    return runner.invoke(app, args, catch_exceptions=False)
+
+
+@pytest.fixture
+def base_repo(
+    stage_repo: StageRepo, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
+) -> StageRepo:
+    """A clone whose `origin` refuses each fetch; the OpenSpec check accepts the change."""
+    openspec_fake.script(validate_args(CHANGE), 0, VALID_REPORT)
+    stage_repo.git("remote", "set-url", "origin", str(stage_repo.clone.parent / "gone.git"))
+    monkeypatch.chdir(stage_repo.clone)
+    return stage_repo
+
+
+def test_a_base_run_exits_1_for_a_refused_folder_of_the_branch(
+    base_repo: StageRepo, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    roadmap_store.seed_issue(ISSUE_TITLE, fields={ItemField.PRIORITY: "P1-High"})
+    base = _base_branch(base_repo, _refused_plan())
+
+    result = _base_run(base_repo, base)
+
+    assert result.exit_code == 1, result.output
+    assert f"new-plan {CHANGE}" in result.output
+    assert f"Folders of `topic` that are not ok against the base {base}: {CHANGE}." in result.output
+
+
+def test_a_base_run_puts_the_failed_folders_in_the_json_of_the_branch(
+    base_repo: StageRepo, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    roadmap_store.seed_issue(ISSUE_TITLE, fields={ItemField.PRIORITY: "P1-High"})
+    base = _base_branch(base_repo, _refused_plan())
+
+    result = _base_run(base_repo, base, "--json")
+
+    assert result.exit_code == 1
+    report = json.loads(result.output)
+    assert report["folders"] == []
+    assert report["branch"]["failed"] == [CHANGE]
+    assert "paths" in report["branch"]["gates"]
+
+
+def test_a_run_with_a_listing_opens_no_store(
+    base_repo: StageRepo, roadmap_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    roadmap_store.seed_issue(ISSUE_TITLE, fields={ItemField.PRIORITY: "P1-High"})
+    base = _base_branch(base_repo, _plan())
+    by_store = _base_run(base_repo, base, "--json")
+    listing = tmp_path / "issues.json"
+    listing.write_text(
+        json.dumps([{"number": ISSUE, "title": ISSUE_TITLE, "url": "u"}]),
+        encoding="utf-8",
+    )
+    opened: list[str] = []
+
+    def refuse(repo: str, **_: object) -> InMemoryRoadmapStore:
+        opened.append(repo)
+        raise AssertionError("the run opened a store")
+
+    install_roadmap_store(refuse)
+
+    by_listing = _base_run(base_repo, base, "--json", "--issues", str(listing))
+
+    assert by_listing.exit_code == by_store.exit_code == 0, by_listing.output
+    assert json.loads(by_listing.output) == json.loads(by_store.output)
+    assert opened == []
+
+
+def test_the_dry_run_of_a_base_and_a_listing_lists_no_issue_read_and_no_fetch(
+    stage_repo: StageRepo, github_api: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(stage_repo.clone)
+    base = stage_repo.git("rev-parse", "main")
+
+    result = runner.invoke(
+        app,
+        [
+            "plan-recheck",
+            "--repo",
+            REPO,
+            "--branch",
+            "HEAD",
+            "--base",
+            base,
+            "--issues",
+            "issues.json",
+            "--dry-run",
+        ],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "fetch" not in result.output
+    assert f"/repos/{REPO}/issues" not in result.output
+    assert f"diff --name-only {base}..HEAD" in result.output
+    assert github_api.sent == []

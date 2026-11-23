@@ -4,27 +4,27 @@
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/planned.py`, `src/devops_cli/roadmap/plan_check.py`, `src/devops_cli/roadmap/stage/stage_removal_references.py`, `tests/roadmap/implement/test_roadmap_implement_amend.py`. Changes: `src/devops_cli/roadmap/plan_recheck.py`, `src/devops_cli/roadmap/stage/stage_candidate.py` (new), `src/devops_cli/lang/en/messages.py`, `tests/roadmap/test_roadmap_plan_recheck.py`.
 
-- [ ] 1.1 The failing cases are new in `tests/roadmap/test_roadmap_plan_recheck.py`. They cover the folders from a base and no fetch from an `origin` that refuses. They cover no read of a default ref in a repository with no `origin/HEAD`. They also cover the plan-check rules, a test reference of a removal, a closing keyword of the candidate, and the listing reads
+- [x] 1.1 The failing cases are new in `tests/roadmap/test_roadmap_plan_recheck.py`. They cover the folders from a base and no fetch from an `origin` that refuses. They cover no read of a default ref in a repository with no `origin/HEAD`. They also cover the plan-check rules, a test reference of a removal, a closing keyword of the candidate, and the listing reads
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` fails on the base
-- [ ] 1.2 Give `recheck_plans` in `src/devops_cli/roadmap/plan_recheck.py` a `base`, the default branch and a candidate. With a base it makes no fetch, and takes the folders from `git diff --name-only <base>..<branch>`. Each judge adds `staged_problems` on the title and the body of `stage_candidate.py` (new), and the test references of `scan_removal_references`. Add `BranchRecheck.failed`, the reads protocol, `ListingIssues`, and the lines in `src/devops_cli/lang/en/messages.py`
+- [x] 1.2 Give `recheck_plans` in `src/devops_cli/roadmap/plan_recheck.py` a `base`, the default branch and a candidate. With a base it makes no fetch, and takes the folders from `git diff --name-only <base>..<branch>`. Each judge adds `staged_problems` on the title and the body of `stage_candidate.py` (new), and the test references of `scan_removal_references`. Add `BranchRecheck.failed`, the reads protocol, `ListingIssues`, and the lines in `src/devops_cli/lang/en/messages.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_plan_recheck.py` passes
 
 ## 2. Take a base, a candidate and an issue listing on plan-recheck
 
 Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`. Changes: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`, `docs/commands/roadmap.md`.
 
-- [ ] 2.1 The failing cases are new in `tests/commands/test_roadmap_plan_recheck_cmd.py`: `test_a_base_run_exits_1_for_a_refused_folder_of_the_branch`, `test_a_base_run_puts_the_failed_folders_in_the_json_of_the_branch` and `test_a_run_with_a_listing_opens_no_store`
+- [x] 2.1 The failing cases are new in `tests/commands/test_roadmap_plan_recheck_cmd.py`: `test_a_base_run_exits_1_for_a_refused_folder_of_the_branch`, `test_a_base_run_puts_the_failed_folders_in_the_json_of_the_branch` and `test_a_run_with_a_listing_opens_no_store`
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` fails on the base
-- [ ] 2.2 Add `--base <sha>`, `--candidate <file>` and `--issues <file>` to `plan_recheck_cmd` in `src/devops_cli/commands/roadmap.py`, with their help in `src/devops_cli/lang/en/help.py`. With `--base`, the command exits 1 when `branch.failed` holds a folder. `--json` puts the folders in `branch.failed` with no other line. Run `uv run devops docs generate`
+- [x] 2.2 Add `--base <sha>`, `--candidate <file>` and `--issues <file>` to `plan_recheck_cmd` in `src/devops_cli/commands/roadmap.py`, with their help in `src/devops_cli/lang/en/help.py`. With `--base`, the command exits 1 when `branch.failed` holds a folder. `--json` puts the folders in `branch.failed` with no other line. Run `uv run devops docs generate`
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` passes
 
 ## 3. List the reads of a base and a listing in the dry run
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/request_plan.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`. Changes: `src/devops_cli/roadmap/request_plan.py`, `tests/commands/test_roadmap_plan_recheck_cmd.py`.
 
-- [ ] 3.1 The failing case is the new `test_the_dry_run_of_a_base_and_a_listing_lists_no_issue_read_and_no_fetch` in `tests/commands/test_roadmap_plan_recheck_cmd.py`
+- [x] 3.1 The failing case is the new `test_the_dry_run_of_a_base_and_a_listing_lists_no_issue_read_and_no_fetch` in `tests/commands/test_roadmap_plan_recheck_cmd.py`
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` fails on the base
-- [ ] 3.2 Make `plan_recheck_requests` of `src/devops_cli/roadmap/request_plan.py` drop the fetch for a base and the issue reads for a listing
+- [x] 3.2 Make `plan_recheck_requests` of `src/devops_cli/roadmap/request_plan.py` drop the fetch for a base and the issue reads for a listing
   - Verification: `$ uv run devops ci test tests/commands/test_roadmap_plan_recheck_cmd.py` passes
 
 ## 4. Prepare the run of the stage agent

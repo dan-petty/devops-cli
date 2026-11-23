@@ -33,21 +33,38 @@ refused too (#3414). It does not measure the groups, scan the files for secrets 
 staging title, and it calls no model.
 It judges the plan on the tree of the default branch or of the branch, and not on the commit that
 the job staged. So a plan that it accepts can still fail the job.
+
+**A run with a base** (#6705) is the check of the stage agent and of `publish` of the stage Job.
+With `base`, a commit, and the name of the default branch, the pass makes no fetch and reads no ref
+of the default branch: it judges only the folders that `git diff --name-only <base>..<branch>`
+names, on the tree of the branch. The judge of each folder adds the rules of the stage plan: the
+rules of `staged_problems` (the title, the body, the gates, the size of each group and the
+phrases) on the title and the body that `stage_candidate` builds from the body candidate, and the
+test references of the removal scan. `BranchRecheck.failed` names each folder that is not `ok`.
+
+The pass reads the issues through `RecheckReads`: a store, or `ListingIssues`, the issue listing
+that `prepare` of the stage Job writes, which opens no store.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
-from devops_cli.config.constants import CONST_OPENSPEC_CHANGES_DIR
+from pydantic import TypeAdapter
+
+from devops_cli.config.constants import CONST_OPENSPEC_CHANGE_DIR_RE, CONST_OPENSPEC_CHANGES_DIR
+from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import RoadmapStageError
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.clone_git import git
+from devops_cli.roadmap.plan_check import PlanFolder, staged_problems
 from devops_cli.roadmap.plan_read import (
     PlanReadError,
     created_paths,
@@ -59,7 +76,8 @@ from devops_cli.roadmap.plan_read import (
 )
 from devops_cli.roadmap.plan_rewrite import PlanRewrite, rewrite_plan
 from devops_cli.roadmap.planned import PlannedChanges, planned_changes_at, read_planned_changes
-from devops_cli.roadmap.stage.stage_change import check_gates
+from devops_cli.roadmap.stage.stage_candidate import Candidate, plan_texts, read_candidate
+from devops_cli.roadmap.stage.stage_change import StageProposal, check_gates
 from devops_cli.roadmap.stage.stage_findings import READ_GATE
 from devops_cli.roadmap.stage.stage_paths import (
     StagedTree,
@@ -67,16 +85,60 @@ from devops_cli.roadmap.stage.stage_paths import (
     record_test_references,
 )
 from devops_cli.roadmap.stage.stage_registry import RegistryCount, registry_table
+from devops_cli.roadmap.stage.stage_removal_references import scan_removal_references
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.step_files import parse_task_groups
-from devops_cli.roadmap.stores.store import GitHubState, Item, RoadmapStore
+from devops_cli.roadmap.stores.store import GitHubState, IssueRecord, Item, item_of
 
 GIT_OPERATION: Final[str] = "roadmap.plan-recheck"
 # The gates of a refusal that `check_gates` does not name (#3498).
 GATE_READ: Final[str] = READ_GATE
 GATE_OPENSPEC: Final[str] = "openspec"
+# The gates of the rules that a run with a base adds (#6705): a problem of the body candidate,
+# and a test that names a name that the plan removes and that no task handles.
+GATE_CANDIDATE: Final[str] = "candidate"
+GATE_REMOVAL: Final[str] = "removal-reference"
 _DESIGN: Final[str] = "design.md"
 _TASKS: Final[str] = "tasks.md"
+_ACTIVE: Final[re.Pattern[str]] = re.compile(CONST_OPENSPEC_CHANGE_DIR_RE)
+_LISTING: TypeAdapter[tuple[IssueRecord, ...]] = TypeAdapter(tuple[IssueRecord, ...])
+
+
+class RecheckReads(Protocol):
+    """What the pass reads of the issues, and nothing more: a `RoadmapStore` has both reads, and
+    so has `ListingIssues` (#6705)."""
+
+    def open_items(self) -> list[Item]:
+        """The open Items."""
+
+    def item(self, number: int) -> Item | None:
+        """The Item numbered `number`, or None."""
+
+
+@dataclass(frozen=True)
+class ListingIssues:
+    """The reads of the pass from an issue listing, a list of `IssueRecord`, with no store: the
+    listing that `prepare` of the stage Job writes (#6705)."""
+
+    records: tuple[IssueRecord, ...]
+
+    @classmethod
+    def parse(cls, data: str | bytes) -> ListingIssues:
+        """The listing of the JSON `data`, a list of `IssueRecord`."""
+        return cls(_LISTING.validate_json(data))
+
+    def dump(self) -> bytes:
+        """The listing as JSON."""
+        return _LISTING.dump_json(self.records)
+
+    def open_items(self) -> list[Item]:
+        return [item_of(record) for record in self.records if record.state is GitHubState.OPEN]
+
+    def item(self, number: int) -> Item | None:
+        for record in self.records:
+            if record.number == number:
+                return item_of(record)
+        return None
 
 
 class PlanResult(StrEnum):
@@ -152,15 +214,22 @@ def _gate_counts(records: Iterable[PlanRecord]) -> dict[str, int]:
 
 @dataclass(frozen=True)
 class BranchRecheck:
-    """The folders of the branch `ref`, judged on the tree of the branch."""
+    """The folders of the branch `ref`, judged on the tree of the branch. `base` is the commit of a
+    run with a base, whose records are only the folders that the branch changes from it."""
 
     ref: str
     records: tuple[PlanRecord, ...]
+    base: str | None = None
 
     @property
     def unread(self) -> tuple[str, ...]:
         """The folders that the plan reader refuses: they are not read."""
         return tuple(record.folder for record in self.records if not record.readable)
+
+    @property
+    def failed(self) -> tuple[str, ...]:
+        """The folders whose result is not `ok`: a run with a base fails on each (#6705)."""
+        return tuple(record.folder for record in self.records if record.result is not PlanResult.OK)
 
 
 @dataclass(frozen=True)
@@ -225,7 +294,7 @@ class PlanRecheck:
         }
         if self.branch is not None:
             label = MESSAGES.roadmap.plan_recheck_case
-            report["branch"] = {
+            branch: dict[str, object] = {
                 "ref": self.branch.ref,
                 "folders": [record.as_dict() for record in self.branch.records],
                 "gates": _gate_counts(self.branch.records),
@@ -234,6 +303,9 @@ class PlanRecheck:
                 ],
                 "not_read": list(self.branch.unread),
             }
+            if self.branch.base is not None:
+                branch["failed"] = list(self.branch.failed)
+            report["branch"] = branch
         return report
 
 
@@ -255,6 +327,16 @@ class _Pass:
     tool: OpenSpecTool
     test_search: Callable[[str], Sequence[str]]
     registry: Sequence[RegistryCount]
+    stage: _StageRules | None = None
+
+
+@dataclass(frozen=True)
+class _StageRules:
+    """The rules of the stage plan that a run with a base adds (#6705): the body candidate, or
+    None, and the step budget of a group."""
+
+    candidate: Candidate | None
+    budget: int
 
 
 def _refused(
@@ -380,6 +462,10 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
     if report := validate_change(shared.tool, shared.source, folder, judged):
         message = texts.plan_recheck_openspec.format(problem=" ".join(report.split()))
         refusals.append(Refusal(folder, GATE_OPENSPEC, message))
+    if shared.stage is not None:
+        refusals.extend(
+            _stage_refusals(shared, shared.stage, issue, folder, judged, proposal, refusals)
+        )
     if refusals:
         return _refused(folder, issue, refusals, readable=readable, verified=verified)
     if rewrite.changes:
@@ -395,6 +481,58 @@ def _record(shared: _Pass, issue: int, folder: str) -> PlanRecord:
     return PlanRecord(folder, issue, PlanResult.OK, verified=verified)
 
 
+def _stage_refusals(
+    shared: _Pass,
+    rules: _StageRules,
+    issue: int,
+    folder: str,
+    files: dict[str, str],
+    proposal: StageProposal,
+    held: Sequence[Refusal],
+) -> list[Refusal]:
+    """The refusals of the rules of the stage plan that a run with a base adds (#6705): the
+    problems of the body candidate, the problems of `staged_problems` on the title and the body
+    that `stage_candidate` builds, and each test reference of the removal scan that no task
+    handles. A problem whose message `held` holds already is no second refusal."""
+    item = shared.open_items.get(issue)
+    title, body = (item.title, item.body) if item is not None else ("", "")
+    try:
+        texts = plan_texts(issue, folder, title, rules.candidate, proposal.why)
+    except RoadmapStageError as exc:
+        return [Refusal(folder, GATE_CANDIDATE, str(exc))]
+    plan = PlanFolder(
+        root=f"{CONST_OPENSPEC_CHANGES_DIR}/{folder}",
+        files=files,
+        checkout=shared.source,
+        tree=shared.tree,
+        known=shared.known,
+        requirements=shared.requirements,
+        base_scenarios=shared.base_scenarios,
+        item_title=title,
+        item_body=body,
+        budget=rules.budget,
+        registry=shared.registry,
+    )
+    messages = {refusal.message for refusal in held}
+    found = [Refusal(folder, GATE_CANDIDATE, problem) for problem in texts.problems]
+    found.extend(
+        Refusal(folder, problem.rule, problem.message)
+        for problem in staged_problems(plan, number=issue, title=texts.title, body=texts.body)
+        if problem.message not in messages
+    )
+    scan = scan_removal_references(shared.source, files)
+    found.extend(
+        Refusal(
+            folder,
+            GATE_REMOVAL,
+            MESSAGES.roadmap.stage_problem_unhandled_test_reference.format(path=path, name=name),
+        )
+        for name, paths in sorted(scan.unhandled_tests.items())
+        for path in sorted(paths)
+    )
+    return found
+
+
 def _judge(
     source: Path,
     planned: PlannedChanges,
@@ -404,6 +542,7 @@ def _judge(
     open_items: dict[int, Item],
     closed: frozenset[int],
     tool: OpenSpecTool,
+    stage: _StageRules | None = None,
 ) -> tuple[PlanRecord, ...]:
     """The record of each active folder of `planned`, judged on the tree at `rev`."""
     paths = tree_files(source, rev, operation=GIT_OPERATION)
@@ -423,12 +562,13 @@ def _judge(
         tool=tool,
         test_search=_test_search(source, rev),
         registry=registry_table(source),
+        stage=stage,
     )
     return tuple(_record(shared, issue, folder) for issue, folder in sorted(planned.active.items()))
 
 
 def _closed_issues(
-    store: RoadmapStore, open_items: dict[int, Item], issues: Iterable[int]
+    store: RecheckReads, open_items: dict[int, Item], issues: Iterable[int]
 ) -> frozenset[int]:
     """The issues among `issues` that are closed. An issue that is not open and is no Item is not
     closed: the folder is judged as the folder of an open issue."""
@@ -440,12 +580,92 @@ def _closed_issues(
     return frozenset(closed)
 
 
+def _changed_folders(source: Path, base: str, branch: str) -> frozenset[str]:
+    """The names of the change folders that `git diff --name-only <base>..<branch>` names."""
+    listing = git(
+        source,
+        "diff",
+        "--name-only",
+        "--no-renames",
+        f"{base}..{branch}",
+        "--",
+        f"{CONST_OPENSPEC_CHANGES_DIR}/",
+        operation=GIT_OPERATION,
+    )
+    found: set[str] = set()
+    for path in listing.splitlines():
+        root = "/".join(path.split("/")[:3])
+        if _ACTIVE.fullmatch(root):
+            found.add(root.rpartition("/")[2])
+    return frozenset(found)
+
+
+def _recheck_from_base(
+    source: Path,
+    reads: RecheckReads,
+    *,
+    tool: OpenSpecTool,
+    branch: str,
+    base: str,
+    default: str,
+    candidate: str | None,
+) -> PlanRecheck:
+    """The run with a base, as the module says."""
+    changed = _changed_folders(source, base, branch)
+    on_branch = planned_changes_at(source, branch, default, operation=GIT_OPERATION)
+    planned = PlannedChanges(
+        default,
+        {issue: folder for issue, folder in on_branch.active.items() if folder in changed},
+        {},
+    )
+    open_items = {item.number: item for item in reads.open_items()}
+    closed = _closed_issues(reads, open_items, planned.active)
+    rules = _StageRules(
+        None if candidate is None else read_candidate(candidate),
+        load_settings().roadmap.stage.step_tokens,
+    )
+    judged = _judge(
+        source,
+        planned,
+        branch,
+        branch,
+        open_items=open_items,
+        closed=closed,
+        tool=tool,
+        stage=rules,
+    )
+    return PlanRecheck(default, (), BranchRecheck(branch, judged, base))
+
+
 def recheck_plans(
-    source: Path, store: RoadmapStore, *, tool: OpenSpecTool, branch: str | None = None
+    source: Path,
+    store: RecheckReads,
+    *,
+    tool: OpenSpecTool,
+    branch: str | None = None,
+    base: str | None = None,
+    default: str | None = None,
+    candidate: str | None = None,
 ) -> PlanRecheck:
     """Judge each change folder on the default branch of the clone at `source` again. `store`
     tells which issues are closed. With `branch`, a ref of the clone, the pass judges the folders
-    of that ref on its own tree too (#3498). The pass reads and writes nothing else."""
+    of that ref on its own tree too (#3498). The pass reads and writes nothing else.
+
+    With `base`, a commit, and `default`, the name of the default branch, the pass is a run with a
+    base, as the module says, on `branch` (`HEAD` when None). `candidate` is the text of the body
+    candidate of the stage agent."""
+    if base is not None:
+        if default is None:
+            raise ValueError("A run with a base needs the name of the default branch")
+        return _recheck_from_base(
+            source,
+            store,
+            tool=tool,
+            branch=branch or "HEAD",
+            base=base,
+            default=default,
+            candidate=candidate,
+        )
     planned = read_planned_changes(source, operation=GIT_OPERATION)
     rev = f"origin/{planned.default}"
     on_branch = (
@@ -563,6 +783,14 @@ def _render_branch(recheck: PlanRecheck, branch: BranchRecheck) -> list[str]:
     )
     if branch.unread:
         lines.append(texts.plan_recheck_unread.format(ref=ref, folders=", ".join(branch.unread)))
+    if branch.base is not None:
+        lines.append(
+            texts.plan_recheck_failed.format(
+                ref=ref, base=branch.base, folders=", ".join(branch.failed)
+            )
+            if branch.failed
+            else texts.plan_recheck_no_failed.format(ref=ref, base=branch.base)
+        )
     return lines
 
 
@@ -589,10 +817,14 @@ def render_recheck(recheck: PlanRecheck) -> str:
 
 
 __all__ = [
+    "GATE_CANDIDATE",
+    "GATE_REMOVAL",
     "BranchRecheck",
+    "ListingIssues",
     "PlanRecheck",
     "PlanRecord",
     "PlanResult",
+    "RecheckReads",
     "Refusal",
     "recheck_plans",
     "refusals_by_gate",

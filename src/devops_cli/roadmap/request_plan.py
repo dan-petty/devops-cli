@@ -1326,15 +1326,33 @@ def explain_requests(
 
 
 def plan_recheck_requests(
-    repo: str, branch: str | None = None
+    repo: str, branch: str | None = None, *, base: str | None = None, listing: bool = False
 ) -> tuple[tuple[PlannedRequest, ...], tuple[PlannedRequest, ...]]:
     """What `devops roadmap plan-recheck` reads, in order (#3492): the default branch of the
     clone, the files of the change folders, the open issues, and the issue of each folder that is
     not open. With `branch`, a ref of the clone, it also reads the files of that ref (#3498). It
-    makes no write and calls no model."""
+    makes no write and calls no model. With `base`, a commit, it reads no default branch and makes
+    no fetch: it lists the change folders that the branch changes from the base and reads the
+    files of the branch. With `listing`, it reads the issues from a file and sends no issue read
+    (#6705)."""
     texts = MESSAGES.roadmap
     clone = "<model-clone>"
     store = StoreRequests(repo)
+    issue_reads: tuple[PlannedRequest, ...] = ()
+    if not listing:
+        closed = within(
+            store.issue(_p("item")),
+            texts.plan_recheck_request_closed_condition,
+            repeat=texts.plan_repeat["recheck_folder"],
+        )
+        issue_reads = (*store.open_items(), *closed)
+    if base is not None and branch is not None:
+        changed = PlannedRequest(
+            "git",
+            texts.plan_recheck_request_changed,
+            argv=("git", "-C", clone, "diff", "--name-only", f"{base}..{branch}"),
+        )
+        return (changed, *_branch_reads(clone, branch), *issue_reads), ()
     git_reads = [
         PlannedRequest(
             "git",
@@ -1360,31 +1378,32 @@ def plan_recheck_requests(
         ),
     ]
     if branch is not None:
-        git_reads += [
-            PlannedRequest(
+        git_reads += _branch_reads(clone, branch)
+    return (*git_reads, *issue_reads), ()
+
+
+def _branch_reads(clone: str, branch: str) -> list[PlannedRequest]:
+    """The reads of the tree and of the change folders of the ref `branch` of the clone."""
+    texts = MESSAGES.roadmap
+    return [
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_branch_tree,
+            argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", branch),
+        ),
+        PlannedRequest(
+            "git",
+            texts.plan_recheck_request_branch_files,
+            argv=(
                 "git",
-                texts.plan_recheck_request_branch_tree,
-                argv=("git", "-C", clone, "ls-tree", "-r", "--name-only", branch),
+                "-C",
+                clone,
+                "show",
+                f"{branch}:openspec/changes/{_p('change')}/<file>",
             ),
-            PlannedRequest(
-                "git",
-                texts.plan_recheck_request_branch_files,
-                argv=(
-                    "git",
-                    "-C",
-                    clone,
-                    "show",
-                    f"{branch}:openspec/changes/{_p('change')}/<file>",
-                ),
-                repeat=texts.plan_repeat["recheck_folder"],
-            ),
-        ]
-    closed = within(
-        store.issue(_p("item")),
-        texts.plan_recheck_request_closed_condition,
-        repeat=texts.plan_repeat["recheck_folder"],
-    )
-    return (*git_reads, *store.open_items(), *closed), ()
+            repeat=texts.plan_repeat["recheck_folder"],
+        ),
+    ]
 
 
 def branches_requests(

@@ -4435,6 +4435,11 @@ class RoadmapMessages:
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."
     )
+    # The body of a plan when no text of the chain fits the plan form (#6705).
+    stage_candidate_no_body: str = (
+        "No text gives a body of the plan pull request of #{number} that fits the plan form: the "
+        "candidate, the Why of the proposal and the issue title. {error}"
+    )
     # The problem that the stage job gives the body rewrite for a plan body over its room (#6319).
     stage_body_long: str = (
         "The text has {length} characters, and the limit is {limit}. Write a shorter text that "
@@ -5873,6 +5878,10 @@ class RoadmapMessages:
     plan_recheck_new: str = "New refusals on `{ref}`: {count}."
     plan_recheck_new_line: str = "  {label}: {folder} [{gate}] {message}"
     plan_recheck_unread: str = "Not read on `{ref}`: {folders}."
+    plan_recheck_failed: str = (
+        "Folders of `{ref}` that are not ok against the base {base}: {folders}."
+    )
+    plan_recheck_no_failed: str = "Each folder of `{ref}` is ok against the base {base}."
     plan_recheck_request_fetch: str = "update the default branch of the model clone"
     plan_recheck_request_tree: str = "list the files of the default branch"
     plan_recheck_request_files: str = "read the files of each change folder"
@@ -5880,6 +5889,7 @@ class RoadmapMessages:
     plan_recheck_request_branch_files: str = "read the files of each change folder of the branch"
     plan_recheck_request_closed: str = "the issue of a folder that is not in the open issues"
     plan_recheck_request_closed_condition: str = "the issue is not open"
+    plan_recheck_request_changed: str = "list the files that the branch changes from the base"
     # The open plan branches of `devops roadmap plan-recheck --branches` (#3969).
     plan_branches_no_folder: str = (
         "The head of pull request #{number} holds no change folder of the plan of issue #{issue}, "
@@ -5931,6 +5941,12 @@ class RoadmapMessages:
     )
     plan_recheck_branches_json: str = (
         "The --branches pass prints one line for each open plan branch, so it takes no --json."
+    )
+    plan_recheck_base_needs_branch: str = (
+        "--base needs --branch: the run judges the folders that the branch changes from the base."
+    )
+    plan_recheck_candidate_needs_base: str = (
+        "--candidate needs --base: only a run with a base judges the texts of the stage plan."
     )
     # The dry runs of `devops roadmap` (#412, #1125): the requests a run makes, none made.
     plan_dry_run: str = (
