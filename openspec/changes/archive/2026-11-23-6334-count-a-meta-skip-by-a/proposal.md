@@ -16,7 +16,7 @@ The `devops infra plan` parser counts a `meta: end_host` skip by a false `when` 
 - A plan whose only skipped task is a `meta: end_host` with a false condition shows 0 unchecked tasks and requires no elevated agent access level.
 
 ## Feasibility
-- Observed in `dan-petty/homelab#60`: `devops infra plan` produced `unchecked: Skip node that is NotReady or cordoned (ansible.builtin.meta)` because Ansible emitted `{"skip_reason": "end_host conditional evaluated to False, continuing execution for condor.lan"}` and no `false_condition`.
+- Observed in `dan-petty/homelab#60`: `devops infra plan` produced `unchecked: Skip node that is NotReady or cordoned (ansible.builtin.meta)` because Ansible emitted `{"skip_reason": "end_host conditional evaluated to False, continuing execution for node1.example.com"}` and no `false_condition`.
 
 ## Existing Tool Considered
 - The project owns the Ansible event parsing in `src/devops_cli/infra/plan.py`. No external tool parses these Ansible callback JSON strings for plan generation.

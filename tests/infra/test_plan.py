@@ -194,11 +194,11 @@ def test_a_meta_end_host_skip_by_a_false_when_is_checked(tmp_path: Path) -> None
         "event": "runner_on_skipped",
         "counter": 1,
         "stdout": (
-            'skipping: [condor.lan] => {"skip_reason": "end_host conditional evaluated to False,'
-            ' continuing execution for condor.lan"}'
+            'skipping: [node1.example.com] => {"skip_reason": "end_host conditional evaluated to'
+            ' False, continuing execution for node1.example.com"}'
         ),
         "event_data": {
-            "host": "condor.lan",
+            "host": "node1.example.com",
             "task": "Skip node that is NotReady or cordoned",
             "task_path": "/repo/site.yaml:12",
             "resolved_action": "ansible.builtin.meta",
@@ -214,11 +214,11 @@ def test_a_conditional_result_false_skip_is_checked(tmp_path: Path) -> None:
         "event": "runner_on_skipped",
         "counter": 1,
         "stdout": (
-            'skipping: [condor.lan] => {"changed": false, "skip_reason": "Conditional result was'
-            ' False", "skipped": true}'
+            'skipping: [node1.example.com] => {"changed": false, "skip_reason": "Conditional'
+            ' result was False", "skipped": true}'
         ),
         "event_data": {
-            "host": "condor.lan",
+            "host": "node1.example.com",
             "task": "Skip node that is NotReady or cordoned",
             "task_path": "/repo/site.yaml:12",
             "resolved_action": "ansible.builtin.meta",
