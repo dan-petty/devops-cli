@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import inspect
 import io
 import itertools
 import re
@@ -978,6 +979,29 @@ class DocGenerator:
                     "A missing optional dependency now fails the docs stage, by design."
                 ) from exc
 
+    @staticmethod
+    def catalog_description(err_cls: type) -> str:
+        """Give the first paragraph of the docstring of `err_cls` on one line, with each bar escaped.
+
+        A row that held only the first line of the docstring ended in the middle of a sentence
+        (#6830). A class with no docstring gives its name.
+        """
+        paragraph = inspect.cleandoc(err_cls.__doc__ or "").split("\n\n")[0]
+        return " ".join(paragraph.split()).replace("|", "\\|") or err_cls.__name__
+
+    @staticmethod
+    def catalog_domain(module: str) -> str:
+        """Give the area of devops-cli that `module` belongs to, as the first name below the package.
+
+        A module of `devops_cli.exceptions` gives the name of its own module, and the package
+        itself gives `Core`. A class elsewhere gives its top package, such as `Github`, and not
+        its module path (#6830).
+        """
+        parts = module.split(".")[1:]
+        if parts[:1] == ["exceptions"]:
+            parts = parts[1:] or ["core"]
+        return parts[0].capitalize()
+
     def generate_error_catalog_docs(self) -> str:
         """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
         from devops_cli.exceptions.base import DevOpsCLIError
@@ -1024,15 +1048,9 @@ class DocGenerator:
         all_errs = sorted(get_all_subclasses(DevOpsCLIError), key=lambda c: c.__name__)
 
         for err_cls in all_errs:
-            doc = (err_cls.__doc__ or "").strip().split("\n")[0]
-            domain = (
-                err_cls.__module__.replace("devops_cli.exceptions.", "")
-                .replace("devops_cli.exceptions", "core")
-                .capitalize()
-            )
             lines.append(
-                f"| `{err_cls.__name__}` | `{err_cls.error_code}` | `{err_cls.exit_code}` | {domain} | "
-                f"{doc or err_cls.__name__} |"
+                f"| `{err_cls.__name__}` | `{err_cls.error_code}` | `{err_cls.exit_code}` | "
+                f"{self.catalog_domain(err_cls.__module__)} | {self.catalog_description(err_cls)} |"
             )
 
         lines.append("")
