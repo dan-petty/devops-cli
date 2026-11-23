@@ -13,8 +13,8 @@ Closes #6783. `devops repos onboard --all --plan` gives each pending change of t
 - The change fits one pull request.
 
 ## Capabilities
-- `repos-onboard`: ADDED requirements "The drift check reports the state of each repository" and "The drift check prints the state of each repository". MODIFIED requirement "The preflight stops a confirm", because an installation token has no OAuth scopes and GitHub refuses it `GET /user`.
-- `github-app-identity`: MODIFIED requirement "Each installation token asks only for the roadmap jobs' permissions", because a read-only process asks for the read set instead.
+- `repos-onboard`: ADDED requirements "The drift check reports the state of each repository", "The drift check prints the state of each repository" and "The preflight of an App token reads no user". MODIFIED requirement "The preflight stops a confirm", because it reads the OAuth scopes of a gh token only.
+- `github-app-identity`: ADDED requirement "A read-only process asks for read permissions only". MODIFIED requirement "Each installation token asks only for the roadmap jobs' permissions", because a read-only process asks for the read set instead.
 - `repos-drift-alerts` (new): the nightly Job and its three alerts.
 
 ## Impact

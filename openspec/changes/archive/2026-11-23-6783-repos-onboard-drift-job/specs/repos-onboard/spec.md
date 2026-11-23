@@ -22,10 +22,17 @@ After the reports, `devops repos onboard --all --plan` SHALL print one line for 
 - **WHEN** `devops repos onboard <owner>/<name> --plan` runs over an onboarded repository
 - **THEN** the collector gets no point of `devops_cli_repos_drift_rows`
 
+### Requirement: The preflight of an App token reads no user
+When the process acts as the GitHub App, row 0 SHALL send no `GET /user`, because GitHub refuses it to an installation token, and SHALL note that the token reports no OAuth scopes.
+
+#### Scenario: The drift check as the App
+- **WHEN** the process acts as the GitHub App, the fake GitHub refuses `GET /user` to an installation token, `service.repos` holds one onboarded repository, and `--all --plan` runs
+- **THEN** the fake GitHub gets no `GET /user`, row 0 is `present` with the reason `the token reports no OAuth scopes`, and each request is a GET or the token exchange
+
 ## MODIFIED Requirements
 
 ### Requirement: The preflight stops a confirm
-Row 0 SHALL read the OAuth scopes of a gh token and SHALL need `repo` and `workflow`. When the process acts as the GitHub App, row 0 SHALL send no `GET /user`, because GitHub refuses it to an installation token, and SHALL note that the token reports no OAuth scopes. Row 0 SHALL probe the rulesets of the repository, and a 403 on a private repository SHALL mark the Free plan limit (D2). It SHALL fail when the baseline or a secret of the repository names `SERVICE_APP_*`. With `--confirm`, a failed row 0 SHALL stop the run before the first write. For a repository that does not exist, row 0 SHALL check the scopes before row 1 creates it.
+Row 0 SHALL read the OAuth scopes of a gh token and SHALL need `repo` and `workflow`. It SHALL probe the rulesets of the repository, and a 403 on a private repository SHALL mark the Free plan limit (D2). It SHALL fail when the baseline or a secret of the repository names `SERVICE_APP_*`. With `--confirm`, a failed row 0 SHALL stop the run before the first write. For a repository that does not exist, row 0 SHALL check the scopes before row 1 creates it.
 
 #### Scenario: A token without workflow
 - **WHEN** the token holds the scope `repo` only and `--confirm` runs
@@ -34,7 +41,3 @@ Row 0 SHALL read the OAuth scopes of a gh token and SHALL need `repo` and `workf
 #### Scenario: A token without workflow and a create
 - **WHEN** the fake GitHub has no repository, the token holds the scope `repo` only and `--create --visibility public --confirm` runs
 - **THEN** row 0 is `failed`, row 1 is `skipped`, and the fake GitHub gets no write
-
-#### Scenario: The drift check as the App
-- **WHEN** the process acts as the GitHub App, the fake GitHub refuses `GET /user` to an installation token, `service.repos` holds one onboarded repository, and `--all --plan` runs
-- **THEN** the fake GitHub gets no `GET /user`, row 0 is `present` with the reason `the token reports no OAuth scopes`, and each request is a GET or the token exchange
