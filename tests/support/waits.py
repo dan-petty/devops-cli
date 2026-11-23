@@ -38,6 +38,18 @@ THREAD_HANDOFF_BOUND_SECONDS: Final[float] = 30.0
 POLL_INTERVAL_SECONDS: Final[float] = 0.01
 """How long `wait_until` sleeps between two reads of a condition that does not hold yet."""
 
+PARSED_TREE_BOUND_BYTES: Final[int] = 128 * 1024 * 1024
+"""The size bound for parsed source trees in bytes (#6475)."""
+
+PARSED_SOURCE_BOUND_BYTES: Final[int] = PARSED_TREE_BOUND_BYTES
+"""Alias for PARSED_TREE_BOUND_BYTES (#6475)."""
+
+ROUND_LOOP_BOUND_SECONDS: Final[float] = 60.0
+"""How long the service memory round loop runs before skipping in a generated tree (#6475)."""
+
+TEST_ROUND_LOOP_BOUND_SECONDS: Final[float] = ROUND_LOOP_BOUND_SECONDS
+"""Alias for ROUND_LOOP_BOUND_SECONDS (#6475)."""
+
 
 def wait_until(condition: Callable[[], bool], bound: float = THREAD_HANDOFF_BOUND_SECONDS) -> bool:
     """Whether `condition` came to hold within `bound` seconds, read again every poll interval

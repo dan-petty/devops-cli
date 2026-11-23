@@ -8,12 +8,14 @@ reads the trees of `tests/` (`tests/gate/tree.py`, #2164).
 from __future__ import annotations
 
 import ast
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import tests
+from tests.support.waits import PARSED_TREE_BOUND_BYTES
 
 _REPO_ROOT = Path(tests.__file__).resolve().parent.parent
 _PARSED_TREES: dict[Path, ast.Module] = {}
@@ -92,3 +94,24 @@ def parse_repo_trees(repo_root: Path | None = None) -> ParsedTreeMap:
 def parsed_source_trees() -> ParsedTreeMap:
     """Session fixture providing parsed AST modules for `src/` (#1749)."""
     return parse_source_trees()
+
+
+def tree_guard(
+    trees: Mapping[Any, ast.Module] | ParsedTreeMap,
+    *,
+    bound_bytes: int = PARSED_TREE_BOUND_BYTES,
+) -> ParsedTreeMap:
+    """Skip the test if the parsed source trees exceed the size bound (#6475)."""
+    total_bytes = 0
+    for path in trees:
+        try:
+            total_bytes += Path(path).stat().st_size
+        except OSError, ValueError, TypeError:
+            pass
+    if total_bytes > bound_bytes:
+        size_mib = total_bytes / (1024 * 1024)
+        pytest.skip(f"generated tree: parsed source passes 128 MiB ({size_mib:.0f} MiB)")
+    return trees if isinstance(trees, ParsedTreeMap) else ParsedTreeMap(trees)
+
+
+guard_parsed_trees = tree_guard
