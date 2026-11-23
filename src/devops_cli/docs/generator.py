@@ -7,13 +7,14 @@ import concurrent.futures
 import io
 import itertools
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from enum import Enum
 from pathlib import Path, PurePath
 from typing import Any, Literal, get_args, get_origin
 
 import click
 from pydantic import BaseModel, Field
+from pydantic.fields import FieldInfo
 
 from devops_cli.config.constants import (
     CONST_CONFIG_BACKUP_INFIX,
@@ -327,6 +328,19 @@ def _masks_default(param: click.Parameter, envvar: str | None, default_val: Any)
     if isinstance(default_val, bool | int | float | PurePath):
         return False
     return _names_a_credential(param.name) or _names_a_credential(envvar)
+
+
+def iter_settings_fields() -> Iterator[tuple[str, type[BaseModel] | None, str, FieldInfo]]:
+    """Yield (section_key, section_model, field_name, field_info) for all settings fields without resolving values."""
+    from devops_cli.config.settings import Settings
+
+    for section_key, top_info in Settings.model_fields.items():
+        ann = top_info.annotation
+        if isinstance(ann, type) and issubclass(ann, BaseModel):
+            for field_name, field_info in ann.model_fields.items():
+                yield (section_key, ann, field_name, field_info)
+        else:
+            yield (section_key, None, section_key, top_info)
 
 
 class DocGenerator:
@@ -872,16 +886,24 @@ class DocGenerator:
 
         settings = Settings()
         scalar_rows: list[str] = []
-        for section_key, top_info in Settings.model_fields.items():
-            section_val = getattr(settings, section_key, None)
-            if not isinstance(section_val, BaseModel):
+        sections: dict[str, tuple[type[BaseModel], list[tuple[str, FieldInfo]]]] = {}
+
+        for section_key, sec_model, field_name, field_info in iter_settings_fields():
+            if sec_model is None:
+                section_val = getattr(settings, section_key, None)
                 scalar_rows.append(
                     self._format_settings_field_row(
-                        section_key, top_info, section_val, section_key, variables
+                        section_key, field_info, section_val, section_key, variables
                     )
                 )
-                continue
+            else:
+                if section_key not in sections:
+                    sections[section_key] = (sec_model, [])
+                sections[section_key][1].append((field_name, field_info))
 
+        for section_key, (_sec_model, fields) in sections.items():
+            top_info = Settings.model_fields[section_key]
+            section_val = getattr(settings, section_key, None)
             title, description = CONST_SETTINGS_SECTION_METADATA.get(
                 section_key,
                 (
@@ -905,7 +927,7 @@ class DocGenerator:
                             f"{section_key}.{field_name}",
                             variables,
                         )
-                        for field_name, field_info in section_val.__class__.model_fields.items()
+                        for field_name, field_info in fields
                     ),
                     "",
                 ]
