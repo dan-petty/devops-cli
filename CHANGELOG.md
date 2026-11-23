@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.201.1](https://github.com/dan-petty/devops-cli/compare/v0.201.0...v0.201.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **security:** Judge Trivy-config DS-0002 in task-template Dockerfile ([#6877](https://github.com/dan-petty/devops-cli/issues/6877)) ([67f8092](https://github.com/dan-petty/devops-cli/commit/67f8092fcdb804771dd3460640bd93b1e490d507))
+
 ## [0.201.0](https://github.com/dan-petty/devops-cli/compare/v0.200.1...v0.201.0) (2026-11-23)
 
 
