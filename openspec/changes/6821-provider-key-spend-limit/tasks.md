@@ -16,7 +16,7 @@
 
 ## 3. Manifests: the alert
 
-- [ ] 3.1 Add `RoadmapProviderKeySpendLimit` to the group `roadmap-service` and its promtool unit tests
+- [x] 3.1 Add `RoadmapProviderKeySpendLimit` to the group `roadmap-service` and its promtool unit tests
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py`
 
 ## 4. Documents

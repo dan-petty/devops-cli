@@ -205,6 +205,23 @@ serverFiles:
             annotations:
               summary: "The row {{ $labels.row }} of {{ $labels.repo }} stays suspended after a {{ $labels.class }} failure"
               description: "The roadmap Service did not run the row {{ $labels.row }} of {{ $labels.repo }} for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class {{ $labels.class }}. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
+          # A model call that the provider refused because its key reached its spend limit (#6821).
+          # A stage Job or an implement Job stops for it, and the Service reads the class
+          # spend_limit from the error line of the log of the Job. The jobs counter of a row of the
+          # Service has no class, so the signal of a row is its suspended gauge. The provider names
+          # the cause, and each model call fails until a person acts, so the alert has no wait.
+          # RoadmapServiceJobsFailing still fires for the failed rows.
+          - alert: RoadmapProviderKeySpendLimit
+            expr: >-
+              sum by (repo) (increase(devops_cli_service_stage_jobs_total{job="roadmap-service", result="failed", class="spend_limit"}[1h])) > 0
+              or sum by (repo) (increase(devops_cli_service_implement_failures_total{job="roadmap-service", class="spend_limit"}[1h])) > 0
+              or max by (repo) (devops_cli_service_job_suspended{job="roadmap-service", class="spend_limit"}) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "The provider key behind the LLM gateway reached its spend limit, so the model calls of {{ $labels.repo }} fail"
+              description: "A model call of the roadmap Service or of a stage or implement Job of {{ $labels.repo }} got HTTP 401 or 403, and the provider said that its key reached its spend limit. Each model call fails until a person raises the spend limit of the key at the provider, or changes the key in the gateway (docs/CLUSTER.md, Roadmap service)."
       # The webhook route of the roadmap Service (#2476), in a group apart from roadmap-service.
       # The route counts each delivery that it refuses under outcome="rejected": unsigned, signed
       # with no secret of a managed repository, too large, not JSON, or without its event name or

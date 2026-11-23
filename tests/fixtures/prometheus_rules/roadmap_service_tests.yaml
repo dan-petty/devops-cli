@@ -720,6 +720,54 @@ tests:
               summary: "The row intake of example/app stays suspended after a ci_infra failure"
               description: "The roadmap Service did not run the row intake of example/app for 3 hours, because it failed its limit of rounds in a row (setting service.max_failed_rounds) with the failure class ci_infra. The row runs one probe round when its retry time comes, or at once when its input changes. The gauge devops_cli_service_job_retry_after_seconds shows the seconds before the next probe round (docs/CLUSTER.md, Roadmap service)."
 
+  - name: A spent provider key fires for a stage Job, an implement Job and a suspended row; another class and a workstation do not
+    interval: 1m
+    input_series:
+      - series: 'devops_cli_service_stage_jobs_total{job="roadmap-service", repo="example/app", result="failed", class="spend_limit"}'
+        values: '0x10 1x80'
+      - series: 'devops_cli_service_stage_jobs_total{job="roadmap-service", repo="example/other", result="failed", class="ci_infra"}'
+        values: '0x10 1x80'
+      - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", repo="example/impl", class="spend_limit"}'
+        values: '0x10 1x80'
+      - series: 'devops_cli_service_implement_failures_total{job="roadmap-service", repo="example/other", class="provider"}'
+        values: '0x10 1x80'
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/row", row="refine", class="spend_limit"}'
+        values: '0x10 1x30 0x50'
+      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/other", row="refine", class="provider"}'
+        values: '1x90'
+      - series: 'devops_cli_service_stage_jobs_total{job="devops-cli", repo="example/workstation", result="failed", class="spend_limit"}'
+        values: '0x10 1x80'
+      - series: 'devops_cli_service_job_suspended{job="kubernetes-pods", repo="example/workstation", row="refine", class="spend_limit"}'
+        values: '1x90'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RoadmapProviderKeySpendLimit
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: RoadmapProviderKeySpendLimit
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              repo: example/app
+            exp_annotations:
+              summary: "The provider key behind the LLM gateway reached its spend limit, so the model calls of example/app fail"
+              description: "A model call of the roadmap Service or of a stage or implement Job of example/app got HTTP 401 or 403, and the provider said that its key reached its spend limit. Each model call fails until a person raises the spend limit of the key at the provider, or changes the key in the gateway (docs/CLUSTER.md, Roadmap service)."
+          - exp_labels:
+              severity: critical
+              repo: example/impl
+            exp_annotations:
+              summary: "The provider key behind the LLM gateway reached its spend limit, so the model calls of example/impl fail"
+              description: "A model call of the roadmap Service or of a stage or implement Job of example/impl got HTTP 401 or 403, and the provider said that its key reached its spend limit. Each model call fails until a person raises the spend limit of the key at the provider, or changes the key in the gateway (docs/CLUSTER.md, Roadmap service)."
+          - exp_labels:
+              severity: critical
+              repo: example/row
+            exp_annotations:
+              summary: "The provider key behind the LLM gateway reached its spend limit, so the model calls of example/row fail"
+              description: "A model call of the roadmap Service or of a stage or implement Job of example/row got HTTP 401 or 403, and the provider said that its key reached its spend limit. Each model call fails until a person raises the spend limit of the key at the provider, or changes the key in the gateway (docs/CLUSTER.md, Roadmap service)."
+      - eval_time: 80m
+        alertname: RoadmapProviderKeySpendLimit
+        exp_alerts: []
+
   - name: A fix-checks Job with no result line fires; a Job with a result and a workstation do not
     interval: 1m
     input_series:
