@@ -322,6 +322,37 @@ def test_a_person_removes_the_blank_line_above_the_section_and_rounds_leave_one_
     ) == ([(1, True, True)] * 3, 1, f"{_PERSON}\n\n{line}\n\n", False, [first, first])
 
 
+def test_a_start_marker_in_a_details_block_of_a_person_stays_their_text_over_three_rounds(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """An earlier round of refine wrote and recorded a section. Then a person puts a `<details>`
+    block above it, with a refine start marker and a line of text. The marker does not start the
+    job blocks at the end of the body, so it stays the text of the person (#6791). Each round
+    replaces the section and keeps each line of the `<details>` block. Only the first round asks
+    the model."""
+    details = f"<details>\n{CONST_ROADMAP_REFINE_START_MARKER}\nperson *text*\n</details>"
+    earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
+    number = seed_with_body(store, earlier)
+    body_hash, section_hash = body_hashes(earlier)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
+    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{details}\n\n{_OLD_SECTION}")
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.rfind(CONST_ROADMAP_REFINE_START_MARKER)],
+        "An old design." in first,
+        bodies[1:],
+    ) == ([(2, True, True)] * 3, 1, f"{_PERSON}\n\n{details}\n\n", False, [first, first])
+
+
 def test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text(
     git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
 ) -> None:

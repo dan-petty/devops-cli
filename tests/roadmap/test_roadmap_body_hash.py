@@ -10,6 +10,7 @@ adds its block at the end.
 from __future__ import annotations
 
 import pytest
+from markdown_it import MarkdownIt
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
@@ -19,6 +20,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.roadmap import body_hash
 from devops_cli.roadmap.body_hash import extract_section_and_outside, without_alternatives
+from devops_cli.roadmap.stores.store import closed_body
 
 _QUOTED_REFINE = (
     f"A person writes `{CONST_ROADMAP_REFINE_START_MARKER}` and "
@@ -276,11 +278,12 @@ def test_a_block_that_a_person_leaves_open_holds_their_quotes_up_to_the_blocks_o
 def test_a_marker_line_below_an_html_block_that_a_blank_line_ends_bounds_the_block(
     line: str,
 ) -> None:
-    """CommonMark ends an HTML block of kind 6, such as `</details>`, or of kind 7, a whole tag on
-    a line of its own, only at a blank line. A person removes the blank line above each job block,
-    so each start marker is a line of such a block. The marker line ends that block for a read, so
-    each reader finds both blocks. The outside text holds a blank line before each start marker,
-    so the next read parses the marker as an HTML block of its own (#6791)."""
+    """CommonMark ends an HTML block of kind 6 or 7 only at a blank line. Kind 6 starts with a tag
+    such as `</details>`, and kind 7 is a whole tag on a line of its own. A person removes the blank
+    line above each job block, so each start marker is a line of such a block. The job blocks are
+    at the end of the body, so the marker line ends that block for a read. Each reader then finds
+    both blocks. The outside text holds a blank line before each start marker. So the next read
+    parses the marker as an HTML block of its own (#6791)."""
     body = f"Text.\n\n{line}\n{_A_BLOCK}\n{line}\n{_AN_ALTERNATIVES_BLOCK}"
     closed = f"Text.\n\n{line}\n\n{_A_BLOCK}\n{line}\n\n{_AN_ALTERNATIVES_BLOCK}"
     refine = body_hash.job_block_bounds(body) or (0, 0)
@@ -316,9 +319,9 @@ def test_a_marker_line_below_an_html_block_that_a_blank_line_ends_bounds_the_blo
 def test_a_marker_in_a_block_that_a_close_ends_stays_a_quote_next_to_an_html_block(
     quote: str,
 ) -> None:
-    """A person quotes a job block in a closed fence in a `<details>` part, or in a closed block
-    of a kind that an end text ends. A blank line ends the HTML block `<div>x</div>` above the
-    quote. Each marker line is a line of the fence or of the closed block, so it stays the text of
+    """A person quotes a job block in a closed fence in a `<details>` part. Or the person quotes
+    it in a closed block of a kind that an end text ends. A blank line ends the HTML block
+    `<div>x</div>` above the quote. Each marker line is a line of the fence or of the closed block, so it stays the text of
     the person. The body has no block and does not change (#6791)."""
     body = f"Text.\n\n<div>x</div>\n\n{quote}\n\nMore text."
 
@@ -327,6 +330,67 @@ def test_a_marker_in_a_block_that_a_close_ends_stays_a_quote_next_to_an_html_blo
         extract_section_and_outside(body),
         body_hash.block_marker_spans(body),
     ) == (body, (body, None), [])
+
+
+_RENDER = MarkdownIt("commonmark").render
+_START = CONST_ROADMAP_REFINE_START_MARKER
+_END = CONST_ROADMAP_REFINE_END_MARKER
+
+
+@pytest.mark.parametrize(
+    ("body", "refine"),
+    [
+        pytest.param(
+            f"Text.\n\n<details>\n{_START}\nperson *text*\n</details>\n\n{_A_BLOCK}",
+            _A_BLOCK,
+            id="lone-start-in-details",
+        ),
+        pytest.param(
+            f"Text.\n\n<div>\n{_START}\nold *note*\n{_END}\n</div>\n\n{_A_BLOCK}",
+            _A_BLOCK,
+            id="pair-in-div-above-the-block",
+        ),
+        pytest.param(
+            f"Text.\n\n<div>\n{_START}\nold *note*\n{_END}\n</div>\n\nMore.",
+            None,
+            id="pair-in-div",
+        ),
+        pytest.param(
+            f"Text.\n\n<div>x</div>\n```\n{_START}\n```\n\nMore.\n\n{_A_BLOCK}",
+            _A_BLOCK,
+            id="fence-line-after-a-marker-in-div",
+        ),
+        pytest.param(
+            f"Text.\n\n<div>\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nperson text\n</div>\n\nMore.",
+            None,
+            id="lone-alternatives-start-in-div",
+        ),
+        pytest.param(
+            f"Text.\n\n<div>x</div>\n{_A_BLOCK}\nA line of a person.",
+            None,
+            id="block-that-a-line-of-the-person-follows",
+        ),
+    ],
+)
+def test_a_marker_in_an_html_block_of_a_person_stays_their_text(
+    body: str, refine: str | None
+) -> None:
+    """A person writes a marker in an HTML block that only a blank line ends. The marker does not
+    start the job blocks at the end of the body, so it stays the text of the person (#6791). A
+    read finds only the real refine block, and no alternatives marker bounds a block. A write of a
+    job block or of the record keeps the body, so GitHub renders the text of the person as
+    before. A job block that a line of the person follows in the same HTML block stays unread, as
+    on the base."""
+    bounds = body_hash.job_block_bounds(body)
+    alternatives = (CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER)
+
+    assert (
+        None if bounds is None else body[slice(*bounds)],
+        body_hash.block_marker_spans(body, alternatives),
+        body_hash.close_blocks_before_markers(body),
+        closed_body(body),
+        _RENDER(closed_body(body)),
+    ) == (refine, [], body, body, _RENDER(body))
 
 
 def test_a_block_that_a_close_ends_keeps_the_markers_that_it_quotes() -> None:

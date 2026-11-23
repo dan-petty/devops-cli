@@ -2060,6 +2060,25 @@ def test_the_alternatives_writer_keeps_a_quoted_marker_pair_and_appends_its_bloc
     )
 
 
+def test_a_lone_start_marker_in_an_html_block_of_a_person_keeps_the_write(
+    store: InMemoryRoadmapStore, web_key: None
+) -> None:
+    """A person writes a lone start marker of the check in a `<div>` block, and the body holds no
+    block of the check. The marker does not start the job blocks at the end of the body. So it
+    stays the text of the person and stops no write (#6791). The check adds its block at the end
+    and keeps every line of the `<div>` block."""
+    body = (
+        f"Text.\n\n<div>\n{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\nperson text\n</div>\n\nMore."
+    )
+    number = _item(store, "Lone marker", body=body)
+
+    written = apply_alternatives(
+        store, _plan(store, _searching(AlternativesReply(reason=REASON, verdict=Verdict.NONE)))
+    )
+
+    assert (written, store.read_issue_body(number)) == (1, f"{body}\n\n{_NONE_BLOCK}")
+
+
 _SCAN = "The job needs a scan."
 # A block of an earlier check, at the end of the body.
 _OLD_BLOCK = (

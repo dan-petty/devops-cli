@@ -1,5 +1,5 @@
-"""The record block after a body that leaves a block open (#6729), and below a block that a person
-opens above it (#6785) or puts directly above it (#6791).
+"""The record block after a body that leaves a block open (#6729). The record block below a block
+that a person opens above it (#6785) or puts directly above it (#6791).
 
 `with_record` writes the record block as a comment after the body, and `split_record` reads it
 as the last block of the body. CommonMark reads all text after an open fenced code block or
@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 from markdown_it import MarkdownIt
 
@@ -271,8 +271,8 @@ def test_the_next_write_puts_a_blank_line_between_an_html_block_and_the_record(
     line: str, line_break: str
 ) -> None:
     """The next write puts a blank line before the record. So CommonMark parses the record of the
-    written body as its last HTML block, and the body holds one record block with the keys of the
-    old record. The text of the person keeps its rendered form."""
+    written body as its last HTML block. The body holds one record block with the keys of the old
+    record, and the text of the person keeps its rendered form."""
     person, held = split_record(_directly_above(line, line_break))
     written = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
     last = [token for token in _BLOCKS.parse(written) if token.level == 0][-1]
@@ -332,15 +332,22 @@ _OPENERS = st.sampled_from(
 )
 
 
-@given(st.lists(_LINES, max_size=12), st.sampled_from(["", "\n", "\r\n"]), _OPENERS, st.data())
+@given(
+    st.lists(_LINES, max_size=12),
+    st.sampled_from(["", "\n", "\r\n"]),
+    _OPENERS,
+    st.integers(min_value=0, max_value=16),
+)
+@example(lines=["Text."], end="", opener="<div>", above=0)
 def test_a_block_that_a_person_opens_on_any_line_keeps_the_record(
-    lines: list[str], end: str, opener: str, data: st.DataObject
+    lines: list[str], end: str, opener: str, above: int
 ) -> None:
-    """For a written body of any of these lines, a person opens a block or puts an HTML line on
-    any line above the record. The read gives the record, and the next write gives one record block
-    that holds the keys of the old record."""
+    """For a written body of any of these lines, a person opens a block or puts an HTML line
+    above the record. `above` counts the lines between that line and the record. The read gives
+    the record, and the next write gives one record block that holds the keys of the old record.
+    The example puts `<div>` directly above the record (#6791)."""
     written = with_record("\n".join(lines) + end, BLOCK).split("\n")
-    at = data.draw(st.integers(min_value=0, max_value=len(written) - 1))
+    at = max(len(written) - 1 - above, 0)
     edited = "\n".join([*written[:at], opener, *written[at:]])
     person, held = split_record(edited)
     after = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
