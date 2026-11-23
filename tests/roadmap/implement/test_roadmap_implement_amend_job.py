@@ -197,6 +197,10 @@ def test_scope_request_stops_as_question_with_defect_and_evidence(
 def test_path_request_whose_old_is_only_in_criteria_changes_nothing(
     job_world: JobWorld,
 ) -> None:
+    job_world.store.write_issue_body(
+        1,
+        f"{job_world.store.read_issue_body(1)}\n- Some criterion naming `tests/criteria_only.py`.\n",
+    )
     criteria_tasks = """\
 # Tasks
 

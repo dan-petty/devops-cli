@@ -28,6 +28,7 @@ from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.process import ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.roadmap_implement import (
+    BODY,
     BRANCH,
     NEEDS_FIX_DRAFT,
     OPEN_DRAFT,
@@ -181,7 +182,7 @@ def test_an_item_whose_dependencies_are_closed_is_selected(
         state=GitHubState.CLOSED,
         labels=("priority/p2-medium", "status/ready"),
     )
-    number = seed_staged(store, body=f"## Dependencies\n\n#{blocker}\n")
+    number = seed_staged(store, body=f"{BODY}\n## Dependencies\n\n#{blocker}\n")
     push_staged_branch(stage_repo, number=number)
 
     plan = _plan(store, stage_repo)
@@ -200,7 +201,7 @@ def test_an_item_whose_dependencies_name_its_parent_tracker_is_selected(
     """The Dependencies section of the body names the open parent tracker of the item, which
     closes only after the item: the tracker is no blocker, so the job selects the item (#6450)."""
     tracker = _seed_tracker(store)
-    number = seed_staged(store, body=f"## Dependencies\n\n#{tracker}\n")
+    number = seed_staged(store, body=f"{BODY}\n## Dependencies\n\n#{tracker}\n")
     store.add_sub_issue(tracker, number)
     push_staged_branch(stage_repo, number=number)
 
