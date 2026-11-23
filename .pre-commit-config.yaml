@@ -51,6 +51,15 @@ repos:
         exclude: ^\.vscode/
         stages: [pre-commit]
 
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.31.2
+    hooks:
+      - id: check-jsonschema
+        files: ^osv-scanner\.toml$
+        types_or: [toml]
+        args: [--schemafile, osv-scanner.schema.json]
+        stages: [pre-commit]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.6
     hooks:

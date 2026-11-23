@@ -2295,7 +2295,7 @@ class CIMessages:
     uv_lock: str = "uv lockfile freshness"
     uv_build: str = "uv build (wheel and sdist)"
     uv_outdated: str = "uv tree --outdated"
-    dependency_audit: str = "uv audit and npm audit"
+    dependency_audit: str = "uv audit and osv-scanner"
     deptry: str = "deptry"
     deps: str = "deptry"
     constructs: str = "ast-grep scan (network constructs and working-directory reads in src, elapsed-time bounds in tests)"
@@ -2305,11 +2305,6 @@ class CIMessages:
     audit_vulnerable: str = "Dependency audit found vulnerabilities ({tool} audit exited {code})."
     audit_not_run: str = (
         "Dependency audit could not run ({tool} audit exited {code}); {tool}'s error is above."
-    )
-    audit_ignored: str = "Ignored {advisory} in {path} until {expired_at}: {statement}"
-    audit_ignore_expired: str = (
-        "The ignore of {advisory} in {path} expired on {expired_at}. Bump the package if a release"
-        " fixes it, else renew the entry (SECURITY.md, A Finding with No Fix)."
     )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"

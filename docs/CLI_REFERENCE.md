@@ -213,7 +213,7 @@ the probe measured nothing. |
 |  | `devops ci lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |
 |  | `devops ci format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 |  | `devops ci typecheck [OPTIONS]` | Run mypy static type-checker strictly targeting Python 3.14 over src/. |
-|  | `devops ci audit [OPTIONS]` | Run uv audit and npm audit to check for known package vulnerabilities. |
+|  | `devops ci audit [OPTIONS]` | Run uv audit and osv-scanner to check for known package vulnerabilities. |
 |  | `devops ci security [OPTIONS]` | Run bandit static security analysis over src/ at low severity and over tests/ at --severity. |
 |  | `devops ci actionlint [OPTIONS]` | Run actionlint to validate GitHub Actions workflows for syntax and schema errors. |
 |  | `devops ci docs [OPTIONS]` | Verify (or update with --fix) that documentation is up to date with CLI commands and configuration. |

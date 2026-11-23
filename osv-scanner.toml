@@ -1,0 +1,10 @@
+# osv-scanner configuration (https://google.github.io/osv-scanner/)
+#
+# Ignored vulnerabilities must be time-limited and tracked by an issue (SECURITY.md).
+# Entries are validated against osv-scanner.schema.json by check-jsonschema.
+#
+# Example:
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# effectiveUntil = "2026-12-01T00:00:00Z"
+# reason = "no released fix yet (#1234)"

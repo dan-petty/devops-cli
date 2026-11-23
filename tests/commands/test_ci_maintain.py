@@ -8,7 +8,6 @@ import pytest
 from typer.testing import CliRunner
 
 from devops_cli.commands.ci import app, get_check_spec
-from tests.support.paths import FIXTURES
 
 runner = CliRunner()
 
@@ -17,17 +16,16 @@ def _answer_audits(
     monkeypatch: pytest.MonkeyPatch,
     *,
     uv: tuple[int, str] = (0, ""),
-    npm: tuple[int, str] = (0, ""),
     osv: tuple[int, str] = (0, ""),
 ) -> list[list[str]]:
-    """Answer `uv audit`, `npm audit` and `osv-scanner` with an exit status and output, any other
-    command with success; the commands started, in order."""
+    """Answer `uv audit` and `osv-scanner` with an exit status and output, any other command with
+    success; the commands started, in order."""
     ran: list[list[str]] = []
 
     def run(cmd: list[str], *args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
         ran.append(cmd)
         status, output = (
-            {"uv": uv, "npm": npm, "osv-scanner": osv}.get(cmd[0], (0, ""))
+            {"uv": uv, "osv-scanner": osv}.get(cmd[0], (0, ""))
             if "audit" in cmd or cmd[0] == "osv-scanner"
             else (0, "")
         )
@@ -35,10 +33,6 @@ def _answer_audits(
 
     monkeypatch.setattr("subprocess.run", run)
     return ran
-
-
-def _recorded_npm_audit(name: str) -> str:
-    return (FIXTURES / "npm_audit" / f"{name}.json").read_text(encoding="utf-8")
 
 
 def _said(output: str) -> str:
@@ -96,25 +90,19 @@ def test_maintain_says_whether_uv_audit_found_vulnerabilities_or_could_not_run(
 
 
 @pytest.mark.parametrize(
-    ("recording", "reported", "not_reported"),
+    ("returncode", "reported", "not_reported"),
     [
-        ("vulnerable", "found vulnerabilities (npm audit exited 1)", "could not run"),
-        ("registry_unreachable", "could not run (npm audit exited 1)", "found vulnerabilities"),
-        (
-            "advisory_endpoint_missing",
-            "could not run (npm audit exited 1)",
-            "found vulnerabilities",
-        ),
+        (1, "found vulnerabilities (osv-scanner audit exited 1)", "could not run"),
+        (2, "could not run (osv-scanner audit exited 2)", "found vulnerabilities"),
     ],
+    ids=["vulnerable", "could-not-run"],
 )
-def test_maintain_says_whether_npm_audit_found_vulnerabilities_or_could_not_run_by_its_report(
-    monkeypatch: pytest.MonkeyPatch, recording: str, reported: str, not_reported: str
+def test_maintain_says_whether_osv_scanner_found_vulnerabilities_or_could_not_run(
+    monkeypatch: pytest.MonkeyPatch, returncode: int, reported: str, not_reported: str
 ) -> None:
-    """npm exits 1 for a finding and for an audit that could not run, such as a registry that is
-    unreachable or answers no advisory request; its `--json` report says which, and the report is
-    shown above the verdict."""
-    report = _recorded_npm_audit(recording)
-    _answer_audits(monkeypatch, npm=(1, report))
+    """osv-scanner exits 1 for a finding and 2 for an audit that could not run."""
+    output = "scan error"
+    _answer_audits(monkeypatch, osv=(returncode, output))
 
     result = runner.invoke(app, ["maintain"])
 
@@ -123,13 +111,13 @@ def test_maintain_says_whether_npm_audit_found_vulnerabilities_or_could_not_run_
         result.exit_code,
         reported in said,
         not_reported in said,
-        _said(report) in said,
+        _said(output) in said,
     ) == (1, True, False, True)
 
 
 def test_maintain_reports_every_audit_that_failed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A vulnerable Python dependency does not hide an npm audit that could not run."""
-    _answer_audits(monkeypatch, uv=(1, ""), npm=(1, _recorded_npm_audit("registry_unreachable")))
+    """A vulnerable Python dependency does not hide an osv-scanner audit that could not run."""
+    _answer_audits(monkeypatch, uv=(1, ""), osv=(2, "cannot run"))
 
     result = runner.invoke(app, ["maintain"])
 
@@ -137,5 +125,5 @@ def test_maintain_reports_every_audit_that_failed(monkeypatch: pytest.MonkeyPatc
     assert (
         result.exit_code,
         "found vulnerabilities (uv audit exited 1)" in said,
-        "could not run (npm audit exited 1)" in said,
+        "could not run (osv-scanner audit exited 2)" in said,
     ) == (1, True, True)
