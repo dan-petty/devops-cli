@@ -2,14 +2,14 @@
 
 Kustomize + Helm-based configurations for deploying infrastructure management (`infra`) and local AI/LLM (`llm`) stacks to two clusters:
 
-- the k3s homelab, which Argo CD keeps in line with `main` ([GitOps](#gitops));
+- the k3s homelab, which Argo CD keeps in line with `main` of dan-petty/homelab, and with `main` of this repository for the product base ([GitOps](#gitops));
 - the devcontainer's minikube cluster, which `devops devcontainer post-start` starts.
 
 `devops k8s deploy-stack` deploys the same configurations to either cluster.
 
 The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the performance targets of a cluster and the method to tune the requests, the limits, the placement and the runtimes. [Capacity targets](#capacity-targets) holds the decisions of this cluster.
 
-This folder is the environment tree of the homelab: what one cluster runs. `k8s/devops/` is the product base that devops-cli ships. A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render`, `devops argo cd apps bootstrap-gitops` and `devops argo gitops`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder (`.devops/project.toml` of this repository declares `k8s`), else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the tree is relative to its root, such as `llm/gateway/config.yaml`.
+This folder is the environment tree of the homelab: what one cluster runs. Argo CD reads the environment tree from its copy in dan-petty/homelab, and this folder keeps the files until step 17 of [the switch](../docs/HOMELAB_REPO_SWITCH.md#step-17-delete-the-environment-files-from-devops-cli) deletes them ([GitOps](#gitops)). `k8s/devops/` is the product base that devops-cli ships. A command that reads the environment tree (`deploy-stack`, `teardown-stack`, `bootstrap`, `image-pins`, `lint`, `check-deprecated`, `ollama prune`, `devops grafana dashboards`, `devops ai gateway render`, `devops argo cd apps bootstrap-gitops` and `devops argo gitops`) takes its root from `--k8s-dir`, else from the project profile fact `kubernetes.dir` of the repository of the current folder (`.devops/project.toml` of this repository declares `k8s`), else from the one entry of `infra.repos` whose checkout gives `kubernetes.dir`. `deploy-stack` and `teardown-stack` read the product base from `--product-dir`, else from `k8s/devops` of the repository of the current folder. A path in the tree is relative to its root, such as `llm/gateway/config.yaml`.
 
 ## Stacks Overview
 
@@ -1249,12 +1249,14 @@ Teardown leaves the `prometheus-operator-crds` release's CRDs in the cluster. De
 
 ## GitOps
 
-Argo CD maintains the declared state of the homelab cluster directly from this repository. A two-level application topology decouples cluster bootstrap from leaf applications:
+Argo CD maintains the declared state of the homelab cluster from two repositories. Since step 11 of [the switch to the homelab repository](../docs/HOMELAB_REPO_SWITCH.md#step-11-the-switch), it reads the environment from the private repository dan-petty/homelab: the Applications, the AppProjects, the values of the charts and the dashboards. From this repository, it reads only the product base: Application `devops` reads `k8s/devops`, and Application `prometheus` reads its rules value file `k8s/devops/monitoring/prometheus-rules-values.yaml`. A two-level application topology in homelab decouples cluster bootstrap from leaf applications:
 
-1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml`)**: Tracks `main`. Syncs the root `cluster` Application.
-2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml`)**: Tracks `main`. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and every leaf Application of `k8s/argocd/apps/`: a raw leaf Application has one source, and a Helm leaf Application has several sources.
+1. **`bootstrap` (`k8s/argocd/bootstrap/bootstrap.yaml` of homelab)**: Tracks `main` of homelab. Syncs the root `cluster` Application.
+2. **`cluster` (`k8s/argocd/bootstrap/cluster.yaml` of homelab)**: Tracks `main` of homelab. Syncs project RBAC boundaries (`k8s/argocd/apps/projects.yaml`) and every leaf Application of `k8s/argocd/apps/`: a raw leaf Application has one source, and a Helm leaf Application has several sources.
 
-The private repository dan-petty/homelab receives a copy of the environment (dan-petty/homelab#23). The AppProjects `homelab` and `homelab-system` admit it as a source, and they keep this repository. Argo CD reads the homelab repository with the repository credential Secret `repo-homelab` in namespace `argocd`. The owner makes that Secret, and it never goes into git, so project `homelab` ignores it as an orphan. [docs/HOMELAB_REPO_SWITCH.md](../docs/HOMELAB_REPO_SWITCH.md) gives the steps that move the Applications to the homelab repository, with the check and the revert of each step.
+The environment files of this folder, each file of `k8s` outside `k8s/devops` and `k8s/overlays/homelab/devops`, stay until step 17 of the switch deletes them, but no Application reads them. So a change to one of them goes to a homelab pull request. The `k8s` row of `devops ci` refuses a branch of this repository that changes one, a new file included, and its message names dan-petty/homelab (`tests/gate/k8s_checks/environment_freeze.py`). The row does not refuse a Markdown file, because a document deploys nothing. Renovate of this repository updates no dependency of these files, and homelab Renovate updates its copy (`.github/renovate.json`).
+
+dan-petty/homelab#23 made the copy of the environment. The AppProjects `homelab` and `homelab-system` admit the homelab repository as a source, and they keep this repository for the product base. Argo CD reads the homelab repository with the repository credential Secret `repo-homelab` in namespace `argocd`. The owner makes that Secret, and it never goes into git, so project `homelab` ignores it as an orphan. [docs/HOMELAB_REPO_SWITCH.md](../docs/HOMELAB_REPO_SWITCH.md) gives the steps of the switch, with the check and the revert of each step.
 
 When the root `cluster` Application is present in the cluster, `devops k8s deploy-stack` delegates manifest and Helm reconciliation to Argo CD, and `devops k8s teardown-stack` refuses execution to prevent configuration drift.
 
@@ -1341,12 +1343,14 @@ The AppProjects `homelab` and `homelab-system` keep `registry` in their destinat
 
 ### Bootstrap & Adoption
 
-To bootstrap GitOps on a running cluster:
+To bootstrap GitOps on a running cluster, use the bootstrap file of a homelab checkout of `main` (`<homelab-checkout>`). The bootstrap file of this repository points Argo CD back to this repository, which is the [revert of the switch](../docs/HOMELAB_REPO_SWITCH.md#revert-of-the-switch).
 
 ```bash
-# Bootstrap the two-level root app topology (defaults to k8s/argocd/bootstrap/bootstrap.yaml)
-devops argo cd apps bootstrap-gitops
+# Bootstrap the two-level root app topology from the bootstrap file of homelab
+git -C <homelab-checkout> pull --ff-only origin main
+devops argo cd apps bootstrap-gitops --root-app <homelab-checkout>/k8s/argocd/bootstrap/bootstrap.yaml
 
+# From a checkout of main of this repository:
 # Once `cluster` has created the Applications devops and ingress, set the homelab hosts and ConfigMap
 kubectl -n argocd get application devops ingress
 devops k8s deploy-stack --stack devops
@@ -1360,15 +1364,18 @@ A chart that `helm upgrade --install` deployed before Argo CD adopted it keeps i
 
 ### Recovery
 
-If Argo CD itself becomes unavailable or needs to be recovered from scratch:
+If Argo CD itself becomes unavailable or needs to be recovered from scratch, take the chart version, the values and the bootstrap file from a homelab checkout of `main` (`<homelab-checkout>`):
 
 ```bash
-# 1. Recover Argo CD via Helm with pinned chart version and values
-helm upgrade --install argocd argo/argo-cd --version 10.9.6 -n argocd -f k8s/argocd/values.yaml
+# 1. Recover Argo CD via Helm with the chart version that Application argocd pins
+#    (targetRevision of the argo-cd chart in <homelab-checkout>/k8s/argocd/apps/argocd.yaml) and its values
+git -C <homelab-checkout> pull --ff-only origin main
+helm upgrade --install argocd argo/argo-cd --version <version> -n argocd -f <homelab-checkout>/k8s/argocd/values.yaml
 
-# 2. Re-apply the bootstrap application to resume gitops reconciliation
-devops argo cd apps bootstrap-gitops
+# 2. Re-apply the bootstrap application of homelab to resume gitops reconciliation
+devops argo cd apps bootstrap-gitops --root-app <homelab-checkout>/k8s/argocd/bootstrap/bootstrap.yaml
 
+# From a checkout of main of this repository:
 # 3. Once `cluster` has recreated the Applications devops and ingress, set the homelab hosts and ConfigMap
 kubectl -n argocd get application devops ingress
 devops k8s deploy-stack --stack devops
