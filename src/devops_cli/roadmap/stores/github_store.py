@@ -682,6 +682,17 @@ def add_sub_issue_args(repo: str, parent: Number, child_id: Number) -> list[str]
     ]
 
 
+def add_blocked_by_args(repo: str, blocked: Number, blocker_id: Number) -> list[str]:
+    return [
+        "api",
+        "-X",
+        "POST",
+        f"repos/{repo}/issues/{blocked}/dependencies/blocked_by",
+        "-F",
+        f"issue_id={blocker_id}",
+    ]
+
+
 def comment_args(repo: str, number: Number, body: str) -> list[str]:
     return ["api", "-X", "POST", comments_endpoint(repo, number), "-f", f"body={body}"]
 
@@ -1075,6 +1086,24 @@ class GitHubRoadmapStore(RoadmapStore):
             if child in self._all:
                 c = self._all[child]
                 self._all[child] = c.model_copy(update={"parent": parent})
+
+    def add_blocked_by(self, blocked: int, blocker: int) -> None:
+        """Mark issue `blocked` as blocked by issue `blocker`."""
+        if self._all is None or blocked not in self._all:
+            self._require_issue(blocked, "roadmap.add_blocked_by")
+        blocker_id = None
+        if self._all is not None and blocker in self._all and self._all[blocker].id:
+            blocker_id = self._all[blocker].id
+        if blocker_id is None:
+            blocker_payload = self._require_issue(blocker, "roadmap.add_blocked_by")
+            blocker_id = blocker_payload.id
+        self._write(
+            add_blocked_by_args(self._repo, blocked, blocker_id),
+            f"link #{blocker} as a blocker of #{blocked}",
+        )
+        if self._all is not None and blocked in self._all:
+            b = self._all[blocked]
+            self._all[blocked] = b.model_copy(update={"blocked_by": b.blocked_by + 1})
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of
@@ -1544,6 +1573,7 @@ __all__ = [
     "GhRunner",
     "GitHubRoadmapStore",
     "ListingSession",
+    "add_blocked_by_args",
     "add_sub_issue_args",
     "advisory_args",
     "closures_args",
