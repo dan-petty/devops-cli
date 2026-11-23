@@ -33,7 +33,12 @@ from typing import Any, Final
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, NonNegativeInt, ValidationError
 from pydantic_ai import capture_run_messages
-from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.exceptions import (
+    AgentRunError,
+    ModelAPIError,
+    ModelHTTPError,
+    UnexpectedModelBehavior,
+)
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
 from pydantic_ai.usage import UsageLimits
 
@@ -635,7 +640,7 @@ def _failed_checks(commands: list[str]) -> tuple[StageCheck, ...]:
     )
 
 
-def _end_of(error: Exception) -> StageEnd:
+def _end_of(error: AgentRunError | DevOpsCLIError) -> StageEnd:
     """The end of a run that `error` stopped."""
     if isinstance(error, RoadmapTimeBudgetError):
         return StageEnd.TIMEOUT
@@ -727,7 +732,7 @@ def run_stage_agent(folders: RunFolders, *, model: Any = None) -> StageOutcome |
                 )
             except AttemptKilled as killed:
                 raise AttemptKilled(kill_of(time_budget, killed)) from None
-            except Exception as error:
+            except (AgentRunError, DevOpsCLIError) as error:
                 end = _end_of(error)
     finally:
         shutil.rmtree(home, ignore_errors=True)

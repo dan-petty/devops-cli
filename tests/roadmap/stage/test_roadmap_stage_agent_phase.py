@@ -8,12 +8,14 @@ failed checks and fixed counts.
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
 
 from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
@@ -198,3 +200,28 @@ def test_a_run_folder_that_prepare_ended_gets_no_output(tmp_path: Path) -> None:
 
     assert _agent(folders, ModelScript(say("done"))) is None
     assert not folders.out.exists()
+
+
+def test_a_model_api_error_ends_in_provider(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    folders = _prepared(store, stage_repo, tmp_path, now=datetime.now(UTC))
+    script = ModelScript(ModelAPIError("test-model", "model failure"))
+
+    outcome = _agent(folders, script)
+
+    assert outcome is not None
+    assert (outcome.end, outcome.requests) == (StageEnd.PROVIDER, 1)
+
+
+def test_a_spend_limit_error_ends_in_spend_limit(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, tmp_path: Path
+) -> None:
+    folders = _prepared(store, stage_repo, tmp_path, now=datetime.now(UTC))
+    body = {"error": {"message": "Key limit exceeded"}}
+    script = ModelScript(ModelHTTPError(403, "test-model", body=json.dumps(body)))
+
+    outcome = _agent(folders, script)
+
+    assert outcome is not None
+    assert (outcome.end, outcome.requests) == (StageEnd.SPEND_LIMIT, 1)
