@@ -85,3 +85,57 @@ def pin_facts(root: Path) -> list[dict[str, str]]:
         }
         for c in inventory.components
     ]
+
+
+def architecture_facts(root: Path) -> dict[str, Any]:
+    """Return repository map module paths with symbol counts and import graph edges."""
+    import ast
+
+    from devops_cli.ai.repomap import generate_repo_map
+    from devops_cli.core.import_graph import build_import_graph
+
+    src_dir = root / "src"
+    py_files = sorted(src_dir.rglob("*.py"))
+    trees: dict[Path, ast.Module] = {}
+    for p in py_files:
+        try:
+            trees[p] = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+        except Exception:
+            pass
+
+    nodes = generate_repo_map(root, max_files=len(py_files))
+    graph = build_import_graph(trees, root=root)
+
+    return {
+        "modules": [{"path": node.path, "symbols": len(node.symbols)} for node in nodes],
+        "edges": [
+            {"source": src, "target": dst}
+            for src, targets in sorted(graph.edges.items())
+            for dst in sorted(targets)
+        ],
+    }
+
+
+def decision_facts(directory: Path) -> list[dict[str, str]]:
+    """Return an entry for each ADR record with its path, title and status."""
+    from devops_cli.docs.adr_records import read_record_texts
+    from devops_cli.roadmap.adr import adr_of
+
+    records = read_record_texts(directory)
+    facts: list[dict[str, str]] = []
+    for path, text in sorted(records.items()):
+        adr = adr_of(path, text)
+        if adr is not None:
+            status = (
+                adr.front_matter.status.value
+                if hasattr(adr.front_matter.status, "value")
+                else str(adr.front_matter.status)
+            )
+            facts.append(
+                {
+                    "path": path,
+                    "title": adr.title,
+                    "status": status,
+                }
+            )
+    return facts

@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+import ast
 import shutil
 import tomllib
 from pathlib import Path
 
 from pydantic_core import PydanticUndefined
 
-from devops_cli.ai.project_digest import command_facts, pin_facts, settings_sections
+from devops_cli.ai.project_digest import (
+    architecture_facts,
+    command_facts,
+    decision_facts,
+    pin_facts,
+    settings_sections,
+)
+from devops_cli.ai.repomap import generate_repo_map
+from devops_cli.core.import_graph import build_import_graph
+from devops_cli.docs.adr_records import read_record_texts
 from devops_cli.docs.generator import DocGenerator, iter_settings_fields
+from devops_cli.roadmap.adr import adr_of
 
 
 def test_command_facts_lists_each_registered_command_and_no_absent_one() -> None:
@@ -91,3 +102,39 @@ def test_each_pin_equals_its_lock_and_a_changed_lock_changes_the_pin_section(
     assert len(aio_facts) == 1
     assert aio_facts[0]["version"] == "99.99.99"
     assert aio_facts[0]["file"] == "uv.lock"
+
+
+def test_the_digest_lists_each_module_each_import_edge_and_each_decision_record() -> None:
+    repo_root = Path(__file__).parents[2]
+    arch = architecture_facts(repo_root)
+
+    # Asserts that the module paths of architecture_facts equal the paths of generate_repo_map
+    src_py_count = len(list((repo_root / "src").rglob("*.py")))
+    expected_nodes = generate_repo_map(repo_root, max_files=src_py_count)
+    assert [m["path"] for m in arch["modules"]] == [n.path for n in expected_nodes]
+
+    # Asserts that each edge names two modules of build_import_graph
+    trees: dict[Path, ast.Module] = {}
+    for p in sorted((repo_root / "src").rglob("*.py")):
+        trees[p] = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
+    graph = build_import_graph(trees, root=repo_root)
+    all_expected_edges = {(src, dst) for src, targets in graph.edges.items() for dst in targets}
+    actual_edges = {(e["source"], e["target"]) for e in arch["edges"]}
+    assert actual_edges == all_expected_edges
+
+    # Asserts that each record of docs/adr appears in decision_facts with its title and its status
+    decisions = decision_facts(repo_root / "docs" / "adr")
+    records = read_record_texts(repo_root / "docs" / "adr")
+    assert len(decisions) == len(records)
+    decision_map = {d["path"]: d for d in decisions}
+    for path, text in records.items():
+        assert path in decision_map
+        adr = adr_of(path, text)
+        assert adr is not None
+        assert decision_map[path]["title"] == adr.title
+        expected_status = (
+            adr.front_matter.status.value
+            if hasattr(adr.front_matter.status, "value")
+            else str(adr.front_matter.status)
+        )
+        assert decision_map[path]["status"] == expected_status
