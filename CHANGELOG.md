@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.198.2](https://github.com/dan-petty/devops-cli/compare/v0.198.1...v0.198.2) (2026-11-23)
+
+
+### Bug Fixes
+
+* **roadmap:** Refuse criteria entries not in the issue body ([#6838](https://github.com/dan-petty/devops-cli/issues/6838)) ([d87a311](https://github.com/dan-petty/devops-cli/commit/d87a311e6f5523e60d6e7677ee9245bb0440ea8f))
+
 ## [0.198.1](https://github.com/dan-petty/devops-cli/compare/v0.198.0...v0.198.1) (2026-11-23)
 
 
