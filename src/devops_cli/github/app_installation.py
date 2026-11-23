@@ -12,6 +12,8 @@ names that one repository, so a step cannot push to another one (#2667). The imp
 no step without it. A request that names no repository, as the Service sends, also asks for
 `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS`, which the metrics row needs to read the hooks and
 the traffic (#5017, #4757). A runner Job reads neither, so its token cannot read them (#5058).
+A process that sets `service.github_app.read_only`, as the nightly drift Job does, asks for
+`CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only, so its token can change nothing (#6783).
 `gidgethub.apps.get_installation_access_token` sends no body, so the process posts the request
 through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
@@ -36,6 +38,7 @@ from devops_cli.config.constants import (
     CONST_GITHUB_APP_LEDGER_KEY,
     CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
+    CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_TOKEN_PERMISSIONS,
     CONST_GITHUB_USER_AGENT,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -102,6 +105,7 @@ def configured_app() -> GitHubApp:
         slug=config.slug,
         private_key=os.environ.get(CONST_GITHUB_APP_PRIVATE_KEY_ENV, ""),
         token_repository=config.token_repository,
+        permissions=CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS if config.read_only else None,
     )
 
 

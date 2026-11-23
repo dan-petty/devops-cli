@@ -1282,6 +1282,15 @@ class GitHubAppConfig(BaseModel):
         ),
     )
 
+    read_only: Annotated[bool, Variable()] = Field(
+        default=False,
+        description=(
+            "Ask for an installation token with read permissions only "
+            "(CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS). Set on the nightly drift Job, so its "
+            "token can change nothing on GitHub. The ConfigMap does not carry it"
+        ),
+    )
+
     @field_validator("token_repository")
     @classmethod
     def _segments_are_names(cls, value: str | None) -> str | None:

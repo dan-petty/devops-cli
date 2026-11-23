@@ -47,7 +47,8 @@ def _service_block(
     service: dict[str, Any] = {
         "repos": clean_repos,
         # The Service names no single repository for its tokens: the Job it makes does (#2667).
-        "github_app": github_app.model_dump(mode="json", exclude={"token_repository"}),
+        # Only the drift Job asks for a read-only token, through its own variable (#6783).
+        "github_app": github_app.model_dump(mode="json", exclude={"token_repository", "read_only"}),
     }
     optional = {
         "poll_interval_seconds": poll_interval_seconds,

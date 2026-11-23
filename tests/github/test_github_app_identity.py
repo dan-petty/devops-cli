@@ -60,6 +60,19 @@ JOB_PERMISSIONS = {
 }
 # A token that names no repository, as the Service mints, also asks for those of the metrics row.
 ROADMAP_PERMISSIONS = {**JOB_PERMISSIONS, "repository_hooks": "read", "administration": "read"}
+# A read-only process, as the nightly drift Job of `devops repos onboard --all --plan` (#6783), asks
+# for the read permissions of the GETs of its rows and for no other one.
+READ_PERMISSIONS = {
+    "actions": "read",
+    "administration": "read",
+    "checks": "read",
+    "contents": "read",
+    "environments": "read",
+    "issues": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "secrets": "read",
+}
 
 
 @pytest.fixture(scope="module")
@@ -168,6 +181,18 @@ def test_a_runner_job_asks_for_a_token_that_names_one_repository_and_no_metrics_
         "permissions": JOB_PERMISSIONS,
         "repositories": ["app"],
     }
+
+
+def test_a_read_only_process_asks_for_a_token_with_read_permissions_only(
+    app_identity: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The drift Job sets `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY`, so its token can change
+    nothing on GitHub: no permission of the request has the level write (#6783)."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", "true")
+    reset_github_session()
+    app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
+    github_token()
+    assert json.loads(app_identity.sent[0].content) == {"permissions": READ_PERMISSIONS}
 
 
 def test_the_variable_of_the_job_sets_the_repository_of_the_token(

@@ -21,13 +21,13 @@ Kind: behavior. Reads: `src/devops_cli/github/onboard/settings_rows.py`, `src/de
 
 ## 3. A read-only token asks for read permissions only
 
-Kind: behavior. Reads: `src/devops_cli/github/app_installation.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/k8s/configmap.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/github/app_installation.py`, `src/devops_cli/k8s/configmap.py`, `tests/github/test_github_app_identity.py`.
+Kind: behavior. Reads: `src/devops_cli/github/app_installation.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/k8s/configmap.py`. Changes: `src/devops_cli/config/constants.py`, `src/devops_cli/config/settings.py`, `src/devops_cli/github/app_installation.py`, `src/devops_cli/k8s/configmap.py`, `tests/github/test_github_app_identity.py`, `tests/k8s/test_k8s_configmap.py`.
 Adds: `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`
 
-- [ ] 3.1 Write the failing tests `test_a_read_only_process_asks_for_a_token_with_read_permissions_only` and `test_the_configmap_leaves_out_the_read_only_setting` in `tests/github/test_github_app_identity.py`, for the scenarios "The token request of a read-only process" and "The ConfigMap leaves out the read-only setting". They fail on the base, which ignores the setting
+- [x] 3.1 Write the failing test `test_a_read_only_process_asks_for_a_token_with_read_permissions_only` in `tests/github/test_github_app_identity.py` for the scenario "The token request of a read-only process", and the test `test_the_configmap_leaves_out_the_read_only_setting` in `tests/k8s/test_k8s_configmap.py` for the scenario "The ConfigMap leaves out the read-only setting". The first fails on the base, which ignores the setting
   - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` fails on the base
-- [ ] 3.2 Add `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` to `src/devops_cli/config/constants.py`, the setting `read_only` to `GitHubAppConfig`, and give the App those permissions in `configured_app` when the setting is true. Leave the setting out of the `service.github_app` of the ConfigMap in `src/devops_cli/k8s/configmap.py`
-  - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py` passes
+- [x] 3.2 Add `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` to `src/devops_cli/config/constants.py`, the setting `read_only` to `GitHubAppConfig`, and give the App those permissions in `configured_app` when the setting is true. Leave the setting out of the `service.github_app` of the ConfigMap in `src/devops_cli/k8s/configmap.py`
+  - Verification: `$ uv run devops ci test tests/github/test_github_app_identity.py tests/k8s/test_k8s_configmap.py` passes
 
 ## 4. The nightly Job and its alerts
 
