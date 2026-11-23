@@ -1,0 +1,69 @@
+{
+ "summary": "read check runs only in the implement watch",
+ "pull_request_body": "This change makes the implement watch read check runs only without calling the commit status API.",
+ "why": "Issue #2877: The implement job watches checks through read_commit_checks which calls the commit status endpoint. The App token has no statuses permission, so a refusal stops the item.",
+ "what_changes": [
+  "Use `read_check_runs` in `watch_pull` of `src/devops_cli/github/check_verdict.py`."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "`read_check_runs` exists in `src/devops_cli/github/check_verdict.py`."
+ ],
+ "existing_tool": "No external tool covers this need. `read_check_runs` already covers this.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Use read_check_runs in the watch",
+   "reason": "It reads check runs only and does not call the commit status API."
+  }
+ ],
+ "rejected": [],
+ "specs": [
+  {
+   "capability": "github-checks",
+   "purpose": null,
+   "added": [
+    {
+     "name": "Watch reads check runs only",
+     "text": "The implement job watch SHALL read check runs only.",
+     "scenarios": [
+      {
+       "name": "Watch calls read_check_runs",
+       "when": "The implement job watch reads checks",
+       "then": "The watch calls read_check_runs"
+      }
+     ]
+    }
+   ],
+   "modified": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Use read_check_runs in the watch",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/github/check_verdict.py"
+   ],
+   "changes": [
+    "src/devops_cli/github/check_verdict.py",
+    "tests/github/test_check_verdict.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a test in tests/github/test_check_verdict.py for watch_pull reading check runs only",
+   "implementation": "Call read_check_runs in watch_pull",
+   "documentation": null,
+   "verify": "uv run devops ci test tests/github/test_check_verdict.py",
+   "process": null
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "The watch reads the check runs only, with `read_check_runs` (added by #2865), or the App gets the permission (only a person may decide that). A test shows the choice.",
+   "group": 1,
+   "reason": null
+  }
+ ],
+ "dependencies": []
+}

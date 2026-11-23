@@ -1208,7 +1208,9 @@ def test_a_plan_with_one_decision_and_one_rejected_alternative_passes_refine_blo
     )
     plan = make_stage_proposal(
         decisions=[{"decision": "Use the library", "reason": "It is maintained."}],
-        rejected=[{"alternative": "Write a parser", "evidence": "It adds code to keep."}],
+        rejected=[
+            {"alternative": "Write a parser", "evidence": "It adds 500 lines of code to keep."}
+        ],
     )
     problems = _check(plan, issue_body=body)
 

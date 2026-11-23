@@ -49,11 +49,28 @@ from tests.support.paths import REPO_ROOT
 # The good case of #2950 is the plan of #3173 with its promtool group as a `manifest` group: the
 # one `manifest` group of the set (#5205).
 EVALUATED_PULLS = frozenset(
-    {2975, 2976, 2977, 2978, 2979, 2980, 2981, 2982, 2983, 2984, 2985, 2986, 2987, 2988, 2989}
+    {
+        2975,
+        2976,
+        2977,
+        2978,
+        2979,
+        2980,
+        2981,
+        2982,
+        2983,
+        2984,
+        2985,
+        2986,
+        2987,
+        2988,
+        2989,
+    }
     | {2990, 2991, 2992, 2993, 2994, 2995, 2996, 2997, 2998, 2999, 3001, 3002}
     | {2719, 2761, 2766, 2857, 2858, 2859, 2870, 2958, 2971, 2972}
     | {
         3167,
+        3168,
         3173,
         3174,
         3183,
@@ -82,12 +99,14 @@ def cases() -> list[StageCase]:
     return load_cases(REPO_ROOT / CASES_DIRECTORY)
 
 
-def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCase]) -> None:
+def test_the_set_holds_the_reviewed_plans_and_six_good_ones(
+    cases: list[StageCase],
+) -> None:
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 62, 6)
-    assert len(EVALUATED_PULLS) == 55
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 63, 6)
+    assert len(EVALUATED_PULLS) == 56
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(
@@ -187,7 +206,9 @@ def test_a_folder_with_no_case_fails(tmp_path: Path) -> None:
         load_cases(tmp_path)
 
 
-def test_cases_are_picked_by_name_or_by_issue_and_cut_by_the_limit(cases: list[StageCase]) -> None:
+def test_cases_are_picked_by_name_or_by_issue_and_cut_by_the_limit(
+    cases: list[StageCase],
+) -> None:
     first, second = cases[0], cases[1]
 
     by_name = select_cases(cases, (first.name,), None)

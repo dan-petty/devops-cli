@@ -1,0 +1,11 @@
+The implement job watches the checks of its pull request with `watch_pull`, which reads them through `read_commit_checks`. That function also calls `GET /repos/{owner}/{repo}/commits/{ref}/status`. GitHub's table "Permissions required for GitHub Apps" lists this endpoint under "Commit statuses: read". The installation token of the Service holds no `statuses` permission (`CONST_GITHUB_APP_TOKEN_PERMISSIONS`). If GitHub refuses the call, the read fails closed, and the job stops the item with the reason that the checks could not be read.
+
+## Evidence
+
+- Permission table: https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps (Commit statuses, `GET /repos/{owner}/{repo}/commits/{ref}/status`: read).
+- `src/devops_cli/github/check_verdict.py`: `read_commit_checks` returns `unread_reason` when the status call fails.
+- No Job of the cluster has reached the watch yet, so no run shows the refusal. The repository sets no commit status, so the call has no use here.
+
+## Expected
+
+The watch reads the check runs only, with `read_check_runs` (added by #2865), or the App gets the permission (only a person may decide that). A test shows the choice.

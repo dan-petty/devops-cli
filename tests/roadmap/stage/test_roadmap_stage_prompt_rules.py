@@ -113,7 +113,9 @@ def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> Non
         StageRemoval,
     ],
 )
-def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(model: type[BaseModel]) -> None:
+def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(
+    model: type[BaseModel],
+) -> None:
     lists = [_keys(found) for found in _KEY_LIST.findall(_reply_section(_PROMPT)) if found]
     expected = set(model.model_fields)
 
@@ -121,7 +123,9 @@ def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(model: type[Bas
 
 
 @pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
-def test_the_keys_of_a_group_in_the_prompts_are_the_fields_of_a_group(task: str) -> None:
+def test_the_keys_of_a_group_in_the_prompts_are_the_fields_of_a_group(
+    task: str,
+) -> None:
     prompt = load_task_prompt(task)
     clause = re.search(r"(?:has|with) these keys:(.*?)\. (?:Every task|A `behavior`)", prompt, re.S)
     assert clause is not None
@@ -368,12 +372,19 @@ def test_the_prompt_lists_the_paths_that_the_check_takes_for_unobserved() -> Non
 
 
 @pytest.mark.parametrize("prefix", _refused_prefixes())
-def test_the_check_refuses_a_spec_delta_for_each_path_that_it_names(prefix: str) -> None:
+def test_the_check_refuses_a_spec_delta_for_each_path_that_it_names(
+    prefix: str,
+) -> None:
     assert any("spec delta" in problem for problem in _delta_plan(f"{prefix}sample.md"))
 
 
 @pytest.mark.parametrize(
-    "path", ["src/devops_cli/sample.py", "k8s/sample.yaml", "src/devops_cli/ai/tasks/sample.md"]
+    "path",
+    [
+        "src/devops_cli/sample.py",
+        "k8s/sample.yaml",
+        "src/devops_cli/ai/tasks/sample.md",
+    ],
 )
 def test_the_check_wants_a_spec_delta_for_a_path_outside_the_list(path: str) -> None:
     assert not any("spec delta" in problem for problem in _delta_plan(path))
@@ -651,9 +662,15 @@ def test_the_prompt_names_a_sample_file_by_a_bare_name() -> None:
 
 @pytest.mark.parametrize(
     "task",
-    ["roadmap_stage_change.md", "roadmap_refine_proposal.md", "roadmap_refine_investigation.md"],
+    [
+        "roadmap_stage_change.md",
+        "roadmap_refine_proposal.md",
+        "roadmap_refine_investigation.md",
+    ],
 )
-def test_the_prompts_name_the_key_that_holds_the_reason_of_a_rejected_plan(task: str) -> None:
+def test_the_prompts_name_the_key_that_holds_the_reason_of_a_rejected_plan(
+    task: str,
+) -> None:
     prompt = load_task_prompt(task)
 
     assert ("rejected_plan" if task == "roadmap_stage_change.md" else "stage_return") in prompt
@@ -689,7 +706,11 @@ def test_the_stage_prompt_gives_the_removal_sentence_that_the_check_reads() -> N
     (rule,) = re.findall(r"- When the issue removes or renames[^\n]*", _PROMPT)
     (sentence,) = re.findall(r'"(`<old name>` MUST NOT exist\.)"', rule)
     old = "devops roadmap intake-eval"
-    scenario = {"name": "The old name", "when": "a person runs it", "then": "the CLI refuses it"}
+    scenario = {
+        "name": "The old name",
+        "when": "a person runs it",
+        "then": "the CLI refuses it",
+    }
     spec = {
         "capability": "roadmap-eval",
         "added": [
@@ -998,7 +1019,9 @@ def test_the_stage_prompt_tells_the_planner_to_reuse_the_refine_block() -> None:
 
 
 @pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
-def test_the_prompts_forbid_empty_groups_and_map_whole_suite_criteria(task: str) -> None:
+def test_the_prompts_forbid_empty_groups_and_map_whole_suite_criteria(
+    task: str,
+) -> None:
     prompt = load_task_prompt(task)
 
     assert (
@@ -1009,3 +1032,23 @@ def test_the_prompts_forbid_empty_groups_and_map_whole_suite_criteria(task: str)
         "Map a global, performance, or hermeticity criterion to the task group that delivers or completes the suite."
         in prompt
     )
+
+
+# ── Rejected alternatives with a fact (#3257) ────────────────────────────────
+
+
+def test_the_stage_prompt_and_the_design_rule_state_the_alternative_rule() -> None:
+    prompt = load_task_prompt(_CHANGE_PROMPT)
+    phrase = (
+        "A plan with a decision gives at least one rejected alternative under `## Rejected alternatives`, "
+        "and its evidence holds a cited path or symbol, a `path:line`, a quoted command output or a number."
+    )
+    assert phrase in prompt
+    assert phrase in _CONFIG
+
+
+def test_the_verification_prompt_names_the_rejected_alternatives() -> None:
+    verify = load_task_prompt("roadmap_stage_verify.md")
+    assert "`rejected`" in verify
+    assert "false_premise" in verify
+    assert "fact that the repository contradicts" in verify

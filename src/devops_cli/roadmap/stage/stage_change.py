@@ -2025,6 +2025,46 @@ def _security_problems(proposal: StageProposal) -> list[str]:
     return []
 
 
+_QUOTED_OUTPUT: Final[re.Pattern[str]] = re.compile(r'["\'][^"\']+["\']')
+_FACT_NUMBER: Final[re.Pattern[str]] = re.compile(r"\b\d+\b")
+_FACT_PATH_LINE: Final[re.Pattern[str]] = re.compile(rf"(?<![\w./-])(?:{_CITED_PATH}):\d+")
+_FACT_PATH: Final[re.Pattern[str]] = re.compile(rf"(?<![\w./-])(?:{_CITED_PATH})(?!\w)")
+_FACT_SYMBOL: Final[re.Pattern[str]] = re.compile(
+    r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b|\b[a-z]+_[a-z0-9_]+\b|\b[A-Z][a-z0-9]+[A-Z]\w*\b"
+)
+
+
+def _has_fact(evidence: str) -> bool:
+    """Whether `evidence` states a fact: a cited path or symbol, a path and line, a quoted
+    command output, or a number (#3257)."""
+    return bool(
+        code_spans(evidence)
+        or _FACT_PATH_LINE.search(evidence)
+        or _FACT_PATH.search(evidence)
+        or _FACT_SYMBOL.search(evidence)
+        or _QUOTED_OUTPUT.search(evidence)
+        or _FACT_NUMBER.search(evidence)
+    )
+
+
+def _rejected_problems(proposal: StageProposal) -> list[str]:
+    """What is wrong with the rejected alternatives of `proposal` (#3257): a plan with a decision
+    gives at least one alternative under `## Rejected alternatives`, and at least one alternative
+    states a fact."""
+    if proposal.decisions and not proposal.rejected:
+        return [
+            MESSAGES.roadmap.stage_problem_no_alternative.format(
+                decision=proposal.decisions[0].decision
+            )
+        ]
+    if proposal.rejected and not any(_has_fact(item.evidence) for item in proposal.rejected):
+        return [
+            MESSAGES.roadmap.stage_problem_alternative_fact.format(alternative=item.alternative)
+            for item in proposal.rejected
+        ]
+    return []
+
+
 def _skip_token_modifiers(tokens: list[str]) -> int:
     idx = 0
     while idx < len(tokens) and "=" in tokens[idx] and not tokens[idx].startswith("-"):
@@ -2220,6 +2260,7 @@ def content_problems(proposal: StageProposal, probes: Sequence[str] = ()) -> lis
     problems.extend(_prompt_rule_problems(proposal))
     problems.extend(_test_only_group_problems(proposal))
     problems.extend(_security_problems(proposal))
+    problems.extend(_rejected_problems(proposal))
     problems.extend(_runner_capability_problems(proposal))
     problems.extend(_gate_defect_problems(proposal))
     lines = [_squash(line) for line in probes if line.strip()]

@@ -114,7 +114,12 @@ _STAGE_PROPOSAL: dict[str, Any] = {
     "feasibility": ["`src/devops_cli/sample.py` shows the fault, as `def keep(comments):` does."],
     "existing_tool": "The standard library covers the need, so the change builds no helper.",
     "decisions": [{"decision": "Keep the list", "reason": "It is the simplest fix."}],
-    "rejected": [{"alternative": "A new class", "evidence": "The list already holds the data."}],
+    "rejected": [
+        {
+            "alternative": "A new class",
+            "evidence": "src/devops_cli/roadmap/stage/stage_change.py:1866: the list already holds the data.",
+        }
+    ],
     "specs": [
         {
             "capability": "comment-thread",

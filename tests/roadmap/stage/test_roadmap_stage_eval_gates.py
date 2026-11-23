@@ -57,8 +57,9 @@ _MODULE_FIXTURE = '@pytest.fixture(scope="module")'
 # adds one defect that the `paths` gate judges: a plan that states a wrong constant. The case of #3407
 # adds one defect that the `paths` gate judges: the decision that `StagedTree` holds file text
 # quotes no text of the class. The case of #3491 adds one defect that the `paths` gate judges: a
-# coverage setting in pyproject.toml with a spec delta.
-JUDGED_BASELINE: Final[tuple[int, int]] = (86, 323)
+# coverage setting in pyproject.toml with a spec delta. The case of #3257 adds one defect that
+# the `content` gate judges: a plan that gives no rejected alternative (#3257).
+JUDGED_BASELINE: Final[tuple[int, int]] = (87, 324)
 
 
 @pytest.fixture(scope="module")
@@ -113,7 +114,9 @@ def _first_with(cases: list[StageCase], gate: GateName) -> StageCase:
     return next(case for case in cases if any(d.gate is gate and d.paths for d in case.defects))
 
 
-def test_every_gate_still_refuses_every_known_bad_plan_it_must(report: ReplayReport) -> None:
+def test_every_gate_still_refuses_every_known_bad_plan_it_must(
+    report: ReplayReport,
+) -> None:
     assert report.failures == []
     assert {total.gate.name: (total.known > 0, total.missed) for total in report.totals()} == {
         GateName.PATHS: (True, 0),
@@ -129,7 +132,9 @@ def test_each_good_plan_passes_every_gate(report: ReplayReport) -> None:
     assert all(not r.refused for r in report.replays if r.case.verdict is Verdict.GOOD)
 
 
-def test_the_incident_case_of_pull_3305_is_loaded_and_accepted(cases: list[StageCase]) -> None:
+def test_the_incident_case_of_pull_3305_is_loaded_and_accepted(
+    cases: list[StageCase],
+) -> None:
     case = next((c for c in cases if c.issue == 3264 and c.pull == 3305), None)
     assert case is not None
     assert any("kind: placeholder" in note for note in case.notes)
@@ -165,7 +170,9 @@ def test_replay_all_and_replay_case_require_registry_table() -> None:
         cast(Any, replay_case)(CASES[0])
 
 
-def test_the_plan_under_test_holds_the_registry_of_its_case(cases: list[StageCase]) -> None:
+def test_the_plan_under_test_holds_the_registry_of_its_case(
+    cases: list[StageCase],
+) -> None:
     case = next(c for c in cases if c.verdict is Verdict.GOOD)
     table = (RegistryCount(kind="swallow", token="pass", path="tests/example.py"),)
 
@@ -360,7 +367,9 @@ def test_a_defect_is_listed_for_the_gate_that_catches_its_type_or_for_a_gate_tha
             assert by_type or by_finding, (case.name, defect.type)
 
 
-def test_a_gate_that_stops_refusing_a_plan_fails_the_replay(cases: list[StageCase]) -> None:
+def test_a_gate_that_stops_refusing_a_plan_fails_the_replay(
+    cases: list[StageCase],
+) -> None:
     case = _first_with(cases, GateName.PATHS)
     missing = {path for d in case.defects for path in d.paths}
     healed = case.model_copy(
@@ -384,9 +393,14 @@ def test_a_path_gate_that_names_other_paths_than_the_defect_fails_the_replay(
     assert replay_case(changed, registry=()).outcomes[0].status is DefectStatus.MISSED
 
 
-def test_a_good_plan_that_a_gate_refuses_fails_the_replay(cases: list[StageCase]) -> None:
+def test_a_good_plan_that_a_gate_refuses_fails_the_replay(
+    cases: list[StageCase],
+) -> None:
     good = next(case for case in cases if case.verdict is Verdict.GOOD)
-    plan = {**good.plan, "groups": [{**good.groups[0], "changes": ["src/devops_cli/nope.py"]}]}
+    plan = {
+        **good.plan,
+        "groups": [{**good.groups[0], "changes": ["src/devops_cli/nope.py"]}],
+    }
 
     replay = replay_case(good.model_copy(update={"plan": plan}), registry=())
 
@@ -438,14 +452,18 @@ def test_a_kind_defect_that_the_gate_explains_with_other_words_fails_the_replay(
     assert replay.outcomes[0].status is DefectStatus.MISSED
 
 
-def test_each_kind_defect_names_the_message_of_the_schema(cases: list[StageCase]) -> None:
+def test_each_kind_defect_names_the_message_of_the_schema(
+    cases: list[StageCase],
+) -> None:
     kinds = [d for c in cases for d in c.defects if d.gate is GateName.KIND]
 
     assert kinds
     assert all(defect.message for defect in kinds)
 
 
-def test_a_pending_defect_of_a_type_with_a_gate_is_stale(cases: list[StageCase]) -> None:
+def test_a_pending_defect_of_a_type_with_a_gate_is_stale(
+    cases: list[StageCase],
+) -> None:
     case = _first_with(cases, GateName.PATHS)
     defect = case.defects[0].model_copy(
         update={"type": DefectType.MISSING_PATH, "gate": GateName.PENDING, "paths": ()}
@@ -663,7 +681,10 @@ ACCEPTANCE_BODY = "Text.\n\n### Acceptance criteria\n\n- [ ] First.\n- [ ] Secon
 
 def _with_criteria(case: StageCase, criteria: list[dict[str, object]]) -> StageCase:
     return case.model_copy(
-        update={"issue_body": ACCEPTANCE_BODY, "plan": {**case.plan, "criteria": criteria}}
+        update={
+            "issue_body": ACCEPTANCE_BODY,
+            "plan": {**case.plan, "criteria": criteria},
+        }
     )
 
 
@@ -723,7 +744,9 @@ def test_a_recorded_plan_has_no_criteria_list_so_the_criteria_gate_does_not_judg
     assert run_gates(PlanUnderTest.of_case(body))[GateName.CRITERIA] == []
 
 
-def test_the_dropped_criterion_defects_of_the_set_wait_for_no_gate(cases: list[StageCase]) -> None:
+def test_the_dropped_criterion_defects_of_the_set_wait_for_no_gate(
+    cases: list[StageCase],
+) -> None:
     dropped = [d for c in cases for d in c.defects if d.type is DefectType.CRITERION_DROPPED]
 
     assert dropped
@@ -902,6 +925,20 @@ def test_the_replay_catches_a_verify_command_of_true_through_the_paths_gate(
     assert next(o.status for o in replay.outcomes if o.defect is defect) is DefectStatus.CAUGHT
 
 
+def test_the_golden_set_holds_a_plan_with_no_rejected_alternative(
+    cases: list[StageCase],
+) -> None:
+    case = next(c for c in cases if c.pull == 3168)
+    defect = next(d for d in case.defects if d.gate is GateName.CONTENT)
+
+    replay = replay_case(case, registry=())
+
+    assert defect.type is DefectType.OTHER
+    assert run_gates(PlanUnderTest.of_case(case)).keys() >= {GateName.CONTENT}
+    assert next(o.status for o in replay.outcomes if o.defect is defect) is DefectStatus.CAUGHT
+    assert replay.failures == []
+
+
 def test_a_content_gate_that_stops_refusing_a_plan_fails_the_replay(
     cases: list[StageCase],
 ) -> None:
@@ -987,7 +1024,9 @@ def test_the_change_marks_the_case_of_a_wrong_constant_done() -> None:
     assert "- [x] 1.1 " in _change_tasks()
 
 
-def test_the_replay_catches_the_case_of_a_wrong_constant(cases: list[StageCase]) -> None:
+def test_the_replay_catches_the_case_of_a_wrong_constant(
+    cases: list[StageCase],
+) -> None:
     """A recorded case whose plan states a constant value that the staged tree does not hold is
     refused by the `paths` gate, which runs the constants rule (#3390)."""
     case = next(found for found in cases if found.name == WRONG_CONSTANT_CASE)
