@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.4](https://github.com/dan-petty/devops-cli/compare/v0.203.3...v0.203.4) (2026-11-23)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#6920](https://github.com/dan-petty/devops-cli/issues/6920)) ([0264b0d](https://github.com/dan-petty/devops-cli/commit/0264b0dc08576485261b67ccb143924ac4d02bed))
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.6 ([#6910](https://github.com/dan-petty/devops-cli/issues/6910)) ([64f0b80](https://github.com/dan-petty/devops-cli/commit/64f0b805629bf605ff194cc94e27cf473e5da3c1))
+* **deps:** update Node.js to v24.0.2 ([#6911](https://github.com/dan-petty/devops-cli/issues/6911)) ([34acd8a](https://github.com/dan-petty/devops-cli/commit/34acd8a88bc449ac0ff747e60fcc3e1fab5172e1))
+* **security:** judge Trivy-config DS-0029 in Harbor template Dockerfile ([#6907](https://github.com/dan-petty/devops-cli/issues/6907)) ([23a48a8](https://github.com/dan-petty/devops-cli/commit/23a48a86d767a752343dc29fbbebf3e44516b21d))
+
+
+### Code Refactoring
+
+* **security:** use the osv-scanner config for audit ignores ([#6908](https://github.com/dan-petty/devops-cli/issues/6908)) ([0d50dac](https://github.com/dan-petty/devops-cli/commit/0d50dac4cde3aa913f2660153f5d3dd8b6cf8c49))
+
 ## [0.203.3](https://github.com/dan-petty/devops-cli/compare/v0.203.2...v0.203.3) (2026-11-23)
 
 
