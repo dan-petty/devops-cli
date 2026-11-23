@@ -139,6 +139,8 @@ devops roadmap stage [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub and call the model, make no GitHub write and no git write, and keep each plan that passes the checks as one local file: print the changes that --confirm writes. --confirm reads that file and asks the model nothing for an item whose input did not change. This is the mode when no flag is given. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes in git and on GitHub. A kept plan file of an item goes when the item is staged. |
 | `--why` | `boolean` | - | Also list the open items that the filter does not name, each with the family it misses, under 'Matched no filter'. Without it, the plan does not list them. |
+| `--phase` | `choice (prepare|agent|publish|all)` | `all` | The phase of the stage Job, with --job-item, --confirm and --work: prepare (the reads, the writes that need no model, and the clone of the stage agent with the dated scaffold), agent (the stock Coder agent, with no store and no GitHub credential), publish (the checks, the plan commit, the draft and the record), or all (the stage Job in one process, with no run folder). |
+| `--work` | `path` | - | The run folder of a phase other than all: state/, work/ and out/. |
 
 ---
 
@@ -232,6 +234,9 @@ devops roadmap plan-recheck [OPTIONS]
 | `--source` | `path` | - | The clone of the repository. Without it, the model clone. |
 | `--branch` | `string` | - | A ref of the clone, such as HEAD or origin/\<branch\>. The command judges its change folders on its own tree and compares them with the default branch. |
 | `--branches` | `boolean` | - | Judge the change folder of each open draft plan pull request whose base is the default branch. Without --confirm, it prints the result of each branch and pushes nothing. With --confirm, it rebases the branch onto the default branch, writes the mechanical rewrite, checks it and pushes it once with a lease. A branch whose plan the rewrite does not change gets no rebase and no push, and a conflict or a refused rewrite leaves the branch as it is. It takes no --branch and no --json. |
+| `--base` | `string` | - | A commit, with --branch: make no fetch, read no ref of the default branch, and judge only the change folders that the branch changes from this commit, with the rules of the stage plan. The command exits 1 when one of these folders is not ok. The stage agent runs it on its clone. |
+| `--candidate` | `path` | - | The body candidate of the stage agent, with --base: the line '# <summary>', then the text of the body. The title and the body rules judge the texts that the stage Job builds from it. |
+| `--issues` | `path` | - | An issue listing, a JSON list of issues with the number, the title, the URL and the state: the command reads the issues from it and opens no store. |
 | `--json` | `boolean` | - | Print the folders, the counts and the refusals of each gate as JSON, with the result of each folder. |
 | `--dry-run` | `boolean` | - | Make no request: print the reads that a run makes, in order, with placeholders. |
 | `--confirm` | `boolean` | - | Write the rewritten files of each rewrite folder of the default branch to the working tree of --source, and make no commit. It needs --source, and it writes no file if one differs from the default branch. With --branches, rebase, rewrite, check and push each open plan branch whose rewrite changes a file, once, with a lease on the head that the run read. Review the diff, and open a pull request. |

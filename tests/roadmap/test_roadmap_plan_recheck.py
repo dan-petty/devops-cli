@@ -2,25 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from devops_cli.openspec.tool import isolated_openspec
 from devops_cli.roadmap.plan_recheck import (
+    GATE_REMOVAL,
+    BranchRecheck,
+    ListingIssues,
     PlanRecheck,
     PlanResult,
+    RecheckReads,
     recheck_plans,
     refusals_by_gate,
     render_recheck,
 )
 from devops_cli.roadmap.stage.stage_change import StageProposal, render_change
-from devops_cli.roadmap.stores.store import GitHubState, ItemField
+from devops_cli.roadmap.stores.store import GitHubState, IssueRecord, ItemField
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_stage import VALID_REPORT, StageRepo, validate_args
+from tests.support.roadmap_stage import (
+    VALID_REPORT,
+    StageRepo,
+    heavy_group,
+    run_git,
+    validate_args,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -520,3 +531,142 @@ def test_a_plan_that_omits_the_test_of_a_changed_module_is_refused_by_the_paths_
     assert len(paths_refusals) == 1
     assert module in paths_refusals[0].message
     assert module_test in paths_refusals[0].message
+
+
+# A run with a base (#6705): the folders that the branch changes from the base, with the rules of
+# the stage plan, and no fetch and no read of a ref of the default branch.
+
+
+def _base(repo: StageRepo) -> str:
+    return repo.git("rev-parse", "main")
+
+
+def _with_base(
+    source: Path,
+    reads: RecheckReads,
+    tool: OpenSpecTool,
+    base: str,
+    *,
+    branch: str = "topic",
+    candidate: str | None = None,
+) -> BranchRecheck:
+    recheck = recheck_plans(
+        source, reads, tool=tool, branch=branch, base=base, default="main", candidate=candidate
+    )
+    assert recheck.records == ()
+    assert recheck.branch is not None
+    return recheck.branch
+
+
+def test_a_base_run_judges_the_folders_that_the_branch_changes_and_sends_no_fetch(
+    stage_repo: StageRepo, tool: OpenSpecTool, tmp_path: Path
+) -> None:
+    stage_repo.track(_reading_a_missing_file(1))
+    base = _base(stage_repo)
+    _branch(stage_repo, "topic", write=_plan(2, _proposal("tests/test_other.py")))
+    stage_repo.git("remote", "set-url", "origin", str(tmp_path / "gone.git"))
+
+    judged = _with_base(stage_repo.clone, _store(count=2), tool, base)
+
+    assert [(r.folder, r.result) for r in judged.records] == [
+        ("2-keep-the-last-comment", PlanResult.OK)
+    ]
+    assert judged.failed == ()
+
+
+def test_a_base_run_reads_no_ref_of_origin_in_a_new_repository_with_the_patch(
+    stage_repo: StageRepo, tool: OpenSpecTool, tmp_path: Path
+) -> None:
+    base = _base(stage_repo)
+    repo = tmp_path / "publish" / "repo"
+    repo.mkdir(parents=True)
+    run_git(repo, "init", "-q")
+    run_git(repo, "remote", "add", "origin", str(stage_repo.origin))
+    run_git(repo, "fetch", "-q", "--depth=1", "--no-tags", "origin", base)
+    run_git(repo, "switch", "-q", "--detach", base)
+    for path, text in _plan(2, _proposal("tests/test_other.py")).items():
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text(text, encoding="utf-8")
+    run_git(repo, "add", "-A")
+    run_git(repo, "-c", "user.name=Bot", "-c", "user.email=bot@example.com", "commit", "-qm", "p")
+
+    judged = _with_base(repo, _store(count=2), tool, base, branch="HEAD")
+
+    assert [(r.folder, r.result) for r in judged.records] == [
+        ("2-keep-the-last-comment", PlanResult.OK)
+    ]
+    assert run_git(repo, "for-each-ref", "refs/remotes") == ""
+
+
+def test_a_base_run_refuses_a_group_over_the_step_budget(
+    stage_repo: StageRepo, tool: OpenSpecTool, config: Callable[..., Path]
+) -> None:
+    config(roadmap={"stage": {"step_tokens": 1000}})
+    group = heavy_group(stage_repo)
+    base = _base(stage_repo)
+    _branch(stage_repo, "topic", write=_plan(2, make_stage_proposal(groups=[group])))
+
+    judged = _with_base(stage_repo.clone, _store(count=2), tool, base)
+
+    (record,) = judged.records
+    assert "group-over-budget" in [refusal.gate for refusal in record.refusals]
+    assert judged.failed == ("2-keep-the-last-comment",)
+
+
+def test_a_base_run_refuses_a_test_that_names_a_removed_function(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    stage_repo.track({"tests/test_tail.py": "from sample import keep_tail\n"})
+    base = _base(stage_repo)
+    files = _plan(2, _proposal("tests/test_other.py"))
+    proposal = "openspec/changes/2-keep-the-last-comment/proposal.md"
+    files[proposal] = files[proposal].replace(
+        "## What Changes", "The change removes `keep_tail`.\n\n## What Changes", 1
+    )
+    _branch(stage_repo, "topic", write=files)
+
+    judged = _with_base(stage_repo.clone, _store(count=2), tool, base)
+
+    (record,) = judged.records
+    removal = [r for r in record.refusals if r.gate == GATE_REMOVAL]
+    assert [("tests/test_tail.py" in r.message, "keep_tail" in r.message) for r in removal] == [
+        (True, True)
+    ]
+    assert judged.failed == ("2-keep-the-last-comment",)
+
+
+def test_a_base_run_refuses_a_closing_keyword_of_the_candidate(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    base = _base(stage_repo)
+    _branch(stage_repo, "topic", write=_plan(2, _proposal("tests/test_other.py")))
+    candidate = "# Keep the last comment\n\nThe change closes #3 and keeps the last comment.\n"
+
+    judged = _with_base(stage_repo.clone, _store(count=3), tool, base, candidate=candidate)
+
+    (record,) = judged.records
+    assert any("closes" in refusal.message for refusal in record.refusals)
+    assert judged.failed == ("2-keep-the-last-comment",)
+
+
+def test_a_listing_of_the_issues_gives_the_results_of_the_store(
+    stage_repo: StageRepo, tool: OpenSpecTool
+) -> None:
+    stage_repo.track({**_plan(1), **_plan(2, _proposal("tests/test_other.py"))})
+    store = _store(closed=(2,), count=2)
+    listing = ListingIssues(
+        tuple(
+            IssueRecord(number=item.number, title=item.title, url=item.url, state=item.state)
+            for number in (1, 2)
+            if (item := store.item(number)) is not None
+        )
+    )
+
+    by_store = recheck_plans(stage_repo.clone, store, tool=tool)
+    by_listing = recheck_plans(stage_repo.clone, listing, tool=tool)
+
+    assert by_listing.records == by_store.records
+    assert {r.issue: r.result for r in by_listing.records} == {
+        1: PlanResult.OK,
+        2: PlanResult.CLEANUP,
+    }

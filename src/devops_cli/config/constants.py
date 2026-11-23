@@ -3877,6 +3877,17 @@ CONST_ROADMAP_IMPLEMENT_RUNS_DIR: Final[str] = "roadmap/implement-runs"
 CONST_ROADMAP_STAGE_RUNS_DIR: Final[str] = "roadmap/stage-runs"
 """The folder, in the data folder, of the run folders of the stage write: the clone of `prepare`, the
 change folder of the agent work and the patch that `publish` applies (#6704)."""
+# The files of the stage Job on the phases (#6705). The stage agent writes the body candidate of
+# the plan pull request at the root of its clone: the line `# <summary>`, then the text of the
+# body. The agent phase writes the patch of the change folder, the candidate and the outcome in
+# `out/`. `prepare` writes the issue listing in `state/` and a copy of it in `work/`.
+CONST_ROADMAP_STAGE_CANDIDATE_FILE: Final[str] = "PLAN_PULL_REQUEST.md"
+CONST_ROADMAP_STAGE_PLAN_PATCH_FILE: Final[str] = "plan.patch"
+CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE: Final[str] = "candidate.md"
+CONST_ROADMAP_STAGE_ISSUES_FILE: Final[str] = "issues.json"
+# The most characters that GitHub takes in the body of a comment: `publish` of the stage Job fits
+# the plan-state comment to it (#6705).
+CONST_GITHUB_COMMENT_MAX_CHARS: Final[int] = 65536
 # The variables that the agent phase of a runner Job refuses to start with: the private key of the
 # App and each GitHub token that gh and git read (#2695, #6601).
 CONST_GITHUB_AGENT_REFUSED_ENV: Final[tuple[str, ...]] = (

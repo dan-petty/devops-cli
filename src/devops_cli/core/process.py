@@ -47,6 +47,7 @@ from devops_cli.dry_run import is_dry_run
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.git import (
+    GitHubOperationError,
     GitHubRateLimitError,
     GitHubUnauthenticatedError,
     GitHubUnreadError,
@@ -444,6 +445,16 @@ def github_token() -> str:
     if not token:
         raise GitHubUnauthenticatedError(why)
     return token
+
+
+def finds_github_login() -> bool:
+    """Whether the lookup of `github_token` finds a GitHub token for the session: a token variable
+    or a stored gh login. The agent phase of the stage Job refuses to start with one (#6705)."""
+    try:
+        github_token()
+    except GitHubOperationError:
+        return False
+    return True
 
 
 def _git_github_token() -> str:

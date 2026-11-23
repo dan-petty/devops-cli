@@ -2117,6 +2117,14 @@ class RoadmapCommandHelp:
         "Also list the open items that the filter does not name, each with the family it "
         "misses, under 'Matched no filter'. Without it, the plan does not list them."
     )
+    stage_phase: str = (
+        "The phase of the stage Job, with --job-item, --confirm and --work: prepare (the reads, "
+        "the writes that need no model, and the clone of the stage agent with the dated scaffold), "
+        "agent (the stock Coder agent, with no store and no GitHub credential), publish (the "
+        "checks, the plan commit, the draft and the record), or all (the stage Job in one process, "
+        "with no run folder)."
+    )
+    stage_work: str = "The run folder of a phase other than all: state/, work/ and out/."
     return_item: str = (
         "Return an item to New with an evidence comment, handing it back to refinement when it "
         "cannot be built as specified or needs a refactor beyond its scope. The item gets the "
@@ -2171,6 +2179,21 @@ class RoadmapCommandHelp:
     plan_recheck_branch: str = (
         "A ref of the clone, such as HEAD or origin/<branch>. The command judges its change "
         "folders on its own tree and compares them with the default branch."
+    )
+    plan_recheck_base: str = (
+        "A commit, with --branch: make no fetch, read no ref of the default branch, and judge "
+        "only the change folders that the branch changes from this commit, with the rules of the "
+        "stage plan. The command exits 1 when one of these folders is not ok. The stage agent "
+        "runs it on its clone."
+    )
+    plan_recheck_candidate: str = (
+        "The body candidate of the stage agent, with --base: the line '# <summary>', then the "
+        "text of the body. The title and the body rules judge the texts that the stage Job "
+        "builds from it."
+    )
+    plan_recheck_issues: str = (
+        "An issue listing, a JSON list of issues with the number, the title, the URL and the "
+        "state: the command reads the issues from it and opens no store."
     )
     plan_recheck_branches: str = (
         "Judge the change folder of each open draft plan pull request whose base is the default "

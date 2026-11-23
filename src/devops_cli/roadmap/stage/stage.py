@@ -3011,6 +3011,35 @@ def _call_reason(exc: AIClientError) -> str:
     )
 
 
+# The errors of the plan of one item that fail the item, not the run (`_plan_each`). A refused key
+# of the provider (`AICredentialsError`) still stops the run.
+ITEM_ERRORS: Final = (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError)
+
+
+def item_failure(
+    target: StageTarget,
+    exc: AIClientError | GitHubOperationError | RoadmapStageError | ToolExecutionError,
+) -> StageFailure:
+    """The failure of `target` that `exc`, an error of `ITEM_ERRORS`, makes before any plan call,
+    as `_plan_each` makes it of an error of the plan. `prepare` of the stage Job makes the reads of
+    the planner, so their errors fail the item there (#6705)."""
+    return _failure_of(target, exc)
+
+
+def job_time_decision(repo: str, target: StageTarget) -> FalsePremise | StageFailure | None:
+    """The result that the CI job-time premise of `target` gives before any plan call (#4026): a
+    false premise, the failure of its GitHub read, or None when the item goes on to its plan.
+    `prepare` of the stage Job reads it, because the agent phase holds no GitHub credential
+    (#6705)."""
+    premise_of = _time_premise_of(repo)
+    if premise_of is None:
+        return None
+    try:
+        return premise_of(target)
+    except GitHubOperationError as exc:
+        return _failure_of(target, exc)
+
+
 def _plan_each(
     planner: _Planner,
     targets: Iterable[StageTarget],
@@ -3036,7 +3065,7 @@ def _plan_each(
             result = planner.plan(target) if checked is None else checked
         except AICredentialsError:
             raise
-        except (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError) as exc:
+        except ITEM_ERRORS as exc:
             result = _failure_of(
                 target,
                 exc,
@@ -3946,7 +3975,7 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     return _moved_section(moved) + _run_report(change.trace) + read + unvalidated + warnings
 
 
-def _plan_state(change: StagedChange, pull: int) -> str:
+def plan_state_text(change: StagedChange, pull: int) -> str:
     """The plan-state comment of `change` on its draft pull request `pull` (#6197): the branch,
     the groups with their tokens, the open findings of the last review, and every other finding of
     each review round as advice (#3264, #3153)."""
@@ -3998,6 +4027,24 @@ def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChang
     return ""
 
 
+class PlanPush(Protocol):
+    """The push of the plan commit of one item: `push_plan`, or the push of `publish` of the stage
+    Job on its phases, which checks the new tree before it pushes (#6705)."""
+
+    def __call__(
+        self,
+        repo: str,
+        *,
+        issue: int,
+        branch: str,
+        files: Mapping[str, str],
+        staged: str,
+        message: str,
+        lease: str | None,
+        identity: tuple[str, str],
+    ) -> str: ...
+
+
 def _stage_one(
     store: RoadmapStore,
     repo: str,
@@ -4006,6 +4053,7 @@ def _stage_one(
     change: StagedChange,
     moved: Sequence[MovedPath],
     now: datetime,
+    push: PlanPush = push_plan,
 ) -> None:
     """Push the plan commit and open the draft of one item, then record them, write the plan-state
     comment of the draft and post the comment of the run (#6197). The plan is written on the
@@ -4027,7 +4075,7 @@ def _stage_one(
         {StageRecordKey.PENDING: PendingStage(branch=target.branch, time=now).record},
     )
     number = target.item.number
-    sha = push_plan(
+    sha = push(
         repo,
         issue=number,
         branch=target.branch,
@@ -4065,7 +4113,7 @@ def _stage_one(
     label_note = _label_pull(store, pull.number, change.title)
     label_note += _label_needs_fix(store, pull, change)
     number = target.item.number
-    write_state(store, repo, number, pull.number, _plan_state(change, pull.number))
+    write_state(store, repo, number, pull.number, plan_state_text(change, pull.number))
     store.comment(
         number,
         MESSAGES.roadmap.stage_comment_event.format(
@@ -4418,11 +4466,13 @@ class StageWriter:
         *,
         now: datetime | None = None,
         repo: str = "",
+        push: PlanPush = push_plan,
     ):
         self._store = store
         self._source = Path(source)
         self._now = now
         self._repo = repo
+        self._push = push
         self._sha = ""
         self._rejections: dict[int, Rejection] = {}
         self._removed: list[int] = []
@@ -4474,6 +4524,16 @@ class StageWriter:
                 self._rejected,
                 self._failed,
             )
+
+    def resume(self, plan: StagePlan, selected: Collection[int], begun: StageApplied) -> None:
+        """Take up the round of `plan` that `begin` started in another process, which wrote
+        `begun`, so that `settle` writes the results of `selected` (#6705). It writes nothing:
+        `publish` of the stage Job calls it after `prepare` called `begin`."""
+        self._repo, self._sha = plan.repo, plan.sha
+        self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
+        self._removed = list(begun.removed)
+        self._rejected = list(begun.rejected)
+        self._failed = list(begun.failed)
 
     def _draft_heads(self) -> dict[str, int]:
         """The number of the open pull request of each head branch: one read for the round."""
@@ -4548,7 +4608,9 @@ class StageWriter:
         with observe_step(self._repo, _ROW, StepName.APPLY):
             moved = _moved_for(self._source, self._sha, change)
             now = self._now or datetime.now(UTC)
-            _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
+            _stage_one(
+                self._store, self._repo, self._source, self._sha, change, moved, now, self._push
+            )
         # The item is staged, so its plan has no more use. A failed write raised above and kept it.
         delete_plan_record(plan_record_path(self._repo, change.target.item.number))
         delete_refused_record(refused_record_path(self._repo, change.target.item.number))
@@ -4797,9 +4859,11 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
 
 
 __all__ = [
+    "ITEM_ERRORS",
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PlanPush",
     "PlanRevision",
     "PlannedQueue",
     "PremiseKind",
@@ -4819,6 +4883,8 @@ __all__ = [
     "Walk",
     "dry_run_stage",
     "emit_stage_results",
+    "item_failure",
+    "job_time_decision",
     "log_stage_attempts",
     "named_items",
     "openspec_tool",
@@ -4826,6 +4892,7 @@ __all__ = [
     "plan_body_hash",
     "plan_defects",
     "plan_stage",
+    "plan_state_text",
     "priority_order",
     "raise_for_failed",
     "read_stage_round",

@@ -41,16 +41,21 @@ def _git(checkout: Path, *args: str) -> None:
         )
 
 
-def write_patch(checkout: Path, base: str, path: Path, *, head: str | None = None) -> None:
+def write_patch(
+    checkout: Path, base: str, path: Path, *, head: str | None = None, only: str | None = None
+) -> None:
     """Write to `path` the binary patch from the commit `base` to the commit `head`, or to every
-    file of `checkout` when `head` is None. A checkout with no change gives an empty file."""
+    file of `checkout` when `head` is None. With `only`, a path of the checkout, the patch holds
+    the changes under that path alone, as the stage agent hands over its change folder (#6705).
+    A checkout with no change gives an empty file."""
+    paths = ["--", only] if only is not None else []
     if head is None:
-        _git(checkout, "add", "-A")
+        _git(checkout, "add", "-A", *paths)
         target = ["--cached", base]
     else:
         target = [base, head]
     # git writes the bytes of the patch to the file itself, so text that is not UTF-8 stays.
-    _git(checkout, "diff", *_FORMAT, f"--output={path}", *target)
+    _git(checkout, "diff", *_FORMAT, f"--output={path}", *target, *paths)
     path.chmod(0o600)
 
 

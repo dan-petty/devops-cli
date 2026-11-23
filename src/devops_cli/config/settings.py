@@ -1441,7 +1441,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_VERIFY_REPAIR_ROUNDS_CEILING,
     )
     plan_defect_limit: Annotated[int, Variable()] = Field(
-        description="How many failures of one item on the same body the stage job counts before it asks for a split: the `plan_defect` failures of a plan, and the ends of a stage Job with the class `timeout` or `plan_defect`. An outage of the provider, of GitHub or of the cluster does not count. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan, or that asks refine to split the item after the last Job. The settings load refuses a value above 4 times the default",
+        description="How many failures of one item on the same body the stage job counts before it asks for a split: the `plan_defect` failures of a plan, and the ends of a stage Job with the class `timeout` or `plan_defect`, and a `ci_infra` end of the agent phase that `publish` of a stage Job on its phases reads. An outage of the provider, of GitHub or of the cluster does not count. The failure that reaches this count returns the item to New with one comment that lists the problems of the last plan, or that asks refine to split the item after the last Job. The settings load refuses a value above 4 times the default",
         default=DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,
         ge=1,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_STAGE_PLAN_DEFECT_LIMIT,

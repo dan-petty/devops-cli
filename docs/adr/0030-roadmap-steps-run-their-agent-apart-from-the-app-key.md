@@ -4,6 +4,7 @@ date: 2026-11-21
 decision-makers: [owner]
 issue: 6601
 tracker: 3702
+amended-by: ["0036"]
 ---
 
 # Roadmap steps run their agent apart from the App key
@@ -53,3 +54,7 @@ The implement agent rebases onto the tip of the default branch that `prepare` re
 
 - The tracker: #3702. The design study: #2695. The first step: #6601. The three containers: #3700. The model step for a conflict: #6640. The rebase of fix-checks: #6639.
 - The specs: `openspec/specs/roadmap-phases/spec.md` and `openspec/specs/roadmap-fix-checks/spec.md`.
+
+## Status History
+
+2026-11-23: Amended by ADR 0036, section Decision Outcome.

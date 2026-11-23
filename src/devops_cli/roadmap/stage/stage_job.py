@@ -33,7 +33,10 @@ class. Only an end whose class points at the size of the plan (`SPLIT_CLASSES`: 
 `plan_defect`) counts toward `roadmap.stage.plan_defect_limit` on one body, as a refused plan does.
 The end that reaches the limit returns the item to New with a comment that asks refine to split it:
 a plan that keeps failing is too large for one Job (owner rule, 2026-11-13). An outage of the
-provider, of GitHub or of the cluster does not count: a split does not help it.
+provider, of GitHub or of the cluster does not count: a split does not help it. On the phases of
+the Job (`stage_job_phases.py`, #6705), `publish` also counts a `ci_infra` end of the agent phase,
+in the marks of its check-in: the agent can cause that end. `SPLIT_CLASSES` and `check_in` stay
+as they are.
 
 **The result line.** The actor that writes the check-in of an attempt writes its result line
 (`roadmap/job_result.py`), so each attempt counts once in the job grades (#5556). The Job logs the
@@ -118,7 +121,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_BUDGET_SETTING: Final[str] = "roadmap.stage.time_budget_seconds"
+BUDGET_SETTING: Final[str] = "roadmap.stage.time_budget_seconds"
 # The result of the check-in of a Job that the deadline ended.
 DEADLINE_RESULT: Final[str] = "deadline"
 _FAILED: Final[frozenset[StageResult]] = frozenset({StageResult.FAILED, StageResult.DEGENERATE})
@@ -344,7 +347,7 @@ def _return_for_split(
         service_release(store, item.number, {})
 
 
-def _deadline_end(
+def deadline_end(
     store: RoadmapStore,
     repo: str,
     number: int,
@@ -374,7 +377,7 @@ def _deadline_end(
     return StageJobRun(StageJobExit.DEADLINE, DEADLINE_RESULT, budget, kill=kill)
 
 
-def _known(store: RoadmapStore, number: int, job: str | None) -> bool:
+def known_job(store: RoadmapStore, number: int, job: str | None) -> bool:
     """Whether the check-out of item `number` names the Job `job` at the start of the Job. The
     Service knows only the attempt of such a Job: it recovers that attempt and writes its line
     when the Job does not check in. A Job that a person starts has no check-out."""
@@ -392,7 +395,13 @@ def _clone(repo: str) -> Path:
     return status_clone(repo, blobless=True)
 
 
-def _handle_stage_cli_error(
+def job_clone(repo: str) -> Path:
+    """The clone of the Job of `repo` that `run_stage_job` makes (`_clone`): `prepare` of the
+    stage Job on its phases reads the round in it (#6705)."""
+    return _clone(repo)
+
+
+def stage_error_end(
     exc: DevOpsCLIError,
     store: RoadmapStore,
     repo: str,
@@ -405,14 +414,14 @@ def _handle_stage_cli_error(
     """Handle a project error during planning: log its result line and return an evicted run if
     the class is retryable, else re-raise."""
     failure = failure_class_of(exc)
-    if not known or _known(store, item, job):
+    if not known or known_job(store, item, job):
         log_job_result(RoadmapJob.STAGE, repo, item, StageResult.FAILED.value, failure=failure)
     if _retries(failure):
         return StageJobRun(StageJobExit.EVICTED, StageResult.FAILED.value, budget)
     raise
 
 
-def _finish_stage_job(
+def finish_stage_job(
     store: RoadmapStore,
     *,
     repo: str,
@@ -432,7 +441,7 @@ def _finish_stage_job(
     result = stage_results(plan, applied).get(item, StageResult.SKIPPED)
     failure_class = _attempt_failure(plan, applied, item)
     if _retries(failure_class):
-        if not known or _known(store, item, job):
+        if not known or known_job(store, item, job):
             log_stage_attempts(plan, applied, repo=repo)
         return StageJobRun(StageJobExit.EVICTED, result.value, budget, plan=plan, applied=applied)
     at = now or datetime.now(UTC)
@@ -465,13 +474,13 @@ def run_stage_job(
     settings = load_settings().roadmap.stage
     set_model_call_limit(1)
     budget = install_request_budget(settings.github_requests_per_hour)
-    known = _known(store, item, settings.job)
+    known = known_job(store, item, settings.job)
     seconds = job_time_budget(
         settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
     )
     if seconds <= 0:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
-    time_budget = TimeBudget.start(seconds, _BUDGET_SETTING)
+        return deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
+    time_budget = TimeBudget.start(seconds, BUDGET_SETTING)
     try:
         with sigterm_raises():
             clone = Path(source) if source is not None else _clone(repo)
@@ -494,14 +503,14 @@ def run_stage_job(
         kill = kill_of(time_budget, killed)
         if kill is AttemptKill.EVICTED:
             return StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill)
-        return _deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
+        return deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
     except RoadmapTimeBudgetError:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
+        return deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
     except AICredentialsError:
         raise
     except DevOpsCLIError as exc:
-        return _handle_stage_cli_error(exc, store, repo, item, settings.job, budget, known=known)
-    return _finish_stage_job(
+        return stage_error_end(exc, store, repo, item, settings.job, budget, known=known)
+    return finish_stage_job(
         store,
         repo=repo,
         item=item,
@@ -515,6 +524,7 @@ def run_stage_job(
 
 
 __all__ = [
+    "BUDGET_SETTING",
     "DEADLINE_RESULT",
     "SPLIT_CLASSES",
     "CheckedIn",
@@ -523,9 +533,14 @@ __all__ = [
     "StageJobExit",
     "StageJobRun",
     "check_in",
+    "deadline_end",
+    "finish_stage_job",
     "install_request_budget",
+    "job_clone",
     "job_time_budget",
+    "known_job",
     "recorded_check_in",
     "require_job_token_scope",
     "run_stage_job",
+    "stage_error_end",
 ]

@@ -16,8 +16,11 @@ The stage round runs the three phases of the plan commit in sequence, in one pro
   did before (#4380).
 
 The push of the plan commit runs in no worktree of the clone that the planner reads. The run
-folder goes when the write ends. The planner of the stage job runs before, on the clone of the job:
-#6705 moves it into the agent phase.
+folder goes when the write ends. The planner of the stage job runs before, on the clone of the job.
+
+The stage Job on its phases (#6705, `stage_job_phases.py`) clones here too: `prepare` makes the
+clone of the stage agent (`clone_for_agent`), and `publish` makes a clone of its own at the base
+(`clone_at_base`) and pushes the patch of the agent with `publish_patch` (`target_of`).
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions.git import GitOperationError
 from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.phases.checkout import clone_branch
+from devops_cli.roadmap.phases.checkout import BranchClone, clone_branch
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import (
@@ -111,6 +114,43 @@ def push_plan(
     return published.commit
 
 
+def clone_for_agent(
+    work: Path, repo: str, *, issue: int, branch: str, base: str, identity: tuple[str, str]
+) -> BranchClone:
+    """The clone of the stage agent of item `issue` in the work folder `work` (#6705): a full
+    clone of `repo` on `branch` at the staged commit `base`, which commits as `identity`. Its
+    lease is the tip of the pushed branch, or empty for a new branch, as `push_plan` reads it."""
+    url = CONST_GITHUB_CLONE_URL.format(repo=repo)
+    clone = clone_branch(work, url=url, issue=issue, branch=branch, identity=identity)
+    git_call(clone.path, "switch", "--quiet", "-C", branch, base)
+    return clone
+
+
+def clone_at_base(path: Path, repo: str, base: str, identity: tuple[str, str]) -> Path:
+    """A clone of `repo` at `path`, checked out at `base` with no branch, which commits as
+    `identity`: the clone of the writer of `publish` of the stage Job (#6705)."""
+    url = CONST_GITHUB_CLONE_URL.format(repo=repo)
+    git_call(path.parent, "clone", "--quiet", url, str(path))
+    git_call(path, "switch", "--quiet", "--detach", base)
+    git_call(path, "config", "user.name", identity[0])
+    git_call(path, "config", "user.email", identity[1])
+    return path
+
+
+def target_of(
+    repo: str, branch: str, *, base: str, lease: str, identity: tuple[str, str]
+) -> PublishTarget:
+    """The target of a push of `publish` of the stage Job to `branch` of `repo` (#6705)."""
+    return PublishTarget(
+        url=CONST_GITHUB_CLONE_URL.format(repo=repo),
+        branch=branch,
+        base=base,
+        lease=lease,
+        author=identity[0],
+        email=identity[1],
+    )
+
+
 def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     """Delete `branch` of `repo`, which `push_plan` pushed at `tip`, from the repository that the
     push went to, with a lease on `tip`: the cleanup of a draft that GitHub refused (#6710)."""
@@ -126,4 +166,4 @@ def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     )
 
 
-__all__ = ["delete_plan_branch", "push_plan"]
+__all__ = ["clone_at_base", "clone_for_agent", "delete_plan_branch", "push_plan", "target_of"]
