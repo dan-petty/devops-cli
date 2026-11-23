@@ -58,7 +58,7 @@ jobs:
           # written (zizmor cache-poisoning).
           enable-cache: false
           version: "0.13.9"
-          python-version: "3.14"
+          python-version: "3.15"
 
       # The step gets GITHUB_TOKEN and no App token. Its standard output holds only the lines
       # `number=` and `sha=` of the pull request that may merge, or nothing.

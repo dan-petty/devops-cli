@@ -46,7 +46,7 @@ runs:
         # toolchain it installs was not, so a broken or tampered uv release would enter
         # every job silently and reproducing a past CI run was impossible.
         version: "0.13.9"
-        python-version: "3.14"
+        python-version: "3.15"
 
     - name: Restore tooling caches
       if: inputs.tooling-cache-paths != ''

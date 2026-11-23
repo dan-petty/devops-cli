@@ -7,7 +7,7 @@ name = "devops-cli"
 version = "0.203.5"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
-requires-python = ">=3.14"
+requires-python = ">=3.15.2"
 dependencies = [
     "click==8.5.1",
     "typer==0.29.2",
@@ -203,7 +203,7 @@ raises-require-match-for = [
 "pydantic_ai_harness.filesystem".msg = "Import FileSystem from pydantic_ai_harness.file_system, its module since 0.69."
 
 [tool.mypy]
-python_version = "3.14"
+python_version = "3.15"
 strict = true
 plugins = ['pydantic.mypy']
 enable_error_code = ["ignore-without-code"]
@@ -341,7 +341,7 @@ also_copy = [
 preview-features = ["malware-check", "check-command"]
 
 [tool.ty.environment]
-python-version = "3.14"
+python-version = "3.15"
 
 [tool.ty.src]
 include = ["src"]

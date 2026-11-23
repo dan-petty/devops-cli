@@ -20,7 +20,7 @@ FROM ghcr.io/dan-petty/devtools:1.1.6@sha256:faaedce3dec1156df018c6992db041c55f8
 # files that it reads. So the dependency layers of the runner, Service and MCP server images keep
 # their cache when only `src/` and the version change, and a node that holds the previous release
 # pulls only the project layer.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -29,7 +29,7 @@ RUN uv export --locked --no-dev --extra review --no-emit-project --format requir
 
 # uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
 # project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS deps
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS deps
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -140,7 +140,7 @@ ENTRYPOINT ["devops"]
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
 # runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
 # image, and OpenSpec from the `openspec` stage. The image holds no uv, curl or pip.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS service-deps
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \
