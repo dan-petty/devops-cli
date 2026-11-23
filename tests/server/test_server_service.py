@@ -84,6 +84,7 @@ from devops_cli.telemetry.tracer import (
 )
 from tests.support.fakes.otlp import metric_points
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -1879,7 +1880,6 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
         ("create", _event_payload(None, ref="v1", ref_type="tag")),
         ("push", _event_payload(None, ref="refs/heads/main", deleted=False)),
         ("workflow_run", _event_payload("completed")),
-        ("pull_request", _event_payload("closed")),
         ("milestone", _event_payload("closed")),
         ("release", _event_payload("published")),
     ],
@@ -1887,9 +1887,9 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
 def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_round(
     event: str, payload: dict[str, Any]
 ) -> None:
-    """Comments, branch and tag creations, pushes (a default-branch push included), pull
-    requests, milestones, GitHub Releases and every other event the roadmap's jobs read nothing
-    from are acknowledged and run nothing. A repeat
+    """Comments, branch and tag creations, pushes (a default-branch push included), milestones,
+    GitHub Releases and every other event the roadmap's jobs read nothing from are acknowledged
+    and run nothing. A repeat
     of such a delivery is acknowledged again, since the delivery cache holds only deliveries a
     consumer took."""
     lanes = _unblocked_lanes()
@@ -2225,6 +2225,33 @@ def test_each_event_that_the_service_takes_is_an_event_that_the_hook_must_send()
         frozenset(),
         set(),
         True,
+    )
+
+
+RUNBOOK_STEP_8 = "8. "
+
+
+def _runbook_step_8() -> str:
+    """Step 8 of the roadmap-service runbook, which names the events that each hook must send."""
+    lines = (REPO_ROOT / "docs" / "CLUSTER.md").read_text(encoding="utf-8").splitlines()
+    start = next(index for index, line in enumerate(lines) if line.startswith(RUNBOOK_STEP_8))
+    rest = lines[start + 1 :]
+    end = next((index for index, line in enumerate(rest) if line.startswith("9. ")), len(rest))
+    return "\n".join([lines[start], *rest[:end]])
+
+
+def test_the_event_set_and_step_8_name_the_same_events() -> None:
+    """The roadmap consumer takes the pull request, review and check events beside the issues
+    events, and step 8 of the runbook names each event that the hook must send, so the hook and
+    the consumer never drift apart (#4413)."""
+    step = _runbook_step_8()
+
+    assert (
+        sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
+        sorted(event for event in CONST_ROADMAP_WEBHOOK_EVENTS if f"`{event}`" not in step),
+    ) == (
+        ["check_suite", "issues", "pull_request", "pull_request_review"],
+        [],
     )
 
 

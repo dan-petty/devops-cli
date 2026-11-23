@@ -756,8 +756,41 @@ def _process_graphql_nodes(
         )
 
 
-def _collect_rest_candidates(store: RoadmapStore) -> dict[int, tuple[Item | None, bool]]:
-    """Gather candidate pull requests for REST processing."""
+def _delivered_candidates(
+    store: RoadmapStore,
+    pull_numbers: tuple[int, ...],
+    recorded_pulls: Mapping[int, WatchLedgerEntry],
+) -> dict[int, tuple[Item | None, bool]]:
+    """The candidates of a scoped round: the delivered pull requests that an open Item records as
+    `stage.pr`, or that the watch ledger holds. A delivered number that neither source names sends
+    no request (#4413)."""
+    wanted = frozenset(pull_numbers)
+    candidates: dict[int, tuple[Item | None, bool]] = {}
+    for item in store.items():
+        rec = item.job_record.get(StageRecordKey.PR)
+        if (
+            item.state is GitHubState.OPEN
+            and rec
+            and rec.isdigit()
+            and int(rec) in wanted
+            and item.job_record.get(StageRecordKey.READY) != rec
+        ):
+            candidates[int(rec)] = (item, True)
+    for number in pull_numbers:
+        if number not in candidates and number in recorded_pulls:
+            candidates[number] = (None, False)
+    return candidates
+
+
+def _collect_rest_candidates(
+    store: RoadmapStore,
+    pull_numbers: tuple[int, ...] = (),
+    recorded_pulls: Mapping[int, WatchLedgerEntry] | None = None,
+) -> dict[int, tuple[Item | None, bool]]:
+    """Gather candidate pull requests for REST processing. With `pull_numbers`, the candidates are
+    the delivered pull requests only (#4413)."""
+    if pull_numbers:
+        return _delivered_candidates(store, pull_numbers, recorded_pulls or {})
     candidates: dict[int, tuple[Item | None, bool]] = {}
     for item in store.items():
         rec = item.job_record.get(StageRecordKey.PR)
@@ -789,11 +822,14 @@ def _resolve_rest_item(
     return None
 
 
-def _process_rest_pulls(ctx: _WatchContext, default_branch: str) -> None:
-    """Process roadmap pull requests via REST fallback."""
+def _process_rest_pulls(
+    ctx: _WatchContext, default_branch: str, pull_numbers: tuple[int, ...] = ()
+) -> None:
+    """Process roadmap pull requests via REST fallback. With `pull_numbers`, read the delivered
+    pull requests of the scoped round only (#4413)."""
     client = get_github_session().client
     owner, name = ctx.repo.split("/", 1)
-    candidate_prs = _collect_rest_candidates(ctx.store)
+    candidate_prs = _collect_rest_candidates(ctx.store, pull_numbers, ctx.recorded_pulls)
 
     for pr_number, (known_item, is_plan_hint) in candidate_prs.items():
         pull_status: PullStatus = client.get_pull_status(ctx.repo, pr_number)
@@ -831,8 +867,9 @@ def _process_rest_pulls(ctx: _WatchContext, default_branch: str) -> None:
         )
 
 
-def _check_closed_stage_plans(ctx: _WatchContext) -> None:
-    """Check recorded stage plan drafts that are no longer open."""
+def _check_closed_stage_plans(ctx: _WatchContext, pull_numbers: tuple[int, ...] = ()) -> None:
+    """Check recorded stage plan drafts that are no longer open. With `pull_numbers`, read the
+    delivered plan pull requests of the scoped round only (#4413)."""
     client = get_github_session().client
     for item in ctx.store.items():
         recorded = item.job_record.get(StageRecordKey.PR)
@@ -841,6 +878,8 @@ def _check_closed_stage_plans(ctx: _WatchContext) -> None:
         if item.job_record.get(StageRecordKey.READY) == recorded:
             continue
         plan_pr = int(recorded)
+        if pull_numbers and plan_pr not in pull_numbers:
+            continue
         try:
             plan_status = client.get_pull_status(ctx.repo, plan_pr)
         except (GitHubOperationError, GitHubRateLimitError, GitHubNotFoundError, OSError) as exc:
@@ -853,6 +892,31 @@ def _check_closed_stage_plans(ctx: _WatchContext) -> None:
             ctx.recorded_pulls.pop(plan_pr, None)
 
 
+def _process_poll(ctx: _WatchContext, owner: str, name: str, default_branch: str) -> None:
+    """Process the open pull requests of the repository, the reconciling round of the row: one
+    GraphQL read, or the REST fallback while the quota is on hold (ADR 0021, section 8; #5024)."""
+    use_graphql = not _graphql_on_hold()
+    graphql_nodes: list[dict[str, Any]] | None = None
+    if use_graphql:
+        try:
+            graphql_nodes = _read_open_pulls_graphql(owner, name)
+        except (
+            GitHubOperationError,
+            GitHubRateLimitError,
+            RoadmapRunError,
+            OSError,
+            KeyError,
+        ) as exc:
+            logger.warning("GraphQL query failed for %s (%s); falling back to REST", ctx.repo, exc)
+            use_graphql = False
+
+    if use_graphql and graphql_nodes is not None:
+        _process_graphql_nodes(ctx, graphql_nodes, default_branch)
+    else:
+        _process_rest_pulls(ctx, default_branch)
+    _check_closed_stage_plans(ctx)
+
+
 def watch_round(
     store: RoadmapStore,
     *,
@@ -861,12 +925,14 @@ def watch_round(
     repo_dir: Path | None = None,
     now: datetime | None = None,
     dry_run: bool = False,
+    pull_numbers: tuple[int, ...] = (),
 ) -> WatchRoundResult:
     """Run one tick of the watch row (ADR 0021, section 8; #5024).
 
     Reads open roadmap pull requests using GraphQL (or REST with ETag during hold),
     tracks state in watch.json with 30-minute failed head backoff, and routes
-    steps via due_steps(state).
+    steps via due_steps(state). With `pull_numbers`, a scoped round reads the delivered pull
+    requests only, over REST, and sends no request for another pull request (#4413).
     """
     if dry_run:
         return WatchRoundResult()
@@ -886,28 +952,12 @@ def watch_round(
         failed_heads=[],
     )
 
-    use_graphql = not _graphql_on_hold()
-    graphql_nodes: list[dict[str, Any]] | None = None
-    if use_graphql:
-        try:
-            graphql_nodes = _read_open_pulls_graphql(owner, name)
-        except (
-            GitHubOperationError,
-            GitHubRateLimitError,
-            RoadmapRunError,
-            OSError,
-            KeyError,
-        ) as exc:
-            logger.warning("GraphQL query failed for %s (%s); falling back to REST", repo, exc)
-            use_graphql = False
-
     try:
-        if use_graphql and graphql_nodes is not None:
-            _process_graphql_nodes(ctx, graphql_nodes, default_branch)
+        if pull_numbers:
+            _process_rest_pulls(ctx, default_branch, pull_numbers)
+            _check_closed_stage_plans(ctx, pull_numbers)
         else:
-            _process_rest_pulls(ctx, default_branch)
-
-        _check_closed_stage_plans(ctx)
+            _process_poll(ctx, owner, name, default_branch)
     finally:
         WatchLedger(pulls=ctx.recorded_pulls).write(ledger_path)
 

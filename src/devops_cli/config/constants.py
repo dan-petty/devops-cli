@@ -4016,12 +4016,20 @@ CONST_ROADMAP_STAGE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "unlabeled"),
     ("webhook", "issues", "closed"),
 )
-# The webhook events the roadmap jobs' batch keys name, the events the Service's roadmap consumer
-# takes (#1386): the issues events only.
+# The webhook events that a delivery runs the watch row for (#4413): a new head or a review of a
+# staged pull request, and a finished check suite of one.
+CONST_ROADMAP_WATCH_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
+    {"pull_request", "pull_request_review", "check_suite"}
+)
+# The webhook events the roadmap jobs' batch keys name and the watch row reads, the events the
+# Service's roadmap consumer takes (#1386, #4413).
 CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
-    event
-    for source, event, _action in CONST_ROADMAP_INTAKE_BATCH_KEYS
-    if source == CONST_SERVICE_SOURCE_WEBHOOK
+    {
+        event
+        for source, event, _action in CONST_ROADMAP_INTAKE_BATCH_KEYS
+        if source == CONST_SERVICE_SOURCE_WEBHOOK
+    }
+    | CONST_ROADMAP_WATCH_WEBHOOK_EVENTS
 )
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"

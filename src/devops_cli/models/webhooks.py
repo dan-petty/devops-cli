@@ -40,6 +40,23 @@ class WebhookIssue(BaseModel):
     state_reason: str | None = None
 
 
+class WebhookPullRequest(BaseModel):
+    """A pull request that an event is about. Routing reads its number alone."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    number: int | None = None
+
+
+class WebhookCheckSuite(BaseModel):
+    """The check suite a check suite event is about. Its `pull_requests` names the pull requests
+    whose head the suite checked, so a delivery reads the numbers with no further request."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    pull_requests: tuple[WebhookPullRequest, ...] = ()
+
+
 class GitHubWebhookPayload(BaseModel):
     """What every GitHub event carries that the Service reads. The rest of a payload differs by
     event and is ignored. An event has no `action` when GitHub gives it none (a `ping`, a `push`),
@@ -51,3 +68,19 @@ class GitHubWebhookPayload(BaseModel):
     repository: WebhookRepository
     sender: WebhookSender | None = None
     issue: WebhookIssue | None = None
+    pull_request: WebhookPullRequest | None = None
+    check_suite: WebhookCheckSuite | None = None
+
+    @property
+    def delivery_numbers(self) -> tuple[int, ...]:
+        """The numbers of the pull requests that a delivery names, or the number of its issue. An
+        event that names no number gives an empty tuple."""
+        if self.issue is not None and self.issue.number is not None:
+            return (self.issue.number,)
+        if self.pull_request is not None and self.pull_request.number is not None:
+            return (self.pull_request.number,)
+        if self.check_suite is not None:
+            return tuple(
+                pull.number for pull in self.check_suite.pull_requests if pull.number is not None
+            )
+        return ()
