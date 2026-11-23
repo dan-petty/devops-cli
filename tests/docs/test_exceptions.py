@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import inspect
 import re
+import sys
 import textwrap
 
 from devops_cli.docs.generator import DocGenerator
@@ -158,8 +159,9 @@ def test_the_error_catalog_imports_the_module_of_each_source_file() -> None:
     """The catalog imports the module of each `.py` file, so a new error class needs no list entry (#6815).
 
     A list of modules that a person kept left the four errors of `devops_cli.github.onboard` out
-    of docs/ERRORS.md, and no check failed. The test compares names and not `sys.modules`. A
-    pytest worker holds the modules that its earlier tests imported.
+    of docs/ERRORS.md, and no check failed. After the import step of the catalog, the module of
+    each file is loaded. A module that an earlier test of the worker loaded can only hide a
+    missing module, not add a false failure.
     """
     src = REPO_ROOT / "src"
     files = (
@@ -167,7 +169,9 @@ def test_the_error_catalog_imports_the_module_of_each_source_file() -> None:
     )
     expected = {".".join(parts[:-1] if parts[-1] == "__init__" else parts) for parts in files}
 
-    assert set(DocGenerator.catalog_module_names()) == expected
+    DocGenerator._import_all_exception_modules()
+
+    assert sorted(expected - set(sys.modules)) == []
 
 
 def _declared_codes(cls: type[DevOpsCLIError]) -> tuple[object, object]:

@@ -8,7 +8,7 @@ The error catalog `docs/ERRORS.md` had no row for the four `DevOpsCLIError` subc
 
 - `DocGenerator.catalog_module_names` gives the module of each `.py` file under the `devops_cli` package. The generator imports each one before it reads the `DevOpsCLIError` subclasses. So the catalog lists every error class, and a new module needs no list entry.
 - `CONST_DOMAIN_EXCEPTION_MODULES` goes, with its import in `src/devops_cli/docs/generator.py`, its only reader.
-- A new test compares the names that `catalog_module_names` gives with the `.py` files of the package. It runs in the test process and starts no process of its own.
+- A new test runs the import step of the catalog and expects the module of each `.py` file of the package in `sys.modules`. It runs in the test process and starts no process of its own.
 - `uv run devops docs generate` keeps the rows of `AnswerFlagError`, `BaselineUnreadableError`, `RouteRefusedError` and `RouteWriteError` in `docs/ERRORS.md`, and the file does not change.
 - The content of `docs/ERRORS.md` is observable output of `devops docs generate`, so the change carries a spec delta.
 - The change fits one pull request.
