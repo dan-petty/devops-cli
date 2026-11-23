@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.ai.client import network
+from devops_cli.ai.client import models, network
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
@@ -33,6 +33,7 @@ from devops_cli.core import clock as clock_seam
 from devops_cli.exceptions import GitHubOperationError, GitOperationError, RoadmapStageError
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.body_hash import body_hashes
+from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.job_result import LINE_PREFIX
 from devops_cli.roadmap.planned import PlannedChanges
 from devops_cli.roadmap.stage import stage_job
@@ -406,6 +407,32 @@ def test_a_refused_key_keeps_exit_1(
         False,
         JOB,
         ["stage.job", "stage.job_at", "stage.job_deadline"],
+    )
+
+
+def test_a_spent_provider_key_names_the_spend_limit_and_gives_its_class(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    config: Callable[..., Path],
+) -> None:
+    """The error line of the Job names the spend limit and the person step, and the stage row
+    reads the class `spend_limit` from it (#6821)."""
+    config(roadmap={"stage": {"job": JOB}})
+    number = seed_stageable(roadmap_store)
+    _check_out(roadmap_store, number, JOB)
+    body = {"message": "OpenrouterException - Key limit exceeded (total limit)."}
+    model_fake.answer(models.spend_limit_error(403, body))
+
+    result = _stage(cli, stage_repo, "--job-item", str(number), "--confirm")
+
+    line = next(line for line in result.output.splitlines() if "Could not run" in line)
+    assert (result.exit_code, line.split("✗ ")[-1], classify_failure(FailureEvidence(line))) == (
+        1,
+        "Could not run the stage Job: The provider key reached its spend limit (HTTP 403). A person "
+        "raises the spend limit of the key at the provider, or changes the key.",
+        FailureClass("spend_limit"),
     )
 
 

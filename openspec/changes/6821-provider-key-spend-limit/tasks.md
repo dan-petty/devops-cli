@@ -9,10 +9,10 @@
 
 ## 2. Behavior: the failure class `spend_limit`
 
-- [ ] 2.1 Write failing tests: the taxonomy has 24 classes with `spend_limit`, its default action is `wait`, `failure_class_of` gives it for `AIKeySpendLimitError`, `RETRY_AFTER` gives it 1 hour, and the error line of a stage Job log gives it before an earlier timeout line
-  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py`
-- [ ] 2.2 Add the class, its action, its entry in `CLASS_BY_EXCEPTION` and `RETRY_AFTER`, and the text rule made from the message
-  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/stage/test_roadmap_stage_retry_after.py`
+- [x] 2.1 Write failing tests: the taxonomy has 24 classes with `spend_limit`, its default action is `wait`, `failure_class_of` gives it for `AIKeySpendLimitError`, `RETRY_AFTER` gives it 1 hour, the error line of a stage Job log gives it before an earlier timeout line, the stage Job exits 1 with the error line, and the implement row counts an ended Job whose log holds the error under `spend_limit`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/implement/test_roadmap_implement_submit.py`
+- [x] 2.2 Add the class, its action, its entry in `CLASS_BY_EXCEPTION` and `RETRY_AFTER`, and the text rule made from the message
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/stage/test_roadmap_stage_retry_after.py tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/implement/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_faults.py`
 
 ## 3. Manifests: the alert
 

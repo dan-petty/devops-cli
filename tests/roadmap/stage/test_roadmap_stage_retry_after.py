@@ -36,6 +36,7 @@ WAIT_OF = {
     FailureClass.PLAN_DEFECT: HOUR,
     FailureClass.CI_INFRA: HOUR,
     FailureClass.HEAD_MOVED: timedelta(0),
+    FailureClass.SPEND_LIMIT: HOUR,
 }
 if hasattr(FailureClass, "PLAN_UNREADABLE"):
     WAIT_OF[getattr(FailureClass, "PLAN_UNREADABLE")] = 6 * HOUR

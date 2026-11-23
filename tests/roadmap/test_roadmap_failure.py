@@ -14,7 +14,12 @@ from typing import NamedTuple
 
 import pytest
 
-from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AIKeySpendLimitError,
+    StructuredOutputValidationError,
+    spend_limit_error,
+)
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
@@ -112,6 +117,13 @@ FROM_THE_JOB = [
         FailureEvidence(text="APIConnectionError: Connection error."),
         FailureClass.PROVIDER,
         id="provider-connection",
+    ),
+    pytest.param(
+        FailureEvidence(
+            text=f"✗ Could not run the stage Job: {spend_limit_error(403, 'Key limit exceeded')}"
+        ),
+        FailureClass("spend_limit"),
+        id="spend-limit",
     ),
     pytest.param(
         FailureEvidence(
@@ -526,7 +538,8 @@ def test_exit_status_137_of_a_container_is_oom_only_when_its_reason_is_oom_kille
 
 def test_the_classes_are_the_twenty_one_of_the_taxonomy() -> None:
     """The taxonomy holds these classes and no other. The count in the name is the count at
-    #3065; `form_check` joins the set at #6327, and the name keeps its node id."""
+    #3065; `form_check` joins the set at #6327 and `spend_limit` at #6821, and the name keeps its
+    node id."""
     expected = {
         "provider",
         "parser",
@@ -550,6 +563,7 @@ def test_the_classes_are_the_twenty_one_of_the_taxonomy() -> None:
         "outside_plan",
         "git_config",
         "form_check",
+        "spend_limit",
     }
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected.add("plan_unreadable")
@@ -591,6 +605,7 @@ def test_the_default_actions_are_the_ones_of_the_design() -> None:
         "outside_plan": "wait",
         "git_config": "wait",
         "form_check": "retry",
+        "spend_limit": "wait",
     }
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected["plan_unreadable"] = "wait"
@@ -695,6 +710,32 @@ def test_a_refused_verification_command_is_a_refused_tool_that_waits_for_a_perso
     assert (klass, action_for(klass)) == (FailureClass.REFUSED_TOOL, FailureAction.WAIT)
 
 
+SPENT_KEY_JOB_LOG = (
+    "stage round: repo=example/app item=#7 step=plan\n"
+    "The stage's model call timed out once; the call is sent again.\n"
+    f"✗ Could not run the stage Job: {spend_limit_error(403, 'Key limit exceeded')}\n"
+)
+
+
+def test_the_log_of_a_stage_job_on_a_spent_key_is_spend_limit_and_waits_for_a_person() -> None:
+    """The rule of a spent key comes before the timeout of an earlier line of the log (#6821)."""
+    klass = classify_failure(FailureEvidence(text=SPENT_KEY_JOB_LOG))
+
+    assert (klass, left_action(klass, None)) == (FailureClass("spend_limit"), FailureAction.WAIT)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'OpenrouterException - {"error":{"message":"Key limit exceeded (total limit)."}}',
+        "✗ Could not run the stage Job: The model refused the key (HTTP 403).",
+    ],
+    ids=["raw-provider-text", "refused-key"],
+)
+def test_a_text_with_no_spend_limit_error_is_not_spend_limit(text: str) -> None:
+    assert classify_failure(FailureEvidence(text=text)) is not FailureClass("spend_limit")
+
+
 def test_the_rule_for_a_refused_command_is_the_message_of_the_step() -> None:
     reason = TEXTS.implement_stop_command_refused.format(command="x y", reason="mypy is a word")
 
@@ -782,6 +823,7 @@ class _CustomGitError(GitOperationError):
     [
         (RoadmapItemChangedError("the item changed"), FailureClass.HEAD_MOVED),
         (StructuredOutputValidationError("no schema fits"), FailureClass.PARSER),
+        (AIKeySpendLimitError("the key is spent"), FailureClass("spend_limit")),
         (AIClientError("the provider is down"), FailureClass.PROVIDER),
         (RoadmapStageError("a plan broke a rule"), FailureClass.PLAN_DEFECT),
         (GitHubOperationError("the write failed"), FailureClass.CI_INFRA),
@@ -839,6 +881,7 @@ def test_retry_after_gives_each_class_its_wait() -> None:
         FailureClass.PLAN_DEFECT: 1,
         FailureClass.CI_INFRA: 1,
         FailureClass.HEAD_MOVED: 0,
+        FailureClass("spend_limit"): 1,
     }
     if hasattr(FailureClass, "PLAN_UNREADABLE"):
         expected[getattr(FailureClass, "PLAN_UNREADABLE")] = 6

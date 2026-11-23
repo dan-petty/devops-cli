@@ -28,9 +28,10 @@ most sure to the one that is least sure:
    that has a reason gives 137 only for the reason `OOMKilled`: the kubelet kills a container
    that ignores SIGTERM with the same signal, and its reason is `Error`.
 3. A refusal of a tool is `refused_tool`.
-4. The text, for the causes outside the code of the item: `oom`, `timeout`, `read_only_path`,
-   `conflict`, `parser` (before `provider`, as a provider that cannot parse the call answers with
-   an HTTP error too), `provider`, `refused_tool`.
+4. The text, for the causes outside the code of the item: `spend_limit` (the error of a provider
+   key that reached its spend limit, which the provider itself names, #6821), `oom`, `timeout`,
+   `read_only_path`, `conflict`, `parser` (before `provider`, as a provider that cannot parse the
+   call answers with an HTTP error too), `provider`, `refused_tool`.
 5. The text, then the log of the check, for the checks of the item: `types`, `lint`, `test`.
 6. `premise_false` and `plan_defect`, from the text.
 7. The name of the check, for a check whose log shows no sign of its class.
@@ -52,7 +53,11 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, NamedTuple
 
-from devops_cli.ai.client.models import AIClientError, StructuredOutputValidationError
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AIKeySpendLimitError,
+    StructuredOutputValidationError,
+)
 from devops_cli.config.constants import CONST_K8S_REASON_EVICTED, CONST_K8S_REASON_OOM_KILLED
 from devops_cli.exceptions import (
     DevOpsCLIError,
@@ -63,7 +68,7 @@ from devops_cli.exceptions import (
     RoadmapStageError,
     ToolExecutionError,
 )
-from devops_cli.lang import MESSAGES
+from devops_cli.lang import ERRORS, MESSAGES
 
 
 class FailureClass(StrEnum):
@@ -92,6 +97,7 @@ class FailureClass(StrEnum):
     GIT_CONFIG = "git_config"
     PLAN_UNREADABLE = "plan_unreadable"
     FORM_CHECK = "form_check"
+    SPEND_LIMIT = "spend_limit"
 
 
 class StepName(StrEnum):
@@ -154,6 +160,7 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
         FailureClass.GIT_CONFIG: FailureAction.WAIT,
         FailureClass.PLAN_UNREADABLE: FailureAction.WAIT,
         FailureClass.FORM_CHECK: FailureAction.RETRY,
+        FailureClass.SPEND_LIMIT: FailureAction.WAIT,
     }
 )
 
@@ -161,10 +168,12 @@ ACTION_BY_CLASS: Final[Mapping[FailureClass, FailureAction]] = MappingProxyType(
 # The class of an exception, read by `isinstance` from the first entry that matches (#4056). The
 # order is the order of the match: a type comes before each parent that it is a subclass of, and
 # `DevOpsCLIError` is last, so every error of the project has a class. An item that changed while
-# the job worked is `head_moved`: the next round reads it again and no person must act.
+# the job worked is `head_moved`: the next round reads it again and no person must act. A provider
+# key that reached its spend limit is `spend_limit`: only a person can raise the limit (#6821).
 CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]] = (
     (RoadmapItemChangedError, FailureClass.HEAD_MOVED),
     (StructuredOutputValidationError, FailureClass.PARSER),
+    (AIKeySpendLimitError, FailureClass.SPEND_LIMIT),
     (AIClientError, FailureClass.PROVIDER),
     (RoadmapPlanReadBackError, FailureClass.PLAN_UNREADABLE),
     (RoadmapStageError, FailureClass.PLAN_DEFECT),
@@ -180,7 +189,8 @@ CLASS_BY_EXCEPTION: Final[tuple[tuple[type[DevOpsCLIError], FailureClass], ...]]
 # waits 1 hour. A refused plan waits 1 hour too (#4802): the stage row runs every 37 minutes by
 # default (`roadmap.stage.interval_minutes`, #5470), so the item skips one round or more, and the
 # return to New after `roadmap.stage.plan_defect_limit` refused plans limits its attempts. A
-# parser error waits 6 hours, as one fixed wait did before.
+# parser error waits 6 hours, as one fixed wait did before. A spent provider key waits 1 hour: a
+# probe costs one refused call, and the first probe after a person raised the limit works.
 # An item that changed while the job worked waits for no time: the next round reads it again.
 RETRY_AFTER: Final[Mapping[FailureClass, timedelta]] = MappingProxyType(
     {
@@ -190,6 +200,7 @@ RETRY_AFTER: Final[Mapping[FailureClass, timedelta]] = MappingProxyType(
         FailureClass.CI_INFRA: timedelta(hours=1),
         FailureClass.HEAD_MOVED: timedelta(0),
         FailureClass.PLAN_UNREADABLE: timedelta(hours=6),
+        FailureClass.SPEND_LIMIT: timedelta(hours=1),
     }
 )
 
@@ -271,6 +282,11 @@ _REFUSED_COMMAND: Final[str] = _text_around(
 
 _REFUSED_AT_START: Final[re.Pattern[str]] = re.compile(rf"\A{_REFUSED_COMMAND}", _FLAGS)
 
+# The error of a provider key that reached its spend limit (#6821), from its message, so the rule
+# cannot drift from it. The raw text of the provider is no rule: the log of an implement Job can
+# hold it in a test or a plan.
+_SPEND_LIMIT: Final[str] = _text_around(ERRORS.ai.provider_key_spend_limit, "status")
+
 
 def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[str]]:
     return klass, re.compile(pattern, _FLAGS)
@@ -283,6 +299,7 @@ def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[s
 # `ModelContextWindowExceededError` and `ModelQuotaExceededError` had their names before, and keep
 # the class they had.
 _CAUSE_RULES: Final[tuple[tuple[FailureClass, re.Pattern[str]], ...]] = (
+    _rule(FailureClass.SPEND_LIMIT, _SPEND_LIMIT),
     _rule(
         FailureClass.OOM,
         r"OOMKilled|out of memory|MemoryError|Cannot allocate memory|memory cgroup|Killed process"
