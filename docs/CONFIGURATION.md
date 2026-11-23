@@ -336,6 +336,14 @@ roadmap configuration settings.
 | `verdict_partial_score` | `float` | `0.5` | `DEVOPS_CLI_ROADMAP_VERDICT_PARTIAL_SCORE` | The score of the verdict needs fix in the verdict score of stage and implement that `devops roadmap eval grades` gives. Mergeable scores 1, and a discard of the work of the job scores 0 |
 | `decisions` | `dict` | `{}` | `DEVOPS_CLI_ROADMAP_DECISIONS` | The mode of each decision point of the roadmap jobs (ADR 0020), by the name of the point, as a JSON object such as `{"stage.verify_screen": "shadow"}`. `off` runs nothing. `shadow` runs the resolver chain (a proven rule, then the model of `ai.decision_model`, then the current behavior), records its band and the real result, and changes nothing. `on` lets the band act. A point that is not in the mapping is off. A key that names no registered point stops the settings from loading. A point in `shadow` or in `on` needs a cuts file in the repository for its fitted cuts, and the load stops when the file is absent |
 
+## Research Configuration (`research`)
+
+research configuration settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `judge` | `ResearchJudgeConfig` | `record_limit=50 daily_token_limit=500000` | - | - |
+
 ## Firecrawl Configuration (`firecrawl`)
 
 Firecrawl web search API authentication settings.
