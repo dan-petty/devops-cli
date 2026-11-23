@@ -15,9 +15,9 @@ Adds: `command_facts`, `settings_sections`, `iter_settings_fields`
 Kind: behavior. Reads: `src/devops_cli/research/inventory.py`, `src/devops_cli/research/python_pins.py`, `src/devops_cli/research/node_pins.py`, `uv.lock`, `pyproject.toml`, `package-lock.json`, `src/devops_cli/ai/project_digest.py`. Changes: `src/devops_cli/ai/project_digest.py`, `tests/ai/test_project_digest.py`.
 Adds: `pin_facts`
 
-- [ ] 2.1 Add `test_each_pin_equals_its_lock_and_a_changed_lock_changes_the_pin_section` to `tests/ai/test_project_digest.py`: it asserts that each pin of `pin_facts` equals the version of the same name in `uv.lock`, and that a temporary root holding copies of `pyproject.toml` and `uv.lock` with one version changed gives that version with `uv.lock` as its file
+- [x] 2.1 Add `test_each_pin_equals_its_lock_and_a_changed_lock_changes_the_pin_section` to `tests/ai/test_project_digest.py`: it asserts that each pin of `pin_facts` equals the version of the same name in `uv.lock`, and that a temporary root holding copies of `pyproject.toml` and `uv.lock` with one version changed gives that version with `uv.lock` as its file
   - Verification: `$ uv run devops ci test tests/ai/test_project_digest.py` fails on the base
-- [ ] 2.2 Write the failing test first. Add `pin_facts(root)` to `src/devops_cli/ai/project_digest.py`, which calls `read_inventory(root)` of `src/devops_cli/research/inventory.py` and returns one entry for each component with its name, its version and the file that holds it. The readers of `src/devops_cli/research/python_pins.py` and `src/devops_cli/research/node_pins.py` return an empty list for a file that the root does not hold, so the temporary root needs the two copied files only
+- [x] 2.2 Write the failing test first. Add `pin_facts(root)` to `src/devops_cli/ai/project_digest.py`, which calls `read_inventory(root)` of `src/devops_cli/research/inventory.py` and returns one entry for each component with its name, its version and the file that holds it. The readers of `src/devops_cli/research/python_pins.py` and `src/devops_cli/research/node_pins.py` return an empty list for a file that the root does not hold, so the temporary root needs the two copied files only
   - Verification: `$ uv run devops ci test tests/ai/test_project_digest.py` passes
 
 ## 3. Add the repository map, the import graph and the decision records

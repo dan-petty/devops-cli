@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from pydantic.fields import FieldInfo
@@ -69,3 +70,18 @@ def settings_sections() -> dict[str, list[dict[str, Any]]]:
             }
         )
     return sections
+
+
+def pin_facts(root: Path) -> list[dict[str, str]]:
+    """Return an entry for each pinned component with its name, version and file."""
+    from devops_cli.research.inventory import read_inventory
+
+    inventory = read_inventory(root)
+    return [
+        {
+            "name": c.name,
+            "version": c.version,
+            "file": c.file,
+        }
+        for c in inventory.components
+    ]
