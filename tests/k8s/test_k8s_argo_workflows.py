@@ -1,8 +1,9 @@
 """The Argo Workflows controller under k8s/argo-workflows/ (#1535): chart values, template, perimeter.
 
-The chart cannot be rendered in a test, since a test starts no helm (ADR 0007), so the controller
-and executor are checked through the values that configure them. What the chart then renders was
-read once from `helm template` of the pinned chart and is recorded in the docstrings below.
+The chart cannot be rendered in a test, since a test starts no helm (ADR 0007), so the controller,
+the server and the executor are checked through the values that configure them. What the chart then
+renders was read once from `helm template` of the pinned chart and is recorded in the docstrings
+below.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from tests.support.paths import REPO_ROOT
 K8S_DIR = REPO_ROOT / "k8s"
 NAMESPACE = "argo-workflows"
 EXECUTOR_ACCOUNT = "argo-workflows-executor"
+UI_ACCOUNT = "argo-workflows-ui"
 SYNC_OPTIONS = "argocd.argoproj.io/sync-options"
 
 
@@ -85,7 +87,12 @@ def test_the_controller_runs_one_namespaced_replica_with_no_server_database_or_a
     """The chart then rolls out with `Recreate` and sets LEADER_ELECTION_DISABLE itself, so any
     `extraEnv` would repeat the variable, and `singleNamespace` makes the controller watch only
     its own namespace and renders a Role in place of a ClusterRole. `createAggregateRoles` would
-    add cluster-wide aggregate ClusterRoles."""
+    add cluster-wide aggregate ClusterRoles.
+
+    The server is the UI alone: one replica in `client` auth mode, under its own account and not
+    the executor's, with the chart's Ingress off because Application `ingress` renders the host.
+    The chart already passes `--configmap` of the controller, and the later argument of
+    `extraArgs` names the links ConfigMap instead."""
     values = _values()
     controller = values["controller"]
     assert (
@@ -95,9 +102,33 @@ def test_the_controller_runs_one_namespaced_replica_with_no_server_database_or_a
         values["createAggregateRoles"],
         controller.get("workflowNamespaces"),
         controller["clusterWorkflowTemplates"],
-        values["server"],
         controller.get("persistence"),
-    ) == (1, None, True, False, None, {"enabled": False}, {"enabled": False}, None)
+    ) == (1, None, True, False, None, {"enabled": False}, None)
+    assert values["server"] == {
+        "enabled": True,
+        "replicas": 1,
+        "authMode": "client",
+        "secure": False,
+        "serviceAccount": {"create": True, "name": UI_ACCOUNT},
+        "extraArgs": ["--configmap=argo-workflows-ui-links"],
+        "ingress": {"enabled": False},
+        "podSecurityContext": {
+            "runAsNonRoot": True,
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        "securityContext": {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": True,
+            "runAsNonRoot": True,
+            "capabilities": {"drop": ["ALL"]},
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        "resources": {
+            "requests": {"cpu": "100m", "memory": "128Mi"},
+            "limits": {"cpu": "500m", "memory": "512Mi"},
+        },
+    }
+    assert values["server"]["serviceAccount"]["name"] != EXECUTOR_ACCOUNT
 
 
 def test_the_crds_are_minimal_kept_and_carry_argo_cds_sync_options() -> None:
@@ -116,18 +147,30 @@ def test_the_crds_are_minimal_kept_and_carry_argo_cds_sync_options() -> None:
 def test_every_pod_the_namespace_admits_meets_restricted_pod_security() -> None:
     """Chart 2.0.18 leaves the controller pod's and the executor's `securityContext` empty, and
     its controller container sets no seccomp profile, so the values supply what `restricted`
-    requires of each; the template pod carries the cluster job template's own."""
+    requires of each. Its server container drops the capabilities and denies privilege escalation
+    but leaves the root file system writable, which the service patterns refuse, so the values set
+    that too. The template pod carries the cluster job template's own."""
     values = _values()
     pod = _template()["spec"]["securityContext"]
     assert (
         values["controller"]["podSecurityContext"],
+        values["server"]["podSecurityContext"],
         values["executor"]["securityContext"],
+        values["server"]["securityContext"],
         (pod["runAsNonRoot"], pod["seccompProfile"]),
         _container()["securityContext"],
     ) == (
         {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},
+        {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},
         {
             "allowPrivilegeEscalation": False,
+            "runAsNonRoot": True,
+            "capabilities": {"drop": ["ALL"]},
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        {
+            "allowPrivilegeEscalation": False,
+            "readOnlyRootFilesystem": True,
             "runAsNonRoot": True,
             "capabilities": {"drop": ["ALL"]},
             "seccompProfile": {"type": "RuntimeDefault"},

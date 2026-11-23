@@ -2,9 +2,12 @@
 # Chart: argo/argo-workflows
 # Repo:  https://argoproj.github.io/argo-helm
 #
-# The controller watches only its own namespace, runs as one replica and keeps no database, archive
-# or argo-server. Every pod in the namespace is admitted by Pod Security `restricted`: chart 2.0.18
-# leaves the controller pod's and the executor's securityContext empty, so both are set here.
+# The controller watches only its own namespace, runs as one replica and keeps no database or
+# archive. The server is the UI alone: one replica in `client` auth mode, under its own read-only
+# account, behind the host of Application `ingress`. Every pod in the namespace is admitted by Pod
+# Security `restricted`: chart 2.0.18 leaves the controller pod's and the executor's
+# securityContext empty, so both are set here, and its server container leaves the root file
+# system writable.
 
 # One tag for the controller and the executor.
 images:
@@ -25,8 +28,43 @@ crds:
 singleNamespace: true
 createAggregateRoles: false
 
+# The Argo Workflows UI (#4530). Cloudflare Access guards the host, and `client` auth mode takes
+# the pasted token of a read-only account, so no request runs as the controller's account.
 server:
-  enabled: false
+  enabled: true
+  replicas: 1
+  authMode: client
+  secure: false
+  serviceAccount:
+    create: true
+    name: argo-workflows-ui
+  # The chart already passes `--configmap` of the controller, and the later argument wins, so the
+  # server reads the `links` of the UI from its own ConfigMap, which Application `ingress` renders.
+  extraArgs:
+    - --configmap=argo-workflows-ui-links
+  # Application `ingress` renders the host, which takes the configured domain at deploy time.
+  ingress:
+    enabled: false
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
 
 controller:
   # One replica: the chart then rolls out with Recreate and sets LEADER_ELECTION_DISABLE, so two
