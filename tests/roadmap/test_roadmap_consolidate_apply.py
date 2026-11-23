@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -67,3 +68,8 @@ def test_unknown_group_id_writes_nothing() -> None:
         apply_group(store, plan, "g9", confirm=True)
 
     assert store.writes == []
+
+
+def test_generated_command_docs_name_the_apply_option() -> None:
+    doc = Path("docs/commands/roadmap.md").read_text(encoding="utf-8")
+    assert "--apply" in doc

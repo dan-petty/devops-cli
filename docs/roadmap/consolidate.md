@@ -53,8 +53,9 @@ consistency gained, the risks and a confidence. Each member has an action (`merg
 | `--ref` | The commit that cited paths are checked at (default: the default branch of origin). |
 | `--limit` | The most shortlists that one run judges with the model. |
 | `--dry-run` | Make no request: print the requests of a run. |
+| `--apply <group-id>` | Apply one accepted group from the latest plan. Needs `--confirm`. |
 | `--decline <group-id>` | Decline a group of the last plan. |
-| `--confirm` | Write the decline to the job record of the anchor. It applies to `--decline` only. |
+| `--confirm` | Confirm an apply of `--apply` or a decline of `--decline`. |
 
 ## Failures
 

@@ -22,11 +22,11 @@ Kind: behavior. Reads: `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roa
 
 Kind: other. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/roadmap/consolidate_apply.py`, `docs/commands/roadmap.md`, `docs/roadmap/consolidate.md`, `tests/roadmap/test_roadmap_command_help.py`, `tests/commands/test_all_commands_help_dryrun.py`, `tests/commands/test_roadmap_consolidate_cmd.py`, `tests/roadmap/test_roadmap_consolidate_apply.py`. Changes: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `docs/commands/roadmap.md`, `docs/roadmap/consolidate.md`, `tests/roadmap/test_roadmap_consolidate_apply.py`.
 
-- [ ] 3.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_generated_command_docs_name_the_apply_option`, reading `docs/commands/roadmap.md`
+- [x] 3.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_generated_command_docs_name_the_apply_option`, reading `docs/commands/roadmap.md`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` fails on the base
-- [ ] 3.2 Add `--apply` to `src/devops_cli/commands/roadmap.py:def consolidate_cmd` with its help in `src/devops_cli/lang/en/help.py:class RoadmapCommandHelp`, and let `--confirm` run with `--apply` and no `--decline`
+- [x] 3.2 Add `--apply` to `src/devops_cli/commands/roadmap.py:def consolidate_cmd` with its help in `src/devops_cli/lang/en/help.py:class RoadmapCommandHelp`, and let `--confirm` run with `--apply` and no `--decline`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` passes
-- [ ] 3.3 Run `uv run devops docs generate` to regenerate `docs/commands/roadmap.md`, and edit `docs/roadmap/consolidate.md` to name `--apply` and `--confirm`, and run `uv run devops docs generate`
+- [x] 3.3 Run `uv run devops docs generate` to regenerate `docs/commands/roadmap.md`, and edit `docs/roadmap/consolidate.md` to name `--apply` and `--confirm`, and run `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## 4. Apply a merge group
