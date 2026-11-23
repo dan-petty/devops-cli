@@ -621,6 +621,33 @@ class GitHubFake:
         per_page = int(query.get("per_page", "100"))
         return listed[(page - 1) * per_page : page * per_page]
 
+    def _post_blocked_by(self, number: int, fields: dict[str, str]) -> Any:
+        blocker_id = int(fields["issue_id"])
+        blocker = next(
+            (
+                i
+                for i in self.issues.values()
+                if i.get("id") == blocker_id or i["number"] == blocker_id
+            ),
+            None,
+        )
+        if blocker is None:
+            return (1, "gh: Not Found (HTTP 404)")
+        self.block(number, blocker["number"])
+        return blocker
+
+    def _post_sub_issue(self, number: int, issue: dict[str, Any], fields: dict[str, str]) -> Any:
+        sub_id = int(fields["sub_issue_id"])
+        child = next(
+            (i for i in self.issues.values() if i.get("id") == sub_id or i["number"] == sub_id),
+            None,
+        )
+        if child is None:
+            return (1, "gh: Not Found (HTTP 404)")
+        issue["sub_issues_summary"]["total"] += 1
+        child["parent_issue_url"] = f"https://api.github.com/repos/{self.repo}/issues/{number}"
+        return child
+
     def _issue_route(
         self,
         method: str,
@@ -631,13 +658,17 @@ class GitHubFake:
         stdin: str | None,
     ) -> Any:
         listings = {"events": self._issue_events, "dependencies/blocked_by": self._blockers_page}
-        if (listing := listings.get("/".join(rest))) is not None and (
-            number in self.issues or rest == ["events"]
+        if (
+            method == "GET"
+            and (listing := listings.get("/".join(rest))) is not None
+            and (number in self.issues or rest == ["events"])
         ):
             return listing(number, page)
         if number not in self.issues:
             return (1, "gh: Not Found (HTTP 404)")
         issue = self.issues[number]
+        if rest == ["dependencies", "blocked_by"] and method == "POST":
+            return self._post_blocked_by(number, fields)
         if rest == ["labels"]:
             if fields["labels[]"] not in self.labels(number):
                 issue["labels"].append({"name": fields["labels[]"]})
@@ -645,16 +676,7 @@ class GitHubFake:
         if rest == ["comments"] and method == "POST":
             return self.seed_comment(number, fields["body"])
         if rest == ["sub_issues"] and method == "POST":
-            sub_id = int(fields["sub_issue_id"])
-            child = next(
-                (i for i in self.issues.values() if i.get("id") == sub_id or i["number"] == sub_id),
-                None,
-            )
-            if child is None:
-                return (1, "gh: Not Found (HTTP 404)")
-            issue["sub_issues_summary"]["total"] += 1
-            child["parent_issue_url"] = f"https://api.github.com/repos/{self.repo}/issues/{number}"
-            return child
+            return self._post_sub_issue(number, issue, fields)
         if rest == ["comments"]:
             held = range(len(self.comments.get(number, []))) if page == 1 else range(0)
             return [self._comment_payload(number, index) for index in held]

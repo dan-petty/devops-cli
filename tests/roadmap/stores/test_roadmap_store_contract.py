@@ -1494,6 +1494,29 @@ def test_add_sub_issue_links_child_to_parent_with_cached_issues(world: World) ->
     assert (parent_record.sub_issues, child_record.parent) == (1, parent)
 
 
+def test_add_blocked_by_links_the_blocker(world: World) -> None:
+    blocked = world.seed("blocked")
+    blocker = world.seed("blocker")
+    world.store.add_blocked_by(blocked, blocker)
+    assert world.store.blocked_by(blocked) == [blocker]
+    blocked_record = next(i for i in world.store.issues() if i.number == blocked)
+    assert blocked_record.blocked_by == 1
+    if isinstance(world, GitHubWorld):
+        writes = world.github.writes()
+        assert any(
+            call[:4]
+            == [
+                "api",
+                "-X",
+                "POST",
+                f"repos/{REPO}/issues/{blocked}/dependencies/blocked_by",
+            ]
+            for call in writes
+        )
+    with pytest.raises(GitHubOperationError, match="not an issue"):
+        world.store.add_blocked_by(999, blocker)
+
+
 def test_blocked_by_lists_the_blockers_and_the_listing_counts_them(world: World) -> None:
     first = world.seed("first")
     second = world.seed("second")

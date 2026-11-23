@@ -1419,6 +1419,9 @@ class RoadmapStore(Protocol):
     def add_sub_issue(self, parent: int, child: int) -> None:
         """Add issue `child` as a sub-issue of issue `parent`."""
 
+    def add_blocked_by(self, blocked: int, blocker: int) -> None:
+        """Mark issue `blocked` as blocked by issue `blocker`."""
+
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of
         this repository."""

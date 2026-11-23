@@ -404,6 +404,9 @@ def consolidate_cmd(
             help=HELP.roadmap.consolidate_limit,
         ),
     ] = None,
+    apply: Annotated[
+        str | None, typer.Option("--apply", help=HELP.roadmap.consolidate_apply)
+    ] = None,
     decline: Annotated[
         str | None, typer.Option("--decline", help=HELP.roadmap.consolidate_decline)
     ] = None,
@@ -416,8 +419,10 @@ def consolidate_cmd(
 ) -> None:
     """Write a local plan of groups of open items that share a root cause."""
     _one_mode(dry_run=dry_run, confirm=confirm)
-    if confirm and decline is None:
+    if confirm and decline is None and apply is None:
         _refuse(MESSAGES.roadmap.consolidate_confirm_needs_decline)
+    if apply is not None and not confirm:
+        _refuse(MESSAGES.roadmap.consolidate_apply_needs_confirm)
     target = _target(repo)
     from datetime import UTC, datetime
 
@@ -435,6 +440,14 @@ def consolidate_cmd(
     texts = MESSAGES.roadmap
     with _exit_on_failure("Could not consolidate"):
         _, store = _open_store(target)
+        if apply is not None:
+            plan = job.last_plan(directory, target)
+            if plan is None:
+                _refuse(MESSAGES.roadmap.consolidate_apply_unknown.format(group=apply))
+            from devops_cli.roadmap.consolidate_apply import apply_group
+
+            apply_group(store, plan, apply, confirm=confirm)
+            return
         if decline is not None:
             declined = job.decline_group(
                 store, decline, repo=target, directory=directory, confirm=confirm

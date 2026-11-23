@@ -573,6 +573,17 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._update_issue(child_issue, parent=parent)
         self._log("add_sub_issue", parent, value=str(child))
 
+    @_write
+    def add_blocked_by(self, blocked: int, blocker: int) -> None:
+        """Mark issue `blocked` as blocked by issue `blocker`."""
+        blocked_issue = self._require_issue(blocked, "roadmap.add_blocked_by")
+        self._require_issue(blocker, "roadmap.add_blocked_by")
+        held = self._roadmap.blockers.setdefault(blocked, [])
+        if blocker not in held:
+            held.append(blocker)
+        self._roadmap.issues[blocked] = blocked_issue.model_copy(update={"blocked_by": len(held)})
+        self._log("add_blocked_by", blocked, value=str(blocker))
+
     def set_title(self, number: int, title: str) -> None:
         """Write `title` as the title of issue `number`, raising if it is not an issue."""
         self._rename(self._require_issue(number, "roadmap.issue.set_title"), title)

@@ -1983,11 +1983,14 @@ class RoadmapCommandHelp:
         "Maximum number of shortlists to judge with the model in this run (default: 10). A "
         "shortlist that an earlier plan judged costs no call and does not count."
     )
+    consolidate_apply: str = (
+        "The id of a group of the last plan to apply. Needs --confirm to write."
+    )
     consolidate_decline: str = (
         "The id of a group of the last plan to decline. The job record of its anchor keeps the "
         "id, and the group is not proposed again until its members change. Needs --confirm to write."
     )
-    consolidate_confirm: str = "Write the decline of --decline to the job record of the anchor."
+    consolidate_confirm: str = "Confirm an apply of --apply or a decline of --decline."
     consolidate_dry_run: str = "Make no request: print the requests a run makes, with placeholders."
     retitle: str = (
         "Shorten the title summary of open items that is over 60 characters, and correct a title "

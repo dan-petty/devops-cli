@@ -109,9 +109,10 @@ devops roadmap consolidate [OPTIONS]
 | `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
 | `--ref` | `string` | - | Branch, tag or commit to check the cited paths and lines against (default: the default branch of origin). The plan records its commit. |
 | `--limit` | `integer` | - | Maximum number of shortlists to judge with the model in this run (default: 10). A shortlist that an earlier plan judged costs no call and does not count. |
+| `--apply` | `string` | - | The id of a group of the last plan to apply. Needs --confirm to write. |
 | `--decline` | `string` | - | The id of a group of the last plan to decline. The job record of its anchor keeps the id, and the group is not proposed again until its members change. Needs --confirm to write. |
 | `--dry-run` | `boolean` | - | Make no request: print the requests a run makes, with placeholders. |
-| `--confirm` | `boolean` | - | Write the decline of --decline to the job record of the anchor. |
+| `--confirm` | `boolean` | - | Confirm an apply of --apply or a decline of --decline. |
 
 ---
 

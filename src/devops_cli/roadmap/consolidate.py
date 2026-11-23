@@ -317,7 +317,7 @@ def read_plan(path: Path) -> Plan:
     return Plan.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def _last_plan(directory: Path, repo: str) -> Plan | None:
+def last_plan(directory: Path, repo: str) -> Plan | None:
     """The newest plan of `repo` that the data directory holds, or None. A file that can't be
     read is logged and skipped."""
     folder = directory / CONST_ROADMAP_CONSOLIDATE_DIR
@@ -756,7 +756,7 @@ def run_consolidate(
         started=frozenset(n for n, item in items.items() if item.status in _STARTED),
         planned=frozenset(n for n, issue in issues.items() if issue.milestone),
     )
-    earlier = _last_plan(directory, repo)
+    earlier = last_plan(directory, repo)
     remembered = {
         judged.digest: judged
         for judged in (*(earlier.judged if earlier else ()), *_progress(directory, today, repo))
@@ -818,7 +818,7 @@ def decline_group(
 ) -> Decline:
     """Record that a person declined `group` of the last plan, in the job record of its anchor.
     With no `confirm` it writes nothing. This is the only write of the job."""
-    plan = _last_plan(directory, repo)
+    plan = last_plan(directory, repo)
     found = next((g for g in plan.groups if g.id == group), None) if plan else None
     if found is None:
         raise InvalidInputError(
@@ -932,6 +932,7 @@ __all__ = [
     "decline_group",
     "dry_run_consolidate",
     "group_id",
+    "last_plan",
     "plan_path",
     "read_plan",
     "render_plan",
