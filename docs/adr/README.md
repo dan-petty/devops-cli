@@ -174,11 +174,12 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0027](0027-dependency-updates-come-from-self-hosted-renovate.md) | Dependency updates come from self-hosted Renovate | proposed | 2026-11-16 | amended by 0032 |
 | [0028](0028-a-research-agent-composes-open-tools-and-a-research-index.md) | A research agent composes open tools and a research index | accepted | 2026-11-17 |  |
 | [0029](0029-the-roadmap-service-serves-a-read-only-api.md) | The roadmap Service serves a read-only API | accepted | 2026-11-17 |  |
-| [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 |  |
+| [0030](0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md) | Roadmap steps run their agent apart from the App key | proposed | 2026-11-21 | amended by 0036 |
 | [0031](0031-review-scanners-run-in-the-runner-pod.md) | Review scanners run in the runner pod | accepted | 2026-11-21 |  |
 | [0032](0032-infrastructure-templates-live-in-four-homes.md) | Infrastructure templates live in four homes | accepted | 2026-11-21 | amends 0026, 0027 |
 | [0033](0033-service-secrets-come-from-external-secrets-operator.md) | Service Secrets come from External Secrets Operator | accepted | 2026-11-21 |  |
 | [0034](0034-the-object-store-is-seaweedfs-with-its-operator.md) | The object store is SeaweedFS with its operator | accepted | 2026-11-21 |  |
 | [0035](0035-the-onboard-command-owns-the-repository-settings.md) | The onboard command owns the repository settings | accepted | 2026-11-22 | amends 0026 |
+| [0036](0036-the-stage-agent-runs-stock-coder-and-publish-checks.md) | The stage agent runs stock Coder, and publish checks | proposed | 2026-11-23 | amends 0030 |
 
 <!-- ADR_INDEX_END -->
