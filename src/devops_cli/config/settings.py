@@ -1312,12 +1312,13 @@ class GitHubAppConfig(BaseModel):
         ),
     )
 
-    read_only: Annotated[bool, Variable()] = Field(
+    drift_check: Annotated[bool, Variable()] = Field(
         default=False,
         description=(
-            "Ask for an installation token with read permissions only "
-            "(CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS). Set on the nightly drift Job, so its "
-            "token can change nothing on GitHub. The ConfigMap does not carry it"
+            "Ask for an installation token with the permissions of the drift check only "
+            "(CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS): read, and Contents write and "
+            "Administration write, which GitHub needs to give the merge settings and the bypass "
+            "actors of a ruleset. Set on the nightly drift Job. The ConfigMap does not carry it"
         ),
     )
 

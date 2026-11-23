@@ -204,6 +204,30 @@ def test_one_repository_sets_no_drift_gauge(
     assert (otlp.points(DRIFT_GAUGE), _state_lines(result.stdout)) == ([], [])
 
 
+def _act_as_the_app(
+    harness: OnboardHarness, app_key: str, monkeypatch: pytest.MonkeyPatch, *, drift: bool
+) -> None:
+    """Make the process act as the App of the harness, as the nightly Job does, and answer its
+    token request. With `drift`, the process sets the variable of the drift check."""
+    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+    from devops_cli.github.session import reset_github_session
+
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, app_key)
+    if drift:
+        monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK", "true")
+    reset_github_session()
+    get_github_rate_limiter().update_quota(
+        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    expires_at = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    harness.api.route(
+        "POST",
+        f"{API}{MINT}",
+        github_json({"token": "ghs_drift", "expires_at": expires_at}, status=201),
+    )
+
+
 def test_the_drift_check_as_the_app_reads_no_user(
     cli: Callable[..., Any],
     onboard_github: OnboardHarness,
@@ -213,23 +237,9 @@ def test_the_drift_check_as_the_app_reads_no_user(
 ) -> None:
     """The nightly Job acts as the App, and GitHub refuses `GET /user` to an installation token:
     row 0 reads no scopes and the run goes on (#6783)."""
-    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
-    from devops_cli.github.rate_limiter import get_github_rate_limiter
-    from devops_cli.github.session import reset_github_session
-
     _onboarded(onboard_github, onboard_github.state)
     config(service={"repos": [REPO]})
-    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, onboard_app_key)
-    reset_github_session()
-    get_github_rate_limiter().update_quota(
-        "core", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
-    )
-    expires_at = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    onboard_github.api.route(
-        "POST",
-        f"{API}{MINT}",
-        github_json({"token": "ghs_drift", "expires_at": expires_at}, status=201),
-    )
+    _act_as_the_app(onboard_github, onboard_app_key, monkeypatch, drift=False)
 
     result = cli("repos", "onboard", "--all", "--plan")
 
@@ -238,3 +248,32 @@ def test_the_drift_check_as_the_app_reads_no_user(
     assert "GET /user" not in requests
     assert {request.split(" ")[0] for request in requests - {f"POST {MINT}"}} == {"GET"}
     assert "0. Preflight: present (the token reports no OAuth scopes)" in result.stdout
+
+
+def test_the_drift_check_with_a_write_token_sends_only_gets(
+    cli: Callable[..., Any],
+    onboard_github: OnboardHarness,
+    config: Callable[..., Any],
+    onboard_app_key: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The token of the drift check can write the contents and the settings of a repository
+    (#6888), and a plan still sends GET requests only, also over a repository off its baseline."""
+    state = onboard_github.state
+    _onboarded(onboard_github, state)
+    state.payload["allow_merge_commit"] = True
+    state.rulesets[0]["enforcement"] = "disabled"
+    state.workflow_permissions["default_workflow_permissions"] = "write"
+    config(service={"repos": [REPO]})
+    _act_as_the_app(onboard_github, onboard_app_key, monkeypatch, drift=True)
+
+    result = cli("repos", "onboard", "--all", "--plan")
+
+    mint = [request for request in onboard_github.api.sent if request.url.path == MINT]
+    others = [request for request in onboard_github.api.sent if request.url.path != MINT]
+    assert result.exit_code == 1, result.output
+    assert "   - allow_merge_commit: False" in result.stdout
+    permissions = json.loads(mint[0].content)["permissions"]
+    assert (permissions["contents"], permissions["administration"]) == ("write", "write")
+    assert others
+    assert {request.method for request in others} == {"GET"}
