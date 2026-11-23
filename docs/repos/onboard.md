@@ -39,13 +39,13 @@ The flags `--scope`, `--release-flow/--no-release-flow` and `--release-type` giv
 
 ## Rows
 
-Each row reads the live state with GET, compares it with the baseline, and writes only the differences. A live answer can hold more keys than the baseline. Each write goes through one route of `src/devops_cli/github/onboard/routes.py`, which names its owner.
+Each row reads the live state with GET, compares it with the baseline, and writes only the differences. A live answer can hold more keys than the baseline. GitHub leaves a field out of its answer to a token that may not read it, so rows 2 and 10 compare only the keys that the answer holds. A key that the answer does not hold is unknown, not a difference: with no other difference the row is `not readable`, its reason names the keys, and a person step names the permission and the command that reads the row with your own login (#6875). Each write goes through one route of `src/devops_cli/github/onboard/routes.py`, which names its owner.
 
 | Row | Name | What it does |
 | --- | --- | --- |
 | 0 | Preflight | The token must hold the scopes `repo` and `workflow`. A 403 of the rulesets of a private repository is the limit of the Free plan (D2). The row fails on a variable or secret `SERVICE_APP_*` (#6771). With `--confirm`, a failed row 0 stops the run before its first write. For a repository that does not exist, the row checks the scopes before row 1 creates it. |
 | 1 | Create | `POST /user/repos` with `auto_init`, only with `--create` and `--visibility`, and only for a repository of your login. |
-| 2 | Repository | One `PATCH /repos/<repo>` with the keys of `repository` of the baseline that differ, and `has_issues: true`. A security feature that the plan does not have is left out. A commit message goes with its title, because GitHub requires the title with the message. |
+| 2 | Repository | One `PATCH /repos/<repo>` with the keys of `repository` of the baseline that differ, and `has_issues: true`. A security feature that the plan does not have is left out. A commit message goes with its title, because GitHub requires the title with the message. GitHub gives the merge settings only to a token with Contents write ([get a repository](https://docs.github.com/en/rest/repos/repos#get-a-repository)). |
 | 3 | Security | The vulnerability alerts, the private vulnerability reporting, the immutable releases, the CodeQL default setup and the permissions of the job token. |
 | 4 | Code Quality | `not available` when GitHub answers 404, as on a plan with no Code Quality; else `state: configured`. |
 | 5 | Environment | With the release flow: the environment `release`, its branch policy `main` and the variable `RELEASE_APP_CLIENT_ID` from `github.release_app_client_id`. |
@@ -53,7 +53,7 @@ Each row reads the live state with GET, compares it with the baseline, and write
 | 7 | App check | `GET /repos/<repo>/installation` with the JWT of each App whose ID and key the configuration holds (`service.github_app`, `renovate`). The row sends no write: each App of the account holds all of its repositories. |
 | 8 | Labels | Creates each workflow label of the package and each label of `.github/labels.yml` that GitHub lacks. A label that differs stays, and the output lists it. |
 | 9 | Template pull request | Adds the template files that the repository lacks on the branch `ci/repository-template`, in one commit, and opens the draft pull request `ci: add the files of the repository template`. A file that the repository holds with other text stays, and the output lists it. The row waits for the check runs of the head, at most 15 minutes. A failed check fails the row. A wait that ends first leaves the row `waiting`, and the next run goes on. |
-| 10 | Ruleset | The ruleset `main` of the baseline, with each required check of the live ruleset and each check that reported on the template pull request (D3). It waits while the checks of the template pull request have not passed. |
+| 10 | Ruleset | The ruleset `main` of the baseline, with each required check of the live ruleset and each check that reported on the template pull request (D3). It waits while the checks of the template pull request have not passed. GitHub gives `bypass_actors` only to a token with write access to the ruleset ([get a repository ruleset](https://docs.github.com/en/rest/repos/rules#get-a-repository-ruleset)). |
 | 11 | Ready | Marks the template pull request ready and turns on auto-merge with the squash method and the head that the checks ran on. When GitHub has nothing to wait for, it merges the pull request at once, as `gh pr merge --auto` does (D3). When a commit reached the branch after the checks, the row is `waiting` and writes nothing, and the next run checks the new head. |
 | 12 | Webhook | Until #4417: the hook of `service.webhook_url`, content type `json`, active, with each event of `CONST_ROADMAP_WEBHOOK_EVENTS` or `*`. A missing hook, a wrong hook, or a hook whose secret `service.webhook_secrets` lacks gets a new secret, which goes into the keyring map and into no output. |
 | 13 | Service | With `--confirm` (D4): adds the repository to `service.repos`, then runs `devops k8s push-secrets --only devops/devops-cli --rotate` and `devops k8s deploy-stack --stack devops`, unless `--no-deploy`. It does this only from a clean checkout of `origin/main` of devops-cli; else the row is `refused` with the reason, and the other rows run. |
@@ -79,14 +79,14 @@ The output ends with the person steps of the repository, each with the document 
 
 ## The nightly Job
 
-CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the drift check each night at 03:41 UTC in the runner image ([cluster](../CLUSTER.md#repository-drift)). It runs `devops repos onboard --all --plan --only 0,1,2,3,5,6,7,8,9,10,11`, the rows that a read token can read:
+CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the drift check each night at 03:41 UTC in the runner image ([cluster](../CLUSTER.md#repository-drift)). It runs `devops repos onboard --all --plan --only 0,1,2,3,5,6,7,8,9,10,11`, the rows that a read token can read, all or in part:
 
 - Row 4 stays out: GitHub needs Administration write for `GET /repos/<repo>/code-quality/setup` ([permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)).
 - Row 12 stays out: it needs the keyring map of the webhook secrets, a secret value, and #4417 deletes it.
 - Row 13 stays out: with `--all`, `service.repos` holds each repository, so the row reads no live state.
 - Rows 14 and 15 stay out: row 14 runs only with `--service`, and row 15 informs only and needs a Qdrant key.
 
-The pod acts as the GitHub App of the Service, and `service.github_app.read_only` makes its installation token ask for `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only: read on Actions, Administration, Checks, Contents, Environments, Issues, Metadata, Pull requests and Secrets. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes.
+The pod acts as the GitHub App of the Service, and `service.github_app.read_only` makes its installation token ask for `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only: read on Actions, Administration, Checks, Contents, Environments, Issues, Metadata, Pull requests and Secrets. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes. No read permission gives the merge settings of row 2 or `bypass_actors` of row 10, so the Job gives these rows `not readable` with their person step, and not `pending` (#6875). Read them with your own login: `devops repos onboard <owner>/<name> --plan --only 2,10`.
 
 `--all --plan` sets the gauge `devops_cli_repos_drift_rows` of each repository, with the label `state`:
 

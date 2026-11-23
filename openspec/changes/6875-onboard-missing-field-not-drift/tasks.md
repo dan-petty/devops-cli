@@ -14,9 +14,9 @@ Adds: `held_differences`, `DOC_GET_REPOSITORY`, `DOC_GET_RULESET`
 
 Kind: other. Reads: `docs/repos/onboard.md`, `k8s/README.md`, `src/devops_cli/config/constants.py`. Changes: `docs/repos/onboard.md`, `k8s/README.md`, `src/devops_cli/config/constants.py`.
 
-- [ ] 2.1 In the comment of `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`, name the two fields that only a write permission gives: the merge settings (Contents write) and `bypass_actors` of a ruleset (Administration write)
+- [x] 2.1 In the comment of `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`, name the two fields that only a write permission gives: the merge settings (Contents write) and `bypass_actors` of a ruleset (Administration write)
   - Verification: `$ uv run devops ci --check --only lint` passes
-- [ ] 2.2 In `docs/repos/onboard.md`, state the rule in the rows section and in the nightly Job section: rows 2 and 10 are `not readable` for the keys that the read token cannot read. In the alert table of `k8s/README.md`, name the cause in the row of `RepositorySettingsUnreadable`
+- [x] 2.2 In `docs/repos/onboard.md`, state the rule in the rows section and in the nightly Job section: rows 2 and 10 are `not readable` for the keys that the read token cannot read. In the alert table of `k8s/README.md`, name the cause in the row of `RepositorySettingsUnreadable`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
