@@ -77,7 +77,7 @@ dependencies = [
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
-    "filelock==4.3.0",
+    "filelock==4.3.1",
     "unidiff==1.0.1",
     "ddgs==9.16.1",
     "opentelemetry-exporter-otlp-proto-common==1.45.2",
