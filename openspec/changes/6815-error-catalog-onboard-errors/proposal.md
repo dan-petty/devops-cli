@@ -28,7 +28,7 @@ None.
 - Code: `src/devops_cli/docs/generator.py`, `src/devops_cli/config/constants.py`
 - Documents: none. `docs/ERRORS.md` does not change.
 - Tests: `tests/docs/test_exceptions.py`
-- `devops docs generate` imports about 400 more modules: about 1.5 s more on a workstation (measured, design decision 3).
+- `devops docs generate` imports about 400 more modules and takes about 2.3 s more on a workstation (design decision 3).
 
 ## Feasibility
 

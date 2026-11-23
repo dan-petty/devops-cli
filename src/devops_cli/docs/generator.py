@@ -20,7 +20,6 @@ from devops_cli.config.constants import (
     CONST_DOC_CREDENTIAL_NAME_WORDS,
     CONST_DOC_CREDENTIAL_NAMING_WORD,
     CONST_DOCS_DIR_NAME,
-    CONST_DOMAIN_EXCEPTION_MODULES,
     CONST_MARKDOWN_HEADING_LEVEL,
     CONST_PROJECT_CONFIG_CANDIDATES,
     CONST_SETTINGS_SECTION_METADATA,
@@ -873,20 +872,21 @@ class DocGenerator:
 
     @staticmethod
     def _import_all_exception_modules() -> None:
-        """Import every module defining DevOpsCLIError subclasses, failing closed on error."""
+        """Import the module of each `.py` file of devops-cli, and stop on a failed import (#6815).
+
+        Each module can define a `DevOpsCLIError` subclass, and `__subclasses__` gives only the
+        subclasses of loaded modules. So the names come from the files, and no list of modules
+        can leave a class out of the catalog. `pkgutil.walk_packages` skips a directory with no
+        `__init__.py`, such as `docker/`, so it is not used.
+        """
         import importlib
-        import pkgutil
 
-        import devops_cli.exceptions
+        import devops_cli
+        from devops_cli.core.import_graph import module_name
 
+        package_dir = Path(devops_cli.__file__).parent
         module_names = [
-            *(
-                mod_name
-                for _, mod_name, _ in pkgutil.iter_modules(
-                    devops_cli.exceptions.__path__, prefix="devops_cli.exceptions."
-                )
-            ),
-            *CONST_DOMAIN_EXCEPTION_MODULES,
+            module_name(path, package_dir.parent) for path in sorted(package_dir.rglob("*.py"))
         ]
         for mod_name in module_names:
             try:
