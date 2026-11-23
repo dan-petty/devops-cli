@@ -31,11 +31,11 @@ Adds: `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`
 
 ## 4. The nightly Job and its alerts
 
-Kind: other. Reads: `k8s/devops/cronjob-stage.yaml`, `k8s/devops/renovate/cronjob.yaml`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/devops/cronjob-repos-drift.yaml`, `k8s/devops/kustomization.yaml`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `k8s/argocd/image-updater-values.yaml`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/fixtures/prometheus_rules/repos_drift_tests.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
+Kind: other. Reads: `k8s/devops/cronjob-stage.yaml`, `k8s/devops/renovate/cronjob.yaml`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`. Changes: `k8s/devops/cronjob-repos-drift.yaml`, `k8s/devops/kustomization.yaml`, `src/devops_cli/commands/k8s/stack_lifecycle.py`, `k8s/argocd/image-updater-values.yaml`, `tests/gate/k8s_checks/telemetry_resource.py`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/fixtures/prometheus_rules/repos_drift_tests.yaml`, `tests/prometheus/test_k8s_monitoring_alerting.py`.
 
-- [ ] 4.1 Add CronJob `repos-drift` in `k8s/devops/cronjob-repos-drift.yaml`, name it in `k8s/devops/kustomization.yaml` and in `PRODUCT_MANIFESTS_BY_STACK` of `src/devops_cli/commands/k8s/stack_lifecycle.py`, and name it in the comment of the runner image of `k8s/argocd/image-updater-values.yaml`
+- [x] 4.1 Add CronJob `repos-drift` in `k8s/devops/cronjob-repos-drift.yaml`, name it in `k8s/devops/kustomization.yaml` and in `PRODUCT_MANIFESTS_BY_STACK` of `src/devops_cli/commands/k8s/stack_lifecycle.py`, name it in the comment of the runner image of `k8s/argocd/image-updater-values.yaml`, and add its container to the containers that `tests/gate/k8s_checks/telemetry_resource.py` expects
   - Verification: `$ uv run devops ci --check --only k8s` passes
-- [ ] 4.2 Add the rule group `repos-drift` with its three alerts, its promtool cases in `tests/fixtures/prometheus_rules/repos_drift_tests.yaml`, and the group and the served series in `tests/prometheus/test_k8s_monitoring_alerting.py`
+- [x] 4.2 Add the rule group `repos-drift` with its three alerts, its promtool cases in `tests/fixtures/prometheus_rules/repos_drift_tests.yaml`, and the group and the served series in `tests/prometheus/test_k8s_monitoring_alerting.py`
   - Verification: `$ uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` passes
 
 ## 5. Documents

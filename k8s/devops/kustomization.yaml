@@ -5,6 +5,7 @@ resources:
 - cronjob.yaml
 - cronjob-runner.yaml
 - cronjob-stage.yaml
+- cronjob-repos-drift.yaml
 - networkpolicy.yaml
 - networkpolicy-rag-ingest.yaml
 - workflowtemplate-rag-ingest.yaml

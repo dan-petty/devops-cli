@@ -1,0 +1,149 @@
+# The nightly drift check of the repository settings (#6783, ADR 0035). Each night one pod runs
+# `devops repos onboard --all --plan` over each repository of `service.repos` in ConfigMap
+# devops-cli-config, and sets the gauge devops_cli_repos_drift_rows of each repository. The alerts of
+# the rule group `repos-drift` (k8s/devops/monitoring/prometheus-rules-values.yaml) read the gauge.
+# A plan sends GET requests only, and the command exits 1 on a row off the baseline or a row that
+# it could not read, so the Job then ends Failed: the gauge is the report.
+#
+# The pod acts as the GitHub App of the Service with one key of Secret devops-cli, the private key
+# of the App, and `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY` makes its installation token ask for
+# read permissions only (CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS). It mounts no ServiceAccount
+# token, and ServiceAccount devops-cli has no Role. Its egress is that of
+# `devops-default-perimeter-egress`, and it holds no key of the gateway, the cache Valkey or Qdrant.
+#
+# `--only` runs the rows that a read token can read (docs/repos/onboard.md, The nightly Job). The
+# rows that read the baseline need the program `copier`, which the runner image gets from the
+# devtools image. Without it, those rows are `not readable`, and the alert
+# RepositorySettingsUnreadable names them.
+#
+# The timeouts nest: `activeDeadlineSeconds` (1800 s) < the token life (3600 s) < the schedule
+# interval (one day).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: repos-drift
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: repos-drift
+    app.kubernetes.io/component: repos-drift
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/job-ttl-seconds-after-finished: >-
+      A Job made with kubectl create job --from=cronjob/repos-drift keeps the TTL that
+      docs/guidelines/kubernetes.md (Bounded) asks for each Job (#6068).
+    ignore-check.kube-linter.io/latest-tag: >-
+      Argo CD Image Updater sets the digest of the image in Application devops
+      (k8s/argocd/image-updater-values.yaml, #6068).
+    ignore-check.kube-linter.io/no-liveness-probe: >-
+      A Job runs to its end, and activeDeadlineSeconds stops a Job that hangs (#6068).
+    ignore-check.kube-linter.io/no-readiness-probe: A Job serves no traffic (#6068).
+spec:
+  schedule: "41 3 * * *"
+  timeZone: Etc/UTC
+  # One check at a time. A start that comes more than an hour late waits for the next night.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: repos-drift
+        app.kubernetes.io/component: repos-drift
+        app.kubernetes.io/part-of: devops-cli-stack
+    spec:
+      # A plan writes nothing, and exit 1 is the result of a drift, so no retry: the next night
+      # runs the check again.
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: repos-drift
+            app.kubernetes.io/component: repos-drift
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          serviceAccountName: devops-cli
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: repos-drift
+              # The runner image is FROM the devtools image, which gives it the program copier.
+              image: ghcr.io/dan-petty/devops-cli/runner
+              imagePullPolicy: IfNotPresent
+              # Rows 4 (its GET needs Administration write), 12 (it needs the webhook secrets, and
+              # #4417 deletes it), 13 (with --all it reads no live state), 14 (only with --service)
+              # and 15 (it informs only, and it needs a Qdrant key) stay out.
+              args:
+                - repos
+                - onboard
+                - --all
+                - --plan
+                - --only
+                - 0,1,2,3,5,6,7,8,9,10,11
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              env:
+                - name: DEVOPS_CLI_CONFIG
+                  value: /config/devops-cli.yaml
+                - name: DEVOPS_CLI_DATA_DIR
+                  value: /home/devops/.data
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: devops-cli
+                      key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY
+                  value: "true"
+                # The alerts select the series of this job name, so a run on a workstation
+                # (job="devops-cli") never counts.
+                - name: OTEL_SERVICE_NAME
+                  value: repos-drift
+                # One pod sends at a time, so its metric stream continues across the Job pods
+                # (#4697).
+                - name: OTEL_RESOURCE_ATTRIBUTES
+                  value: service.instance.id=repos-drift
+                # The spans and the log records name the cluster and the namespace from these two
+                # values, as each devops-cli container of the namespace does (#3700).
+                - name: K8S_CONTEXT
+                  value: homelab-k3s
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+              volumeMounts:
+                # The clone and the render of the template by copier.
+                - name: tmp
+                  mountPath: /tmp
+                - name: home
+                  mountPath: /home/devops
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: home
+              emptyDir:
+                sizeLimit: 1Gi
+            - name: config
+              configMap:
+                name: devops-cli-config

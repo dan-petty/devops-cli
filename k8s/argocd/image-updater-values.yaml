@@ -11,8 +11,8 @@
 # `devops-cli` is a suspended template, `roadmap-service` can be at 0 replicas, and the Jobs
 # that `devops k8s run-job` starts are outside the tree. So `forceUpdate` is true. The same
 # holds for the runner image of the Job templates `devops-cli-runner`, `roadmap-stage` and
-# `devops-cli-planner-run`. When the Application already names the digest, Image Updater writes
-# nothing.
+# `devops-cli-planner-run`, and of CronJob `repos-drift`, whose pod runs only at night. When the
+# Application already names the digest, Image Updater writes nothing.
 extraObjects:
   - apiVersion: argocd-image-updater.argoproj.io/v1alpha1
     kind: ImageUpdater
@@ -30,8 +30,9 @@ extraObjects:
                 forceUpdate: true
             # The image of the suspended CronJobs devops-cli-runner (the implement and
             # fix-checks Jobs, #2667), roadmap-stage (the stage Job, #6417) and
-            # devops-cli-planner-run. The kustomize image entry sets the digest by the image
-            # name, so it reaches each of them. They are templates, so it needs `forceUpdate`.
+            # devops-cli-planner-run, and of the nightly CronJob repos-drift (#6783). The
+            # kustomize image entry sets the digest by the image name, so it reaches each of
+            # them. No pod of them runs all the time, so it needs `forceUpdate`.
             - alias: runner
               imageName: ghcr.io/dan-petty/devops-cli/runner:latest
               commonUpdateSettings:

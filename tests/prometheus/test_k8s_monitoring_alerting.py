@@ -88,6 +88,7 @@ CRAWL4AI_RULE_TESTS = FIXTURES / "prometheus_rules" / "crawl4ai_tests.yaml"
 OTEL_COLLECTOR_RULE_TESTS = FIXTURES / "prometheus_rules" / "otel_collector_tests.yaml"
 VALKEY_MEMORY_RULE_TESTS = FIXTURES / "prometheus_rules" / "valkey_memory_tests.yaml"
 RESEARCH_RULE_TESTS = FIXTURES / "prometheus_rules" / "research_tests.yaml"
+REPOS_DRIFT_RULE_TESTS = FIXTURES / "prometheus_rules" / "repos_drift_tests.yaml"
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
 METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
@@ -119,6 +120,8 @@ OTEL_COLLECTOR_GROUP = "otel-collector"
 VALKEY_MEMORY_GROUP = "valkey-memory"
 # The rule over the open findings of `devops research sweep` (#3899).
 RESEARCH_GROUP = "research"
+# The rules over the nightly drift check of the repository settings (#6783).
+REPOS_DRIFT_GROUP = "repos-drift"
 # The rules over the daily USD spend of the hosted models (#4222).
 AI_SPEND_GROUP = "ai-spend"
 # The rule of two metric streams that write one Prometheus series (#4697).
@@ -132,6 +135,7 @@ RULE_GROUP_TESTS = (
     (OTEL_COLLECTOR_GROUP, OTEL_COLLECTOR_RULE_TESTS),
     (VALKEY_MEMORY_GROUP, VALKEY_MEMORY_RULE_TESTS),
     (RESEARCH_GROUP, RESEARCH_RULE_TESTS),
+    (REPOS_DRIFT_GROUP, REPOS_DRIFT_RULE_TESTS),
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
     (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
     (METRIC_STREAMS_GROUP, METRIC_STREAMS_RULE_TESTS),
@@ -273,6 +277,12 @@ SERVED_SERIES = frozenset(
         ),
         # The open findings of the research sweep, by severity (#3899).
         RESEARCH_OPEN_FINDINGS.name,
+        # The rows of the nightly drift check of each repository, by state (#6783).
+        *(
+            [getattr(_instruments, "REPOS_DRIFT_ROWS").name]
+            if hasattr(_instruments, "REPOS_DRIFT_ROWS")
+            else []
+        ),
         # The items that the alternatives check has not checked, sent by its row (#2950).
         ROADMAP_ALTERNATIVES_UNCHECKED_ITEMS.name,
         # The calls of the stage planner's tools, and its plan runs (#3240).
@@ -474,8 +484,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
     `roadmap-service-webhooks` (#2476), of `roadmap-service-activity` (#2475), of
     `roadmap-service-items` (#2919), of `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
-    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `ai-spend`
-    (#4222), of `llm-gateway-db` (#4994) and of `metric-streams` (#4697).
+    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `repos-drift`
+    (#6783), of `ai-spend` (#4222), of `llm-gateway-db` (#4994) and of `metric-streams` (#4697).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count. Each file
