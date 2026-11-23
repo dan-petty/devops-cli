@@ -87,7 +87,7 @@ Kind: other. Reads: `docs/roadmap/stage.md`, `docs/roadmap/plan-recheck.md`, `do
 
 - [x] 10.1 On a clone of `main` with one plan commit, time `devops openspec check`, `openspec validate <change> --strict` and the recheck of the agent. Write the times in the new section "The phases of the stage Job" of `docs/roadmap/stage.md`. A check over 270 s stops the task, and the owner decides the tool
   - Verification: `$ uv run devops ci docs` passes
-- [x] 10.2 In `docs/roadmap/stage.md`, add the count of an agent `ci_infra` to the paragraph on the classes. Add `--base`, `--candidate` and `--issues` to `docs/roadmap/plan-recheck.md`. Add the addendum "The stage Job on the phases (#6705)" to ADR 0030, and `RequireVerification` to `pydantic_ai_harness.md`
+- [ ] 10.2 In `docs/roadmap/stage.md`, add the count of an agent `ci_infra` to the paragraph on the classes. Add `--base`, `--candidate` and `--issues` to `docs/roadmap/plan-recheck.md`. Add the addendum "The stage Job on the phases (#6705)" to ADR 0030, and `RequireVerification` to `pydantic_ai_harness.md`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Criteria
