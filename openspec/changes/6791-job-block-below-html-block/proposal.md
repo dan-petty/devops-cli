@@ -33,7 +33,7 @@ None.
 
 - Code: `src/devops_cli/roadmap/body_hash.py`, `src/devops_cli/roadmap/stores/store.py`
 - Tests: `tests/roadmap/test_roadmap_body_hash.py`, `tests/roadmap/refine/test_roadmap_refine_block_markers.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/stores/test_roadmap_store_record_block.py`
-- On 2026-11-23, a census script read the 833 open issue bodies with markdown-it-py. Their 276 top-level HTML blocks of kind 6 or 7 hold no job block marker line and no record line. So no read of a live item changes.
+- On 2026-11-23, a census script read the 833 open issue bodies with markdown-it-py. Their 276 HTML blocks of kind 6 or 7 hold no job block marker line and no record line. So no read of a live item changes.
 
 ## Feasibility
 

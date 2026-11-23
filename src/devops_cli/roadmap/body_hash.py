@@ -22,7 +22,14 @@ end it for a read (#6736): from their first line on, the job block marker lines 
 one for each job at most. The outside text of a block holds the close of the open block before
 that line (`close_blocks_before_markers`), so a write that keeps the outside text replaces the old
 block and adds no second one. Each other marker line in the open block, and each marker in a block
-that a close ends, is still a quote. Every reader of a job block marker uses this rule:
+that a close ends, is still a quote.
+
+CommonMark ends an HTML block such as `<details>`, `</div>` or a whole tag on a line of its own
+only at a blank line (kinds 6 and 7). A person can remove the blank line between such a line and
+a job block marker. The marker line is then a line of that block, and GitHub shows it as a
+comment, as it shows a marker block of its own. So the first marker line in the block ends it for
+a read (#6791). The outside text of a block holds a blank line before that line, so the next read
+parses the marker as an HTML block of its own. Every reader of a job block marker uses this rule:
 `block_marker_of` for one token, and `block_marker_spans` for a body.
 """
 
@@ -87,6 +94,13 @@ def _end_text(block: str) -> str | None:
     return None
 
 
+def ends_at_a_blank_line(block: str) -> bool:
+    """Whether only a blank line ends the HTML block whose text is `block`: no end text of
+    `_HTML_BLOCK_CLOSES` starts it. These are CommonMark kinds 6 and 7, such as `<details>`,
+    `</div>` or a whole tag on a line of its own (#6791)."""
+    return _end_text(block.lstrip()) is None
+
+
 def block_marker_of(token: Token, markers: Collection[str] = JOB_BLOCK_MARKERS) -> str | None:
     """The marker of `markers` that bounds a job block in `token`, or None. When `token` is an
     HTML block, the marker is its whole text, or its whole last line when the first end text of
@@ -149,11 +163,14 @@ def _open_block(
     return first, probed
 
 
-def _marker_lines(text: str, starts: Sequence[int], first: int) -> list[tuple[int, str]]:
-    """The offset in `text` and the marker of each line after line `first` that CommonMark reads
-    on its own as a job block marker (`block_marker_of`). `starts` are the starts of the lines."""
+def _marker_lines(
+    text: str, starts: Sequence[int], first: int, after: int | None = None
+) -> list[tuple[int, str]]:
+    """The offset in `text` and the marker of each line after line `first`, and before line
+    `after` when given, that CommonMark reads on its own as a job block marker
+    (`block_marker_of`). `starts` are the starts of the lines."""
     lines: list[tuple[int, str]] = []
-    for line in range(first + 1, len(starts)):
+    for line in range(first + 1, len(starts) if after is None else after):
         own = text[starts[line] : starts[line + 1] if line + 1 < len(starts) else len(text)]
         marker = own.strip()
         if marker in JOB_BLOCK_MARKERS and any(
@@ -205,20 +222,49 @@ def _open_block_end(
     return None
 
 
+def _html_block_end(text: str, tokens: Sequence[Token]) -> tuple[int, int] | None:
+    """The index in `tokens` of the first top-level HTML block that only a blank line ends
+    (`ends_at_a_blank_line`) and that holds a job block marker line after its first line, and
+    the offset in `text` of the first such line, or None (#6791). `tokens` are the tokens of
+    `text`. GitHub shows such a marker as a comment, as it shows a marker block of its own."""
+    starts: list[int] | None = None
+    for index, token in enumerate(tokens):
+        if (
+            token.type != "html_block"
+            or token.level
+            or token.map is None
+            or not any(marker in token.content for marker in JOB_BLOCK_MARKERS)
+            or not ends_at_a_blank_line(token.content)
+        ):
+            continue
+        starts = starts or _line_starts(text)
+        if lines := _marker_lines(text, starts, *token.map):
+            return index, lines[0][0]
+    return None
+
+
 def _parts(body: str) -> list[tuple[int, list[Token]]]:
-    """The start of each part of `body` and the tokens of the text from that start (#6736). A block
-    that no close ends runs to the end of the body, and the job blocks at its end end it
-    (`_open_block_end`): a new part starts at their first line. The first marker of a part bounds
-    a block, so each job block marker ends one open block at most. A job can end two open blocks:
-    its start marker ends a block above its block, and its end marker ends a block in its block.
-    So a body has at most one part more than there are job block markers. A body with no such
-    block is one part."""
+    """The start of each part of `body`, and the tokens of the text from that start up to the
+    block that the next part ends (#6736). A new part starts at a job block marker line that ends
+    a block for a read. The first marker line after the first line of a top-level HTML block that
+    only a blank line ends ends that block (`_html_block_end`, #6791). A block that no close ends
+    runs to the end of the body, and the job blocks at its end end it (`_open_block_end`). The
+    first marker of a part bounds a block, so each job block marker line ends one block at most.
+    A job can end two blocks: its start marker ends a block above its block, and its end marker
+    ends a block in its block. So a body with one block for each job has at most one part more
+    than there are job block markers. A body with no such block is one part."""
     parts = [(0, _BODY_MARKDOWN.parse(body))]
     while len(parts) <= len(JOB_BLOCK_MARKERS):
         start, tokens = parts[-1]
-        end = _open_block_end(body[start:], tokens, _spans(body, parts, JOB_BLOCK_MARKERS))
-        if end is None:
-            break
+        text = body[start:]
+        found = _html_block_end(text, tokens)
+        if found is None:
+            end = _open_block_end(text, tokens, _spans(body, parts, JOB_BLOCK_MARKERS))
+            if end is None:
+                break
+        else:
+            index, end = found
+            parts[-1] = (start, tokens[: index + 1])
         parts.append((start + end, _BODY_MARKDOWN.parse(body[start + end :])))
     return parts
 
@@ -244,8 +290,9 @@ def block_marker_spans(
 ) -> list[tuple[str, int, int]]:
     """The marker, its start and its end in `body`, for each marker of `markers` that bounds a
     block (`block_marker_of`), in the order of the body (#6627). A block that a person leaves open
-    ends at the job blocks at its end (`_parts`), so a marker of these blocks is read as in a body
-    with the close in place (#6736)."""
+    ends at the job blocks at its end, and an HTML block that only a blank line ends ends at its
+    first marker line (`_parts`). So a marker of these blocks is read as in a body with the close
+    in place (#6736, #6791)."""
     return _spans(body, _parts(body), markers)
 
 
@@ -294,7 +341,8 @@ def close_open_block(text: str) -> str:
 
 def _closed(body: str, parts: Sequence[tuple[int, list[Token]]]) -> str:
     """`body` with the close of each open block that a new part of `parts` ends (`_parts`), on a
-    line of its own before the part, and a blank line."""
+    line of its own before the part, and a blank line. An HTML block that only a blank line ends
+    gets no close (`close_open_block`), so the blank line ends it (#6791)."""
     starts = [start for start, _ in parts]
     texts = [body[start:end] for start, end in zip(starts, [*starts[1:], len(body)], strict=True)]
     closed = (f"{close_open_block(text.rstrip())}\n\n" for text in texts[:-1])
@@ -303,9 +351,10 @@ def _closed(body: str, parts: Sequence[tuple[int, list[Token]]]) -> str:
 
 def close_blocks_before_markers(body: str) -> str:
     """`body` with a close on a line of its own before each line that ends a block open to the end
-    of the body (#6736). CommonMark then reads each job block of the result as `block_marker_spans`
-    reads it in `body`, so a write that keeps this text keeps each block readable. A body with no
-    such block is returned as it is."""
+    of the body (#6736), and a blank line before each marker line that ends an HTML block that
+    only a blank line ends (#6791). CommonMark then reads each job block of the result as
+    `block_marker_spans` reads it in `body`, so a write that keeps this text keeps each block
+    readable. A body with no such block is returned as it is."""
     parts = _parts(body)
     return body if len(parts) == 1 else _closed(body, parts)
 
@@ -319,8 +368,9 @@ def extract_section_and_outside(
     between the two markers, refine's by default; another job's block (#2650) has its own. A
     marker bounds the section only as an HTML block, so a quoted marker pair stays in the
     outside text (#6627). The cut is of the body with the close of each block that a person
-    leaves open above a job block (`close_blocks_before_markers`), so a write that keeps the
-    outside text keeps the next job block readable (#6736)."""
+    leaves open above a job block, and with a blank line before a marker line in an HTML block
+    (`close_blocks_before_markers`). So a write that keeps the outside text keeps the next job
+    block readable (#6736, #6791)."""
     parts = _parts(body)
     if len(parts) > 1:
         body = _closed(body, parts)
