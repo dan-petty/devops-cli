@@ -6,9 +6,10 @@ import re
 
 from devops_cli.exceptions.validation import ValidationError as InvalidInputError
 from devops_cli.lang import MESSAGES
+from devops_cli.output.console import print_info
 from devops_cli.roadmap.consolidate import Group, Plan
 from devops_cli.roadmap.consolidate_judge import Shape
-from devops_cli.roadmap.stores.store import CloseReason, RoadmapStore
+from devops_cli.roadmap.stores.store import CloseReason, GitHubState, RoadmapStore
 
 CONSOLIDATE_SECTION_START = "<!-- devops-roadmap-consolidate:start -->"
 CONSOLIDATE_SECTION_END = "<!-- devops-roadmap-consolidate:end -->"
@@ -115,11 +116,27 @@ def _apply_parent(store: RoadmapStore, plan: Plan, group: Group) -> None:
 
 
 def _apply_close(store: RoadmapStore, plan: Plan, group: Group) -> None:
-    pass
+    anchor_issue = store.issue(group.anchor)
+    is_completed = (
+        anchor_issue is not None
+        and anchor_issue.state == GitHubState.CLOSED
+        and anchor_issue.state_reason == CloseReason.COMPLETED.value
+    )
+    if not is_completed:
+        print_info(
+            MESSAGES.roadmap.consolidate_duplicate_waits.format(group=group.id, anchor=group.anchor)
+        )
+        return
+
+    comment = f"Duplicate of #{group.anchor}."
+    for member in group.members:
+        store.close(member.number, CloseReason.DUPLICATE, comment=comment)
 
 
 def _apply_link_only(store: RoadmapStore, plan: Plan, group: Group) -> None:
-    pass
+    comment = MESSAGES.roadmap.consolidate_link_comment.format(anchor=group.anchor)
+    for member in group.members:
+        store.comment(member.number, comment)
 
 
 def apply_group(store: RoadmapStore, plan: Plan, group_id: str, *, confirm: bool) -> None:

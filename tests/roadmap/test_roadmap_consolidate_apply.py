@@ -280,3 +280,85 @@ def test_parent_anchor_comment_lists_the_children() -> None:
     assert f"#{c1}" in comment_text
     assert f"#{c2}" in comment_text
     assert comment_text.index(f"#{c1}") < comment_text.index(f"#{c2}")
+
+
+def test_duplicate_close_uses_duplicate_reason() -> None:
+    store = InMemoryRoadmapStore()
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n", state=GitHubState.CLOSED.value)
+    store.close_by_hand(anchor, CloseReason.COMPLETED)
+    m1 = store.seed_issue("Member 1", body="M1 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.CLOSE,
+        members=(GroupMember(number=m1, action=Action.MERGE, reason="Duplicate issue."),),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    item1 = store.issue(m1)
+    assert item1 is not None
+    assert item1.state == GitHubState.CLOSED
+    assert item1.state_reason == CloseReason.DUPLICATE.value
+
+    comments = store.comments_on(m1)
+    assert len(comments) == 1
+    assert f"#{anchor}" in comments[0].body
+    assert "duplicateIssueId" not in str(store.writes)
+
+
+def test_duplicate_waits_for_the_anchor(capsys: pytest.CaptureFixture[str]) -> None:
+    store = InMemoryRoadmapStore()
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n")
+    m1 = store.seed_issue("Member 1", body="M1 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.CLOSE,
+        members=(GroupMember(number=m1, action=Action.MERGE, reason="Duplicate issue."),),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    item1 = store.issue(m1)
+    assert item1 is not None
+    assert item1.state == GitHubState.OPEN
+    assert store.writes == []
+    captured = capsys.readouterr()
+    assert f"#{anchor}" in (captured.out + captured.err)
+
+
+def test_link_only_comments() -> None:
+    store = InMemoryRoadmapStore()
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n")
+    m1 = store.seed_issue("Member 1", body="M1 body.\n")
+    m2 = store.seed_issue("Member 2", body="M2 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.LINK_ONLY,
+        members=(
+            GroupMember(number=m1, action=Action.LINK, reason="Related issue 1."),
+            GroupMember(number=m2, action=Action.LINK, reason="Related issue 2."),
+        ),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    c1 = store.comments_on(m1)
+    c2 = store.comments_on(m2)
+    assert len(c1) == 1
+    assert f"#{anchor}" in c1[0].body
+    assert len(c2) == 1
+    assert f"#{anchor}" in c2[0].body
+
+    assert store.issue(m1).state == GitHubState.OPEN
+    assert store.issue(m2).state == GitHubState.OPEN
+    assert "write_issue_body" not in store.writes
+    assert "close" not in store.writes

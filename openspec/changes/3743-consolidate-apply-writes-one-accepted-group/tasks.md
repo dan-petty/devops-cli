@@ -51,9 +51,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devop
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devops_cli/roadmap/consolidate.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/support/fakes/roadmap_store.py`. Changes: `src/devops_cli/roadmap/consolidate_apply.py`, `tests/roadmap/test_roadmap_consolidate_apply.py`.
 
-- [ ] 6.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_duplicate_close_uses_duplicate_reason`, `test_duplicate_waits_for_the_anchor` and `test_link_only_comments`; the first asserts one `close` with `CloseReason.DUPLICATE` and no `duplicateIssueId` call
+- [x] 6.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_duplicate_close_uses_duplicate_reason`, `test_duplicate_waits_for_the_anchor` and `test_link_only_comments`; the first asserts one `close` with `CloseReason.DUPLICATE` and no `duplicateIssueId` call
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` fails on the base
-- [ ] 6.2 Add the duplicate writer and the link-only writer to `src/devops_cli/roadmap/consolidate_apply.py`. Read the anchor with `src/devops_cli/roadmap/stores/store.py:def issue`. When the anchor is not closed as completed, write nothing and report that the group waits for the anchor. Otherwise close each member with `src/devops_cli/roadmap/stores/store.py:def close` and `CloseReason.DUPLICATE`, with one comment that names the anchor. The link-only writer posts one fixed-template comment on each member with `src/devops_cli/roadmap/stores/store.py:def comment`
+- [x] 6.2 Add the duplicate writer and the link-only writer to `src/devops_cli/roadmap/consolidate_apply.py`. Read the anchor with `src/devops_cli/roadmap/stores/store.py:def issue`. When the anchor is not closed as completed, write nothing and report that the group waits for the anchor. Otherwise close each member with `src/devops_cli/roadmap/stores/store.py:def close` and `CloseReason.DUPLICATE`, with one comment that names the anchor. The link-only writer posts one fixed-template comment on each member with `src/devops_cli/roadmap/stores/store.py:def comment`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` passes
 
 ## 7. Place the Priority and guard the write set

@@ -3202,6 +3202,10 @@ class RoadmapMessages:
     consolidate_apply_unknown: str = (
         "The last plan holds no group {group}. Run consolidate, then give an id from its summary."
     )
+    consolidate_duplicate_waits: str = (
+        "Group {group} waits for #{anchor} to be closed as completed. Nothing was written."
+    )
+    consolidate_link_comment: str = "Related to #{anchor}."
     retitle_title: str = "# Retitle for {repo}"
     retitle_none: str = (
         "No open item has a title summary over {limit} characters or a title type that the "
