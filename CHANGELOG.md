@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.1](https://github.com/dan-petty/devops-cli/compare/v0.203.0...v0.203.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **infra:** Count a meta skip by a false when as checked ([#6896](https://github.com/dan-petty/devops-cli/issues/6896)) ([db9a1f2](https://github.com/dan-petty/devops-cli/commit/db9a1f2712bafbfae64e6d5e5712734c22e9023b))
+
 ## [0.203.0](https://github.com/dan-petty/devops-cli/compare/v0.202.0...v0.203.0) (2026-11-23)
 
 
