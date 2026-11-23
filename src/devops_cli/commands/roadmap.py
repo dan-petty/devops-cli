@@ -92,6 +92,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore
 if TYPE_CHECKING:
     from devops_cli.roadmap.registry_audit import RegistryAudit, RegistryFinding
     from devops_cli.roadmap.run import JobRow
+    from devops_cli.roadmap.stage.stage_job import StageJobRun
 
 app = new_typer(help=HELP.roadmap.app, no_args_is_help=True)
 app.add_typer(eval_app, name="eval", help=HELP.roadmap.eval_app)
@@ -486,12 +487,20 @@ def stage_cmd(
     plan_only: Annotated[bool, typer.Option("--plan", help=HELP.roadmap.stage_plan)] = False,
     confirm: Annotated[bool, typer.Option("--confirm", help=HELP.roadmap.stage_confirm)] = False,
     why: Annotated[bool, typer.Option("--why", help=HELP.roadmap.stage_why)] = False,
+    phase: Annotated[
+        RunPhase, typer.Option("--phase", help=HELP.roadmap.stage_phase)
+    ] = RunPhase.ALL,
+    work: Annotated[Path | None, typer.Option("--work", help=HELP.roadmap.stage_work)] = None,
 ) -> None:
     """Make Ready items Staged: a branch, an OpenSpec change in budgeted task groups, and a draft."""
     _one_mode(dry_run=dry_run, plan=plan_only, confirm=confirm)
+    if phase is not RunPhase.ALL and (job_item is None or not confirm or work is None):
+        _refuse(MESSAGES.roadmap.stage_phase_options)
     if job_item is not None:
         if item is not None or not confirm:
             _refuse(MESSAGES.roadmap.stage_job_item_needs)
+        if work is not None and phase is not RunPhase.ALL:
+            _stage_phase(_target(repo), job_item, source, phase, work)
         _stage_job(_target(repo), job_item, source)
         return
     from devops_cli.roadmap.stage.stage import (
@@ -557,6 +566,72 @@ def stage_cmd(
         raise_for_failed(failures)
 
 
+def _end_stage_job(run: StageJobRun, number: int) -> NoReturn:
+    """Print the plan and the end of the stage Job of item `number`, and exit with its code."""
+    from devops_cli.roadmap.stage.stage import render_stage_plan
+
+    if run.plan is not None:
+        write_stdout(render_stage_plan(run.plan) + "\n")
+    print_info(
+        MESSAGES.roadmap.stage_job_ended.format(
+            number=number,
+            result=run.result,
+            code=int(run.exit_code),
+            requests=run.budget.spent(),
+            limit=run.budget.limit,
+        )
+    )
+    raise typer.Exit(int(run.exit_code))
+
+
+def _stage_phase(
+    target: str, number: int, source: Path | None, phase: RunPhase, work: Path
+) -> NoReturn:
+    """One phase of the stage Job of item `number` on the run folder `work` (#6813). The process
+    is unreadable to its children before anything else, as in the phases of the implement job. The
+    agent phase holds the model key only, so it opens no store; `prepare` exits 0 when it hands
+    the run on, and a phase that ends the Job exits with the code of the end."""
+    from devops_cli.core import process_hardening
+
+    process_hardening.deny_environment_reads()
+    from devops_cli.ai.client.factory import get_task_model
+    from devops_cli.github.request_scope import request_scope
+    from devops_cli.roadmap.attempt_kill import AttemptKilled
+    from devops_cli.roadmap.job_result import job_lines_to_stderr
+    from devops_cli.roadmap.phases.files import RunFolders
+    from devops_cli.roadmap.stage import stage_job
+    from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
+
+    folders = RunFolders(work)
+    with (
+        _exit_on_failure("Could not run the phase of the stage Job"),
+        job_lines_to_stderr(),
+        request_scope(repo=target, row="stage"),
+    ):
+        if phase is RunPhase.AGENT:
+            try:
+                stage_job.run_stage_agent(
+                    folders,
+                    model=ToolboxModel(get_task_model("stage")),
+                    verifier=ToolboxModel(get_task_model("stage_review")),
+                )
+            except AttemptKilled as killed:
+                raise typer.Exit(killed.exit_status) from None
+            raise typer.Exit(0)
+        _, store = _open_store(target)
+        if phase is RunPhase.PREPARE:
+            run = stage_job.prepare_stage_job(
+                store, folders, repo=target, item=number, source=source
+            )
+            if run is None:
+                raise typer.Exit(0)
+        else:
+            run = stage_job.publish_stage_job(
+                store, folders, repo=target, item=number, source=source
+            )
+    _end_stage_job(run, number)
+
+
 def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
     """Run the stage Job of item `number` (`--job-item`), print its plan and its end, and exit
     with the exit code of the Job (#5483). The round lines and the result line of the attempt go
@@ -564,7 +639,6 @@ def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
     from devops_cli.ai.client.factory import get_task_model
     from devops_cli.github.request_scope import request_scope
     from devops_cli.roadmap.job_result import job_lines_to_stderr
-    from devops_cli.roadmap.stage.stage import render_stage_plan
     from devops_cli.roadmap.stage.stage_job import run_stage_job
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
 
@@ -582,18 +656,7 @@ def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
             model=ToolboxModel(get_task_model("stage")),
             verifier=ToolboxModel(get_task_model("stage_review")),
         )
-    if run.plan is not None:
-        write_stdout(render_stage_plan(run.plan) + "\n")
-    print_info(
-        MESSAGES.roadmap.stage_job_ended.format(
-            number=number,
-            result=run.result,
-            code=int(run.exit_code),
-            requests=run.budget.spent(),
-            limit=run.budget.limit,
-        )
-    )
-    raise typer.Exit(int(run.exit_code))
+    _end_stage_job(run, number)
 
 
 def _render_roadmap_run_dry_run(target: str) -> None:

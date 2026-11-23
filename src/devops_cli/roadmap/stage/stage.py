@@ -3436,33 +3436,194 @@ def plan_stage(
     run. `time_budget` stops the planner before a model call once it is spent (#5363).
     """
     checkout = Path(source)
-    settings = load_settings()
-    read = read_stage_round(
+    read = begin_stage(
         store,
         repo=repo,
         source=checkout,
         filters=filters,
-        limit=limit or settings.roadmap.stage.limit,
+        item_number=item_number,
+        limit=limit,
+        step_tokens=step_tokens,
+        why=why,
+        now=now,
+        writer=writer,
+        named=named,
+        job=job,
+    )
+    plan = read.plan
+    if not read.selected:
+        return plan
+    planned = plan_targets(
+        read.selected,
+        repo=repo,
+        checkout=checkout,
+        sha=plan.sha,
+        budget=plan.budget,
+        reads=store_reads(store, plan, read.selected, checkout, read.planned),
+        model=model,
+        verifier=verifier,
+        screen=screen,
+        writer=writer,
+        time_premise=_time_premise_of(repo),
+        time_budget=time_budget,
+    )
+    return planned.into(plan)
+
+
+def begin_stage(
+    store: RoadmapStore,
+    *,
+    repo: str,
+    source: Path,
+    filters: StageFilter,
+    item_number: int | None = None,
+    limit: int | None = None,
+    step_tokens: int | None = None,
+    why: bool = False,
+    now: datetime | None = None,
+    writer: StageWriter | None = None,
+    named: bool = True,
+    job: str | None = None,
+) -> StageRound:
+    """The reads of `plan_stage` and, with a `writer`, the writes that need no model
+    (`StageWriter.begin`): the round, whose plan holds the budget of the run. When the round
+    selects an item, the clone `source` moves to the staged commit (#3301). The options are those
+    of `plan_stage`. The `prepare` phase of the stage Job runs this before the agent phase plans
+    the item (#6813)."""
+    settings = load_settings().roadmap.stage
+    read = read_stage_round(
+        store,
+        repo=repo,
+        source=source,
+        filters=filters,
+        limit=limit or settings.limit,
         item_number=item_number,
         why=why,
         now=now,
         named=named,
         job=job,
     )
-    plan = replace(read.plan, budget=step_tokens or settings.roadmap.stage.step_tokens)
-    budget, sha, planned = plan.budget, plan.sha, read.planned
+    plan = replace(read.plan, budget=step_tokens or settings.step_tokens)
     if writer is not None:
         writer.begin(plan, {target.item.number for target in read.selected})
-    if not read.selected:
-        return plan
-    _move_clone(checkout, sha)
+    if read.selected:
+        _move_clone(source, plan.sha)
+    return replace(read, plan=plan)
+
+
+# The result of the plan of one item.
+PlanResult = StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
+
+
+@dataclass(frozen=True)
+class PlannerReads:
+    """What the planner reads of the store besides the item (#6813): the reason of each rejected
+    plan by issue number, the comments of an item, the title of an item that a body names as a
+    dependency, and the paths that the open plans create, each with its item. `plan_stage` reads
+    them from the store (`store_reads`). The agent phase of the stage Job holds no store, so
+    `prepare` reads them and the agent phase gets them as data."""
+
+    rejected: Mapping[int, str]
+    comments_on: Callable[[int], Sequence[IssueComment]]
+    dependency_title: Callable[[int], str | None]
+    open_creates: Callable[[], Mapping[str, int]]
+
+
+def store_reads(
+    store: RoadmapStore,
+    plan: StagePlan,
+    targets: Iterable[StageTarget],
+    checkout: Path,
+    planned: PlannedChanges,
+) -> PlannerReads:
+    """The reads of the planner from `store` for the `targets` of `plan`: the reasons of the
+    rejected plans, read once, and the other reads when the planner makes them. The paths of the
+    open plans come from the clone `checkout` and the plans `planned` of the default branch."""
+    return PlannerReads(
+        rejected={
+            **{found.number: stage_comment_text(found.comment) for found in plan.rejections},
+            **reasons_of(store, (target.item for target in targets)),
+        },
+        comments_on=store.comments_on,
+        dependency_title=lambda number: (
+            None if (held := store.item(number)) is None else held.title
+        ),
+        open_creates=cache(
+            partial(open_plan_creates, store, checkout, planned, operation=_GIT_OPERATION)
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class PlannedTargets:
+    """The results of the planned targets by kind, and the counts of each attempt (#4845)."""
+
+    ready: tuple[StagedChange, ...] = ()
+    over_budget: tuple[OverBudget, ...] = ()
+    failed: tuple[StageFailure, ...] = ()
+    blocked: tuple[Blocked, ...] = ()
+    premise: tuple[FalsePremise, ...] = ()
+    attempts: tuple[StageAttempt, ...] = ()
+
+    @classmethod
+    def of(cls, results: Iterable[PlanResult], attempts: Iterable[StageAttempt]) -> PlannedTargets:
+        """The `results` of the targets, in their order, sorted by kind, with the `attempts`."""
+        held = tuple(results)
+        return cls(
+            ready=tuple(r for r in held if isinstance(r, StagedChange)),
+            over_budget=tuple(r for r in held if isinstance(r, OverBudget)),
+            failed=tuple(r for r in held if isinstance(r, StageFailure)),
+            blocked=tuple(r for r in held if isinstance(r, Blocked)),
+            premise=tuple(r for r in held if isinstance(r, FalsePremise)),
+            attempts=tuple(attempts),
+        )
+
+    def results(self) -> tuple[PlanResult, ...]:
+        """The result of each target, by kind."""
+        return (*self.ready, *self.over_budget, *self.failed, *self.blocked, *self.premise)
+
+    def into(self, plan: StagePlan) -> StagePlan:
+        """`plan`, the plan of the reads, with these results: the failures after those of the
+        reads."""
+        return replace(
+            plan,
+            ready=self.ready,
+            over_budget=self.over_budget,
+            failed=(*plan.failed, *self.failed),
+            blocked=self.blocked,
+            premise=self.premise,
+            attempts=self.attempts,
+        )
+
+
+def plan_targets(
+    targets: Sequence[StageTarget],
+    *,
+    repo: str,
+    checkout: Path,
+    sha: str,
+    budget: int,
+    reads: PlannerReads,
+    model: LLMClient | ToolboxModel | None = None,
+    verifier: ToolboxModel | None = None,
+    screen: ResolverChain[ScreenCase] | None = None,
+    writer: StageWriter | None = None,
+    time_premise: Callable[[StageTarget], FalsePremise | None] | None = None,
+    time_budget: TimeBudget | None = None,
+) -> PlannedTargets:
+    """Plan each of `targets` in the clone `checkout` at the staged commit `sha`, with the step
+    budget `budget` and the store reads `reads`, as `plan_stage` says for `model`, `verifier`,
+    `screen`, `writer` and `time_budget`. `time_premise` is the check before the plan call of each
+    target (`_time_premise_of`). The planner reads GitHub with the session of the process: the
+    agent phase of the stage Job holds no GitHub credential, so there each GitHub read of the
+    planner answers that GitHub cannot be read, as a failed read does (#3240, #6813)."""
+    settings = load_settings()
     toolbox = model if isinstance(model, ToolboxModel) else None
     client: StageClient
     if isinstance(model, ToolboxModel) or model is None:
         client = get_llm_client(task="stage", settings=settings)
     else:
         client = model
-    creators = cache(partial(open_plan_creates, store, checkout, planned, operation=_GIT_OPERATION))
     with openspec_tool() as tool:
         planner = _planner_of(
             client,
@@ -3477,30 +3638,38 @@ def plan_stage(
             plan_files=PlanFiles(
                 repo, settings.ai.for_task("stage").model, settings.roadmap.stage.toolset
             ),
-            open_creates=creators,
+            open_creates=reads.open_creates,
             gate_returns=settings.roadmap.stage.gate_returns,
-            rejected={
-                **{found.number: stage_comment_text(found.comment) for found in plan.rejections},
-                **reasons_of(store, (target.item for target in read.selected)),
-            },
+            rejected=reads.rejected,
             time_budget=time_budget,
-            dependency_title=lambda number: (
-                None if (held := store.item(number)) is None else held.title
-            ),
-            comments_on=store.comments_on,
+            dependency_title=reads.dependency_title,
+            comments_on=reads.comments_on,
         )
         ready, stopped, failed, blocked, premise = _plan_each(
-            planner, read.selected, writer, _time_premise_of(repo)
+            planner, targets, writer, time_premise
         )
-    return replace(
-        plan,
-        ready=tuple(ready),
-        over_budget=tuple(stopped),
-        failed=(*plan.failed, *failed),
-        blocked=tuple(blocked),
-        premise=tuple(premise),
-        attempts=tuple(planner.attempts),
+    return PlannedTargets(
+        tuple(ready),
+        tuple(stopped),
+        tuple(failed),
+        tuple(blocked),
+        tuple(premise),
+        tuple(planner.attempts),
     )
+
+
+def premise_before_plan(repo: str, target: StageTarget) -> FalsePremise | StageFailure | None:
+    """The result that the CI job-time premise of `target` gives before any plan call (#4026): a
+    false premise, the failure of its GitHub read, or None when the planner plans the item. The
+    `prepare` phase of the stage Job reads it, because the agent phase holds no GitHub credential
+    (#6813)."""
+    premise_of = _time_premise_of(repo)
+    if premise_of is None:
+        return None
+    try:
+        return premise_of(target)
+    except GitHubOperationError as exc:
+        return _failure_of(target, exc)
 
 
 def _planner_of(
@@ -4468,6 +4637,16 @@ class StageWriter:
                 self._failed,
             )
 
+    def resume(self, plan: StagePlan, selected: Collection[int], begun: StageApplied) -> None:
+        """Take up the round of `plan` that `begin` started in another process, which wrote
+        `begun`, so that `settle` writes the results of `selected` (#6813). It writes nothing:
+        the `publish` phase of the stage Job calls it after the `prepare` phase called `begin`."""
+        self._repo, self._sha = plan.repo, plan.sha
+        self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
+        self._removed = list(begun.removed)
+        self._rejected = list(begun.rejected)
+        self._failed = list(begun.failed)
+
     def _draft_heads(self) -> dict[str, int]:
         """The number of the open pull request of each head branch: one read for the round."""
         drafts: dict[str, int] = {}
@@ -4793,8 +4972,11 @@ __all__ = [
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PlanResult",
     "PlanRevision",
     "PlannedQueue",
+    "PlannedTargets",
+    "PlannerReads",
     "PremiseKind",
     "Rejection",
     "Removal",
@@ -4810,6 +4992,7 @@ __all__ = [
     "StageWriter",
     "StagedChange",
     "Walk",
+    "begin_stage",
     "dry_run_stage",
     "emit_stage_results",
     "log_stage_attempts",
@@ -4819,6 +5002,8 @@ __all__ = [
     "plan_body_hash",
     "plan_defects",
     "plan_stage",
+    "plan_targets",
+    "premise_before_plan",
     "priority_order",
     "raise_for_failed",
     "read_stage_round",
@@ -4829,6 +5014,7 @@ __all__ = [
     "select_stageable",
     "skipped_reasons",
     "stage_results",
+    "store_reads",
     "task_window",
     "unmatched_items",
     "walk_named",

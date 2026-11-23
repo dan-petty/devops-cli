@@ -41,7 +41,6 @@ opens no pull request, comments why, and changes neither the Status nor the owne
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import time
@@ -58,7 +57,6 @@ from devops_cli.ai.client.network import reset_model_call_limit, set_model_call_
 from devops_cli.config.commands import BIN_DEVOPS, BIN_GIT, BIN_UV
 from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
-    CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_PRE_COMMIT_COMMIT_STAGE,
@@ -70,7 +68,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_REASON_PATHS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.process import acts_as_github_app, run_subprocess
+from devops_cli.core.process import acts_as_github_app, held_github_credentials, run_subprocess
 from devops_cli.core.process_hardening import deny_environment_reads
 from devops_cli.exceptions import (
     DevOpsCLIError,
@@ -455,10 +453,9 @@ def require_agent_runner() -> None:
     texts = MESSAGES.roadmap
     if not load_settings().roadmap.implement.in_runner:
         raise RoadmapImplementError(texts.implement_job_runner_refused)
-    held = [name for name in CONST_GITHUB_AGENT_REFUSED_ENV if os.environ.get(name, "").strip()]
-    if held:
+    if held := held_github_credentials():
         raise RoadmapImplementError(
-            texts.implement_agent_phase_key_refused.format(names=", ".join(sorted(held)))
+            texts.implement_agent_phase_key_refused.format(names=", ".join(held))
         )
 
 

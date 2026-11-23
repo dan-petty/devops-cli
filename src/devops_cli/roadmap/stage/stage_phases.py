@@ -16,8 +16,11 @@ The stage round runs the three phases of the plan commit in sequence, in one pro
   did before (#4380).
 
 The push of the plan commit runs in no worktree of the clone that the planner reads. The run
-folder goes when the write ends. The planner of the stage job runs before, on the clone of the job:
-#6705 moves it into the agent phase.
+folder goes when the write ends.
+
+The stage Job runs on the three phases too (#6813, `stage_job.py`): its `prepare` makes the clone
+of the staged commit in the work folder of its run (`clone_staged`), and its agent phase plans in
+that clone with no GitHub credential. Its `publish` then calls `push_plan`.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from pathlib import Path
 from devops_cli.config.constants import (
     CONST_GITHUB_CLONE_URL,
     CONST_ROADMAP_PHASE_PATCH_FILE,
+    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_RUNS_DIR,
 )
 from devops_cli.config.settings import load_settings
@@ -51,8 +55,9 @@ from devops_cli.roadmap.stage.stage_change import write_change_files
 _OPERATION = "roadmap.stage.push"
 
 
-def _runs() -> Path:
-    """The folder of the run folders of the stage write, in the data folder of the job."""
+def stage_runs() -> Path:
+    """The folder of the run folders of the stage write and of the stage Job, in the data folder
+    of the job."""
     folder = resolve_data_path(load_settings().data.dir) / CONST_ROADMAP_STAGE_RUNS_DIR
     folder.mkdir(parents=True, exist_ok=True)
     return folder
@@ -80,7 +85,7 @@ def push_plan(
     the same tree already gets no new commit, and the commit is its tip. A re-stage whose branch
     moved past `lease` pushes nothing, also when the new tree is the tree of `lease` and no push
     would meet the lease (#3387)."""
-    with tempfile.TemporaryDirectory(prefix="devops-stage-", dir=_runs()) as root:
+    with tempfile.TemporaryDirectory(prefix="devops-stage-", dir=stage_runs()) as root:
         folders = RunFolders(Path(root)).make()
         url = CONST_GITHUB_CLONE_URL.format(repo=repo)
         clone = clone_branch(folders.work, url=url, issue=issue, branch=branch, identity=identity)
@@ -111,6 +116,18 @@ def push_plan(
     return published.commit
 
 
+def clone_staged(work: Path, repo: str, sha: str) -> Path:
+    """Clone `repo` into the work folder `work` with no blobs, and check out the staged commit
+    `sha` with no branch, so that its tree holds the blobs of that commit: the clone that the agent
+    phase of the stage Job plans in (#6813). The planner reads the files of the staged commit
+    only, and the agent phase holds no token to fetch a blob."""
+    path = work / CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
+    url = CONST_GITHUB_CLONE_URL.format(repo=repo)
+    git_call(work, "clone", "--quiet", "--filter=blob:none", "--no-checkout", url, str(path))
+    git_call(path, "switch", "--quiet", "--detach", sha)
+    return path
+
+
 def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     """Delete `branch` of `repo`, which `push_plan` pushed at `tip`, from the repository that the
     push went to, with a lease on `tip`: the cleanup of a draft that GitHub refused (#6710)."""
@@ -126,4 +143,4 @@ def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     )
 
 
-__all__ = ["delete_plan_branch", "push_plan"]
+__all__ = ["clone_staged", "delete_plan_branch", "push_plan", "stage_runs"]

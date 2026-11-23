@@ -17,6 +17,7 @@ import logging
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -36,7 +37,7 @@ from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
 from devops_cli.roadmap.job_result import LINE_PREFIX
 from devops_cli.roadmap.planned import PlannedChanges
-from devops_cli.roadmap.stage import stage_job
+from devops_cli.roadmap.stage import stage_job, stage_job_phases
 from devops_cli.roadmap.stage.stage import parse_filters, select_stageable
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_job import (
@@ -992,10 +993,8 @@ def test_the_command_writes_the_result_line_to_stderr(
 # ── The structure of the entry point ──────────────────────────────────────────
 
 
-def test_the_entry_module_calls_the_plan_and_the_writer_of_the_service_and_pushes_nothing() -> None:
-    """The Job plans with `plan_stage` and publishes with `StageWriter`, the code of the Service,
-    and holds no push or rebase of its own: the shared push step changes `StageWriter` later."""
-    tree = ast.parse(inspect.getsource(stage_job))
+def _calls_and_words(module: ModuleType) -> tuple[set[str], set[str]]:
+    tree = ast.parse(inspect.getsource(module))
     called = {
         node.func.id
         for node in ast.walk(tree)
@@ -1006,5 +1005,17 @@ def test_the_entry_module_calls_the_plan_and_the_writer_of_the_service_and_pushe
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
+    return called, words
 
-    assert ({"plan_stage", "StageWriter"} <= called, words & {"push", "rebase"}) == (True, set())
+
+def test_the_entry_module_calls_the_plan_and_the_writer_of_the_service_and_pushes_nothing() -> None:
+    """The Job runs its phases (#6813), which plan with the parts of `plan_stage` and publish with
+    `StageWriter`, the code of the Service, and hold no push or rebase of their own."""
+    entry, entry_words = _calls_and_words(stage_job)
+    phases, phase_words = _calls_and_words(stage_job_phases)
+
+    assert (
+        {"prepare_stage", "agent_stage", "publish_stage", "StageWriter"} <= entry,
+        {"begin_stage", "plan_targets", "StageWriter"} <= phases,
+        (entry_words | phase_words) & {"push", "rebase"},
+    ) == (True, True, set())

@@ -4772,6 +4772,14 @@ class RoadmapMessages:
     )
     # The stage Job of one item (#5483).
     stage_job_item_needs: str = "--job-item needs --confirm and no --item."
+    stage_phase_options: str = (
+        "A phase other than all runs only with --job-item, --confirm and --work <folder>."
+    )
+    stage_agent_phase_key_refused: str = (
+        "The agent phase of the stage Job holds the model key only, and this environment holds "
+        "{names}. Run the agent phase in a container with no App key and no GitHub token. This "
+        "process planned no item."
+    )
     stage_job_token_scope_refused: str = (
         "The stage Job for {repo} acts as the GitHub App and needs a token for that one "
         "repository. Set service.github_app.token_repository to {repo}; it is now {scoped}. "

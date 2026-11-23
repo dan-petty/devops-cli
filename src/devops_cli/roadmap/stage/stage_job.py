@@ -2,8 +2,13 @@
 
 `devops roadmap stage --job-item <n> --confirm` runs this entry point in the pod of a Job from
 CronJob `roadmap-stage`. A rollout of the Service then does not stop the plan. The Job plans and
-publishes with the code of the Service, `plan_stage` and `StageWriter`, and holds no git write of
-its own. The pod:
+publishes with the code of the Service, the parts of `plan_stage` and `StageWriter`, and holds no
+git write of its own. It runs on the phases `prepare`, `agent` and `publish` of one run folder
+(`stage_job_phases.py`, #6813): `run_stage_job` runs the three in one process (`--phase all`, the
+default), and `prepare_stage_job`, `run_stage_agent` and `publish_stage_job` run one phase each
+(`--phase`, `--work`). The agent phase refuses to start with the App key or a GitHub token, and a
+SIGTERM in it exits with the status of its class, with no check-in: the Service checks in for the
+Job. The pod:
 
 - holds one model call slot (`set_model_call_limit(1)`), as the model tier of the Service serves;
 - counts each GitHub request in a budget of its own: `roadmap.stage.github_requests_per_hour` in
@@ -64,6 +69,8 @@ The planner run tool (ADR 0018) has no wiring in a plan run, so the stage Job ha
 from __future__ import annotations
 
 import logging
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import IntEnum, StrEnum
@@ -80,8 +87,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.process import acts_as_github_app
+from devops_cli.core.process import acts_as_github_app, held_github_credentials
 from devops_cli.exceptions import DevOpsCLIError, RoadmapStageError, RoadmapTimeBudgetError
+from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.github.rate_limiter import set_request_gate
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
@@ -94,6 +102,7 @@ from devops_cli.roadmap.failure import (
     failure_class_of,
 )
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.return_item import apply_return, plan_return
 from devops_cli.roadmap.round_log import log_failed_item
 from devops_cli.roadmap.stage.stage import (
@@ -103,13 +112,27 @@ from devops_cli.roadmap.stage.stage import (
     StageWriter,
     emit_stage_results,
     log_stage_attempts,
-    parse_filters,
     plan_defects,
-    plan_stage,
     stage_results,
 )
+from devops_cli.roadmap.stage.stage_job_phases import (
+    StageAgentEnd,
+    StageAgentOutcome,
+    StageJobState,
+    agent_stage,
+    end_state,
+    has_inputs,
+    planned_of,
+    prepare_stage,
+    publish_stage,
+    read_stage_outcome,
+    read_stage_state,
+    write_agent_end,
+)
+from devops_cli.roadmap.stage.stage_phases import stage_runs
 from devops_cli.roadmap.stores.store import Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
+from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.server.service import RequestBudget
 
 if TYPE_CHECKING:
@@ -392,6 +415,25 @@ def _clone(repo: str) -> Path:
     return status_clone(repo, blobless=True)
 
 
+def _failed_end(
+    store: RoadmapStore,
+    repo: str,
+    item: int,
+    job: str | None,
+    budget: RequestBudget,
+    failure: FailureClass | None,
+    *,
+    known: bool,
+) -> StageJobRun | None:
+    """Log the result line of a project error of class `failure` during planning, and give the
+    evicted run when the class is retried; None when the caller raises the error."""
+    if not known or _known(store, item, job):
+        log_job_result(RoadmapJob.STAGE, repo, item, StageResult.FAILED.value, failure=failure)
+    if _retries(failure):
+        return StageJobRun(StageJobExit.EVICTED, StageResult.FAILED.value, budget)
+    return None
+
+
 def _handle_stage_cli_error(
     exc: DevOpsCLIError,
     store: RoadmapStore,
@@ -404,12 +446,10 @@ def _handle_stage_cli_error(
 ) -> StageJobRun:
     """Handle a project error during planning: log its result line and return an evicted run if
     the class is retryable, else re-raise."""
-    failure = failure_class_of(exc)
-    if not known or _known(store, item, job):
-        log_job_result(RoadmapJob.STAGE, repo, item, StageResult.FAILED.value, failure=failure)
-    if _retries(failure):
-        return StageJobRun(StageJobExit.EVICTED, StageResult.FAILED.value, budget)
-    raise
+    run = _failed_end(store, repo, item, job, budget, failure_class_of(exc), known=known)
+    if run is not None:
+        return run
+    raise exc
 
 
 def _finish_stage_job(
@@ -443,6 +483,100 @@ def _finish_stage_job(
     return StageJobRun(exit_code, result.value, budget, plan=plan, applied=applied)
 
 
+@dataclass(frozen=True)
+class _Attempt:
+    """What the ends of an attempt of the stage Job need: the store, the item and its repository,
+    the Job, the request budget of the pod, the time budget, the time of the records, and whether
+    the check-out named the Job at its start."""
+
+    store: RoadmapStore
+    repo: str
+    item: int
+    job: str | None
+    budget: RequestBudget
+    time_budget: TimeBudget
+    now: datetime | None
+    known: bool
+
+    def guarded[T](self, work: Callable[[], T]) -> T | StageJobRun:
+        """The answer of `work`, with the first SIGTERM a kill, or the end of the Job that the
+        kill or the error of `work` gives: an eviction, the deadline, or the end of a project
+        error. A refused key of the provider and any other error raise."""
+        try:
+            with sigterm_raises():
+                return work()
+        except AttemptKilled as killed:
+            kill = kill_of(self.time_budget, killed)
+            if kill is AttemptKill.EVICTED:
+                return StageJobRun(StageJobExit.EVICTED, kill.value, self.budget, kill=kill)
+            return self.deadline(kill)
+        except RoadmapTimeBudgetError:
+            return self.deadline()
+        except AICredentialsError:
+            raise
+        except DevOpsCLIError as exc:
+            return _handle_stage_cli_error(
+                exc, self.store, self.repo, self.item, self.job, self.budget, known=self.known
+            )
+
+    def deadline(self, kill: AttemptKill | None = None) -> StageJobRun:
+        """The check-in of the Job that the deadline ended."""
+        return _deadline_end(
+            self.store,
+            self.repo,
+            self.item,
+            self.job,
+            self.budget,
+            kill,
+            self.now,
+            known=self.known,
+        )
+
+    def finish(self, plan: StagePlan, applied: StageApplied) -> StageJobRun:
+        """The end of the Job with the plan `plan` and the writes `applied`."""
+        return _finish_stage_job(
+            self.store,
+            repo=self.repo,
+            item=self.item,
+            job=self.job,
+            budget=self.budget,
+            plan=plan,
+            applied=applied,
+            now=self.now,
+            known=self.known,
+        )
+
+
+def _start(
+    store: RoadmapStore, repo: str, item: int, now: datetime | None
+) -> _Attempt | StageJobRun:
+    """The start of a phase that acts as the App: the scope of the token, the request budget,
+    whether the check-out names the Job, and the time budget, or the deadline end when no time is
+    left. Raises `RoadmapStageError` when the token of the App is not limited to `repo`."""
+    require_job_token_scope(repo)
+    settings = load_settings().roadmap.stage
+    budget = install_request_budget(settings.github_requests_per_hour)
+    known = _known(store, item, settings.job)
+    seconds = job_time_budget(
+        settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
+    )
+    attempt = _Attempt(
+        store,
+        repo,
+        item,
+        settings.job,
+        budget,
+        TimeBudget.start(max(seconds, 0), _BUDGET_SETTING),
+        now,
+        known,
+    )
+    return attempt if seconds > 0 else attempt.deadline()
+
+
+def _source(repo: str, source: Path | str | None) -> Path:
+    return Path(source) if source is not None else _clone(repo)
+
+
 def run_stage_job(
     store: RoadmapStore,
     *,
@@ -453,65 +587,197 @@ def run_stage_job(
     verifier: ToolboxModel | None = None,
     now: datetime | None = None,
 ) -> StageJobRun:
-    """Plan and publish item `item` of `repo` as one stage Job, as the module says. `source` is a
-    clone to work in; without it, the Job makes a blobless clone. `model` and `verifier` are the
-    models of `plan_stage`. `now` is the time of the records, the time of the system without it.
+    """Plan and publish item `item` of `repo` as one stage Job, as the module says: the three
+    phases of `stage_job_phases` in one process (`--phase all`), on a new run folder that goes
+    when the Job ends. `source` is a clone to work in; without it, the Job makes a blobless clone.
+    `model` and `verifier` are the models of `plan_stage`. `now` is the time of the records, the
+    time of the system without it.
 
     Raises `RoadmapStageError` before any clone or request when the token of the App is not
     limited to `repo`, `AICredentialsError` when credentials are refused, the errors of
     `plan_stage` that no item explains, and the errors of the check-in.
     """
-    require_job_token_scope(repo)
+    started = _start(store, repo, item, now)
+    if isinstance(started, StageJobRun):
+        return started
+    set_model_call_limit(1)
+
+    def work() -> tuple[StagePlan, StageApplied]:
+        with tempfile.TemporaryDirectory(prefix="devops-stage-job-", dir=stage_runs()) as root:
+            folders = RunFolders(Path(root)).make()
+            clone = _source(repo, source)
+            writer = StageWriter(store, clone, now=now)
+            prepared = prepare_stage(
+                store,
+                writer,
+                folders,
+                repo=repo,
+                item=item,
+                source=clone,
+                job=started.job,
+                known=started.known,
+                now=now,
+            )
+            if isinstance(prepared, StagePlan):
+                return prepared, writer.applied()
+            agent_stage(folders, model=model, verifier=verifier, time_budget=started.time_budget)
+            planned = planned_of(read_stage_outcome(folders), prepared)
+            return publish_stage(store, prepared, planned, source=clone, now=now)
+
+    done = started.guarded(work)
+    if isinstance(done, StageJobRun):
+        return done
+    return started.finish(*done)
+
+
+def prepare_stage_job(
+    store: RoadmapStore,
+    folders: RunFolders,
+    *,
+    repo: str,
+    item: int,
+    source: Path | str | None = None,
+    now: datetime | None = None,
+) -> StageJobRun | None:
+    """`--phase prepare` of item `item` of `repo` on the run folder `folders` (#6813): None when
+    the agent phase plans the item next, or the end of a Job that `prepare` ended, which the state
+    file records for `publish`."""
+    folders.make()
+    settings = load_settings().roadmap.stage
+
+    def ended(run: StageJobRun) -> StageJobRun:
+        end_state(
+            folders,
+            repo=repo,
+            item=item,
+            job=settings.job,
+            end=int(run.exit_code),
+            result=run.result,
+        )
+        return run
+
+    started = _start(store, repo, item, now)
+    if isinstance(started, StageJobRun):
+        return ended(started)
+
+    def work() -> tuple[StagePlan, StageApplied] | StageJobState:
+        clone = _source(repo, source)
+        writer = StageWriter(store, clone, now=now)
+        prepared = prepare_stage(
+            store,
+            writer,
+            folders,
+            repo=repo,
+            item=item,
+            source=clone,
+            job=started.job,
+            known=started.known,
+            now=now,
+        )
+        return prepared if isinstance(prepared, StageJobState) else (prepared, writer.applied())
+
+    done = started.guarded(work)
+    if isinstance(done, StageJobState):
+        return None
+    if isinstance(done, StageJobRun):
+        return ended(done)
+    return ended(started.finish(*done))
+
+
+def run_stage_agent(
+    folders: RunFolders,
+    *,
+    model: LLMClient | ToolboxModel | None = None,
+    verifier: ToolboxModel | None = None,
+    now: datetime | None = None,
+) -> None:
+    """`--phase agent` on the run folder `folders` (#6813): plan the item that `prepare` handed on,
+    and write the outcome for `publish`. The phase holds the model key only, so it refuses to start
+    with the App key or a GitHub token, as the agent phase of the implement job does
+    (`require_agent_runner`), and it reads no store. The end of the time budget and an error that
+    the planner makes into no result are outcomes too. Raises `RoadmapStageError` for a credential
+    of GitHub, `PhaseOutputError` for an output folder that is there already, `AICredentialsError`
+    when the provider refuses the key, and `AttemptKilled` with its class for a SIGTERM."""
+    if held := held_github_credentials():
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_agent_phase_key_refused.format(names=", ".join(held))
+        )
+    if not has_inputs(folders):
+        return
     settings = load_settings().roadmap.stage
     set_model_call_limit(1)
-    budget = install_request_budget(settings.github_requests_per_hour)
-    known = _known(store, item, settings.job)
     seconds = job_time_budget(
         settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
     )
     if seconds <= 0:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
+        folders.make_out()
+        write_agent_end(folders, StageAgentOutcome(end=StageAgentEnd.DEADLINE))
+        return
     time_budget = TimeBudget.start(seconds, _BUDGET_SETTING)
     try:
         with sigterm_raises():
-            clone = Path(source) if source is not None else _clone(repo)
-            writer = StageWriter(store, clone, now=now)
-            plan = plan_stage(
-                store,
-                repo=repo,
-                source=clone,
-                filters=parse_filters(()),
-                item_number=item,
-                model=model,
-                verifier=verifier,
-                now=now,
-                writer=writer,
-                named=False,
-                job=settings.job,
-                time_budget=time_budget,
-            )
+            agent_stage(folders, model=model, verifier=verifier, time_budget=time_budget)
     except AttemptKilled as killed:
-        kill = kill_of(time_budget, killed)
-        if kill is AttemptKill.EVICTED:
-            return StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill)
-        return _deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
+        raise AttemptKilled(kill_of(time_budget, killed)) from None
     except RoadmapTimeBudgetError:
-        return _deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
-    except AICredentialsError:
+        write_agent_end(folders, StageAgentOutcome(end=StageAgentEnd.DEADLINE))
+    except AICredentialsError, PhaseOutputError:
         raise
     except DevOpsCLIError as exc:
-        return _handle_stage_cli_error(exc, store, repo, item, settings.job, budget, known=known)
-    return _finish_stage_job(
-        store,
-        repo=repo,
-        item=item,
-        job=settings.job,
-        budget=budget,
-        plan=plan,
-        applied=writer.applied(),
-        now=now,
-        known=known,
+        outcome = StageAgentOutcome(
+            end=StageAgentEnd.FAILED, error=mask_secrets(str(exc)), failure=failure_class_of(exc)
+        )
+        write_agent_end(folders, outcome)
+
+
+def publish_stage_job(
+    store: RoadmapStore,
+    folders: RunFolders,
+    *,
+    repo: str,
+    item: int,
+    source: Path | str | None = None,
+    now: datetime | None = None,
+) -> StageJobRun:
+    """`--phase publish` of item `item` of `repo` on the run folder `folders` (#6813): the state
+    file and the outcome of the agent phase, read as data, give the end of the Job. A run that
+    `prepare` ended gets its end and no write. Raises `PhaseOutputError` for a file of the run that
+    is not data of its model, and `RoadmapStageError` for an error of the agent phase that no retry
+    helps."""
+    require_job_token_scope(repo)
+    state = read_stage_state(folders, repo=repo, item=item)
+    settings = load_settings().roadmap.stage
+    budget = install_request_budget(settings.github_requests_per_hour)
+    if state.end is not None:
+        return StageJobRun(StageJobExit(state.end), state.result, budget)
+    outcome = read_stage_outcome(folders)
+    seconds = job_time_budget(
+        settings.time_budget_seconds, settings.job_deadline, now or datetime.now(UTC)
     )
+    attempt = _Attempt(
+        store,
+        repo,
+        item,
+        state.job,
+        budget,
+        TimeBudget.start(max(seconds, 0), _BUDGET_SETTING),
+        now,
+        state.known,
+    )
+    if outcome.end is StageAgentEnd.DEADLINE:
+        return attempt.deadline()
+    if outcome.end is StageAgentEnd.FAILED:
+        run = _failed_end(store, repo, item, state.job, budget, outcome.failure, known=state.known)
+        if run is not None:
+            return run
+        raise RoadmapStageError(outcome.error, failed_items=[item])
+    planned = planned_of(outcome, state)
+    done = attempt.guarded(
+        lambda: publish_stage(store, state, planned, source=_source(repo, source), now=now)
+    )
+    if isinstance(done, StageJobRun):
+        return done
+    return attempt.finish(*done)
 
 
 __all__ = [
@@ -525,7 +791,10 @@ __all__ = [
     "check_in",
     "install_request_budget",
     "job_time_budget",
+    "prepare_stage_job",
+    "publish_stage_job",
     "recorded_check_in",
     "require_job_token_scope",
+    "run_stage_agent",
     "run_stage_job",
 ]

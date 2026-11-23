@@ -138,6 +138,8 @@ devops roadmap stage [OPTIONS]
 | `--plan` | `boolean` | - | Read GitHub and call the model, make no GitHub write and no git write, and keep each plan that passes the checks as one local file: print the changes that --confirm writes. --confirm reads that file and asks the model nothing for an item whose input did not change. This is the mode when no flag is given. |
 | `--confirm` | `boolean` | - | Plan as --plan does, then make the writes in git and on GitHub. A kept plan file of an item goes when the item is staged. |
 | `--why` | `boolean` | - | Also list the open items that the filter does not name, each with the family it misses, under 'Matched no filter'. Without it, the plan does not list them. |
+| `--phase` | `choice (prepare|agent|publish|all)` | `all` | The phase of the stage Job, with --job-item and --confirm: prepare (the reads, the writes that need no model and the clone of the staged commit), agent (the plan, with no store and no GitHub credential), publish (the plan commit, the draft and the record), or all (the three in one process). |
+| `--work` | `path` | - | Run folder of a phase other than all: state/, work/ and out/. |
 
 ---
 

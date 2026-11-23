@@ -33,6 +33,7 @@ from devops_cli.config.constants import (
     CONST_GIT_CONFIG_ENV_PATTERNS,
     CONST_GIT_ISOLATED_CONFIG_ENV,
     CONST_GIT_LOCAL_ONLY_ENV,
+    CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
 )
 from devops_cli.config.defaults import (
@@ -327,6 +328,15 @@ def acts_as_github_app() -> bool:
     as gh lets GH_TOKEN take precedence over a stored login.
     """
     return bool(os.environ.get(CONST_GITHUB_APP_PRIVATE_KEY_ENV, "").strip())
+
+
+def held_github_credentials() -> tuple[str, ...]:
+    """The names of the variables of the environment that hold the private key of the App or a
+    GitHub token, in order: the agent phase of a roadmap job refuses to start with any of them
+    (#2695, #6601, #6813)."""
+    return tuple(
+        sorted(name for name in CONST_GITHUB_AGENT_REFUSED_ENV if os.environ.get(name, "").strip())
+    )
 
 
 def github_identity() -> GitHubIdentity:
