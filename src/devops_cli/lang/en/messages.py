@@ -858,6 +858,23 @@ class K8sMessages:
     searxng_check_dry_run: str = (
         "A dry run sends no request and starts no process. The calls above run in this order."
     )
+    probe_status: str = "status={status}"
+    probe_curl_exit: str = "curl_exit={code}"
+    probe_dry_run: str = (
+        "A dry run starts no pod and sends no request. The calls above run in this order."
+    )
+    probe_label_invalid: str = (
+        "'{label}' is not a label: write each label as key=value, such as "
+        "app.kubernetes.io/name=devops-cli-job."
+    )
+    probe_image_not_pinned: str = (
+        "The image '{image}' holds no digest. Pin the image by digest, as in "
+        "curlimages/curl:8.23.0@sha256:<digest>, so each run pulls the same image."
+    )
+    probe_no_measurement: str = (
+        "The probe of {url} from a pod in namespace {namespace} gave neither an HTTP status nor "
+        "the exit code of curl, so it measured nothing."
+    )
     rbac_audit_passed: str = (
         "RBAC audit passed: no broad or wildcard role granted to a non-system subject "
         "in {bindings} binding(s)."

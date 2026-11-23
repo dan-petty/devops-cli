@@ -32,10 +32,17 @@ _LABELS = {"app.kubernetes.io/name": "crawl4ai"}
 _METADATA = PodTarget(role="<metadata>", host="169.254.169.254", port=80)
 _CLUSTER_IP = PodTarget(role="<private-cluster-ip>", host="192.0.2.10", port=8080)
 _PREFIX = "crawl4ai-check"
+_URL = "http://mcp-server.devops.svc.cluster.local:8001/implementation/mcp"
+_HTTP_PREFIX = "devops-probe"
+_CANNOT_CONNECT = 7
 
 
 def _is_exec(call: ProcessCall) -> bool:
     return call.argv[:1] == ("kubectl",) and "exec" in call.argv
+
+
+def _is_http_exec(call: ProcessCall) -> bool:
+    return _is_exec(call) and "curl" in call.argv
 
 
 def _probe(**overrides: Any) -> list[PodProbeRow]:
@@ -46,6 +53,24 @@ def _probe(**overrides: Any) -> list[PodProbeRow]:
         "name_prefix": _PREFIX,
     }
     return probe_from_pod(**{**arguments, **overrides})
+
+
+def _http(**overrides: Any) -> Any:
+    """The HTTP probe, imported in the call phase: on the base commit, before the HTTP probe exists,
+    the test fails here and not at collection."""
+    from devops_cli.k8s.service_probe import probe_http_from_pod
+
+    arguments: dict[str, Any] = {
+        "namespace": "devops",
+        "labels": _LABELS,
+        "url": _URL,
+        "name_prefix": _HTTP_PREFIX,
+    }
+    return probe_http_from_pod(**{**arguments, **overrides})
+
+
+def _exec_calls(fake: ProcessFake) -> list[tuple[str, ...]]:
+    return [argv for argv in kubectl_calls(fake) if verb(argv) == "exec"]
 
 
 def _run_call(fake: ProcessFake) -> tuple[str, ...]:
@@ -121,10 +146,12 @@ def test_the_pod_passes_the_restricted_pod_security_level(process_fake: ProcessF
     assert (
         container["securityContext"]["allowPrivilegeEscalation"],
         container["securityContext"]["capabilities"],
+        container["securityContext"]["readOnlyRootFilesystem"],
+        overrides["spec"]["automountServiceAccountToken"],
         effective["runAsNonRoot"],
         effective["runAsUser"] > 0,
         effective["seccompProfile"],
-    ) == (False, {"drop": ["ALL"]}, True, True, {"type": "RuntimeDefault"})
+    ) == (False, {"drop": ["ALL"]}, True, False, True, True, {"type": "RuntimeDefault"})
 
 
 def test_the_pod_never_becomes_ready_so_the_service_sends_it_no_traffic(
@@ -228,3 +255,168 @@ def test_the_forward_poll_sends_one_request_for_a_503(web: WebFake, clock: Clock
         1,
         [],
     )
+
+
+def test_a_blocked_path_prints_the_curl_exit_code_at_the_wait_deadline(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    from devops_cli.config.defaults import DEFAULT_PROBE_RETRY_SECONDS, DEFAULT_PROBE_WAIT_SECONDS
+    from devops_cli.k8s.service_probe import PodHttpResult
+
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=_CANNOT_CONNECT))
+
+    result = _http()
+
+    verbs = [verb(argv) for argv in kubectl_calls(process_fake)]
+    run = _run_call(process_fake)
+    pod = run[run.index("run") + 1]
+    assert (result, verbs[0], verbs[-1], verbs.count("exec") > 1) == (
+        PodHttpResult(status=None, curl_exit=_CANNOT_CONNECT),
+        "run",
+        "delete",
+        True,
+    )
+    assert all(pod in argv for argv in _exec_calls(process_fake))
+    assert set(clock.waits) == {DEFAULT_PROBE_RETRY_SECONDS}
+    assert sum(clock.waits) <= DEFAULT_PROBE_WAIT_SECONDS
+
+
+def test_a_refused_connection_is_retried_until_the_policy_is_programmed(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    from devops_cli.k8s.service_probe import PodHttpResult
+
+    answers = iter(
+        [
+            ProcessAnswer(returncode=_CANNOT_CONNECT, stderr="command terminated with exit code 7"),
+            ProcessAnswer(returncode=_CANNOT_CONNECT, stderr="command terminated with exit code 7"),
+            ProcessAnswer(returncode=0, stdout="401"),
+        ]
+    )
+    process_fake.answer(_is_http_exec, lambda call: next(answers))
+
+    result = _http()
+
+    assert (result, len(_exec_calls(process_fake))) == (
+        PodHttpResult(status=401, curl_exit=None),
+        3,
+    )
+
+
+def test_a_secret_header_travels_on_the_standard_input_of_the_exec_call(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=0, stdout="200"))
+
+    _http(headers=["Authorization: Bearer s3cr3t"])
+
+    (exec_call,) = [call for call in process_fake.calls if _is_http_exec(call)]
+    assert exec_call.stdin == 'header = "Authorization: Bearer s3cr3t"\n'
+    assert not any("s3cr3t" in " ".join(call.argv) for call in process_fake.calls)
+
+
+def test_the_request_that_the_pod_sends_names_the_url_and_the_method(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=0, stdout="204"))
+
+    _http(method="POST")
+
+    (exec_call,) = _exec_calls(process_fake)
+    assert (_URL in exec_call, "curl" in exec_call, "POST" in exec_call, "-i" in exec_call) == (
+        True,
+        True,
+        True,
+        True,
+    )
+
+
+def test_the_http_probe_pod_runs_the_image_that_the_caller_names(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=0, stdout="200"))
+    image = f"curlimages/curl:8.23.0@sha256:{'0' * 64}"
+
+    _http(image=image)
+
+    assert flag(_run_call(process_fake), "--image") == image
+
+
+def test_the_default_http_probe_image_is_pinned_by_digest(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    from devops_cli.k8s.service_probe import CURL_IMAGE
+
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=0, stdout="200"))
+
+    _http()
+
+    image = flag(_run_call(process_fake), "--image")
+    name, _, digest = image.partition("@sha256:")
+    assert (image, name, len(digest), set(digest) <= set("0123456789abcdef")) == (
+        CURL_IMAGE,
+        "curlimages/curl:8.23.0",
+        64,
+        True,
+    )
+
+
+def test_a_probe_that_passes_the_timeout_deadline_raises_and_deletes_the_pod(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=_CANNOT_CONNECT))
+
+    with pytest.raises(ServiceProbeError, match="made no measurement") as caught:
+        _http(wait=20, timeout=5)
+
+    verbs = [verb(argv) for argv in kubectl_calls(process_fake)]
+    assert (caught.value.exit_code, verbs[-1], verbs.count("exec")) == (1, "delete", 3)
+
+
+def test_a_curl_that_fails_stops_the_probe_and_deletes_the_pod(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=2))
+
+    with pytest.raises(ServiceProbeError, match="curl exit code 2"):
+        _http()
+
+    verbs = [verb(argv) for argv in kubectl_calls(process_fake)]
+    assert (verbs[-1], verbs.count("exec")) == ("delete", 1)
+
+
+def test_a_request_that_prints_no_status_stops_the_probe_and_deletes_the_pod(
+    process_fake: ProcessFake, clock: ClockFake
+) -> None:
+    process_fake.answer(_is_http_exec, ProcessAnswer(returncode=0, stdout=""))
+
+    with pytest.raises(ServiceProbeError, match="no HTTP status"):
+        _http()
+
+    assert verb(kubectl_calls(process_fake)[-1]) == "delete"
+
+
+def test_the_plan_of_the_http_probe_names_the_pod_the_curl_line_and_the_url() -> None:
+    from devops_cli.k8s.service_probe import plan_probe_http_from_pod
+
+    plan = plan_probe_http_from_pod(
+        namespace="devops",
+        labels=_LABELS,
+        url=_URL,
+        name_prefix=_HTTP_PREFIX,
+        headers=["Authorization: Bearer s3cr3t"],
+    )
+
+    run, request, delete = plan
+    assert (run.method, request.method, delete.method) == (
+        "kubectl run",
+        "kubectl exec",
+        "kubectl delete",
+    )
+    assert (_URL in request.argv, "curl" in request.argv, "-K" in request.argv) == (
+        True,
+        True,
+        True,
+    )
+    assert request.stdin == 'header = "<value>"\n'
+    assert "s3cr3t" not in " ".join(run.argv + request.argv)

@@ -521,6 +521,28 @@ class K8sCommandHelp:
     rbac_namespace: str = (
         "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."
     )
+    probe_label: str = (
+        "Label of the probe pod as key=value. Give the label of the workload whose network policy "
+        "you test, so the policy applies to the pod. Repeat the option for each label."
+    )
+    probe_url: str = "The http or https URL of the request that the probe pod sends."
+    probe_method: str = "HTTP method of the request (default: GET)."
+    probe_header: str = (
+        "Header of the request as 'Name: value'. Repeat the option for each header. The value "
+        "travels to curl on the standard input of the exec call, so no command line and no output "
+        "holds it."
+    )
+    probe_image: str = (
+        "Image of the probe pod, pinned by digest: a value without @sha256: is refused before any "
+        "kubectl call. The image must hold curl. Default: the pinned curlimages/curl."
+    )
+    probe_wait: str = (
+        "Seconds to send the request again while the pod's curl exits 7, the code of a refused "
+        "connection, until kube-router programs the policy of the new pod."
+    )
+    probe_timeout: str = (
+        "Seconds after which the whole probe stops with a timeout, the start of the pod included."
+    )
     k8s_version: str = "Target Kubernetes OpenAPI version."
     strict_schema: str = "Disallow additional undeclared properties."
     policy_path: str = "Path to Kyverno policy or OPA rule file."

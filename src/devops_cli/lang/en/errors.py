@@ -200,6 +200,10 @@ class K8sErrorMessages:
         "The probe pod {pod} was not deleted: {detail}. Delete it with: "
         "kubectl delete pod {pod} -n {namespace}"
     )
+    probe_timeout: str = (
+        "The probe of {url} in pod {pod} made no measurement in {seconds:g} s. Check the label of "
+        "the pod and the network policy, then run the probe again."
+    )
     probe_cluster_ip: str = "The ClusterIP of Service {service} cannot be read: {detail}"
     probe_forward_exited: str = (
         "kubectl port-forward to Service {service} stopped with exit code {code} before the "
