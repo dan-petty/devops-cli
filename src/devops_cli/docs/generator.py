@@ -895,7 +895,7 @@ class DocGenerator:
                 importlib.import_module(mod_name)
             except Exception as exc:
                 raise RuntimeError(
-                    f"Failed to import exception module '{mod_name}': {exc}. "
+                    f"Failed to import module '{mod_name}' for the error catalog: {exc}. "
                     "A missing optional dependency now fails the docs stage, by design."
                 ) from exc
 
