@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.200.0](https://github.com/dan-petty/devops-cli/compare/v0.199.0...v0.200.0) (2026-11-23)
+
+
+### Features
+
+* **ci:** automerge release please pull requests ([#6852](https://github.com/dan-petty/devops-cli/issues/6852)) ([8b90611](https://github.com/dan-petty/devops-cli/commit/8b90611b07253b68952a2b5b94b167b7f5f52864))
+
 ## [0.199.0](https://github.com/dan-petty/devops-cli/compare/v0.198.2...v0.199.0) (2026-11-23)
 
 
