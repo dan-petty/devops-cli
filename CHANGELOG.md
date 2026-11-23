@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.201.2](https://github.com/dan-petty/devops-cli/compare/v0.201.1...v0.201.2) (2026-11-23)
+
+
+### Bug Fixes
+
+* **repos:** a field that GitHub leaves out is not drift ([#6878](https://github.com/dan-petty/devops-cli/issues/6878)) ([ca2cc95](https://github.com/dan-petty/devops-cli/commit/ca2cc95332756c66db60957528253daca5d9b6f0))
+
 ## [0.201.1](https://github.com/dan-petty/devops-cli/compare/v0.201.0...v0.201.1) (2026-11-23)
 
 
