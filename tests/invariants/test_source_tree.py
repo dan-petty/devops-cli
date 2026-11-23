@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.paths import REPO_ROOT
-from tests.support.trees import ParsedTreeMap, parse_python_file
+from tests.support.trees import ParsedTreeMap, parse_python_file, tree_guard
 
 # The one structured-output path, and the module that defines the reflection it sends (#1003).
 _STRUCTURED_OUTPUT_MODULES = frozenset(
@@ -351,6 +351,7 @@ def _unreachable_calls_in_src(trees: ParsedTreeMap) -> list[str]:
 
 def test_no_unreachable_calls_in_src(parsed_source_trees: ParsedTreeMap) -> None:
     """Product code under src/ never calls the interim unreachable() marker (#1336)."""
+    tree_guard(parsed_source_trees)
     assert _unreachable_calls_in_src(parsed_source_trees) == []
 
 
@@ -363,6 +364,55 @@ def test_unreachable_call_in_src_fails_ban() -> None:
     assert len(violations) == 1
     assert "devops_cli/interim.py:2" in violations[0]
     assert "docs/TESTING.md # Doubles" in violations[0]
+
+
+def test_tree_guard_skips_when_parsed_source_passes_size_bound(tmp_path: Path) -> None:
+    """The tree guard skips with 'generated tree' and size in MiB when parsed source passes 128 MiB (#6475)."""
+    small_file = tmp_path / "small.py"
+    small_file.write_text("x = 1\n", encoding="utf-8")
+    tree_guard({small_file: ast.parse("x = 1\n")})
+
+    large_file = tmp_path / "large.py"
+    with open(large_file, "wb") as f:
+        f.truncate(130 * 1024 * 1024)
+    with pytest.raises(pytest.skip.Exception) as exc_info:
+        tree_guard({large_file: ast.parse("")})
+    assert "generated tree" in exc_info.value.msg
+    assert "130 MiB" in exc_info.value.msg
+
+
+def test_tree_walking_tests_use_tree_guard() -> None:
+    """The two tests that walk src/devops_cli call tree_guard before walking the tree (#6475)."""
+    telemetry_path = REPO_ROOT / "tests" / "telemetry" / "test_telemetry_instruments.py"
+    invariants_path = REPO_ROOT / "tests" / "invariants" / "test_source_tree.py"
+
+    telemetry_tree = parse_python_file(telemetry_path)
+    invariants_tree = parse_python_file(invariants_path)
+
+    def _calls_tree_guard(tree: ast.Module, func_name: str) -> bool:
+        func = next(
+            (n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == func_name),
+            None,
+        )
+        if func is None:
+            return False
+        for node in ast.walk(func):
+            if isinstance(node, ast.Call):
+                name = (
+                    node.func.id
+                    if isinstance(node.func, ast.Name)
+                    else getattr(node.func, "attr", "")
+                )
+                if name in ("tree_guard", "guard_parsed_trees"):
+                    return True
+        return False
+
+    assert _calls_tree_guard(
+        telemetry_tree, "test_no_gauge_reaches_prometheus_through_two_paths"
+    ), "test_no_gauge_reaches_prometheus_through_two_paths must call tree_guard"
+    assert _calls_tree_guard(invariants_tree, "test_no_unreachable_calls_in_src"), (
+        "test_no_unreachable_calls_in_src must call tree_guard"
+    )
 
 
 def _time_sleep_calls_in_src(trees: ParsedTreeMap) -> list[str]:

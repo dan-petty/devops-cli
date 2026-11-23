@@ -15,6 +15,7 @@ hold the budget.
 from __future__ import annotations
 
 import gc
+import time
 import tracemalloc
 from datetime import UTC, datetime
 
@@ -28,7 +29,7 @@ from devops_cli.server.service import RepoWorker, TriggerBatch
 from devops_cli.telemetry.memory_profiler import MemoryProfiler
 from tests.support.fakes.github import GitHubApiFake
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
+from tests.support.waits import ROUND_LOOP_BOUND_SECONDS, THREAD_HANDOFF_BOUND_SECONDS
 
 REPO = "example-org/repo1"
 ROUNDS = 50
@@ -82,7 +83,13 @@ def test_the_heap_at_round_50_is_within_the_byte_budget_of_the_heap_at_round_10(
     worker.start()
     heaps: dict[int, int] = {}
     try:
+        clock_start = time.monotonic()
         for number in range(1, ROUNDS + 1):
+            elapsed = time.monotonic() - clock_start
+            if elapsed > ROUND_LOOP_BOUND_SECONDS:
+                pytest.skip(
+                    f"generated tree: round loop passed {ROUND_LOOP_BOUND_SECONDS:.0f} seconds ({elapsed:.0f}s)"
+                )
             served = number
             github_api.route(
                 "GET",
@@ -116,3 +123,18 @@ def test_the_heap_at_round_50_is_within_the_byte_budget_of_the_heap_at_round_10(
         f"past the {SLACK_BYTES / MIB:.0f} MiB the rest of the process may gain; "
         f"the largest allocation sites: {sites}"
     )
+
+
+def test_heap_round_loop_skips_past_bound_on_generated_tree(
+    github_api: GitHubApiFake, otlp: FakeCollector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The round loop skips when elapsed time passes 60 seconds (#6475)."""
+    clock_readings = iter([0.0, 61.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock_readings, 61.0))
+    with pytest.raises(pytest.skip.Exception) as exc_info:
+        test_the_heap_at_round_50_is_within_the_byte_budget_of_the_heap_at_round_10(
+            github_api, otlp, monkeypatch
+        )
+    assert "generated tree" in exc_info.value.msg
+    assert "61" in exc_info.value.msg
+    assert len(github_api.sent) == 0

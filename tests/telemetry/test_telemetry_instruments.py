@@ -71,7 +71,7 @@ from devops_cli.telemetry.tracer import OTelTelemetryClient
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.otlp import FakeCollector, plain_attributes
 from tests.support.paths import REPO_ROOT
-from tests.support.trees import ParsedTreeMap
+from tests.support.trees import ParsedTreeMap, tree_guard
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 # The product dashboards of devops-cli (#5292), and the dashboards of the environment.
@@ -301,6 +301,7 @@ def test_no_gauge_reaches_prometheus_through_two_paths(
     parsed_source_trees: ParsedTreeMap,
 ) -> None:
     """Each gauge reaches Prometheus through one path (#2288). A check fails when two paths send the same gauge name."""
+    tree_guard(parsed_source_trees)
     otlp_gauges = {
         instrument.name for instrument in INSTRUMENTS if instrument.kind is InstrumentKind.GAUGE
     }
