@@ -1,9 +1,9 @@
 ---
 applies_to:
-  - "pkg:pypi/kubernetes@36.0.*"
+  - "pkg:pypi/kubernetes@37.0.*"
 sources:
   - "https://github.com/kubernetes-client/python"
-reviewed: "2026-10-15"
+reviewed: "2026-11-23"
 tags:
   - "kubernetes"
   - "k8s"

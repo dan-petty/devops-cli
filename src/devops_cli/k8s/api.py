@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.security.sanitizer import mask_secrets
@@ -153,10 +153,11 @@ class KubernetesClientSource:
         self._service_account_dir = service_account_dir
 
     def contexts(self) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
-        from kubernetes import config as k8s_config  # type: ignore[import-untyped]
+        from kubernetes import config as k8s_config
 
         try:
-            contexts, active = k8s_config.list_kube_config_contexts(config_file=_kubeconfig_paths())
+            cfg: Any = k8s_config
+            contexts, active = cfg.list_kube_config_contexts(config_file=_kubeconfig_paths())
         except Exception as exc:
             raise KubernetesContextError(
                 f"Failed to inspect kubeconfig contexts: {mask_secrets(str(exc))}"
@@ -170,15 +171,16 @@ class KubernetesClientSource:
         if name and name in self._context_names():
             from kubernetes import config as k8s_config
 
-            api_client = k8s_config.new_client_from_config(
+            cfg: Any = k8s_config
+            api_client = cfg.new_client_from_config(
                 config_file=_kubeconfig_paths(), context=name, persist_config=False
             )
         else:
             api_client = k8s_client.ApiClient(self._service_account_configuration(name))
         return KubernetesApis(
-            core=k8s_client.CoreV1Api(api_client),
-            custom_objects=k8s_client.CustomObjectsApi(api_client),
-            version=k8s_client.VersionApi(api_client),
+            core=cast(CoreApi, k8s_client.CoreV1Api(api_client)),
+            custom_objects=cast(CustomObjectsApi, k8s_client.CustomObjectsApi(api_client)),
+            version=cast(VersionApi, k8s_client.VersionApi(api_client)),
             configuration=api_client.configuration,
         )
 
@@ -199,7 +201,7 @@ class KubernetesClientSource:
     def _service_account_configuration(self, name: str | None) -> Any:
         """A new `Configuration` from the pod's service account, or the reason there is none."""
         from kubernetes import client as k8s_client
-        from kubernetes.config import incluster_config  # type: ignore[import-untyped]
+        from kubernetes.config import incluster_config
 
         token, cert = (
             incluster_config.SERVICE_TOKEN_FILENAME,
@@ -210,9 +212,8 @@ class KubernetesClientSource:
             cert = str(self._service_account_dir / "ca.crt")
         configuration = k8s_client.Configuration()
         try:
-            incluster_config.InClusterConfigLoader(
-                token_filename=token, cert_filename=cert
-            ).load_and_set(configuration)
+            loader_cls: Any = incluster_config.InClusterConfigLoader
+            loader_cls(token_filename=token, cert_filename=cert).load_and_set(configuration)
         except Exception as exc:
             named = f"No kubeconfig context named '{name}'" if name else "No kubeconfig context"
             raise KubernetesContextError(

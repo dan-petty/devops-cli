@@ -754,7 +754,7 @@ def _resolve_version_api(core: Any, version_api: Any = None) -> Any:
     if hasattr(core, "get_code"):
         return core
     if hasattr(core, "api_client"):
-        from kubernetes import client as k8s_client  # type: ignore[import-untyped]
+        from kubernetes import client as k8s_client
 
         return k8s_client.VersionApi(core.api_client)
     return None

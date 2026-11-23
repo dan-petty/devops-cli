@@ -293,7 +293,7 @@ def event(
 
 def api_exception(status_code: int, reason: str) -> Exception:
     """The SDK's `ApiException`, with the status and reason the API server sends."""
-    from kubernetes.client.rest import ApiException
+    from kubernetes.client.exceptions import ApiException
 
     return ApiException(status=status_code, reason=reason)
 
@@ -315,7 +315,7 @@ def from_wire(data: Any, kind: str) -> Any:
     """Deserialize an API response body into the SDK's model `kind`, as the client does."""
     from kubernetes import client as k8s_client
 
-    return k8s_client.ApiClient().deserialize(SimpleNamespace(data=json.dumps(data)), kind)
+    return k8s_client.ApiClient().deserialize(json.dumps(data), kind, "application/json")
 
 
 class _FakeStreamResponse:
@@ -527,8 +527,8 @@ def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
     it does not hold is a 404.
 
     A read that asks not to preload the body gets the stream of the bytes. A plain read gets what
-    `kubernetes` 36.0.3 gives: the response type of `read_namespaced_pod_log` is `str`, so the
-    client skips the decode and `deserialize` ends in `str(bytes)`, the escaped `b'...'` text.
+    `kubernetes` 37 gives: the response type of `read_namespaced_pod_log` is `str`, so the
+    client decodes the body as text.
     """
     if isinstance(answer, dict):
         key = (kwargs.get("namespace", ""), kwargs.get("name", ""))
@@ -541,7 +541,7 @@ def _log_answer(answer: Any, kwargs: dict[str, Any]) -> Any:
         if isinstance(answer, list):
             return _FakeStreamResponse(answer)
         return _FakeStreamResponse([_log_bytes(answer)] if answer else [])
-    return str(_log_bytes(answer))
+    return _log_bytes(answer).decode("utf-8", errors="replace")
 
 
 def _in_namespace(item: Any, namespace: str | None) -> bool:
