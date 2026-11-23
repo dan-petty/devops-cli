@@ -446,3 +446,42 @@ serverFiles:
             annotations:
               summary: "RAG index for repository {{ $labels.repo }} is behind"
               description: "No RAG ingestion run succeeded for repository {{ $labels.repo }} in the last two schedule periods (k8s/README.md, Alerting)."
+      # The nightly drift check of the repository settings (#6783). CronJob repos-drift runs
+      # `devops repos onboard --all --plan` each night and sets devops_cli_repos_drift_rows for
+      # each repository of service.repos: the rows off the baseline (state="drift") and the rows
+      # that the check could not read (state="not_readable"), zero included, so a clean run ends
+      # both alerts. A not readable row is its own state, and it never fires the drift alert. Each
+      # selector names job="repos-drift", the OTEL_SERVICE_NAME of the pod, so a run of a person
+      # (job="devops-cli") never counts. The window of 2 days holds the last nightly value with one
+      # day of margin. The stopped alert fires when the Job sent a value in the last 7 days and
+      # none in the last 2 days, so it stays quiet before the first run.
+      - name: repos-drift
+        rules:
+          - alert: RepositorySettingsDrift
+            expr: >-
+              max by (repo) (last_over_time(devops_cli_repos_drift_rows{job="repos-drift", state="drift"}[2d])) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'Repository {{ $labels.repo }} has {{ printf "%.0f" $value }} rows off its settings baseline'
+              description: "The last nightly drift check found rows of {{ $labels.repo }} that differ from the baseline of the template repository. Read the rows in the log of the last Job of CronJob repos-drift, or run `devops repos onboard {{ $labels.repo }} --plan`. Then apply the baseline with `--confirm`, or change the baseline (k8s/README.md, Alerting)."
+          - alert: RepositorySettingsUnreadable
+            expr: >-
+              max by (repo) (last_over_time(devops_cli_repos_drift_rows{job="repos-drift", state="not_readable"}[2d])) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The drift check could not read {{ printf "%.0f" $value }} rows of repository {{ $labels.repo }}'
+              description: "The last nightly drift check could not read rows of {{ $labels.repo }}, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the read-only token does not have (k8s/README.md, Alerting)."
+          - alert: RepositoryDriftCheckStopped
+            expr: >-
+              count(last_over_time(devops_cli_repos_drift_rows{job="repos-drift"}[7d])) > 0
+              unless count(last_over_time(devops_cli_repos_drift_rows{job="repos-drift"}[2d])) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "The drift check of the repository settings sent no result in 2 days"
+              description: "CronJob repos-drift sent a result in the last 7 days but none in the last 2 days. An error before the reports, such as a refused App token, sends no result. Read the status and the log of its last Job with `kubectl -n devops get jobs -l app.kubernetes.io/name=repos-drift` (k8s/README.md, Alerting)."

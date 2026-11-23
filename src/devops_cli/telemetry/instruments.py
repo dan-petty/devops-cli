@@ -926,6 +926,15 @@ RESEARCH_OPEN_FINDINGS = Instrument(
     "Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer",
 )
 
+REPOS_DRIFT_ROWS = Instrument(
+    "devops_cli_repos_drift_rows",
+    InstrumentKind.GAUGE,
+    "1",
+    "Rows of the last drift check of a repository of service.repos, by repo and state: drift "
+    "(pending, failed or waiting) or not_readable. `devops repos onboard --all --plan` sets both "
+    "values of each repository, zero included, and counts no row that informs only",
+)
+
 INFRA_RUNS_TOTAL = Instrument(
     "devops_cli_infra_runs_total",
     InstrumentKind.COUNTER,
@@ -1044,6 +1053,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     UPSTREAM_SERVICE_STATUS,
     UPSTREAM_COMPONENT_STATUS,
     RESEARCH_OPEN_FINDINGS,
+    REPOS_DRIFT_ROWS,
     INFRA_RUNS_TOTAL,
 )
 
@@ -1157,6 +1167,7 @@ __all__ = [
     "RAG_POINTS",
     "RAG_QUERY_DURATION",
     "RAG_STOPS_TOTAL",
+    "REPOS_DRIFT_ROWS",
     "RESEARCH_OPEN_FINDINGS",
     "REVIEW_DURATION",
     "ROADMAP_AGE_LABELS",

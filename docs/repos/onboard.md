@@ -28,7 +28,7 @@ Run the command again at any time. On an onboarded repository it sends no write 
 - `--plan` (the default) reads only: GET requests to the API, and the clone of the template by `copier`. It exits 1 when a row has a change to make, a failure or a read that failed.
 - `--dry-run` sends no request and starts no program. It lists the reads of each row and each write route with its owner.
 - `--confirm` writes each difference. It exits 1 when a row has a failure or a read that failed.
-- `devops repos onboard --all --plan` checks each repository of `service.repos`, the drift check that the nightly Job of #6783 runs. `--all` refuses `--confirm`.
+- `devops repos onboard --all --plan` checks each repository of `service.repos`: the drift check that the [nightly Job](#the-nightly-job) runs. After the reports it prints one line for each repository with its state: `drift`, `not readable` or `clean`. `--all` refuses `--confirm`.
 - `--only <row>,...` runs only the rows that it names, such as `--only 2,3,8`.
 
 ## The baseline
@@ -76,6 +76,28 @@ The output ends with the person steps of the repository, each with the document 
 6. **Only when row 13 is refused or with `--no-deploy`:** run push-secrets and deploy-stack from a clean checkout of `origin/main` ([cluster](../CLUSTER.md)).
 7. **Only when row 0 names a missing scope:** run `gh auth refresh -s <scope>` ([scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps)).
 8. **Only when the `copier` program is not on PATH:** install it with `uv tool install copier` ([Copier installation](https://copier.readthedocs.io/en/stable/#installation)).
+
+## The nightly Job
+
+CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the drift check each night at 03:41 UTC in the runner image ([cluster](../CLUSTER.md#repository-drift)). It runs `devops repos onboard --all --plan --only 0,1,2,3,5,6,7,8,9,10,11`, the rows that a read token can read:
+
+- Row 4 stays out: GitHub needs Administration write for `GET /repos/<repo>/code-quality/setup` ([permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)).
+- Row 12 stays out: it needs the keyring map of the webhook secrets, a secret value, and #4417 deletes it.
+- Row 13 stays out: with `--all`, `service.repos` holds each repository, so the row reads no live state.
+- Rows 14 and 15 stay out: row 14 runs only with `--service`, and row 15 informs only and needs a Qdrant key.
+
+The pod acts as the GitHub App of the Service, and `service.github_app.read_only` makes its installation token ask for `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only: read on Actions, Administration, Checks, Contents, Environments, Issues, Metadata, Pull requests and Secrets. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes.
+
+`--all --plan` sets the gauge `devops_cli_repos_drift_rows` of each repository, with the label `state`:
+
+- `drift`: the rows that are `pending`, `failed` or `waiting`, the rows off the baseline.
+- `not_readable`: the rows that are `not readable`. Such a row is its own state: it is no drift, and the repository is not clean.
+
+Each run sets both values, zero included, and a row that informs only does not count. The alerts `RepositorySettingsDrift`, `RepositorySettingsUnreadable` and `RepositoryDriftCheckStopped` read the gauge ([alerting](../../k8s/README.md#alerting)). The command exits 1 on a drift row or a not readable row, so the Job then ends `Failed`: the gauge is the report.
+
+The rows that read the baseline need the program `copier`. The runner image gets it from the devtools image (dan-petty/devtools pull request 43). Until then, these rows are `not readable` with the person step that installs copier, and `RepositorySettingsUnreadable` fires for each repository.
+
+The Job leaves out row 12, so it does not check the hook of the Service. Without `github.release_app_client_id` in ConfigMap `devops-cli-config`, row 5 gives the person step of the variable and does not compare its value.
 
 ## A missing dependency that a job finds
 

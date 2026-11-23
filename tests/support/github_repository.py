@@ -48,6 +48,8 @@ SCHEMA_PATH = "templates/github-repository.schema.json"
 CHECK_NAME = "PR title / Semantic PR title"
 WEBHOOK_URL = "https://hooks.example.com/webhooks/github"
 CLIENT_ID = "Iv23example"
+# The prefix of an installation token of a GitHub App.
+_INSTALLATION_TOKEN = "ghs_"
 
 # A schema of the settings file in the form of the template: it refuses a key that it does not name.
 SETTINGS_SCHEMA: dict[str, Any] = {
@@ -348,6 +350,9 @@ class RepositoryState:
     def answer(self, request: httpx2.Request) -> httpx2.Response | None:
         """The answer of GitHub for `request`, or None for a request of another route."""
         method, path = request.method, unquote(request.url.path)
+        if path == "/user" and _INSTALLATION_TOKEN in request.headers.get("authorization", ""):
+            # GitHub refuses `GET /user` to an installation token of an App.
+            return github_json({"message": "Resource not accessible by integration"}, status=403)
         query = {key: values[0] for key, values in parse_qs(request.url.query.decode()).items()}
         body = json.loads(request.content) if request.content else None
         for route_method, pattern, handler in self._routes():

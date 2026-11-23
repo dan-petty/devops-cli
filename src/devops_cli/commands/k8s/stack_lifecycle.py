@@ -327,6 +327,7 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("cronjob.yaml"),
         Path("cronjob-runner.yaml"),
         Path("cronjob-stage.yaml"),
+        Path("cronjob-repos-drift.yaml"),
         Path("crawl4ai", "deployment.yaml"),
         Path("crawl4ai", "networkpolicy-client.yaml"),
         Path("crawl4ai", "networkpolicy.yaml"),

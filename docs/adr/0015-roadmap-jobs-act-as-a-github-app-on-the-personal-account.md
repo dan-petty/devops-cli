@@ -54,3 +54,5 @@ Amended on 2026-11-12 ([#4757](https://github.com/dan-petty/devops-cli/issues/47
 Amended on 2026-11-12 ([#5058](https://github.com/dan-petty/devops-cli/issues/5058)): only a token that names no repository, as the Service mints, asks for `repository_hooks: read` and `administration: read`. Only the `metrics` row of the Service reads the hooks and the traffic. The token of a runner Job names one repository and asks for the permissions of the roadmap jobs only, so a step cannot read a hook URL, a delivery or the settings of the repository.
 
 2026-11-12: Living detail moved to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py` and to `openspec/specs/github-app-identity/spec.md`; `roadmap-service` runs 1 replica (#5225).
+
+2026-11-23: Fact out of date: the nightly drift Job asks for a third, read-only set, `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`, with environments and secrets read (#6783).

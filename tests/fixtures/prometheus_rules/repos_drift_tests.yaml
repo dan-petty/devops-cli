@@ -1,0 +1,109 @@
+# promtool rule unit tests of the alert group repos-drift in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#6783). The drift alert fires when the last
+# value of the drift series of a repository, in the last 2 days, is above zero, and the unreadable
+# alert does the same for the not_readable series. Both stay quiet after a later run that set zero,
+# and for a run of a workstation. The stopped alert fires when the Job sent values in the last 7
+# days but none in the last 2 days, and stays quiet before the first run.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`. The label sets are those of the Job: `job` and
+# `instance` from the resource, and the attributes `repo` and `state`.
+rule_files:
+  - repos_drift.rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  - name: A drift row fires
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="drift"}'
+        values: '2x10'
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="not_readable"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: RepositorySettingsDrift
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example-org/app
+            exp_annotations:
+              summary: "Repository example-org/app has 2 rows off its settings baseline"
+              description: "The last nightly drift check found rows of example-org/app that differ from the baseline of the template repository. Read the rows in the log of the last Job of CronJob repos-drift, or run `devops repos onboard example-org/app --plan`. Then apply the baseline with `--confirm`, or change the baseline (k8s/README.md, Alerting)."
+      - eval_time: 5h
+        alertname: RepositorySettingsUnreadable
+        exp_alerts: []
+      - eval_time: 5h
+        alertname: RepositoryDriftCheckStopped
+        exp_alerts: []
+
+  - name: A later clean run ends the drift alert
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="drift"}'
+        values: '2 2 2 0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: RepositorySettingsDrift
+        exp_alerts: []
+
+  - name: A run of a workstation stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="devops-cli", instance="workstation", repo="example-org/app", state="drift"}'
+        values: '2x10'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: RepositorySettingsDrift
+        exp_alerts: []
+
+  - name: A not readable row fires its own alert and no drift alert
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="drift"}'
+        values: '0x10'
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="not_readable"}'
+        values: '7x10'
+    alert_rule_test:
+      - eval_time: 5h
+        alertname: RepositorySettingsUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example-org/app
+            exp_annotations:
+              summary: "The drift check could not read 7 rows of repository example-org/app"
+              description: "The last nightly drift check could not read rows of example-org/app, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the read-only token does not have (k8s/README.md, Alerting)."
+      - eval_time: 5h
+        alertname: RepositorySettingsDrift
+        exp_alerts: []
+
+  - name: The nightly runs stop
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="repos-drift", instance="repos-drift", repo="example-org/app", state="drift"}'
+        values: '0 _x23 0 _x23 0 _x95'
+    alert_rule_test:
+      - eval_time: 60h
+        alertname: RepositoryDriftCheckStopped
+        exp_alerts: []
+      - eval_time: 120h
+        alertname: RepositoryDriftCheckStopped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "The drift check of the repository settings sent no result in 2 days"
+              description: "CronJob repos-drift sent a result in the last 7 days but none in the last 2 days. An error before the reports, such as a refused App token, sends no result. Read the status and the log of its last Job with `kubectl -n devops get jobs -l app.kubernetes.io/name=repos-drift` (k8s/README.md, Alerting)."
+
+  - name: No run of the Job yet stays quiet
+    interval: 1h
+    input_series:
+      - series: 'devops_cli_repos_drift_rows{job="devops-cli", instance="workstation", repo="example-org/app", state="drift"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 50h
+        alertname: RepositoryDriftCheckStopped
+        exp_alerts: []
