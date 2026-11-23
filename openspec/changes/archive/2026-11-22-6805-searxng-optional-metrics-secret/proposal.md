@@ -17,7 +17,7 @@ Closes #6805. The init container `render-settings` of Deployment `searxng` reads
 - `stack-credential-sync`: MODIFIED requirement "The SearXNG metrics Secret row comes from the keyring", because the password entry is now optional.
 
 ## Impact
-- A pod of SearXNG starts and searches while Secret `devops/searxng-metrics-auth` is missing. Its `/metrics` answers HTTP 404 `open metrics is disabled` until a person pushes the Secret; the push restarts `deployment/searxng`.
+- A pod of SearXNG starts and searches while Secret `devops/searxng-metrics-auth` is missing. Its `/metrics` answers HTTP 404 `open metrics is disabled` until a person pushes the Secret and a new pod starts. A push that adds the password to an existing Secret restarts `deployment/searxng`; a push that creates the Secret restarts nothing, so the person restarts the Deployment.
 - While the Secret is missing, Alloy makes no scrape target from ServiceMonitor `searxng`, so no `up` series and no `TargetDown` alert show the missing Secret. The ServiceMonitor stays.
 - A push of stack `devops` with no `searxng_metrics_password` writes Secret `devops/searxng-metrics-auth` with key `username` only, and the pod keeps the endpoint off.
 

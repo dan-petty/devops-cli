@@ -27,5 +27,5 @@ Kind: other. Reads: `k8s/README.md`, `docs/CLUSTER.md`. Changes: `k8s/README.md`
 
 ## Workflow follow-up
 
-- Pending a person: run `devops k8s push-secrets --only devops/searxng-metrics-auth` to turn the OpenMetrics endpoint on; the push restarts `deployment/searxng`.
+- Pending a person: run `devops k8s push-secrets --only devops/searxng-metrics-auth` to turn the OpenMetrics endpoint on. A push that creates the Secret restarts nothing, so then run `kubectl -n devops rollout restart deployment/searxng`.
 - Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).
