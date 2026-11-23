@@ -20,7 +20,12 @@ import httpx2
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.ai.capability import validate_failover_capability
-from devops_cli.ai.client.models import AICredentialsError, credentials_error, origin_label
+from devops_cli.ai.client.models import (
+    AICredentialsError,
+    credentials_error,
+    origin_label,
+    spend_limit_error,
+)
 from devops_cli.config.constants import (
     CONST_AI_BACKENDS,
     CONST_AI_GATEWAY_PROVIDER_PORTKEY,
@@ -368,7 +373,9 @@ def fetch_model_info(
     if resp.status_code in (401, 403):
         if api_key and _key_for(url, api_key, config) is None:
             raise _withheld_key_refusal(url)
-        raise credentials_error("The LLM gateway", has_key=bool(api_key), status=resp.status_code)
+        raise spend_limit_error(resp.status_code, resp.text) or credentials_error(
+            "The LLM gateway", has_key=bool(api_key), status=resp.status_code
+        )
     if resp.status_code >= 400:
         return None
     try:

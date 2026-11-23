@@ -289,9 +289,9 @@ def _map_anthropic_errors(self_obj: Any, failure: str) -> Iterator[None]:
         raise error from exc
     except anthropic.APIStatusError as exc:
         if exc.status_code in (401, 403):
-            from devops_cli.ai.client.models import credentials_error
+            from devops_cli.ai.client.models import credentials_error, spend_limit_error
 
-            raise credentials_error(
+            raise spend_limit_error(exc.status_code, exc.body) or credentials_error(
                 "The Claude provider", has_key=bool(self_obj._api_key), status=exc.status_code
             ) from exc
         from devops_cli.security.sanitizer import mask_secrets

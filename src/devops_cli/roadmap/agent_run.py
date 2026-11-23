@@ -35,7 +35,12 @@ from pydantic_ai.messages import (
     is_retry,
 )
 
-from devops_cli.ai.client.models import AIClientError, AICredentialsError
+from devops_cli.ai.client.models import (
+    AIClientError,
+    AICredentialsError,
+    provider_error_text,
+    spend_limit_error,
+)
 from devops_cli.ai.schema_reflection import ViolationText
 from devops_cli.ai.spend import model_answer_labels, track_request_spend
 from devops_cli.config.constants import (
@@ -62,9 +67,13 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     """The job's class for a failed model call of a run, with no text of the model's reply, and
     with the HTTP status or the timeout of the call (#2562). A failed transport also names its
     phase and the error of the HTTP library, so a report tells a dropped stream from a refused
-    connection (#4345). `subject` names the run, such as `The investigation's`."""
+    connection (#4345). A refused key whose body says that the provider key reached its spend
+    limit gives the spend-limit error (#6821). `subject` names the run, such as
+    `The investigation's`."""
     if isinstance(exc, ModelHTTPError) and exc.status_code in _REFUSED_KEY_STATUSES:
-        return AICredentialsError(f"The model refused the key (HTTP {exc.status_code}).")
+        return spend_limit_error(exc.status_code, exc.body) or AICredentialsError(
+            f"The model refused the key (HTTP {exc.status_code})."
+        )
     return AIClientError(
         f"{subject} model call failed ({type(exc).__name__}{_transport_cause(exc)}).",
         status=exc.status_code if isinstance(exc, ModelHTTPError) else None,
@@ -108,25 +117,11 @@ _BODY_DATA = re.compile(r"[;=]")
 _BODY_WRAPPED = re.compile(r"""\{'error': (?:'(?P<single>[^']*)'|"(?P<double>[^"]*)")\}$""")
 
 
-def _body_string(body: object) -> str:
-    """The error text in the `body` of a model's error reply: the body when it is a string, else
-    its `message`, else its `error`, read the same way. No other value of a body is read, for
-    `mask_secrets` finds a secret by its form in a text, and not the value of a key such as
-    `api_key` in the repr of a dict."""
-    if isinstance(body, str):
-        return body
-    if isinstance(body, Mapping):
-        return next(
-            (text for key in ("message", "error") if (text := _body_string(body.get(key)))), ""
-        )
-    return ""
-
-
 def body_error_text(body: object) -> str:
     """The error text in the `body` of a model's error reply, safe to show: masked and cut like
     other stop text, then reduced to the part that the provider wrote and not the model: the error
     text of a gateway wrapper when there is one (#2922)."""
-    first = (_body_string(body).splitlines() or [""])[0]
+    first = (provider_error_text(body).splitlines() or [""])[0]
     text = bounded_text(first)
     if wrapped := _BODY_WRAPPED.search(text):
         text = wrapped["single"] or wrapped["double"] or ""

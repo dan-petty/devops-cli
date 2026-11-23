@@ -2,10 +2,10 @@
 
 ## 1. Behavior: the error of a spent provider key
 
-- [ ] 1.1 Write failing tests: a 403 model reply whose body holds OpenRouter's `Key limit exceeded`, as the gateway passes it on, gives `AIKeySpendLimitError` in `model_call_error`, in the gateway chat and stream of `LLMClient`, in the Claude call and in `fetch_model_info`; a 403 with another body gives the credentials error as before; the error text names the spend limit and the person step, and holds no key, URL or amount of the reply
+- [x] 1.1 Write failing tests: a 403 model reply whose body holds OpenRouter's `Key limit exceeded`, as the gateway passes it on, gives `AIKeySpendLimitError` in `model_call_error`, in the gateway chat and stream of `LLMClient`, in the Claude call and in `fetch_model_info`; a 403 with another body gives the credentials error as before; the error text names the spend limit and the person step, and holds no key, URL or amount of the reply
   - Verification: `$ uv run devops ci test tests/ai/client/test_ai_client_spend_limit.py tests/ai/client/test_roadmap_agent_run.py tests/ai/client/test_ai_client_credentials.py`
-- [ ] 1.2 Add `AIKeySpendLimitError`, `provider_error_text` and `spend_limit_error` to `ai/client/models.py`, the text `ERRORS.ai.provider_key_spend_limit`, and call the rule at each 401/403 site
-  - Verification: `$ uv run devops ci test tests/ai/client/test_ai_client_spend_limit.py tests/ai/client/test_roadmap_agent_run.py tests/ai/client/test_ai_client_credentials.py tests/ai/client/test_ai_client_error_reason.py`
+- [x] 1.2 Add `AIKeySpendLimitError`, `provider_error_text` and `spend_limit_error` to `ai/client/models.py`, the text `ERRORS.ai.provider_key_spend_limit`, and call the rule at each 401/403 site
+  - Verification: `$ uv run devops ci test tests/ai/client/test_ai_client_spend_limit.py tests/ai/client/test_roadmap_agent_run.py tests/ai/client/test_ai_client_credentials.py tests/ai/client/test_ai_client_error_reason.py tests/ai/mcp/test_ai_gateway.py`
 
 ## 2. Behavior: the failure class `spend_limit`
 
