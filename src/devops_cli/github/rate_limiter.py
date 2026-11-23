@@ -1438,16 +1438,16 @@ _GLOBAL_LOCK = threading.RLock()
 
 @functools.lru_cache(maxsize=1)
 def _identity_cache_root() -> Path:
-    """`data.cache_dir` of the loaded settings, read once for each process, so each request of an
-    identity finds one quota ledger (#2447). `reset_github_rate_limiter` reads it again."""
-    from devops_cli.config.settings import load_settings
-    from devops_cli.core.repo import resolve_data_path
+    """The identity cache root under the platform user cache directory (#6529)."""
+    from platformdirs import user_cache_dir
 
-    return resolve_data_path(load_settings().data.cache_dir)
+    from devops_cli.config.constants import CONST_APP_NAME
+
+    return Path(user_cache_dir(CONST_APP_NAME))
 
 
 def resolve_identity_cache_dir(identity: str) -> Path:
-    """The directory of the identity that the key `identity` names, under `data.cache_dir`.
+    """The directory of the identity that the key `identity` names, under the user cache directory.
 
     It is named by the first hex characters of the key's SHA-256, so no path holds a token or a
     login. gh's token is its own key, so two tokens of one account get two directories, and each
