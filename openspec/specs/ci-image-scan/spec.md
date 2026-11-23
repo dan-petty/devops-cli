@@ -6,7 +6,7 @@ How CI scans each container image for vulnerabilities: one composite action runs
 ## Requirements
 
 ### Requirement: One action scans an image
-`.github/actions/image-scan` SHALL run the Trivy image, pinned by tag and digest, on its `image-ref` with `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed`, its `ignore-file` (default `.trivyignore.yaml`) and its `exit-code` (default 1). It SHALL write SARIF, print the findings as a table in the log, and upload the SARIF with `upload-sarif` under its `category`, also after a failed scan.
+`.github/actions/image-scan` SHALL run the Trivy image, pinned by tag and digest, on its `image-ref` with `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed`, its `ignore-file` (default `.trivyignore.yaml`) and its `exit-code` (default 1). It SHALL accept `upload-sarif` (default true) and upload the SARIF with `upload-sarif` under its `category` only when `upload-sarif` is true.
 
 #### Scenario: The action is validated
 - **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
@@ -16,12 +16,16 @@ How CI scans each container image for vulnerabilities: one composite action runs
 - **WHEN** a job calls the action with exit code 1 on an image that holds a fixed HIGH finding that no entry of the ignore file matches
 - **THEN** the step fails, the job log shows the finding in a table, and code scanning lists an analysis of the category of the caller
 
+#### Scenario: SARIF upload is disabled
+- **WHEN** a job calls the action with `upload-sarif: "false"`
+- **THEN** the scan generates the SARIF file and prints findings, but skips the upload step
+
 ### Requirement: The image jobs scan with the action
-The image jobs of `ci.yml` and the `Verify` job of `release-image.yml` SHALL call the action with the category `trivy-image-service`, `trivy-image-runner` or `trivy-image-mcp-server`, grant `security-events: write`, and set a step timeout below the job timeout. The Service and MCP Server scans SHALL use exit code 1, and the Runner scans exit code 0 (SECURITY.md, Dedicated Development Resources and Sandboxes). The image jobs of `ci.yml` SHALL run when `.trivyignore.yaml` or the action changes.
+The image jobs of `ci.yml`, the `Verify` job of `release-image.yml`, the `devcontainer-smoke` job of `release.yml`, and `devcontainer-image.yml` SHALL call `.github/actions/image-scan`. The Service and MCP Server build scans SHALL use exit code 1. The Runner, DevContainer, and daily rescan runs SHALL use exit code 0.
 
 #### Scenario: The image workflows are validated
 - **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
-- **THEN** the command exits 0 and reports no finding in `.github/workflows/ci.yml`, `.github/workflows/release.yml` or `.github/workflows/release-image.yml`
+- **THEN** the command exits 0 and reports no finding in the image workflows
 
 #### Scenario: Code scanning holds each image
 - **WHEN** a person runs `uv run devops gh api 'repos/dan-petty/devops-cli/code-scanning/analyses?per_page=100' --jq '[.[].category] | unique'` after the merge
@@ -41,3 +45,10 @@ Each entry of `vulnerabilities:` in `.trivyignore.yaml` SHALL name one finding `
 #### Scenario: The legacy ignore files are absent
 - **WHEN** a developer runs `git ls-files .trivyignore .trivyignore-mcp-server .trivyignore-tofu`
 - **THEN** the command prints no path and exits 0
+
+### Requirement: Daily rescan of published images
+The workflow `.github/workflows/image-rescan.yml` SHALL run daily at 04:45 UTC on a matrix across `service`, `runner`, `mcp-server`, and `devcontainer`. It SHALL scan each image from `ghcr.io` with exit code 0 and upload SARIF under category `trivy-image-<name>`.
+
+#### Scenario: Rescan workflow lint
+- **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
+- **THEN** the command exits 0 and reports no finding for `.github/workflows/image-rescan.yml`
