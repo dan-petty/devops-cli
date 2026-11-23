@@ -1000,7 +1000,7 @@ class DocGenerator:
         parts = module.split(".")[1:]
         if parts[:1] == ["exceptions"]:
             parts = parts[1:] or ["core"]
-        return parts[0].capitalize()
+        return (parts[0] if parts else "core").capitalize()
 
     def generate_error_catalog_docs(self) -> str:
         """Programmatically generate Exit Code and Error Taxonomy catalog from DevOpsCLIError hierarchy."""
@@ -1045,7 +1045,15 @@ class DocGenerator:
                 subclasses.update(get_all_subclasses(sub))
             return subclasses
 
-        all_errs = sorted(get_all_subclasses(DevOpsCLIError), key=lambda c: c.__name__)
+        # A class that a test defines is no error of devops-cli (#6830).
+        all_errs = sorted(
+            (
+                c
+                for c in get_all_subclasses(DevOpsCLIError)
+                if c.__module__.startswith("devops_cli.")
+            ),
+            key=lambda c: c.__name__,
+        )
 
         for err_cls in all_errs:
             lines.append(

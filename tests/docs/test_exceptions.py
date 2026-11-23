@@ -299,6 +299,7 @@ def test_a_catalog_domain_names_the_area_and_not_the_module_path() -> None:
         "devops_cli.github.onboard.baseline",
         "devops_cli.ai.client.models",
         "devops_cli.telemetry.context",
+        "devops_cli",
     ]
     assert [DocGenerator.catalog_domain(module) for module in modules] == [
         "Core",
@@ -306,15 +307,25 @@ def test_a_catalog_domain_names_the_area_and_not_the_module_path() -> None:
         "Github",
         "Ai",
         "Telemetry",
+        "Core",
     ]
 
 
+def test_a_catalog_row_leaves_out_a_class_that_a_test_defines() -> None:
+    """A class of a test module is no error of devops-cli, so the catalog gives no row for it (#6830)."""
+
+    class _OfATest(DevOpsCLIError):
+        """Ends with a colon:"""
+
+    assert "_OfATest" not in DocGenerator().generate_error_catalog_docs()
+
+
 def test_no_catalog_row_holds_a_module_path_or_ends_mid_sentence() -> None:
-    """The generated catalog gives each row a domain with no dot and a description that ends a sentence or a clause (#6830)."""
+    """The generated catalog gives each row a domain with no dot and a description that ends a sentence or a list lead-in (#6830)."""
     rows = [
-        [cell.strip() for cell in line.split("|")[1:-1]]
+        [cell.strip() for cell in re.split(r"(?<!\\)\|", line)[1:-1]]
         for line in DocGenerator().generate_error_catalog_docs().splitlines()
         if re.match(r"\| `\w+` \| `\w+` \| `\d+` \|", line)
     ]
 
-    assert [row[0] for row in rows if "." in row[3] or row[4][-1] not in ".)`"] == []
+    assert [row[0] for row in rows if "." in row[3] or row[4][-1] not in ".):`"] == []
