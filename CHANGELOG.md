@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.201.6](https://github.com/dan-petty/devops-cli/compare/v0.201.5...v0.201.6) (2026-11-23)
+
+
+### Code Refactoring
+
+* **roadmap:** the stage agent is stock Coder ([#6883](https://github.com/dan-petty/devops-cli/issues/6883)) ([4431302](https://github.com/dan-petty/devops-cli/commit/443130279a64ab42f92a9997f668b6993243ff2f))
+
 ## [0.201.5](https://github.com/dan-petty/devops-cli/compare/v0.201.4...v0.201.5) (2026-11-23)
 
 
