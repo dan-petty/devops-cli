@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import inspect
+import types
 from collections.abc import Callable
 from enum import Enum
 from functools import cache
 from pathlib import Path, PurePath
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, get_args, get_origin
 
 from fastmcp import FastMCP
 from pydantic import Field
@@ -231,21 +232,29 @@ def _is_sequence_param(param: Any) -> bool:
 
 def _deduce_parameter_type(param: Any) -> Any:
     """Map Click parameter type to appropriate Python type annotation."""
-    type_name = type(param.type).__name__
-    if "Choice" in type_name or hasattr(param.type, "choices"):
-        choices = tuple(param.type.choices)
-        py_type: Any = Literal.__getitem__(choices)
-    elif "Bool" in type_name or getattr(param, "is_flag", False):
+    param_type = getattr(param, "type", None)
+    type_name = type(param_type).__name__ if param_type is not None else ""
+    td = getattr(param, "type_descriptor", None)
+    ann = td.annotation if td is not None else None
+    origin = get_origin(ann)
+    args = get_args(ann)
+    elem = args[0] if origin is list and args else ann
+
+    py_type: Any
+    if isinstance(elem, type) and issubclass(elem, Enum):
+        choices = tuple(e.value for e in elem)
+        py_type = Literal.__getitem__(choices)
+    elif "Bool" in type_name or getattr(param, "is_flag", False) or elem is bool:
         py_type = bool
-    elif "Int" in type_name:
+    elif "Int" in type_name or elem is int:
         py_type = int
-    elif "Float" in type_name:
+    elif "Float" in type_name or elem is float:
         py_type = float
     else:
         py_type = str
 
     if _is_sequence_param(param):
-        return list[py_type]
+        return types.GenericAlias(list, (py_type,))
     return py_type
 
 
@@ -271,14 +280,14 @@ def _build_parameter_field(
     field_kwargs: dict[str, Any] = {
         "description": description or _clean_text(getattr(param, "help", None) or ""),
     }
-    type_name = type(param.type).__name__
     is_seq = _is_sequence_param(param)
     if not is_seq:
-        if "IntRange" in type_name or hasattr(param.type, "min") or hasattr(param.type, "max"):
-            if getattr(param.type, "min", None) is not None:
-                field_kwargs["ge"] = param.type.min
-            if getattr(param.type, "max", None) is not None:
-                field_kwargs["le"] = param.type.max
+        min_val = getattr(param, "min", None)
+        max_val = getattr(param, "max", None)
+        if min_val is not None:
+            field_kwargs["ge"] = min_val
+        if max_val is not None:
+            field_kwargs["le"] = max_val
         if param.name in _INTEGER_ID_PARAM_NAMES and "ge" not in field_kwargs:
             field_kwargs["ge"] = 1
             field_kwargs["strict"] = True
@@ -339,7 +348,8 @@ def _append_argument_tokens(argv: list[str], param: Any, val: Any) -> None:
 def _append_option_tokens(argv: list[str], param: Any, val: Any) -> None:
     """Append option flag and values to CLI token list."""
     flag = param.opts[0]
-    type_name = type(param.type).__name__
+    param_type = getattr(param, "type", None)
+    type_name = type(param_type).__name__ if param_type is not None else ""
     if "Bool" in type_name or getattr(param, "is_flag", False):
         if val is True:
             argv.append(flag)

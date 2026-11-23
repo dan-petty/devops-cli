@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/fastmcp@4.1.*"
+  - "pkg:pypi/fastmcp@4.2.*"
 sources:
   - "https://github.com/jlowin/fastmcp"
   - "https://modelcontextprotocol.io/"

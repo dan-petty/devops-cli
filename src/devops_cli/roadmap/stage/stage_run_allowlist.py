@@ -26,9 +26,6 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from typer._click.types import File as TyperFile
-from typer.models import TyperPath
-
 from devops_cli.ai.mcp.generator import (
     _IGNORED_PARAM_NAMES,
     _JSON_PARAM_NAMES,
@@ -131,6 +128,22 @@ def _resolve(path: tuple[str, ...], resolver: CommandResolver) -> Any | None:
         return None
 
 
+def is_path_or_file_param(parameter: Any) -> bool:
+    """Whether Typer or Click reads `parameter` from a filesystem path."""
+    if hasattr(parameter, "bare_type"):
+        bare = parameter.bare_type()
+        return any(
+            t in bare
+            for t in ("Path", "FileText", "FileBinaryRead", "FileBinaryWrite", "FileTextWrite")
+        )
+    param_type = getattr(parameter, "type", None)
+    if param_type is not None:
+        import click
+
+        return isinstance(param_type, (click.Path, click.File))
+    return False
+
+
 def _permitted_parameters(
     path: tuple[str, ...], format_json: bool, command: Any
 ) -> frozenset[str] | str:
@@ -148,7 +161,7 @@ def _permitted_parameters(
     for parameter in command.params:
         if not _keeps_parameter(parameter, format_json, allowed):
             continue
-        if isinstance(parameter.type, (TyperPath, TyperFile)) or parameter.name in confined:
+        if is_path_or_file_param(parameter) or parameter.name in confined:
             return REASON_PATH_OPTION
         names.append(parameter.name)
     return frozenset(names)

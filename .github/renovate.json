@@ -256,6 +256,11 @@
       "description": "Since step 11 of docs/HOMELAB_REPO_SWITCH.md, Argo CD reads the environment, each file of k8s outside the product folders, from dan-petty/homelab, and homelab Renovate updates that copy (#6820). An update here changes nothing live, so the dependencies of these files stay off. Step 17 deletes this rule with the files.",
       "matchFileNames": ["k8s/**", "!k8s/devops/**", "!k8s/overlays/homelab/devops/**"],
       "enabled": false
+    },
+    {
+      "description": "google-genai <= 2.34.0 (via pydantic-ai[spec]) restricts tenacity to <9.2.0.",
+      "matchPackageNames": ["tenacity"],
+      "allowedVersions": "<9.2.0"
     }
   ]
 }

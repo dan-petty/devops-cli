@@ -111,7 +111,11 @@ async def test_the_validator_refuses_every_coerced_value_without_running_a_handl
         "numeric_parameters_with_a_published_bound",
         f"{sum(map(_is_numeric_bounded, numeric))}/{len(numeric)}",
     )
-    assert (len(swept) > len(schemas) / 2, unrefused, handler_runner.call_count) == (True, [], 0)
+    assert (len(swept) > len(schemas) / 2, unrefused, handler_runner.call_count) == (
+        True,
+        [],
+        0,
+    )
 
 
 async def test_pr_and_issue_numbers_publish_a_positive_bound() -> None:
@@ -153,7 +157,10 @@ async def test_every_published_keyword_is_one_a_refusal_can_describe() -> None:
         *CONST_JSON_SCHEMA_BOUND_PHRASES,
         *_STRUCTURAL_SCHEMA_KEYWORDS,
     }
-    assert (sorted(published - described), {"type", "anyOf", "minimum"} <= published) == (
+    assert (
+        sorted(published - described),
+        {"type", "anyOf", "minimum"} <= published,
+    ) == (
         [],
         True,
     )
@@ -167,7 +174,12 @@ def test_describe_schema_states_what_a_property_accepts() -> None:
         describe_schema({"type": "integer", "minimum": 1}),
         describe_schema({"type": "integer", "minimum": 1, "maximum": 10}),
         describe_schema(
-            {"anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]}
+            {
+                "anyOf": [
+                    {"type": "array", "items": {"type": "string"}},
+                    {"type": "null"},
+                ]
+            }
         ),
         describe_schema({"enum": ["json", "text"]}),
         describe_schema({"const": "json", "type": "string"}),

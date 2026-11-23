@@ -8,6 +8,7 @@ allow-list does not name does not run, so a refusal names the path and one reaso
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
@@ -23,6 +24,7 @@ from devops_cli.roadmap.stage.stage_run_allowlist import (
     RunRefusal,
     build_allowlist,
     check_command,
+    is_path_or_file_param,
 )
 
 # The rows of the exposure table at this commit. The census fails when a row is added or removed,
@@ -51,7 +53,9 @@ def _refusal(path: tuple[str, ...], *options: str) -> RunRefusal | None:
     return check_command(path, options)
 
 
-def test_a_text_path_option_leaves_its_command_out(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_text_path_option_leaves_its_command_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     command = _demo_command()
     monkeypatch.setitem(PATH_CONFINEMENTS, "demo_show", frozenset({"config"}))
     row = (("demo", "show"), 30.0, True, False)
@@ -161,3 +165,34 @@ def test_the_census_decides_every_row_of_the_exposure_table() -> None:
         REASON_PATH_OPTION,
         REASON_OPTION_NOT_PERMITTED,
     }
+
+
+def test_is_path_or_file_param() -> None:
+    import click
+
+    app = typer.Typer()
+
+    @app.command()
+    def sample(
+        p: Path,
+        f: typer.FileText,
+        lp: list[Path],
+        s: str,
+    ) -> None:
+        pass
+
+    cmd = typer.main.get_command(app)
+    params = {param.name: param for param in cmd.params}
+    assert is_path_or_file_param(params["p"]) is True
+    assert is_path_or_file_param(params["f"]) is True
+    assert is_path_or_file_param(params["lp"]) is True
+    assert is_path_or_file_param(params["s"]) is False
+
+    click_path_opt = click.Option(["--path"], type=click.Path())
+    click_file_opt = click.Option(["--file"], type=click.File())
+    click_str_opt = click.Option(["--text"], type=click.STRING)
+    assert is_path_or_file_param(click_path_opt) is True
+    assert is_path_or_file_param(click_file_opt) is True
+    assert is_path_or_file_param(click_str_opt) is False
+
+    assert is_path_or_file_param(object()) is False

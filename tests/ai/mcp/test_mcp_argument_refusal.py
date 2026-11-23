@@ -242,7 +242,7 @@ def test_fastmcp_k8s_security_stream_validation() -> None:
 
     from devops_cli.ai.mcp.server import k8s_security_stream
 
-    with pytest.raises(ToolError, match="1<=x<=10000"):
+    with pytest.raises(ToolError, match=r"1<=x<=10000|greater than or equal to 1"):
         k8s_security_stream(tail=0)
 
     with pytest.raises(ToolError, match="Invalid severity"):
