@@ -243,3 +243,17 @@ def tally(results_text: str, targets: Sequence[MutationTarget]) -> MutationRepor
             if status in CONST_MUTMUT_SURVIVING_STATUSES
         ),
     )
+
+
+def prepare_mutants_tree(root: Path) -> Path:
+    """Initialize the mutants root as a Git repository before mutmut starts (#6448)."""
+    mutants_dir = root if root.name == "mutants" else root / "mutants"
+    mutants_dir.mkdir(parents=True, exist_ok=True)
+    git_dir = mutants_dir / ".git"
+    if not git_dir.exists():
+        run_subprocess(["git", "init", "-q", str(mutants_dir)], quiet=True)
+        git_dir.mkdir(parents=True, exist_ok=True)
+    return mutants_dir
+
+
+prepare_mutants_root = prepare_mutants_tree

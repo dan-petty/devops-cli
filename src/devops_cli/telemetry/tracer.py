@@ -637,7 +637,7 @@ def _resolve_git_dir_from_file(marker: Path) -> Path | None:
     return None
 
 
-def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
+def resolve_git_dir(start_dir: Path | None = None) -> Path | None:
     """Traverse upwards from start_dir to locate active .git directory or worktree."""
     try:
         current = (start_dir or Path.cwd()).resolve()
@@ -652,6 +652,9 @@ def _resolve_git_dir(start_dir: Path | None = None) -> Path | None:
             if resolved:
                 return resolved
     return None
+
+
+_resolve_git_dir = resolve_git_dir
 
 
 @functools.lru_cache(maxsize=1)
