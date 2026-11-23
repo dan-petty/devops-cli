@@ -9,7 +9,7 @@ Adds: `is_environment_path`, `outcome`, `check_the_branch_changes_no_environment
   - Verification: `$ uv run devops ci test tests/invariants/test_environment_freeze_check.py` fails at collection, because the module does not exist
 - [x] 1.2 Add `tests/gate/k8s_checks/environment_freeze.py` with `is_environment_path`, `outcome` and the check `check_the_branch_changes_no_environment_path`, which runs `git diff --name-only --no-renames -z origin/main...HEAD` in the checkout with a timeout and asserts that `outcome` gives 0. Change the docstring of `tests/gate/k8s.py`, so that it names the check that reads git
   - Verification: `$ uv run devops ci test tests/invariants/test_environment_freeze_check.py` passes
-- [ ] 1.3 Run the row on the branch, which changes `k8s/README.md` only under `k8s`
+- [x] 1.3 Run the row on the branch, which changes `k8s/README.md` only under `k8s`
   - Verification: `$ uv run devops ci --check --only k8s` passes
 
 ## 2. Renovate updates no environment path
@@ -24,8 +24,8 @@ Kind: other. Reads: `.github/renovate.json`, the preset `renovate/base.json` of 
 
 Kind: other. Reads: `docs/HOMELAB_REPO_SWITCH.md`, `k8s/README.md`, `docs/CLUSTER.md`, `docs/TESTING.md`, `docs/SDLC.md`. Changes: the same files.
 
-- [ ] 3.1 In `k8s/README.md`, change the introduction and the GitOps section: Argo CD reads the environment from dan-petty/homelab and the product base from this repository, and the `k8s` row refuses a change to an environment path. Bootstrap & Adoption and Recovery take the bootstrap file and the values of Argo CD from a homelab checkout of `main`, and Recovery takes the chart version from Application `argocd` of that checkout
-- [ ] 3.2 In `docs/CLUSTER.md`, say in the introduction which repository Argo CD reads each part from, and that the values of Image Updater are in the homelab copy
-- [ ] 3.3 In `docs/HOMELAB_REPO_SWITCH.md`, step 12 names the check, its module, the Markdown exception and the Renovate rule. Step 17 deletes the check, its test and the Renovate rule with the environment files
-- [ ] 3.4 In `docs/TESTING.md`, the `k8s` row also holds the freeze check, and the layout list names `test_environment_freeze_check.py`. In `docs/SDLC.md`, the Renovate paragraph names the rule
+- [x] 3.1 In `k8s/README.md`, change the introduction and the GitOps section: Argo CD reads the environment from dan-petty/homelab and the product base from this repository, and the `k8s` row refuses a change to an environment path. Bootstrap & Adoption and Recovery take the bootstrap file and the values of Argo CD from a homelab checkout of `main`, and Recovery takes the chart version from Application `argocd` of that checkout
+- [x] 3.2 In `docs/CLUSTER.md`, say in the introduction which repository Argo CD reads each part from, and that the values of Image Updater are in the homelab copy
+- [x] 3.3 In `docs/HOMELAB_REPO_SWITCH.md`, step 12 names the check, its module, the Markdown exception and the Renovate rule. Step 17 deletes the check, its test and the Renovate rule with the environment files
+- [x] 3.4 In `docs/TESTING.md`, the `k8s` row also holds the freeze check, and the layout list names `test_environment_freeze_check.py`. In `docs/SDLC.md`, the Renovate paragraph names the rule
   - Verification: `$ uv run devops ci --check --only docs,openspec` passes
