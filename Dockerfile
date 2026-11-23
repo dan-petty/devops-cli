@@ -4,7 +4,7 @@ FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678
 # The Node runtime that installs OpenSpec and runs it in the Service and MCP server images. Its major
 # version is the one of `.node-version`. These images are on trixie, and the Node package of sid
 # needs a newer glibc.
-FROM node:24-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
 
 # The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
 # Its README names the source of each tool. The runner image builds FROM it, and the Service and MCP
