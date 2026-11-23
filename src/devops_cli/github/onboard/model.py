@@ -47,6 +47,8 @@ DOC_CREATE_REPOSITORY: Final[str] = (
     "https://docs.github.com/en/rest/repos/repos#create-a-repository-for-the-authenticated-user"
 )
 DOC_SECRETS: Final[str] = "https://docs.github.com/en/rest/actions/secrets"
+DOC_GET_REPOSITORY: Final[str] = "https://docs.github.com/en/rest/repos/repos#get-a-repository"
+DOC_GET_RULESET: Final[str] = "https://docs.github.com/en/rest/repos/rules#get-a-repository-ruleset"
 DOC_VARIABLES: Final[str] = "https://docs.github.com/en/rest/actions/variables"
 DOC_ENVIRONMENTS: Final[str] = (
     "https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/"
@@ -168,6 +170,22 @@ def differences(desired: Any, live: Any) -> Any:
     return None if desired == live else desired
 
 
+def held_differences(
+    desired: Mapping[str, Any], live: Mapping[str, Any]
+) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    """The differences of the top-level keys of `desired` that `live` holds, or None, and the keys
+    that `live` does not hold.
+
+    GitHub leaves a field out of its reply when the token may not read it, such as the merge
+    settings of a repository and the bypass actors of a ruleset. Such a key is unknown, not a
+    difference, so a row never gives it as a change (#6875). A missing key inside a nested value
+    is still a difference.
+    """
+    held = {key: value for key, value in desired.items() if key in live}
+    unread = tuple(key for key in desired if key not in live)
+    return differences(held, live), unread
+
+
 def _list_matches(desired: list[Any], live: Any) -> bool:
     """Whether each element of `desired` matches a distinct element of `live`."""
     if not isinstance(live, list) or len(live) != len(desired):
@@ -237,4 +255,5 @@ __all__ = [
     "RowState",
     "change_lines",
     "differences",
+    "held_differences",
 ]

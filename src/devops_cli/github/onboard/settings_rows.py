@@ -2,14 +2,18 @@
 its ruleset.
 
 Each row reads the live value with GET, compares it with the baseline as a subset
-(`model.differences`), and gives each difference to the writer. A private repository on the Free
-plan answers 403 for its rulesets: it gets no release flow and no ruleset (D2), and the preflight
-adds the person step.
+(`model.differences`), and gives each difference to the writer. GitHub leaves a field out of its
+reply to a token that may not read it, so rows 2 and 10 compare only the keys that the reply holds
+(`model.held_differences`): a key that the reply does not hold is unknown, and with no other
+difference the row is `not readable` (#6875). A private repository on the Free plan answers 403
+for its rulesets: it gets no release flow and no ruleset (D2), and the preflight adds the person
+step.
 """
 
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final
@@ -21,6 +25,8 @@ from devops_cli.exceptions.git import GitHubNotFoundError
 from devops_cli.github.onboard.model import (
     DOC_CREATE_REPOSITORY,
     DOC_ENVIRONMENTS,
+    DOC_GET_REPOSITORY,
+    DOC_GET_RULESET,
     DOC_RULESETS,
     DOC_SCOPES,
     DOC_SECRETS,
@@ -31,6 +37,7 @@ from devops_cli.github.onboard.model import (
     RowState,
     change_lines,
     differences,
+    held_differences,
 )
 
 if TYPE_CHECKING:
@@ -58,6 +65,19 @@ _KEY_FILE_MAX_BYTES: Final[int] = 64 * 1024
 _REQUIRED_CHECKS_RULE: Final[str] = "required_status_checks"
 _D2_REASON: Final[str] = (
     "a private repository on the GitHub Free plan has no rulesets and no environments (D2)"
+)
+# The fields that GitHub gives only to a token with a write permission: "To view merge-related
+# settings, you must have the contents:read and contents:write permissions" (REST docs, Get a
+# repository), and "the bypass_actors property is only returned if the user making the API request
+# has write access to the ruleset" (REST docs, Get a repository ruleset).
+_MERGE_SETTINGS_STEP: Final[str] = (
+    "GitHub gives the merge settings only to a token with Contents write. Read row 2 with such a "
+    "token, such as your own login: `devops repos onboard {repo} --plan --only 2`."
+)
+_BYPASS_ACTORS_STEP: Final[str] = (
+    "GitHub gives the bypass actors of a ruleset only to a token with write access to the ruleset "
+    "(Administration write for an App). Read row 10 with such a token, such as your own login: "
+    "`devops repos onboard {repo} --plan --only 10`."
 )
 D2_STEP: Final[PersonStep] = PersonStep(
     "This private repository gets no release flow on the Free plan (D2). To give it one, make it "
@@ -229,6 +249,16 @@ def _available_settings(
     return result, left_out
 
 
+def _unknown(keys: Sequence[str], step: PersonStep) -> tuple[str | None, tuple[PersonStep, ...]]:
+    """The reason and the person step of a row whose reply does not hold `keys`, or none."""
+    if not keys:
+        return None, ()
+    return (
+        f"the reply of GitHub does not hold these keys, so they are unknown: {', '.join(keys)}",
+        (step,),
+    )
+
+
 def _write_state(writer: RouteWriter) -> RowState:
     """The state of a row that wrote, or would write, a difference."""
     return RowState.APPLIED if writer.confirm else RowState.PENDING
@@ -243,20 +273,34 @@ _TITLE_OF_MESSAGE: Final[tuple[tuple[str, str], ...]] = (
 
 
 def repository_row(writer: RouteWriter, ctx: RowContext, baseline: Baseline) -> Row:
-    """Row 2: the `repository` body of the baseline and `has_issues`, in one PATCH."""
+    """Row 2: the `repository` body of the baseline and `has_issues`, in one PATCH. A key that the
+    reply does not hold, such as a merge setting for a token without Contents write, is unknown:
+    with no other difference the row is `not readable` (#6875)."""
     live = ctx.repo_payload or {}
     desired = {**(baseline.settings.get("repository") or {}), **_ROADMAP_REPOSITORY}
     desired, left_out = _available_settings(desired, live)
-    reason = f"not available on this plan: {', '.join(left_out)}" if left_out else None
-    diff = differences(desired, live)
+    diff, unread = held_differences(desired, live)
+    unknown, steps = _unknown(
+        unread, PersonStep(_MERGE_SETTINGS_STEP.format(repo=ctx.repo), DOC_GET_REPOSITORY)
+    )
+    notes = [f"not available on this plan: {', '.join(left_out)}"] if left_out else []
+    if unknown:
+        notes.append(unknown)
+    reason = "; ".join(notes) or None
     if diff is None:
-        return Row(2, "Repository", RowState.PRESENT, reason=reason)
+        state = RowState.NOT_READABLE if unread else RowState.PRESENT
+        return Row(2, "Repository", state, reason=reason, steps=steps)
     for message, title in _TITLE_OF_MESSAGE:
         if message in diff and title in desired:
             diff.setdefault(title, desired[title])
     writer.rest("repository", f"/repos/{ctx.repo}", diff)
     return Row(
-        2, "Repository", _write_state(writer), changes=tuple(change_lines(diff)), reason=reason
+        2,
+        "Repository",
+        _write_state(writer),
+        changes=tuple(change_lines(diff)),
+        reason=reason,
+        steps=steps,
     )
 
 
@@ -603,11 +647,14 @@ def _with_required_checks(
 def ruleset_row(
     session: GitHubSession, writer: RouteWriter, ctx: RowContext, baseline: Baseline
 ) -> Row:
-    """Row 10: each ruleset of the baseline, with the required checks of D3."""
+    """Row 10: each ruleset of the baseline, with the required checks of D3. A key that the reply
+    does not hold, such as `bypass_actors` for a token without write access to the ruleset, is
+    unknown: with no other difference the row is `not readable` (#6875)."""
     if ctx.plan_limited:
         step = PersonStep("Rulesets need a public repository or a paid plan.", DOC_RULESETS)
         return Row(10, "Ruleset", RowState.SKIPPED, reason=_D2_REASON, steps=(step,))
     changes: list[str] = []
+    unread: list[str] = []
     for ruleset in baseline.settings.get("rulesets") or []:
         match = next(
             (item for item in ctx.rulesets or [] if item.get("name") == ruleset.get("name")), None
@@ -622,15 +669,23 @@ def ruleset_row(
         ]
         if match is None or live is None:
             writer.rest("ruleset-create", f"/repos/{ctx.repo}/rulesets", desired)
-        elif differences(desired, live) is not None:
-            writer.rest("ruleset-update", f"/repos/{ctx.repo}/rulesets/{match['id']}", desired)
         else:
-            continue
+            diff, missing = held_differences(desired, live)
+            unread.extend(f"{key} of ruleset {ruleset.get('name')}" for key in missing)
+            if diff is None:
+                continue
+            writer.rest("ruleset-update", f"/repos/{ctx.repo}/rulesets/{match['id']}", desired)
         required = ", ".join(checks) or "none yet"
         changes.append(f"ruleset {ruleset.get('name')}: required checks {required}")
+    reason, steps = _unknown(
+        unread, PersonStep(_BYPASS_ACTORS_STEP.format(repo=ctx.repo), DOC_GET_RULESET)
+    )
     if not changes:
-        return Row(10, "Ruleset", RowState.PRESENT)
-    return Row(10, "Ruleset", _write_state(writer), changes=tuple(changes))
+        state = RowState.NOT_READABLE if unread else RowState.PRESENT
+        return Row(10, "Ruleset", state, reason=reason, steps=steps)
+    return Row(
+        10, "Ruleset", _write_state(writer), changes=tuple(changes), reason=reason, steps=steps
+    )
 
 
 __all__ = [
