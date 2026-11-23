@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.201.3](https://github.com/dan-petty/devops-cli/compare/v0.201.2...v0.201.3) (2026-11-23)
+
+
+### Bug Fixes
+
+* **docs:** error catalog rows give whole text and a domain ([#6880](https://github.com/dan-petty/devops-cli/issues/6880)) ([c30b5dd](https://github.com/dan-petty/devops-cli/commit/c30b5ddcd2468a3098da864353a410c4c411b4cc)), closes [#6830](https://github.com/dan-petty/devops-cli/issues/6830)
+
 ## [0.201.2](https://github.com/dan-petty/devops-cli/compare/v0.201.1...v0.201.2) (2026-11-23)
 
 
