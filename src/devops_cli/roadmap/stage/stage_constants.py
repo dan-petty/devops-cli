@@ -76,6 +76,11 @@ def candidate_names(texts: Iterable[str]) -> set[str]:
     return names
 
 
+def claimed_names(texts: Iterable[str], claimed: Iterable[str]) -> set[str]:
+    """The candidate constant names of `texts`, unioned with `claimed` (#3388)."""
+    return candidate_names(texts) | set(claimed)
+
+
 def _sentences(text: str) -> list[str]:
     """The sentences of `text`."""
     sentences: list[str] = []
@@ -286,6 +291,7 @@ def constant_problems(texts: Iterable[str], constants: Mapping[str, int]) -> lis
 
 __all__ = [
     "candidate_names",
+    "claimed_names",
     "constant_problems",
     "parse_constants",
     "staged_constants",

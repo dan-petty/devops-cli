@@ -248,7 +248,10 @@ from devops_cli.roadmap.stage.stage_change import (
     shared_texts,
     staging_title,
 )
-from devops_cli.roadmap.stage.stage_constants import candidate_names, staged_constants
+from devops_cli.roadmap.stage.stage_constants import (
+    claimed_names,
+    staged_constants,
+)
 from devops_cli.roadmap.stage.stage_context_facts import collect_stage_facts_context
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
 from devops_cli.roadmap.stage.stage_findings import (
@@ -2706,7 +2709,11 @@ class _Planner:
             if self._grep is not None
             else None
         )
-        constants = staged_constants(self._source, self._sha, candidate_names(plan_texts(proposal)))
+        constants = staged_constants(
+            self._source,
+            self._sha,
+            claimed_names(plan_texts(proposal), (claim.name for claim in proposal.constant_claims)),
+        )
         references = self._probe_references(proposal.groups)
         found = check_gates(
             proposal,

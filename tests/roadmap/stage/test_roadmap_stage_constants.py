@@ -13,6 +13,7 @@ from devops_cli.roadmap.stage.stage_change import (
 )
 from devops_cli.roadmap.stage.stage_constants import (
     candidate_names,
+    claimed_names,
     constant_problems,
     parse_constants,
     staged_constants,
@@ -372,3 +373,13 @@ PLAN_OF_THIS_CHANGE: dict[str, Any] = {
 
 def test_the_plan_check_accepts_the_plan_of_this_change() -> None:
     assert content_problems(StageProposal.model_validate(PLAN_OF_THIS_CHANGE)) == []
+
+
+def test_claimed_names_adds_the_names_of_the_claims() -> None:
+    texts = ["A plan mentions SUMMARY_MAX_CHARS."]
+    claimed = ["BODY_MAX_CHARS", "OTHER_BOUND"]
+    assert claimed_names(texts, claimed) == {
+        "SUMMARY_MAX_CHARS",
+        "BODY_MAX_CHARS",
+        "OTHER_BOUND",
+    }
