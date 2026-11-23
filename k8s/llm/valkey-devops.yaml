@@ -54,7 +54,7 @@ spec:
 
       containers:
         - name: valkey
-          image: valkey/valkey:9.1.4-alpine
+          image: valkey/valkey:9.2.0-alpine
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -118,7 +118,7 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 5
         - name: redis-exporter
-          image: ghcr.io/oliver006/redis_exporter:v1.97.0
+          image: ghcr.io/oliver006/redis_exporter:v1.98.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
