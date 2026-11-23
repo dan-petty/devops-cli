@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.6](https://github.com/dan-petty/devops-cli/compare/v0.203.5...v0.203.6) (2026-11-23)
+
+
+### Bug Fixes
+
+* **ci:** fix mutants tree tests reading git tracking or src ([#6931](https://github.com/dan-petty/devops-cli/issues/6931)) ([5e8a265](https://github.com/dan-petty/devops-cli/commit/5e8a26511d3ed70e468069d57953725265d1392e))
+* **ci:** the stats run fails in the mutants tree ([#6926](https://github.com/dan-petty/devops-cli/issues/6926)) ([715f48d](https://github.com/dan-petty/devops-cli/commit/715f48ddb0c727ef57f9b1da83453da63f95918f))
+* **deps:** update node to v24.22.3 ([#6916](https://github.com/dan-petty/devops-cli/issues/6916)) ([02a3599](https://github.com/dan-petty/devops-cli/commit/02a3599fb684df76dba0e6e74a70ab3935e995f2))
+
+
+### Code Refactoring
+
+* **k8s:** read the environment Secret rows from homelab ([#6928](https://github.com/dan-petty/devops-cli/issues/6928)) ([17e6ceb](https://github.com/dan-petty/devops-cli/commit/17e6cebc8700930fa49bcb948ce51daa7945f2a3))
+
 ## [0.203.5](https://github.com/dan-petty/devops-cli/compare/v0.203.4...v0.203.5) (2026-11-23)
 
 
