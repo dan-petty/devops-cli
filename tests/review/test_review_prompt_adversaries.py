@@ -525,3 +525,15 @@ def test_adversary_prompt_boundary_tags_are_escaped() -> None:
     assert "&lt;/target_code_to_review&gt;" in escaped
     assert "<system>" not in escaped
     assert "&lt;system&gt;" in escaped
+
+
+def test_kubernetes_adversary_fixture_security_context() -> None:
+    """Verify that kubernetes_adversary.yaml sets securityContext readOnlyRootFilesystem and runAsNonRoot."""
+    import yaml
+
+    k8s_path = _ADVERSARY_DIR / "kubernetes_adversary.yaml"
+    data = yaml.safe_load(k8s_path.read_text(encoding="utf-8"))
+    pod_spec = data["spec"]["template"]["spec"]
+    assert pod_spec.get("securityContext", {}).get("runAsNonRoot") is True
+    container = pod_spec["containers"][0]
+    assert container.get("securityContext", {}).get("readOnlyRootFilesystem") is True
