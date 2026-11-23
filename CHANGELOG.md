@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.198.0](https://github.com/dan-petty/devops-cli/compare/v0.197.0...v0.198.0) (2026-11-23)
+
+
+### Features
+
+* **ci:** refuse changes to environment paths after the switch ([#6823](https://github.com/dan-petty/devops-cli/issues/6823)) ([ad366bb](https://github.com/dan-petty/devops-cli/commit/ad366bbac856c7a21535b5ba65c492b71911ea08))
+* **roadmap:** Add requirement text to the stage context ([#6826](https://github.com/dan-petty/devops-cli/issues/6826)) ([615bbc4](https://github.com/dan-petty/devops-cli/commit/615bbc4488cef724efe8467f93a9d3d86b28497d))
+* **roadmap:** Require a rejected alternative with a fact ([#6836](https://github.com/dan-petty/devops-cli/issues/6836)) ([5467e22](https://github.com/dan-petty/devops-cli/commit/5467e22508375ff69db1c76f82bd55727c1981ee))
+* **roadmap:** The stage plan states constant claims ([#6837](https://github.com/dan-petty/devops-cli/issues/6837)) ([5ea6d02](https://github.com/dan-petty/devops-cli/commit/5ea6d02c46c65337d596b674f5417a54a698c0bb))
+
+
+### Bug Fixes
+
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.1 ([#6834](https://github.com/dan-petty/devops-cli/issues/6834)) ([ea1b00f](https://github.com/dan-petty/devops-cli/commit/ea1b00f1714515c3925d1bc7ed02c4477c0f52ea))
+* **docs:** the error catalog lists the onboard errors ([#6829](https://github.com/dan-petty/devops-cli/issues/6829)) ([1846b2d](https://github.com/dan-petty/devops-cli/commit/1846b2d0a6f5c71bf7e5f95d92800e849924974a))
+* **roadmap:** name a spent provider key, not a refused key ([#6827](https://github.com/dan-petty/devops-cli/issues/6827)) ([3aedb2f](https://github.com/dan-petty/devops-cli/commit/3aedb2f33401cc215a0bab074ddcc5169472ac32))
+* **roadmap:** read a record below a block a person opens ([#6812](https://github.com/dan-petty/devops-cli/issues/6812)) ([54a36e9](https://github.com/dan-petty/devops-cli/commit/54a36e99a07f2447ecf6d15ed4f821c9beb82c27))
+
 ## [0.197.0](https://github.com/dan-petty/devops-cli/compare/v0.196.0...v0.197.0) (2026-11-23)
 
 
