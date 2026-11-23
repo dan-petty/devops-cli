@@ -1636,7 +1636,11 @@ CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
 # each GET of the rows that the Job runs, and no write. The GitHub page "Permissions required for
 # GitHub Apps" names Administration for the security toggles and the workflow permissions,
 # Metadata for the rulesets, Actions for the environments, Environments for their variables and
-# secrets, Secrets for the names of the Actions secrets, and Issues for the labels.
+# secrets, Secrets for the names of the Actions secrets, and Issues for the labels. GitHub gives two
+# fields only to a write permission, so this token cannot read them and rows 2 and 10 are
+# `not readable` for them (#6875): the merge settings of a repository need Contents write ("Get a
+# repository"), and `bypass_actors` of a ruleset needs write access to the ruleset, which is
+# Administration write ("Get a repository ruleset").
 CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "actions": "read",
     "administration": "read",

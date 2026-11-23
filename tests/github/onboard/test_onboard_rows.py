@@ -13,6 +13,7 @@ import yaml
 
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.github.onboard import model
 from devops_cli.github.onboard.model import (
     DOC_COPIER,
     DOC_SECRETS,
@@ -28,6 +29,7 @@ from tests.support.github_repository import (
     CHECK_NAME,
     RELEASE_KEY,
     REPO,
+    REPOSITORY_SETTINGS,
     TEMPLATE_BRANCH,
     TEMPLATE_TAG,
     WEBHOOK_URL,
@@ -489,3 +491,77 @@ def test_a_confirmed_run_starts_the_pass_of_an_index_that_is_not_current(
     started = onboard_github.calls("ls-remote")
     assert [call.argv[-2] for call in started] == [f"https://github.com/{REPO}.git"]
     assert (_row(report, 15).state, report.failing) == (RowState.FAILED, False)
+
+
+# The merge settings of the baseline, which GitHub gives only to a token with Contents write
+# (REST docs, Get a repository).
+MERGE_KEYS = sorted(key for key in REPOSITORY_SETTINGS if key != "security_and_analysis")
+
+
+def _without_merge_settings(harness: OnboardHarness) -> None:
+    """The reply of `GET /repos/<repo>` as GitHub gives it to a token without Contents write."""
+    for key in MERGE_KEYS:
+        del harness.state.payload[key]
+
+
+def test_a_reply_without_the_merge_settings_makes_row_2_not_readable(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _without_merge_settings(onboard_github)
+
+    report = _run(onboard_github, only=frozenset({2}))
+
+    row = _row(report, 2)
+    assert (row.state, row.changes) == (RowState.NOT_READABLE, ()), render_report(report)
+    assert len(MERGE_KEYS) == 8
+    assert all(key in str(row.reason) for key in MERGE_KEYS), row.reason
+    assert [step.document for step in row.steps] == [model.DOC_GET_REPOSITORY]
+    assert "Contents write" in row.steps[0].text
+    assert f"devops repos onboard {REPO} --plan --only 2" in row.steps[0].text
+    assert onboard_github.writes() == []
+
+
+def test_a_reply_without_the_merge_settings_still_writes_a_known_difference(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    _without_merge_settings(onboard_github)
+    onboard_github.state.payload["has_issues"] = False
+
+    report = _run(onboard_github, only=frozenset({2}))
+
+    row = _row(report, 2)
+    assert (row.state, row.changes) == (RowState.PENDING, ("has_issues: True",)), render_report(
+        report
+    )
+    assert all(key in str(row.reason) for key in MERGE_KEYS), row.reason
+
+
+def test_a_reply_with_the_merge_settings_of_the_baseline_is_present(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+
+    report = _run(onboard_github, only=frozenset({2}))
+
+    assert _row(report, 2).state is P, render_report(report)
+    assert _row(report, 2).steps == ()
+
+
+def test_a_ruleset_reply_without_bypass_actors_makes_row_10_not_readable(
+    onboard_github: OnboardHarness, config: Any
+) -> None:
+    _onboarded(onboard_github, config)
+    # GitHub gives bypass_actors only to a token with write access to the ruleset (REST docs,
+    # Get a repository ruleset).
+    del onboard_github.state.rulesets[0]["bypass_actors"]
+
+    report = _run(onboard_github, only=frozenset({10}))
+
+    row = _row(report, 10)
+    assert (row.state, row.changes) == (RowState.NOT_READABLE, ()), render_report(report)
+    assert "bypass_actors" in str(row.reason)
+    assert [step.document for step in row.steps] == [model.DOC_GET_RULESET]
+    assert "write access to the ruleset" in row.steps[0].text
+    assert onboard_github.writes() == []
