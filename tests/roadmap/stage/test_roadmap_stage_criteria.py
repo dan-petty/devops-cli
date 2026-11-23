@@ -63,6 +63,26 @@ def test_the_list_of_the_refine_block_is_not_read() -> None:
     assert acceptance_criteria("Text.\n" + REFINE_BLOCK) == []
 
 
+def test_a_criteria_entry_from_the_refine_block_is_refused() -> None:
+    body = "Text.\n" + REFINE_BLOCK
+    copied = "Criterion 1: The refine form. Verification: a test."
+    entry = _entry(copied)
+
+    problems = criterion_problems([entry], body, 1)
+
+    assert problems == [
+        f'The entry of `criteria` for "{copied}" is no acceptance criterion that a person wrote '
+        "in the issue body. Copy the text of a top-level item under the heading `Acceptance criteria` "
+        "or give an empty list."
+    ]
+
+
+def test_an_empty_criteria_list_for_a_body_with_only_a_refine_block_is_accepted() -> None:
+    body = "Text.\n" + REFINE_BLOCK
+
+    assert criterion_problems([], body, 1) == []
+
+
 @pytest.mark.parametrize("body", ["", "No list here.", "### Steps\n\n- [ ] one\n- [ ] two\n"])
 def test_a_body_with_no_acceptance_list_has_no_criterion(body: str) -> None:
     assert acceptance_criteria(body) == []

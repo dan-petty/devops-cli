@@ -735,6 +735,25 @@ def test_the_criteria_gate_passes_a_plan_that_maps_every_criterion(
     assert not replay_case(_with_criteria(good, both), registry=()).refused
 
 
+def test_the_criteria_gate_refuses_a_plan_with_an_entry_that_no_person_wrote(
+    cases: list[StageCase],
+) -> None:
+    good = next(case for case in cases if case.verdict is Verdict.GOOD)
+    entries = [
+        {"criterion": "First.", "group": 1, "reason": None},
+        {"criterion": "Second.", "group": 1, "reason": None},
+        {"criterion": "Invented criterion.", "group": 1, "reason": None},
+    ]
+
+    problems = run_gates(PlanUnderTest.of_case(_with_criteria(good, entries)))
+
+    assert problems[GateName.CRITERIA] == [
+        'The entry of `criteria` for "Invented criterion." is no acceptance criterion that a '
+        "person wrote in the issue body. Copy the text of a top-level item under the heading "
+        "`Acceptance criteria` or give an empty list."
+    ]
+
+
 def test_a_recorded_plan_has_no_criteria_list_so_the_criteria_gate_does_not_judge_it(
     cases: list[StageCase],
 ) -> None:

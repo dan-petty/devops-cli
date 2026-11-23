@@ -24,7 +24,7 @@
 - **THEN** `check_proposal` returns no problem for the criteria mapping
 
 ### Requirement: The replay judges the criteria gate on plans with a criteria list
-The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none. The `paths` gate SHALL give `check_proposal` the issue body of a plan that has a `criteria` list, so the criteria rule reads the same body as the stage job, and SHALL give no body for a plan that has none.
+The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none. The `criteria` gate SHALL refuse a plan with an entry that no person wrote.
 
 #### Scenario: A plan leaves a criterion out
 - **WHEN** The replay runs a plan with a `criteria` list that leaves one criterion of its issue out
@@ -34,6 +34,6 @@ The golden-set replay SHALL run the `criteria` gate on a plan that has a `criter
 - **WHEN** The replay runs a recorded plan with no `criteria` key
 - **THEN** the `criteria` gate finds no problem
 
-#### Scenario: The paths gate reads the body of a plan with a criteria list
-- **WHEN** The replay runs a plan whose `criteria` entry copies a criterion that a person wrote in its issue
-- **THEN** the `paths` gate returns no problem for that entry
+#### Scenario: The criteria gate refuses an entry that no person wrote
+- **WHEN** The replay runs a plan whose `criteria` entry names a criterion that no person wrote in the issue body
+- **THEN** the `criteria` gate returns one problem that quotes the unknown entry
