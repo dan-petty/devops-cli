@@ -1024,6 +1024,9 @@ DEFAULT_DEPS_DEV_PROJECT_URL: str = "https://api.deps.dev/v3/projects/{project}:
 DEFAULT_DEPS_DEV_TIMEOUT_SECONDS: float = 10.0
 # The timeout of one remote MCP tool call (#3221).
 DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS: float = 30.0
+# The ask-mode research call limit and answer expiry (#3915).
+DEFAULT_ROADMAP_RESEARCH_MAX_CALLS_PER_RUN: int = 20
+DEFAULT_ROADMAP_RESEARCH_ANSWER_EXPIRY_DAYS: int = 30
 # The most items one stage run takes (#2654).
 DEFAULT_ROADMAP_STAGE_LIMIT: int = 3
 # The returns of a reply that the stage checks refuse (#4204, #4348, #4802): the planner sends the

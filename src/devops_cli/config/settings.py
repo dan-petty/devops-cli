@@ -173,6 +173,8 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_OPEN_MODE,
     DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES,
     DEFAULT_ROADMAP_REFINE_INTERVAL_MINUTES,
+    DEFAULT_ROADMAP_RESEARCH_ANSWER_EXPIRY_DAYS,
+    DEFAULT_ROADMAP_RESEARCH_MAX_CALLS_PER_RUN,
     DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS,
     DEFAULT_ROADMAP_REVIEW_MODE,
     DEFAULT_ROADMAP_REVIEW_ROUNDS,
@@ -2208,6 +2210,21 @@ class RoadmapMcpConfig(BaseModel):
     )
 
 
+class RoadmapResearchConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    max_calls_per_run: Annotated[int, Variable()] = Field(
+        description="The most ask-mode research tool calls one roadmap run may make",
+        default=DEFAULT_ROADMAP_RESEARCH_MAX_CALLS_PER_RUN,
+        ge=1,
+    )
+    answer_expiry_days: Annotated[int, Variable()] = Field(
+        description="The days a research answer stays fresh in the index before a refresh",
+        default=DEFAULT_ROADMAP_RESEARCH_ANSWER_EXPIRY_DAYS,
+        ge=1,
+    )
+
+
 class RoadmapStallConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
@@ -2234,6 +2251,7 @@ class RoadmapConfig(BaseModel):
     review: RoadmapReviewConfig = Field(default_factory=RoadmapReviewConfig)
     project_review: RoadmapProjectReviewConfig = Field(default_factory=RoadmapProjectReviewConfig)
     refine: RoadmapRefineConfig = Field(default_factory=RoadmapRefineConfig)
+    research: RoadmapResearchConfig = Field(default_factory=RoadmapResearchConfig)
     model_jobs: Annotated[int, Variable()] = Field(
         description="The most model Jobs that run at once in the cluster, for every repository together: the implement, stage and fix-checks Jobs (#5027, ADR 0021 section 5). A fix-checks Job that finds no free place is created suspended, and the implement and stage rows leave its place free, so a fix Job goes before a new implement or stage Job. `roadmap.stage.jobs` and the one implement Job of each repository still hold inside this limit",
         default=DEFAULT_ROADMAP_MODEL_JOBS,

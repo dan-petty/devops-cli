@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 
 from pydantic_ai.messages import ToolReturn
 
-from devops_cli.ai.page_text import fetch_page_text
+from devops_cli.ai.page_text import PageText, fetch_page_text
 from devops_cli.ai.web_search import normalize_url
 from devops_cli.config.constants import (
     CONST_PROSE_TRAILING_PUNCTUATION,
@@ -48,6 +48,7 @@ from devops_cli.telemetry.instruments import ROADMAP_PAGE_FETCHES_TOTAL, emit
 
 TOOLSET_REFINE: Final[str] = "refine"
 TOOLSET_ALTERNATIVES: Final[str] = "alternatives"
+TOOLSET_STAGE: Final[str] = "stage"
 
 # A character that ends a URL in prose or in Markdown, and so is not a part of the URL.
 _URL_END: Final[str] = "`<>\"'"
@@ -90,8 +91,8 @@ class PageFetch:
         """Let the tool fetch each URL of `urls`, which a web search of this run returned."""
         self.found.update(normalize_url(url) for url in urls)
 
-    def fetch(self, url: str) -> ToolReturn:
-        """The framed text of the page at `url`, or the reason in plain text that it was not
+    def page_of(self, url: str) -> PageText | ToolReturn:
+        """The `PageText` of the page at `url`, or the reason in plain text that it was not
         fetched. The URL is checked before any request, and the fetch is counted when it starts."""
         texts = MESSAGES.roadmap
         key = normalize_url(url.strip())
@@ -120,14 +121,28 @@ class PageFetch:
                 CONST_ROADMAP_PAGE_FETCH_RESULT_OK, empty_answer(texts.page_fetch_empty)
             )
         self.fetched.add(page.source_url)
-        framed = texts.page_fetch_frame.format(
-            url=page.source_url,
-            date=page.fetched_at.date().isoformat(),
-            cut=texts.page_fetch_cut if page.truncated else "",
-            fence=code_fence(page.text),
-            text=page.text,
+        emit(
+            ROADMAP_PAGE_FETCHES_TOTAL,
+            1,
+            {"toolset": self.toolset, "result": CONST_ROADMAP_PAGE_FETCH_RESULT_OK},
         )
-        return self._answer(CONST_ROADMAP_PAGE_FETCH_RESULT_OK, ok_answer(framed))
+        return page
+
+    def fetch(self, url: str) -> ToolReturn:
+        """The framed text of the page at `url`, or the reason in plain text that it was not
+        fetched. The URL is checked before any request, and the fetch is counted when it starts."""
+        outcome = self.page_of(url)
+        if not isinstance(outcome, PageText):
+            return outcome
+        texts = MESSAGES.roadmap
+        framed = texts.page_fetch_frame.format(
+            url=outcome.source_url,
+            date=outcome.fetched_at.date().isoformat(),
+            cut=texts.page_fetch_cut if outcome.truncated else "",
+            fence=code_fence(outcome.text),
+            text=outcome.text,
+        )
+        return ok_answer(framed)
 
     def _refused(self, message: str) -> ToolReturn:
         return self._answer(CONST_ROADMAP_PAGE_FETCH_RESULT_REFUSED, error_answer(message))
@@ -140,6 +155,7 @@ class PageFetch:
 __all__ = [
     "TOOLSET_ALTERNATIVES",
     "TOOLSET_REFINE",
+    "TOOLSET_STAGE",
     "PageFetch",
     "named_urls",
     "page_fetch_configured",

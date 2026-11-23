@@ -49,7 +49,14 @@ _TOOL_NAMES = [
     "read_spec",
     "read_comment",
 ]
-_EXTENDED_TOOL_NAMES = [*_TOOL_NAMES, "references", "read_issue", "find_issues"]
+_EXTENDED_TOOL_NAMES = [
+    *_TOOL_NAMES,
+    "references",
+    "read_issue",
+    "find_issues",
+    "research_lookup",
+    "research_grep",
+]
 _RESEARCH_TOOL_NAMES = [*_EXTENDED_TOOL_NAMES, "search_web"]
 if TYPE_CHECKING:
     from tests.support.fakes.openspec import OpenSpecFake
@@ -156,7 +163,7 @@ def test_the_base_toolset_has_the_ten_tools_and_no_web_search(tools: StageTools)
     assert [tool.name for tool in base.tools()] == _TOOL_NAMES
 
 
-def test_the_extended_toolset_is_the_default_and_adds_three_tools(tools: StageTools) -> None:
+def test_the_extended_toolset_is_the_default_and_adds_five_tools(tools: StageTools) -> None:
     assert [tool.name for tool in tools.tools()] == _EXTENDED_TOOL_NAMES
 
 
@@ -171,7 +178,7 @@ def test_the_research_toolset_adds_search_web(tools: StageTools) -> None:
 
 def test_the_toolset_names_the_methods_of_the_registry_holder(tools: StageTools) -> None:
     """The registry gives the names of the toolset, in table order: `stage` names the ten of
-    `base`, and `stage-extended` names the thirteen of `extended`."""
+    `base`, and `stage-extended` names the fifteen of `extended`."""
     base = StageTools(source=tools.source, sha=tools.sha, openspec=tools.openspec, toolset="base")
 
     assert [tool.name for tool in base.tools()] == list(tool_names(HOLDER_STAGE))
@@ -1029,6 +1036,8 @@ def test_no_tool_of_the_toolset_writes_or_runs_a_command(
             "search_code": {"text": "hello_world"},
             "read_file": {"path": "src/sample.py"},
             "file_symbols": {"path": "src/sample.py"},
+            "research_lookup": {"question": "hello_world"},
+            "research_grep": {"term": "hello_world"},
         }.get(tool.name, {})
         tool.function(**arguments)
 

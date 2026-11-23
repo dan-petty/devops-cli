@@ -9,8 +9,10 @@ model. The tools read a temporary git repository.
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -28,7 +30,9 @@ from devops_cli.ai.client.models import (
     AICredentialsError,
     StructuredOutputValidationError,
 )
+from devops_cli.ai.page_text import PageText
 from devops_cli.ai.task_loader import load_task_prompt
+from devops_cli.ai.web_search import SearchHit
 from devops_cli.config import constants, settings
 from devops_cli.config.constants import CONST_ROADMAP_REFINE_INVESTIGATION_TURN_CALLS
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS, StageToolset
@@ -79,7 +83,14 @@ _TOOLS = [
     "read_spec",
     "read_comment",
 ]
-_EXTENDED_TOOLS = [*_TOOLS, "references", "read_issue", "find_issues"]
+_EXTENDED_TOOLS = [
+    *_TOOLS,
+    "references",
+    "read_issue",
+    "find_issues",
+    "research_lookup",
+    "research_grep",
+]
 _RESEARCH_TOOLS = [*_EXTENDED_TOOLS, "search_web"]
 _PLAN = make_stage_proposal()
 # The limits of the runs that spend their call budget (#4688): a run spends it in a few requests,
@@ -665,7 +676,7 @@ def test_a_checkout_that_is_not_the_staged_commit_is_refused_before_a_run(
     assert script.seen == []
 
 
-def test_the_default_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_call_three(
+def test_the_default_toolset_offers_fifteen_tools_and_its_prompt_says_when_to_call_five(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = checkout
@@ -683,7 +694,7 @@ def test_the_default_toolset_offers_thirteen_tools_and_its_prompt_says_when_to_c
     ) == (_EXTENDED_TOOLS, True)
 
 
-def test_the_research_toolset_offers_fourteen_tools_and_its_prompt_says_when_to_search(
+def test_the_research_toolset_offers_sixteen_tools_and_its_prompt_says_when_to_search(
     checkout: tuple[Path, str],
 ) -> None:
     source, sha = checkout
@@ -699,6 +710,99 @@ def test_the_research_toolset_offers_fourteen_tools_and_its_prompt_says_when_to_
         script.tools_offered[0],
         load_task_prompt("roadmap_stage_tools_research.md") in instructions,
     ) == (_RESEARCH_TOOLS, True)
+
+
+def test_the_refine_alternatives_and_stage_toolsets_hold_the_new_tools_for_the_planners_side(
+    checkout: tuple[Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, sha = checkout
+    monkeypatch.delenv("DEVOPS_CLI_CRAWL4AI_URL", raising=False)
+    settings.reset_settings_cache()
+    script_off = Script(call("research_lookup", question="What is caching?"), _PLAN)
+    client_off = ToolboxClient(script_off.model(), _Inner(), source, sha)
+    _plan(client_off)
+    assert "The research index is off" in script_off.tool_returns()[0]
+
+    monkeypatch.setenv("DEVOPS_CLI_CRAWL4AI_URL", "http://crawl4ai.example.com")
+    settings.reset_settings_cache()
+
+    script_fresh = Script(call("research_lookup", question="What is caching?"), _PLAN)
+    client_fresh = ToolboxClient(script_fresh.model(), _Inner(), source, sha)
+    assert client_fresh._tools.research is not None
+    now = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
+    cached_page = PageText(
+        text="Cached answer text",
+        source_url="https://example.com/cached",
+        fetched_at=now,
+        truncated=False,
+    )
+    client_fresh._tools.research.index.store("What is caching?", cached_page, expiry_days=30)
+
+    with patch("devops_cli.roadmap.ask_tools.web_search") as mock_search:
+        _plan(client_fresh)
+        mock_search.assert_not_called()
+        assert "Cached answer text" in script_fresh.tool_returns()[0]
+
+    script_expired = Script(call("research_lookup", question="What is stale?"), _PLAN)
+    client_expired = ToolboxClient(script_expired.model(), _Inner(), source, sha)
+    assert client_expired._tools.research is not None
+    old_time = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    old_page = PageText(
+        text="Stale text",
+        source_url="https://example.com/stale",
+        fetched_at=old_time,
+        truncated=False,
+    )
+    client_expired._tools.research.index.store("What is stale?", old_page, expiry_days=1)
+    new_page = PageText(
+        text="Fresh text",
+        source_url="https://example.com/fresh",
+        fetched_at=now,
+        truncated=False,
+    )
+    setattr(client_expired._tools.research.pages, "page_of", MagicMock(return_value=new_page))
+
+    with patch(
+        "devops_cli.roadmap.ask_tools.web_search",
+        return_value=[
+            SearchHit(
+                url="https://example.com/fresh",
+                title="Fresh",
+                snippet="snippet",
+                provider="searxng",
+            )
+        ],
+    ) as mock_search:
+        _plan(client_expired)
+        mock_search.assert_called_once_with("What is stale?")
+        client_expired._tools.research.pages.page_of.assert_called_once_with(
+            "https://example.com/fresh"
+        )
+        assert "Fresh text" in script_expired.tool_returns()[0]
+
+    script_refused = Script(call("research_lookup", question="Check 192.168.1.1"), _PLAN)
+    client_refused = ToolboxClient(script_refused.model(), _Inner(), source, sha)
+    with patch("devops_cli.roadmap.ask_tools.web_search") as mock_search:
+        _plan(client_refused)
+        mock_search.assert_not_called()
+        assert (
+            "The search was refused: the query holds a private address."
+            in script_refused.tool_returns()[0]
+        )
+
+    script_default = Script(_read(), _PLAN)
+    client_default = ToolboxClient(script_default.model(), _Inner(), source, sha)
+    _plan(client_default)
+    assert len(script_default.tools_offered[0]) == 15
+    assert script_default.tools_offered[0] == _EXTENDED_TOOLS
+
+    script_research = Script(_read(), _PLAN)
+    client_research = ToolboxClient(
+        script_research.model(), _Inner(), source, sha, toolset="research"
+    )
+    _plan(client_research)
+    assert len(script_research.tools_offered[0]) == 16
+    assert script_research.tools_offered[0] == _RESEARCH_TOOLS
 
 
 def test_the_base_toolset_offers_ten_tools_and_its_prompt_names_no_other(
@@ -857,7 +961,7 @@ def test_a_verification_run_counts_its_calls_in_its_own_row(
     )
 
 
-def test_the_extended_toolset_adds_zero_for_its_thirteen_tools(
+def test_the_extended_toolset_adds_zero_for_its_fifteen_tools(
     checkout: tuple[Path, str], otlp: FakeCollector
 ) -> None:
     _plan(_client(checkout, Script(_PLAN), toolset="extended"))

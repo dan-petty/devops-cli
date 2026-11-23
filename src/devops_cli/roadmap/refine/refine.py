@@ -217,6 +217,7 @@ from devops_cli.exceptions.roadmap import (
 )
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.ask_tools import research_ask
 from devops_cli.roadmap.body_hash import (
     block_marker_of,
     body_hashes,
@@ -3635,7 +3636,13 @@ def refine_one_item(
     pages = (
         PageFetch(TOOLSET_REFINE, named=named_urls(item.title, current_body)) if web.fetch else None
     )
-    tools = InvestigationTools(source=source, sha=sha, web=web.on, pages=pages)
+    tools = InvestigationTools(
+        source=source,
+        sha=sha,
+        web=web.on,
+        pages=pages,
+        research=research_ask(pages, TOOLSET_REFINE),
+    )
     stopped: InvestigationStopped | None = None
     if needs_investigation(proposal, open_questions):
         revised = _investigate(

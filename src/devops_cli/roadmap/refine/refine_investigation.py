@@ -78,7 +78,8 @@ from devops_cli.roadmap.agent_run import (
     run_error_message,
     stop_cause,
 )
-from devops_cli.roadmap.page_fetch import PageFetch
+from devops_cli.roadmap.ask_tools import ResearchAsk, ResearchToolset, research_ask
+from devops_cli.roadmap.page_fetch import TOOLSET_REFINE, PageFetch
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ class InvestigationStopped:
 
 
 @dataclass
-class InvestigationTools:
+class InvestigationTools(ResearchToolset):
     """The read-only tools of one investigation, on commit `sha` of the checkout at `source`.
 
     A tool answers each failure as text, so no argument the model sends can stop the run: a
@@ -235,6 +236,11 @@ class InvestigationTools:
     searches: int = 0
     searched: list[str] = field(default_factory=list)
     pages: PageFetch | None = None
+    research: ResearchAsk | None = None
+
+    def __post_init__(self) -> None:
+        if self.research is None and self.pages is not None:
+            self.research = research_ask(self.pages, TOOLSET_REFINE)
 
     def _git(self, *args: str) -> tuple[int, bytes]:
         """The exit code and the output of one git command; `GIT_TIMED_OUT` when it ran out of time.
@@ -398,6 +404,9 @@ class InvestigationTools:
             methods.append(self.search_web)
         if self.pages is not None:
             methods.append(self.fetch_page)
+        if self.research is not None:
+            methods.append(self.research_lookup)
+            methods.append(self.research_grep)
         return [Tool(method, takes_ctx=False) for method in methods]
 
 

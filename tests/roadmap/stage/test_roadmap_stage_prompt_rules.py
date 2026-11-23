@@ -993,6 +993,9 @@ def test_the_prompts_name_the_test_module_of_a_changed_function() -> None:
 
     assert "references" in extended_prompt
     assert "test module that the answer lists" in extended_prompt
+    assert extended_prompt.startswith("Five more tools are on for this run:")
+    assert "research_lookup" in extended_prompt
+    assert "research_grep" in extended_prompt
 
 
 def test_the_prompts_and_documents_state_the_group_files_limit() -> None:

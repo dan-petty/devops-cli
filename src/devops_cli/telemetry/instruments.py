@@ -350,8 +350,8 @@ ROADMAP_PAGE_FETCHES_TOTAL = Instrument(
     "devops_cli_roadmap_page_fetches_total",
     InstrumentKind.COUNTER,
     "1",
-    "Calls of the tool fetch_page in refine's investigation and in the alternatives check, by "
-    "toolset (refine or alternatives) and result: ok for a page whose text the tool returned, "
+    "Calls of the tool fetch_page in refine's investigation, in the alternatives check, and in stage research, by "
+    "toolset (refine, alternatives or stage) and result: ok for a page whose text the tool returned, "
     "refused for a URL that the tool refused before any request (not https, not named by a search "
     "result or by the item text, or not on a public host), limit for a call over the limit of "
     "fetches for one item, and error for a fetch that failed. The fetches that reach the Crawl4AI "

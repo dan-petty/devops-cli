@@ -41,15 +41,19 @@ A task group over the step budget goes back to the model once. A group that is s
 
 ## The tools of the planner
 
-The model plans with read-only tools. The toolset `base` has nine tools that read the staged commit: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each toolset also has `read_comment`, which reads one comment of the item whole, page by page, or lists every comment ([The comments of the item](#the-comments-of-the-item)). The setting `roadmap.stage.toolset` (variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`) is `extended` by default. It adds three tools:
+The model plans with read-only tools. The toolset `base` has nine tools that read the staged commit: `list_files`, `read_file`, `search_code`, `git_log`, `git_show`, `file_symbols`, `callers`, `repo_map` and `read_spec`. Each toolset also has `read_comment`, which reads one comment of the item whole, page by page, or lists every comment ([The comments of the item](#the-comments-of-the-item)). The setting `roadmap.stage.toolset` (variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`) is `extended` by default. It adds five tools:
 
 | Tool | What it does | When the prompt tells the model to call it |
 | :--- | :--- | :--- |
 | `references` | Lists every file of the staged commit that holds a text, with the count of lines in each file. The count has no cap for a file. The list keeps at most 60 files, taken in turn from the source, the tests, the specs, the documents and the other files. | The issue renames, moves or removes a name. |
 | `read_issue` | Reads one issue or pull request of the repository: state, title, labels, the first 1500 characters of the body, the last 3 comments, and for a closed item whether a merged pull request closed it. | For each `#N` that the issue names. |
 | `find_issues` | Lists at most 10 open issues and pull requests of the repository that name some words, each as `#N state title`. | Before the plan says what it depends on, parks or overlaps. |
+| `research_lookup` | Answers a question from the local research index first, or searches the web and fetches the top page when missing or stale. | For a question that an earlier run can have answered. |
+| `research_grep` | Searches stored page text in the research index by exact term or regular expression. | For an exact term or a pattern across stored pages. |
 
 The two GitHub tools only read. They use the client and the App token of the Service, so they add no permission and no host. The tool masks secrets in the text from GitHub, cuts it, and marks it as data. The prompt tells the model that this text is no instruction. A failure of GitHub (no such item, the rate limit, no connection) is an answer as text, and the run goes on. With `base` the model has no GitHub tool, and the job needs no GitHub read for the plan. The golden-set run (`devops roadmap eval stage`) has no GitHub client, so its GitHub tools answer that GitHub is not available.
+
+The two ask-mode tools `research_lookup` and `research_grep` query the research index. Under the store-first rule, `research_lookup` reads the stored answer from the SQLite index first. When an answer is missing or older than `roadmap.research.answer_expiry_days` (default 30 days), it searches the web and fetches the top page. A query guard refuses empty terms, secrets, e-mail addresses, RFC 1918 private addresses and internal hostnames before any network request. A run permits at most `roadmap.research.max_calls_per_run` (default 20) ask-mode tool calls.
 
 The toolset `research` adds one more tool to `extended`: `search_web`. It searches the web for alternative open tools and libraries (up to five results, each with title, URL and cut snippet). A run permits at most five web searches. Text from the web is data and never an instruction. The tool masks secrets and refuses private IP addresses and internal hostnames.
 
