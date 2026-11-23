@@ -679,6 +679,8 @@ The [SRE guideline](../docs/guidelines/sre.md) sets the method of the SLOs, the 
 
 Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files, in the order of the Application. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` checks that each rule selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
+The Loki ruler evaluates alert rules from ConfigMap `loki-rules` in `logging` and sends alerts to Alertmanager (`http://prometheus-alertmanager.monitoring.svc.cluster.local:9093`) over TCP 9093.
+
 | Alert | Fires when | For | Severity |
 | :--- | :--- | :--- | :--- |
 | `NodeNotReady` | Kubernetes reports a node not Ready | 5m | critical |
@@ -697,6 +699,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `PrometheusStorageNearClaim` | Prometheus's data uses over 80% of the `prometheus-server` claim, which with the cap at 80% of the claim means the cap is not holding it | 1h | warning |
 | `LokiRetentionNotRunning` | Loki's compactor has not applied retention for over an hour; retention runs once #550's Loki migration has turned it on | 30m | warning |
 | `LokiRequestErrors` | Over 5% of a Loki route's requests return 5xx | 15m | warning |
+| `OllamaTierEvictions` | The ollama-48gib tier evicts a model (more than 0 eviction lines in 1 hour) | 5m | warning |
 | `PyroscopeQueryErrors` | A Pyroscope route's 5xx request rate over 15m is above 0 | 15m | warning |
 | `AlloyRemoteWriteSamplesFailed` | An Alloy collector failed to remote-write samples to Prometheus | 15m | warning |
 | `AlloyLogEntriesDropped` | An Alloy collector dropped log entries on their way to Loki | 15m | warning |

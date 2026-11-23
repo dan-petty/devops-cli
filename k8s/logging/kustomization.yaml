@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - networkpolicy.yaml
+  - loki-rules.yaml

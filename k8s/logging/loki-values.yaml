@@ -10,6 +10,18 @@ loki:
   analytics:
     reporting_enabled: false
 
+  ruler:
+    storage:
+      type: local
+      local:
+        directory: /etc/loki/rules
+    rule_path: /tmp/loki/rules
+    alertmanager_url: http://prometheus-alertmanager.monitoring.svc.cluster.local:9093
+    ring:
+      kvstore:
+        store: inmemory
+    enable_api: true
+
   commonConfig:
     replication_factor: 1
 
@@ -66,6 +78,17 @@ loki:
 
 singleBinary:
   replicas: 1
+  extraVolumes:
+    - name: loki-rules
+      configMap:
+        name: loki-rules
+    - name: loki-ruler-wal
+      emptyDir: {}
+  extraVolumeMounts:
+    - name: loki-rules
+      mountPath: /etc/loki/rules/fake
+    - name: loki-ruler-wal
+      mountPath: /tmp/loki
   resources:
     requests:
       cpu: 100m

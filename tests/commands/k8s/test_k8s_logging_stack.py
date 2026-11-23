@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from devops_cli.commands.k8s import app
@@ -442,3 +443,27 @@ def test_k8s_logs_mid_body_error_raises_without_fallback(
     assert isinstance(res.exception, RuntimeError)
     assert "head-line\n" in res.stdout
     assert process_fake.calls == []
+
+
+def test_logging_stack_security_and_scoping() -> None:
+    """The logging perimeter allows TCP 9093 egress to the monitoring namespace (#3485)."""
+    policy_path = Path("k8s/logging/networkpolicy.yaml")
+    policies = list(yaml.safe_load_all(policy_path.read_text(encoding="utf-8")))
+    egress_policy = next(
+        p
+        for p in policies
+        if p and p.get("metadata", {}).get("name") == "logging-default-perimeter-egress"
+    )
+    monitoring_egress = [
+        rule
+        for rule in egress_policy["spec"]["egress"]
+        if any(
+            to_item.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == "monitoring"
+            for to_item in rule.get("to", [])
+        )
+    ]
+    assert len(monitoring_egress) == 1
+    assert monitoring_egress[0]["ports"] == [{"protocol": "TCP", "port": 9093}]

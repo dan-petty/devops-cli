@@ -1,0 +1,17 @@
+stream_name: "ollama-48gib"
+window: "1h"
+cases:
+  above_threshold:
+    lines:
+      - offset: "10m"
+        message: "llama-server model predicted to exceed available memory, evicting"
+      - offset: "20m"
+        message: "llama-server model predicted to exceed available memory, evicting"
+  at_threshold:
+    lines: []
+  no_eviction:
+    lines:
+      - offset: "5m"
+        message: "llama-server model loaded successfully"
+      - offset: "15m"
+        message: "processing prompt tokens"

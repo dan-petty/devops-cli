@@ -94,6 +94,11 @@ REPOS_DRIFT_RULE_TESTS = FIXTURES / "prometheus_rules" / "repos_drift_tests.yaml
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
 METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
+LOKI_RULES = K8S / "logging" / "loki-rules.yaml"
+LOKI_VALUES = K8S / "logging" / "loki-values.yaml"
+LOGGING_NETWORK_POLICY = K8S / "logging" / "networkpolicy.yaml"
+MONITORING_NETWORK_POLICY = K8S / "monitoring" / "networkpolicy.yaml"
+OLLAMA_EVICTIONS_FIXTURE = FIXTURES / "logs" / "ollama_evictions.yaml"
 
 ROADMAP_SERVICE_GROUP = "roadmap-service"
 # The group of the Service's webhook route, apart from the Service's group (#2476).
@@ -523,3 +528,120 @@ def test_github_requests_high_action_does_not_lower_budget() -> None:
     )
 
     assert "lower the budget" not in row.lower()
+
+
+def test_the_loki_ruler_fires_on_tier_evictions() -> None:
+    """The Loki ruler evaluates alert rules from the mounted ConfigMap and fires when eviction
+    lines exceed the threshold (#3485)."""
+    rules_data = yaml.safe_load(LOKI_RULES.read_text(encoding="utf-8"))
+    assert rules_data["metadata"]["name"] == "loki-rules"
+    assert rules_data["metadata"]["namespace"] == "logging"
+    assert "ollama-evictions.yaml" in rules_data["data"]
+
+    rule_group_yaml = yaml.safe_load(rules_data["data"]["ollama-evictions.yaml"])
+    (group,) = rule_group_yaml["groups"]
+    assert group["name"] == "ollama-tier-evictions"
+    (rule,) = group["rules"]
+    assert rule["alert"] == "OllamaTierEvictions"
+    assert rule["for"] == "5m"
+    assert rule["labels"]["severity"] == "warning"
+
+    values = yaml.safe_load(LOKI_VALUES.read_text(encoding="utf-8"))
+    ruler = values["loki"]["ruler"]
+    assert ruler["storage"] == {"type": "local", "local": {"directory": "/etc/loki/rules"}}
+    assert ruler["rule_path"] == "/tmp/loki/rules"
+    assert (
+        ruler["alertmanager_url"]
+        == "http://prometheus-alertmanager.monitoring.svc.cluster.local:9093"
+    )
+    assert ruler["ring"]["kvstore"]["store"] == "inmemory"
+    assert ruler["enable_api"] is True
+
+    single_binary = values["singleBinary"]
+    volumes = single_binary["extraVolumes"]
+    volume_mounts = single_binary["extraVolumeMounts"]
+    assert {"name": "loki-rules", "configMap": {"name": "loki-rules"}} in volumes
+    assert {"name": "loki-rules", "mountPath": "/etc/loki/rules/fake"} in volume_mounts
+
+    expr = rule["expr"]
+    match = re.search(
+        r'sum\(count_over_time\(\s*\{([^}]+)\}\s*\|=\s*"([^"]+)"\s*\[([^\]]+)\]\s*\)\)\s*>\s*(\d+)',
+        expr,
+    )
+    assert match is not None, f"Expression did not match expected structure: {expr}"
+    selector_str, filter_literal, window_str, threshold_str = match.groups()
+    threshold = int(threshold_str)
+
+    fixture = yaml.safe_load(OLLAMA_EVICTIONS_FIXTURE.read_text(encoding="utf-8"))
+    assert selector_str == f'service_name="{fixture["stream_name"]}"'
+    assert window_str == fixture["window"]
+
+    cases = fixture["cases"]
+    above_lines = [
+        line["message"]
+        for line in cases["above_threshold"]["lines"]
+        if filter_literal in line["message"]
+    ]
+    assert len(above_lines) > threshold
+
+    at_lines = [
+        line["message"]
+        for line in cases["at_threshold"]["lines"]
+        if filter_literal in line["message"]
+    ]
+    assert len(at_lines) <= threshold
+
+    no_lines = [
+        line["message"]
+        for line in cases["no_eviction"]["lines"]
+        if filter_literal in line["message"]
+    ]
+    assert len(no_lines) <= threshold
+
+
+def test_the_logging_perimeter_reaches_alertmanager_on_9093() -> None:
+    """The logging perimeter admits TCP 9093 to monitoring Alertmanager and no other port for
+    that pair (#3485)."""
+    logging_policies = list(yaml.safe_load_all(LOGGING_NETWORK_POLICY.read_text(encoding="utf-8")))
+    egress_policy = next(
+        p
+        for p in logging_policies
+        if p and p.get("metadata", {}).get("name") == "logging-default-perimeter-egress"
+    )
+    monitoring_egress = [
+        rule
+        for rule in egress_policy["spec"]["egress"]
+        if any(
+            to_item.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == "monitoring"
+            for to_item in rule.get("to", [])
+        )
+    ]
+    assert len(monitoring_egress) == 1
+    ports = monitoring_egress[0]["ports"]
+    assert ports == [{"protocol": "TCP", "port": 9093}]
+
+    monitoring_policies = list(
+        yaml.safe_load_all(MONITORING_NETWORK_POLICY.read_text(encoding="utf-8"))
+    )
+    ingress_policy = next(
+        p
+        for p in monitoring_policies
+        if p and p.get("metadata", {}).get("name") == "monitoring-default-perimeter-ingress"
+    )
+    logging_ingress = [
+        rule
+        for rule in ingress_policy["spec"]["ingress"]
+        if any(
+            from_item.get("namespaceSelector", {})
+            .get("matchLabels", {})
+            .get("kubernetes.io/metadata.name")
+            == "logging"
+            for from_item in rule.get("from", [])
+        )
+    ]
+    assert len(logging_ingress) == 1
+    ports = logging_ingress[0]["ports"]
+    assert ports == [{"protocol": "TCP", "port": 9093}]

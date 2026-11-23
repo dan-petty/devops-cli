@@ -85,3 +85,11 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # 3. Alertmanager in monitoring (Loki ruler alerts)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9093

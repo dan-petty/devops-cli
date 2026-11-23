@@ -59,6 +59,14 @@ spec:
           port: 9090
         - protocol: TCP
           port: 4040
+    # 4. Allow Loki ruler in logging to send alerts to Alertmanager (9093)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: logging
+      ports:
+        - protocol: TCP
+          port: 9093
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
