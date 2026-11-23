@@ -73,7 +73,6 @@ from devops_cli.github.repo_ref import RepoRef
 from devops_cli.infra.access import AgentAccess, require_agent_level
 from devops_cli.infra.ad_hoc import read_job_events, tool_env
 from devops_cli.infra.ansible_facts import (
-    REQUIREMENTS_FILE,
     RUNNER_COMMAND,
     AnsibleInventory,
     AnsibleTool,
@@ -84,6 +83,7 @@ from devops_cli.infra.ansible_facts import (
     read_inventory,
 )
 from devops_cli.infra.onboard import OnboardTarget
+from devops_cli.infra.repo_content import find_collection_requirements
 from devops_cli.infra.repo_tree import export_commit, render_read
 from devops_cli.lang import ERRORS, MESSAGES
 from devops_cli.models.infra import (
@@ -465,13 +465,13 @@ def collections_folder(requirements: Path) -> Path:
 
 def install_collections(tool: AnsibleTool, project: Path) -> Path | None:
     """The folder of the pinned collections of the repo in `project`, installed once for each
-    version of `collections/requirements.yml`; none when the repo has no such file.
+    version of its collection requirements file; none when the repo has no such file.
 
     Raises:
         InfraReadError: the install fails.
     """
-    requirements = project / REQUIREMENTS_FILE
-    if not requirements.is_file():
+    requirements = find_collection_requirements(project)
+    if requirements is None:
         return None
     target = collections_folder(requirements)
     if target.is_dir():
@@ -479,7 +479,7 @@ def install_collections(tool: AnsibleTool, project: Path) -> Path | None:
     target.parent.mkdir(parents=True, exist_ok=True, mode=_PRIVATE)
     staging = Path(tempfile.mkdtemp(prefix=_INSTALL_PREFIX, dir=target.parent))
     try:
-        install_requirements(tool, project, staging)
+        install_requirements(tool, project, staging, requirements=requirements)
         staging.rename(target)
     finally:
         shutil.rmtree(staging, ignore_errors=True)

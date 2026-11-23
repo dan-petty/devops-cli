@@ -255,3 +255,22 @@ def test_a_relative_base_dir_resolves_under_the_main_worktree(
     assert onboard.default_checkout(RepoRef("owner/name"), settings) == (
         tmp_path / "repos" / "owner" / "name"
     )
+
+
+def test_collections_row_and_install_agree_on_requirements_yaml(tmp_path: Path) -> None:
+    """The collections row and the requirements helper agree on `collections/requirements.yaml`."""
+    from devops_cli.infra.repo_content import (
+        find_collection_requirements,
+        read_collection_requirements,
+    )
+
+    colls = tmp_path / "collections"
+    colls.mkdir()
+    yaml_file = colls / "requirements.yaml"
+    yaml_file.write_text("collections:\n  - name: community.general\n", encoding="utf-8")
+
+    reqs = read_collection_requirements(tmp_path)
+    found = find_collection_requirements(tmp_path)
+
+    assert reqs.path == "collections/requirements.yaml"
+    assert found == yaml_file

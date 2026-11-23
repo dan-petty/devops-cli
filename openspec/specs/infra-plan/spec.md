@@ -17,7 +17,7 @@ How `devops infra plan` runs a playbook of an infra repo in check mode at one co
 - **THEN** the command exits 1, names the ref, and exports nothing
 
 ### Requirement: The plan runs the playbook in check mode
-The command SHALL run `ansible-runner run` with `--check --diff -v`, the inventory of the profile, `--tags` when given, the key of `devops ssh` as `ansible_ssh_private_key_file`, the repo's `ansible.cfg` and host key checks on. Before the run it SHALL install the pinned collections of `collections/requirements.yml` once for each version of that file.
+The command SHALL run `ansible-runner run` with `--check --diff -v`, the inventory of the profile, `--tags` when given, the key of `devops ssh` as `ansible_ssh_private_key_file`, the repo's `ansible.cfg` and host key checks on. Before the run it SHALL install the pinned collections of the discovered requirements file (`collections/requirements.yml` or `collections/requirements.yaml`) once for each version of that file.
 
 #### Scenario: The run options
 - **WHEN** a person plans `ansible/playbooks/03_k3s.yaml` with `--limit node-5.example.com --tags k3s`
@@ -30,6 +30,10 @@ The command SHALL run `ansible-runner run` with `--check --diff -v`, the invento
 #### Scenario: A playbook outside the repo
 - **WHEN** a person plans `../outside.yaml`
 - **THEN** the command exits 1, says that it is not a playbook file of the infra repo, and starts no `ansible-runner`
+
+#### Scenario: Plan on a YAML-only repository
+- **WHEN** the project has only `collections/requirements.yaml` and no `collections/requirements.yml`
+- **THEN** the install step installs the pinned collections from `collections/requirements.yaml`
 
 ### Requirement: No host of the offline group is in the limit
 The host pattern of the run SHALL be the `--limit`, else `all`, followed by `!<offline group>` as a term of its own when the profile names a group of hosts out of service: the term is joined with a comma when the limit holds a comma, and with a colon when it holds none.

@@ -40,7 +40,6 @@ from devops_cli.github.repo_ref import RepoRef, is_repository_name
 from devops_cli.infra.access import AgentAccess
 from devops_cli.infra.ansible_facts import (
     DOC_COMMAND,
-    REQUIREMENTS_FILE,
     AnsibleConfig,
     AnsibleInventory,
     AnsibleTool,
@@ -55,6 +54,7 @@ from devops_cli.infra.ansible_facts import (
 from devops_cli.infra.repo_content import (
     YamlContent,
     find_ci_workflows,
+    find_collection_requirements,
     find_node_targets,
     find_roles,
     read_collection_requirements,
@@ -249,19 +249,24 @@ def _read_facts(root: Path) -> _Facts:
 def _read_collection_roles(tool: AnsibleTool, root: Path) -> tuple[str, ...] | str:
     """The roles of the pinned collections of the repo at `root`, which an install puts in a
     temporary folder for their listing; or the reason that the roles row does not list them. A repo
-    with no `collections/requirements.yml` pins no collection."""
+    with no collection requirements file pins no collection."""
     texts = MESSAGES.infra
-    if not (root / REQUIREMENTS_FILE).is_file():
+    requirements = find_collection_requirements(root)
+    if requirements is None:
         return ()
     if not (tool.installed and check_binary(tool.argv(DOC_COMMAND)[0])):
         return texts.roles_no_doc
     with tempfile.TemporaryDirectory(prefix=_COLLECTIONS_PREFIX) as folder:
-        roles = _attempt(lambda: _install_and_list(tool, root, Path(folder)))
+        roles = _attempt(
+            lambda: _install_and_list(tool, root, Path(folder), requirements=requirements)
+        )
     return roles if isinstance(roles, tuple) else texts.roles_unread.format(reason=roles)
 
 
-def _install_and_list(tool: AnsibleTool, root: Path, folder: Path) -> tuple[str, ...]:
-    install_requirements(tool, root, folder)
+def _install_and_list(
+    tool: AnsibleTool, root: Path, folder: Path, requirements: Path | None = None
+) -> tuple[str, ...]:
+    install_requirements(tool, root, folder, requirements=requirements)
     return read_collection_roles(tool, root, folder)
 
 
