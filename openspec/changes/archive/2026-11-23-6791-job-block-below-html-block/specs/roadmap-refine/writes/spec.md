@@ -40,7 +40,7 @@ The hash that refine records as `refine.body_hash` SHALL be the hash of the body
 #### Scenario: A marker in an HTML block of a person
 - **WHEN** a person writes a lone start marker or a marker pair in a `<details>` or `<div>` block
 - **AND** a fence line can follow the marker in the block
-- **THEN** a read finds only the refine block at the end of the body, and no write changes the body
+- **THEN** a read finds only the refine block at the end of the body, and no write changes the text of the person
 - **AND** a job block that a line of the person follows in the same HTML block stays unread
 
 #### Scenario: A person writes a start marker in a details block above the section
