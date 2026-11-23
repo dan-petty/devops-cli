@@ -34,4 +34,5 @@ The store SHALL read as the job record block only a comment that is the last blo
 #### Scenario: A person puts an HTML block directly above the record
 - **WHEN** a person puts `<details>`, `<div>` or `<div>x</div>` on the line directly above the record block that a job wrote
 - **THEN** the store reads the record, and the body that it gives is the body of the person without the record line
-- **AND** the next write of a mark puts a blank line before the record block, and the body holds one record block with the keys of the old record and the mark
+- **AND** the next write of a mark puts a blank line before the record block
+- **AND** the body holds one record block with the keys of the old record and the mark

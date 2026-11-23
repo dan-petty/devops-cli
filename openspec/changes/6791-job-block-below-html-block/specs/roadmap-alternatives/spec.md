@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A marker bounds a block only as an HTML block
-A check SHALL treat a marker as a block boundary only where CommonMark parses it as an HTML block of its own. A marker on the last line of a comment or a declaration SHALL be a boundary too. So SHALL a marker line in an HTML block that only a blank line ends. A marker that a person quotes in a code span, a code block or a paragraph SHALL stay their text. The check SHALL add its block at the end of a body that holds no such pair. A boundary marker with no partner SHALL stop the write.
+A check SHALL treat a marker as a block boundary only where CommonMark parses it as an HTML block of its own. A marker on the last line of a comment or a declaration SHALL be a boundary too. So SHALL a marker line in an HTML block that only a blank line ends, if it starts the job blocks at the end. Each other marker that a person writes SHALL stay their text. The check SHALL add its block at the end of a body with no such pair. A boundary marker with no partner SHALL stop the write.
 
 #### Scenario: The body quotes both markers
 - **WHEN** a body quotes the alternatives start marker and the alternatives end marker in code spans, with the word to between them
@@ -29,3 +29,7 @@ A check SHALL treat a marker as a block boundary only where CommonMark parses it
 - **AND** the check runs three times on the item
 - **THEN** the first write adds a blank line after the text of the person and replaces the block in place
 - **AND** after each run the body holds one block, and only the first run checks the item
+
+#### Scenario: A person writes a lone start marker in a div block
+- **WHEN** a body holds no alternatives block, and a person writes the start marker of the check in a `<div>` block
+- **THEN** the check writes its block at the end of the body and keeps each line of the `<div>` block

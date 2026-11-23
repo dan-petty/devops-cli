@@ -1021,7 +1021,7 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     for the read, and the next write closes the block before the record (#6785). A person can
     also remove the blank line between an HTML block such as `<details>` and the record. The
     record line then ends that block for the read, and the next write puts the blank line back
-    (#6791). A body that does not hold the block's opening text is not parsed: most issues and
+    (#6791). A body that does not hold the block's opening text is not parsed. Most issues and
     every pull request of a listing have no record (#4445). Only a body whose last block is not
     the record gets a second parse.
     """
