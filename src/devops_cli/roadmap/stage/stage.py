@@ -3011,6 +3011,35 @@ def _call_reason(exc: AIClientError) -> str:
     )
 
 
+# The errors of the plan of one item that fail the item, not the run (`_plan_each`). A refused key
+# of the provider (`AICredentialsError`) still stops the run.
+ITEM_ERRORS: Final = (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError)
+
+
+def item_failure(
+    target: StageTarget,
+    exc: AIClientError | GitHubOperationError | RoadmapStageError | ToolExecutionError,
+) -> StageFailure:
+    """The failure of `target` that `exc`, an error of `ITEM_ERRORS`, makes before any plan call,
+    as `_plan_each` makes it of an error of the plan. `prepare` of the stage Job makes the reads of
+    the planner, so their errors fail the item there (#6705)."""
+    return _failure_of(target, exc)
+
+
+def job_time_decision(repo: str, target: StageTarget) -> FalsePremise | StageFailure | None:
+    """The result that the CI job-time premise of `target` gives before any plan call (#4026): a
+    false premise, the failure of its GitHub read, or None when the item goes on to its plan.
+    `prepare` of the stage Job reads it, because the agent phase holds no GitHub credential
+    (#6705)."""
+    premise_of = _time_premise_of(repo)
+    if premise_of is None:
+        return None
+    try:
+        return premise_of(target)
+    except GitHubOperationError as exc:
+        return _failure_of(target, exc)
+
+
 def _plan_each(
     planner: _Planner,
     targets: Iterable[StageTarget],
@@ -3036,7 +3065,7 @@ def _plan_each(
             result = planner.plan(target) if checked is None else checked
         except AICredentialsError:
             raise
-        except (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError) as exc:
+        except ITEM_ERRORS as exc:
             result = _failure_of(
                 target,
                 exc,
@@ -4475,6 +4504,16 @@ class StageWriter:
                 self._failed,
             )
 
+    def resume(self, plan: StagePlan, selected: Collection[int], begun: StageApplied) -> None:
+        """Take up the round of `plan` that `begin` started in another process, which wrote
+        `begun`, so that `settle` writes the results of `selected` (#6705). It writes nothing:
+        `publish` of the stage Job calls it after `prepare` called `begin`."""
+        self._repo, self._sha = plan.repo, plan.sha
+        self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
+        self._removed = list(begun.removed)
+        self._rejected = list(begun.rejected)
+        self._failed = list(begun.failed)
+
     def _draft_heads(self) -> dict[str, int]:
         """The number of the open pull request of each head branch: one read for the round."""
         drafts: dict[str, int] = {}
@@ -4797,6 +4836,7 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
 
 
 __all__ = [
+    "ITEM_ERRORS",
     "KeptBranch",
     "LeftOut",
     "OverBudget",
@@ -4819,6 +4859,8 @@ __all__ = [
     "Walk",
     "dry_run_stage",
     "emit_stage_results",
+    "item_failure",
+    "job_time_decision",
     "log_stage_attempts",
     "named_items",
     "openspec_tool",
