@@ -17,8 +17,9 @@ implement and fix-checks jobs do (#3702, #6601):
   each of these reads answers that GitHub cannot be read, as a failed read does (#3240). #6705
   replaces the engine.
 - `publish` (App key) reads the state file and the outcome as data (`read_run_file`), each text of
-  the outcome masked. It refuses a result of another item and a change with a file outside the
-  change folder of the item. Then it writes the result as the stage job does
+  the outcome masked. It takes the target of the result from the state file, not from the
+  outcome, and refuses a change with a file outside the change folder of the item. Then it writes
+  the result as the stage job does
   (`StageWriter.settle`): `push_plan` pushes the plan commit, and the draft pull request is opened
   or updated.
 
@@ -37,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
+from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_PHASE_INPUT_FILE,
@@ -50,6 +52,7 @@ from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.phases.files import RunFolders, read_output, read_run_file, write_json
 from devops_cli.roadmap.refine.refine import body_dependencies
 from devops_cli.roadmap.stage.stage import (
+    ITEM_ERRORS,
     PlannedTargets,
     PlannerReads,
     PlanResult,
@@ -61,6 +64,7 @@ from devops_cli.roadmap.stage.stage import (
     StageTarget,
     StageWriter,
     begin_stage,
+    item_failure,
     parse_filters,
     plan_targets,
     premise_before_plan,
@@ -183,19 +187,32 @@ def prepare_stage(
     if not read.selected:
         return plan
     target = read.selected[0]
+    reads = store_reads(store, plan, read.selected, source, read.planned)
     started = clock.monotonic()
     decided = premise_before_plan(repo, target)
+    comments: list[dict[str, Any]] = []
+    titles: dict[int, str] = {}
+    creates: dict[str, int] = {}
+    if decided is None:
+        # The planner made these reads in its plan of the item, so an error of one fails the item,
+        # as `_plan_each` fails it, and a refused key of the provider stops the run.
+        try:
+            comments = [c.model_dump(mode="json") for c in reads.comments_on(item)]
+            titles = {
+                number: title
+                for number in body_dependencies(target.item.body)
+                if (title := reads.dependency_title(number)) is not None
+            }
+            creates = dict(reads.open_creates())
+        except AICredentialsError:
+            raise
+        except ITEM_ERRORS as exc:
+            decided = item_failure(target, exc)
     if decided is not None:
         writer.settle(target, decided)
         attempt = StageAttempt(target.item.number, seconds=round(clock.monotonic() - started))
         return PlannedTargets.of([decided], [attempt]).into(plan)
-    reads = store_reads(store, plan, read.selected, source, read.planned)
     checkout = clone_staged(folders.work, repo, plan.sha)
-    titles = {
-        number: title
-        for number in body_dependencies(target.item.body)
-        if (title := reads.dependency_title(number)) is not None
-    }
     inputs = StageAgentInput(
         repo=repo,
         checkout=str(checkout),
@@ -203,9 +220,9 @@ def prepare_stage(
         budget=plan.budget,
         target=_TARGET.dump_python(target, mode="json"),
         rejected=dict(reads.rejected),
-        comments=[comment.model_dump(mode="json") for comment in reads.comments_on(item)],
+        comments=comments,
         titles=titles,
-        creates=dict(reads.open_creates()),
+        creates=creates,
     )
     write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
     return _state(

@@ -80,7 +80,13 @@ from devops_cli.roadmap.stores.store import (
 
 # The reads that `fail_read` can fail.
 READS = frozenset(
-    {"changes_since", "newest_issue_number", "repository_file", "repository_is_private"}
+    {
+        "changes_since",
+        "comments_on",
+        "newest_issue_number",
+        "repository_file",
+        "repository_is_private",
+    }
 )
 
 DEFAULT_ROADMAP_MEMORY_REPO = "example/roadmap"
@@ -269,8 +275,8 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def fail_read(self, read: str, error: Exception | None) -> None:
         """Make every call of the store method `read` raise `error`, until `error` is None. The
-        reads that can fail are `repository_is_private`, `repository_file`, `changes_since` and
-        `newest_issue_number`."""
+        reads that can fail are `repository_is_private`, `repository_file`, `changes_since`,
+        `newest_issue_number` and `comments_on`."""
         if read not in READS:
             raise ValueError(f"{read} is no read that the fake can fail.")
         if error is None:
@@ -716,6 +722,7 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """Every comment on issue `number`, oldest first."""
+        self._readable("comments_on")
         return list(self._roadmap.comments.get(number, []))
 
     def comments_since(self, since: datetime | None) -> Iterator[IssueComment]:

@@ -19,8 +19,9 @@ The push of the plan commit runs in no worktree of the clone that the planner re
 folder goes when the write ends.
 
 The stage Job runs on the three phases too (#6813, `stage_job.py`): its `prepare` makes the clone
-of the staged commit in the work folder of its run (`clone_staged`), and its agent phase plans in
-that clone with no GitHub credential. Its `publish` then calls `push_plan`.
+of the staged commit in the work folder of its run (`clone_staged`), and its agent phase, in a
+process of its own (`--phase agent`), plans in that clone with no GitHub credential. Its `publish`
+then calls `push_plan`.
 """
 
 from __future__ import annotations

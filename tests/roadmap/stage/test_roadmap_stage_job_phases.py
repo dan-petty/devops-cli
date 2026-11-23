@@ -8,9 +8,13 @@ of the implement and fix-checks jobs do (#3702, #6601).
 
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import json
+import logging
 import os
 import re
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -24,7 +28,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_OUTCOME_FILE,
     CONST_ROADMAP_PHASE_STATE_FILE,
 )
-from devops_cli.exceptions import RoadmapStageError
+from devops_cli.exceptions import GitHubOperationError, RoadmapStageError
 from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.stage.stage_job import (
@@ -161,6 +165,51 @@ def test_the_phases_in_turn_on_one_run_folder_publish_the_plan_of_phase_all(
         )
     )
     assert _published(apart, stage_repo, github_api, number) == expected
+
+
+@pytest.mark.parametrize("apart", [False, True], ids=["phase-all", "phase-prepare"])
+def test_a_failed_github_read_for_the_agent_is_a_failure_of_the_item(
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    job: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    apart: bool,
+) -> None:
+    """`prepare` reads the comments of the item, the titles of its dependencies and the paths of
+    the open plans for the agent phase. A GitHub error of these reads is a failure of the item, as
+    it is in the plan: the record holds its class and its step, the log names the failed item, and
+    the Job exits 75, so the pod runs again after the wait of the class."""
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = _stageable(store)
+    store.fail_read("comments_on", GitHubOperationError("HTTP 502"))
+
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.round_log"):
+        if apart:
+            run = prepare_stage_job(
+                store,
+                RunFolders(tmp_path / "run"),
+                repo=STAGE_REPO,
+                item=number,
+                source=stage_repo.clone,
+                now=NOW,
+            )
+        else:
+            run = run_stage_job(
+                store, repo=STAGE_REPO, item=number, source=stage_repo.clone, now=NOW
+            )
+
+    item = store.item(number)
+    assert item is not None
+    assert run is not None
+    assert (
+        run.exit_code,
+        run.plan is not None,
+        item.job_record.get(StageRecordKey.FAILED_CLASS),
+        item.job_record.get(StageRecordKey.FAILED_STEP),
+        model_fake.sent,
+    ) == (StageJobExit.EVICTED, True, "ci_infra", "plan", [])
+    assert [m for m in caplog.messages if "stage item failed" in m and "class=ci_infra" in m]
 
 
 @pytest.mark.parametrize("name", CONST_GITHUB_AGENT_REFUSED_ENV)
@@ -331,7 +380,16 @@ def test_a_prepare_that_ends_the_run_gives_publish_its_end(
             "skipped",
         )
     )
-    assert (folders.out.exists(), model_fake.sent) == (False, [])
+    item = store.item(number)
+    assert item is not None
+    check_in = recorded_check_in(item)
+    assert check_in is not None
+    assert (check_in.job, check_in.result, folders.out.exists(), model_fake.sent) == (
+        JOB,
+        "skipped",
+        False,
+        [],
+    )
 
 
 def test_an_agent_phase_past_its_time_budget_ends_in_the_deadline_of_publish(
@@ -368,6 +426,27 @@ def test_an_agent_phase_past_its_time_budget_ends_in_the_deadline_of_publish(
     )
 
 
+# `PR_SET_DUMPABLE` of <linux/prctl.h>, and the C library of glibc on Linux.
+PR_SET_DUMPABLE = 4
+LIBC = "libc.so.6"
+
+
+class _Libc:
+    """A C library of the process whose `prctl` the test records and does not call: the edge of
+    the hardening of a phase. Each other name is the name of the real library."""
+
+    def __init__(self, library: Any, calls: list[tuple[int, ...]]) -> None:
+        self._library = library
+        self._calls = calls
+
+    def prctl(self, *args: int) -> int:
+        self._calls.append(args)
+        return 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._library, name)
+
+
 @pytest.mark.parametrize(
     "args",
     [
@@ -384,6 +463,7 @@ def test_a_phase_of_the_stage_job_needs_its_job_item_confirm_and_a_run_folder(
     assert (result.exit_code, "--work" in result.output) == (1, True)
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="prctl is Linux only")
 def test_each_phase_of_the_cli_runs_in_turn_on_one_run_folder(
     cli: Cli,
     roadmap_store: InMemoryRoadmapStore,
@@ -393,14 +473,16 @@ def test_each_phase_of_the_cli_runs_in_turn_on_one_run_folder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Each phase clears the dumpable flag of its process first, as the phases of the implement
-    job do (#3702). The spy replaces the kernel call, which would change the test run. `prepare`
-    hands the run on with exit 0, and `publish` ends with the exit code of the end."""
-    from devops_cli.core import process_hardening
-
-    seen: list[str] = []
+    """Each phase clears the dumpable flag of its process, as the phases of the implement job do
+    (#3702). The C library of the test records the `prctl` call and makes no kernel call, which
+    would change the test run. `prepare` hands the run on with exit 0, and `publish` ends with the
+    exit code of the end."""
+    calls: list[tuple[int, ...]] = []
+    loaded = ctypes.CDLL
+    # `find_library` starts `ldconfig`, so the test names the C library of the platform itself.
+    monkeypatch.setattr(ctypes.util, "find_library", lambda _name: LIBC)
     monkeypatch.setattr(
-        process_hardening, "deny_environment_reads", lambda: seen.append("unreadable")
+        ctypes, "CDLL", lambda *args, **kwargs: _Libc(loaded(*args, **kwargs), calls)
     )
     number = _stageable(roadmap_store)
     no_findings(model_fake)
@@ -423,8 +505,8 @@ def test_each_phase_of_the_cli_runs_in_turn_on_one_run_folder(
 
     item = roadmap_store.item(number)
     assert item is not None
-    assert (codes, seen, item.job_record.get(StageRecordKey.PR)) == (
+    assert (codes, calls, item.job_record.get(StageRecordKey.PR)) == (
         [0, 0, 0],
-        ["unreadable"] * 3,
+        [(PR_SET_DUMPABLE, 0, 0, 0, 0)] * 3,
         "5",
     )

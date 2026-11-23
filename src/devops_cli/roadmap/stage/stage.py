@@ -3004,6 +3004,11 @@ def _call_reason(exc: AIClientError) -> str:
     )
 
 
+# The errors of the plan of one item that fail the item, not the run (`_plan_each`). A refused key
+# of the provider (`AICredentialsError`) still stops the run.
+ITEM_ERRORS: Final = (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError)
+
+
 def _plan_each(
     planner: _Planner,
     targets: Iterable[StageTarget],
@@ -3029,7 +3034,7 @@ def _plan_each(
             result = planner.plan(target) if checked is None else checked
         except AICredentialsError:
             raise
-        except (AIClientError, GitHubOperationError, RoadmapStageError, ToolExecutionError) as exc:
+        except ITEM_ERRORS as exc:
             result = _failure_of(
                 target,
                 exc,
@@ -3656,6 +3661,16 @@ def plan_targets(
         tuple(premise),
         tuple(planner.attempts),
     )
+
+
+def item_failure(
+    target: StageTarget,
+    exc: AIClientError | GitHubOperationError | RoadmapStageError | ToolExecutionError,
+) -> StageFailure:
+    """The failure of `target` that `exc`, an error of `ITEM_ERRORS`, makes before any plan call,
+    as `_plan_each` makes it of an error of the plan. The `prepare` phase of the stage Job makes the
+    reads of the planner, so their errors fail the item there (#6813)."""
+    return _failure_of(target, exc)
 
 
 def premise_before_plan(repo: str, target: StageTarget) -> FalsePremise | StageFailure | None:
@@ -4969,6 +4984,7 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
 
 
 __all__ = [
+    "ITEM_ERRORS",
     "KeptBranch",
     "LeftOut",
     "OverBudget",
@@ -4995,6 +5011,7 @@ __all__ = [
     "begin_stage",
     "dry_run_stage",
     "emit_stage_results",
+    "item_failure",
     "log_stage_attempts",
     "named_items",
     "openspec_tool",

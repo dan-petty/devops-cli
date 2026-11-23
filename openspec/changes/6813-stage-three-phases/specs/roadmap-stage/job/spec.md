@@ -18,6 +18,10 @@
 - **WHEN** the round leaves the item out
 - **THEN** `prepare` checks in and records the end, the agent phase plans nothing, and `publish` ends with the same end
 
+#### Scenario: A failed GitHub read for the agent phase
+- **WHEN** `prepare` reads the comments of the item for the agent phase, and GitHub answers HTTP 502
+- **THEN** the item fails with the class `ci_infra` and the step `plan`, as a failed read in the plan does, and the Job exits 75
+
 ### Requirement: The agent phase of the stage Job holds no GitHub credential
 `--phase agent` SHALL refuse to start when its environment holds the App key or a GitHub token, and SHALL refuse an output folder that is there before its outputs.
 
