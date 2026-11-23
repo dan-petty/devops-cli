@@ -75,7 +75,7 @@ tests:
               repo: example-org/app
             exp_annotations:
               summary: "The drift check could not read 7 rows of repository example-org/app"
-              description: "The last nightly drift check could not read rows of example-org/app, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the read-only token does not have (k8s/README.md, Alerting)."
+              description: "The last nightly drift check could not read rows of example-org/app, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the token of the drift check (CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS) does not have (k8s/README.md, Alerting)."
       - eval_time: 5h
         alertname: RepositorySettingsDrift
         exp_alerts: []

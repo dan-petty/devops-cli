@@ -14,7 +14,7 @@ Adds: `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS`, `drift_check`
 
 Kind: other. Reads: `k8s/devops/cronjob-repos-drift.yaml`. Changes: `k8s/devops/cronjob-repos-drift.yaml`, `k8s/devops/monitoring/prometheus-rules-values.yaml`, `tests/fixtures/prometheus_rules/repos_drift_tests.yaml`.
 
-- [ ] 2.1 In `k8s/devops/cronjob-repos-drift.yaml`, set `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` in place of `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY`, add row 4 to `--only`, and state the permissions in the comments. In the description of `RepositorySettingsUnreadable` and in its promtool fixture, name the permission set of the drift check
+- [x] 2.1 In `k8s/devops/cronjob-repos-drift.yaml`, set `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` in place of `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY`, add row 4 to `--only`, and state the permissions in the comments. In the description of `RepositorySettingsUnreadable` and in its promtool fixture, name the permission set of the drift check
   - Verification: `$ uv run devops ci --check --only k8s` passes
 
 ## 3. State the permissions of the drift check

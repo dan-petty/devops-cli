@@ -522,7 +522,7 @@ serverFiles:
               severity: warning
             annotations:
               summary: 'The drift check could not read {{ printf "%.0f" $value }} rows of repository {{ $labels.repo }}'
-              description: "The last nightly drift check could not read rows of {{ $labels.repo }}, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the read-only token does not have (k8s/README.md, Alerting)."
+              description: "The last nightly drift check could not read rows of {{ $labels.repo }}, so it cannot say that the repository matches its baseline. The log of the last Job of CronJob repos-drift gives the reason of each row, such as a runner image with no copier program or a permission that the token of the drift check (CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS) does not have (k8s/README.md, Alerting)."
           - alert: RepositoryDriftCheckStopped
             expr: >-
               count(last_over_time(devops_cli_repos_drift_rows{job="repos-drift"}[7d])) > 0
