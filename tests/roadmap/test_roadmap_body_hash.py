@@ -1,9 +1,10 @@
-"""The sections and the blocks of the body of an item (#744, #3502, #6627).
+"""The sections and the blocks of the body of an item (#744, #3502, #6627, #6791).
 
 A job block marker bounds a block only where CommonMark reads the marker as an HTML block of its
-own, or as the whole last line of a comment that the marker ends. A marker that a person quotes in
-a code span, a code block or a paragraph is the person's text, so a read keeps it and a write adds
-its block at the end.
+own, or as the whole last line of a comment that the marker ends. A marker line in an HTML block
+that only a blank line ends, such as `<details>`, bounds a block too. A marker that a person quotes
+in a code span, a code block or a paragraph is the person's text, so a read keeps it and a write
+adds its block at the end.
 """
 
 from __future__ import annotations
@@ -262,6 +263,70 @@ def test_a_block_that_a_person_leaves_open_holds_their_quotes_up_to_the_blocks_o
             body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
         )[1],
     ) == (body if closed is None else closed, refine, alternatives)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("</details>", id="details-end-tag"),
+        pytest.param("<div>x</div>", id="div"),
+        pytest.param('<img src="https://example.com/a.png">', id="whole-tag"),
+    ],
+)
+def test_a_marker_line_below_an_html_block_that_a_blank_line_ends_bounds_the_block(
+    line: str,
+) -> None:
+    """CommonMark ends an HTML block of kind 6, such as `</details>`, or of kind 7, a whole tag on
+    a line of its own, only at a blank line. A person removes the blank line above each job block,
+    so each start marker is a line of such a block. The marker line ends that block for a read, so
+    each reader finds both blocks. The outside text holds a blank line before each start marker,
+    so the next read parses the marker as an HTML block of its own (#6791)."""
+    body = f"Text.\n\n{line}\n{_A_BLOCK}\n{line}\n{_AN_ALTERNATIVES_BLOCK}"
+    closed = f"Text.\n\n{line}\n\n{_A_BLOCK}\n{line}\n\n{_AN_ALTERNATIVES_BLOCK}"
+    refine = body_hash.job_block_bounds(body) or (0, 0)
+    alternatives = body_hash.job_block_bounds(
+        body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+    ) or (0, 0)
+
+    assert (
+        body[slice(*refine)],
+        body[slice(*alternatives)],
+        body_hash.close_blocks_before_markers(body),
+        extract_section_and_outside(body),
+        extract_section_and_outside(
+            body, CONST_ROADMAP_ALTERNATIVES_START_MARKER, CONST_ROADMAP_ALTERNATIVES_END_MARKER
+        ),
+    ) == (
+        _A_BLOCK,
+        _AN_ALTERNATIVES_BLOCK,
+        closed,
+        (f"Text.\n\n{line}\n\n\n{line}\n\n{_AN_ALTERNATIVES_BLOCK}", "\nX\n"),
+        (f"Text.\n\n{line}\n\n{_A_BLOCK}\n{line}\n\n", "\nY\n"),
+    )
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        pytest.param(f"<details>\n\n```\n{_A_BLOCK}\n```\n\n</details>", id="fence-in-details"),
+        pytest.param(f"<pre>\n{_A_BLOCK}\n</pre>", id="pre"),
+        pytest.param(f"<?php\n{_A_BLOCK}\n?>", id="processing-instruction"),
+    ],
+)
+def test_a_marker_in_a_block_that_a_close_ends_stays_a_quote_next_to_an_html_block(
+    quote: str,
+) -> None:
+    """A person quotes a job block in a closed fence in a `<details>` part, or in a closed block
+    of a kind that an end text ends. A blank line ends the HTML block `<div>x</div>` above the
+    quote. Each marker line is a line of the fence or of the closed block, so it stays the text of
+    the person. The body has no block and does not change (#6791)."""
+    body = f"Text.\n\n<div>x</div>\n\n{quote}\n\nMore text."
+
+    assert (
+        body_hash.close_blocks_before_markers(body),
+        extract_section_and_outside(body),
+        body_hash.block_marker_spans(body),
+    ) == (body, (body, None), [])
 
 
 def test_a_block_that_a_close_ends_keeps_the_markers_that_it_quotes() -> None:

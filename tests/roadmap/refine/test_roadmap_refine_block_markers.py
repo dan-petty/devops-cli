@@ -1,4 +1,4 @@
-"""Refine finds its own section again after each write (#6627, #6736).
+"""Refine finds its own section again after each write (#6627, #6736, #6791).
 
 A marker of refine bounds its section only where CommonMark reads the marker as an HTML block of
 its own, or as the last line of a comment that the marker ends. CommonMark reads all text after an
@@ -6,7 +6,9 @@ open fenced code block or an open HTML block as part of that block. So refine cl
 the end of its own text, and at the end of the text of a person that its section follows. The next
 round then replaces the section, adds no second one, and reads the item as unchanged. A block that a
 person leaves open above the section ends at the job blocks at the end of the body, so a read still
-finds the section. A marker that a person quotes stays in the text of the person.
+finds the section. A start marker line in an HTML block that only a blank line ends, such as
+`<details>`, ends that block for a read too. A marker that a person quotes stays in the text of the
+person.
 
 The roadmap is the in-memory store, the model edge is the fake, and git is the fake of the refine
 support module.
@@ -279,6 +281,45 @@ def test_a_block_that_a_person_opens_on_github_above_the_section_keeps_the_recor
         [first, first],
         1,
     )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param(
+            "<details><summary>Log</summary>\n\nA log of a person.\n\n</details>", id="details"
+        ),
+        pytest.param("<div>x</div>", id="div"),
+    ],
+)
+def test_a_person_removes_the_blank_line_above_the_section_and_rounds_leave_one_section(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, line: str
+) -> None:
+    """An earlier round of refine wrote and recorded a section, and then a person puts an HTML
+    block directly above it, with no blank line. CommonMark ends such a block only at a blank line,
+    so the start marker is a line of the block. That line ends the block for a read (#6791). The
+    first round writes a blank line after the text of the person and the section at the end. Each
+    round leaves one section, and only the first round asks the model."""
+    earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
+    number = seed_with_body(store, earlier)
+    body_hash, section_hash = body_hashes(earlier)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
+    )
+    store.write_issue_body(number, f"{_PERSON}\n\n{line}\n{_OLD_SECTION}")
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.find(CONST_ROADMAP_REFINE_START_MARKER)],
+        "An old design." in first,
+        bodies[1:],
+    ) == ([(1, True, True)] * 3, 1, f"{_PERSON}\n\n{line}\n\n", False, [first, first])
 
 
 def test_a_marker_that_a_person_quotes_in_an_open_fence_stays_their_text(

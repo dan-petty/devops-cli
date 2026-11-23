@@ -2067,6 +2067,8 @@ _OLD_BLOCK = (
     "Alternatives check of 2026-01-01: covers.\n"
     f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}"
 )
+# A `<details>` part of a person. Only a blank line ends the HTML block of its last line.
+_DETAILS = "<details><summary>Log</summary>\n\nA log of a person.\n\n</details>"
 # A section of an earlier round of refine.
 _REFINE_SECTION = (
     f"{CONST_ROADMAP_REFINE_START_MARKER}\n## Proposed design\nA design.\n"
@@ -2119,6 +2121,18 @@ _REFINE_SECTION = (
             f"{_SCAN}\n\n```\nAn open fence of a person.\n```\n\n{_REFINE_SECTION}\n\n",
             id="person-fence-above-a-refine-section",
         ),
+        pytest.param(
+            f"{_SCAN}\n\n{_DETAILS}\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n{_DETAILS}\n\n",
+            id="person-details-directly-above-the-block",
+        ),
+        pytest.param(
+            f"{_SCAN}\n\n<div>x</div>\n{_OLD_BLOCK}",
+            REASON,
+            f"{_SCAN}\n\n<div>x</div>\n\n",
+            id="person-div-directly-above-the-block",
+        ),
     ],
 )
 def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
@@ -2132,7 +2146,10 @@ def test_an_open_block_leaves_one_block_and_an_unchanged_item_over_three_rounds(
     the block ends at its start marker, so the round replaces that block in place. A fence or a
     `<pre>` block that a person opens above the block runs to the end of the body, and the start
     marker line of the job blocks at its end ends it (#6736). So the round closes it before that
-    line, replaces the block in place, and keeps a refine section before the block readable."""
+    line, replaces the block in place, and keeps a refine section before the block readable. A
+    blank line ends an HTML block such as `</details>` or `<div>x</div>`. When a person removes
+    that blank line above the block, the start marker line ends the HTML block for a read (#6791).
+    So the round writes the blank line and replaces the block in place."""
     number = _item(store, "Open block", body=body)
     script = _searching(AlternativesReply(reason=reason, verdict=Verdict.NONE))
     seen = []

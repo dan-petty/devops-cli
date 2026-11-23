@@ -1,12 +1,14 @@
 """The record block after a body that leaves a block open (#6729), and below a block that a person
-opens above it (#6785).
+opens above it (#6785) or puts directly above it (#6791).
 
 `with_record` writes the record block as a comment after the body, and `split_record` reads it
 as the last block of the body. CommonMark reads all text after an open fenced code block or
 an open HTML block as part of that block. So the write closes such a block first. The record
 then stays the last block, and GitHub shows no record text in the code of the person. A person
 can later open a block above the record. The read then ends that block at the record line, and
-the next write closes the block before the record.
+the next write closes the block before the record. Only a blank line ends an HTML block such as
+`<details>`, so a record line directly below it also ends it for the read. The next write then
+puts a blank line before the record.
 """
 
 from __future__ import annotations
@@ -240,6 +242,53 @@ def test_a_fence_above_the_job_block_and_the_record_leaves_no_stale_record() -> 
     ) == (RECORD, 1, NEXT_RECORD, "\nThe section.\n")
 
 
+# A line of an HTML block that only a blank line ends (CommonMark kinds 6 and 7). A person puts
+# it directly above the record that a job wrote, so CommonMark reads the record as a line of it.
+HTML_LINES = {
+    "details": "<details>",
+    "div": "<div>",
+    "div-with-text": "<div>x</div>",
+}
+
+
+def _directly_above(line: str, line_break: str) -> str:
+    """`_WRITTEN` with `line` on the line directly above the record block."""
+    return _WRITTEN.replace(BLOCK, f"{line}\n{BLOCK}").replace("\n", line_break)
+
+
+@pytest.mark.parametrize("line_break", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize("line", HTML_LINES.values(), ids=HTML_LINES.keys())
+def test_a_record_directly_below_an_html_block_reads_back(line: str, line_break: str) -> None:
+    """The record line ends the HTML block that the person put directly above it (#6791). So the
+    read gives the record, and the body of the person without the record line."""
+    person = f"Text.\n\nMore text.\n\n{line}\n".replace("\n", line_break)
+    assert split_record(_directly_above(line, line_break)) == (person, RECORD)
+
+
+@pytest.mark.parametrize("line_break", ["\n", "\r\n"], ids=["lf", "crlf"])
+@pytest.mark.parametrize("line", HTML_LINES.values(), ids=HTML_LINES.keys())
+def test_the_next_write_puts_a_blank_line_between_an_html_block_and_the_record(
+    line: str, line_break: str
+) -> None:
+    """The next write puts a blank line before the record. So CommonMark parses the record of the
+    written body as its last HTML block, and the body holds one record block with the keys of the
+    old record. The text of the person keeps its rendered form."""
+    person, held = split_record(_directly_above(line, line_break))
+    written = with_record(person, encode_job_record(held, {RefineRecordKey.BODY_HASH: "b1"}))
+    last = [token for token in _BLOCKS.parse(written) if token.level == 0][-1]
+    assert (
+        (last.type, last.content.strip()),
+        written.count(CONST_ROADMAP_RECORD_MARKER),
+        split_record(written),
+        _RENDER(split_record(written)[0]),
+    ) == (
+        ("html_block", NEXT_BLOCK),
+        1,
+        (person, NEXT_RECORD),
+        _RENDER(f"Text.\n\nMore text.\n\n{line}\n"),
+    )
+
+
 QUOTES_ON_THE_LAST_LINE = {
     "not-json": f"Example:\n\n```text\n<!-- {CONST_ROADMAP_RECORD_MARKER} {{...}} -->",
     "not-an-object": f"Example:\n\n```text\n<!-- {CONST_ROADMAP_RECORD_MARKER} [1] -->",
@@ -276,16 +325,20 @@ def test_a_quote_with_a_json_object_in_an_open_block_reads_as_the_record() -> No
     )
 
 
-_OPENERS = st.sampled_from(["```", "~~~~", "<pre>", "<!-- a note", "<script>", "<?php"])
+# The openers of a block that a person leaves open, and lines of an HTML block that only a blank
+# line ends (#6791).
+_OPENERS = st.sampled_from(
+    ["```", "~~~~", "<pre>", "<!-- a note", "<script>", "<?php", "<div>", "</details>"]
+)
 
 
 @given(st.lists(_LINES, max_size=12), st.sampled_from(["", "\n", "\r\n"]), _OPENERS, st.data())
 def test_a_block_that_a_person_opens_on_any_line_keeps_the_record(
     lines: list[str], end: str, opener: str, data: st.DataObject
 ) -> None:
-    """For a written body of any of these lines, a person opens a block on any line above the
-    record. The read gives the record, and the next write gives one record block that holds the
-    keys of the old record."""
+    """For a written body of any of these lines, a person opens a block or puts an HTML line on
+    any line above the record. The read gives the record, and the next write gives one record block
+    that holds the keys of the old record."""
     written = with_record("\n".join(lines) + end, BLOCK).split("\n")
     at = data.draw(st.integers(min_value=0, max_value=len(written) - 1))
     edited = "\n".join([*written[:at], opener, *written[at:]])
