@@ -1,0 +1,14 @@
+# Design
+
+## Decisions
+1. **One set for the drift check.** `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` holds `actions`, `checks`, `environments`, `issues`, `metadata`, `pull_requests` and `secrets` with `read`, and `administration` and `contents` with `write`. Reason: GitHub gives the merge settings only with Contents write, and the bypass actors and the Code Quality setup only with Administration write (Feasibility). No other permission gets `write`.
+2. **Names that say what the set is.** The constant, the setting and its variable lose "read" and "read only": `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS`, `service.github_app.drift_check`, `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK`. Reason: the token can now write, and a name that says "read only" would be false (owner decision on #6875). ConfigMap `devops-cli-config` still leaves the setting out: only the drift Job sets it, through its own variable.
+3. **The writer is the guard of a plan.** A plan sends no write because `RouteWriter` with `confirm=False` records each write and sends nothing, and `--all` refuses `--confirm`. A test runs `devops repos onboard --all --plan` as the App with `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK=true` over a repository off its baseline: the token request asks for both write permissions, and each other request is a GET. Reason: the token can now write, so the test must prove the guard with that token.
+4. **Row 4 joins the Job.** The CronJob runs `--only 0,1,2,3,4,5,6,7,8,9,10,11`. Reason: `docs/repos/onboard.md` left row 4 out only because its GET needs Administration write. On 2026-11-23 GitHub answered 404 ("Code quality is not available for this repository") for dan-petty/devops-cli and dan-petty/infra, which makes row 4 `not available`: no drift and no failed read.
+5. **The #6875 rule stays.** A key that the reply does not hold is still unknown, not a difference: a person token without admin access still gets a reply without these keys.
+
+## Rejected alternatives
+- **Keep the name `read_only` and the read set, and add the two write permissions to it.** Rejected: `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` with `contents: write` would state a false fact in each place that names it (17 files, Feasibility census).
+- **A choice of permission set (`token_permissions: roadmap | drift`).** Rejected: only one process, the drift Job, asks for a set other than the default one, and `GitHubApp.permissions` already carries the set of another App, such as Renovate.
+- **Leave row 4 out and give it a new reason.** Rejected: the only stated reason (`docs/repos/onboard.md`, "Row 4 stays out") stops being true, and a row that GitHub answers with 404 is `not available` and adds no alert.
+- **Ask for the write permissions only for the rows 2 and 10 reads.** Rejected: one Job mints one token for its run (`configured_app`), and a second token for two GETs adds a second path for the same risk.
