@@ -10,6 +10,7 @@ import base64
 import json
 import logging
 import subprocess
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urlsplit
 
@@ -30,6 +31,7 @@ from devops_cli.k8s.cluster_secrets import (
     LiteralSource,
     SecretEntry,
     SecretGenerator,
+    load_cluster_secrets_table,
 )
 from devops_cli.k8s.secret_push import (
     PushMode,
@@ -623,7 +625,7 @@ def test_gitea_repo_creds_secret_row_and_namespace_gate(
     cluster: FakeCluster, stub_keyring: FakeKeyring
 ) -> None:
     """argocd/gitea-repo-creds is gated by namespace gitea and skips on minikube (#1082)."""
-    secret = next(s for s in CLUSTER_SECRETS if s.ref == "argocd/gitea-repo-creds")
+    secret = next(s for s in load_cluster_secrets_table() if s.ref == "argocd/gitea-repo-creds")
     assert secret.gate_namespace == "gitea"
     assert secret.labels.get("argocd.argoproj.io/secret-type") == "repo-creds"
     entries = {e.key: e.source for e in secret.entries}
@@ -932,3 +934,26 @@ def test_a_pushed_manifest_carries_the_secret_type_of_its_row(
         {"example-db": "kubernetes.io/basic-auth", "example-token": "Opaque"},
         {"example-db": "kubernetes.io/basic-auth", "example-token": "Opaque"},
     )
+
+
+def test_push_secrets_with_fixture_environment_tree(
+    tmp_path: Path, cluster: FakeCluster, stub_keyring: FakeKeyring
+) -> None:
+    """A fixture environment tree with cluster-secrets.toml gives the fixture rows and product rows."""
+    from devops_cli.k8s.cluster_secrets import load_cluster_secrets
+    from tests.support.paths import REPO_ROOT
+
+    env_dir = tmp_path / "k8s"
+    env_dir.mkdir(parents=True)
+    fixture_src = REPO_ROOT / "tests" / "fixtures" / "cluster-secrets.toml"
+    (env_dir / "cluster-secrets.toml").write_text(
+        fixture_src.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    fixture_rows = load_cluster_secrets(env_dir / "cluster-secrets.toml")
+    expected_refs = {s.ref for s in fixture_rows} | {s.ref for s in CLUSTER_SECRETS}
+
+    result = _push("--plan", "--k8s-dir", str(env_dir))
+    assert result.exit_code == 0
+    for ref in expected_refs:
+        assert ref in result.output

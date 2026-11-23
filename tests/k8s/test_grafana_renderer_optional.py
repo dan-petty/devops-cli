@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from devops_cli.k8s.cluster_secrets import OPTIONAL_FEATURE_SECRETS, load_cluster_secrets_table
 
 
 def test_the_optional_feature_secret_is_in_the_cluster_secret_table() -> None:
     """The list names a Secret of the cluster Secret table (#5200)."""
-    from devops_cli.k8s.cluster_secrets import OPTIONAL_FEATURE_SECRETS
-
-    refs = {secret.ref for secret in CLUSTER_SECRETS}
+    refs = {secret.ref for secret in load_cluster_secrets_table()}
 
     assert set(OPTIONAL_FEATURE_SECRETS) <= refs
