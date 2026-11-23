@@ -75,8 +75,14 @@ def test_the_spend_limit_error_holds_no_amount_key_or_url_of_the_reply() -> None
     ]
 
 
-def test_the_spend_limit_error_stops_a_run_as_a_refused_key_does() -> None:
-    assert isinstance(spend_limit_error(401, GATEWAY_BODY), AICredentialsError)
+def test_the_spend_limit_error_is_a_credentials_error_with_the_status_of_the_reply() -> None:
+    """Each stop site catches `AICredentialsError` and stops the run, so a spent key stops it."""
+    error = spend_limit_error(401, GATEWAY_BODY)
+
+    assert (type(error).__mro__[1], getattr(error, "reason", None)) == (
+        AICredentialsError,
+        "LLM_INFERENCE_ERROR, HTTP 401 Unauthorized",
+    )
 
 
 @pytest.mark.parametrize(
