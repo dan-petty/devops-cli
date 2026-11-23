@@ -129,6 +129,14 @@ def clone_staged(work: Path, repo: str, sha: str) -> Path:
     return path
 
 
+def check_out_staged(checkout: Path, sha: str) -> None:
+    """Check out the staged commit `sha` in the clone `checkout` of the job, with no branch: a
+    `publish` of the stage Job in a process of its own builds the plan of its agent phase on that
+    commit, as the planner read it (#6813). The next update of the clone (`ensure_checkout`) moves
+    it back to its branch."""
+    git_call(checkout, "switch", "--quiet", "--detach", sha)
+
+
 def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     """Delete `branch` of `repo`, which `push_plan` pushed at `tip`, from the repository that the
     push went to, with a lease on `tip`: the cleanup of a draft that GitHub refused (#6710)."""
@@ -144,4 +152,4 @@ def delete_plan_branch(repo: str, branch: str, tip: str) -> None:
     )
 
 
-__all__ = ["clone_staged", "delete_plan_branch", "push_plan", "stage_runs"]
+__all__ = ["check_out_staged", "clone_staged", "delete_plan_branch", "push_plan", "stage_runs"]

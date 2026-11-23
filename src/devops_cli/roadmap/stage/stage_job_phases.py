@@ -10,18 +10,23 @@ implement and fix-checks jobs do (#3702, #6601):
   inputs of the agent in `work/`: the item, the reads of the planner from the store, the clone and
   the staged commit.
 - `agent` (model key only) reads its inputs, plans the item in the clone with the stage engine
-  (`plan_targets`), and writes the result and the counts of the attempt to `out/outcome.json`.
-  It reads no store. The GitHub reads of the planner (`read_issue`, `find_issues`, the files of a
+  (`plan_targets`), and hands over only what the model made (`HandedResult`): the proposal, the
+  shorter text of the body, the review findings, a compact trace and the counts of the attempt, or
+  the stop, the paths of a return for blockers, the evidence of a false premise or the failure. It
+  reads no store. The GitHub reads of the planner (`read_issue`, `find_issues`, the files of a
   pull request that the plan names and the open pull requests that meet a cited path) use the
   session of the process. An agent phase in a process of its own holds no GitHub credential, so
   each of these reads answers that GitHub cannot be read, as a failed read does (#3240). #6705
   replaces the engine.
 - `publish` (App key) reads the state file and the outcome as data (`read_run_file`), each text of
-  the outcome masked. It takes the target of the result from the state file, not from the
-  outcome, and refuses a change with a file outside the change folder of the item. Then it writes
-  the result as the stage job does
-  (`StageWriter.settle`): `push_plan` pushes the plan commit, and the draft pull request is opened
-  or updated.
+  the outcome masked. It builds the result from the state of `prepare` and what the model made,
+  with the functions that the planner runs after the model answers (`build_plan`): the title, the
+  body, the files rendered from the proposal, the secret check and the checks of the files, on
+  the staged commit. The blockers of a return come from the paths that the open plans create, as
+  `prepare` read them, and each other text of the agent phase goes through `safe_text`. The review
+  findings are the review of the agent phase: the person who reviews the plan pull request checks
+  them. Then it writes the result as the stage job does (`StageWriter.settle`): `push_plan` pushes
+  the plan commit, and the draft pull request is opened or updated.
 
 `stage_job.run_stage_job` runs the three in one process (`--phase all`): the state of `prepare`
 stays in memory, and the run folder goes when the Job ends.
@@ -30,32 +35,45 @@ stays in memory, and the run folder goes when the Job ends.
 from __future__ import annotations
 
 import json
-from dataclasses import replace
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
-from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    TypeAdapter,
+    ValidationError,
+    model_validator,
+)
 
 from devops_cli.ai.client.models import AICredentialsError
 from devops_cli.config.constants import (
-    CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_PHASE_INPUT_FILE,
     CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
     CONST_ROADMAP_PHASE_OUTCOME_FILE,
     CONST_ROADMAP_PHASE_STATE_FILE,
 )
 from devops_cli.core import clock
+from devops_cli.exceptions import RoadmapStageError
 from devops_cli.exceptions.roadmap import PhaseOutputError
-from devops_cli.roadmap.failure import FailureClass
+from devops_cli.roadmap.agent_run import RunTrace, ToolCallRecord, ToolOutcome
+from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.phases.files import RunFolders, read_output, read_run_file, write_json
+from devops_cli.roadmap.pull_form import measured_body_text
 from devops_cli.roadmap.refine.refine import body_dependencies
 from devops_cli.roadmap.stage.stage import (
     ITEM_ERRORS,
+    Blocked,
+    FalsePremise,
+    OverBudget,
     PlannedTargets,
     PlannerReads,
     PlanResult,
+    PremiseKind,
     StageApplied,
     StageAttempt,
     StagedChange,
@@ -64,13 +82,22 @@ from devops_cli.roadmap.stage.stage import (
     StageTarget,
     StageWriter,
     begin_stage,
+    build_plan,
     item_failure,
     parse_filters,
     plan_targets,
     premise_before_plan,
     store_reads,
 )
+from devops_cli.roadmap.stage.stage_change import (
+    MeasuredGroup,
+    StageGroup,
+    StageProposal,
+    safe_text,
+)
 from devops_cli.roadmap.stage.stage_phases import clone_staged
+from devops_cli.roadmap.stage.stage_probe import blocked_by
+from devops_cli.roadmap.stage.stage_verify import Finding
 from devops_cli.roadmap.stores.store import IssueComment, RoadmapStore
 from devops_cli.security.sanitizer import mask_dict_secrets
 
@@ -83,7 +110,8 @@ _SHA = r"^[0-9a-f]{40}$"
 _PLAN: TypeAdapter[StagePlan] = TypeAdapter(StagePlan)
 _APPLIED: TypeAdapter[StageApplied] = TypeAdapter(StageApplied)
 _TARGET: TypeAdapter[StageTarget] = TypeAdapter(StageTarget)
-_PLANNED: TypeAdapter[PlannedTargets] = TypeAdapter(PlannedTargets)
+# The file of the change folder that holds the date of the change.
+_CHANGE_META = ".openspec.yaml"
 _COMMENTS: TypeAdapter[tuple[IssueComment, ...]] = TypeAdapter(tuple[IssueComment, ...])
 
 
@@ -95,7 +123,8 @@ class StageJobState(_Model):
     """`state/state.json`, which `prepare` writes and a separate `publish` reads: the item and its
     repository, the Job that the settings name and whether the check-out of the item named it at
     the start of the Job (`known`), the plan of the reads, what `StageWriter.begin` wrote, and the
-    target of the item. `end` and `result` are the exit code and the result of a run that
+    target of the item, and the paths that the open plans create, each with its item, which give
+    the blockers of a return. `end` and `result` are the exit code and the result of a run that
     `prepare` ended: the agent phase then has no inputs, and `publish` writes nothing."""
 
     repo: str
@@ -105,6 +134,7 @@ class StageJobState(_Model):
     plan: dict[str, Any] = Field(default_factory=dict)
     begun: dict[str, Any] = Field(default_factory=dict)
     target: dict[str, Any] | None = None
+    creates: dict[str, int] = Field(default_factory=dict)
     end: int | None = None
     result: str = ""
 
@@ -135,12 +165,135 @@ class StageAgentEnd(StrEnum):
     FAILED = "failed"
 
 
+class HandedCall(_Model):
+    """One tool call of a plan run: the tool, its argument as the run masked and cut it, and how
+    it ended."""
+
+    name: str
+    argument: str = ""
+    outcome: ToolOutcome = ToolOutcome.OK
+
+
+class HandedTrace(_Model):
+    """What `publish` reads of the trace of the plan runs, for the report of the comment: each tool
+    call, the requests, the tokens and the tools that each request offered. It holds no answer and
+    no match of a tool, so the size of the outcome grows only with the calls."""
+
+    calls: tuple[HandedCall, ...] = ()
+    requests: NonNegativeInt = 0
+    input_tokens: NonNegativeInt = 0
+    output_tokens: NonNegativeInt = 0
+    offered: tuple[tuple[str, ...], ...] = ()
+
+    @classmethod
+    def of(cls, trace: RunTrace) -> Self:
+        return cls(
+            calls=tuple(
+                HandedCall(name=call.name, argument=call.argument, outcome=call.outcome)
+                for call in trace.tool_calls
+            ),
+            requests=trace.requests,
+            input_tokens=trace.input_tokens,
+            output_tokens=trace.output_tokens,
+            offered=tuple(trace.offered),
+        )
+
+    def trace(self) -> RunTrace:
+        """The trace of the report, with each text on one line as `safe_text` writes it."""
+        return RunTrace(
+            tool_calls=[
+                ToolCallRecord(safe_text(call.name), safe_text(call.argument), call.outcome)
+                for call in self.calls
+            ],
+            requests=self.requests,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            offered=[tuple(safe_text(name) for name in names) for names in self.offered],
+        )
+
+
+class HandedPlan(_Model):
+    """A plan that the model made: the proposal, the text of the body (the shorter text that the
+    model wrote when the text of the proposal is over its room), the date of the change folder,
+    the findings of the review and the open ones, the reads of the open pull requests, the
+    warnings of the plan, the comments of the item that the request held, and the trace."""
+
+    proposal: StageProposal
+    text: str
+    created: date
+    findings: tuple[Finding, ...] = ()
+    open_findings: tuple[Finding, ...] = ()
+    pulls_requests: NonNegativeInt = 0
+    warnings: tuple[str, ...] = ()
+    comments: tuple[str, ...] = ()
+    trace: HandedTrace = Field(default_factory=HandedTrace)
+
+
+class HandedGroup(_Model):
+    """A task group of a stop on the budget, with the tokens and the files that the step reads."""
+
+    group: StageGroup
+    tokens: NonNegativeInt
+    files: NonNegativeInt
+
+
+class HandedPremise(_Model):
+    """A false premise: the evidence of the probe and its kind."""
+
+    evidence: tuple[str, ...]
+    kind: PremiseKind = PremiseKind.ABSENT_FIELD
+
+
+class HandedFailure(_Model):
+    """A failure of the plan: the class name of the error, the reason, the class and the step,
+    whether the reply was a placeholder, the problems of the refused replies, and whether the
+    checks refused the last reply."""
+
+    error: str
+    reason: str = ""
+    failure_class: FailureClass
+    step: StepName
+    degenerate: bool = False
+    problems: tuple[str, ...] = ()
+    stopped_by_checks: bool = False
+
+
+class HandedAttempt(_Model):
+    """The counts of the attempt (`StageAttempt`)."""
+
+    plan_calls: NonNegativeInt | None = 0
+    gate_returns: NonNegativeInt = 0
+    verify_rounds: NonNegativeInt = 0
+    tokens: NonNegativeInt = 0
+    seconds: NonNegativeInt = 0
+
+
+class HandedResult(_Model):
+    """What the agent phase hands over of the plan of the item: one of a plan, the groups of a stop
+    on the budget, the cited paths of a return for blockers, a false premise or a failure, and the
+    counts of the attempt."""
+
+    plan: HandedPlan | None = None
+    over_budget: tuple[HandedGroup, ...] | None = None
+    blocked: tuple[str, ...] | None = None
+    premise: HandedPremise | None = None
+    failure: HandedFailure | None = None
+    attempt: HandedAttempt = Field(default_factory=HandedAttempt)
+
+    @model_validator(mode="after")
+    def _one_result(self) -> Self:
+        kinds = (self.plan, self.over_budget, self.blocked, self.premise, self.failure)
+        if sum(kind is not None for kind in kinds) != 1:
+            raise ValueError("the result holds no one kind")
+        return self
+
+
 class StageAgentOutcome(_Model):
-    """`out/outcome.json` of the agent phase: its end, the results of the plan (`PlannedTargets`)
-    for `planned`, and the masked message and the failure class of the error for `failed`."""
+    """`out/outcome.json` of the agent phase: its end, the result of the plan for `planned`, and
+    the masked message and the failure class of the error for `failed`."""
 
     end: StageAgentEnd
-    planned: dict[str, Any] | None = None
+    result: HandedResult | None = None
     error: str = ""
     failure: FailureClass | None = None
 
@@ -235,6 +388,7 @@ def prepare_stage(
             plan=_PLAN.dump_python(plan, mode="json"),
             begun=_APPLIED.dump_python(writer.applied(), mode="json"),
             target=_TARGET.dump_python(target, mode="json"),
+            creates=creates,
         ),
     )
 
@@ -249,12 +403,64 @@ def write_agent_end(folders: RunFolders, outcome: StageAgentOutcome) -> None:
     write_json(folders.out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
 
 
-def _without_answers(result: PlanResult) -> PlanResult:
-    """`result` with no text of the tool answers in its trace: `publish` reads the counts and the
-    calls of the trace only, and the answers would fill the outcome."""
+def _created(change: StagedChange) -> date:
+    """The date of the change folder of `change`, which the planner wrote in `.openspec.yaml`."""
+    for path, text in change.files.items():
+        if path.endswith(f"/{_CHANGE_META}"):
+            for line in text.splitlines():
+                key, _, value = line.partition(":")
+                if key.strip() == "created":
+                    return date.fromisoformat(value.strip())
+    raise RoadmapStageError(f"The change {change.target.change} holds no date")
+
+
+def handed_result(result: PlanResult, attempt: StageAttempt | None) -> HandedResult:
+    """What the agent phase hands over of `result`, the result of the plan, and of its `attempt`:
+    what the model made, and no part that `publish` builds itself."""
+    counts = (
+        HandedAttempt()
+        if attempt is None
+        else HandedAttempt(
+            plan_calls=attempt.plan_calls,
+            gate_returns=attempt.gate_returns,
+            verify_rounds=attempt.verify_rounds,
+            tokens=attempt.tokens,
+            seconds=attempt.seconds,
+        )
+    )
     if isinstance(result, StagedChange):
-        return replace(result, trace=replace(result.trace, tool_answers=[]))
-    return result
+        plan = HandedPlan(
+            proposal=result.proposal,
+            text=measured_body_text(result.body, "Plans"),
+            created=_created(result),
+            findings=result.findings,
+            open_findings=result.open_findings,
+            pulls_requests=result.pulls_requests,
+            warnings=result.warnings,
+            comments=result.comments,
+            trace=HandedTrace.of(result.trace),
+        )
+        return HandedResult(plan=plan, attempt=counts)
+    if isinstance(result, OverBudget):
+        groups = tuple(
+            HandedGroup(group=m.group, tokens=m.tokens, files=m.files) for m in result.groups
+        )
+        return HandedResult(over_budget=groups, attempt=counts)
+    if isinstance(result, Blocked):
+        return HandedResult(blocked=result.paths, attempt=counts)
+    if isinstance(result, FalsePremise):
+        premise = HandedPremise(evidence=result.evidence, kind=result.kind)
+        return HandedResult(premise=premise, attempt=counts)
+    failure = HandedFailure(
+        error=result.error,
+        reason=result.reason,
+        failure_class=result.failure_class,
+        step=result.step,
+        degenerate=result.degenerate,
+        problems=result.problems,
+        stopped_by_checks=result.stopped_by_checks,
+    )
+    return HandedResult(failure=failure, attempt=counts)
 
 
 def agent_stage(
@@ -295,14 +501,11 @@ def agent_stage(
         verifier=verifier,
         time_budget=time_budget,
     )
-    kept = PlannedTargets.of(
-        (_without_answers(result) for result in planned.results()), planned.attempts
-    )
+    (result,) = planned.results()
+    attempt = planned.attempts[0] if planned.attempts else None
     write_agent_end(
         folders,
-        StageAgentOutcome(
-            end=StageAgentEnd.PLANNED, planned=_PLANNED.dump_python(kept, mode="json")
-        ),
+        StageAgentOutcome(end=StageAgentEnd.PLANNED, result=handed_result(result, attempt)),
     )
 
 
@@ -332,44 +535,132 @@ def read_stage_outcome(folders: RunFolders) -> StageAgentOutcome:
     )
     try:
         return StageAgentOutcome.model_validate(mask_dict_secrets(json.loads(data)))
-    except (ValueError, ValidationError) as exc:
+    except (ValueError, ValidationError, RecursionError) as exc:
         raise PhaseOutputError("The output `outcome.json` is not of its model") from exc
 
 
-def _in_change(path: str, change: str) -> bool:
-    """Whether `path` is a file of the change folder `change`."""
-    parts = PurePosixPath(path).parts
-    folder = (*PurePosixPath(CONST_OPENSPEC_CHANGES_DIR).parts, change)
-    return parts[: len(folder)] == folder and len(parts) > len(folder) and ".." not in parts
+def staged_commit(state: StageJobState) -> str:
+    """The staged commit of the run of `state`: the commit that the planner read."""
+    return _PLAN.validate_python(state.plan).sha
 
 
-def _for_target(result: PlanResult, target: StageTarget) -> PlanResult:
-    """`result` for `target`, the target that `prepare` read: the agent writes no target, no item
-    and no record that `publish` uses. A change must hold only files of its change folder."""
-    if isinstance(result, StageFailure):
-        return replace(result, number=target.item.number, title=target.item.title, item=target.item)
-    if isinstance(result, StagedChange):
-        outside = [path for path in result.files if not _in_change(path, target.change)]
-        if outside:
-            raise PhaseOutputError(
-                f"The change of the agent phase holds {len(outside)} file(s) outside its folder"
-            )
-    return replace(result, target=target)
+def _finding(finding: Finding) -> Finding:
+    """`finding`, a finding of the review of the agent phase, with each text as `safe_text`
+    writes it."""
+    where = finding.where.model_copy(update={"section": safe_text(finding.where.section)})
+    return finding.model_copy(
+        update={
+            "problem": safe_text(finding.problem),
+            "quote": safe_text(finding.quote),
+            "where": where,
+        }
+    )
 
 
-def planned_of(outcome: StageAgentOutcome, state: StageJobState) -> PlannedTargets:
-    """The result of the plan of the item of `state`, from an outcome that ended `planned`: one
-    result, for the target that `prepare` read."""
+def _staged(
+    handed: HandedPlan, target: StageTarget, plan: StagePlan, checkout: Path
+) -> StagedChange | OverBudget:
+    """The change that the plan of the model gives, built as the planner builds it."""
     try:
-        planned = _PLANNED.validate_python(outcome.planned)
+        built = build_plan(
+            target,
+            handed.proposal,
+            text=handed.text,
+            created=handed.created,
+            checkout=checkout,
+            sha=plan.sha,
+            budget=plan.budget,
+        )
+    except RoadmapStageError as exc:
+        raise PhaseOutputError(f"A check of the plan refuses it: {safe_text(str(exc))}") from exc
+    if isinstance(built, OverBudget):
+        return built
+    return StagedChange(
+        target,
+        built.title,
+        built.body,
+        built.files,
+        built.groups,
+        built.validated,
+        plan.budget,
+        handed.proposal,
+        trace=handed.trace.trace(),
+        findings=tuple(_finding(finding) for finding in handed.findings),
+        open_findings=tuple(_finding(finding) for finding in handed.open_findings),
+        pulls_requests=handed.pulls_requests,
+        warnings=tuple(
+            dict.fromkeys((*(safe_text(text) for text in handed.warnings), *built.warnings))
+        ),
+        comments=tuple(safe_text(name) for name in handed.comments),
+    )
+
+
+def _over_budget(
+    groups: tuple[HandedGroup, ...], target: StageTarget, plan: StagePlan
+) -> OverBudget:
+    measured = tuple(MeasuredGroup(m.group, m.tokens, m.files) for m in groups)
+    if not any(m.tokens > plan.budget for m in measured):
+        raise PhaseOutputError("The stop on the budget holds no group over the budget")
+    return OverBudget(target, measured, plan.budget)
+
+
+def _blocked(paths: tuple[str, ...], target: StageTarget, creates: dict[str, int]) -> Blocked:
+    """The return for blockers: the cited paths that the open plans create, as `prepare` read
+    them, and the items of those plans."""
+    known = tuple(path for path in paths if path in creates)
+    blockers = blocked_by(known, creates)
+    if not blockers:
+        raise PhaseOutputError("The return for blockers names no path that an open plan creates")
+    return Blocked(target, blockers, known)
+
+
+def _result(
+    handed: HandedResult, target: StageTarget, plan: StagePlan, state: StageJobState, checkout: Path
+) -> PlanResult:
+    if handed.plan is not None:
+        return _staged(handed.plan, target, plan, checkout)
+    if handed.over_budget is not None:
+        return _over_budget(handed.over_budget, target, plan)
+    if handed.blocked is not None:
+        return _blocked(handed.blocked, target, state.creates)
+    if handed.premise is not None:
+        evidence = tuple(safe_text(text) for text in handed.premise.evidence)
+        return FalsePremise(target, evidence, handed.premise.kind)
+    failure = handed.failure
+    if failure is None:
+        raise PhaseOutputError("The outcome of the agent phase holds no result of the item")
+    return StageFailure(
+        target.item.number,
+        target.item.title,
+        safe_text(failure.error),
+        safe_text(failure.reason),
+        target.item,
+        failure_class=failure.failure_class,
+        step=failure.step,
+        degenerate=failure.degenerate,
+        problems=tuple(safe_text(problem) for problem in failure.problems),
+        stopped_by_checks=failure.stopped_by_checks,
+    )
+
+
+def planned_of(
+    outcome: StageAgentOutcome, state: StageJobState, *, checkout: Path
+) -> PlannedTargets:
+    """The result of the plan of the item of `state`, from an outcome that ended `planned`, built
+    from the state of `prepare` and what the model made, in the clone `checkout` at the staged
+    commit. Raises `PhaseOutputError` for an outcome with no result and for a plan that a check
+    refuses."""
+    if outcome.result is None:
+        raise PhaseOutputError("The outcome of the agent phase holds no result of the item")
+    try:
+        plan = _PLAN.validate_python(state.plan)
         target = _TARGET.validate_python(state.target)
     except ValidationError as exc:
-        raise PhaseOutputError("The output `outcome.json` is not of its model") from exc
-    results = planned.results()
-    if len(results) != 1:
-        raise PhaseOutputError("The outcome of the agent phase holds no one result of the item")
-    attempts = tuple(replace(attempt, number=target.item.number) for attempt in planned.attempts)
-    return PlannedTargets.of([_for_target(results[0], target)], attempts[:1])
+        raise PhaseOutputError("The state file of the run is not of its model") from exc
+    handed = outcome.result
+    attempt = StageAttempt(target.item.number, **handed.attempt.model_dump())
+    result = _result(handed, target, plan, state, checkout)
+    return PlannedTargets.of([result], [attempt])
 
 
 def publish_stage(
@@ -392,17 +683,27 @@ def publish_stage(
 
 
 __all__ = [
+    "HandedAttempt",
+    "HandedCall",
+    "HandedFailure",
+    "HandedGroup",
+    "HandedPlan",
+    "HandedPremise",
+    "HandedResult",
+    "HandedTrace",
     "StageAgentEnd",
     "StageAgentInput",
     "StageAgentOutcome",
     "StageJobState",
     "agent_stage",
     "end_state",
+    "handed_result",
     "has_inputs",
     "planned_of",
     "prepare_stage",
     "publish_stage",
     "read_stage_outcome",
     "read_stage_state",
+    "staged_commit",
     "write_agent_end",
 ]

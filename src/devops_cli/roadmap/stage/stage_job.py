@@ -6,9 +6,10 @@ publishes with the code of the Service, the parts of `plan_stage` and `StageWrit
 git write of its own. It runs on the phases `prepare`, `agent` and `publish` of one run folder
 (`stage_job_phases.py`, #6813): `run_stage_job` runs the three in one process (`--phase all`, the
 default), and `prepare_stage_job`, `run_stage_agent` and `publish_stage_job` run one phase each
-(`--phase`, `--work`). The agent phase refuses to start with the App key or a GitHub token, and a
-SIGTERM in it exits with the status of its class, with no check-in: the Service checks in for the
-Job. The pod:
+(`--phase`, `--work`). The agent phase refuses to start with the App key, a GitHub token or a gh
+login, and hands over only what the model made; `publish` builds the result from the state of
+`prepare`. A SIGTERM in the agent phase exits with the status of its class, with no check-in: the
+Service checks in for the Job. The pod:
 
 - holds one model call slot (`set_model_call_limit(1)`), as the model tier of the Service serves;
 - counts each GitHub request in a budget of its own: `roadmap.stage.github_requests_per_hour` in
@@ -87,7 +88,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS,
 )
 from devops_cli.config.settings import load_settings
-from devops_cli.core.process import acts_as_github_app, held_github_credentials
+from devops_cli.core.process import (
+    acts_as_github_app,
+    finds_github_login,
+    held_github_credentials,
+)
 from devops_cli.exceptions import DevOpsCLIError, RoadmapStageError, RoadmapTimeBudgetError
 from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.github.rate_limiter import set_request_gate
@@ -127,9 +132,10 @@ from devops_cli.roadmap.stage.stage_job_phases import (
     publish_stage,
     read_stage_outcome,
     read_stage_state,
+    staged_commit,
     write_agent_end,
 )
-from devops_cli.roadmap.stage.stage_phases import stage_runs
+from devops_cli.roadmap.stage.stage_phases import check_out_staged, stage_runs
 from devops_cli.roadmap.stores.store import Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.security.sanitizer import mask_secrets
@@ -577,6 +583,14 @@ def _source(repo: str, source: Path | str | None) -> Path:
     return Path(source) if source is not None else _clone(repo)
 
 
+def _staged_source(repo: str, source: Path | str | None, state: StageJobState) -> Path:
+    """The clone of the Job at the staged commit of `state`, on which a `publish` of its own builds
+    the plan, as the planner read it."""
+    clone = _source(repo, source)
+    check_out_staged(clone, staged_commit(state))
+    return clone
+
+
 def run_stage_job(
     store: RoadmapStore,
     *,
@@ -621,7 +635,7 @@ def run_stage_job(
             if isinstance(prepared, StagePlan):
                 return prepared, writer.applied()
             agent_stage(folders, model=model, verifier=verifier, time_budget=started.time_budget)
-            planned = planned_of(read_stage_outcome(folders), prepared)
+            planned = planned_of(read_stage_outcome(folders), prepared, checkout=clone)
             return publish_stage(store, prepared, planned, source=clone, now=now)
 
     done = started.guarded(work)
@@ -694,7 +708,8 @@ def run_stage_agent(
     """`--phase agent` on the run folder `folders` (#6813): plan the item that `prepare` handed on,
     and write the outcome for `publish`. The phase holds the model key only, so it refuses to start
     with the App key or a GitHub token, as the agent phase of the implement job does
-    (`require_agent_runner`), and it reads no store. The end of the time budget and an error that
+    (`require_agent_runner`), and with a gh login that the token lookup of the session finds. It
+    reads no store. The end of the time budget and an error that
     the planner makes into no result are outcomes too. Raises `RoadmapStageError` for a credential
     of GitHub, `PhaseOutputError` for an output folder that is there already, `AICredentialsError`
     when the provider refuses the key, and `AttemptKilled` with its class for a SIGTERM."""
@@ -702,6 +717,8 @@ def run_stage_agent(
         raise RoadmapStageError(
             MESSAGES.roadmap.stage_agent_phase_key_refused.format(names=", ".join(held))
         )
+    if finds_github_login():
+        raise RoadmapStageError(MESSAGES.roadmap.stage_agent_phase_login_refused)
     if not has_inputs(folders):
         return
     settings = load_settings().roadmap.stage
@@ -771,10 +788,12 @@ def publish_stage_job(
         if run is not None:
             return run
         raise RoadmapStageError(outcome.error, failed_items=[item])
-    planned = planned_of(outcome, state)
-    done = attempt.guarded(
-        lambda: publish_stage(store, state, planned, source=_source(repo, source), now=now)
-    )
+    clone = attempt.guarded(lambda: _staged_source(repo, source, state))
+    if isinstance(clone, StageJobRun):
+        return clone
+    # A check that refuses the plan raises: no retry of the pod builds another plan from it.
+    planned = planned_of(outcome, state, checkout=clone)
+    done = attempt.guarded(lambda: publish_stage(store, state, planned, source=clone, now=now))
     if isinstance(done, StageJobRun):
         return done
     return attempt.finish(*done)

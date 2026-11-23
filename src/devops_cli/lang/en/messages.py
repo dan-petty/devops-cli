@@ -4772,6 +4772,14 @@ class RoadmapMessages:
     )
     # The stage Job of one item (#5483).
     stage_job_item_needs: str = "--job-item needs --confirm and no --item."
+    stage_build_no_model: str = (
+        "The build of a plan from its proposal asks no model, and a step of it asked one."
+    )
+    stage_agent_phase_login_refused: str = (
+        "The agent phase of the stage Job holds the model key only, and the token lookup of the "
+        "session finds a GitHub login here. Run the agent phase with no gh login. This process "
+        "planned no item."
+    )
     stage_phase_options: str = (
         "A phase other than all runs only with --job-item, --confirm and --work <folder>."
     )

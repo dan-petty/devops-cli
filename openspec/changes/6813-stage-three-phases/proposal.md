@@ -8,8 +8,8 @@
 
 - `devops roadmap stage` takes `--phase prepare|agent|publish|all` and `--work <folder>`, as the implement and fix-checks jobs do. A phase other than `all` needs `--job-item` and `--confirm`. `all` stays the default, so CronJob `roadmap-stage` does not change.
 - `prepare` reads the round of the item and makes the writes that need no model (`begin_stage`), reads the CI job-time premise, clones the staged commit into `work/` with no blobs (`clone_staged`), and writes the state file and the inputs of the agent. A round that leaves the item out, and a premise that decides the item, end the Job in `prepare`.
-- `agent` plans the item in that clone with the current planner (`plan_targets`) and no store, and writes the result to `out/outcome.json`. It refuses to start with the App key or a GitHub token (`held_github_credentials`, which `require_agent_runner` uses too).
-- `publish` reads the state file and the outcome as data, refuses a result whose change has a file outside its change folder, and writes the result with `StageWriter`: `push_plan`, then the draft pull request.
+- `agent` plans the item in that clone with the current planner (`plan_targets`) and no store, and writes the result to `out/outcome.json`. It refuses to start with the App key or a GitHub token (`held_github_credentials`, which `require_agent_runner` uses too), or with a gh login that the token lookup finds (`finds_github_login`).
+- The agent hands over only what the model made: the proposal, the shorter text of the body, the review findings, the counts and a compact trace. `publish` reads the state file and the outcome as data, builds the result from the state of `prepare` with the steps that the planner runs after the model answers (`build_plan`), and writes it with `StageWriter`: `push_plan`, then the draft pull request.
 - `run_stage_job` runs the three phases in one process. `plan_stage` keeps its behavior: its parts are `begin_stage`, `store_reads` and `plan_targets`.
 
 ## Capabilities

@@ -2779,6 +2779,35 @@ class _Planner:
         measured = measure_groups(self._source, proposal.groups, shared=shared)
         return files, measured
 
+    def built(
+        self, target: StageTarget, proposal: StageProposal, *, text: str, created: date
+    ) -> BuiltPlan | OverBudget:
+        """`build_plan` on this planner: the steps of the plan run after the model answers, with
+        no model call. A check that refuses the plan raises `RoadmapStageError`."""
+        self._today = created
+        number = target.item.number
+        title = staging_title(number, proposal.summary)
+        if problems := title_problems(title):
+            raise _stage_error(" ".join(problems), target)
+        why = proposal.pull_request_body
+        _stop_on_closing_keyword(target, title, why)
+        if len(safe_text(why)) > body_room(number, target.change):
+            why = text
+            _stop_on_closing_keyword(target, title, why)
+        try:
+            body = pull_request_body(number, target.change, why)
+        except ValidationError as exc:
+            raise _stage_error(" ".join(str(exc).split()), target) from exc
+        files, measured = self._build(target, proposal)
+        if any(m.tokens > self._budget for m in measured):
+            return OverBudget(target, tuple(measured), self._budget)
+        files = self._restored(target.change, proposal, files)
+        self._assert_no_secrets(files, target)
+        if findings := self._file_findings(target, title, body, files, proposal):
+            raise _stage_error(" ".join(finding.text for finding in findings), target)
+        warnings = _check_removal_references(self._source, target, files)
+        return BuiltPlan(title, body, files, tuple(measured), self._tool is not None, warnings)
+
     def _fit(
         self, target: StageTarget, proposal: StageProposal
     ) -> tuple[StageProposal, dict[str, str], list[MeasuredGroup], tuple[str, ...]]:
@@ -3685,6 +3714,64 @@ def premise_before_plan(repo: str, target: StageTarget) -> FalsePremise | StageF
         return premise_of(target)
     except GitHubOperationError as exc:
         return _failure_of(target, exc)
+
+
+class _NoModel:
+    """The client of a planner that builds a plan from a proposal (`build_plan`): it asks no model,
+    so a step that would ask one stops the item."""
+
+    def chat_structured[M: BaseModel](
+        self, system: str, prompt: str, schema: type[M], *, max_retries: int
+    ) -> M:
+        raise RoadmapStageError(MESSAGES.roadmap.stage_build_no_model)
+
+
+@dataclass(frozen=True)
+class BuiltPlan:
+    """What the planner builds from a proposal after the model answers (#6813): the title and the
+    body of the draft, the files of the change folder, the measure of each group, whether
+    `openspec validate` ran, and the warnings of the removed names that the source still holds."""
+
+    title: str
+    body: str
+    files: Mapping[str, str]
+    groups: tuple[MeasuredGroup, ...]
+    validated: bool
+    warnings: tuple[str, ...] = ()
+
+
+def build_plan(
+    target: StageTarget,
+    proposal: StageProposal,
+    *,
+    text: str,
+    created: date,
+    checkout: Path,
+    sha: str,
+    budget: int,
+) -> BuiltPlan | OverBudget:
+    """The plan of `target` that `proposal`, the plan of the model, gives in the clone `checkout` at
+    the staged commit `sha`, built as the planner builds it after the model answers (#6813): the
+    title (`staging_title` and `title_problems`), the body (`pull_request_body` of the text of the
+    proposal, or of `text`, the shorter text of the model, when the text of the proposal is over
+    its room, each after the check of the closing keyword), the files rendered from the proposal
+    on the date `created` with the base scenarios restored, the measure of the groups, the secret
+    check and the checks of the files (`openspec validate`, `read_change`, the read back and the
+    rules of `devops roadmap plan-check`). It asks no model. A group over `budget` gives the stop
+    on the budget. Raises `RoadmapStageError` for a plan that a check refuses. The `publish` phase
+    of the stage Job builds the plan of its agent phase with it."""
+    with openspec_tool() as tool:
+        planner = _Planner(
+            client=_NoModel(),
+            source=checkout,
+            sha=sha,
+            specs=read_base_specs(checkout, tool),
+            tree=StagedTree.read(checkout, operation=_GIT_OPERATION),
+            budget=budget,
+            window=0,
+            tool=tool,
+        )
+        return planner.built(target, proposal, text=text, created=created)
 
 
 def _planner_of(
@@ -4985,6 +5072,7 @@ def raise_for_failed(failures: Sequence[StageFailure], *, summary: str | None = 
 
 __all__ = [
     "ITEM_ERRORS",
+    "BuiltPlan",
     "KeptBranch",
     "LeftOut",
     "OverBudget",
@@ -5009,6 +5097,7 @@ __all__ = [
     "StagedChange",
     "Walk",
     "begin_stage",
+    "build_plan",
     "dry_run_stage",
     "emit_stage_results",
     "item_failure",
