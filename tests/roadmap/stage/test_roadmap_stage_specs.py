@@ -10,7 +10,13 @@ from pydantic import ValidationError
 
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.stage.stage_change import StageSpec
-from devops_cli.roadmap.stage.stage_specs import read_base_specs, read_spec
+from devops_cli.roadmap.stage.stage_specs import (
+    REQUIREMENT_TEXT_MAX_CHARS,
+    REQUIREMENT_TEXT_MAX_COUNT,
+    read_base_specs,
+    read_spec,
+    requirement_text,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -107,7 +113,9 @@ def test_a_checkout_with_no_specs_folder_has_no_base_spec(
 
 
 @pytest.mark.live("openspec")
-def test_the_real_openspec_lists_a_nested_capability_beside_a_flat_one(tmp_path: Path) -> None:
+def test_the_real_openspec_lists_a_nested_capability_beside_a_flat_one(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "openspec").mkdir()
     (tmp_path / "openspec" / "config.yaml").write_text("schema: spec-driven\n", encoding="utf-8")
     _write_spec(tmp_path, "alpha")
@@ -126,8 +134,95 @@ def test_a_delta_names_a_flat_or_a_nested_capability(name: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "name", ["Comment-thread", "roadmap-stage/", "/paths-gate", "roadmap-stage//paths", "a/../b"]
+    "name",
+    [
+        "Comment-thread",
+        "roadmap-stage/",
+        "/paths-gate",
+        "roadmap-stage//paths",
+        "a/../b",
+    ],
 )
 def test_a_delta_refuses_a_capability_that_is_no_name(name: str) -> None:
     with pytest.raises(ValidationError, match="is not a name"):
         StageSpec(capability=name)
+
+
+def test_a_cited_command_brings_the_requirement_text() -> None:
+    spec = read_spec(
+        "# beta Specification\n\n"
+        "## Requirements\n\n"
+        "### Requirement: Sample requirement\n"
+        "The job SHALL run `devops sample` when started.\n"
+    )
+    specs = {"beta": spec}
+    text = requirement_text(specs, title="feat: sample", body="Add `devops sample`.")
+
+    assert text == "- beta: Sample requirement: The job SHALL run `devops sample` when started."
+
+
+def test_the_count_bound_cuts_the_requirement_text() -> None:
+    reqs = "\n\n".join(
+        f"### Requirement: Req {i}\nThe job SHALL run `devops run` on turn {i}."
+        for i in range(1, 20)
+    )
+    spec = read_spec(f"# gamma Specification\n\n## Requirements\n\n{reqs}\n")
+    specs = {"gamma": spec}
+    text = requirement_text(specs, title="feat: gamma", body="Run `devops run`.")
+
+    lines = text.splitlines()
+    assert len(lines) == REQUIREMENT_TEXT_MAX_COUNT
+    assert lines[0] == "- gamma: Req 1: The job SHALL run `devops run` on turn 1."
+    assert (
+        lines[-1]
+        == f"- gamma: Req {REQUIREMENT_TEXT_MAX_COUNT}: The job SHALL run `devops run` on turn {REQUIREMENT_TEXT_MAX_COUNT}."
+    )
+
+
+def test_the_character_bound_cuts_the_requirement_text() -> None:
+    long_statement = "The job SHALL run `devops long` " + ("and do work " * 280)
+    spec = read_spec(
+        "# delta Specification\n\n"
+        "## Requirements\n\n"
+        f"### Requirement: Long requirement\n{long_statement}\n\n"
+        f"### Requirement: Another requirement\n{long_statement}\n"
+    )
+    specs = {"delta": spec}
+    text = requirement_text(specs, title="feat: delta", body="Run `devops long`.")
+
+    assert len(text) <= REQUIREMENT_TEXT_MAX_CHARS
+    assert text.startswith("- delta: Long requirement: ")
+    assert "Another requirement" not in text
+
+
+def test_a_name_match_comes_before_a_text_match() -> None:
+    spec = read_spec(
+        "# epsilon Specification\n\n"
+        "## Requirements\n\n"
+        "### Requirement: First requirement\nThe job SHALL run `devops tool`.\n\n"
+        "### Requirement: Second requirement\nThe job SHALL do other work.\n"
+    )
+    specs = {"epsilon": spec}
+    text = requirement_text(
+        specs, title="feat: test", body="See Second requirement and `devops tool`."
+    )
+
+    lines = text.splitlines()
+    assert len(lines) == 2
+    assert lines[0].startswith("- epsilon: Second requirement:")
+    assert lines[1].startswith("- epsilon: First requirement:")
+
+
+def test_read_spec_answers_a_capability_outside_the_bound() -> None:
+    raw = (
+        "# zeta Specification\n\n"
+        "## Purpose\nZeta capability purpose.\n\n"
+        "## Requirements\n\n"
+        "### Requirement: Zeta req\nThe job SHALL verify zeta.\n"
+    )
+    spec = read_spec(raw)
+    specs = {"zeta": spec}
+    text = requirement_text(specs, title="feat: unrelated", body="No match here.")
+
+    assert text == ""
+    assert read_spec(raw).statements == (("Zeta req", "The job SHALL verify zeta."),)

@@ -65,11 +65,13 @@ from devops_cli.roadmap.refine.refine_investigation import tokens_of, tool_stop
 from devops_cli.roadmap.stage.stage_change import capability_name, safe_text
 from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
+from devops_cli.roadmap.stage.stage_specs import requirement_text
 from devops_cli.roadmap.stage.stage_tools import with_call_budget
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage import StageClient
+    from devops_cli.roadmap.stage.stage_specs import BaseSpec
 
 _VERIFY_TASK: Final[str] = "roadmap_stage_verify.md"
 _VERIFY_TOOLS_TASK: Final[str] = "roadmap_stage_verify_tools.md"
@@ -435,6 +437,7 @@ class VerificationInput:
     reads: tuple[str, ...] = ()
     earlier: tuple[Finding, ...] = ()
     answer: tuple[str, ...] = ()
+    requirements: str = ""
 
     @classmethod
     def of(
@@ -449,6 +452,7 @@ class VerificationInput:
         earlier: Sequence[Finding] = (),
         previous: Mapping[str, Any] | None = None,
         pull_requests: Mapping[int, PullRequestFiles] | None = None,
+        specs: Mapping[str, BaseSpec] | None = None,
     ) -> VerificationInput:
         """The input for `plan` of issue `number`, with the cited files read from `source` and the
         named pull request files `pull_requests` (#3447). With `window`, the context window of the
@@ -463,14 +467,31 @@ class VerificationInput:
         pulls = dict(pull_requests or {})
         answer = changed_texts(previous or {}, plan) if found else ()
         files = cited_files(source, plan)
+        req_text = requirement_text(specs, title=title, body=body) if specs is not None else ""
         if window is not None:
             base = cls(
-                number, title, text, plan, {}, pull_requests=pulls, earlier=found, answer=answer
+                number,
+                title,
+                text,
+                plan,
+                {},
+                pull_requests=pulls,
+                earlier=found,
+                answer=answer,
+                requirements=req_text,
             )
             limit = tool_stop(window) - CONST_ROADMAP_STAGE_TOOL_RESERVE_TOKENS
             files = _fitting(files, base, limit)
         return cls(
-            number, title, text, plan, files, pull_requests=pulls, earlier=found, answer=answer
+            number,
+            title,
+            text,
+            plan,
+            files,
+            pull_requests=pulls,
+            earlier=found,
+            answer=answer,
+            requirements=req_text,
         )
 
     def with_reads(self, answers: Iterable[str]) -> VerificationInput:
@@ -493,6 +514,8 @@ class VerificationInput:
             "plan": dict(self.plan),
             "files": dict(self.files),
         }
+        if self.requirements:
+            payload["requirements"] = self.requirements
         if self.pull_requests:
             payload["pull_requests"] = {
                 str(number): {"commit": entry.commit, "files": dict(entry.files)}
@@ -520,6 +543,8 @@ class VerificationInput:
     def request_texts(self) -> Iterable[str]:
         """The texts of the request, the files of a named pull request included (#3447)."""
         yield from (self.title, self.body)
+        if self.requirements:
+            yield self.requirements
         yield from _strings(self.plan)
         yield from self.files.values()
         for entry in self.pull_requests.values():

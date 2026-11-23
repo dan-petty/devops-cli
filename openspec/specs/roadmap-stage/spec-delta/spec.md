@@ -90,11 +90,15 @@ The job SHALL run the validation in a scratch directory that also holds the base
 - **THEN** `check_proposal` returns no problem about a duplicate
 
 ### Requirement: The model input holds the purpose and the requirement names of each capability
-The stage job SHALL give the model every capability under `openspec/specs/`. A plan run that has the tool `read_spec` SHALL get the names of the capabilities in the first request and SHALL read the purpose and the requirement names of one capability with `read_spec`. A call with no tool SHALL get the purpose and the requirement names of every capability in the input.
+The stage job SHALL give the model every capability under the specs folder. A plan run that offers the read-spec tool SHALL get the names of the capabilities and the text of the matching base requirements in the first request, and SHALL read the purpose and the requirement names of one capability with that tool. A call with no tool SHALL get the purpose and the requirement names of every capability in the input.
 
 #### Scenario: The input lists a capability
-- **WHEN** The stage job builds the model input for a proposal that is planned with one call and no tool
-- **THEN** the input holds the purpose and the requirement names of each capability
+- **WHEN** The stage job builds the model input for a proposal that is planned with one call and no tool.
+- **THEN** The input holds the purpose and the requirement names of each capability.
+
+#### Scenario: The input of a run with the read-spec tool
+- **WHEN** The stage job builds the first request of a plan run that offers the read-spec tool, for a checkout with many capabilities.
+- **THEN** The `capabilities` key holds the name of every capability in order, the context holds the name and the text of each matching requirement, and the run offers the read-spec tool.
 
 #### Scenario: The input of a run with read_spec
 - **WHEN** The stage job builds the first request of a plan run that has `read_spec`, for a checkout with many capabilities
@@ -353,3 +357,10 @@ The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md`, `openspec/co
 #### Scenario: The prompt and the documents keep the phrase
 - **WHEN** a test reads the stage prompt, `openspec/config.yaml` and `docs/TESTING.md`
 - **THEN** each holds "names a validator command or a live check as its proof"
+
+### Requirement: The stage prompt names modified for a stated behavior
+The planner prompt SHALL tell the planner to change a requirement of the requirement text of the context with modified when that requirement states the behavior.
+
+#### Scenario: The rendered planner prompt
+- **WHEN** The stage job renders the planner prompt.
+- **THEN** The prompt holds the instruction to use modified for a requirement that states the behavior, and the test asserts its text.

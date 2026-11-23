@@ -58,6 +58,7 @@ EVALUATED_PULLS = frozenset(
         3174,
         3183,
         3205,
+        3225,
         3247,
         3278,
         3328,
@@ -85,8 +86,8 @@ def test_the_set_holds_the_reviewed_plans_and_six_good_ones(cases: list[StageCas
     reviewed = {case.pull for case in cases if case.verdict is not Verdict.GOOD}
     good = [case for case in cases if case.verdict is Verdict.GOOD]
 
-    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 61, 6)
-    assert len(EVALUATED_PULLS) == 54
+    assert (frozenset(reviewed), len(cases), len(good)) == (EVALUATED_PULLS, 62, 6)
+    assert len(EVALUATED_PULLS) == 55
 
 
 def test_a_good_case_is_the_twin_of_a_reviewed_case_and_has_no_defect(

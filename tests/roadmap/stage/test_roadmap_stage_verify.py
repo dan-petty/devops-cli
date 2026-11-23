@@ -987,10 +987,36 @@ def test_an_earlier_finding_that_holds_keeps_its_place_when_the_revision_drops_i
     assert (judged.open, judged.fixed, judged.added) == ((second,), (), ())
 
 
+def test_the_review_input_carries_the_requirement_text(tmp_path: Path) -> None:
+    from devops_cli.roadmap.stage.stage_specs import read_spec
+
+    spec = read_spec(
+        "# cap Specification\n\n"
+        "## Requirements\n\n"
+        "### Requirement: Sample requirement\n"
+        "The job SHALL do work.\n"
+    )
+    specs = {"cap": spec}
+    given = VerificationInput.of(
+        number=1,
+        title="feat: test",
+        body="Cites cap",
+        plan=PLAN,
+        source=tmp_path,
+        specs=specs,
+    )
+    payload = given.payload()
+    assert "requirements" in payload
+    assert "- cap: Sample requirement: The job SHALL do work." in payload["requirements"]
+    assert given.contains("The job SHALL do work.") is True
+
+
 def test_a_first_review_keeps_its_request_and_its_prompt() -> None:
+    from dataclasses import replace
+
     from devops_cli.roadmap.stage.stage_verify import LaterVerification, verify_later
 
-    given = _input()
+    given = replace(_input(), requirements="- cap: Req: statement")
     first = _Recorder(VerificationReply())
     later = _Recorder(LaterVerification(earlier=[]))
     after = _later_input([_finding(DefectType.FALSE_PREMISE, "The job drops the last comment")])
@@ -999,7 +1025,14 @@ def test_a_first_review_keeps_its_request_and_its_prompt() -> None:
     verify_later(cast("StageClient", later), after)
 
     prompt = load_task_prompt("roadmap_stage_verify.md")
-    assert set(json.loads(given.text())) == {"number", "title", "body", "plan", "files"}
+    assert set(json.loads(given.text())) == {
+        "number",
+        "title",
+        "body",
+        "plan",
+        "files",
+        "requirements",
+    }
     assert first.calls == [(prompt, given.text(), Verification)]
     (system, request, schema) = later.calls[0]
     assert system == f"{prompt}\n\n{load_task_prompt('roadmap_stage_verify_later.md')}"

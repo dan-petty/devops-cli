@@ -106,6 +106,21 @@ def test_only_a_false_premise_finding_finds_the_defect_of_the_case(cases: list[S
     assert matched_defects(case.defects, [_finding(DefectType.FALSE_PREMISE)]) == case.defects
 
 
+def test_the_case_of_the_conflict_of_3225_holds_its_defect_and_its_stated_requirement(
+    cases: list[StageCase],
+) -> None:
+    case = next(case for case in cases if case.pull == 3225)
+    (defect,) = case.defects
+
+    assert (defect.type, defect.gate) == (DefectType.SPEC_DELTA_WRONG, GateName.NONE)
+    assert "The step chooses a tier per attempt from the ladder" in defect.where
+    assert "states a behavior that a base requirement already states" in defect.problem
+    assert defect.evidence == (
+        "A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) "
+        "SHALL end as stopped, and the step SHALL reset the checkout."
+    )
+
+
 def _defect(kind: DefectType, severity: Severity = Severity.MAJOR) -> Defect:
     return Defect(
         type=kind,
@@ -911,3 +926,54 @@ def test_the_dry_run_names_an_agent_run_for_each_case() -> None:
     planned = planned_verify_calls(load_cases()[:2], "https://gateway.example.com")
 
     assert (len(planned), all("agent run" in call.repeat for call in planned)) == (2, True)
+
+
+def test_the_replay_of_the_case_of_3225_returns_the_plan_for_its_conflict(
+    cases: list[StageCase], stage_repo: StageRepo, openspec_fake: OpenSpecFake
+) -> None:
+    case = next(c for c in cases if c.pull == 3225)
+    (defect,) = case.defects
+    statement = defect.evidence
+    req_name = "A failed model call ends the step stopped"
+    spec_text = (
+        "# roadmap-implement-step Specification\n\n"
+        "## Purpose\n"
+        "What devops roadmap implement reads.\n\n"
+        "## Requirements\n\n"
+        f"### Requirement: {req_name}\n"
+        f"{statement}\n\n"
+        "#### Scenario: A model call fails\n"
+        "- **WHEN** model fails\n"
+        "- **THEN** step reports stopped\n"
+    )
+    stage_repo.track({"openspec/specs/roadmap-implement-step/spec.md": spec_text})
+    openspec_fake.script(
+        ("list", "--specs", "--json"), 0, json.dumps({"specs": [{"id": "roadmap-implement-step"}]})
+    )
+    commit = stage_repo.git("rev-parse", "HEAD")
+    replay = case.model_copy(
+        update={
+            "base_commit": commit,
+            "issue_body": f"The issue cites `{req_name}`.",
+        }
+    )
+    finding = Finding(
+        type=DefectType.SPEC_DELTA_WRONG,
+        severity=Severity.MAJOR,
+        where=Locator(part=PlanPart.SPEC, capability="roadmap-implement-step", section=req_name),
+        problem="The plan adds a requirement that states a base requirement.",
+        quote=statement,
+    )
+    script = Script(Verification(findings=[finding]))
+
+    score = evaluate_cases(
+        "m-1",
+        [replay],
+        _client(ModelFake()),
+        stage_repo.clone,
+        toolbox=ToolboxModel(script.model()),
+    )
+
+    request = json.loads(script.prompt())
+    assert statement in request["requirements"]
+    assert score.cases[0].returning == 1

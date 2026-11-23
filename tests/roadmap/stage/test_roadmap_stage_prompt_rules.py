@@ -757,6 +757,22 @@ def test_the_review_refuses_a_line_that_names_a_source_with_no_statement() -> No
     assert "quotes no statement of its module" in definition
 
 
+def test_the_prompt_says_to_use_modified_for_a_stated_behavior() -> None:
+    prompt = load_task_prompt("roadmap_stage_change.md")
+
+    assert (
+        "Change a requirement of the `### Requirement text` section of the context with `modified` "
+        "when that requirement states the behavior."
+    ) in prompt
+
+
+def test_the_verify_prompt_names_the_requirement_text() -> None:
+    verify = load_task_prompt("roadmap_stage_verify.md")
+
+    assert "`requirements`" in verify
+    assert "bounded text of the base requirements that the item cites" in verify
+
+
 # ── A plan that changes a planner prompt (#3347) ──────────────────────────────
 
 
