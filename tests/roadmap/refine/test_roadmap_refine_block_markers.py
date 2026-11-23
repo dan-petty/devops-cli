@@ -22,6 +22,7 @@ import pytest
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    CONST_ROADMAP_RECORD_MARKER,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
@@ -202,8 +203,8 @@ def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_t
     """An earlier round of refine wrote and recorded a section, and then a person opens a code
     fence or a `<pre>` block above it and does not close it. The block runs to the end of the body,
     and the start marker of the section ends it for a read (#6736). The fake store writes the body
-    through `with_record`, which closes the block there, so the round reads the record (#6799). A
-    person's edit on GitHub does not pass through `with_record`; #6785 holds that read. The first
+    through `with_record`, which closes the block there, so the round reads the record (#6799). The
+    next test makes the same edit on GitHub, which does not pass through `with_record`. The first
     round replaces the section in place, and the block of the person keeps its close. Each round
     leaves one section, and only the first round asks the model."""
     earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
@@ -231,6 +232,52 @@ def test_a_block_that_a_person_opens_above_the_section_leaves_one_section_over_t
         f"{_PERSON}\n\n{opened}\n{close}\n\n",
         False,
         [first, first],
+    )
+
+
+@pytest.mark.parametrize(
+    ("opened", "close"),
+    [
+        pytest.param("```\nAn open fence of a person.", "```", id="fence"),
+        pytest.param("<pre>\nAn open pre block of a person.", "</pre>", id="pre"),
+    ],
+)
+def test_a_block_that_a_person_opens_on_github_above_the_section_keeps_the_record(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, opened: str, close: str
+) -> None:
+    """As the test above, but the person edits the body on GitHub, whose editor shows the record
+    block as text. The block of the person then runs past the section and the record to the end
+    of the body. The record line ends it for the read (#6785), so the round reads the record. The
+    first round replaces the section in place and writes one record block, so no stale record
+    stays in the body. Each round leaves one section, and only the first round asks the model."""
+    earlier = f"{_PERSON}\n\n{_OLD_SECTION}"
+    number = seed_with_body(store, earlier)
+    body_hash, section_hash = body_hashes(earlier)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.BODY_HASH: body_hash, RefineRecordKey.SECTION_HASH: section_hash},
+    )
+    raw = store.raw_body(number)
+    store.edit_body_by_hand(number, raw.replace(_OLD_SECTION, f"{opened}\n\n{_OLD_SECTION}"))
+    model_fake.answer(READY)
+
+    seen, bodies = _rounds(store, git_repo, number, 3)
+
+    first = bodies[0]
+    assert (
+        seen,
+        len(model_fake.calls),
+        first[: first.find(CONST_ROADMAP_REFINE_START_MARKER)],
+        "An old design." in first,
+        bodies[1:],
+        store.raw_body(number).count(CONST_ROADMAP_RECORD_MARKER),
+    ) == (
+        [(1, True, True)] * 3,
+        1,
+        f"{_PERSON}\n\n{opened}\n{close}\n\n",
+        False,
+        [first, first],
+        1,
     )
 
 

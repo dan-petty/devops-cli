@@ -954,6 +954,51 @@ def _record_block_span(body: str) -> tuple[int, int] | None:
     return starts[first], starts[after] if after < len(starts) else len(body)
 
 
+def _without_separator(text: str) -> str:
+    """`text` without the separator that `with_record` writes before the record block."""
+    return next((text.removesuffix(sep) for sep in _RECORD_SEPARATORS if text.endswith(sep)), text)
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    """The JSON object that `text` holds, or None when `text` holds no JSON object."""
+    try:
+        held = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return held if isinstance(held, dict) else None
+
+
+def _record_below_open_block(body: str) -> tuple[str, dict[str, Any]] | None:
+    """The text before the last line of `body`, and the JSON object of that line, or None. The
+    line must be the record block at the end of a block that `body` opens above it (#6785).
+
+    A person can open a fenced code block or an HTML block above the record block that a job
+    wrote, and not close it. CommonMark then reads the record line as the last line of that
+    block. A fence or a `<pre>` block runs to the end of the body. A comment ends at the record
+    line, because that line is the first line that holds `-->`. The job block readers end such a
+    block at the job blocks at its end (#6736). There, `close_open_block` decides that the block
+    is open. The record line ends the block for a read when three conditions are true. CommonMark
+    parses the line alone as the record block. The line holds a JSON object. The text before the
+    line leaves a block open. A job writes no other record, so each other line stays the text of
+    the person, with no warning. CommonMark cannot tell a quote of the record that holds a JSON
+    object from the record. So such a quote on the last line of an open block reads as the
+    record."""
+    # `body_hash` imports this module, so the import waits for the first call.
+    from devops_cli.roadmap.body_hash import close_open_block
+
+    text = body.rstrip()
+    start = max(text.rfind("\n"), text.rfind("\r")) + 1
+    line = text[start:]
+    found = _RECORD_BLOCK.fullmatch(line.strip())
+    if found is None or _record_block_span(line) is None:
+        return None
+    held = _json_object(found.group("record"))
+    rest = _without_separator(body[:start])
+    if held is None or close_open_block(rest) == rest:
+        return None
+    return rest, held
+
+
 def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, Any]]:
     """The body with its record block taken out, and the JSON object the block holds: empty
     when the body has no block, or when the block holds no JSON object, which a warning names.
@@ -961,25 +1006,21 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     The record block is the comment at the end of the body. The writer's separator before it
     goes with it, so a body read back after `with_record` is the body written. If the body left
     a block open at its end, the read gives the body with the close of that block (#6729). A
-    body that does not hold the block's opening text is not parsed: most issues and every pull
-    request of a listing have no record (#4445).
+    person can later open a block above the record block. The record line then ends that block
+    for the read, and the next write closes the block before the record (#6785). A body that
+    does not hold the block's opening text is not parsed: most issues and every pull request of
+    a listing have no record (#4445). Only a body whose last block is not the record gets a
+    second parse.
     """
     if _RECORD_OPENER not in body:
         return body, {}
     span = _record_block_span(body)
     found = _RECORD_BLOCK.fullmatch(body[span[0] : span[1]].strip()) if span else None
     if span is None or found is None:
-        return body, {}
-    rest = body[: span[0]]
-    rest = next(
-        (rest.removesuffix(sep) for sep in _RECORD_SEPARATORS if rest.endswith(sep)),
-        rest,
-    )
-    try:
-        held = json.loads(found.group("record"))
-    except json.JSONDecodeError:
-        held = None
-    if not isinstance(held, dict):
+        return _record_below_open_block(body) or (body, {})
+    rest = _without_separator(body[: span[0]])
+    held = _json_object(found.group("record"))
+    if held is None:
         logger.warning(MESSAGES.roadmap.record_unreadable.format(issue=issue))
         return rest, {}
     return rest, held
@@ -1028,11 +1069,11 @@ def with_record(body: str, block: str | None) -> str:
 
     CommonMark reads all text after an open fenced code block or an open HTML block as part of
     that block. In a fence, GitHub then shows the record as code. In an open comment or `<pre>`
-    block, GitHub hides the record. In each case, `split_record` does not find the record. So
-    `with_record` closes a fence or an HTML block that `body` leaves open at its end. The close
-    goes on a line of its own before `block` (#6729). The close takes the place of one line break
-    at the end of `body`, so the block gets no new empty line. A body that leaves no block open
-    is written as it is."""
+    block, GitHub hides the record. So `with_record` closes a fence or an HTML block that `body`
+    leaves open at its end. The close goes on a line of its own before `block` (#6729), so
+    `block` is the last block of the body. The close takes the place of one line break at the end
+    of `body`, so the block gets no new empty line. A body that leaves no block open is written
+    as it is."""
     if block is None:
         return body
     if not body:
