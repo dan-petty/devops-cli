@@ -188,6 +188,46 @@ def test_a_loop_item_that_check_mode_skips_is_unchecked(tmp_path: Path) -> None:
     )
 
 
+def test_a_meta_end_host_skip_by_a_false_when_is_checked(tmp_path: Path) -> None:
+    """A meta: end_host task that a false when skipped is checked, not unchecked (#6334)."""
+    event = {
+        "event": "runner_on_skipped",
+        "counter": 1,
+        "stdout": (
+            'skipping: [condor.lan] => {"skip_reason": "end_host conditional evaluated to False,'
+            ' continuing execution for condor.lan"}'
+        ),
+        "event_data": {
+            "host": "condor.lan",
+            "task": "Skip node that is NotReady or cordoned",
+            "task_path": "/repo/site.yaml:12",
+            "resolved_action": "ansible.builtin.meta",
+        },
+    }
+    (plan,) = host_plans([event], tmp_path, {})
+    assert plan.unchecked == ()
+
+
+def test_a_conditional_result_false_skip_is_checked(tmp_path: Path) -> None:
+    """A skip result with skip_reason 'Conditional result was False' is checked (#6334)."""
+    event = {
+        "event": "runner_on_skipped",
+        "counter": 1,
+        "stdout": (
+            'skipping: [condor.lan] => {"changed": false, "skip_reason": "Conditional result was'
+            ' False", "skipped": true}'
+        ),
+        "event_data": {
+            "host": "condor.lan",
+            "task": "Skip node that is NotReady or cordoned",
+            "task_path": "/repo/site.yaml:12",
+            "resolved_action": "ansible.builtin.meta",
+        },
+    }
+    (plan,) = host_plans([event], tmp_path, {})
+    assert plan.unchecked == ()
+
+
 def test_a_skip_result_in_color_stays_unchecked(tmp_path: Path) -> None:
     """In a color terminal the callback puts color codes around the text of each skip, so the
     result after `=> ` does not read as JSON, and a skip by a false `when` is unchecked: the safe
