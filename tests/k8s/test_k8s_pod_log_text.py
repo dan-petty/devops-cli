@@ -1,9 +1,7 @@
 """The text of a pod log, read through the real Kubernetes client (#3091).
 
-`kubernetes` 36.0.3 gives `read_namespaced_pod_log` the response type `str`, skips the decode of
-the body, and ends in `str(bytes)`: a log arrives as the text `b'...\\n...'`. A log that is valid
-JSON arrives as the repr of a Python value. The client reads a loopback server here, with no fake
-between the call and the bytes.
+`kubernetes` 37 decodes the body of `read_namespaced_pod_log` to `str`. The client reads
+a loopback server here, with no fake between the call and the bytes.
 """
 
 from __future__ import annotations
@@ -51,13 +49,13 @@ def core() -> Iterator[client.CoreV1Api]:
         thread.join()
 
 
-def test_a_plain_read_of_the_client_gives_the_escaped_text_of_the_bytes(
+def test_a_plain_read_of_the_client_gives_the_text_of_the_bytes(
     core: client.CoreV1Api,
 ) -> None:
-    """The defect: the client itself returns the repr of the bytes, so no `str(log)` can fix it."""
+    """The client decodes the body as text with line breaks and UTF-8 characters."""
     shown = core.read_namespaced_pod_log("plain", "devops")
 
-    assert shown.startswith("b'Tool call: read_file, ok.\\n")
+    assert shown.startswith("Tool call: read_file, ok.\n")
 
 
 @pytest.mark.parametrize(

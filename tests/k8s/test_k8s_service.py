@@ -461,6 +461,22 @@ def test_resource_informer_stream_events(cluster: FakeCluster) -> None:
     ]
 
 
+def test_resource_informer_stream_events_raises_gone_on_410(cluster: FakeCluster) -> None:
+    """A 410 error in the watch stream raises ApiException."""
+    from kubernetes.client.exceptions import ApiException
+
+    cluster.core.watch_events = [
+        {
+            "type": "ERROR",
+            "object": {"code": 410, "reason": "Expired", "message": "resourceVersion too old"},
+        },
+    ]
+    informer = ResourceInformer(resource_kind="Pod", namespace="default")
+    with pytest.raises(ApiException) as exc_info:
+        list(informer.stream_events(timeout_seconds=1.0))
+    assert exc_info.value.status == 410
+
+
 def test_resource_informer_stream_events_all_namespaces(cluster: FakeCluster) -> None:
     """An all-namespace informer watches every namespace."""
     informer = ResourceInformer(resource_kind="Pod", namespace="")

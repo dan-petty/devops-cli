@@ -71,9 +71,10 @@ def _quantity(value: object) -> Decimal | None:
     """A Kubernetes quantity, such as `16310540Ki`, as a number; none when it is absent."""
     if value is None:
         return None
-    from kubernetes.utils.quantity import parse_quantity  # type: ignore[import-untyped]
+    from kubernetes.utils import quantity
 
-    return Decimal(parse_quantity(str(value)))
+    parse_fn: Any = quantity.parse_quantity
+    return Decimal(parse_fn(str(value)))
 
 
 def gpu_total(resources: dict[str, str] | None) -> int | None:

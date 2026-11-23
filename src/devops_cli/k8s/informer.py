@@ -99,13 +99,14 @@ class ResourceInformer:
         resource_version: str | None = None,
     ) -> Iterator[K8sEvent]:
         """Yield real-time cluster events over a Watch stream without polling."""
-        from kubernetes import watch  # type: ignore[import-untyped]
+        from kubernetes import watch
 
         if not self._service.load_config():
             raise KubernetesContextError("Kubernetes client is not configured.")
 
         core_v1 = self._service.core_api()
-        w = watch.Watch()
+        watch_mod: Any = watch
+        w = watch_mod.Watch()
         # Publish the watcher so stop() can interrupt the blocking stream immediately
         # instead of waiting out the server-side resync timeout.
         self._watcher = w
@@ -130,7 +131,7 @@ class ResourceInformer:
                     if not code and isinstance(obj, dict):
                         code = obj.get("code")
                     if code == 410 or str(code) == "410":
-                        from kubernetes.client.rest import (  # type: ignore[import-untyped]
+                        from kubernetes.client.exceptions import (
                             ApiException,
                         )
 

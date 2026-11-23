@@ -613,3 +613,43 @@ def test_doctor_warns_on_kubelet_older_than_skew_policy() -> None:
     f = kubelet_findings[0]
     assert (f.severity, f.class_, f.resource) == ("warning", "cluster", "Node/worker-old")
     assert "1.31.0" in f.cause
+
+
+def test_doctor_collect_reads_server_version_from_core_api_client(
+    process_fake: ProcessFake,
+) -> None:
+    """When core has api_client, collect constructs a VersionApi and reads the server version."""
+    from kubernetes import client as k8s_client
+
+    process_fake.answer(["kubectl", "version"], ProcessAnswer(returncode=127))
+
+    class _FakeResp:
+        def __init__(self) -> None:
+            self.status = 200
+            self.data = json.dumps(
+                {
+                    "buildDate": "2026-11-23T00:00:00Z",
+                    "compiler": "gc",
+                    "gitCommit": "abcdef",
+                    "gitTreeState": "clean",
+                    "gitVersion": "v1.31.2",
+                    "goVersion": "go1.23.0",
+                    "major": "1",
+                    "minor": "31",
+                    "platform": "linux/amd64",
+                }
+            ).encode("utf-8")
+            self.headers = {"content-type": "application/json"}
+
+        def read(self) -> bytes:
+            return self.data
+
+        def getheaders(self) -> dict[str, str]:
+            return self.headers
+
+    core = FakeCoreV1()
+    core.api_client = k8s_client.ApiClient()
+    core.api_client.call_api = lambda *args, **kwargs: _FakeResp()
+
+    snapshot = collect(core)
+    assert snapshot.server_version == "v1.31.2"
