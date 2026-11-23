@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.7](https://github.com/dan-petty/devops-cli/compare/v0.203.6...v0.203.7) (2026-11-23)
+
+
+### Bug Fixes
+
+* **security:** add readOnlyRootFilesystem to adversary fixture ([#6932](https://github.com/dan-petty/devops-cli/issues/6932)) ([2d2b3ea](https://github.com/dan-petty/devops-cli/commit/2d2b3eaff37cd8ac593a35d56ca342c1cff61787))
+
 ## [0.203.6](https://github.com/dan-petty/devops-cli/compare/v0.203.5...v0.203.6) (2026-11-23)
 
 
