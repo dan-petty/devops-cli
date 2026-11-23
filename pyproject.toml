@@ -7,7 +7,7 @@ name = "devops-cli"
 version = "0.203.5"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
-requires-python = ">=3.14"
+requires-python = ">=3.14.10"
 dependencies = [
     "click==8.5.1",
     "typer==0.29.2",
