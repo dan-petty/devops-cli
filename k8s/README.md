@@ -558,6 +558,53 @@ The measure creates one temporary namespace (`volume-move-measure`) with two 1 G
 
 The run deletes the temporary namespace when it ends, whether the copies pass or fail. The report prints a Markdown table with the count of complete copies and digest matches. At least 20 copies must complete with a matching digest (20/20 complete copies and 20/20 digest matches), else the command exits non-zero. A person runs the live measure against the cluster and records the 20/20 numbers in #3953.
 
+## Local-Path Retain Migration
+
+The cluster has 8 bound PersistentVolumes that use the `local-path` class with reclaim policy `Delete`. The `local-path-retain` class sets `Retain` for new volumes, but does not alter bound volumes or live StatefulSets. A person runs this migration in a maintenance window after the manifest sync.
+
+### 1. Identify bound Delete volumes
+
+List each bound PersistentVolume with reclaim policy `Delete` and a claim from a devops-cli workload:
+
+```bash
+kubectl get pv -o jsonpath='{range .items[?(@.spec.persistentVolumeReclaimPolicy=="Delete")]}{.metadata.name}{"\t"}{.spec.claimRef.namespace}{"/"}{.spec.claimRef.name}{"\n"}{end}'
+```
+
+### 2. Patch PersistentVolumes to Retain
+
+Patch each bound PersistentVolume to the `Retain` policy before deleting any StatefulSet:
+
+```bash
+kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+```
+
+Verify that the reclaim policy is now `Retain`:
+
+```bash
+kubectl get pv <name> -o jsonpath='{.spec.persistentVolumeReclaimPolicy}'
+```
+
+### 3. Recreate live StatefulSets
+
+Delete each live StatefulSet with orphan cascade to keep its pods and claims:
+
+```bash
+kubectl delete statefulset <name> --cascade=orphan
+```
+
+Argo CD or the controller recreates the StatefulSet with the updated claim template. Then delete the adopted pod so the recreated StatefulSet provisions the new pod:
+
+```bash
+kubectl delete pod <name>-0
+```
+
+Wait for the StatefulSet rollout and the pod to become Ready:
+
+```bash
+kubectl rollout status statefulset <name>
+kubectl wait --for=condition=Ready pod/<name>-0 --timeout=300s
+```
+
 ## Capacity targets
 
 The [Kubernetes guideline](../docs/guidelines/kubernetes.md) sets the targets and the tuning method of a cluster. This section holds only the decisions of this cluster. [Tracker #5542](https://github.com/dan-petty/devops-cli/issues/5542) holds the open capacity gaps of this cluster, so this section holds no gap row. The project review report gives the measured values.
