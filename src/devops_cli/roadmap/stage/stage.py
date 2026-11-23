@@ -3975,7 +3975,7 @@ def _notes(change: StagedChange, moved: Sequence[MovedPath] = ()) -> str:
     return _moved_section(moved) + _run_report(change.trace) + read + unvalidated + warnings
 
 
-def _plan_state(change: StagedChange, pull: int) -> str:
+def plan_state_text(change: StagedChange, pull: int) -> str:
     """The plan-state comment of `change` on its draft pull request `pull` (#6197): the branch,
     the groups with their tokens, the open findings of the last review, and every other finding of
     each review round as advice (#3264, #3153)."""
@@ -4027,6 +4027,24 @@ def _label_needs_fix(store: RoadmapStore, pull: CreatedPull, change: StagedChang
     return ""
 
 
+class PlanPush(Protocol):
+    """The push of the plan commit of one item: `push_plan`, or the push of `publish` of the stage
+    Job on its phases, which checks the new tree before it pushes (#6705)."""
+
+    def __call__(
+        self,
+        repo: str,
+        *,
+        issue: int,
+        branch: str,
+        files: Mapping[str, str],
+        staged: str,
+        message: str,
+        lease: str | None,
+        identity: tuple[str, str],
+    ) -> str: ...
+
+
 def _stage_one(
     store: RoadmapStore,
     repo: str,
@@ -4035,6 +4053,7 @@ def _stage_one(
     change: StagedChange,
     moved: Sequence[MovedPath],
     now: datetime,
+    push: PlanPush = push_plan,
 ) -> None:
     """Push the plan commit and open the draft of one item, then record them, write the plan-state
     comment of the draft and post the comment of the run (#6197). The plan is written on the
@@ -4056,7 +4075,7 @@ def _stage_one(
         {StageRecordKey.PENDING: PendingStage(branch=target.branch, time=now).record},
     )
     number = target.item.number
-    sha = push_plan(
+    sha = push(
         repo,
         issue=number,
         branch=target.branch,
@@ -4094,7 +4113,7 @@ def _stage_one(
     label_note = _label_pull(store, pull.number, change.title)
     label_note += _label_needs_fix(store, pull, change)
     number = target.item.number
-    write_state(store, repo, number, pull.number, _plan_state(change, pull.number))
+    write_state(store, repo, number, pull.number, plan_state_text(change, pull.number))
     store.comment(
         number,
         MESSAGES.roadmap.stage_comment_event.format(
@@ -4447,11 +4466,13 @@ class StageWriter:
         *,
         now: datetime | None = None,
         repo: str = "",
+        push: PlanPush = push_plan,
     ):
         self._store = store
         self._source = Path(source)
         self._now = now
         self._repo = repo
+        self._push = push
         self._sha = ""
         self._rejections: dict[int, Rejection] = {}
         self._removed: list[int] = []
@@ -4587,7 +4608,9 @@ class StageWriter:
         with observe_step(self._repo, _ROW, StepName.APPLY):
             moved = _moved_for(self._source, self._sha, change)
             now = self._now or datetime.now(UTC)
-            _stage_one(self._store, self._repo, self._source, self._sha, change, moved, now)
+            _stage_one(
+                self._store, self._repo, self._source, self._sha, change, moved, now, self._push
+            )
         # The item is staged, so its plan has no more use. A failed write raised above and kept it.
         delete_plan_record(plan_record_path(self._repo, change.target.item.number))
         delete_refused_record(refused_record_path(self._repo, change.target.item.number))
@@ -4840,6 +4863,7 @@ __all__ = [
     "KeptBranch",
     "LeftOut",
     "OverBudget",
+    "PlanPush",
     "PlanRevision",
     "PlannedQueue",
     "PremiseKind",
@@ -4868,6 +4892,7 @@ __all__ = [
     "plan_body_hash",
     "plan_defects",
     "plan_stage",
+    "plan_state_text",
     "priority_order",
     "raise_for_failed",
     "read_stage_round",

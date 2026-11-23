@@ -24,13 +24,14 @@ import os
 import re
 import shutil
 import tempfile
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, NonNegativeInt
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, NonNegativeInt, ValidationError
 from pydantic_ai import capture_run_messages
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
 from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
@@ -40,10 +41,12 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError, spend
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
+    CONST_GITHUB_COMMENT_MAX_CHARS,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_PHASE_INPUT_FILE,
     CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
     CONST_ROADMAP_PHASE_OUTCOME_FILE,
+    CONST_ROADMAP_PHASE_PATCH_MAX_BYTES,
     CONST_ROADMAP_PHASE_STATE_FILE,
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_CANDIDATE_FILE,
@@ -54,16 +57,27 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import RoadmapStageConfig, get_active_config_path, load_settings
 from devops_cli.core import clock
 from devops_cli.core.process import finds_github_login
-from devops_cli.exceptions import DevOpsCLIError, RoadmapStageError, RoadmapTimeBudgetError
-from devops_cli.exceptions.roadmap import PhaseOutputError
+from devops_cli.exceptions import (
+    DevOpsCLIError,
+    GitHubOperationError,
+    GitOperationError,
+    RoadmapStageError,
+    RoadmapTimeBudgetError,
+)
+from devops_cli.exceptions.roadmap import PhaseOutputError, PublishRefusedError
+from devops_cli.exceptions.tools import DependencyError, ToolExecutionError
 from devops_cli.lang import MESSAGES
+from devops_cli.openspec.gate import GateCheck, check_openspec
 from devops_cli.openspec.scaffold import scaffold_design, scaffold_proposal, scaffold_tasks
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
+from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.item_comments import HeldComment, held_comments
-from devops_cli.roadmap.phases.files import RunFolders, read_run_file, write_json
+from devops_cli.roadmap.phases.files import RunFolders, read_output, read_run_file, write_json
 from devops_cli.roadmap.phases.patch import write_patch
-from devops_cli.roadmap.phases.publish import git_call
-from devops_cli.roadmap.plan_recheck import ListingIssues
+from devops_cli.roadmap.phases.publish import NewTree, git_call, publish_patch
+from devops_cli.roadmap.plan_read import PlanReadError, read_change
+from devops_cli.roadmap.plan_recheck import ListingIssues, recheck_plans
+from devops_cli.roadmap.plan_recheck import PlanResult as RecheckResult
 from devops_cli.roadmap.planned import PlannedChanges, open_plan_creates
 from devops_cli.roadmap.refine.refine import stage_comment_text
 from devops_cli.roadmap.refine.refine_investigation import task_window
@@ -82,15 +96,25 @@ from devops_cli.roadmap.stage.stage import (
     StageWriter,
     item_failure,
     job_time_decision,
+    openspec_tool,
     parse_filters,
+    plan_defects,
+    plan_state_text,
     read_stage_round,
 )
 from devops_cli.roadmap.stage.stage_agent import STAGE_CHECKS, StageRunLog, build_stage_agent
-from devops_cli.roadmap.stage.stage_change import body_room
+from devops_cli.roadmap.stage.stage_candidate import plan_texts, read_candidate
+from devops_cli.roadmap.stage.stage_change import (
+    MeasuredGroup,
+    body_room,
+    measure_groups,
+    shared_texts,
+)
 from devops_cli.roadmap.stage.stage_job import (
     BUDGET_SETTING,
     StageJobExit,
     StageJobRun,
+    check_in,
     deadline_end,
     finish_stage_job,
     install_request_budget,
@@ -100,11 +124,13 @@ from devops_cli.roadmap.stage.stage_job import (
     require_job_token_scope,
     stage_error_end,
 )
-from devops_cli.roadmap.stage.stage_phases import clone_for_agent
+from devops_cli.roadmap.stage.stage_phases import clone_at_base, clone_for_agent, target_of
 from devops_cli.roadmap.stage.stage_probe import Probe, blocked_by, probe_premise
 from devops_cli.roadmap.stage.stage_rejected import reasons_of
-from devops_cli.roadmap.stores.store import IssueRecord, Item, RoadmapStore
+from devops_cli.roadmap.stage.stage_validate import validate_change
+from devops_cli.roadmap.stores.store import IssueRecord, Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
+from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.server.service import RequestBudget
 
 _GIT_OPERATION: Final[str] = "roadmap.stage.phases"
@@ -718,6 +744,561 @@ def run_stage_agent(folders: RunFolders, *, model: Any = None) -> StageOutcome |
     return outcome
 
 
+# ── publish ──────────────────────────────────────────────────────────────────
+
+# The files of a change folder that `publish` allows: the files of a plan.
+_PLAN_FILES: Final[frozenset[str]] = frozenset(
+    {".openspec.yaml", "proposal.md", "design.md", "tasks.md"}
+)
+_SPEC_FILE: Final[re.Pattern[str]] = re.compile(
+    r"specs/[a-z0-9][a-z0-9-]*(?:/[a-z0-9][a-z0-9-]*)?/spec\.md"
+)
+_TEXT_MODE: Final[str] = "100644"
+_DELETED: Final[str] = "D"
+# The findings of the gate of OpenSpec that say nothing of the plan: the environment of the check.
+_CI_INFRA_CHECKS: Final[frozenset[GateCheck]] = frozenset(
+    {GateCheck.VERSION, GateCheck.CONFIGURATION, GateCheck.SKILLS, GateCheck.INSTRUCTIONS}
+)
+# The errors of a check that say nothing of the plan: a missing tool, a network or GitHub error.
+_CI_INFRA_ERRORS: Final = (DependencyError, GitHubOperationError, GitOperationError)
+_BUDGET_RULE: Final[str] = "group-over-budget"
+# Each control character but the line feed.
+_CONTROL: Final[re.Pattern[str]] = re.compile(r"[\x00-\x09\x0b-\x1f\x7f-\x9f]")
+# The pull request number that `fit_plan_state` measures the comment with: the longest one.
+_LONGEST_PULL: Final[int] = 9_999_999
+_CREATED: Final[re.Pattern[str]] = re.compile(r"^created:\s*(\S+)\s*$", re.MULTILINE)
+
+
+def clean_text(text: str) -> str:
+    """`text` with each control character but the line feed removed (#6705)."""
+    return _CONTROL.sub("", text)
+
+
+def fit_plan_state(change: StagedChange) -> StagedChange:
+    """`change` with its group titles cut until its plan-state comment holds at most the
+    characters of a GitHub comment (#6705). The files of the plan keep the full titles. A change
+    whose comment fits comes back as it is."""
+    fitted, cap = change, max((len(m.group.title) for m in change.groups), default=0)
+    while len(plan_state_text(fitted, _LONGEST_PULL)) > CONST_GITHUB_COMMENT_MAX_CHARS and cap > 1:
+        cap //= 2
+        groups = tuple(
+            replace(m, group=m.group.model_copy(update={"title": m.group.title[:cap]}))
+            for m in change.groups
+        )
+        fitted = replace(change, groups=groups)
+    return fitted
+
+
+@dataclass(frozen=True)
+class _Change:
+    """One entry of `git diff --raw`."""
+
+    new_mode: str
+    status: str
+    path: str
+
+
+def _raw_changes(repo: Path, *revisions: str, home: Path | None = None) -> list[_Change]:
+    """Each change of `git diff --raw -z --no-renames <revisions>` in `repo`."""
+    listed = git_call(repo, "diff", "--raw", "-z", "--no-renames", *revisions, home=home)
+    fields = listed.split("\0")
+    found: list[_Change] = []
+    for head, path in zip(fields[0::2], fields[1::2], strict=False):
+        if head.startswith(":"):
+            _old_mode, new_mode, _old, _new, status = head[1:].split(" ")
+            found.append(_Change(new_mode, status, path))
+    return found
+
+
+def _plan_texts(repo: Path, changes: list[_Change], root: str) -> dict[str, str]:
+    """The text of each changed file of the change folder `root` in the working tree of `repo`.
+    Raises `RoadmapStageError` for a change of another path, a mode other than `100644` or a
+    file that is not UTF-8: only the files of a plan pass, before any check (#6705)."""
+    texts = MESSAGES.roadmap
+    files: dict[str, str] = {}
+    for change in changes:
+        name = change.path.removeprefix(f"{root}/")
+        if name == change.path or not (name in _PLAN_FILES or _SPEC_FILE.fullmatch(name)):
+            raise RoadmapStageError(
+                texts.stage_publish_path_refused.format(path=mask_secrets(change.path), folder=root)
+            )
+        if change.status == _DELETED:
+            continue
+        if change.new_mode != _TEXT_MODE:
+            raise RoadmapStageError(
+                texts.stage_publish_mode_refused.format(path=change.path, mode=change.new_mode)
+            )
+        try:
+            files[change.path] = (repo / change.path).read_bytes().decode("utf-8")
+        except UnicodeDecodeError:
+            raise RoadmapStageError(texts.stage_publish_not_text.format(path=change.path)) from None
+    return files
+
+
+class _BudgetStop(Exception):
+    """The only finding of the checks of `publish` is a group over the budget (#6705)."""
+
+
+@dataclass
+class _Findings:
+    """The findings of the checks of `publish`, by what they say."""
+
+    plan: list[str]
+    ci_infra: list[str]
+    budget: list[str]
+
+    def raise_any(self) -> None:
+        """Raise for the findings, as the module says: a plan finding first, then a finding of the
+        `ci_infra` list, then the budget."""
+        texts = MESSAGES.roadmap
+        if self.plan:
+            raise RoadmapStageError(
+                texts.stage_publish_findings.format(findings=" ".join(self.plan))
+            )
+        if self.ci_infra:
+            raise DevOpsCLIError(
+                texts.stage_publish_checks_unavailable.format(findings=" ".join(self.ci_infra))
+            )
+        if self.budget:
+            raise _BudgetStop(" ".join(self.budget))
+
+
+class _Publish:
+    """One run of `publish`, as `publish_stage_job` says."""
+
+    def __init__(
+        self,
+        store: RoadmapStore,
+        folders: RunFolders,
+        state: StageState,
+        target: StageTarget,
+        *,
+        settings: RoadmapStageConfig,
+        budget: RequestBudget,
+        now: datetime | None,
+    ) -> None:
+        self.store = store
+        self.folders = folders
+        self.state = state
+        self.target = target
+        self.settings = settings
+        self.budget = budget
+        self.now = now
+        self.plan = StagePlan(
+            state.repo,
+            state.base,
+            settings.step_tokens,
+            rejections=(state.rejection,) if state.rejection is not None else (),
+        )
+        self.attempt = StageAttempt(state.item)
+        self.patch = b""
+        self.candidate: str | None = None
+
+    @property
+    def root(self) -> str:
+        return f"{CONST_OPENSPEC_CHANGES_DIR}/{self.state.change}"
+
+    def finish(self, result: PlanResult | None, writer: StageWriter) -> StageJobRun:
+        plan = self.plan
+        if result is not None:
+            plan = _with_result(plan, result, self.attempt.seconds)
+        return finish_stage_job(
+            self.store,
+            repo=self.state.repo,
+            item=self.state.item,
+            job=self.state.job,
+            budget=self.budget,
+            plan=replace(plan, attempts=(self.attempt,)),
+            applied=writer.applied(),
+            now=self.now,
+            known=self.state.known,
+        )
+
+    def writer(self, source: Path) -> StageWriter:
+        writer = StageWriter(self.store, source, now=self.now, push=self.push)
+        writer.resume(self.plan, {self.state.item}, self.state.begun)
+        return writer
+
+    def failure(self, failure_class: FailureClass, reason: str) -> StageFailure:
+        item = self.target.item
+        error = (
+            RoadmapStageError.__name__ if failure_class is FailureClass.PLAN_DEFECT else "AgentEnd"
+        )
+        return StageFailure(
+            item.number,
+            item.title,
+            error,
+            mask_secrets(reason),
+            item,
+            failure_class=failure_class,
+            step=StepName.PLAN,
+        )
+
+    def refuse(self, failure: StageFailure, source: Path | None = None) -> StageJobRun:
+        writer = self.writer(source or self.folders.root)
+        writer.settle(self.target, failure)
+        return self.finish(failure, writer)
+
+    def run(self) -> StageJobRun:
+        texts = MESSAGES.roadmap
+        try:
+            outcome = StageOutcome.model_validate_json(
+                read_output(
+                    self.folders,
+                    CONST_ROADMAP_PHASE_OUTCOME_FILE,
+                    limit=CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+                )
+            )
+        except (PhaseOutputError, ValidationError) as exc:
+            error = exc if isinstance(exc, PhaseOutputError) else f"{exc.error_count()} error(s)"
+            reason = texts.stage_publish_outcome_refused.format(error=error)
+            return self.refuse(self.failure(FailureClass.PLAN_DEFECT, reason))
+        self.attempt = StageAttempt(
+            self.state.item,
+            plan_calls=outcome.requests,
+            tokens=outcome.input_tokens + outcome.output_tokens,
+            seconds=outcome.seconds,
+        )
+        at = self.now or datetime.now(UTC)
+        end = outcome.end
+        deadline = self.state.deadline
+        if end is StageEnd.TIMEOUT and deadline is not None and datetime.now(UTC) >= deadline:
+            return deadline_end(
+                self.store,
+                self.state.repo,
+                self.state.item,
+                self.state.job,
+                self.budget,
+                None,
+                self.now,
+                known=self.state.known,
+            )
+        reason = texts.stage_publish_agent_end.format(end=end.value)
+        if end in (StageEnd.PROVIDER, StageEnd.SPEND_LIMIT):
+            return self.refuse(self.failure(FailureClass(end.value), reason))
+        if end is StageEnd.CI_INFRA:
+            return self.agent_ci_infra(at)
+        return self.stage()
+
+    def agent_ci_infra(self, at: datetime) -> StageJobRun:
+        """Count a `ci_infra` end of the agent toward the split limit, in the marks of the
+        check-in: the end that reaches the limit is `plan_defect`, which returns the item for a
+        split (#6705)."""
+        count, body = plan_defects(self.target.item)
+        at_limit = count >= self.settings.plan_defect_limit
+        check_in(
+            self.store,
+            self.state.item,
+            repo=self.state.repo,
+            job=self.state.job,
+            result=StageEnd.CI_INFRA.value,
+            now=at,
+            failure=FailureClass.PLAN_DEFECT if at_limit else FailureClass.CI_INFRA,
+            marks=None
+            if at_limit
+            else {StageRecordKey.PLAN_DEFECTS: str(count), StageRecordKey.PLAN_DEFECTS_BODY: body},
+        )
+        return StageJobRun(StageJobExit.FAILURE, StageEnd.CI_INFRA.value, self.budget)
+
+    def stage(self) -> StageJobRun:
+        """Read the plan of the agent in a clone of its own, build the change, and settle it with
+        the writer of `--phase all`, whose push checks the new tree."""
+        texts = MESSAGES.roadmap
+        try:
+            self.patch = read_output(
+                self.folders,
+                CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
+                limit=CONST_ROADMAP_PHASE_PATCH_MAX_BYTES,
+            )
+        except PhaseOutputError as exc:
+            reason = texts.stage_publish_patch_refused.format(error=exc)
+            return self.refuse(self.failure(FailureClass.PLAN_DEFECT, reason))
+        self.candidate = self.read_candidate()
+        home = Path(tempfile.mkdtemp(prefix="devops-stage-publish-"))
+        try:
+            source = clone_at_base(
+                home / "source", self.state.repo, self.state.base, self.state.identity
+            )
+            try:
+                change = self.change(source)
+            except (RoadmapStageError, PublishRefusedError) as exc:
+                failure = self.failure(FailureClass.PLAN_DEFECT, str(exc))
+                return self.refuse(failure, source)
+            writer = self.writer(source)
+            try:
+                writer.settle(self.target, change)
+            except _BudgetStop:
+                stopped = OverBudget(self.target, change.groups, self.settings.step_tokens)
+                writer.settle(self.target, stopped)
+                held = self.store.item(self.state.item)
+                if held is not None:
+                    self.store.set_marks(held, {StageRecordKey.PENDING: None})
+                return self.finish(stopped, writer)
+            return self.finish(change, writer)
+        finally:
+            shutil.rmtree(home, ignore_errors=True)
+
+    def read_candidate(self) -> str | None:
+        """The body candidate of the agent as text, or None when it gave none that publish reads."""
+        try:
+            data = read_output(
+                self.folders,
+                CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE,
+                limit=CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+            )
+            return data.decode("utf-8")
+        except PhaseOutputError, UnicodeDecodeError:
+            return None
+
+    def change(self, source: Path) -> StagedChange:
+        """The change of the plan of the agent, built in the clone `source` at the base: the
+        files read from the patch, the texts of `stage_candidate`, cleaned, and the measure of the
+        groups. The clone is at the base again after the read."""
+        patch = source.parent / CONST_ROADMAP_STAGE_PLAN_PATCH_FILE
+        patch.write_bytes(self.patch)
+        try:
+            git_call(source, "apply", "--index", "--binary", str(patch))
+        except GitOperationError as exc:
+            raise PublishRefusedError(f"git apply refused the patch: {exc}") from exc
+        try:
+            changes = _raw_changes(source, "--cached", self.state.base)
+            files = _plan_texts(source, changes, self.root)
+        finally:
+            git_call(source, "reset", "--hard", "--quiet", self.state.base)
+        try:
+            proposal = read_change(files)
+        except PlanReadError as exc:
+            raise RoadmapStageError(f"{exc.path}: {exc.reason}") from exc
+        item = self.target.item
+        candidate = None if self.candidate is None else read_candidate(self.candidate)
+        texts = plan_texts(item.number, self.state.change, item.title, candidate, proposal.why)
+        if texts.problems:
+            raise RoadmapStageError(" ".join(texts.problems))
+        measured = measure_groups(
+            source, proposal.groups, shared=shared_texts(item.title, item.body, files)
+        )
+        groups = tuple(
+            MeasuredGroup(
+                m.group.model_copy(update={"title": clean_text(m.group.title)}), m.tokens, m.files
+            )
+            for m in measured
+        )
+        change = StagedChange(
+            self.target,
+            clean_text(texts.title),
+            clean_text(texts.body),
+            files,
+            groups,
+            True,
+            self.settings.step_tokens,
+            proposal,
+        )
+        return fit_plan_state(change)
+
+    def push(
+        self,
+        repo: str,
+        *,
+        issue: int,
+        branch: str,
+        files: Mapping[str, str],
+        staged: str,
+        message: str,
+        lease: str | None,
+        identity: tuple[str, str],
+    ) -> str:
+        """The one push of `publish`: the patch of the agent on the base, with the checks in
+        `before_push`."""
+        texts = MESSAGES.roadmap
+        if lease is not None and lease != self.state.lease:
+            raise GitOperationError(
+                texts.stage_restage_moved.format(
+                    branch=branch, recorded=lease, tip=self.state.lease or "none"
+                ),
+                operation=_GIT_OPERATION,
+            )
+        target = target_of(
+            repo,
+            branch,
+            base=self.state.base,
+            lease=self.state.lease if lease is None else lease,
+            identity=identity,
+        )
+        try:
+            published = publish_patch(target, [(self.patch, message)], before_push=self.check)
+        except PublishRefusedError as exc:
+            raise RoadmapStageError(texts.stage_publish_patch_refused.format(error=exc)) from exc
+        if published is None:
+            raise RoadmapStageError(texts.stage_push_no_change.format(number=issue))
+        return published.commit
+
+    def check(self, tree: NewTree) -> None:
+        """The checks of the new tree before the push, as the module says."""
+        changes = _raw_changes(tree.repo, self.state.base, "HEAD", home=tree.home)
+        files = _plan_texts(tree.repo, changes, self.root)
+        self.check_content(files)
+        findings = _Findings([], [], [])
+        self.check_gate(tree.repo, findings)
+        try:
+            with openspec_tool() as tool:
+                if tool is None:
+                    findings.ci_infra.append(MESSAGES.openspec.missing_hint)
+                else:
+                    if problem := validate_change(tool, tree.repo, self.state.change, files):
+                        findings.plan.append(" ".join(problem.split()))
+                    self.check_recheck(tree.repo, tool, findings)
+        except _CI_INFRA_ERRORS as exc:
+            findings.ci_infra.append(mask_secrets(str(exc)))
+        except ToolExecutionError as exc:
+            findings.plan.append(mask_secrets(str(exc)))
+        findings.raise_any()
+
+    def check_content(self, files: Mapping[str, str]) -> None:
+        """Refuse a secret and a date of the change other than the date of `prepare`."""
+        texts = MESSAGES.roadmap
+        for path, text in files.items():
+            if redact_text(text) != text:
+                raise RoadmapStageError(texts.stage_secret.format(path=path))
+        meta = files.get(f"{self.root}/.openspec.yaml")
+        found = _CREATED.search(meta or "")
+        created = self.state.created.isoformat() if self.state.created is not None else ""
+        if meta is not None and (found is None or found.group(1) != created):
+            raise RoadmapStageError(
+                texts.stage_publish_date_refused.format(
+                    found=found.group(1) if found else "none", created=created
+                )
+            )
+
+    def check_gate(self, root: Path, findings: _Findings) -> None:
+        """`devops openspec check` on the new tree."""
+        try:
+            gate = check_openspec(root)
+        except _CI_INFRA_ERRORS as exc:
+            findings.ci_infra.append(mask_secrets(str(exc)))
+            return
+        for finding in gate:
+            line = mask_secrets(finding.line())
+            (findings.ci_infra if finding.check in _CI_INFRA_CHECKS else findings.plan).append(line)
+
+    def check_recheck(self, root: Path, tool: Any, findings: _Findings) -> None:
+        """The recheck with the base of `prepare` on the new tree, with the listing of `state/`."""
+        listing = ListingIssues.parse(
+            read_run_file(
+                self.folders,
+                self.folders.state,
+                CONST_ROADMAP_STAGE_ISSUES_FILE,
+                limit=CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+            )
+        )
+        recheck = recheck_plans(
+            root,
+            listing,
+            tool=tool,
+            branch="HEAD",
+            base=self.state.base,
+            default=self.state.default,
+            candidate=self.candidate,
+        )
+        for record in recheck.branch.records if recheck.branch is not None else ():
+            if record.result is RecheckResult.OK:
+                continue
+            if not record.refusals:
+                findings.plan.append(f"{record.folder}: {record.result.value}")
+            for refusal in record.refusals:
+                line = mask_secrets(f"{record.folder} [{refusal.gate}] {refusal.message}")
+                (findings.budget if refusal.gate == _BUDGET_RULE else findings.plan).append(line)
+
+
+def read_stage_state(folders: RunFolders, *, repo: str, item: int) -> StageState:
+    """The state file of the run, read as data. It must name item `item` of `repo`."""
+    data = read_run_file(
+        folders,
+        folders.state,
+        CONST_ROADMAP_PHASE_STATE_FILE,
+        limit=CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+    )
+    try:
+        state = StageState.model_validate_json(data)
+    except ValidationError as exc:
+        raise PhaseOutputError(
+            f"The state file of the run is not of its model: {exc.error_count()} error(s)"
+        ) from None
+    if (state.repo, state.item) != (repo, item):
+        raise PhaseOutputError("The state file of the run names another item")
+    return state
+
+
+def publish_stage_job(
+    store: RoadmapStore,
+    folders: RunFolders,
+    *,
+    repo: str,
+    item: int,
+    now: datetime | None = None,
+) -> StageJobRun:
+    """`publish` of the stage Job of item `item` of `repo` on the run folder `folders` (#6705).
+
+    It counts the GitHub requests of `prepare` in its budget. A run that `prepare` ended ends
+    with that end and writes nothing. Else it trusts no end that the agent reports: it reads the
+    outcome as data, and
+
+    - an outcome outside its model, or a state, a patch or a plan file that it refuses, is
+      `plan_defect`;
+    - `timeout` after the end time of the budget checks in the deadline; before it, it is `ended`;
+    - `provider` and `spend_limit` record their class and their wait, with no count;
+    - `ci_infra` counts toward `roadmap.stage.plan_defect_limit` in the marks of the check-in;
+    - `ended` and `unverified` give the plan to the writer of `--phase all`, on a clone of
+      `publish` at the base. The one push applies the patch of the agent and runs the checks in
+      `before_push`: a plan finding is `plan_defect`, a finding of the `ci_infra` list only is
+      `ci_infra`, and a plan whose only finding is a group over the budget stops with the owner
+      question of the budget.
+    """
+    require_job_token_scope(repo)
+    settings = load_settings().roadmap.stage
+    budget = install_request_budget(settings.github_requests_per_hour)
+    try:
+        state = read_stage_state(folders, repo=repo, item=item)
+    except PhaseOutputError as exc:
+        return _unread(store, folders, repo, item, settings, budget, now, exc)
+    for _ in range(state.requests):
+        budget.admit()
+    if state.ended or state.target is None:
+        return StageJobRun(state.end or StageJobExit.FAILURE, state.result, budget)
+    held = store.item(item)
+    target = state.target if held is None else replace(state.target, item=held)
+    run = _Publish(store, folders, state, target, settings=settings, budget=budget, now=now)
+    return run.run()
+
+
+def _unread(
+    store: RoadmapStore,
+    folders: RunFolders,
+    repo: str,
+    item: int,
+    settings: RoadmapStageConfig,
+    budget: RequestBudget,
+    now: datetime | None,
+    error: PhaseOutputError,
+) -> StageJobRun:
+    """The end of a `publish` that cannot read its state file: `plan_defect` on the item."""
+    held = store.item(item)
+    if held is None:
+        raise error
+    known = known_job(store, item, settings.job)
+    state = StageState(repo=repo, item=item, job=settings.job, known=known)
+    run = _Publish(
+        store,
+        folders,
+        state,
+        StageTarget(held, "", ""),
+        settings=settings,
+        budget=budget,
+        now=now,
+    )
+    reason = MESSAGES.roadmap.stage_publish_unread.format(error=error)
+    return run.refuse(run.failure(FailureClass.PLAN_DEFECT, reason))
+
+
 __all__ = [
     "AgentComment",
     "PlanResult",
@@ -727,8 +1308,12 @@ __all__ = [
     "StageOutcome",
     "StageState",
     "check_commands",
+    "clean_text",
+    "fit_plan_state",
     "issue_listing",
     "prepare_stage_job",
+    "publish_stage_job",
+    "read_stage_state",
     "run_stage_agent",
     "scaffold_files",
 ]

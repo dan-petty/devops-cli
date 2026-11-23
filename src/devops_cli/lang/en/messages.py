@@ -4454,6 +4454,29 @@ class RoadmapMessages:
         "session finds a GitHub login here. Run the agent phase with no gh login. This process "
         "planned no item."
     )
+    # The refusals of `publish` of the stage Job (#6705).
+    stage_publish_path_refused: str = (
+        "The patch of the agent changes `{path}`, which is no file of the plan of "
+        "`{folder}`: only `.openspec.yaml`, `proposal.md`, `design.md`, `tasks.md` and "
+        "`specs/<capability>/spec.md` are."
+    )
+    stage_publish_mode_refused: str = (
+        "The plan file `{path}` has the mode {mode}; a plan file is a text file of the mode 100644."
+    )
+    stage_publish_not_text: str = "The plan file `{path}` is not UTF-8 text."
+    stage_publish_date_refused: str = (
+        "The change folder holds the date {found}, and prepare dated it {created}. Keep the date."
+    )
+    stage_publish_outcome_refused: str = (
+        "The outcome of the agent phase is not of its model: {error}"
+    )
+    stage_publish_unread: str = "publish cannot read the run folder: {error}"
+    stage_publish_patch_refused: str = "publish refuses the patch of the agent: {error}"
+    stage_publish_findings: str = "The checks of publish refuse the plan: {findings}"
+    stage_publish_checks_unavailable: str = (
+        "The checks of publish cannot run, and the plan is not judged: {findings}"
+    )
+    stage_publish_agent_end: str = "The agent phase ended `{end}`."
     stage_agent_budget_spent: str = (
         "The time budget of the stage Job ended at {deadline}, so the stage agent sends no more "
         "model requests."

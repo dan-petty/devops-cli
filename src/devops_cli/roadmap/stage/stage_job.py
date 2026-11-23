@@ -33,7 +33,10 @@ class. Only an end whose class points at the size of the plan (`SPLIT_CLASSES`: 
 `plan_defect`) counts toward `roadmap.stage.plan_defect_limit` on one body, as a refused plan does.
 The end that reaches the limit returns the item to New with a comment that asks refine to split it:
 a plan that keeps failing is too large for one Job (owner rule, 2026-11-13). An outage of the
-provider, of GitHub or of the cluster does not count: a split does not help it.
+provider, of GitHub or of the cluster does not count: a split does not help it. On the phases of
+the Job (`stage_job_phases.py`, #6705), `publish` also counts a `ci_infra` end of the agent phase,
+in the marks of its check-in: the agent can cause that end. `SPLIT_CLASSES` and `check_in` stay
+as they are.
 
 **The result line.** The actor that writes the check-in of an attempt writes its result line
 (`roadmap/job_result.py`), so each attempt counts once in the job grades (#5556). The Job logs the

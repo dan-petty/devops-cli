@@ -3885,6 +3885,9 @@ CONST_ROADMAP_STAGE_CANDIDATE_FILE: Final[str] = "PLAN_PULL_REQUEST.md"
 CONST_ROADMAP_STAGE_PLAN_PATCH_FILE: Final[str] = "plan.patch"
 CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE: Final[str] = "candidate.md"
 CONST_ROADMAP_STAGE_ISSUES_FILE: Final[str] = "issues.json"
+# The most characters that GitHub takes in the body of a comment: `publish` of the stage Job fits
+# the plan-state comment to it (#6705).
+CONST_GITHUB_COMMENT_MAX_CHARS: Final[int] = 65536
 # The variables that the agent phase of a runner Job refuses to start with: the private key of the
 # App and each GitHub token that gh and git read (#2695, #6601).
 CONST_GITHUB_AGENT_REFUSED_ENV: Final[tuple[str, ...]] = (
