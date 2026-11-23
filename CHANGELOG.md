@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.198.1](https://github.com/dan-petty/devops-cli/compare/v0.198.0...v0.198.1) (2026-11-23)
+
+
+### Bug Fixes
+
+* **roadmap:** find a job block below an HTML block ([#6839](https://github.com/dan-petty/devops-cli/issues/6839)) ([49fa7cb](https://github.com/dan-petty/devops-cli/commit/49fa7cbe37683f7af9e0a822f8b610e5732a2ea3))
+
 ## [0.198.0](https://github.com/dan-petty/devops-cli/compare/v0.197.0...v0.198.0) (2026-11-23)
 
 
