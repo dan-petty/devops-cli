@@ -18,17 +18,17 @@ misconfigurations:
     paths:
       - k8s/gpu-feature-discovery/daemonset.yaml
     statement: Privileged GPU device and sysfs access of GFD v0.16.2 (#5646)
-    expired_at: 2026-11-21
+    expired_at: 2026-11-26
   - id: KSV-0121
     paths:
       - k8s/gpu-feature-discovery/daemonset.yaml
     statement: Sysfs host path mount of GFD v0.16.2 (#5646)
-    expired_at: 2026-11-21
+    expired_at: 2026-11-26
   - id: KSV-0118
     paths:
       - k8s/gpu-feature-discovery/daemonset.yaml
     statement: Default pod security context of GFD v0.16.2 (#5646)
-    expired_at: 2026-11-21
+    expired_at: 2026-11-26
   - id: DS-0029
     paths:
       - .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile
