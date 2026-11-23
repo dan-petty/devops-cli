@@ -11,7 +11,7 @@ This technical reference manual provides a comprehensive, deep-dive architectura
 2. **Development & Quality Tooling (`dependency-groups.dev`)**: High-speed testing, coverage validation, static typing, and AST security scanners enforcing the `devops ci` quality gate.
 3. **Build Backend (`build-system`)**: Standard PEP 517 build system for reproducible wheel generation via `hatchling`.
 
-`pyproject.toml` and `uv.lock` own the version of each package, and Renovate changes them. This manual names no version. To find the version of a package, read `uv.lock`.
+`pyproject.toml` and `uv.lock` own the version of each package, and Renovate changes them. The `project_digest` tool owns the list of pinned packages and components generated directly from `uv.lock`, `package-lock.json`, and manifests at run time. This manual names no version and provides architectural and integration guidance only.
 
 ```mermaid
 graph TD

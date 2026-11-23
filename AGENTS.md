@@ -17,6 +17,11 @@
 11. **Fix the cause** at its source. If an outside constraint blocks the fix, add a check that fails if the problem returns. Comment on the open issue of each problem that you find, else file one.
 12. **Keep your own files out of git.** Put agent files under `.data/agent/` and scratch scripts under `.data/agent/scratch/`. Back up a file outside the workspace before you edit it. Never change `config.yaml`.
 13. **Keep tool output small.** Search before you read, and read only the lines you need. Ask each command for less output: `git diff --stat`, `--jq`, `--limit`, a Loki `limit`. Keep each necessary fact: error lines, `file:line`, failed test IDs.
+14. **Keep complexity low.** Keep cyclomatic complexity <= 10 and fewer than 6 indentations across all functions. Use standard library modules (`pathlib`, `itertools`, `functools`, `ipaddress`, `urllib.parse`), Pydantic models, and functional pipelines.
+15. **Put prompts in Markdown.** Keep all LLM prompts, task rubrics, and guardrails in `.md` files under `src/devops_cli/ai/tasks/`, never in Python strings.
+16. **Anchor target paths.** When you inspect a target repository, resolve paths relative to `target_dir` to prevent host file collisions.
+17. **Format locations canonically.** Write review findings, table rows, and terminal references as `filename.ext:n-n` or `filename.ext:line`.
+18. **Keep no backward compatibility before release 1.0.0.** Release 1.0.0 and earlier has zero backward compatibility. Keep no legacy shims or obsolete references in the codebase.
 
 **Only a person** merges pull requests (exceptions: Renovate merges a security fix after the required checks pass, #6031, and a minor, patch or digest update after each of its checks passes, #6547), records verdicts, plans milestones and changes secrets, repository settings and hardware. Agents run every other project command, but no release step.
 
