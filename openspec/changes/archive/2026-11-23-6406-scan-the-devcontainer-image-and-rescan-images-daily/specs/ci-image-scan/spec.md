@@ -1,0 +1,40 @@
+## MODIFIED Requirements
+
+### Requirement: One action scans an image
+`.github/actions/image-scan` SHALL run the Trivy image, pinned by tag and digest, on its `image-ref` with `--scanners vuln --severity HIGH,CRITICAL --ignore-unfixed`, its `ignore-file` (default `.trivyignore.yaml`) and its `exit-code` (default 1). It SHALL accept `upload-sarif` (default true) and upload the SARIF with `upload-sarif` under its `category` only when `upload-sarif` is true.
+
+#### Scenario: The action is validated
+- **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
+- **THEN** the command exits 0 and reports no finding in `.github/actions/image-scan/action.yml`
+
+#### Scenario: A finding fails the scan and the log names it
+- **WHEN** a job calls the action with exit code 1 on an image that holds a fixed HIGH finding that no entry of the ignore file matches
+- **THEN** the step fails, the job log shows the finding in a table, and code scanning lists an analysis of the category of the caller
+
+#### Scenario: SARIF upload is disabled
+- **WHEN** a job calls the action with `upload-sarif: "false"`
+- **THEN** the scan generates the SARIF file and prints findings, but skips the upload step
+
+### Requirement: The image jobs scan with the action
+The image jobs of `ci.yml`, the `Verify` job of `release-image.yml`, the `devcontainer-smoke` job of `release.yml`, and `devcontainer-image.yml` SHALL call `.github/actions/image-scan`. The Service and MCP Server build scans SHALL use exit code 1. The Runner, DevContainer, and daily rescan runs SHALL use exit code 0.
+
+#### Scenario: The image workflows are validated
+- **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
+- **THEN** the command exits 0 and reports no finding in the image workflows
+
+#### Scenario: Code scanning holds each image
+- **WHEN** a person runs `uv run devops gh api 'repos/dan-petty/devops-cli/code-scanning/analyses?per_page=100' --jq '[.[].category] | unique'` after the merge
+- **THEN** the list holds `trivy-image-service`, `trivy-image-runner` and `trivy-image-mcp-server`
+
+#### Scenario: A finding in the runner image reports and stops no build
+- **WHEN** the Runner Image job scans a runner image whose devtools tool binaries hold a fixed HIGH finding
+- **THEN** the scan step exits 0, the job log shows the finding in a table, and code scanning lists the finding under `trivy-image-runner`
+
+## ADDED Requirements
+
+### Requirement: Daily rescan of published images
+The workflow `.github/workflows/image-rescan.yml` SHALL run daily at 04:45 UTC on a matrix across `service`, `runner`, `mcp-server`, and `devcontainer`. It SHALL scan each image from `ghcr.io` with exit code 0 and upload SARIF under category `trivy-image-<name>`.
+
+#### Scenario: Rescan workflow lint
+- **WHEN** a developer runs `uv run devops ci --check --only actionlint,zizmor`
+- **THEN** the command exits 0 and reports no finding for `.github/workflows/image-rescan.yml`

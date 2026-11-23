@@ -1,0 +1,56 @@
+name: Image Rescan
+
+# Rescans the published container images daily for vulnerabilities that are published after a
+# release, and reports them to GitHub Code Scanning (#6406). The matrix scans the latest tag of
+# service, runner, mcp-server and devcontainer with exit code 0.
+on:
+  schedule:
+    # Daily at 04:45 UTC, after the 04:15 UTC devcontainer build and 04:30 UTC service image tests,
+    # and before the 05:00 UTC CI run.
+    - cron: "45 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # No tool the job runs reports usage.
+  DO_NOT_TRACK: "1"
+
+jobs:
+  rescan:
+    name: Rescan Image (${{ matrix.name }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [service, runner, mcp-server, devcontainer]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan the Image for Vulnerabilities
+        timeout-minutes: 8
+        uses: ./.github/actions/image-scan
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/${{ matrix.name }}:latest
+          category: trivy-image-${{ matrix.name }}
+          exit-code: "0"

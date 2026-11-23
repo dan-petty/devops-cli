@@ -202,6 +202,22 @@ jobs:
         with:
           image-ref: ghcr.io/${{ github.repository }}/devcontainer@${{ needs.devcontainer-image.outputs.digest }}
 
+      - name: Scan the DevContainer Image for Vulnerabilities
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/devcontainer@${{ needs.devcontainer-image.outputs.digest }}
+          category: trivy-image-devcontainer
+          exit-code: "0"
+          upload-sarif: "false"
+
+      - name: Upload Scan SARIF Artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devcontainer-sarif
+          path: trivy-image-devcontainer.sarif
+          if-no-files-found: error
+
   devcontainer:
     name: Attest & Tag DevContainer Image
     needs: [devcontainer-image, devcontainer-smoke]
@@ -212,6 +228,7 @@ jobs:
       packages: write
       id-token: write
       attestations: write
+      security-events: write
     env:
       DEVCONTAINER_IMAGE: ghcr.io/${{ github.repository }}/devcontainer
 
@@ -252,6 +269,17 @@ jobs:
               test "$(docker buildx imagetools inspect "$TAG" --format '{{json .Manifest}}' | jq -r .digest)" = "$DIGEST"
             fi
           done <<< "$TAGS"
+
+      - name: Download Scan SARIF Artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devcontainer-sarif
+
+      - name: Upload DevContainer SARIF to Code Scanning
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: trivy-image-devcontainer.sarif
+          category: trivy-image-devcontainer
 
   # The service, runner and mcp-server images of the release, one call of release-image.yml for
   # each (#6407). A call builds its image one time and pushes it by digest, then smoke-tests and

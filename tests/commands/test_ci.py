@@ -871,6 +871,7 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
                     "packages": "write",
                     "id-token": "write",
                     "attestations": "write",
+                    "security-events": "write",
                 },
             ),
         ],
@@ -884,12 +885,16 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
             "Check out repository",
             "Log in to GitHub Container Registry (GHCR)",
             "Start the DevContainer Image as Its Remote User",
+            "Scan the DevContainer Image for Vulnerabilities",
+            "Upload Scan SARIF Artifact",
         ],
         [
             "Log in to GitHub Container Registry (GHCR)",
             "Set up Docker Buildx",
             "Attest Build Provenance",
             "Tag the Attested DevContainer Image",
+            "Download Scan SARIF Artifact",
+            "Upload DevContainer SARIF to Code Scanning",
         ],
     )
 
