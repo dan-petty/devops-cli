@@ -175,7 +175,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "2.12.0"
+version = "2.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -187,9 +187,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/05/fdf767b3da8fc8e2d78eef15c98a5ead03be2753b4e9cfcda58f0995f0b0/anthropic-2.12.0.tar.gz", hash = "sha256:571e6d250bcd6bbaf5fd5f3c764b8e11af9901ad2e44b025f8e773c6cc7a7173", size = 2025823, upload-time = "2026-11-20T15:57:03.541Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/09/fc/fb3accd8b9f9f9123ee5e90f27d855a9ed40a315197be6d4c8f07f9f0428/anthropic-2.13.0.tar.gz", hash = "sha256:966718543d354aae57cba5b8b5693491b9538a55ac8d83d3ddc54448ae8f58e7", size = 2048816, upload-time = "2026-11-23T18:35:03.506Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/a6/1cde7a75d1be07582f6b3c2dd12ddba9d1fb278f5b9685f30dbf6b39dc2c/anthropic-2.12.0-py3-none-any.whl", hash = "sha256:8631e3880ee18b0f87ce61d5d08e67804200463cf27c4182024715e232c99ba6", size = 2556840, upload-time = "2026-11-20T15:57:01.546Z" },
+    { url = "https://files.pythonhosted.org/packages/49/7b/a0c69f7a530a3648f8c0100af74d11f9fca7b307c352f1db8b679f37107d/anthropic-2.13.0-py3-none-any.whl", hash = "sha256:b9f61dc45a9630108f96135ecb726ffe1a6fd1f70dd2c9db5621eaaca62c16ec", size = 2613482, upload-time = "2026-11-23T18:35:01.841Z" },
 ]
 
 [[package]]
@@ -637,11 +637,11 @@ wheels = [
 
 [[package]]
 name = "coloraide"
-version = "8.16"
+version = "8.17"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b9/0e/8143448596675699935f7bb51298358408a343c172f093fc869dcd0f7052/coloraide-8.16.tar.gz", hash = "sha256:3cb9fcf716c99841ae0b88e619544cfb50da36c83a6fdccbe204262c1053523f", size = 22348382, upload-time = "2026-11-16T02:42:14.542Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/14/c9/02636535378b7d9d7619634282878b2f6e99f726cbfd2f3dd8e0f7732fe7/coloraide-8.17.tar.gz", hash = "sha256:1adc95cd2d16e9055672059d2e1fe06affb2492f4105c4ab9188b1becfa8e67b", size = 22525686, upload-time = "2026-11-23T15:51:08.191Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/97/1c29840eaa2cb0dad7db4028bd2cdf372ccdb6bb3beaf9453ca248af5d9f/coloraide-8.16-py3-none-any.whl", hash = "sha256:55674f80c3fea2e83cd88f9b6deb0bb34320124f51c98a0d6fd7096e3dac0dcb", size = 354715, upload-time = "2026-11-16T02:42:12.436Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/f9/c0ee132761276a4bb6e46c129a24df6964c911d7ad360a13911a7761ad0e/coloraide-8.17-py3-none-any.whl", hash = "sha256:91d018b6a54affc1728e08803058eed90fed9890315222c4e6a918cf98a97fb7", size = 385782, upload-time = "2026-11-23T15:51:06.538Z" },
 ]
 
 [[package]]
@@ -983,7 +983,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = "==2.12.0" },
+    { name = "anthropic", specifier = "==2.13.0" },
     { name = "anyio", specifier = "==4.16.0" },
     { name = "cachetools", specifier = "==8.0.2" },
     { name = "click", specifier = "==8.5.1" },
@@ -1013,7 +1013,7 @@ requires-dist = [
     { name = "markdown-it-py", specifier = "==4.3.0" },
     { name = "mdit-py-plugins", specifier = "==0.7.0" },
     { name = "numpy", specifier = "==2.5.5" },
-    { name = "openai", specifier = "==3.57.0" },
+    { name = "openai", specifier = "==3.58.0" },
     { name = "opentelemetry-api", specifier = "==1.45.2" },
     { name = "opentelemetry-exporter-otlp-proto-common", specifier = "==1.45.2" },
     { name = "opentelemetry-instrumentation-httpx", specifier = "==0.66b2" },
@@ -1073,10 +1073,10 @@ dev = [
     { name = "ast-grep-cli", specifier = "==0.51.3" },
     { name = "bandit", specifier = "==1.9.4" },
     { name = "cel-expr-python", specifier = "==0.1.4" },
-    { name = "coloraide", specifier = "==8.16" },
+    { name = "coloraide", specifier = "==8.17" },
     { name = "deptry", specifier = "==0.25.1" },
     { name = "diff-cover", specifier = "==11.0.4" },
-    { name = "fakeredis", extras = ["lua", "valkey"], specifier = "==2.40.0" },
+    { name = "fakeredis", extras = ["lua", "valkey"], specifier = "==2.41.0" },
     { name = "grafana-foundation-sdk", specifier = "==0.0.22" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "hypothesis", specifier = "==6.170.17" },
@@ -1233,15 +1233,15 @@ wheels = [
 
 [[package]]
 name = "fakeredis"
-version = "2.40.0"
+version = "2.41.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "redis" },
     { name = "sortedcontainers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/d0/8cbd1339c2a606a0ceda74e1a181248d372bb2c66bc6cf9d954871839ff9/fakeredis-2.40.0.tar.gz", hash = "sha256:16eb05a3e97c37a033c73d1da7e885eb2aa47ba7604cc377144339efa2780a02", size = 332674, upload-time = "2026-10-14T12:46:01.851Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8e/74/1d78df11d3c168a7fe4e11315e77b762c1f89b8ddeaeb0f0486c55fd64cd/fakeredis-2.41.0.tar.gz", hash = "sha256:a10d97197e6c6e9e98affc10abba9fb0efa9bc5671bbc425dca7f47063c2c577", size = 351444, upload-time = "2026-11-23T14:47:49.136Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/e4/6919d3653d72c53d1fb22c97ceb6fa3664cad302994e90ee52279f7eb394/fakeredis-2.40.0-py3-none-any.whl", hash = "sha256:b155ef2442134372eb1cc5664cf5638ccbe0a6dde9d1942153708e2782f315c9", size = 204148, upload-time = "2026-10-14T12:46:00.014Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/47/1a20be7813c4f079b478d9d2c54fcfc4178062a3acd028dd289cdced3904/fakeredis-2.41.0-py3-none-any.whl", hash = "sha256:9a2bb58889e8bf646b991324ac4d226a3ae74a3bdde7b6e533c7072c853f236e", size = 211330, upload-time = "2026-11-23T14:47:47.667Z" },
 ]
 
 [package.optional-dependencies]
@@ -2962,7 +2962,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "3.57.0"
+version = "3.58.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2972,9 +2972,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/b2/97780581dab39384d1de4bc15f1f6cbaff26ce965a46c23a10bd948b71a8/openai-3.57.0.tar.gz", hash = "sha256:5a0a89d6a542efc85e2a8cec701ca9265b795d578c777828e10fafdf80e333b6", size = 2425150, upload-time = "2026-11-20T01:28:43.575Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/cb/7753707676a915df954b8239da0b4a1604b523bb2de32943fcb4053f60a6/openai-3.58.0.tar.gz", hash = "sha256:8b9f4a166d6860a04f26e34de0ae9aa3f267cbe6da2df4ad7d4cfa8483f540b2", size = 2426883, upload-time = "2026-11-23T19:02:34.682Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/40/0475208a470f90a1d3e94b41382678b44f311c2ea2a317228531e2193567/openai-3.57.0-py3-none-any.whl", hash = "sha256:f97bc74024c06ced8428b56c4a3594066709d3082779bf9d0b4b6092fbf587a8", size = 2451809, upload-time = "2026-11-20T01:28:41.48Z" },
+    { url = "https://files.pythonhosted.org/packages/27/1c/dbc26f566956128efc770f5971816da93ec5439f0fc7a1fa43eac5261420/openai-3.58.0-py3-none-any.whl", hash = "sha256:23b139676d0d43239209e94e13d3564c0a2b33d6ef3408e74bb1fece98e66d7d", size = 2453113, upload-time = "2026-11-23T19:02:32.159Z" },
 ]
 
 [[package]]
