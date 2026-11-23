@@ -25,6 +25,7 @@ from devops_cli.k8s.cluster_secrets import (
     KeyringSource,
     keyring_only_keys,
     keyring_sources,
+    load_cluster_secrets_table,
 )
 from tests.support.paths import REPO_ROOT
 
@@ -32,18 +33,16 @@ TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
 
 def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
+    table = load_cluster_secrets_table()
     sources = [
-        source
-        for secret in CLUSTER_SECRETS
-        for entry in secret.entries
-        for source in keyring_sources(entry)
+        source for secret in table for entry in secret.entries for source in keyring_sources(entry)
     ]
     managed = set(keyring_names().values())
     assert (
         all(keyring_names()[s.option] == s.key for s in sources if s.option),
-        {s.key for s in sources if not s.option} == keyring_only_keys(),
-        keyring_only_keys() & managed,
-        keyring_only_keys(),
+        {s.key for s in sources if not s.option} == keyring_only_keys(table),
+        keyring_only_keys(table) & managed,
+        keyring_only_keys(table),
     ) == (
         True,
         True,

@@ -34,6 +34,7 @@ from devops_cli.k8s.cluster_secrets import (
     SecretGenerator,
     SettingSource,
     keyring_only_keys,
+    load_cluster_secrets_table,
     secrets_by_ref,
 )
 from devops_cli.k8s.secret_push import (
@@ -75,7 +76,7 @@ FULL_KEYRING = {
     "service_github_app_private_key": APP_KEY,
     "searxng_metrics_password": SEARXNG_METRICS_PASSWORD,
 }
-TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
+TABLE_REFS = {secret.ref for secret in load_cluster_secrets_table()}
 
 NOTIFIER = "argocd/argocd-notifications-secret"
 NOTIFIER_KEYRING = "argocd_github_app_private_key"
@@ -165,6 +166,7 @@ def _hook_row(hook: KeyringSource, *, required: bool = True) -> Any:
 
 
 def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
+    table = load_cluster_secrets_table()
     rows = [
         (
             secret.ref,
@@ -175,7 +177,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             str(entry.adopt_from) if entry.adopt_from else None,
             tuple(str(w) for w in secret.restarts),
         )
-        for secret in CLUSTER_SECRETS
+        for secret in table
         for entry in secret.entries
     ]
     assert rows == [
@@ -184,7 +186,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "master-key",
             "llm",
             True,
-            SecretGenerator("hex", 24, prefix="sk-"),
+            SecretGenerator(encoding="hex", nbytes=24, prefix="sk-"),
             None,
             ("deployment/llm-gateway",),
         ),
@@ -220,7 +222,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "api-key",
             "llm",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             None,
             ("statefulset/qdrant", "statefulset/open-webui"),
         ),
@@ -229,36 +231,18 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "read-only-api-key",
             "llm",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             None,
             ("statefulset/qdrant", "statefulset/open-webui"),
-        ),
-        (
-            "llm/valkey-runs-auth",
-            "password",
-            "llm",
-            True,
-            SecretGenerator("hex", 32),
-            None,
-            ("deployment/valkey-runs",),
         ),
         (
             "llm/valkey-auth",
             "VALKEY_PASSWORD",
             "llm",
             True,
-            SecretGenerator("hex", 32),
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             None,
             ("deployment/valkey", "statefulset/open-webui"),
-        ),
-        (
-            "llm/valkey-devops-auth",
-            "password",
-            "llm",
-            True,
-            SecretGenerator("hex", 32),
-            None,
-            ("deployment/valkey-devops",),
         ),
         (
             "cloudflared/cloudflared-token",
@@ -270,11 +254,139 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/cloudflared",),
         ),
         (
+            "monitoring/grafana-admin",
+            "admin-user",
+            "infra",
+            True,
+            None,
+            None,
+            ("deployment/grafana",),
+        ),
+        (
+            "monitoring/grafana-admin",
+            "admin-password",
+            "infra",
+            True,
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
+            "monitoring/grafana admin-password",
+            ("deployment/grafana",),
+        ),
+        (
+            "monitoring/grafana-admin",
+            "secret-key",
+            "infra",
+            True,
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
+            None,
+            ("deployment/grafana",),
+        ),
+        (
+            "monitoring/grafana-admin",
+            "llm-gateway-key",
+            "infra",
+            True,
+            SecretGenerator(encoding="hex", nbytes=24, prefix="sk-"),
+            None,
+            ("deployment/grafana",),
+        ),
+        (
+            "monitoring/grafana-image-renderer",
+            "token",
+            "infra",
+            True,
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
+            None,
+            ("deployment/grafana", "deployment/grafana-image-renderer"),
+        ),
+        ("monitoring/alertmanager-mattermost", "url", "infra", False, None, None, ()),
+        ("argocd/argocd-notifications-secret", "github-appID", "infra", True, None, None, ()),
+        (
+            "argocd/argocd-notifications-secret",
+            "github-installationID",
+            "infra",
+            True,
+            None,
+            None,
+            (),
+        ),
+        ("argocd/argocd-notifications-secret", "github-privateKey", "infra", True, None, None, ()),
+        (
+            "argocd/argocd-notifications-secret",
+            "mattermost-deploys-url",
+            "infra",
+            False,
+            None,
+            None,
+            (),
+        ),
+        ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
+        ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
+        ("argocd/gitea-repo-creds", "url", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "username", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "type", "gitea", True, None, None, ()),
+        ("argocd/gitea-repo-creds", "password", "gitea", True, None, None, ()),
+        ("mattermost/mattermost-db", "username", "chat", True, None, None, ()),
+        (
+            "mattermost/mattermost-db",
+            "password",
+            "chat",
+            True,
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
+            "mattermost/mattermost-db password",
+            (),
+        ),
+        ("mattermost/mattermost-db", "DB_CONNECTION_STRING", "chat", True, None, None, ()),
+        (
+            "object-store/seaweedfs-admin",
+            "adminUser",
+            "infra",
+            True,
+            None,
+            None,
+            ("statefulset/seaweedfs-admin",),
+        ),
+        (
+            "object-store/seaweedfs-admin",
+            "adminPassword",
+            "infra",
+            True,
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
+            None,
+            ("statefulset/seaweedfs-admin",),
+        ),
+        (
+            "object-store/seaweedfs-s3",
+            "s3.json",
+            "infra",
+            True,
+            None,
+            None,
+            ("deployment/seaweedfs-s3",),
+        ),
+        (
+            "llm/valkey-runs-auth",
+            "password",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-runs",),
+        ),
+        (
+            "llm/valkey-devops-auth",
+            "password",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
             "devops/crawl4ai",
             "CRAWL4AI_API_TOKEN",
             "devops",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             None,
             ("deployment/crawl4ai",),
         ),
@@ -283,7 +395,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "SEARXNG_SECRET",
             "devops",
             True,
-            SecretGenerator("hex", 32),
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             None,
             ("deployment/searxng",),
         ),
@@ -310,7 +422,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "DEVOPS_CLI_MCP_TOKEN",
             "devops",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             None,
             ("deployment/mcp-server",),
         ),
@@ -335,7 +447,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
         ),
         (
             "devops/devops-cli",
-            APP_KEY_ENTRY,
+            "DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY",
             "devops",
             True,
             None,
@@ -374,7 +486,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "DEVOPS_CLI_VALKEY_PASSWORD",
             "devops",
             True,
-            SecretGenerator("hex", 32),
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
             "llm/valkey-devops-auth password",
             ("deployment/roadmap-service",),
         ),
@@ -419,7 +531,7 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "DEVOPS_CLI_QDRANT_API_KEY",
             "devops",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             "llm/qdrant-api-key read-only-api-key",
             ("deployment/roadmap-service",),
         ),
@@ -437,119 +549,9 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             "api-key",
             "devops",
             True,
-            SecretGenerator("urlsafe", 32),
+            SecretGenerator(encoding="urlsafe", nbytes=32, prefix=""),
             "llm/qdrant-api-key api-key",
             (),
-        ),
-        (
-            "monitoring/grafana-admin",
-            "admin-user",
-            "infra",
-            True,
-            None,
-            None,
-            ("deployment/grafana",),
-        ),
-        (
-            "monitoring/grafana-admin",
-            "admin-password",
-            "infra",
-            True,
-            SecretGenerator("urlsafe", 32),
-            "monitoring/grafana admin-password",
-            ("deployment/grafana",),
-        ),
-        (
-            "monitoring/grafana-admin",
-            "secret-key",
-            "infra",
-            True,
-            SecretGenerator("urlsafe", 32),
-            None,
-            ("deployment/grafana",),
-        ),
-        (
-            "monitoring/grafana-admin",
-            "llm-gateway-key",
-            "infra",
-            True,
-            SecretGenerator("hex", 24, prefix="sk-"),
-            None,
-            ("deployment/grafana",),
-        ),
-        (
-            "monitoring/grafana-image-renderer",
-            "token",
-            "infra",
-            True,
-            SecretGenerator("urlsafe", 32),
-            None,
-            ("deployment/grafana", "deployment/grafana-image-renderer"),
-        ),
-        ("monitoring/alertmanager-mattermost", "url", "infra", False, None, None, ()),
-        ("argocd/argocd-notifications-secret", "github-appID", "infra", True, None, None, ()),
-        (
-            "argocd/argocd-notifications-secret",
-            "github-installationID",
-            "infra",
-            True,
-            None,
-            None,
-            (),
-        ),
-        ("argocd/argocd-notifications-secret", "github-privateKey", "infra", True, None, None, ()),
-        (
-            "argocd/argocd-notifications-secret",
-            "mattermost-deploys-url",
-            "infra",
-            False,
-            None,
-            None,
-            (),
-        ),
-        ("gitea/gitea-admin", "username", "gitea", True, None, None, ("deployment/gitea",)),
-        ("gitea/gitea-admin", "password", "gitea", True, None, None, ("deployment/gitea",)),
-        ("argocd/gitea-repo-creds", "url", "gitea", True, None, None, ()),
-        ("argocd/gitea-repo-creds", "username", "gitea", True, None, None, ()),
-        ("argocd/gitea-repo-creds", "type", "gitea", True, None, None, ()),
-        ("argocd/gitea-repo-creds", "password", "gitea", True, None, None, ()),
-        ("mattermost/mattermost-db", "username", "chat", True, None, None, ()),
-        (
-            "mattermost/mattermost-db",
-            "password",
-            "chat",
-            True,
-            SecretGenerator("urlsafe", 32),
-            "mattermost/mattermost-db password",
-            (),
-        ),
-        ("mattermost/mattermost-db", "DB_CONNECTION_STRING", "chat", True, None, None, ()),
-        (
-            "object-store/seaweedfs-admin",
-            "adminUser",
-            "infra",
-            True,
-            None,
-            None,
-            ("statefulset/seaweedfs-admin",),
-        ),
-        (
-            "object-store/seaweedfs-admin",
-            "adminPassword",
-            "infra",
-            True,
-            SecretGenerator("urlsafe", 32),
-            None,
-            ("statefulset/seaweedfs-admin",),
-        ),
-        (
-            "object-store/seaweedfs-s3",
-            "s3.json",
-            "infra",
-            True,
-            None,
-            None,
-            ("deployment/seaweedfs-s3",),
         ),
     ]
 
@@ -559,7 +561,7 @@ def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file
     login, and it writes an identities file with no identity, so the S3 gateway refuses each
     request until a person adds an identity in the admin UI (#4750). The JWT keys have no row:
     the operator mints them."""
-    rows = {secret.ref: secret for secret in CLUSTER_SECRETS}
+    rows = {secret.ref: secret for secret in load_cluster_secrets_table()}
     admin, s3 = rows["object-store/seaweedfs-admin"], rows["object-store/seaweedfs-s3"]
     (identities,) = s3.entries
     assert isinstance(identities.source, LiteralSource)
@@ -595,7 +597,10 @@ def test_no_row_holds_a_key_of_the_object_store() -> None:
 
 
 def test_generators_make_the_documented_shapes() -> None:
-    gateway, qdrant, runs = (CLUSTER_SECRETS[i].entries[0].generator for i in range(3))
+    table = load_cluster_secrets_table()
+    gateway = next(s for s in table if s.ref == "llm/llm-gateway-secrets").entries[0].generator
+    qdrant = next(s for s in table if s.ref == "llm/qdrant-api-key").entries[0].generator
+    runs = next(s for s in table if s.ref == "llm/valkey-runs-auth").entries[0].generator
     assert gateway is not None
     assert qdrant is not None
     assert runs is not None
@@ -627,7 +632,7 @@ def test_the_gitea_admin_password_is_a_typed_managed_credential_and_its_user_a_l
     from devops_cli.config.env import get_all_env_var_specs
     from devops_cli.security.secrets import build_secret_registry
 
-    gitea = next(s for s in CLUSTER_SECRETS if s.ref == "gitea/gitea-admin")
+    gitea = next(s for s in load_cluster_secrets_table() if s.ref == "gitea/gitea-admin")
     username, password = gitea.entries
     specs = {spec.option_key for spec in get_all_env_var_specs() if spec.is_secret}
     registry = build_secret_registry()
@@ -760,7 +765,7 @@ def test_the_gitea_dry_run_lists_its_secret_and_restart_with_no_value() -> None:
 
 
 def test_the_notifier_values_are_two_settings_and_a_managed_credential() -> None:
-    notifier = next(s for s in CLUSTER_SECRETS if s.ref == NOTIFIER)
+    notifier = next(s for s in load_cluster_secrets_table() if s.ref == NOTIFIER)
     assert (
         [(e.key, e.source, e.required, e.generator) for e in notifier.entries],
         notifier.restarts,
@@ -994,7 +999,9 @@ def test_plan_reprs_hold_no_value(cluster: FakeCluster, stub_keyring: FakeKeyrin
     cluster.add_secret(
         "llm", "qdrant-api-key", {"api-key": "live-qdrant-value-0004"}, annotations=leaked
     )
-    plan = plan_push(CLUSTER_SECRETS[1:2], PushOptions(context="test-ctx", rotate=True))
+    table = load_cluster_secrets_table()
+    qdrant_row = [s for s in table if s.ref == "llm/qdrant-api-key"]
+    plan = plan_push(qdrant_row, PushOptions(context="test-ctx", rotate=True))
     text = repr(plan)
     assert (
         plan.secrets[0].leaked_annotation(),
@@ -1102,13 +1109,14 @@ def test_mattermost_db_secret_plan_and_dsn_shape() -> None:
         keyring_only_keys,
     )
 
-    (secret,) = [s for s in CLUSTER_SECRETS if s.ref == "mattermost/mattermost-db"]
+    table = load_cluster_secrets_table()
+    (secret,) = [s for s in table if s.ref == "mattermost/mattermost-db"]
     assert (secret.secret_type, secret.stack, secret.restarts) == (
         "kubernetes.io/basic-auth",
         "chat",
         (),
     )
-    assert MATTERMOST_DB_AUTH_KEY in keyring_only_keys(CLUSTER_SECRETS)
+    assert MATTERMOST_DB_AUTH_KEY in keyring_only_keys(table)
 
     entries = {e.key: e for e in secret.entries}
     dsn_source = entries["DB_CONNECTION_STRING"].source
@@ -1144,7 +1152,9 @@ def test_alertmanager_mattermost_secret_plan_and_derived_url() -> None:
     from devops_cli.config.constants import CONST_K8S_MATTERMOST_URL
     from devops_cli.k8s.cluster_secrets import DerivedSource
 
-    (secret,) = [s for s in CLUSTER_SECRETS if s.ref == "monitoring/alertmanager-mattermost"]
+    (secret,) = [
+        s for s in load_cluster_secrets_table() if s.ref == "monitoring/alertmanager-mattermost"
+    ]
     assert (secret.secret_type, secret.stack, secret.restarts) == (
         "Opaque",
         "infra",

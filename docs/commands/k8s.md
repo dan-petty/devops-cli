@@ -296,6 +296,7 @@ devops k8s push-secrets [OPTIONS]
 | `--context`, `-c` | `string` | - | Kubernetes cluster context name. |
 | `--plan` | `boolean` | - | Read the keyring and the live Secrets (read-only); print each key's state and the workloads a change would restart, and write nothing. |
 | `--dry-run` | `boolean` | - | Make no request, reads included: print the requests a push would make, in order, with placeholders for every value. Wins over --plan. |
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 
 ---
 

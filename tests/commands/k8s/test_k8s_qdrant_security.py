@@ -27,7 +27,12 @@ from devops_cli.config.settings import (
     dotted_set,
     get_qdrant_api_key,
 )
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS, KeyringSource, SecretKeyRef
+from devops_cli.k8s.cluster_secrets import (
+    CLUSTER_SECRETS,
+    KeyringSource,
+    SecretKeyRef,
+    load_cluster_secrets_table,
+)
 from tests.support.cluster_secret_fakes import APP_KEY, APP_KEY_ENTRY, FakeCluster
 from tests.support.fakes.keyring import FakeKeyring
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
@@ -145,10 +150,10 @@ def test_deploy_stack_pushes_secrets_after_namespaces_and_before_manifests_and_h
         [
             "llm/llm-gateway-secrets",
             "llm/qdrant-api-key",
-            "llm/valkey-runs-auth",
             "llm/valkey-auth",
-            "llm/valkey-devops-auth",
             "cloudflared/cloudflared-token",
+            "llm/valkey-runs-auth",
+            "llm/valkey-devops-auth",
         ],
     )
 
@@ -228,7 +233,9 @@ def test_one_keyring_value_feeds_the_read_only_key_of_both_secrets() -> None:
     """Secret llm/qdrant-api-key holds the read-only key, and Secret devops/devops-cli takes the
     same keyring value for the pods that load that Secret with envFrom (#3823)."""
     rows = {
-        (secret.ref, entry.key): entry for secret in CLUSTER_SECRETS for entry in secret.entries
+        (secret.ref, entry.key): entry
+        for secret in load_cluster_secrets_table()
+        for entry in secret.entries
     }
     read_only = rows[("llm/qdrant-api-key", "read-only-api-key")]
     runner = rows[("devops/devops-cli", "DEVOPS_CLI_QDRANT_API_KEY")]
