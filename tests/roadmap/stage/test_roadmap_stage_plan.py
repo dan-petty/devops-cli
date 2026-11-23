@@ -49,6 +49,7 @@ from devops_cli.roadmap.stage.stage import (
 )
 from devops_cli.roadmap.stage.stage_change import (
     CREATED_LINE_TOKENS,
+    StageConstantClaim,
     StageDecision,
     StageGroup,
     StageProposal,
@@ -3005,6 +3006,75 @@ def test_check_proposal_refuses_a_plan_number_differing_from_a_constant() -> Non
         )
         == []
     )
+
+
+def test_check_proposal_refuses_a_wrong_constant_claim() -> None:
+    constants = {"SUMMARY_MAX_CHARS": 60}
+    claim = StageConstantClaim(name="SUMMARY_MAX_CHARS", value=40)
+    proposal = make_stage_proposal(constant_claims=[claim])
+    problems = check_proposal(
+        proposal, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+    )
+    assert problems == ["SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."]
+
+    claim_match = StageConstantClaim(name="SUMMARY_MAX_CHARS", value=60)
+    proposal_match = make_stage_proposal(constant_claims=[claim_match])
+    assert (
+        check_proposal(
+            proposal_match, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+        )
+        == []
+    )
+
+
+def test_check_proposal_refuses_a_claim_the_tree_does_not_define() -> None:
+    constants = {"SUMMARY_MAX_CHARS": 60}
+    claim = StageConstantClaim(name="PLAN_SUMMARY_MAX_CHARS", value=47)
+    proposal = make_stage_proposal(constant_claims=[claim])
+    problems = check_proposal(
+        proposal, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+    )
+    assert problems == [
+        "The plan claims the constant 'PLAN_SUMMARY_MAX_CHARS' with the value 47, but the staged tree does not define that name as a module-level integer."
+    ]
+
+
+def test_check_proposal_runs_the_prose_scan_only_with_no_claim_list() -> None:
+    constants = {"SUMMARY_MAX_CHARS": 60}
+    spec = make_stage_proposal().specs[0]
+    req = spec.added[0]
+    scenario_40 = req.scenarios[0].model_copy(
+        update={"when": "A spec scenario says `SUMMARY_MAX_CHARS` is 40."}
+    )
+    spec_40 = spec.model_copy(
+        update={"added": [req.model_copy(update={"scenarios": [scenario_40]})]}
+    )
+    proposal_prose = make_stage_proposal(specs=[spec_40], constant_claims=[])
+    problems = check_proposal(
+        proposal_prose, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+    )
+    assert problems == ["SUMMARY_MAX_CHARS is 60 in the staged tree, but the plan says 40."]
+
+    claim_60 = StageConstantClaim(name="SUMMARY_MAX_CHARS", value=60)
+    proposal_with_claim = make_stage_proposal(specs=[spec_40], constant_claims=[claim_60])
+    assert (
+        check_proposal(
+            proposal_with_claim, ["comment-thread"], SAMPLE_TREE, constants=constants, registry=()
+        )
+        == []
+    )
+
+
+def test_check_proposal_judges_no_claim_without_staged_values() -> None:
+    claim = StageConstantClaim(name="SUMMARY_MAX_CHARS", value=40)
+    proposal = make_stage_proposal(constant_claims=[claim])
+    assert (
+        check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, constants={}, registry=()) == []
+    )
+    assert (
+        check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, constants=None, registry=()) == []
+    )
+    assert check_proposal(proposal, ["comment-thread"], SAMPLE_TREE, registry=()) == []
 
 
 # ── Reference probe and move derivation (#3373) ──────────────────────────────

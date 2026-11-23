@@ -513,6 +513,20 @@ class StageReference(_Reply):
         return self
 
 
+class StageConstantClaim(_Reply):
+    """A claim that an existing constant of the staged tree holds an integer value (#3388)."""
+
+    name: str
+    value: int
+
+    @field_validator("name")
+    @classmethod
+    def _is_identifier(cls, name: str) -> str:
+        if not name.isidentifier():
+            raise ValueError(f"{name!r} is not a Python identifier")
+        return name
+
+
 class GroupKind(StrEnum):
     """What a task group does. `behavior` adds or changes what the code does: its work starts with
     a failing test. `manifest` creates or changes a rule file, a dashboard file or a case file: its
@@ -732,6 +746,7 @@ class StageProposal(_Reply):
     dependencies: list[Line] = Field(default_factory=list)
     references: list[StageReference] = Field(default_factory=list)
     security: OptionalLine = ""
+    constant_claims: list[StageConstantClaim] = Field(default_factory=list)
     # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
     # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
     weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
@@ -1721,6 +1736,36 @@ def _lists_path(listed: Collection[str], path: str) -> bool:
         named == path or named.startswith(f"{path}/") or path.startswith(f"{named}/")
         for named in listed
     )
+
+
+def claim_problems(
+    claims: Sequence[StageConstantClaim],
+    constants: Mapping[str, int] | None,
+) -> list[str]:
+    """What is wrong with a structured constant claim (#3388). A claim whose name the staged
+    values do not hold is refused, and a claim whose value differs from the staged value is
+    refused. With no staged values it judges no claim."""
+    if not constants:
+        return []
+    texts_msg = MESSAGES.roadmap
+    problems: list[str] = []
+    for claim in claims:
+        if claim.name not in constants:
+            problems.append(
+                texts_msg.stage_problem_constant_undefined.format(
+                    constant=claim.name,
+                    value=claim.value,
+                )
+            )
+        elif constants[claim.name] != claim.value:
+            problems.append(
+                texts_msg.stage_problem_constant_mismatch.format(
+                    constant=claim.name,
+                    staged=constants[claim.name],
+                    plan=claim.value,
+                )
+            )
+    return list(dict.fromkeys(problems))
 
 
 def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[str]:
@@ -3076,7 +3121,11 @@ def check_gates(
             proposal,
             registry,
         ),
-        ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
+        ProposalGate.CONSTANTS: (
+            claim_problems(proposal.constant_claims, constants)
+            if proposal.constant_claims
+            else constant_problems(plan_texts(proposal), constants or {})
+        ),
         ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
         ProposalGate.GROUP_FILES: group_files_problems(proposal.groups, tree),
     }
