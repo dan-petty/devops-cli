@@ -2335,3 +2335,88 @@ def test_paginate_without_endpoint_calls_acquire(process_fake: ProcessFake) -> N
     assert proc.returncode == 0
     assert len(acquire_calls) == 1
     assert len(process_fake.calls) == 1
+
+
+def test_identity_cache_root_resolves_outside_working_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The identity cache root resolves under platform user cache dir, not in the git repo."""
+    from platformdirs import user_cache_dir
+
+    from devops_cli.config.constants import CONST_APP_NAME
+    from devops_cli.github.rate_limiter import resolve_identity_cache_dir
+
+    repo_dir = tmp_path / "working-repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+    monkeypatch.chdir(repo_dir)
+
+    identity_dir = resolve_identity_cache_dir("fixed-identity")
+    expected_parent = Path(user_cache_dir(CONST_APP_NAME))
+
+    assert not identity_dir.is_relative_to(repo_dir)
+    assert identity_dir.parent == expected_parent
+
+
+def test_identity_scoped_quota_path() -> None:
+    """The quota ledger path keeps the identity digest directory under the user cache root."""
+    from devops_cli.github.rate_limiter import (
+        github_identity,
+        resolve_identity_cache_dir,
+        resolve_quota_cache_path,
+    )
+
+    quota_path = resolve_quota_cache_path()
+    identity = github_identity().key
+    assert quota_path.parent == resolve_identity_cache_dir(identity)
+    assert quota_path.name == "gh_quota.json"
+
+
+def test_rate_limit_command_writes_no_cache_file_in_working_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, process_fake: ProcessFake
+) -> None:
+    """devops gh api rate_limit writes no files under a working repository without .data/ ignore."""
+    from typer.testing import CliRunner
+
+    from devops_cli.commands.gh import app
+
+    repo_dir = tmp_path / "clean-repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+    (repo_dir / "README.md").write_text("clean\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo_dir, check=True)
+    monkeypatch.chdir(repo_dir)
+    monkeypatch.delenv("DEVOPS_CLI_DATA_DIR", raising=False)
+    reset_github_rate_limiter()
+
+    mock_payload = {
+        "resources": {
+            "core": {
+                "limit": 5000,
+                "used": 0,
+                "remaining": 5000,
+                "reset": int(time.time()) + 3600,
+            },
+            "graphql": {
+                "limit": 5000,
+                "used": 0,
+                "remaining": 5000,
+                "reset": int(time.time()) + 3600,
+            },
+        }
+    }
+    process_fake.answer(["gh", "api", "rate_limit"], ProcessAnswer(stdout=json.dumps(mock_payload)))
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["api", "rate_limit"])
+    assert result.exit_code == 0
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == ""

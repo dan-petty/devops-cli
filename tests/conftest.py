@@ -1089,8 +1089,10 @@ def isolate_git_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def isolate_gh_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Keep tests from reading the developer's gh login, which may hold a plaintext token."""
+    """Keep tests from reading the developer's gh login, which may hold a plaintext token, and
+    isolate the user cache directory."""
     monkeypatch.setenv("GH_CONFIG_DIR", str(tmp_path / "gh-config"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "user-cache"))
 
 
 @pytest.fixture(autouse=True)

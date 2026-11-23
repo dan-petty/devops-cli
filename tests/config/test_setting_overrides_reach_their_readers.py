@@ -103,18 +103,6 @@ def test_an_audit_log_destination_in_the_configured_data_directory_is_accepted(
     assert destination.is_file()
 
 
-def test_the_github_quota_ledger_lives_under_the_configured_cache_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Each identity's quota ledger and response cache sit under `data.cache_dir`."""
-    from devops_cli.github.rate_limiter import resolve_identity_cache_dir
-
-    cache_dir = (tmp_path / "configured-cache").resolve()
-    monkeypatch.setenv("DEVOPS_CLI_DATA_CACHE_DIR", str(cache_dir))
-
-    assert resolve_identity_cache_dir("example-identity").parent == cache_dir
-
-
 def test_the_service_state_lives_under_the_configured_data_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
