@@ -194,10 +194,15 @@ def find_roles(root: Path, roles_path: tuple[Path, ...]) -> tuple[str, ...]:
     return tuple(sorted(roles))
 
 
+def find_collection_requirements(root: Path) -> Path | None:
+    """The collection requirements file of the repository (requirements.yml or requirements.yaml)."""
+    return next((root / name for name in _REQUIREMENTS_FILES if (root / name).is_file()), None)
+
+
 def read_collection_requirements(root: Path) -> CollectionRequirements:
     """The collections file of the repository, and each collection it names with no exact
     version."""
-    path = next((root / name for name in _REQUIREMENTS_FILES if (root / name).is_file()), None)
+    path = find_collection_requirements(root)
     if path is None:
         return CollectionRequirements(path=None)
     relative = path.relative_to(root).as_posix()
@@ -275,6 +280,7 @@ __all__ = [
     "CollectionRequirements",
     "YamlContent",
     "find_ci_workflows",
+    "find_collection_requirements",
     "find_node_targets",
     "find_roles",
     "read_collection_requirements",

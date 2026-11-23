@@ -22,6 +22,10 @@ import pytest
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.infra import InfraReadError
 from devops_cli.infra.onboard import check_onboarding, resolve_target
+from devops_cli.infra.repo_content import (
+    find_collection_requirements,
+    read_collection_requirements,
+)
 from devops_cli.models.infra import OnboardReport, OnboardState
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.infra import (
@@ -530,6 +534,44 @@ def test_the_roles_row_lists_the_roles_of_the_pinned_collections(onboarding: Onb
         "False",
     )
     assert not Path(folder).exists()
+
+
+def test_the_roles_row_installs_from_requirements_yaml(onboarding: Onboarding) -> None:
+    """A repo with only `collections/requirements.yaml` installs from that file."""
+    yml = onboarding.repo / "collections" / "requirements.yml"
+    yaml_path = onboarding.repo / "collections" / "requirements.yaml"
+    pin = "  - name: example.infra\n    version: 1.0.0\n"
+    content = yml.read_text(encoding="utf-8") + pin
+    yml.unlink()
+    yaml_path.write_text(content, encoding="utf-8")
+
+    row = onboarding.report().rows[6]
+
+    assert (row.state, row.reason, row.items) == (
+        PRESENT,
+        "6 roles",
+        (*FOLDER_ROLES, "example.infra.nvidia"),
+    )
+    install = _call_of(onboarding.process, "ansible-galaxy")
+    req_arg = install.argv[install.argv.index("-r") + 1]
+    assert req_arg.endswith("collections/requirements.yaml")
+
+
+def test_collections_row_and_find_requirements_agree_on_yaml(tmp_path: Path) -> None:
+    """A repo with only `collections/requirements.yaml` gets a present collections row and
+    find_collection_requirements returns that file."""
+    colls = tmp_path / "collections"
+    colls.mkdir()
+    yaml_file = colls / "requirements.yaml"
+    yaml_file.write_text(
+        "collections:\n  - name: community.general\n    version: 1.0.0\n", encoding="utf-8"
+    )
+
+    found = find_collection_requirements(tmp_path)
+    assert found == yaml_file
+
+    reqs = read_collection_requirements(tmp_path)
+    assert reqs.path == "collections/requirements.yaml"
 
 
 def test_without_ansible_doc_the_roles_row_keeps_the_role_folders(

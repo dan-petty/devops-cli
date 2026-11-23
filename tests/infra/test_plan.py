@@ -16,10 +16,15 @@ from typing import Any
 import pytest
 
 from devops_cli.infra.ad_hoc import read_job_events
-from devops_cli.infra.ansible_facts import parse_inventory
+from devops_cli.infra.ansible_facts import (
+    REQUIREMENTS_FILE,
+    AnsibleTool,
+    parse_inventory,
+)
 from devops_cli.infra.plan import (
     host_pattern,
     host_plans,
+    install_collections,
     nondisruptive_units,
     plan_id,
     plan_outcome,
@@ -481,3 +486,27 @@ def test_the_events_read_in_counter_order_without_a_partial_file(tmp_path: Path)
     (tmp_path / f"{events[0]['uuid']}-partial.json").write_text("{}", encoding="utf-8")
 
     assert read_job_events(tmp_path) == events
+
+
+def test_install_collections_uses_requirements_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A project with only `collections/requirements.yaml` installs from that file."""
+    colls = tmp_path / "collections"
+    colls.mkdir()
+    yaml_file = colls / "requirements.yaml"
+    yaml_file.write_text("collections:\n  - name: example.infra\n", encoding="utf-8")
+
+    tool = AnsibleTool(bin_dir=tmp_path / "bin")
+    installed: list[Path] = []
+
+    def fake_install(
+        tool: AnsibleTool, project: Path, target: Path, requirements: Path | None = None
+    ) -> None:
+        installed.append(requirements if requirements is not None else project / REQUIREMENTS_FILE)
+
+    monkeypatch.setattr("devops_cli.infra.plan.install_requirements", fake_install)
+    target = install_collections(tool, tmp_path)
+
+    assert target is not None
+    assert installed == [yaml_file]

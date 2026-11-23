@@ -167,15 +167,18 @@ def galaxy_argv(tool: AnsibleTool, requirements: Path, target: Path) -> list[str
     )
 
 
-def install_requirements(tool: AnsibleTool, project: Path, target: Path) -> None:
-    """Install the collections of `collections/requirements.yml` of the repo in `project` into the
+def install_requirements(
+    tool: AnsibleTool, project: Path, target: Path, requirements: Path | None = None
+) -> None:
+    """Install the collections of the requirements file of the repo in `project` into the
     folder `target`, with the repo's `ansible.cfg`.
 
     Raises:
         InfraReadError: the install fails.
     """
+    req_file = requirements if requirements is not None else project / REQUIREMENTS_FILE
     result = run_subprocess(
-        galaxy_argv(tool, project / REQUIREMENTS_FILE, target),
+        galaxy_argv(tool, req_file, target),
         cwd=project,
         env=config_env(project),
         quiet=True,
