@@ -120,12 +120,15 @@ def test_claude_adaptive_thinking_and_no_sampling_request_payload(
 
 
 def test_claude_sampling_parity_when_model_declares_sampling_support(
-    web: WebFake,
+    web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Given a model that declares sampling support, streamed and unstreamed requests
 
     carry the same temperature and top_p.
     """
+    from devops_cli.ai.client import claude as claude_module
+
+    monkeypatch.setattr(claude_module, "_installed_sdk_major", lambda: 1)
     model_name = "claude-haiku-4"
     captured_requests: list[dict[str, Any]] = []
 
@@ -193,9 +196,12 @@ def test_claude_sampling_parity_when_model_declares_sampling_support(
 
 
 def _claude_sampling_client(
-    web: WebFake, *, sampling: bool = True, **config: Any
+    web: WebFake, monkeypatch: pytest.MonkeyPatch, *, sampling: bool = True, **config: Any
 ) -> tuple[LLMClient, list[dict[str, Any]]]:
     """A Claude client whose fake model declares `sampling`; it records each Messages body."""
+    from devops_cli.ai.client import claude as claude_module
+
+    monkeypatch.setattr(claude_module, "_installed_sdk_major", lambda: 1)
     model_name = "claude-haiku-4"
     bodies: list[dict[str, Any]] = []
 
@@ -219,9 +225,9 @@ def _claude_sampling_client(
 
 
 def test_claude_request_carries_per_call_sampling_and_no_seed(
-    web: WebFake,
+    web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client, bodies = _claude_sampling_client(web)
+    client, bodies = _claude_sampling_client(web, monkeypatch)
     client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
     assert [(body.get("temperature"), body.get("top_p"), "seed" in body) for body in bodies] == [
         (0.9, 0.8, False)
@@ -229,9 +235,9 @@ def test_claude_request_carries_per_call_sampling_and_no_seed(
 
 
 def test_claude_omitted_temperature_keeps_the_configured_value(
-    web: WebFake,
+    web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client, bodies = _claude_sampling_client(web)
+    client, bodies = _claude_sampling_client(web, monkeypatch)
     client.chat("sys", "user", enable_thinking=False)
     assert [body.get("temperature") for body in bodies] == [0.7]
 
@@ -242,9 +248,9 @@ def test_claude_omitted_temperature_keeps_the_configured_value(
     ids=["use-model-sampling", "model-without-sampling"],
 )
 def test_claude_sampling_gate_wins_over_per_call_sampling(
-    web: WebFake, sampling: bool, config: dict[str, Any]
+    web: WebFake, monkeypatch: pytest.MonkeyPatch, sampling: bool, config: dict[str, Any]
 ) -> None:
-    client, bodies = _claude_sampling_client(web, sampling=sampling, **config)
+    client, bodies = _claude_sampling_client(web, monkeypatch, sampling=sampling, **config)
     client.chat("sys", "user", temperature=0.9, top_p=0.8, seed=7, enable_thinking=False)
     assert [sorted({"temperature", "top_p", "seed"} & body.keys()) for body in bodies] == [[]]
 
@@ -293,10 +299,7 @@ def test_claude_sdk_2_omits_the_sampling_parameters_that_the_api_refuses(
 def test_claude_sdk_1_keeps_the_sampling_parameters(
     web: WebFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from devops_cli.ai.client import claude as claude_module
-
-    monkeypatch.setattr(claude_module, "_installed_sdk_major", lambda: 1)
-    client, bodies = _claude_sampling_client(web, top_p=0.9)
+    client, bodies = _claude_sampling_client(web, monkeypatch, top_p=0.9)
     client.chat("sys", "user", enable_thinking=False)
     assert (bodies[0].get("temperature"), bodies[0].get("top_p")) == (0.7, 0.9)
 
