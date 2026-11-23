@@ -871,24 +871,26 @@ class DocGenerator:
         return "\n".join(lines)
 
     @staticmethod
-    def _import_all_exception_modules() -> None:
-        """Import the module of each `.py` file of devops-cli, and stop on a failed import (#6815).
+    def catalog_module_names() -> list[str]:
+        """Give the module of each `.py` file of devops-cli: the modules that the catalog imports (#6815).
 
         Each module can define a `DevOpsCLIError` subclass, and `__subclasses__` gives only the
         subclasses of loaded modules. So the names come from the files, and no list of modules
         can leave a class out of the catalog. `pkgutil.walk_packages` skips a directory with no
-        `__init__.py`, such as `docker/`, so it is not used.
+        `__init__.py`, such as `docker/`, so this method does not use it.
         """
-        import importlib
-
         import devops_cli
         from devops_cli.core.import_graph import module_name
 
         package_dir = Path(devops_cli.__file__).parent
-        module_names = [
-            module_name(path, package_dir.parent) for path in sorted(package_dir.rglob("*.py"))
-        ]
-        for mod_name in module_names:
+        return [module_name(path, package_dir.parent) for path in sorted(package_dir.rglob("*.py"))]
+
+    @staticmethod
+    def _import_all_exception_modules() -> None:
+        """Import each module of `catalog_module_names`, and stop on a failed import."""
+        import importlib
+
+        for mod_name in DocGenerator.catalog_module_names():
             try:
                 importlib.import_module(mod_name)
             except Exception as exc:
