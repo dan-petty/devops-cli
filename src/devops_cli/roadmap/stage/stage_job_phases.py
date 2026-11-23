@@ -19,31 +19,54 @@ CronJob `roadmap-stage` runs it until #6814 gives the Job its three containers.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import tempfile
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from enum import StrEnum
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, NonNegativeInt
+from pydantic_ai import capture_run_messages
+from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError, UnexpectedModelBehavior
+from pydantic_ai.messages import ModelMessage, ModelResponse, ToolCallPart
+from pydantic_ai.usage import UsageLimits
 
-from devops_cli.ai.client.models import AICredentialsError
+from devops_cli.ai.client.models import AIClientError, AICredentialsError, spend_limit_error
+from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
+    CONST_GITHUB_AGENT_REFUSED_ENV,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_PHASE_INPUT_FILE,
+    CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+    CONST_ROADMAP_PHASE_OUTCOME_FILE,
     CONST_ROADMAP_PHASE_STATE_FILE,
+    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
+    CONST_ROADMAP_STAGE_CANDIDATE_FILE,
+    CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE,
     CONST_ROADMAP_STAGE_ISSUES_FILE,
+    CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
 )
-from devops_cli.config.settings import RoadmapStageConfig, load_settings
+from devops_cli.config.settings import RoadmapStageConfig, get_active_config_path, load_settings
 from devops_cli.core import clock
-from devops_cli.exceptions import DevOpsCLIError, RoadmapTimeBudgetError
+from devops_cli.core.process import finds_github_login
+from devops_cli.exceptions import DevOpsCLIError, RoadmapStageError, RoadmapTimeBudgetError
+from devops_cli.exceptions.roadmap import PhaseOutputError
+from devops_cli.lang import MESSAGES
 from devops_cli.openspec.scaffold import scaffold_design, scaffold_proposal, scaffold_tasks
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled, kill_of, sigterm_raises
 from devops_cli.roadmap.item_comments import HeldComment, held_comments
-from devops_cli.roadmap.phases.files import RunFolders, write_json
+from devops_cli.roadmap.phases.files import RunFolders, read_run_file, write_json
+from devops_cli.roadmap.phases.patch import write_patch
 from devops_cli.roadmap.phases.publish import git_call
 from devops_cli.roadmap.plan_recheck import ListingIssues
 from devops_cli.roadmap.planned import PlannedChanges, open_plan_creates
 from devops_cli.roadmap.refine.refine import stage_comment_text
+from devops_cli.roadmap.refine.refine_investigation import task_window
 from devops_cli.roadmap.stage.stage import (
     ITEM_ERRORS,
     Blocked,
@@ -62,6 +85,7 @@ from devops_cli.roadmap.stage.stage import (
     parse_filters,
     read_stage_round,
 )
+from devops_cli.roadmap.stage.stage_agent import STAGE_CHECKS, StageRunLog, build_stage_agent
 from devops_cli.roadmap.stage.stage_change import body_room
 from devops_cli.roadmap.stage.stage_job import (
     BUDGET_SETTING,
@@ -84,6 +108,7 @@ from devops_cli.roadmap.time_budget import TimeBudget
 from devops_cli.server.service import RequestBudget
 
 _GIT_OPERATION: Final[str] = "roadmap.stage.phases"
+_CODER_PROMPT: Final[str] = "roadmap_stage_coder.md"
 # The result of the plan of one item, as `StageWriter.settle` writes it.
 PlanResult = StagedChange | OverBudget | Blocked | FalsePremise | StageFailure
 
@@ -492,12 +517,218 @@ def prepare_stage_job(
     return None if run is None else ended(run)
 
 
+class StageEnd(StrEnum):
+    """How the agent phase ended (#6705): it `ended` the run, the run `unverified` its checks
+    (`CompletionUnverifiedEvent`), the time budget ended (`timeout`), a model call failed
+    (`provider`), the provider key reached its spend limit (`spend_limit`), or another error of
+    the phase stopped it (`ci_infra`). `publish` trusts none of them as it is."""
+
+    ENDED = "ended"
+    UNVERIFIED = "unverified"
+    TIMEOUT = "timeout"
+    PROVIDER = "provider"
+    SPEND_LIMIT = "spend_limit"
+    CI_INFRA = "ci_infra"
+
+
+class StageCheck(StrEnum):
+    """The three checks of the stage agent, in the order of `STAGE_CHECKS`."""
+
+    OPENSPEC_CHECK = "openspec-check"
+    OPENSPEC_VALIDATE = "openspec-validate"
+    PLAN_RECHECK = "plan-recheck"
+
+
+class StageOutcome(_Model):
+    """`out/outcome.json` of the agent phase (#6705): the end, the checks whose last run failed,
+    and fixed counts of the run. It holds no text of the model."""
+
+    end: StageEnd
+    failed: tuple[StageCheck, ...] = ()
+    requests: NonNegativeInt = 0
+    tool_calls: NonNegativeInt = 0
+    input_tokens: NonNegativeInt = 0
+    output_tokens: NonNegativeInt = 0
+    seconds: NonNegativeInt = 0
+
+
+def _refuse_credentials() -> None:
+    """Refuse a process that holds the App key, a GitHub token, or a gh login (#6705)."""
+    held = sorted(
+        name for name in CONST_GITHUB_AGENT_REFUSED_ENV if os.environ.get(name, "").strip()
+    )
+    if held:
+        raise RoadmapStageError(
+            MESSAGES.roadmap.stage_agent_phase_key_refused.format(names=", ".join(held))
+        )
+    if finds_github_login():
+        raise RoadmapStageError(MESSAGES.roadmap.stage_agent_phase_login_refused)
+
+
+def check_commands(inputs: StageAgentInput, listing: Path) -> tuple[str, ...]:
+    """The three checks of the agent, as it runs them in its clone."""
+    return (
+        "devops openspec check",
+        f"openspec validate {inputs.change} --strict",
+        f"devops roadmap plan-recheck --source . --branch HEAD --base {inputs.base} "
+        f"--candidate {CONST_ROADMAP_STAGE_CANDIDATE_FILE} --issues {listing}",
+    )
+
+
+def _request(inputs: StageAgentInput, listing: Path) -> str:
+    """The user message of the agent: its inputs and its checks, as JSON."""
+    return json.dumps(
+        {
+            "number": inputs.item,
+            "title": inputs.title,
+            "url": inputs.url,
+            "body": inputs.body,
+            "comments": [comment.model_dump(mode="json") for comment in inputs.comments],
+            "probes": list(inputs.probes),
+            "open_plan_creates": inputs.creates,
+            "rejected_plan": inputs.rejected,
+            "budget": inputs.step_tokens,
+            "body_room": inputs.body_room,
+            "change_folder": f"{CONST_OPENSPEC_CHANGES_DIR}/{inputs.change}",
+            "branch": inputs.branch,
+            "base": inputs.base,
+            "issue_listing": str(listing),
+            "candidate": CONST_ROADMAP_STAGE_CANDIDATE_FILE,
+            "checks": list(check_commands(inputs, listing)),
+        }
+    )
+
+
+def _failed_checks(commands: list[str]) -> tuple[StageCheck, ...]:
+    """The checks among `commands`, the failed commands of `CompletionUnverifiedEvent`."""
+    names = list(StageCheck)
+    return tuple(
+        names[index]
+        for index, pattern in enumerate(STAGE_CHECKS)
+        if any(re.match(pattern, command.strip()) for command in commands)
+    )
+
+
+def _end_of(error: Exception) -> StageEnd:
+    """The end of a run that `error` stopped."""
+    if isinstance(error, RoadmapTimeBudgetError):
+        return StageEnd.TIMEOUT
+    if isinstance(error, ModelHTTPError) and spend_limit_error(error.status_code, error.body):
+        return StageEnd.SPEND_LIMIT
+    if isinstance(error, ModelAPIError | UnexpectedModelBehavior | AIClientError):
+        return StageEnd.PROVIDER
+    return StageEnd.CI_INFRA
+
+
+def _counts(messages: list[ModelMessage]) -> dict[str, int]:
+    """The counts of a run from its messages."""
+    responses = [message for message in messages if isinstance(message, ModelResponse)]
+    return {
+        "requests": len(responses),
+        "tool_calls": sum(
+            1 for response in responses for part in response.parts if isinstance(part, ToolCallPart)
+        ),
+        "input_tokens": sum(response.usage.input_tokens for response in responses),
+        "output_tokens": sum(response.usage.output_tokens for response in responses),
+    }
+
+
+def _hand_over(folders: RunFolders, clone: Path, inputs: StageAgentInput) -> None:
+    """Write the patch of the change folder from the base and the body candidate to `out/`."""
+    write_patch(
+        clone,
+        inputs.base,
+        folders.out / CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
+        only=f"{CONST_OPENSPEC_CHANGES_DIR}/{inputs.change}",
+    )
+    try:
+        candidate = read_run_file(
+            RunFolders(folders.work),
+            clone,
+            CONST_ROADMAP_STAGE_CANDIDATE_FILE,
+            limit=CONST_ROADMAP_PHASE_JSON_MAX_BYTES,
+        )
+    except PhaseOutputError:
+        return
+    path = folders.out / CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE
+    path.write_bytes(candidate)
+    path.chmod(0o600)
+
+
+def run_stage_agent(folders: RunFolders, *, model: Any = None) -> StageOutcome | None:
+    """The agent phase of the run of `folders` (#6705). It refuses a process that holds a GitHub
+    credential. A run folder whose `prepare` ended the run holds no inputs: the phase writes
+    nothing and gives None. Else it makes `out/`, which must not be there yet, runs the stage
+    agent in the clone of `prepare` with no request limit, and writes the patch of the change
+    folder, the body candidate and the outcome. `model` replaces the model of the task `stage`.
+
+    A SIGTERM raises `AttemptKilled` with the class of the kill, and the phase writes no
+    outcome and no check-in."""
+    _refuse_credentials()
+    source = folders.work / CONST_ROADMAP_PHASE_INPUT_FILE
+    if not source.is_file():
+        return None
+    inputs = StageAgentInput.model_validate_json(source.read_text(encoding="utf-8"))
+    folders.make_out()
+    clone = folders.work / CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
+    listing = folders.work / CONST_ROADMAP_STAGE_ISSUES_FILE
+    if model is None:
+        from devops_cli.ai.client.factory import get_task_model
+
+        model = get_task_model("stage")
+    config = get_active_config_path()
+    home = Path(tempfile.mkdtemp(prefix="devops-stage-home-"))
+    log = StageRunLog()
+    started = clock.monotonic()
+    seconds = max(0, int((inputs.deadline - datetime.now(UTC)).total_seconds()))
+    time_budget = TimeBudget.start(seconds, BUDGET_SETTING)
+    agent = build_stage_agent(
+        model,
+        clone,
+        home=home,
+        config=config if config.is_file() else None,
+        instructions=load_task_prompt(_CODER_PROMPT),
+        window=task_window("stage"),
+        deadline=inputs.deadline,
+        log=log,
+    )
+    end = StageEnd.ENDED
+    try:
+        with sigterm_raises(), capture_run_messages() as messages:
+            try:
+                agent.run_sync(
+                    _request(inputs, listing), usage_limits=UsageLimits(request_limit=None)
+                )
+            except AttemptKilled as killed:
+                raise AttemptKilled(kill_of(time_budget, killed)) from None
+            except Exception as error:
+                end = _end_of(error)
+    finally:
+        shutil.rmtree(home, ignore_errors=True)
+    if end is StageEnd.ENDED and log.unverified is not None:
+        end = StageEnd.UNVERIFIED
+    _hand_over(folders, clone, inputs)
+    outcome = StageOutcome(
+        end=end,
+        failed=_failed_checks(log.failed_checks),
+        seconds=round(clock.monotonic() - started),
+        **_counts(messages),
+    )
+    write_json(folders.out / CONST_ROADMAP_PHASE_OUTCOME_FILE, outcome)
+    return outcome
+
+
 __all__ = [
     "AgentComment",
     "PlanResult",
     "StageAgentInput",
+    "StageCheck",
+    "StageEnd",
+    "StageOutcome",
     "StageState",
+    "check_commands",
     "issue_listing",
     "prepare_stage_job",
+    "run_stage_agent",
     "scaffold_files",
 ]

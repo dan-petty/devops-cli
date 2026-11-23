@@ -4444,6 +4444,16 @@ class RoadmapMessages:
         "--strict, and devops roadmap plan-recheck with --branch HEAD, --base and --candidate. "
         "Fix each finding of the plan files. If a check cannot run, say what it printed and end."
     )
+    stage_agent_phase_key_refused: str = (
+        "The agent phase of the stage Job holds the model key only, and this environment holds "
+        "{names}. Run the agent phase in a container with no App key and no GitHub token. This "
+        "process planned no item."
+    )
+    stage_agent_phase_login_refused: str = (
+        "The agent phase of the stage Job holds the model key only, and the token lookup of the "
+        "session finds a GitHub login here. Run the agent phase with no gh login. This process "
+        "planned no item."
+    )
     stage_agent_budget_spent: str = (
         "The time budget of the stage Job ended at {deadline}, so the stage agent sends no more "
         "model requests."
