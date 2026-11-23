@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import io
 import itertools
 import re
+from collections.abc import Sequence
+from enum import Enum
 from pathlib import Path, PurePath
-from typing import Any
+from typing import Any, Literal, get_args, get_origin
 
 import click
 from pydantic import BaseModel, Field
@@ -74,8 +77,10 @@ def _clean_text(text: str | None) -> str:
     return _escape_angle_brackets(cleaned.strip())
 
 
-def _format_type(param_type: Any) -> str:
-    """Format a Click/Typer parameter type into a human-readable string."""
+def _format_click_type(param_type: Any) -> str | None:
+    """Format Click parameter type into a human-readable string."""
+    if param_type is None:
+        return None
     if isinstance(param_type, click.Choice) or getattr(param_type, "choices", None):
         choices = "|".join(str(c) for c in getattr(param_type, "choices", []))
         return f"choice ({choices})"
@@ -91,6 +96,58 @@ def _format_type(param_type: Any) -> str:
         return "string"
     type_name = getattr(param_type, "name", str(param_type)).lower()
     return type_name or "string"
+
+
+def _format_scalar_type(elem: Any) -> str | None:
+    """Format a scalar Python type annotation into a human-readable string."""
+    if elem is bool or "bool" in str(elem).lower():
+        return "boolean"
+    if elem is int or "int" in str(elem).lower():
+        return "integer"
+    if elem is float or "float" in str(elem).lower():
+        return "float"
+    if (isinstance(elem, type) and issubclass(elem, (Path, PurePath))) or "path" in str(
+        elem
+    ).lower():
+        return "path"
+    if elem is str or "str" in str(elem).lower():
+        return "string"
+    return None
+
+
+def _format_typer_param(param: Any) -> str | None:
+    """Deduce human-readable type string from Typer parameter descriptor."""
+    if param is None:
+        return None
+    td = getattr(param, "type_descriptor", None)
+    if getattr(td, "file_annotation", None) is not None:
+        return "filename"
+    ann = getattr(td, "annotation", None) if td is not None else getattr(param, "annotation", None)
+    if ann is None:
+        return None
+    origin = get_origin(ann)
+    args = get_args(ann)
+    elem = args[0] if (origin in (list, tuple, Sequence)) and args else ann
+    if origin is Literal or get_origin(elem) is Literal:
+        lit_args = get_args(elem) if get_origin(elem) is Literal else args
+        return f"choice ({'|'.join(str(c) for c in lit_args)})"
+    if isinstance(elem, type) and issubclass(elem, Enum):
+        return f"choice ({'|'.join(str(e.value) for e in elem)})"
+    if isinstance(elem, type) and (
+        (getattr(elem, "__module__", "").startswith("typer.") and "File" in elem.__name__)
+        or issubclass(elem, io.IOBase)
+    ):
+        return "filename"
+    return _format_scalar_type(elem)
+
+
+def _format_type(param_type: Any, param: Any = None) -> str:
+    """Format a Click/Typer parameter type into a human-readable string."""
+    click_str = _format_click_type(param_type)
+    if click_str is not None:
+        return click_str
+    typer_str = _format_typer_param(param)
+    return typer_str or "string"
 
 
 class ParamDoc(BaseModel):
@@ -298,7 +355,7 @@ class DocGenerator:
         envvar = raw_envvar if isinstance(raw_envvar, str) else None
 
         desc = _clean_text(getattr(param, "help", None) or "")
-        type_str = _format_type(param.type)
+        type_str = _format_type(getattr(param, "type", None), param)
         default_val = getattr(param, "default", None)
         default_str: str | None = None
         if default_val is not None and not (kind == "flag" and default_val is False):

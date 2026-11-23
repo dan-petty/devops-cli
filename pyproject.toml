@@ -10,7 +10,7 @@ description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
 dependencies = [
     "click==8.5.1",
-    "typer==0.28.0",
+    "typer==0.29.2",
     "rich==15.0.0",
     "pydantic==2.14.4",
     "pydantic-core==2.50.5",
@@ -24,7 +24,7 @@ dependencies = [
     "kubernetes==36.0.3",
     "docker==7.2.0",
     "requests==2.34.2",
-    "fastmcp==4.1.8",
+    "fastmcp==4.2.4",
     "qdrant-client==1.20.0",
     "pydantic-settings==2.16.3",
     "json-repair==0.64.9",
@@ -34,14 +34,14 @@ dependencies = [
     "python-hcl2==8.2.0",
     "packaging==26.3",
     "platformdirs==4.14.8",
-    "fastapi==0.162.7",
+    "fastapi==0.165.0",
     "uvicorn==0.54.0",
     "tiktoken==0.14.0",
     "pydantic-ai[spec]==2.71.0",
     "pydantic-ai-harness[coder]==0.71.0",
     "logfire==5.6.0",
     "pynacl==1.6.2",
-    "openai==3.49.0",
+    "openai==3.57.0",
     "anthropic==1.17.0",
     "opentelemetry-api==1.45.2",
     "opentelemetry-semantic-conventions==0.66b2",
@@ -60,7 +60,7 @@ dependencies = [
     "tree-sitter-rust==0.24.2",
     "tree-sitter-java==0.23.5",
     "tree-sitter-hcl==1.2.0",
-    "tree-sitter-c-sharp==0.23.5",
+    "tree-sitter-c-sharp==0.24.0",
     "tree-sitter-c==0.24.2",
     "tree-sitter-cpp==0.23.4",
     "tree-sitter-bash==0.25.1",
@@ -77,7 +77,7 @@ dependencies = [
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
-    "filelock==4.2.12",
+    "filelock==4.3.0",
     "unidiff==1.0.1",
     "ddgs==9.16.1",
     "opentelemetry-exporter-otlp-proto-common==1.45.2",
@@ -85,7 +85,7 @@ dependencies = [
     "detect-agent==0.6.0",
     "packageurl-python==0.17.6",
     "jq==1.13.0",
-    "harbor==0.26.0",
+    "harbor==0.27.0",
     "tomlkit==0.15.2",
     "numpy==2.5.5",
     "pytrec-eval-terrier==0.5.11",
@@ -104,7 +104,7 @@ devops = "devops_cli.entry:main"
 [dependency-groups]
 dev = [
     "pytest==9.2.0",
-    "pytest-asyncio==1.4.1.post1",
+    "pytest-asyncio==1.5.0",
     "pytest-mock==3.17.0",
     "ruff==0.17.6",
     "mypy==2.4.1",
@@ -116,7 +116,7 @@ dev = [
     "pytest-randomly==5.1.0",
     "pytest-timeout==2.4.0",
     "bandit==1.9.4",
-    "zizmor==1.32.0",
+    "zizmor==1.33.1",
     "pre-commit==4.7.0",
     "hypothesis==6.170.17",
     "h11==0.16.0",
@@ -128,7 +128,7 @@ dev = [
     "fakeredis[lua,valkey]==2.40.0",
     "types-docker==7.2.0.20261122",
     "cel-expr-python==0.1.4",
-    "coloraide==8.14.1",
+    "coloraide==8.16",
     # The template of the service dashboards (#5184): `make dashboards` writes the classic dashboard
     # JSON of k8s/monitoring/dashboards/ with it. It is not a runtime dependency. Its release 0.0.22
     # builds the schema version 42 of Grafana 12.3.3 to 13.3.1. The dev group holds it, so the test
@@ -219,6 +219,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # Pytest workers: logical cores (ext4 benchmark: 8 workers ~4.2s vs 4 workers ~6.8s)

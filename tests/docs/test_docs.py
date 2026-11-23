@@ -36,6 +36,65 @@ def generator() -> DocGenerator:
     return DocGenerator()
 
 
+def test_doc_generator_introspect_type_formatting(generator: DocGenerator) -> None:
+    import io
+
+    opt_choice = click.Option(["--choice"], type=click.Choice(["x", "y"]))
+    assert generator.introspect_param(opt_choice).type_name == "choice (x|y)"
+
+    opt_int = click.Option(["--count"], type=click.INT)
+    assert generator.introspect_param(opt_int).type_name == "integer"
+
+    opt_float = click.Option(["--rate"], type=click.FLOAT)
+    assert generator.introspect_param(opt_float).type_name == "float"
+
+    opt_bool = click.Option(["--flag"], is_flag=True)
+    assert generator.introspect_param(opt_bool).type_name == "boolean"
+
+    app = typer.Typer()
+
+    @app.command()
+    def sample_cmd(
+        p: Path,
+        f: typer.FileText,
+        s: str,
+        i: int,
+        fl: float,
+        b: bool,
+    ) -> None:
+        pass
+
+    cmd = typer.main.get_command(app)
+    params = {p.name: p for p in cmd.params}
+    assert generator.introspect_param(params["p"]).type_name == "path"
+    assert generator.introspect_param(params["f"]).type_name == "filename"
+    assert generator.introspect_param(params["s"]).type_name == "string"
+    assert generator.introspect_param(params["i"]).type_name == "integer"
+    assert generator.introspect_param(params["fl"]).type_name == "float"
+    assert generator.introspect_param(params["b"]).type_name == "boolean"
+
+    class MockParamNoAnn:
+        name = "mock_no_ann"
+        type_descriptor = None
+        annotation = None
+
+    assert generator.introspect_param(MockParamNoAnn()).type_name == "string"
+
+    class MockParamIO:
+        name = "mock_io"
+        type_descriptor = None
+        annotation = io.StringIO
+
+    assert generator.introspect_param(MockParamIO()).type_name == "filename"
+
+    class MockParamUnknown:
+        name = "mock_dict"
+        type_descriptor = None
+        annotation = dict
+
+    assert generator.introspect_param(MockParamUnknown()).type_name == "string"
+
+
 def test_doc_generator_introspect_param(generator: DocGenerator) -> None:
     opt = click.Option(
         ["--test-opt", "-t"],

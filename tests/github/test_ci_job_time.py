@@ -427,7 +427,11 @@ def test_a_count_above_the_bound_of_a_read_is_a_usage_error_that_names_the_bound
 
     result = cli("ci", "job-time", "--repo", _REPO, "--runs", str(bound + 1))
 
-    assert (result.exit_code, f"1<=x<={bound}" in _said(result), github_api.requested) == (
+    assert (
+        result.exit_code,
+        (f"1<=x<={bound}" in _said(result) or f"less than or equal to {bound}" in _said(result)),
+        github_api.requested,
+    ) == (
         2,
         True,
         [],

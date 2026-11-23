@@ -252,7 +252,10 @@ def test_a_count_above_the_bound_of_a_read_is_a_usage_error_that_names_the_bound
 
     assert (
         result.exit_code,
-        f"1<=x<={bound}" in " ".join(result.output.split()),
+        (
+            f"1<=x<={bound}" in " ".join(result.output.split())
+            or f"less than or equal to {bound}" in " ".join(result.output.split())
+        ),
         github_api.requested,
         process_fake.calls,
     ) == (2, True, [], [])

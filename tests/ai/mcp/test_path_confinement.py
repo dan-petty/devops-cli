@@ -17,8 +17,6 @@ import pytest
 import typer
 from fastmcp import FastMCP
 from fastmcp.tools import Tool
-from typer._click.types import File as TyperFile
-from typer.models import TyperPath
 
 from devops_cli.ai.mcp.generator import _create_tool_function, resolve_click_command
 from devops_cli.ai.mcp.path_confinement import (
@@ -30,6 +28,7 @@ from devops_cli.ai.mcp.server import mcp
 from devops_cli.config.constants import CONST_EXIT_FAILURE, CONST_MCP_EXPOSURE_TABLE
 from devops_cli.core.paths import _PATH_PARAM_KEYWORDS, validate_path_parameter
 from devops_cli.exceptions import SandboxValidationError, SecurityError, ValidationError
+from devops_cli.roadmap.stage.stage_run_allowlist import is_path_or_file_param
 
 _MIN_REASON = 30
 
@@ -98,13 +97,10 @@ def _exposed_commands() -> dict[str, Any]:
 def _typed_as_path(command: Any) -> set[str]:
     """The options of a command that Typer reads from a path.
 
-    A `Path` annotation gives `typer.models.TyperPath`, and a `FileText` or `FileBinaryRead`
-    annotation gives `typer._click.types.File`, which Typer opens from a path. Neither type is a
-    `click.Path`.
+    A `Path` annotation gives `Path`, and a `FileText` or `FileBinaryRead`
+    annotation gives a file type, which Typer opens from a path.
     """
-    return {
-        param.name for param in command.params if isinstance(param.type, (TyperPath, TyperFile))
-    }
+    return {param.name for param in command.params if is_path_or_file_param(param)}
 
 
 def _path_parameters(tools: Sequence[Tool], commands: Mapping[str, Any]) -> dict[str, set[str]]:
