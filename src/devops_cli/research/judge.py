@@ -15,10 +15,10 @@ from devops_cli.config.defaults import (
     DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT,
     DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT,
 )
+from devops_cli.research.models import Component, ComponentKind, Ecosystem
 from devops_cli.security.prompt_injection import scan_injection_text
 
 if TYPE_CHECKING:
-    from devops_cli.research.models import Component
     from devops_cli.roadmap.intake.intake import NewCandidate
 
 
@@ -359,3 +359,391 @@ def judge_records(
                 report.dropped.extend(check.dropped)
 
     return report
+
+
+class EvalRecord(BaseModel):
+    """Evaluation record with component metadata."""
+
+    id: str
+    text: str
+    url: str
+    component: Component
+
+
+class LabeledJudgment(BaseModel):
+    """A record paired with its expected verdict label."""
+
+    record: EvalRecord
+    label: JudgeVerdict
+
+
+LABELED_FINDINGS: Final[tuple[LabeledJudgment, ...]] = (
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-01",
+            text="CVE-2026-1001 critical vulnerability in fastapi version 0.115.0 allows arbitrary code execution",
+            url="https://example.com/advisory/rec-eval-01",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="fastapi",
+                version="0.115.0",
+                file="pyproject.toml",
+                line=25,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-02",
+            text="GHSA-2026-0002 high severity memory leak in uvloop 0.21.0 under heavy load",
+            url="https://example.com/advisory/rec-eval-02",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="uvloop",
+                version="0.21.0",
+                file="pyproject.toml",
+                line=40,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-03",
+            text="Security issue in pydantic 2.10.0 affects input model parsing",
+            url="https://example.com/advisory/rec-eval-03",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="pydantic",
+                version="2.10.0",
+                file="pyproject.toml",
+                line=15,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-04",
+            text="Vulnerability in actions/checkout@v4.1.0 allows environment manipulation",
+            url="https://example.com/advisory/rec-eval-04",
+            component=Component(
+                kind=ComponentKind.ACTION,
+                ecosystem=Ecosystem.GITHUB_ACTIONS,
+                name="actions/checkout",
+                version="v4.1.0",
+                file=".github/workflows/ci.yml",
+                line=12,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-05",
+            text="Docker base image debian:trixie-slim contains critical openssl flaw",
+            url="https://example.com/advisory/rec-eval-05",
+            component=Component(
+                kind=ComponentKind.CONTAINER_IMAGE,
+                ecosystem=Ecosystem.DOCKER,
+                name="debian",
+                version="trixie-slim",
+                file="Dockerfile",
+                line=1,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-06",
+            text="CVE-2026-2006 prototype pollution in lodash 4.17.21 used by dashboard build",
+            url="https://example.com/advisory/rec-eval-06",
+            component=Component(
+                kind=ComponentKind.NODE_PACKAGE,
+                ecosystem=Ecosystem.NPM,
+                name="lodash",
+                version="4.17.21",
+                file="package.json",
+                line=18,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-07",
+            text="Helm chart ingress-nginx 4.11.0 ingress validation bypass",
+            url="https://example.com/advisory/rec-eval-07",
+            component=Component(
+                kind=ComponentKind.CHART,
+                ecosystem=Ecosystem.HELM,
+                name="ingress-nginx",
+                version="4.11.0",
+                file="k8s/helmfile.yaml",
+                line=30,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-08",
+            text="Terraform aws provider 5.70.0 credential leakage vulnerability",
+            url="https://example.com/advisory/rec-eval-08",
+            component=Component(
+                kind=ComponentKind.TERRAFORM_PROVIDER,
+                ecosystem=Ecosystem.TERRAFORM,
+                name="hashicorp/aws",
+                version="5.70.0",
+                file="terraform/main.tf",
+                line=5,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-09",
+            text="Ruff linter tool 0.9.0 command injection vulnerability in configuration parser",
+            url="https://example.com/advisory/rec-eval-09",
+            component=Component(
+                kind=ComponentKind.TOOL,
+                ecosystem=Ecosystem.UNKNOWN,
+                name="ruff",
+                version="0.9.0",
+                file="pyproject.toml",
+                line=85,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-10",
+            text="Devcontainer feature ghcr.io/devcontainers/features/docker-in-docker:2 privileged escape",
+            url="https://example.com/advisory/rec-eval-10",
+            component=Component(
+                kind=ComponentKind.DEVCONTAINER_FEATURE,
+                ecosystem=Ecosystem.DEVCONTAINER_FEATURE,
+                name="docker-in-docker",
+                version="2",
+                file=".devcontainer/devcontainer.json",
+                line=14,
+            ),
+        ),
+        label=JudgeVerdict.yes,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-11",
+            text="Advisory affects fastapi version 0.80.0 only, pinned version is 0.115.0",
+            url="https://example.com/advisory/rec-eval-11",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="fastapi",
+                version="0.115.0",
+                file="pyproject.toml",
+                line=25,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-12",
+            text="Flaw in unpinned django framework component not present in project tree",
+            url="https://example.com/advisory/rec-eval-12",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="django",
+                version="5.0.0",
+                file="pyproject.toml",
+                line=0,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-13",
+            text="Security release notes for kubernetes 1.28.0; project cluster runs 1.32.0",
+            url="https://example.com/advisory/rec-eval-13",
+            component=Component(
+                kind=ComponentKind.TOOL,
+                ecosystem=Ecosystem.UNKNOWN,
+                name="kubectl",
+                version="1.32.0",
+                file=".tool-versions",
+                line=2,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-14",
+            text="Advisory for node-sass package which is not installed or pinned in this repo",
+            url="https://example.com/advisory/rec-eval-14",
+            component=Component(
+                kind=ComponentKind.NODE_PACKAGE,
+                ecosystem=Ecosystem.NPM,
+                name="node-sass",
+                version="9.0.0",
+                file="package.json",
+                line=0,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-15",
+            text="Advisory GHSA-xxxx applies strictly to Windows platform builds, project runs on Linux",
+            url="https://example.com/advisory/rec-eval-15",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="pywin32",
+                version="306",
+                file="pyproject.toml",
+                line=0,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-16",
+            text="Documentation typo fix announcement for requests library with no security impact",
+            url="https://example.com/advisory/rec-eval-16",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="requests",
+                version="2.32.3",
+                file="pyproject.toml",
+                line=55,
+            ),
+        ),
+        label=JudgeVerdict.no,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-17",
+            text="Unconfirmed report of potential race condition in anyio with insufficient reproduction data",
+            url="https://example.com/advisory/rec-eval-17",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="anyio",
+                version="4.6.0",
+                file="pyproject.toml",
+                line=32,
+            ),
+        ),
+        label=JudgeVerdict.unknown,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-18",
+            text="Disputed CVE against python urllib3 with conflicting vendor assessments",
+            url="https://example.com/advisory/rec-eval-18",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="urllib3",
+                version="2.2.3",
+                file="pyproject.toml",
+                line=60,
+            ),
+        ),
+        label=JudgeVerdict.unknown,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-19",
+            text="Notice of upcoming deprecation for click 8.x argument parser flags without exploit details",
+            url="https://example.com/advisory/rec-eval-19",
+            component=Component(
+                kind=ComponentKind.PYTHON_PACKAGE,
+                ecosystem=Ecosystem.PYPI,
+                name="click",
+                version="8.1.7",
+                file="pyproject.toml",
+                line=12,
+            ),
+        ),
+        label=JudgeVerdict.unknown,
+    ),
+    LabeledJudgment(
+        record=EvalRecord(
+            id="rec-eval-20",
+            text="Third-party benchmark claim regarding valkey latency anomalies with incomplete environment spec",
+            url="https://example.com/advisory/rec-eval-20",
+            component=Component(
+                kind=ComponentKind.CONTAINER_IMAGE,
+                ecosystem=Ecosystem.DOCKER,
+                name="valkey/valkey",
+                version="8.0.0",
+                file="k8s/valkey.yaml",
+                line=18,
+            ),
+        ),
+        label=JudgeVerdict.unknown,
+    ),
+)
+
+
+def false_negative_ids(
+    labeled: Sequence[LabeledJudgment],
+    judged: Sequence[JudgeFinding] | JudgeReport,
+) -> list[str]:
+    """Return record ids where true label is 'yes' but judge returned 'no'."""
+    findings = judged.findings if isinstance(judged, JudgeReport) else list(judged)
+    finding_by_id: dict[str, JudgeFinding] = {}
+    for f in findings:
+        for rec_id in f.evidence_record_ids:
+            finding_by_id[rec_id] = f
+
+    fn: list[str] = []
+    for idx, item in enumerate(labeled):
+        rec_id = _record_id(item.record)
+        finding = finding_by_id.get(rec_id)
+        if finding is None and idx < len(findings):
+            finding = findings[idx]
+        if item.label == JudgeVerdict.yes and finding is not None:
+            if finding.affects_us == JudgeVerdict.no:
+                fn.append(rec_id)
+    return fn
+
+
+def judge_agreement_rate(
+    labeled: Sequence[LabeledJudgment],
+    judged: Sequence[JudgeFinding] | JudgeReport,
+) -> float:
+    """Calculate agreement rate between labeled records and judge findings."""
+    if not labeled:
+        return 1.0
+    findings = judged.findings if isinstance(judged, JudgeReport) else list(judged)
+    finding_by_id: dict[str, JudgeFinding] = {}
+    for f in findings:
+        for rec_id in f.evidence_record_ids:
+            finding_by_id[rec_id] = f
+
+    agree = 0
+    for idx, item in enumerate(labeled):
+        rec_id = _record_id(item.record)
+        finding = finding_by_id.get(rec_id)
+        if finding is None and idx < len(findings):
+            finding = findings[idx]
+        if finding is not None and finding.affects_us == item.label:
+            agree += 1
+
+    return agree / len(labeled)
