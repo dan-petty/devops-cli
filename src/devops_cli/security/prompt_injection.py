@@ -35,6 +35,11 @@ MARKDOWN_EXFIL_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"!\[[^\]]*\]\((?:https?:)?//[^\s\)]+(?:\?|&)(?:data|secret|token|leak|payload|canary)=[^ \)]*\)"
 )
 
+INSTRUCTION_OVERRIDE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:ignore|disregard|forget|bypass|override)\s+(?:all\s+)?(?:your|you're)\s+(?:rules|instructions|directives|system\s+prompt|guidelines)\b",
+    re.IGNORECASE,
+)
+
 EMOJI_TAG_SEQUENCE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"[\U0001F300-\U0001FAFF\U00002600-\U000027BF][\U000E0020-\U000E007E]+\U000E007F"
 )
@@ -186,6 +191,24 @@ def _scan_delimiters(text: str, line_no: int, location: str) -> list[Finding]:
     return findings
 
 
+def _scan_instruction_override(text: str, line_no: int, location: str) -> list[Finding]:
+    """Audit line for instruction override attempts (INJ004)."""
+    match = INSTRUCTION_OVERRIDE_PATTERN.search(text)
+    if not match:
+        return []
+
+    loc_str = f"{location}:{line_no}" if line_no > 0 else location
+    return [
+        Finding(
+            severity="HIGH",
+            location=loc_str,
+            title="[INJ004] Instruction Override Attempt",
+            description="Detected instruction override attempt directing the model to ignore rules or directives.",
+            fix="Sanitize or reject inputs attempting to override system instructions or rules.",
+        )
+    ]
+
+
 def _scan_markdown_exfil(text: str, line_no: int, location: str) -> list[Finding]:
     """Audit line for markdown data exfiltration embedding (INJ005)."""
     match = MARKDOWN_EXFIL_PATTERN.search(text)
@@ -210,6 +233,7 @@ def scan_injection_line(line: str, line_no: int, location: str) -> list[Finding]
     findings.extend(_scan_unicode_tags(line, line_no, location))
     findings.extend(_scan_format_characters(line, line_no, location))
     findings.extend(_scan_delimiters(line, line_no, location))
+    findings.extend(_scan_instruction_override(line, line_no, location))
     findings.extend(_scan_markdown_exfil(line, line_no, location))
     return findings
 
