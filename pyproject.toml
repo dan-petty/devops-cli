@@ -314,11 +314,89 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/output/test_output.py::test_rich_imports_confined_to_output_submodule",
     # The caller it records is mutmut's trampoline, generated code between the test and the span.
     "--deselect=tests/telemetry/test_telemetry.py::test_span_caller_location_and_runtime_attributes",
+    # Parses Python source files under src to verify that mock attribute probes do not exist.
+    "--deselect=tests/invariants/test_source_tree.py::test_no_mock_attribute_probes_in_src",
+    # Parses source files under src to verify leveled print prefixes.
+    "--deselect=tests/output/test_output.py::test_leveled_print_calls_do_not_duplicate_level_prefixes",
+    # Parses gateway_bench.py source which in mutants holds mutmut trampoline imports.
+    "--deselect=tests/ai/test_ai_gateway_tune.py::TestBench::test_gateway_bench_imports_only_standard_library",
+    # mutmut trampolines wrap methods and fail runtime protocol checks.
+    "--deselect=tests/commands/test_valkey.py::TestValkeyClientDestination::test_valkey_protocol_is_satisfied_by_valkey_client",
+    # mutmut's trampoline wraps load_settings, multiplying call counts under MUTANT_UNDER_TEST=stats.
+    "--deselect=tests/ai/spend/test_ai_spend_pricing.py::test_a_priced_request_loads_the_settings_at_most_once",
     # git tracking of the checkout
     "--deselect=tests/ai/test_run_store.py::test_a_record_names_its_setup_and_subject_by_content",
     "--deselect=tests/ai/client/test_url_credential_masking.py::test_no_forbidden_constructs_remain",
     # Without the checkout's git origin it fetches the pull request's head from GitHub.
     "--deselect=tests/commands/test_review_scope.py::test_the_pr_command_reviews_against_the_pr_head",
+    # Needs the full git history of the checkout (git log --follow).
+    "--deselect=tests/invariants/test_source_tree.py::test_a_moved_roadmap_module_keeps_its_history",
+    # Reads committed files via git ls-files on the checkout.
+    "--deselect=tests/invariants/test_committed_addresses.py::test_no_committed_file_holds_a_private_address_or_a_lan_host",
+    # Computes workspace fingerprint from git tracking of the checkout.
+    "--deselect=tests/ci/test_ci_gate_admission.py::test_a_cached_verdict_takes_no_slot",
+    # Reads commit diffs and definitions at HEAD of the checkout.
+    "--deselect=tests/roadmap/test_premise.py::test_a_name_of_the_adds_line_that_the_commit_defines_is_a_false_premise",
+    # Reads definition lines at HEAD commit of the checkout.
+    "--deselect=tests/roadmap/test_premise.py::test_the_definition_lines_of_an_identifier_come_from_the_commit",
+    # Reads staged constants from HEAD commit of the checkout.
+    "--deselect=tests/roadmap/stage/test_roadmap_stage_constants.py::test_staged_constants_reads_repository",
+    # Reads class sources from HEAD commit of the checkout.
+    "--deselect=tests/roadmap/stage/test_roadmap_stage_class_claim.py::test_a_member_claim_the_staged_class_lacks_is_refused",
+    # Reads class sources from HEAD commit of the checkout.
+    "--deselect=tests/roadmap/stage/test_roadmap_stage_class_claim.py::test_class_sources_reads_a_class_with_no_base",
+    # Reads model fields from historical commit of the checkout.
+    "--deselect=tests/roadmap/stage/test_roadmap_stage_models.py::test_model_fields_reads_module_and_fields",
+    # Reads staged case files tracked by git in the checkout.
+    "--deselect=tests/roadmap/stage/test_roadmap_stage_eval_compare.py::test_the_staged_item_case_loads_with_its_commit",
+    # Reads .claude/settings.json which is not copied into mutants/.
+    "--deselect=tests/core/test_third_party_telemetry.py::test_the_committed_claude_settings_opt_out_of_openspec_telemetry_and_its_update_check",
+    # Reads typings/ directory which is not copied into mutants/.
+    "--deselect=tests/invariants/test_declared_dependencies.py::test_declared_dependencies_numpy_and_pytrec_eval",
+    # Reads openspec change proposals.
+    "--deselect=tests/invariants/test_mcp_server_image.py::test_the_change_records_the_findings_and_the_date",
+    # Reads skill files from .kilocode which is not copied into mutants/.
+    "--ignore=tests/invariants/test_skills.py",
+    # Resolves relative links across markdown files not copied into mutants/.
+    "--deselect=tests/invariants/test_agents_md.py::test_every_relative_link_in_the_test_conventions_and_their_pointers_resolves",
+    # Reads zensical.toml and .nav.yml which are not copied into mutants/.
+    "--ignore=tests/github/test_github_pages.py",
+    # Runs roadmap run dry-run which reads checkout tracking.
+    "--deselect=tests/github/test_gh_issues_milestones_labels_runs_dry_run.py::test_request_plan_commands_make_no_external_requests[roadmap_run-run_cmd-argv14]",
+    # Runs pages verify which reads zensical.toml.
+    "--deselect=tests/github/test_gh_project_views_pages_dry_run.py::test_no_external_request_commands_run_normally[pages_verify-pages_verify_cmd-argv0]",
+    # Reads .bandit which is not copied into mutants/.
+    "--deselect=tests/commands/test_ci.py::test_bandit_s_config_skips_only_the_low_rules_that_need_no_decision",
+    # Reads .bandit which is not copied into mutants/.
+    "--deselect=tests/commands/test_ci.py::test_the_security_row_scans_the_targets_that_bandit_s_config_names",
+    # Reads tracked Python files via git ls-files and reads .bandit.
+    "--deselect=tests/commands/test_security_bandit.py::test_the_bandit_targets_hold_every_python_file_the_repository_tracks",
+    # Runs bandit on this repository with .bandit.
+    "--deselect=tests/commands/test_security_bandit.py::test_the_scan_report_runs_bandit_on_this_repository_with_the_gate_s_config",
+    # Review workflows create profiles and query checkout tracking.
+    "--ignore=tests/ai/review/test_review.py",
+    # Review workflows create profiles and query checkout tracking.
+    "--ignore=tests/ai/review/test_runner.py",
+    # Queries checkout tracking in subdirectories.
+    "--deselect=tests/ai/review/test_review_repos.py::TestReviewReposSubdirectories::test_review_path_summary_in_repos_directory",
+    # Review clients require repository git tracking.
+    "--deselect=tests/ai/review/test_review_runner.py::test_make_review_clients",
+    # Review clients require repository git tracking.
+    "--deselect=tests/ai/review/test_review_runner.py::test_review_clients_wait_a_configured_task_timeout",
+    # Review pre-analysis reads base revision tracking.
+    "--deselect=tests/ai/review/test_review_symbol_delta.py::test_a_review_hands_its_base_to_pre_analysis_and_its_diff_to_persona_review",
+    # Empty diff review check queries git tracking.
+    "--deselect=tests/commands/test_review_pr_post.py::test_devops_review_pr_post_empty_diff_makes_zero_model_calls",
+    # Review group analysis queries git tracking.
+    "--deselect=tests/review/test_review_group_analysis.py::test_routed_files_only_with_admitted_gitleaks_finding_runs_group_analysis",
+    # Replays review_window scenario which reads git tracking of a multi-commit history.
+    "--deselect=tests/core/test_git_contract.py::test_a_scenario_over_the_git_fake_gives_the_recorded_result[review_window]",
+    # Replays review_window scenario which reads git tracking of a multi-commit history.
+    "--deselect=tests/core/test_git_contract.py::test_a_scenario_over_the_process_fake_starts_the_recorded_commands_and_gives_the_result[review_window]",
+    # Replays review_window scenario which reads git tracking of a multi-commit history.
+    "--deselect=tests/roadmap/project_review/test_review_facts.py::test_the_facts_of_a_version_window",
+    # Reads git tracking of the checkout during implement job execution.
+    "--deselect=tests/roadmap/implement/test_roadmap_implement_job.py::test_a_retry_clears_the_stop_before_the_first_step",
     # the checkout's .venv
     "--deselect=tests/sandbox/test_host_sandbox.py::test_every_allowlisted_criteria_binary_resolves_inside_the_sandbox_mounts",
 ]
