@@ -128,7 +128,7 @@ def test_the_table_runs_the_lanes_in_order_and_names_no_release_job() -> None:
             "alternatives",
         ],
         True,
-        ["issues"],
+        ["check_suite", "issues", "pull_request", "pull_request_review"],
     )
 
 

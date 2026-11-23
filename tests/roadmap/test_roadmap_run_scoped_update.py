@@ -1,5 +1,6 @@
 """The scoped update that a webhook delivery runs at once, and the poll that reconciles after it
-(#1533). The scoped intake reads every issue through the listing snapshot (#3670).
+(#1533). The scoped intake reads every issue through the listing snapshot (#3670), and a pull
+request, review or check suite delivery runs the watch row scoped to its pull requests (#4413).
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
+from devops_cli.config.constants import CONST_ROADMAP_WATCH_LEDGER_FILENAME
 from devops_cli.config.settings import AIConfig
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, ModelProposal
 from devops_cli.roadmap.run import (
@@ -27,11 +29,14 @@ from devops_cli.roadmap.stores.listing_snapshot import intake_listing
 from devops_cli.roadmap.stores.store import (
     CloseReason,
     ItemField,
+    StageRecordKey,
 )
 from tests.support.fakes.embeddings import FakeEmbedder
-from tests.support.fakes.github import API, RunnerSession
+from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
+from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.llm_stream_fakes import serve_llm
 from tests.support.roadmap_intake import FINISHED, on_github
 from tests.support.roadmap_run import (
@@ -50,17 +55,134 @@ from tests.support.roadmap_run import (
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
+# The `pull_request` actions that change the state or the checks of a staged draft.
+_PULL_ACTIONS = (
+    "opened",
+    "reopened",
+    "synchronize",
+    "closed",
+    "labeled",
+    "unlabeled",
+    "ready_for_review",
+)
+
+_HEAD = "4" * 40
+
+_INFRA_CHECK = "Semantic PR title"
+
+
+@pytest.fixture
+def github_api(github_api_and_gh: tuple[GitHubApiFake, ProcessFake]) -> GitHubApiFake:
+    """GitHub's API faked for every GitHub session."""
+    api, _process = github_api_and_gh
+    return api
+
+
+def _staged_draft(store: InMemoryRoadmapStore, pull: int) -> int:
+    """An open Item of `store` whose record names the staged draft `pull`."""
+    issue = store.seed_issue(f"Plan {pull}", fields={ItemField.PRIORITY: "P1-High"})
+    item = store.item(issue)
+    assert item is not None
+    store.set_marks(item, {StageRecordKey.PR: str(pull)})
+    return issue
+
+
+def _route_open_draft(api: GitHubApiFake, pull: int) -> None:
+    """Answer the reads of the open plan draft `pull`, whose infra check fails, so that the round
+    reads it and takes no ready path."""
+    api.route(
+        "GET",
+        f"/repos/{REPO}/pulls/{pull}",
+        github_json(
+            {
+                "number": pull,
+                "state": "open",
+                "merged": False,
+                "draft": True,
+                "body": f"The plan of pull {pull}.",
+                "head": {"sha": _HEAD, "ref": f"feat/{pull}-plan"},
+                "base": {"ref": "main", "repo": {"default_branch": "main"}},
+            }
+        ),
+    )
+    api.route(
+        "GET",
+        f"/repos/{REPO}/commits/{_HEAD}/check-runs",
+        github_json(
+            {"check_runs": [{"name": _INFRA_CHECK, "status": "completed", "conclusion": "failure"}]}
+        ),
+    )
+
+
+def _delivery(event: str, action: str, *pulls: int) -> WebhookDelivery:
+    """A delivery of `event` with `action` that names pull requests `pulls`."""
+    return WebhookDelivery(repo=REPO, event=event, action=action, pull_numbers=pulls)
+
+
+def _for_pull(requests: list[str], pull: int) -> list[str]:
+    """Each request of `requests` that names pull request `pull`."""
+    return [request for request in requests if f"/pulls/{pull}" in request]
+
 
 def test_the_issues_actions_run_a_scoped_intake_on_the_lane_of_intake() -> None:
     """`issues` opened, edited and reopened each run intake of one issue, on the lane of intake,
-    and no other event has a scoped update (#1534, #5553)."""
+    and each pull request, review and check suite action runs the watch row, on the lane of
+    watch (#1534, #4413, #5553)."""
     assert {
         key: (update.job, lane_of_row(update.job)) for key, update in SCOPED_UPDATES.items()
     } == {
         ("issues", "opened"): ("intake", "intake"),
         ("issues", "edited"): ("intake", "intake"),
         ("issues", "reopened"): ("intake", "intake"),
+        **{("pull_request", action): ("watch", "watch") for action in _PULL_ACTIONS},
+        ("pull_request_review", "submitted"): ("watch", "watch"),
+        ("check_suite", "completed"): ("watch", "watch"),
     }
+    assert {
+        lane_of_row(update.job, {"status": ["watch"]})
+        for key, update in SCOPED_UPDATES.items()
+        if key[0] != "issues"
+    } == {"status"}
+
+
+@pytest.mark.usefixtures("cluster")
+def test_a_pull_request_delivery_runs_the_scoped_watch_round(
+    github_api: GitHubApiFake, tmp_path: Path
+) -> None:
+    """A `pull_request` delivery reads only the pull request it names, a `check_suite` delivery
+    reads each pull request of the suite, and a delivery that matches no staged draft sends no
+    request (#4413)."""
+    store, _, _ = make_candidates(0)
+    _staged_draft(store, 42)
+    _staged_draft(store, 43)
+    _route_open_draft(github_api, 42)
+    _route_open_draft(github_api, 43)
+    start = len(github_api.requested)
+
+    run_scoped_update(
+        _delivery("pull_request", "synchronize", 42), store, data_dir=tmp_path, now=NOW
+    )
+    pull_round = github_api.requested[start:]
+    start = len(github_api.requested)
+    run_scoped_update(
+        _delivery("check_suite", "completed", 42, 43), store, data_dir=tmp_path, now=NOW
+    )
+    suite_round = github_api.requested[start:]
+    start = len(github_api.requested)
+    unmatched = run_scoped_update(
+        _delivery("pull_request", "synchronize", 99), store, data_dir=tmp_path, now=NOW
+    )
+
+    assert (
+        bool(_for_pull(pull_round, 42)),
+        _for_pull(pull_round, 43),
+        bool(_for_pull(suite_round, 42)),
+        bool(_for_pull(suite_round, 43)),
+        _for_pull(github_api.requested[start:], 99),
+        unmatched,
+        (tmp_path / REPO_DIR / CONST_ROADMAP_WATCH_LEDGER_FILENAME).exists(),
+        (tmp_path / REPO_DIR / "schedule.json").exists(),
+    ) == (True, [], True, True, [], JobOutcome(), True, False)
 
 
 @pytest.mark.parametrize("action", ["opened", "edited", "reopened"])
@@ -93,6 +215,28 @@ def test_an_issues_delivery_intakes_only_its_issue_and_writes_no_last_success(
     )
 
 
+def test_an_issues_delivery_that_names_no_issue_number_decides_nothing(tmp_path: Path) -> None:
+    """A delivery that names no issue number runs the scoped intake of no issue: the model judges
+    nothing and the intake record stays unwritten (#4413)."""
+    store, _, _ = make_candidates(2)
+    model = IntakeModel()
+
+    outcome = run_scoped_update(
+        WebhookDelivery(repo=REPO, event="issues", action="opened"),
+        store,
+        data_dir=tmp_path,
+        now=NOW,
+        model=model,
+    )
+
+    assert (
+        outcome,
+        model.asked,
+        store.job_writes(),
+        (tmp_path / REPO_DIR / "intake.json").exists(),
+    ) == (JobOutcome(), [], [], False)
+
+
 def test_an_edit_of_an_item_and_an_event_with_no_scoped_update_change_nothing(
     tmp_path: Path,
 ) -> None:
@@ -108,12 +252,12 @@ def test_an_edit_of_an_item_and_an_event_with_no_scoped_update_change_nothing(
 
     edited = run(webhook_delivery("edited", placed))
     closed = run(webhook_delivery("closed", placed))
-    pull = run(webhook_delivery("opened", placed, event="pull_request"))
+    requested = run(webhook_delivery("requested", placed, event="check_suite"))
 
     assert (
         edited,
         closed,
-        pull,
+        requested,
         model.asked,
         store.job_writes(),
         (tmp_path / REPO_DIR / "intake.json").exists(),

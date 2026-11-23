@@ -270,9 +270,11 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
     its repository, except the writes of the GitHub App's own bot. A subscribed event that can be
-    scoped runs its scoped update on the lane of its job (`lane_of_row`); another event stays a
-    hint (ADR 0017). Each trigger names the issue of the delivery as its subject (#5553). The
-    handler only adds to the queues of the lanes and returns."""
+    scoped runs its scoped update on the lane of its job (`lane_of_row`), over the issue and the
+    pull requests that the delivery names; another event, and a delivery that names no number,
+    stays a hint (ADR 0017). Each trigger names the issue of the delivery, or its first pull
+    request, as its subject (#5553, #4413). The handler only adds to the queues of the lanes and
+    returns."""
 
     def deliver(
         repo: str,
@@ -295,10 +297,14 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
-        subject = payload.issue.number if payload is not None and payload.issue else None
+        numbers = payload.delivery_numbers if payload is not None else ()
+        issue = payload.issue.number if payload is not None and payload.issue else None
+        subject = issue if issue is not None else next(iter(numbers), None)
         scoped = SCOPED_UPDATES.get((event, action))
         if scoped is not None and subject is not None:
-            delivery = WebhookDelivery(repo=repo, event=event, action=action, number=subject)
+            delivery = WebhookDelivery(
+                repo=repo, event=event, action=action, number=issue, pull_numbers=numbers
+            )
             lane = lane_of_row(scoped.job, service_manager.config.lanes)
 
             def run_scoped() -> None:

@@ -86,6 +86,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_STATE_FILENAME,
     CONST_ROADMAP_STAGE_BATCH_KEYS,
     CONST_ROADMAP_STAGE_DUE_STAMP,
+    CONST_ROADMAP_WATCH_LEDGER_FILENAME,
     CONST_SERVICE_CAUSE_UNKNOWN,
     CONST_SERVICE_FAILURES_FILENAME,
     CONST_SERVICE_JOB_RESULT_ERROR,
@@ -667,12 +668,15 @@ def _run_intake_adapter(
 @dataclass(frozen=True)
 class WebhookDelivery:
     """What a webhook delivery of a subscribed event carries that its scoped update reads: the
-    repository, the event, its action and the number of the issue it is about (ADR 0017)."""
+    repository, the event, its action, the number of the issue it is about and the numbers of the
+    pull requests it names (ADR 0017). A delivery that names no issue number carries None, and one
+    that names no pull request carries no number (#4413)."""
 
     repo: str
     event: str
     action: str
-    number: int
+    number: int | None = None
+    pull_numbers: tuple[int, ...] = ()
 
 
 def _intake_one(
@@ -686,9 +690,12 @@ def _intake_one(
     """Decide and place the one issue `delivery` names, when it is a candidate, with intake's
     own decision code (ADR 0017). The record of what it decided is merged into the intake record
     before any placement, as the intake job writes it; an issue that is no candidate, such as
-    an Item a person edited, is decided by no one and writes nothing."""
+    an Item a person edited, is decided by no one and writes nothing. A delivery that names no
+    issue number decides nothing."""
     from devops_cli.roadmap.intake.intake_model import build_intake_model
 
+    if delivery.number is None:
+        return JobOutcome()
     record_path = repo_dir / CONST_ROADMAP_INTAKE_RECORD_FILENAME
     record = read_intake_record(record_path)
     plan = plan_intake(
@@ -712,6 +719,30 @@ def _intake_one(
         repo_dir=repo_dir,
         now=now,
     )
+
+
+def _watch_one(
+    store: RoadmapStore,
+    delivery: WebhookDelivery,
+    *,
+    repo_dir: Path,
+    now: datetime,
+    model: IntakeModel | None = None,
+) -> JobOutcome:
+    """Run the `watch` row scoped to the pull requests that `delivery` names (#4413). The ledger
+    `watch.json` lies beside `schedule.json`, as the round of the row writes it, and a number that
+    neither the store nor the ledger holds sends no request. The round writes no job's last
+    success, so the poll of the row still judges every change since it."""
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    watch_round(
+        store,
+        repo=delivery.repo,
+        ledger_path=repo_dir / CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+        repo_dir=repo_dir,
+        now=now,
+        pull_numbers=delivery.pull_numbers,
+    )
+    return JobOutcome()
 
 
 def _job_clone(job: str, clone_path: Path | None) -> Path:
@@ -902,8 +933,6 @@ def _run_watch_adapter(
 ) -> JobOutcome:
     """Watch open plan and delivery pull requests with single-query GraphQL batching, back off
     failed heads for 30 minutes, and route lifecycle steps (ADR 0021, section 8; #5024)."""
-    from devops_cli.config.constants import CONST_ROADMAP_WATCH_LEDGER_FILENAME
-
     target_dir = repo_dir or (
         data_dir / repo.replace("/", "-")
         if data_dir
@@ -1268,8 +1297,28 @@ class ScopedUpdate:
 
 _SCOPED_INTAKE = ScopedUpdate(job="intake", runner=_intake_one)
 
+# The actions of a pull request, a pull request review and a check suite that change the state or
+# the checks of a staged draft. The watch row reads the checks and the label of each draft itself,
+# so a scoped round carries no policy of the checks (#4413).
+_SCOPED_WATCH_ACTIONS: tuple[tuple[str, str], ...] = (
+    ("pull_request", "opened"),
+    ("pull_request", "reopened"),
+    ("pull_request", "synchronize"),
+    ("pull_request", "closed"),
+    ("pull_request", "labeled"),
+    ("pull_request", "unlabeled"),
+    ("pull_request", "ready_for_review"),
+    ("pull_request_review", "submitted"),
+    ("check_suite", "completed"),
+)
+
+_SCOPED_WATCH = ScopedUpdate(job="watch", runner=_watch_one)
+
 SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
-    {("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")}
+    {
+        **{("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")},
+        **{key: _SCOPED_WATCH for key in _SCOPED_WATCH_ACTIONS},
+    }
 )
 """The scoped update of each event and action that has one (ADR 0017). An event or action that
 is not here keeps its delivery a hint that makes a whole round due."""
