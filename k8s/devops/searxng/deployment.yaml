@@ -43,6 +43,9 @@ spec:
         # `general.open_metrics` reads no environment variable, so the settings file is written at
         # pod start from the ConfigMap and the metrics password (#4201). The init container runs the
         # pinned image of the `searxng` container, which holds `sh` and `sed`, so it adds no pin.
+        # The metrics are an optional feature, so the reference to the Secret is optional (#6805).
+        # With no password, the script writes `''`: SearXNG then turns `/metrics` off, and search
+        # works. The `k8s` row of `devops ci` runs this script (tests/gate/k8s_checks/searxng_render.py).
         - name: render-settings
           image: docker.io/searxng/searxng:2026.10.30-ffa88e3ba@sha256:f4aa660c54d062dedb268be84e821ea24e39f48c7a496af8dd02cc9eedb93847
           imagePullPolicy: IfNotPresent
@@ -53,7 +56,12 @@ spec:
           args:
             - |
               set -eu
-              escaped=$(printf '%s' "$SEARXNG_METRICS_PASSWORD" | sed 's/[\\&|]/\\&/g')
+              if [ -z "${SEARXNG_METRICS_PASSWORD:-}" ]; then
+                echo "render-settings: Secret devops/searxng-metrics-auth has no password, so the OpenMetrics endpoint /metrics is off" >&2
+                escaped="''"
+              else
+                escaped=$(printf '%s' "$SEARXNG_METRICS_PASSWORD" | sed 's/[\\&|]/\\&/g')
+              fi
               sed "s|\${SEARXNG_METRICS_PASSWORD}|$escaped|g" \
                 /etc/searxng-template/settings.yml > /etc/searxng-rendered/settings.yml
           securityContext:
@@ -68,6 +76,7 @@ spec:
                 secretKeyRef:
                   name: searxng-metrics-auth
                   key: password
+                  optional: true
           volumeMounts:
             - name: settings
               mountPath: /etc/searxng-template

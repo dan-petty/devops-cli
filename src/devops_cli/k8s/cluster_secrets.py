@@ -382,7 +382,9 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
     ),
     # The basic-auth Secret of the OpenMetrics endpoint of SearXNG (#4201). The render-settings
     # init container writes its password into the rendered settings file, and the ServiceMonitor
-    # sends both keys to the scrape, so a change restarts the pod that serves it.
+    # sends both keys to the scrape, so a change restarts the pod that serves it. The metrics are
+    # an optional feature: the pod starts without the password and turns the endpoint off, so a
+    # push with no password skips it (#6805).
     ClusterSecret(
         namespace="devops",
         name="searxng-metrics-auth",
@@ -390,7 +392,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         secret_type=_BASIC_AUTH_SECRET_TYPE,
         entries=(
             SecretEntry("username", LiteralSource("searxng")),
-            SecretEntry("password", KeyringSource(SEARXNG_METRICS_AUTH_KEY)),
+            SecretEntry("password", KeyringSource(SEARXNG_METRICS_AUTH_KEY), required=False),
         ),
         restarts=(Workload("deployment", "searxng"),),
         labels={"app.kubernetes.io/name": "searxng"},
@@ -727,6 +729,7 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
 OPTIONAL_FEATURE_SECRETS: Final[tuple[str, ...]] = (
     "monitoring/grafana-image-renderer",
     "devops/renovate",
+    "devops/searxng-metrics-auth",
 )
 
 
