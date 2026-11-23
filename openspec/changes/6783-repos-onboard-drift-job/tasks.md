@@ -42,7 +42,7 @@ Kind: other. Reads: `k8s/devops/cronjob-stage.yaml`, `k8s/devops/renovate/cronjo
 
 Kind: other. Reads: `docs/repos/onboard.md`, `docs/CLUSTER.md`, `k8s/README.md`. Changes: `docs/repos/onboard.md`, `docs/CLUSTER.md`, `k8s/README.md`, `docs/TELEMETRY.md`, `docs/ENV_VARS.md`, `docs/CONFIGURATION.md`.
 
-- [ ] 5.1 Tell the nightly Job, its rows and its gauge in `docs/repos/onboard.md`, add the section "Repository drift" to `docs/CLUSTER.md`, add the rows of the three alerts to the alert table of `k8s/README.md`, and regenerate the documents with `devops docs generate`
+- [x] 5.1 Tell the nightly Job, its rows and its gauge in `docs/repos/onboard.md`, add the section "Repository drift" to `docs/CLUSTER.md`, add the rows of the three alerts to the alert table of `k8s/README.md`, and regenerate the documents with `devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## Workflow follow-up
