@@ -41,8 +41,8 @@ dependencies = [
     "pydantic-ai-harness[coder]==0.71.0",
     "logfire==6.0.1",
     "pynacl==1.6.2",
-    "openai==3.57.0",
-    "anthropic==2.12.0",
+    "openai==3.58.0",
+    "anthropic==2.13.0",
     "opentelemetry-api==1.45.2",
     "opentelemetry-semantic-conventions==0.66b2",
     "secretstorage==3.5.0; sys_platform == 'linux'",
@@ -125,10 +125,10 @@ dev = [
     "syrupy==7.0.3",
     "ast-grep-cli==0.51.3",
     "time-machine==3.6.0",
-    "fakeredis[lua,valkey]==2.40.0",
+    "fakeredis[lua,valkey]==2.41.0",
     "types-docker==7.2.0.20261122",
     "cel-expr-python==0.1.4",
-    "coloraide==8.16",
+    "coloraide==8.17",
     # The template of the service dashboards (#5184): `make dashboards` writes the classic dashboard
     # JSON of k8s/monitoring/dashboards/ with it. It is not a runtime dependency. Its release 0.0.22
     # builds the schema version 42 of Grafana 12.3.3 to 13.3.1. The dev group holds it, so the test
