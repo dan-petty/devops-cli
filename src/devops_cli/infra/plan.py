@@ -150,6 +150,9 @@ _TIMEOUT: Final[str] = "timeout"
 _CENSORED: Final[str] = "censored"
 _SKIP_MARK: Final[str] = " => "
 _FALSE_CONDITION: Final[str] = "false_condition"
+_SKIP_REASON: Final[str] = "skip_reason"
+_CONDITIONAL_RESULT_FALSE: Final[str] = "Conditional result was False"
+_END_HOST_CONDITIONAL: Final[str] = "end_host conditional evaluated to False"
 # The variable that is true in check mode. A false `when` item that names it is a check-mode skip.
 _CHECK_MODE_NAME: Final[str] = "ansible_check_mode"
 # Parses a `when` item to read the names in it. It compiles and renders nothing, so the tests and
@@ -366,7 +369,7 @@ def _is_skipped_item(item: Any) -> bool:
     `when`, or an item whose false `when` names `ansible_check_mode`."""
     if not isinstance(item, dict):
         return False
-    if _FALSE_CONDITION in item:
+    if _FALSE_CONDITION in item or _SKIP_REASON in item:
         return _check_mode_caused(item)
     return bool(item.get("skipped"))
 
@@ -375,16 +378,22 @@ def _check_mode_caused(result: Mapping[str, Any]) -> bool:
     """Whether check mode caused the skip of one result: it has no false `when`, or its false
     `when` item names `ansible_check_mode` (#5435). A `when` item that does not parse is a
     check-mode skip: the safe side."""
-    if _FALSE_CONDITION not in result:
-        return True
-    condition = result[_FALSE_CONDITION]
-    if not isinstance(condition, str):
-        return False
-    try:
-        tree = _CONDITIONS.parse(f"{{{{ {condition} }}}}")
-    except TemplateSyntaxError:
-        return True
-    return any(name.name == _CHECK_MODE_NAME for name in tree.find_all(nodes.Name))
+    if _FALSE_CONDITION in result:
+        condition = result[_FALSE_CONDITION]
+        if not isinstance(condition, str):
+            return False
+        try:
+            tree = _CONDITIONS.parse(f"{{{{ {condition} }}}}")
+        except TemplateSyntaxError:
+            return True
+        return any(name.name == _CHECK_MODE_NAME for name in tree.find_all(nodes.Name))
+    if _SKIP_REASON in result:
+        reason = result[_SKIP_REASON]
+        if isinstance(reason, str) and (
+            reason == _CONDITIONAL_RESULT_FALSE or reason.startswith(_END_HOST_CONDITIONAL)
+        ):
+            return _CHECK_MODE_NAME in reason
+    return True
 
 
 def _module_args(res: Mapping[str, Any]) -> Mapping[str, Any] | None:
