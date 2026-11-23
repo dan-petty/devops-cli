@@ -180,24 +180,6 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "bounds of a plan, a drain and a node restart.",
     ),
 }
-CONST_DOMAIN_EXCEPTION_MODULES: Final[tuple[str, ...]] = (
-    "devops_cli.ai.client.models",
-    "devops_cli.ai.gateway_tune",
-    "devops_cli.ai.pool_load",
-    "devops_cli.ai.rag.embeddings",
-    "devops_cli.ai.rag.qdrant",
-    "devops_cli.ai.run_store",
-    "devops_cli.core.templating",
-    "devops_cli.github.onboard.baseline",
-    "devops_cli.github.onboard.routes",
-    "devops_cli.github.ssh",
-    "devops_cli.http.client",
-    "devops_cli.k8s.node_port",
-    "devops_cli.k8s.service_proxy",
-    "devops_cli.review.state",
-    "devops_cli.telemetry.context",
-    "devops_cli.telemetry.memory_profiler",
-)
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
 # long. The kernel stamps files from a coarse clock, so a file rewritten moments after
