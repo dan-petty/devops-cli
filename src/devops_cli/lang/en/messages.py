@@ -4435,6 +4435,19 @@ class RoadmapMessages:
         "The title or the body of the pull request has the closing keyword {keyword} before an "
         "issue reference. A pull request that plans an item closes no issue."
     )
+    # The stage agent on stock Coder (#6705): what `RequireVerification` tells the agent when it
+    # sends a run back to its checks, and the stop of a model request after the time budget.
+    stage_agent_verify: str = (
+        "You changed the plan files, and no check passed since your last change. Commit the "
+        "change folder. Then run each of the three checks of the user message as its own "
+        "command, in the foreground, with no pipe: devops openspec check, openspec validate with "
+        "--strict, and devops roadmap plan-recheck with --branch HEAD, --base and --candidate. "
+        "Fix each finding of the plan files. If a check cannot run, say what it printed and end."
+    )
+    stage_agent_budget_spent: str = (
+        "The time budget of the stage Job ended at {deadline}, so the stage agent sends no more "
+        "model requests."
+    )
     # The body of a plan when no text of the chain fits the plan form (#6705).
     stage_candidate_no_body: str = (
         "No text gives a body of the plan pull request of #{number} that fits the plan form: the "

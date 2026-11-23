@@ -47,6 +47,10 @@ from tests.support.paths import REPO_ROOT
 
 _CHANGE_PROMPT = "roadmap_stage_change.md"
 _SPLIT_PROMPT = "roadmap_stage_split.md"
+# The prompt of the stage agent on stock `Coder` (#6705): it writes the plan files, so it keeps
+# each rule of a plan that holds no key of the JSON reply.
+_CODER_PROMPT = "roadmap_stage_coder.md"
+_PLAN_PROMPTS = [_CHANGE_PROMPT, _CODER_PROMPT]
 _PROMPT = load_task_prompt(_CHANGE_PROMPT)
 _CONTRIBUTING = (REPO_ROOT / "CONTRIBUTING.md").read_text("utf-8")
 _TESTING = (REPO_ROOT / "docs" / "TESTING.md").read_text("utf-8")
@@ -154,7 +158,7 @@ def test_the_prompts_state_the_budget_and_the_line_estimate_rule(task: str) -> N
     assert "`budget`" in prompt
 
 
-@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT])
+@pytest.mark.parametrize("task", [_CHANGE_PROMPT, _SPLIT_PROMPT, _CODER_PROMPT])
 def test_the_prompts_name_the_kinds_of_a_group_as_the_enum_does(task: str) -> None:
     prompt = load_task_prompt(task)
     clause = re.search(r"`kind`, ((?:`\w+`, )*`\w+` or `\w+`)", prompt)
@@ -174,8 +178,9 @@ def test_the_prompt_names_the_live_score_of_a_prompt_change_and_the_replay_of_a_
     ) == (True, True)
 
 
-def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers() -> None:
-    assert f"`{PENDING_PERSON}`" in _PROMPT
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
+def test_the_prompt_names_the_value_of_a_criterion_that_only_a_person_delivers(task: str) -> None:
+    assert f"`{PENDING_PERSON}`" in load_task_prompt(task)
 
 
 def test_the_prompt_tells_how_to_fix_each_open_type_that_the_review_returns() -> None:
@@ -204,15 +209,17 @@ def test_the_stage_prompt_states_the_documentation_verb_rule() -> None:
     assert "or `null` when the step changes no document" in _PROMPT
 
 
-def test_the_stage_prompt_names_both_command_registration_forms() -> None:
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
+def test_the_stage_prompt_names_both_command_registration_forms(task: str) -> None:
     """#4119: a CLI command registers its name by a string literal or by a function name, so a
     check for a command name is a negative search for the bare name, which finds both forms."""
-    assert '@app.command("name")' in _PROMPT
-    assert "@app.command()" in _PROMPT
-    assert "@<group>.command()" in _PROMPT
-    assert "def <name>(" in _PROMPT
-    assert "! git grep -n <name> src/ tests/" in _PROMPT
-    assert '@app.command("<name>")' in _PROMPT
+    prompt = load_task_prompt(task)
+    assert '@app.command("name")' in prompt
+    assert "@app.command()" in prompt
+    assert "@<group>.command()" in prompt
+    assert "def <name>(" in prompt
+    assert "! git grep -n <name> src/ tests/" in prompt
+    assert '@app.command("<name>")' in prompt
 
 
 def _prompt_limit(key: str) -> int:
@@ -295,30 +302,36 @@ def test_the_purpose_limit_of_the_prompt_is_the_one_of_the_check_and_of_the_conf
     assert int(prompt_count.group(1)) == PURPOSE_MIN_CHARS == int(config_count.group(1))
 
 
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
 @pytest.mark.parametrize("keyword", _GITHUB_CLOSING_KEYWORDS)
-def test_the_prompt_forbids_each_word_that_closes_an_issue(keyword: str) -> None:
+def test_the_prompt_forbids_each_word_that_closes_an_issue(keyword: str, task: str) -> None:
+    prompt = load_task_prompt(task)
     assert closing_keyword_in(f"{keyword} #12") == keyword
-    assert re.search(rf"\b{keyword}\b", _PROMPT.split("Never write", 1)[1].split(".", 1)[0])
+    assert re.search(rf"\b{keyword}\b", prompt.split("Never write", 1)[1].split(".", 1)[0])
 
 
 # ── The paths of a group ──────────────────────────────────────────────────────
 
 
-def test_the_prompt_forbids_a_group_writing_a_change_folder_path() -> None:
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
+def test_the_prompt_forbids_a_group_writing_a_change_folder_path(task: str) -> None:
     """A group must not change or create the change folder or a path under it (#3285): the job
     writes the change folder before the groups run, and a group reads the change it implements."""
-    assert "must not change or create `openspec/changes`" in _PROMPT
-    assert "refuses a `changes` or `creates` path" in _PROMPT
+    prompt = load_task_prompt(task)
+    assert "must not change or create `openspec/changes`" in prompt
+    assert "refuses a `changes` or `creates` path" in prompt
 
 
 # ── The self-acceptance test of a plan rule (#3404) ──────────────────────────
 
 
-def test_the_prompt_requires_an_existing_file_in_each_group_that_changes_files() -> None:
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
+def test_the_prompt_requires_an_existing_file_in_each_group_that_changes_files(task: str) -> None:
     """`named_files` packs only existing files that the task text names in code spans (#3978)."""
-    assert "A group that changes files must name at least one existing repository file" in _PROMPT
-    assert "`named_files` packs the existing files that the task text names" in _PROMPT
-    assert "a group that names only new files packs no file" in _PROMPT
+    prompt = load_task_prompt(task)
+    assert "A group that changes files must name at least one existing repository file" in prompt
+    assert "`named_files` packs the existing files that the task text names" in prompt
+    assert "a group that names only new files packs no file" in prompt
 
 
 def test_the_prompt_states_the_self_acceptance_rule_of_a_plan() -> None:
@@ -526,8 +539,11 @@ def test_each_devops_command_of_the_prompt_is_a_command_of_devops(form: str) -> 
     assert resolve_devops_argv(tokens) is None
 
 
-def test_the_prompt_says_that_a_pytest_command_is_refused_and_the_check_refuses_it() -> None:
-    assert "`uv run pytest` is refused" in _PROMPT
+@pytest.mark.parametrize("task", _PLAN_PROMPTS)
+def test_the_prompt_says_that_a_pytest_command_is_refused_and_the_check_refuses_it(
+    task: str,
+) -> None:
+    assert "`uv run pytest` is refused" in load_task_prompt(task)
     assert form_problems([_group("uv run pytest tests/roadmap/test_stage.py")])
 
 
