@@ -41,6 +41,8 @@ def unset_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     """Leave the stage variables unset, so the config file and the defaults decide."""
     for name in ("FILTER", "LIMIT", "PLANNED_LIMIT", "STEP_TOKENS", "TOOLSET"):
         monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_STAGE_{name}", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_TOOLSET", raising=False)
+    monkeypatch.delenv("DEVOPS_CLI_ROADMAP_REVIEW_TOOLSET", raising=False)
 
 
 def _stage_settings() -> tuple[list[str], int, int]:
@@ -133,6 +135,50 @@ def test_a_toolset_that_is_none_of_the_three_is_refused_naming_it(
     assert "'base'" in message
     assert "'extended'" in message
     assert "'research'" in message
+
+
+def test_the_implement_and_review_toolsets_default_to_base() -> None:
+    roadmap = settings.load_settings().roadmap
+    assert (roadmap.implement.toolset, roadmap.review.toolset) == ("base", "base")
+
+
+def test_a_config_file_and_a_variable_set_the_implement_and_review_toolsets(
+    config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config(roadmap={"implement": {"toolset": "base"}, "review": {"toolset": "base"}})
+    from_file = (
+        settings.load_settings().roadmap.implement.toolset,
+        settings.load_settings().roadmap.review.toolset,
+    )
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_TOOLSET", "base")
+    monkeypatch.setenv("DEVOPS_CLI_ROADMAP_REVIEW_TOOLSET", "base")
+    settings.reset_settings_cache()
+
+    assert (
+        from_file,
+        (
+            settings.load_settings().roadmap.implement.toolset,
+            settings.load_settings().roadmap.review.toolset,
+        ),
+    ) == (("base", "base"), ("base", "base"))
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "DEVOPS_CLI_ROADMAP_IMPLEMENT_TOOLSET",
+        "DEVOPS_CLI_ROADMAP_REVIEW_TOOLSET",
+    ],
+)
+def test_an_implement_or_review_toolset_other_than_base_is_refused_naming_the_variable(
+    monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    monkeypatch.setenv(variable, "extended")
+
+    with pytest.raises(ConfigurationError, match=variable) as refused:
+        settings.load_settings()
+
+    assert "'base'" in str(refused.value)
 
 
 def test_the_planned_limit_has_a_default() -> None:

@@ -165,6 +165,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_INBOX_WAIT_DAYS,
     DEFAULT_ROADMAP_INTAKE_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_INTAKE_JEV,
+    DEFAULT_ROADMAP_JOB_TOOLSET,
     DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_METRICS_INTERVAL_MINUTES,
     DEFAULT_ROADMAP_MODEL_JOBS,
@@ -220,6 +221,7 @@ from devops_cli.config.defaults import (
     DEFAULT_WORKSPACE_FILE,
     DecisionMode,
     JevMode,
+    JobToolset,
     RowMode,
     SearchProviderName,
     StageToolset,
@@ -1545,6 +1547,10 @@ class RoadmapStageConfig(RowCadenceConfig):
 class RoadmapImplementConfig(BaseModel):
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
+    toolset: Annotated[JobToolset, Variable()] = Field(
+        description="The tools of an implementation step: `base` is the tools that the job holds today",
+        default=DEFAULT_ROADMAP_JOB_TOOLSET,
+    )
     effort: Annotated[list[str], Variable()] = Field(
         description="The effort values of the implement job's passes, in order. The job takes an item of the first effort. It takes an item of the next effort only when no item of the first effort is selectable. Each value is `low`, `medium` or `high`, given once. A high-effort item stays out of the default set",
         default_factory=lambda: list(DEFAULT_ROADMAP_IMPLEMENT_EFFORT),
@@ -2131,6 +2137,10 @@ class RoadmapReviewConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
 
+    toolset: Annotated[JobToolset, Variable()] = Field(
+        description="The tools of a review step: `base` is the tools that the job holds today",
+        default=DEFAULT_ROADMAP_JOB_TOOLSET,
+    )
     mode: Annotated[RowMode, Variable()] = Field(
         description="What the step `devops roadmap step review` does (ADR 0021, section 8). `off` sends no request. `plan` reads the facts of the pull request, asks the model when the facts leave the verdict open, logs the verdict and the action, and writes nothing, also with `--confirm`. `on` with `--confirm` writes the verdict label and the comment and takes the next action: mark the draft ready, leave the due fix, or close the pull request and return the item",
         default=DEFAULT_ROADMAP_REVIEW_MODE,

@@ -1238,6 +1238,9 @@ DEFAULT_ROADMAP_STAGE_STEP_TOKENS: Final[int] = DEFAULT_AI_IMPLEMENT_CONTEXT_WIN
 # read GitHub through the client of the Service. `research` adds `search_web`.
 StageToolset = Literal["base", "extended", "research"]
 DEFAULT_ROADMAP_STAGE_TOOLSET: StageToolset = "extended"
+# The toolsets of the implement and review jobs (#3244): `base` is the tools that each job holds today.
+JobToolset = Literal["base"]
+DEFAULT_ROADMAP_JOB_TOOLSET: JobToolset = "base"
 # What a Jev decision step does (ADR 0019): `off` makes no request, `shadow` asks Jev and records the
 # answer beside the real result, and `on` lets the answer decide.
 JevMode = Literal["off", "shadow", "on"]

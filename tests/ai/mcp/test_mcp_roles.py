@@ -12,6 +12,7 @@ from fastmcp.exceptions import ToolError
 
 from devops_cli.ai.mcp.remote import build_role_server
 from devops_cli.ai.mcp.roles import (
+    _JOB_ROLE_TOOLS,
     JOB_ROLES,
     ROLE_IMPLEMENTATION,
     ROLE_OPS,
@@ -21,6 +22,7 @@ from devops_cli.ai.mcp.roles import (
     tools_for_role,
 )
 from devops_cli.ai.mcp.server import mcp
+from devops_cli.roadmap.tools import check_tables, tool_names
 
 _MUTATING_TOOLS = ("gh_issue_create", "k8s_deploy_stack", "k8s_teardown_stack", "docker_sign")
 
@@ -148,3 +150,17 @@ def test_a_table_name_that_no_tool_carries_is_refused() -> None:
 def test_an_unknown_role_is_refused() -> None:
     with pytest.raises(ValueError, match="Unknown MCP role 'admin'"):
         tools_for_role("admin", [])
+
+
+def test_each_job_role_table_equals_the_registry_names() -> None:
+    for role in JOB_ROLES:
+        assert _JOB_ROLE_TOOLS[role] == frozenset(tool_names(role))
+    assert (
+        len(_JOB_ROLE_TOOLS[ROLE_PLANNING]),
+        len(_JOB_ROLE_TOOLS[ROLE_IMPLEMENTATION]),
+        len(_JOB_ROLE_TOOLS[ROLE_REVIEW]),
+    ) == (28, 15, 16)
+    assert check_tables(_JOB_ROLE_TOOLS) == []
+    assert check_tables({"planning": ["unknown_tool"]}) == [
+        "The table 'planning' names the tool 'unknown_tool', which the registry does not hold."
+    ]

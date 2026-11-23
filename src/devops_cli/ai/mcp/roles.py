@@ -15,6 +15,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Final
 
+from devops_cli.roadmap.tools import tool_names
+
 ROLE_PLANNING: Final = "planning"
 ROLE_IMPLEMENTATION: Final = "implementation"
 ROLE_REVIEW: Final = "review"
@@ -27,48 +29,8 @@ JOB_ROLES: Final[tuple[str, ...]] = (ROLE_PLANNING, ROLE_IMPLEMENTATION, ROLE_RE
 # server holds it: the tool set of a connection is its role and nothing else.
 _HYDRATE_TOOL: Final = "hydrate_tool_domain"
 
-_GITHUB_READS: Final[frozenset[str]] = frozenset(
-    {
-        "gh_issue_list",
-        "gh_issue_status",
-        "gh_issue_view",
-        "gh_label_list",
-        "gh_milestones_list",
-        "gh_pages_status",
-        "gh_project_list",
-        "gh_rate_limit",
-        "gh_run_list",
-        "gh_run_view",
-        "pr_checks",
-        "pr_diff",
-        "pr_list",
-        "pr_threads_list",
-    }
-)
-_SECURITY_INTEL: Final[frozenset[str]] = frozenset(
-    {"security_intel_network", "security_intel_package"}
-)
-_CLUSTER_READS: Final[frozenset[str]] = frozenset(
-    {
-        "argo_cd_apps_list",
-        "argo_cd_apps_status",
-        "grafana_dashboards_list",
-        "k8s_audit",
-        "k8s_logs",
-        "k8s_pods",
-        "k8s_status",
-        "k8s_tempo_info",
-        "prometheus_query",
-        "telemetry_logfire",
-        "telemetry_profile",
-        "telemetry_status",
-    }
-)
-
 _JOB_ROLE_TOOLS: Final[dict[str, frozenset[str]]] = {
-    ROLE_PLANNING: _GITHUB_READS | _SECURITY_INTEL | _CLUSTER_READS,
-    ROLE_IMPLEMENTATION: _GITHUB_READS | {"pr_describe"},
-    ROLE_REVIEW: _GITHUB_READS | _SECURITY_INTEL,
+    role: frozenset(tool_names(role)) for role in JOB_ROLES
 }
 
 

@@ -30,6 +30,8 @@ The command refuses to start when the inputs do not fit the window of the task, 
 
 **The shell.** The shell of the agent, the tool `run_command`, runs only `git`, `uv`, `ruff` and `mypy`, with a scratch home. A call waits until its command ends, up to `roadmap.implement.command_timeout_seconds`, so the agent has no log to poll (#4493). [The shell of a step](../ROADMAP_WORKFLOW.md#the-shell-of-a-step) lists the programs.
 
+**Toolsets.** The setting `roadmap.implement.toolset` (variable `DEVOPS_CLI_ROADMAP_IMPLEMENT_TOOLSET`) sets the toolset of the step to `base`. [Roadmap tools and toolsets](tools.md) lists the registry and its holders.
+
 **Exit checks.** When the agent returns, the command runs these checks:
 
 - The verification commands of the group. Their output is kept for the comment of the pull request.
