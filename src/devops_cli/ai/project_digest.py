@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,8 @@ from pydantic_core import PydanticUndefined
 
 from devops_cli.core.process import run_subprocess
 from devops_cli.docs.generator import CommandDoc, CommandGroupDoc, iter_settings_fields
+
+logger = logging.getLogger(__name__)
 
 
 def _format_annotation(annotation: Any) -> str:
@@ -104,8 +107,8 @@ def architecture_facts(root: Path) -> dict[str, Any]:
     for p in py_files:
         try:
             trees[p] = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
-        except Exception:
-            pass
+        except (SyntaxError, OSError) as exc:
+            logger.debug("Failed to parse %s: %s", p, exc)
 
     nodes = generate_repo_map(root, max_files=len(py_files))
     graph = build_import_graph(trees, root=root)
@@ -130,11 +133,13 @@ def decision_facts(directory: Path) -> list[dict[str, str]]:
     for path, text in sorted(records.items()):
         adr = adr_of(path, text)
         if adr is not None:
-            status = (
-                adr.front_matter.status.value
-                if hasattr(adr.front_matter.status, "value")
-                else str(adr.front_matter.status)
-            )
+            status = ""
+            if adr.front_matter.status is not None:
+                status = (
+                    adr.front_matter.status.value
+                    if hasattr(adr.front_matter.status, "value")
+                    else str(adr.front_matter.status)
+                )
             facts.append(
                 {
                     "path": path,

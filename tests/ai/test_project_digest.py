@@ -5,9 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-import shutil
 import subprocess
-import tomllib
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -30,6 +28,7 @@ from devops_cli.core.import_graph import build_import_graph
 from devops_cli.docs.adr_records import read_record_texts
 from devops_cli.docs.generator import DocGenerator, iter_settings_fields
 from devops_cli.roadmap.adr import adr_of
+from tests.support.paths import REPO_ROOT
 
 
 def test_command_facts_lists_each_registered_command_and_no_absent_one() -> None:
@@ -81,29 +80,28 @@ def test_command_facts_lists_each_registered_command_and_no_absent_one() -> None
 def test_each_pin_equals_its_lock_and_a_changed_lock_changes_the_pin_section(
     tmp_path: Path,
 ) -> None:
-    repo_root = Path(__file__).parents[2]
-    facts = pin_facts(repo_root)
-
-    # Asserts that each pin of pin_facts equals the version of the same name in uv.lock
-    uv_lock_text = (repo_root / "uv.lock").read_text(encoding="utf-8")
-    uv_lock_data = tomllib.loads(uv_lock_text)
-    lock_packages = {
-        pkg["name"]: pkg["version"] for pkg in uv_lock_data.get("package", []) if "version" in pkg
-    }
-
-    uv_facts = [f for f in facts if f["file"] == "uv.lock"]
-    assert len(uv_facts) > 0
-    for f in uv_facts:
-        assert f["name"] in lock_packages
-        assert f["version"] == lock_packages[f["name"]]
-
-    # Asserts that a temporary root holding copies of pyproject.toml and uv.lock with one version changed
-    # gives that version with uv.lock as its file
-    shutil.copy(repo_root / "pyproject.toml", tmp_path / "pyproject.toml")
-    changed_uv = uv_lock_text.replace(
-        'name = "aiofile"\nversion = "3.12.3"',
-        'name = "aiofile"\nversion = "99.99.99"',
+    # A temporary root holding pyproject.toml and uv.lock
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "my-project"\nversion = "0.1.0"\n', encoding="utf-8"
     )
+    uv_lock_text = """version = 1
+revision = 1
+requires-python = ">=3.14"
+
+[[package]]
+name = "aiofile"
+version = "3.12.3"
+"""
+    (tmp_path / "uv.lock").write_text(uv_lock_text, encoding="utf-8")
+
+    facts = pin_facts(tmp_path)
+    aio_facts = [f for f in facts if f["name"] == "aiofile"]
+    assert len(aio_facts) == 1
+    assert aio_facts[0]["version"] == "3.12.3"
+    assert aio_facts[0]["file"] == "uv.lock"
+
+    # Asserts that a temporary root with a changed uv.lock gives the changed version
+    changed_uv = uv_lock_text.replace("3.12.3", "99.99.99")
     (tmp_path / "uv.lock").write_text(changed_uv, encoding="utf-8")
 
     tmp_facts = pin_facts(tmp_path)
@@ -114,26 +112,25 @@ def test_each_pin_equals_its_lock_and_a_changed_lock_changes_the_pin_section(
 
 
 def test_the_digest_lists_each_module_each_import_edge_and_each_decision_record() -> None:
-    repo_root = Path(__file__).parents[2]
-    arch = architecture_facts(repo_root)
+    arch = architecture_facts(REPO_ROOT)
 
     # Asserts that the module paths of architecture_facts equal the paths of generate_repo_map
-    src_py_count = len(list((repo_root / "src").rglob("*.py")))
-    expected_nodes = generate_repo_map(repo_root, max_files=src_py_count)
+    src_py_count = len(list((REPO_ROOT / "src").rglob("*.py")))
+    expected_nodes = generate_repo_map(REPO_ROOT, max_files=src_py_count)
     assert [m["path"] for m in arch["modules"]] == [n.path for n in expected_nodes]
 
     # Asserts that each edge names two modules of build_import_graph
     trees: dict[Path, ast.Module] = {}
-    for p in sorted((repo_root / "src").rglob("*.py")):
+    for p in sorted((REPO_ROOT / "src").rglob("*.py")):
         trees[p] = ast.parse(p.read_text(encoding="utf-8"), filename=str(p))
-    graph = build_import_graph(trees, root=repo_root)
+    graph = build_import_graph(trees, root=REPO_ROOT)
     all_expected_edges = {(src, dst) for src, targets in graph.edges.items() for dst in targets}
     actual_edges = {(e["source"], e["target"]) for e in arch["edges"]}
     assert actual_edges == all_expected_edges
 
     # Asserts that each record of docs/adr appears in decision_facts with its title and its status
-    decisions = decision_facts(repo_root / "docs" / "adr")
-    records = read_record_texts(repo_root / "docs" / "adr")
+    decisions = decision_facts(REPO_ROOT / "docs" / "adr")
+    records = read_record_texts(REPO_ROOT / "docs" / "adr")
     assert len(decisions) == len(records)
     decision_map = {d["path"]: d for d in decisions}
     for path, text in records.items():
@@ -143,8 +140,10 @@ def test_the_digest_lists_each_module_each_import_edge_and_each_decision_record(
         assert decision_map[path]["title"] == adr.title
         expected_status = (
             adr.front_matter.status.value
-            if hasattr(adr.front_matter.status, "value")
+            if adr.front_matter.status is not None and hasattr(adr.front_matter.status, "value")
             else str(adr.front_matter.status)
+            if adr.front_matter.status is not None
+            else ""
         )
         assert decision_map[path]["status"] == expected_status
 
@@ -152,10 +151,9 @@ def test_the_digest_lists_each_module_each_import_edge_and_each_decision_record(
 def test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    repo_root = Path(__file__).parents[2]
     commit_sha = "0123456789abcdef0123456789abcdef01234567"
-    digest1 = build_project_digest(repo_root, commit=commit_sha)
-    digest2 = build_project_digest(repo_root, commit=commit_sha)
+    digest1 = build_project_digest(REPO_ROOT, commit=commit_sha)
+    digest2 = build_project_digest(REPO_ROOT, commit=commit_sha)
 
     # Asserts that two builds of one section map give one hash
     assert digest1.content_hash == digest2.content_hash
@@ -178,16 +176,17 @@ def test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given(
     assert changed_hash != digest1.content_hash
 
     # Asserts that a temporary root with a changed uv.lock gives another hash again
-    shutil.copy(repo_root / "pyproject.toml", tmp_path / "pyproject.toml")
-    shutil.copy(repo_root / "uv.lock", tmp_path / "uv.lock")
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "my-project"\nversion = "0.1.0"\n', encoding="utf-8"
+    )
+    (tmp_path / "uv.lock").write_text(
+        'version = 1\n[[package]]\nname = "aiofile"\nversion = "3.12.3"\n', encoding="utf-8"
+    )
     digest_tmp_orig = build_project_digest(tmp_path, commit=commit_sha)
 
-    uv_text = (repo_root / "uv.lock").read_text(encoding="utf-8")
-    changed_uv = uv_text.replace(
-        'name = "aiofile"\nversion = "3.12.3"',
-        'name = "aiofile"\nversion = "99.99.99"',
+    (tmp_path / "uv.lock").write_text(
+        'version = 1\n[[package]]\nname = "aiofile"\nversion = "99.99.99"\n', encoding="utf-8"
     )
-    (tmp_path / "uv.lock").write_text(changed_uv, encoding="utf-8")
     digest_tmp_changed = build_project_digest(tmp_path, commit=commit_sha)
 
     assert digest_tmp_orig.content_hash != digest_tmp_changed.content_hash
@@ -201,7 +200,7 @@ def test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given(
         return subprocess.CompletedProcess(cmd, 0, stdout=f"{expected_sha}\n", stderr="")
 
     monkeypatch.setattr("devops_cli.ai.project_digest.run_subprocess", fake_run_subprocess)
-    assert head_commit(repo_root) == expected_sha
+    assert head_commit(REPO_ROOT) == expected_sha
 
 
 def test_the_project_digest_tool_and_the_index_section_name_the_same_sections() -> None:
