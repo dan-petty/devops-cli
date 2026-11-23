@@ -54,9 +54,9 @@ Adds: `digest_index_section`, `project_digest`
 
 Kind: other. Reads: `src/devops_cli/docs/generator.py`, `docs/KNOWLEDGE_BASE.md`. Changes: `docs/KNOWLEDGE_BASE.md`.
 
-- [ ] 6.1 Run `uv run devops docs generate` and commit the regenerated `docs/KNOWLEDGE_BASE.md` with its project digest section. Edit no generated page by hand
+- [x] 6.1 Run `uv run devops docs generate` and commit the regenerated `docs/KNOWLEDGE_BASE.md` with its project digest section. Edit no generated page by hand
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 6.2 Regenerate `docs/KNOWLEDGE_BASE.md` from its generator with `uv run devops docs generate`
+- [x] 6.2 Regenerate `docs/KNOWLEDGE_BASE.md` from its generator with `uv run devops docs generate`
   - Verification: `$ uv run devops ci docs` passes
 
 ## 7. Point the knowledge base fact pages at the digest
