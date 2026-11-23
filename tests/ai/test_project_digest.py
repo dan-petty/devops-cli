@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import shutil
+import subprocess
 import tomllib
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
+import pytest
 from pydantic_core import PydanticUndefined
 
 from devops_cli.ai.project_digest import (
     architecture_facts,
+    build_project_digest,
     command_facts,
     decision_facts,
+    head_commit,
     pin_facts,
     settings_sections,
 )
@@ -138,3 +146,58 @@ def test_the_digest_lists_each_module_each_import_edge_and_each_decision_record(
             else str(adr.front_matter.status)
         )
         assert decision_map[path]["status"] == expected_status
+
+
+def test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = Path(__file__).parents[2]
+    commit_sha = "0123456789abcdef0123456789abcdef01234567"
+    digest1 = build_project_digest(repo_root, commit=commit_sha)
+    digest2 = build_project_digest(repo_root, commit=commit_sha)
+
+    # Asserts that two builds of one section map give one hash
+    assert digest1.content_hash == digest2.content_hash
+    assert digest1.commit == commit_sha
+    assert len(digest1.content_hash) == 64
+
+    # Asserts that a changed section gives another hash
+    changed_sections = dict(digest1.model_dump())
+    changed_sections["commands"] = []
+    raw = json.dumps(
+        {
+            k: changed_sections[k]
+            for k in ["commands", "settings", "pins", "architecture", "decisions"]
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    changed_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    assert changed_hash != digest1.content_hash
+
+    # Asserts that a temporary root with a changed uv.lock gives another hash again
+    shutil.copy(repo_root / "pyproject.toml", tmp_path / "pyproject.toml")
+    shutil.copy(repo_root / "uv.lock", tmp_path / "uv.lock")
+    digest_tmp_orig = build_project_digest(tmp_path, commit=commit_sha)
+
+    uv_text = (repo_root / "uv.lock").read_text(encoding="utf-8")
+    changed_uv = uv_text.replace(
+        'name = "aiofile"\nversion = "3.12.3"',
+        'name = "aiofile"\nversion = "99.99.99"',
+    )
+    (tmp_path / "uv.lock").write_text(changed_uv, encoding="utf-8")
+    digest_tmp_changed = build_project_digest(tmp_path, commit=commit_sha)
+
+    assert digest_tmp_orig.content_hash != digest_tmp_changed.content_hash
+    assert digest_tmp_changed.content_hash != digest1.content_hash
+
+    # Asserts that head_commit returns the SHA that the doubled run_subprocess call answers
+    expected_sha = "fedcba9876543210fedcba9876543210fedcba98"
+
+    def fake_run_subprocess(cmd: Sequence[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        assert list(cmd) == ["git", "rev-parse", "HEAD"]
+        return subprocess.CompletedProcess(cmd, 0, stdout=f"{expected_sha}\n", stderr="")
+
+    monkeypatch.setattr("devops_cli.ai.project_digest.run_subprocess", fake_run_subprocess)
+    assert head_commit(repo_root) == expected_sha

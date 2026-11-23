@@ -35,9 +35,9 @@ Adds: `architecture_facts`, `decision_facts`
 Kind: behavior. Reads: `src/devops_cli/core/process.py`, `src/devops_cli/ai/project_digest.py`, `uv.lock`. Changes: `src/devops_cli/ai/project_digest.py`, `tests/ai/test_project_digest.py`.
 Adds: `ProjectDigest`, `build_project_digest`, `head_commit`
 
-- [ ] 4.1 Add `test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given` to `tests/ai/test_project_digest.py`: it asserts that two builds of one section map give one hash, that a changed section gives another hash, that a temporary root with a changed `uv.lock` gives another hash again, and that `head_commit` returns the SHA that the doubled `run_subprocess` call answers
+- [x] 4.1 Add `test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given` to `tests/ai/test_project_digest.py`: it asserts that two builds of one section map give one hash, that a changed section gives another hash, that a temporary root with a changed `uv.lock` gives another hash again, and that `head_commit` returns the SHA that the doubled `run_subprocess` call answers
   - Verification: `$ uv run devops ci test tests/ai/test_project_digest.py` fails on the base
-- [ ] 4.2 Write the failing test first. Add `ProjectDigest` with the five sections, the content hash and the commit, and `build_project_digest(root, commit)`, which fills the sections from the functions of groups 1 to 3 and hashes their canonical JSON with `hashlib.sha256`. Add `head_commit(root)`, which asks `run_subprocess` of `src/devops_cli/core/process.py` for `git rev-parse HEAD`. The commit is an argument of the build, so the hash test doubles no process
+- [x] 4.2 Write the failing test first. Add `ProjectDigest` with the five sections, the content hash and the commit, and `build_project_digest(root, commit)`, which fills the sections from the functions of groups 1 to 3 and hashes their canonical JSON with `hashlib.sha256`. Add `head_commit(root)`, which asks `run_subprocess` of `src/devops_cli/core/process.py` for `git rev-parse HEAD`. The commit is an argument of the build, so the hash test doubles no process
   - Verification: `$ uv run devops ci test tests/ai/test_project_digest.py` passes
 
 ## 5. Reach the digest through the tool and the knowledge base index

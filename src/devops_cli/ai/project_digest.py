@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
+from devops_cli.core.process import run_subprocess
 from devops_cli.docs.generator import CommandDoc, CommandGroupDoc, iter_settings_fields
 
 
@@ -139,3 +143,55 @@ def decision_facts(directory: Path) -> list[dict[str, str]]:
                 }
             )
     return facts
+
+
+class ProjectDigest(BaseModel):
+    """Run-time digest of project facts read from their owners."""
+
+    commands: list[dict[str, str]] = Field(default_factory=list)
+    settings: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    pins: list[dict[str, str]] = Field(default_factory=list)
+    architecture: dict[str, Any] = Field(default_factory=dict)
+    decisions: list[dict[str, str]] = Field(default_factory=list)
+    content_hash: str = ""
+    commit: str = ""
+
+
+def build_project_digest(root: Path, commit: str) -> ProjectDigest:
+    """Build the project digest from the repository at root with the given commit."""
+    from devops_cli.docs.generator import DocGenerator
+
+    generator = DocGenerator()
+    cmd_groups = generator.introspect_all_groups()
+    commands = command_facts(cmd_groups)
+    settings = settings_sections()
+    pins = pin_facts(root)
+    architecture = architecture_facts(root)
+    adr_dir = root / "docs" / "adr"
+    decisions = decision_facts(adr_dir) if adr_dir.exists() else []
+
+    sections = {
+        "commands": commands,
+        "settings": settings,
+        "pins": pins,
+        "architecture": architecture,
+        "decisions": decisions,
+    }
+    raw = json.dumps(sections, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    content_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    return ProjectDigest(
+        commands=commands,
+        settings=settings,
+        pins=pins,
+        architecture=architecture,
+        decisions=decisions,
+        content_hash=content_hash,
+        commit=commit,
+    )
+
+
+def head_commit(root: Path) -> str:
+    """Return the commit SHA of HEAD for the repository at root."""
+    res = run_subprocess(["git", "rev-parse", "HEAD"], cwd=root, local_read=True)
+    return res.stdout.strip()
