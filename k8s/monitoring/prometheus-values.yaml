@@ -41,7 +41,7 @@ server:
 
   persistentVolume:
     enabled: true
-    storageClass: local-path
+    storageClass: local-path-retain
     size: 20Gi
     annotations:
       argocd.argoproj.io/sync-options: Prune=false,Delete=false
@@ -70,7 +70,7 @@ alertmanager:
   # Alertmanager does not call the Kubernetes API, so its pod mounts no ServiceAccount token (#1652).
   automountServiceAccountToken: false
   persistence:
-    storageClass: local-path
+    storageClass: local-path-retain
   # local-path binds the volume on the node where the pod first runs, and the root disk of the
   # control-plane node has the least free space (#1634; k8s/README.md, Local-Path Volume Placement).
   affinity:

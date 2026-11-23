@@ -25,7 +25,7 @@ resources:
 
 persistence:
   enabled: true
-  storageClassName: local-path
+  storageClassName: local-path-retain
   size: 5Gi
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false

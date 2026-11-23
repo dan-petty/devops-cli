@@ -68,7 +68,7 @@ persistence:
   create: true
   claimName: gitea-shared-storage
   size: 10Gi
-  storageClass: local-path
+  storageClass: local-path-retain
   accessModes:
     - ReadWriteOnce
   annotations:

@@ -20,11 +20,20 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
+  ignoreDifferences:
+  - kind: PersistentVolumeClaim
+    jsonPointers:
+    - /spec/storageClassName
+  - kind: StatefulSet
+    jsonPointers:
+    - /spec/volumeClaimTemplates/0/spec/storageClassName
   syncPolicy:
     automated:
       enabled: true
       prune: true
       selfHeal: true
+    syncOptions:
+    - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

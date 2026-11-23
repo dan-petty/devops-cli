@@ -64,7 +64,7 @@ tempo:
 persistence:
   enabled: true
   enableStatefulSetAutoDeletePVC: false
-  storageClassName: local-path
+  storageClassName: local-path-retain
   size: 10Gi
   annotations:
     argocd.argoproj.io/sync-options: Prune=false,Delete=false

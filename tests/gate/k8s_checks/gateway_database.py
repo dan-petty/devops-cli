@@ -78,7 +78,7 @@ def _policy(name: str) -> dict[str, Any]:
 def check_the_database_is_a_cloudnative_pg_cluster_that_keeps_its_data_and_has_no_secret_in_git() -> (
     None
 ):
-    """The Cluster has one instance on `local-path`, which Argo CD never prunes or deletes. It
+    """The Cluster has one instance on `local-path-retain`, which Argo CD never prunes or deletes. It
     names no `bootstrap.initdb.secret`, so the operator generates the application user and the
     Secret `llm-gateway-db-app` when it creates the database, and no person pushes a password.
     Superuser access over the network stays off."""
@@ -103,7 +103,7 @@ def check_the_database_is_a_cloudnative_pg_cluster_that_keeps_its_data_and_has_n
         "llm",
         "Prune=false,Delete=false",
         1,
-        "local-path",
+        "local-path-retain",
         False,
         False,
         [],

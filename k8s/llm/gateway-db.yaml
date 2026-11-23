@@ -112,7 +112,7 @@ spec:
   # change does not restart the instance.
   smartShutdownTimeout: 15
   storage:
-    storageClass: local-path
+    storageClass: local-path-retain
     size: 5Gi
   bootstrap:
     initdb:

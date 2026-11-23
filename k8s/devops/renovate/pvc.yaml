@@ -15,7 +15,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
+  storageClassName: local-path-retain
   resources:
     requests:
       storage: 5Gi

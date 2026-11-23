@@ -12,7 +12,7 @@ spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:17.11
   storage:
-    storageClass: local-path
+    storageClass: local-path-retain
     size: 10Gi
   bootstrap:
     initdb:

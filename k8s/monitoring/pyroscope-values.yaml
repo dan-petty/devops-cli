@@ -19,7 +19,7 @@ pyroscope:
 
   persistence:
     enabled: true
-    storageClassName: local-path
+    storageClassName: local-path-retain
     size: 5Gi
 
   # local-path binds the volume on the node where the pod first runs, and the root disk of the

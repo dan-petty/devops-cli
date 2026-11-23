@@ -280,3 +280,115 @@ def check_argocd_networkpolicy_gitea_egress() -> None:
             break
 
     assert has_gitea_egress, "argocd-default-perimeter-egress missing egress rule to gitea:3000"
+
+
+CLAIM_APPLICATIONS = (
+    "devops",
+    "gitea",
+    "mattermost",
+    "grafana",
+    "prometheus",
+    "pyroscope",
+    "tempo",
+)
+
+
+def _find_storage_classes(obj: Any, field_path: str, file_rel: str) -> list[tuple[str, str, str]]:
+    violations: list[tuple[str, str, str]] = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            cur = f"{field_path}.{k}"
+            if k in ("storageClassName", "storageClass") and v == "local-path":
+                violations.append((file_rel, cur, str(v)))
+            violations.extend(_find_storage_classes(v, cur, file_rel))
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            violations.extend(_find_storage_classes(item, f"{field_path}[{i}]", file_rel))
+    return violations
+
+
+def _scan_yaml_for_old_storage_classes() -> list[tuple[str, str, str]]:
+    violations: list[tuple[str, str, str]] = []
+    for path in sorted(K8S_DIR.rglob("*.yaml")):
+        try:
+            content = path.read_text(encoding="utf-8")
+            file_rel = str(path.relative_to(REPO_ROOT))
+            for doc in yaml.safe_load_all(content):
+                violations.extend(_find_storage_classes(doc, "", file_rel))
+        except Exception:
+            pass
+    return violations
+
+
+def _check_rendered_doc_storage_class(doc: dict[str, Any]) -> None:
+    kind = doc.get("kind", "")
+    name = doc.get("metadata", {}).get("name", "")
+    if kind == "PersistentVolumeClaim":
+        sc = doc.get("spec", {}).get("storageClassName")
+        assert sc != "local-path", f"PVC {name} has storageClassName local-path"
+    elif kind == "Cluster":
+        sc = doc.get("spec", {}).get("storage", {}).get("storageClass")
+        assert sc != "local-path", f"Cluster {name} has storageClass local-path"
+    elif kind == "StatefulSet":
+        for tpl in doc.get("spec", {}).get("volumeClaimTemplates", []):
+            sc = tpl.get("spec", {}).get("storageClassName")
+            assert sc != "local-path", (
+                f"StatefulSet {name} has template storageClassName local-path"
+            )
+
+
+def check_every_claim_names_the_retain_class() -> None:
+    """Each PersistentVolumeClaim, claim template, and CloudNativePG Cluster under k8s/ names
+    local-path-retain and no rendered claim or claim template names local-path (#6341)."""
+    old_class_violations = _scan_yaml_for_old_storage_classes()
+    assert not old_class_violations, f"Found local-path in manifests: {old_class_violations}"
+
+    from devops_cli.k8s.argocd_gate import discover_path_applications
+
+    raw_leaf_apps = list(discover_path_applications(TREE, APPS_DIR).values())
+    for dir_path in raw_leaf_apps:
+        proc = kustomize(dir_path)
+        docs = [
+            d for d in yaml.load_all(proc.stdout, Loader=yaml.CSafeLoader) if isinstance(d, dict)
+        ]
+        for doc in docs:
+            _check_rendered_doc_storage_class(doc)
+
+
+def check_each_claim_application_ignores_the_storage_class() -> None:
+    """Each Argo CD Application whose rendered objects include a PersistentVolumeClaim or a
+    StatefulSet with a claim template lists the storage class field under spec.ignoreDifferences
+    and sets RespectIgnoreDifferences=true in spec.syncPolicy.syncOptions (#6341)."""
+    apps = _all_applications()
+    for app_name in CLAIM_APPLICATIONS:
+        assert app_name in apps, f"Application {app_name} not found"
+        app = apps[app_name]
+        spec = app.get("spec", {})
+
+        sync_options = spec.get("syncPolicy", {}).get("syncOptions", [])
+        assert "RespectIgnoreDifferences=true" in sync_options, (
+            f"Application '{app_name}' missing 'RespectIgnoreDifferences=true' in"
+            " syncPolicy.syncOptions"
+        )
+
+        ignore_diffs = spec.get("ignoreDifferences", [])
+        assert ignore_diffs, f"Application '{app_name}' missing spec.ignoreDifferences"
+
+        has_storage_class_ignore = False
+        for entry in ignore_diffs:
+            kind = entry.get("kind", "")
+            json_pointers = entry.get("jsonPointers", [])
+            jq_paths = entry.get("jqPathExpressions", [])
+            if kind == "PersistentVolumeClaim" and "/spec/storageClassName" in json_pointers:
+                has_storage_class_ignore = True
+                break
+            if kind == "StatefulSet" and (
+                "/spec/volumeClaimTemplates/0/spec/storageClassName" in json_pointers
+                or any("storageClassName" in jq for jq in jq_paths)
+            ):
+                has_storage_class_ignore = True
+                break
+
+        assert has_storage_class_ignore, (
+            f"Application '{app_name}' has no ignoreDifferences entry for storageClassName"
+        )
