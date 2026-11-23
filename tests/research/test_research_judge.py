@@ -9,13 +9,18 @@ from pydantic_ai.models.test import TestModel
 from devops_cli.ai.toolsets import extract_tools_from_toolset
 from devops_cli.research.judge import (
     JUDGE_INSTRUCTIONS,
+    CitationCheck,
     JudgeFinding,
     JudgeVerdict,
     ReadOnlyCorpus,
     build_judge_agent,
     build_judge_toolset,
+    check_judged_citations,
+    file_judged_findings,
+    judge_intake_candidate,
 )
 from devops_cli.research.models import Component, ComponentKind, Ecosystem
+from devops_cli.roadmap.intake.intake import NewCandidate
 
 
 class FakeCorpus:
@@ -114,3 +119,66 @@ def test_typed_finding_from_the_test_model() -> None:
     assert isinstance(finding.action, str)
     assert isinstance(finding.evidence_record_ids, list)
     assert isinstance(finding.evidence_urls, list)
+
+
+def test_citation_check_files_a_kept_finding() -> None:
+    corpus = FakeCorpus()
+    finding = JudgeFinding(
+        affects_us=JudgeVerdict.yes,
+        why="Vulnerability in used component",
+        severity="high",
+        action="upgrade to 3.12.4",
+        evidence_record_ids=["rec-1"],
+        evidence_urls=["https://example.com/advisory-1"],
+    )
+    filed: list[NewCandidate] = []
+    direct_check = check_judged_citations([finding], corpus)
+    assert isinstance(direct_check, CitationCheck)
+    assert len(direct_check.kept) == 1
+    candidate_direct = judge_intake_candidate(finding, None)
+    assert isinstance(candidate_direct, NewCandidate)
+    check = file_judged_findings([finding], corpus, filed.append)
+    assert len(check.kept) == 1
+    assert len(check.dropped) == 0
+    assert len(filed) == 1
+    candidate = filed[0]
+    assert "fix(deps):" in candidate.title
+    assert "upgrade to 3.12.4" in candidate.body or "Vulnerability" in candidate.body
+
+
+def test_record_id_absent_from_the_store() -> None:
+    corpus = FakeCorpus()
+    finding = JudgeFinding(
+        affects_us=JudgeVerdict.yes,
+        why="Vulnerability in used component",
+        severity="high",
+        action="upgrade",
+        evidence_record_ids=["absent-rec-999"],
+        evidence_urls=["https://example.com/advisory-1"],
+    )
+    filed: list[NewCandidate] = []
+    check = file_judged_findings([finding], corpus, filed.append)
+    assert len(check.kept) == 0
+    assert len(check.dropped) == 1
+    assert len(filed) == 0
+    assert len(check.reasons) == 1
+    assert "absent-rec-999" in check.reasons[0]
+
+
+def test_url_absent_from_the_store() -> None:
+    corpus = FakeCorpus()
+    finding = JudgeFinding(
+        affects_us=JudgeVerdict.yes,
+        why="Vulnerability in used component",
+        severity="high",
+        action="upgrade",
+        evidence_record_ids=["rec-1"],
+        evidence_urls=["https://unknown-domain.org/advisory"],
+    )
+    filed: list[NewCandidate] = []
+    check = file_judged_findings([finding], corpus, filed.append)
+    assert len(check.kept) == 0
+    assert len(check.dropped) == 1
+    assert len(filed) == 0
+    assert len(check.reasons) == 1
+    assert "https://unknown-domain.org/advisory" in check.reasons[0]
