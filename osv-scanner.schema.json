@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OSV-Scanner Configuration",
+  "description": "Schema for osv-scanner.toml enforcing expiry, tracking issue reasons, and no wildcards (SECURITY.md).",
+  "type": "object",
+  "properties": {
+    "IgnoredVulns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[^\\*]+$",
+            "description": "Vulnerability or advisory ID, without wildcards."
+          },
+          "effectiveUntil": {
+            "type": "string",
+            "description": "Expiry timestamp until which the vulnerability is ignored."
+          },
+          "reason": {
+            "type": "string",
+            "pattern": "#\\d+",
+            "description": "Reason for the ignore naming the tracking issue as #N."
+          },
+          "ignoreUntil": {
+            "type": "string",
+            "description": "Deprecated expiry field."
+          }
+        },
+        "required": ["id", "effectiveUntil", "reason"]
+      }
+    },
+    "PackageOverrides": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

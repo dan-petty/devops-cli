@@ -59,7 +59,7 @@ from tests.support.hung_children import (
     records_stop_signals,
     watching,
 )
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.paths import REPO_ROOT
 from tests.support.session_spawns import RecordedSpawn, record_spawns
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until, wait_while_running
 
@@ -86,30 +86,22 @@ def test_ci_audit_command(process_fake: ProcessFake) -> None:
     result = runner.invoke(app, ["audit"])
     called = _started(process_fake)
     assert result.exit_code == 0
-    assert [cmd[0] for cmd in called] == ["uv", "npm"]
+    assert [cmd[0] for cmd in called] == ["uv", "osv-scanner"]
     assert any("uv" in c and "audit" in c for c in called)
 
 
 def test_the_audit_check_audits_uv_and_each_npm_lockfile_without_a_shell() -> None:
     """One check carries both audits as argument lists, each started on its own: `uv audit` of
-    `uv.lock`, and `npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
-    Dictionary (#6409) and needs no install. The devtools image audits the locks of its tools
+    `uv.lock`, and `osv-scanner` of the `package-lock.json` at the root, which pins OpenSpec and Style
+    Dictionary (#6409, #6419) and needs no install. The devtools image audits the locks of its tools
     (#4363)."""
     assert get_check_spec("audit").commands == [
         ["uv", "audit"],
-        [
-            "npm",
-            "audit",
-            "--package-lock-only",
-            "--json",
-            "--no-update-notifier",
-            "--prefix",
-            ".",
-        ],
+        ["osv-scanner", "scan", "source", "--lockfile", "package-lock.json"],
     ]
 
 
-@pytest.mark.parametrize("failing", ["uv", "npm"])
+@pytest.mark.parametrize("failing", ["uv", "osv-scanner"])
 def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_other(
     process_fake: ProcessFake, failing: str
 ) -> None:
@@ -120,31 +112,23 @@ def test_the_audit_command_fails_when_either_audit_fails_and_still_runs_the_othe
 
     assert (result.exit_code, [argv[0] for argv in _started(process_fake)]) == (
         1,
-        ["uv", "npm"],
+        ["uv", "osv-scanner"],
     )
 
 
-_NPM_AUDIT_READINGS = [
-    ("vulnerable", "found vulnerabilities (npm audit exited 1)", "could not run"),
-    ("registry_unreachable", "could not run (npm audit exited 1)", "found vulnerabilities"),
-    ("advisory_endpoint_missing", "could not run (npm audit exited 1)", "found vulnerabilities"),
+_OSV_AUDIT_READINGS = [
+    (1, "found vulnerabilities (osv-scanner audit exited 1)", "could not run"),
+    (2, "could not run (osv-scanner audit exited 2)", "found vulnerabilities"),
 ]
 
 
-def _answer_npm_audit_with(process_fake: ProcessFake, recording: str) -> None:
-    """Answer `npm audit` with exit 1 and a report recorded from npm, every other command with
-    success."""
-    report = (FIXTURES / "npm_audit" / f"{recording}.json").read_text(encoding="utf-8")
-    process_fake.answer("npm", ProcessAnswer(returncode=1, stdout=report))
-
-
-@pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
-def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could_not_run(
-    process_fake: ProcessFake, recording: str, reported: str, not_reported: str
+@pytest.mark.parametrize(("code", "reported", "not_reported"), _OSV_AUDIT_READINGS)
+def test_the_audit_command_says_whether_osv_scanner_found_vulnerabilities_or_could_not_run(
+    process_fake: ProcessFake, code: int, reported: str, not_reported: str
 ) -> None:
-    """The command reads npm's report as `devops ci maintain` does, so a registry that cannot be
-    reached is not reported as a vulnerable pin."""
-    _answer_npm_audit_with(process_fake, recording)
+    """The command reads osv-scanner's exit code, so an error or missing binary is not reported as
+    a vulnerable pin."""
+    process_fake.answer("osv-scanner", ProcessAnswer(returncode=code))
 
     result = runner.invoke(app, ["audit"])
 
@@ -152,14 +136,14 @@ def test_the_audit_command_says_whether_npm_audit_found_vulnerabilities_or_could
     assert (result.exit_code, reported in said, not_reported in said) == (1, True, False)
 
 
-@pytest.mark.parametrize(("recording", "reported", "not_reported"), _NPM_AUDIT_READINGS)
+@pytest.mark.parametrize(("code", "reported", "not_reported"), _OSV_AUDIT_READINGS)
 @pytest.mark.usefixtures("ci_root")
-def test_the_gate_row_of_the_audit_check_reads_npm_audit_as_the_audit_command_does(
-    process_fake: ProcessFake, recording: str, reported: str, not_reported: str
+def test_the_gate_row_of_the_audit_check_reads_osv_scanner_as_the_audit_command_does(
+    process_fake: ProcessFake, code: int, reported: str, not_reported: str
 ) -> None:
     """A single check run, `devops ci --only audit`, fails its row and gives the same reading
     under the check's output."""
-    _answer_npm_audit_with(process_fake, recording)
+    process_fake.answer("osv-scanner", ProcessAnswer(returncode=code))
 
     result = runner.invoke(app, ["--only", "audit", "--check", "--no-cache"])
 
@@ -174,7 +158,8 @@ def test_the_audit_command_plans_both_audits_in_a_dry_run(process_fake: ProcessF
     assert (
         result.exit_code,
         "1. UV_MALWARE_CHECK=0 uv --preview-features" in result.output,
-        "2. UV_MALWARE_CHECK=0 npm audit" in result.output,
+        "2. UV_MALWARE_CHECK=0 osv-scanner scan source --lockfile package-lock.json"
+        in result.output,
         process_fake.calls,
     ) == (
         0,

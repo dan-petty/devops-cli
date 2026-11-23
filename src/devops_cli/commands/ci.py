@@ -15,7 +15,6 @@ import sys
 import threading
 import time
 from collections.abc import Awaitable, Callable, Iterator, Sequence
-from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final
 
@@ -23,8 +22,7 @@ import typer
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.commands import (
-    build_npm_audit_cmd,
-    npm_audit_lockfile,
+    build_osv_audit_cmd,
 )
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
@@ -42,7 +40,6 @@ from devops_cli.config.constants import (
     CONST_EXIT_FAILURE,
     CONST_GATE_ROW_SCRIPT,
     CONST_GIT_MAIN_BRANCH,
-    CONST_NPM_AUDIT_IGNORE_FILE,
     CONST_PYPROJECT_FILENAME,
     CONST_SOURCE_ROOT_DIR,
     CONST_TESTS_ROOT_DIR,
@@ -66,12 +63,8 @@ from devops_cli.config.defaults import (
 from devops_cli.core import clock
 from devops_cli.core.cli import UsageTaggedGroup, new_typer
 from devops_cli.core.dependency_audit import (
-    AppliedIgnores,
     AuditVerdict,
-    active_npm_ignores,
     audit_verdict,
-    load_npm_audit_ignores,
-    npm_advisory_ids,
 )
 from devops_cli.core.process import prepare_tool_cmd, run_subprocess
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_dry_run_result, set_dry_run
@@ -414,51 +407,21 @@ def _run(
     return code == 0
 
 
-def _audit_today() -> date:
-    """The day, in UTC, that the entries of the npm audit ignore file are read against."""
-    return datetime.now(UTC).date()
-
-
-def _audit_ignores(cmd: Sequence[str]) -> AppliedIgnores:
-    """The entries of the ignore file for the lockfile that `cmd` audits; none for a command that
-    audits no lockfile."""
-    lockfile = npm_audit_lockfile(cmd)
-    if lockfile is None:
-        return AppliedIgnores()
-    entries = load_npm_audit_ignores(_get_project_root() / CONST_NPM_AUDIT_IGNORE_FILE)
-    return active_npm_ignores(entries, lockfile, _audit_today())
-
-
 def _audit_reading(
     cmd: Sequence[str], run: subprocess.CompletedProcess[str]
 ) -> tuple[str | None, list[str]]:
     """What a run of an audit command says went wrong, read by the kind of command (None when the
     audit was clean), and a line for each ignore entry it used and each that expired."""
-    applied = _audit_ignores(cmd)
     stdout = run.stdout or ""
-    found = npm_advisory_ids(stdout) if applied.active or applied.expired else frozenset()
-    lockfile = npm_audit_lockfile(cmd)
-    notes = [
-        MESSAGES.ci.audit_ignored.format(
-            advisory=entry.id, path=lockfile, expired_at=entry.expired_at, statement=entry.statement
-        )
-        for advisory, entry in sorted(applied.active.items())
-        if advisory in found
-    ] + [
-        MESSAGES.ci.audit_ignore_expired.format(
-            advisory=entry.id, path=lockfile, expired_at=entry.expired_at
-        )
-        for entry in applied.expired
-    ]
-    verdict = audit_verdict(cmd, run.returncode, stdout, ignored=applied.active.keys())
+    verdict = audit_verdict(cmd, run.returncode, stdout)
     if verdict is AuditVerdict.CLEAN:
-        return None, notes
+        return None, []
     template = (
         MESSAGES.ci.audit_vulnerable
         if verdict is AuditVerdict.VULNERABLE
         else MESSAGES.ci.audit_not_run
     )
-    return template.format(code=run.returncode, tool=cmd[0]), notes
+    return template.format(code=run.returncode, tool=cmd[0]), []
 
 
 def _report_audit(cmd: list[str]) -> bool:
@@ -879,11 +842,11 @@ def _bandit_cmds(tests_severity: str) -> list[list[str]]:
     ]
 
 
-def _npm_audit_cmds() -> list[list[str]]:
-    """`npm audit` of the `package-lock.json` at the root, which pins OpenSpec and Style
-    Dictionary (#6409), as the repository holds it, which needs no install. The devtools image
+def _osv_audit_cmds() -> list[list[str]]:
+    """`osv-scanner` of the `package-lock.json` at the root, which pins OpenSpec and Style
+    Dictionary (#6409, #6419), as the repository holds it, which needs no install. The devtools image
     audits the locks of the tools that it installs (#4363)."""
-    return [build_npm_audit_cmd(".")]
+    return [build_osv_audit_cmd("package-lock.json")]
 
 
 # The git row records every scenario of the git fake again with the real git, outside pytest, and
@@ -984,7 +947,7 @@ def get_check_specs() -> list[CheckSpec]:
             name="audit",
             display_title=MESSAGES.ci.dependency_audit,
             cmd=["uv", "audit"],
-            also_cmds=_npm_audit_cmds(),
+            also_cmds=_osv_audit_cmds(),
             dependency_audit=True,
             span_name="ci.step.audit",
             metric_step="audit",
@@ -2486,7 +2449,7 @@ def audit(
         typer.Option("--dry-run", help=HELP.options.dry_run),
     ] = False,
 ) -> None:
-    """Run uv audit and npm audit to check for known package vulnerabilities."""
+    """Run uv audit and osv-scanner to check for known package vulnerabilities."""
     if dry_run:
         set_dry_run(True)
     if not _verify_python_314_environment():

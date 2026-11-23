@@ -156,8 +156,8 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _devtools("trivy", "gate:static"),
     _devtools("kubectl", "test:live", check=("kubectl", "version", "--client")),
     _devtools("kube-linter", "gate:static", check=("kube-linter", "version")),
-    _devtools("osv-scanner", "gate:static"),
-    _devtools("npm", "ci:audit"),
+    _devtools("osv-scanner", "ci:audit", "gate:static"),
+    _devtools("npm", "job"),
     _devtools("zsh", "test:live"),
     _devtools("ps", "test:live"),
     # The scanners of the review, which the direct executor runs in the pod of the Job (#3827).

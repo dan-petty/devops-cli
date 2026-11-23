@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from devops_cli.config.constants import CONST_K8S_MANIFEST_EXTENSIONS, CONST_SEMGREP_JOBS
 from devops_cli.config.defaults import (
@@ -216,30 +216,15 @@ def build_uv_audit_cmd() -> list[str]:
     return [BIN_UV, "audit", "--frozen", "--quiet", "--output-format", "json"]
 
 
-def build_npm_audit_cmd(project_dir: Path | str) -> list[str]:
-    """Build the npm command that audits the `package-lock.json` in `project_dir` for known
-    vulnerabilities without installing anything, and checks for no newer npm.
-
-    npm exits 1 for a finding and for an audit that could not run alike, so it reports as JSON:
-    the report tells the two apart (`devops_cli.core.dependency_audit`).
-    """
+def build_osv_audit_cmd(lockfile: Path | str) -> list[str]:
+    """Build the osv-scanner command that audits `lockfile` for known vulnerabilities (#6419)."""
     return [
-        BIN_NPM,
-        "audit",
-        "--package-lock-only",
-        "--json",
-        "--no-update-notifier",
-        "--prefix",
-        str(project_dir),
+        BIN_OSV_SCANNER,
+        "scan",
+        "source",
+        "--lockfile",
+        str(lockfile),
     ]
-
-
-def npm_audit_lockfile(cmd: Sequence[str]) -> str | None:
-    """The lockfile, relative to the project root, that an `npm audit` command of
-    `build_npm_audit_cmd` reads; None for any other command."""
-    if not cmd or cmd[0] != BIN_NPM or "--prefix" not in cmd:
-        return None
-    return (PurePosixPath(cmd[cmd.index("--prefix") + 1]) / "package-lock.json").as_posix()
 
 
 def build_openspec_cmd(*args: str) -> list[str]:
