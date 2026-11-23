@@ -5,7 +5,7 @@
 # comes from the devtools image (https://github.com/dan-petty/devtools), which names the source
 # of each tool. This file pins the image by digest, and Renovate moves the digest. The two Dev
 # Container Features of .devcontainer/image/devcontainer.json add the user vscode and Podman.
-FROM ghcr.io/dan-petty/devtools:1.1.3@sha256:d66d676535f3f9ff09d08f4c4113d77fd039b92c0e5326b5263d5b10c8ada776 AS devtools
+FROM ghcr.io/dan-petty/devtools:1.1.4@sha256:d22458a1cc23eb0272fe630fd1c19343f93cbb3c6cef43f8a5a532fe34ce9a2e AS devtools
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not this file, and BuildKit
