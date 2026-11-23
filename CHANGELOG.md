@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.202.0](https://github.com/dan-petty/devops-cli/compare/v0.201.6...v0.202.0) (2026-11-23)
+
+
+### Features
+
+* **roadmap:** Route pull, review and check events to watch ([#6889](https://github.com/dan-petty/devops-cli/issues/6889)) ([affda23](https://github.com/dan-petty/devops-cli/commit/affda2370d11e9df5ed5383892b00483ab633634))
+
 ## [0.201.6](https://github.com/dan-petty/devops-cli/compare/v0.201.5...v0.201.6) (2026-11-23)
 
 
