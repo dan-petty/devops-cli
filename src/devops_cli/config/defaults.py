@@ -253,6 +253,8 @@ DEFAULT_RAG_DOCS_COLLECTION = "devops_docs"
 DEFAULT_RAG_LIBRARIES_COLLECTION = "devops_libraries"
 DEFAULT_RAG_RESEARCH_COLLECTION = "devops_research"
 DEFAULT_RESEARCH_EXPIRY_DAYS = 30
+DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT: Final[int] = 50
+DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT: Final[int] = 500_000
 DEFAULT_VALKEY_SYMBOL_TTL_SECONDS = 604800  # 7 days TTL for cached symbol signatures
 DEFAULT_RAG_EMBEDDING_MODEL = "qwen3-embedding:0.6b"
 # The models of `devops ai bundle-models`: the models that the default chat and embedding tasks

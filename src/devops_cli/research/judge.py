@@ -11,6 +11,10 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.client.factory import build_agent
 from devops_cli.ai.tools import Tool
 from devops_cli.ai.toolsets import FunctionToolset, create_function_toolset
+from devops_cli.config.defaults import (
+    DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT,
+    DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT,
+)
 from devops_cli.security.prompt_injection import scan_injection_text
 
 if TYPE_CHECKING:
@@ -59,6 +63,26 @@ class JudgeLimits(BaseModel):
     record_limit: int | None = None
     daily_token_limit: int | None = None
     tokens_used_today: int = 0
+
+
+def judge_limits_from_settings(settings: Any) -> JudgeLimits:
+    """Build JudgeLimits from application settings."""
+    research_cfg = getattr(settings, "research", None)
+    judge_cfg = getattr(research_cfg, "judge", None) if research_cfg else None
+    record_limit = (
+        getattr(judge_cfg, "record_limit", DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT)
+        if judge_cfg
+        else DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT
+    )
+    daily_token_limit = (
+        getattr(judge_cfg, "daily_token_limit", DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT)
+        if judge_cfg
+        else DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT
+    )
+    return JudgeLimits(
+        record_limit=record_limit,
+        daily_token_limit=daily_token_limit,
+    )
 
 
 class JudgeReport(BaseModel):

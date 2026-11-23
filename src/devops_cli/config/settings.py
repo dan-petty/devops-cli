@@ -116,6 +116,8 @@ from devops_cli.config.defaults import (
     DEFAULT_RAG_SCORE_THRESHOLD,
     DEFAULT_RAG_TOP_K,
     DEFAULT_REPOS_BASE_DIR,
+    DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT,
+    DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT,
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
     DEFAULT_REVIEWS_DATA_DIR,
     DEFAULT_ROADMAP_ALTERNATIVES_FIRST_PASS_LIMIT,
@@ -2488,6 +2490,31 @@ class InfraConfig(BaseModel):
         return next((entry for entry in self.repos if RepoRef(entry.repo) == repo), None)
 
 
+class ResearchJudgeConfig(BaseModel):
+    """Configuration for the research judge agent (#3909)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    record_limit: Annotated[int, Variable()] = Field(
+        default=DEFAULT_RESEARCH_JUDGE_RECORD_LIMIT,
+        description="Maximum number of records to evaluate during a single research sweep",
+        ge=1,
+    )
+    daily_token_limit: Annotated[int, Variable()] = Field(
+        default=DEFAULT_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT,
+        description="Daily token limit for research judge evaluations",
+        ge=1,
+    )
+
+
+class ResearchConfig(BaseModel):
+    """Configuration for research sweep and evaluations (#3909)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    judge: ResearchJudgeConfig = ResearchJudgeConfig()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -2539,6 +2566,7 @@ class Settings(BaseSettings):
     data: DataConfig = DataConfig()
     service: ServiceConfig = ServiceConfig()
     roadmap: RoadmapConfig = RoadmapConfig()
+    research: ResearchConfig = ResearchConfig()
     firecrawl: FirecrawlConfig = FirecrawlConfig()
     crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
     search: SearchConfig = SearchConfig()
