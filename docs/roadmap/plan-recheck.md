@@ -173,6 +173,32 @@ Use the option in three ways:
   lines under the name of the new gate list its refusals. Use `--source .` in the checkout of the
   branch, so that the command runs the code of the branch.
 
+## Judge a branch from a base
+
+`--base <sha>` goes with `--branch <ref>`. It is the check of the stage agent and of `publish` of
+the stage Job ([The phases of the stage Job](stage.md#the-phases-of-the-stage-job), #6705). The
+command makes no fetch and reads no ref of the default branch: a merge during the run changes no
+result. It judges only the change folders that `git diff --name-only <sha>..<ref>` names, on the
+tree of the ref. The judge of each folder adds the rules of the stage plan:
+
+- the rules of `staged_problems` of [`plan-check`](plan-check.md): the title and the body, the
+  gates, the size of each group (`group-over-budget`) and the phrases;
+- the test references of the removal scan (`removal-reference`): a test that names a function, a
+  class or a constant that the plan removes, and that no task handles.
+
+`--candidate <file>` gives the body candidate of the stage agent: the line `# <summary>`, then the
+text of the body. The title and the body rules judge the texts that `stage_candidate.py` builds from
+it, as `publish` builds them. The title comes from the summary, else from the issue title. The body
+comes from the text, else from the Why of the proposal, else from the issue title. A closing keyword
+in the candidate is a refusal (`candidate`).
+
+The command exits 1 when a folder of the branch is not `ok`. With `--json`, the key `branch` holds
+these folders in `failed`, and the command prints no other line.
+
+`--issues <file>` reads the issues from an issue listing, a JSON list of issues with the number,
+the title, the URL and the state, and the command opens no store. `prepare` of the stage Job writes
+this listing. The dry run of a run with a base and a listing lists no fetch and no issue read.
+
 ## The open plan branches
 
 `--branches` judges the plan of each open plan pull request in place of the default branch. The pass
@@ -229,6 +255,9 @@ up. The pass closes no issue.
 | `--repo <owner/name>` | The repository. Without it, the origin of the checkout. |
 | `--source <path>` | The clone to read. Without it, the model clone. |
 | `--branch <ref>` | A ref of the clone. Compare its change folders with the default branch. |
+| `--base <sha>` | With `--branch`: make no fetch, judge only the folders that the branch changes from the commit, with the rules of the stage plan, and exit 1 when one is not `ok`. |
+| `--candidate <file>` | With `--base`: the body candidate of the stage agent, whose title and body the rules judge. |
+| `--issues <file>` | Read the issues from an issue listing, and open no store. |
 | `--branches` | Judge the change folder of each open draft plan pull request whose base is the default branch. Without `--confirm` it pushes nothing. |
 | `--json` | Print the folders, the counts and the refusals of each gate as JSON. With `--branch`, the key `branch` holds the comparison. |
 | `--confirm` | Write the rewritten files of each `rewrite` folder to the working tree of `--source`. With `--branches`, rebase, rewrite, check and push each open plan branch whose rewrite changes a file, once, with a lease. It needs `--source`, and it makes no commit of the files of the default branch. |

@@ -36,6 +36,10 @@ The owner asked for a plain issue-branch flow ("it should be relatively straight
 
 The implement agent rebases onto the tip of the default branch that `prepare` recorded and settles a stop of the rebase as a developer does: it skips the archive commit of the item and archives again, and takes the generated documents and `uv.lock` of the default branch and makes them again. Until the model step of #6640, a conflict that no rule settles stops the item with the action `wait`. The rebase of fix-checks is #6639. The archive commit stays its own commit, so a later rebase can skip it. A return to New takes back what earlier Jobs pushed, with a lease.
 
+### Addendum: the stage Job on the phases (#6705, 2026-11-23)
+
+The stage Job takes `--phase prepare|agent|publish|all` and `--work`. `all` stays the default and runs the stage Job in one process, as CronJob `roadmap-stage` runs it until #6814 gives the Job three containers. The agent phase runs the stock `Coder` agent with a real shell, so it runs only in the phase that holds no GitHub credential: it refuses the App key, a GitHub token and a gh login. `prepare` decides what needs no model and commits the dated scaffold of the change folder in the clone of the agent. The agent writes the plan files and a body candidate. `publish` reads them as data, allows only the files of a plan, and gives the plan to the writer of the stage Job on a clone of its own. The writer pushes once with `publish_patch`, and its `before_push` runs the three checks of the plan on the new tree: `devops openspec check`, `openspec validate --strict` and `devops roadmap plan-recheck` with the base of `prepare`. A plan that a check refuses pushes no branch. `publish` trusts no end that the agent reports.
+
 ### Consequences
 
 - An agent that writes the settings of its clone reaches no call with the token: `publish` reads no file of the clone and runs no program of the agent.
@@ -48,6 +52,7 @@ The implement agent rebases onto the tip of the default branch that `prepare` re
 - `tests/roadmap/steps/test_roadmap_step_fix_checks.py`: the phases on a run folder, the claim before the push, and a fixer that rewrites the state file.
 - `tests/roadmap/steps/test_roadmap_step_fix_checks_repair.py`: `prepare` starts git only and leaves no credential in its clone.
 - `tests/roadmap/implement/test_roadmap_implement_phases.py`: the implement phases in separate calls, the agent phase with no GitHub call, `prepare` with git only, and a second `publish` with no push.
+- `tests/roadmap/stage/test_roadmap_stage_agent_phase.py`, `tests/roadmap/stage/test_roadmap_stage_publish_checks.py` and `tests/roadmap/stage/test_roadmap_stage_publish.py`: the stage agent phase with no GitHub credential, one test for each check of `publish`, and the same push and writes as `--phase all` for one plan.
 
 ## More Information
 
