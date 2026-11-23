@@ -27,21 +27,7 @@ A config file that is not valid YAML stops the settings from loading. The error 
 
 ## 2. Settings Schema & Hierarchy
 
-Configuration is modeled with immutable and mutable Pydantic v2 schemas:
-
-| Section | Model | Description | Primary Fields |
-| :--- | :--- | :--- | :--- |
-| **`ai`** | `AIConfig` | LLM provider, models, tasks, caching, Ollama endpoints | `provider`, `model`, `reasoning_effort`, `temperature`, `max_tokens`, `ollama_urls`, `ollama_max_parallel`, `tasks`, `rag`, `cache` |
-| **`github`** | `GitHubConfig` | Default organization (the token is gh's login, from `gh auth token`) | `default_org` |
-| **`k8s`** | `KubernetesConfig` | Kubernetes cluster context and domain configuration | `context`, `domain`, `addressing` |
-| **`ssh`** | `SSHConfig` | SSH key management, directory, key prefix, rotation | `key_dir`, `key_prefix`, `rotation_days` |
-| **`telemetry`** | `TelemetryConfig` | OpenTelemetry and Logfire export | `enabled`, `endpoint`, `logfire` |
-| **`prometheus`** | `PrometheusConfig` | Prometheus server API URL | `url` |
-| **`grafana`** | `GrafanaConfig` | Grafana dashboard server URL | `url` |
-| **`argocd`** | `ArgoCDConfig` | ArgoCD server endpoint URL | `url` |
-| **`qdrant`** | `QdrantConfig` | Qdrant vector database URL and collection settings | `url`, `collection_prefix`, `timeout` |
-| **`workspace`** | `WorkspaceConfig` | Multi-repo `.code-workspace` manifest file path | `file` |
-| **`repos`** | `ReposConfig` | Base directory for multi-repository management | `base_dir` |
+The `project_digest` tool owns the complete list of settings sections and fields generated directly from `Settings` (`src/devops_cli/config/settings.py`) at run time. The complete generated reference is docs/CONFIGURATION.md (`devops docs generate`).
 
 ---
 

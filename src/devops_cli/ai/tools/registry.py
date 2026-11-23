@@ -14,6 +14,7 @@ from devops_cli.ai.tools.builtin_tools import (
     k8s_tempo_status,
     k8s_validate_manifests,
     list_files,
+    project_digest,
     rag_search,
     read_file,
     scan_bandit,
@@ -57,6 +58,7 @@ def get_default_tools() -> list[Any]:
         scan_osv,
         check_threat_intel,
         tf_lint,
+        project_digest,
     ]
     return native + get_mcp_agent_tools()
 

@@ -8,6 +8,8 @@ This document provides foundational context and technical specifications for the
 
 The DevOps CLI is designed as an agentic workstation automation platform, unified developer CLI, and automated code review platform built with modern Python 3.14+ runtime capabilities.
 
+The `project_digest` tool owns the architecture module map and the import graph generated directly from source code at run time (`devops ai repomap`). Core coding rules and architectural constraints live canonically in [AGENTS.md](../../../../../AGENTS.md).
+
 ```
                      ┌──────────────────────────────────────────────┐
                      │            DevOps CLI Terminal / API         │
@@ -24,18 +26,6 @@ The DevOps CLI is designed as an agentic workstation automation platform, unifie
    │  - Prompt Tasks (.md) │   │  - Telemetry & Tracing    │   │  - Process Execution  │
    └───────────────────────┘   └───────────────────────────┘   └───────────────────────┘
 ```
-
-### Core Tenets
-1. **Zero Boilerplate, Strict Complexity Caps & Poetic Conciseness**: Control complexity project-wide (cyclomatic complexity $\le 10$ and fewer than 6 indentations across all functions). Proactively decompose multi-step branching and iterations into single-responsibility helpers. Maximize standard library leverage (`pathlib`, `itertools`, `functools`, `ipaddress`, `urllib.parse`), Pydantic v2 models, and functional pipelines over nested procedural loops or giant `if/elif` ladders.
-2. **Zero-Trust Security & Egress Safety**: No plaintext secrets in logs, configs, or public commits. Mandatory OS Keyring for sensitive credentials, SSRF egress validation, and strict subprocess argument list execution.
-3. **Adaptive Workflow & Model Routing ("Own the Sensitive, Rent the Frontier")**: Decouple static model coupling. Dynamically route prompts across two axes (Complexity and Freshness), retaining sensitive internal IP on local open-weight models (Granite, Qwen, DeepSeek) and routing complex architectural decomposition to frontier engines.
-4. **Agent Harness Slots & Sub-Agent Local Offloading**: Partition multi-agent execution into modular slots (Model, Skills, Tools, Sub-Agents). Offload token-heavy exploration sub-agents to local models ("Big decides, small types, big checks") to achieve 85%+ token savings.
-5. **Model Curation & AI Bill of Materials (AIBOM)**: `devops scan aibom` flags models that use `trust_remote_code` and compiles AI Bill of Materials (AIBOM) records (license terms, security findings, quant evals, resource footprints).
-6. **Model Dependency Chaos Engineering & Slow-Zone Resilience**: Deliberately test fallback models ("Chaos Monkey for Models") and enforce 100% documentation and CLI help synchronization so lower-tier models can pilot automation without human coaching.
-7. **Pure Markdown Prompt Isolation**: All LLM prompts, task rubrics, and guardrails reside in dedicated `.md` files under `src/devops_cli/ai/tasks/` rather than multi-line inline strings in Python code.
-8. **Target-Agnostic Code Analysis**: When inspecting target repositories, path resolution is anchored strictly relative to `target_dir` to prevent host file collisions.
-9. **Canonical Location Formatting**: All review findings, table rows, and terminal references follow the `filename.ext:n-n` or `filename.ext:line` convention.
-10. **Pre-1.0 Alpha Lifecycle & Zero Backwards Compatibility**: Prior to release `1.0.0`, `devops-cli` is active alpha software with zero backwards compatibility guarantees. The codebase must remain clean of legacy references, obsolete shims, and compatibility remnants at all times so that it can reach maturity at a reasonable rate. Any version after `1.0.0` will strictly follow Semantic Versioning (SemVer 2.0.0) with feature flags, formal deprecation cycles, and automated migration tooling.
 
 ---
 

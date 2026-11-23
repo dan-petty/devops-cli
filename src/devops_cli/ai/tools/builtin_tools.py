@@ -6,7 +6,7 @@ import logging
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from devops_cli.config.constants import (
     CONST_AGENT_SCAN_STATUS_WORDS,
@@ -566,3 +566,21 @@ def k8s_validate_manifests(target: str = ".") -> str:
     from devops_cli.security.kubeconform import run_kubeconform_validation
 
     return _run_adapter_scan("Kubeconform", target, run_kubeconform_validation)
+
+
+def project_digest() -> dict[str, Any]:
+    """Build the project digest of the current folder and return its sections, content hash and commit."""
+    from devops_cli.ai.project_digest import build_project_digest, head_commit
+
+    root = Path.cwd()
+    commit = head_commit(root)
+    digest = build_project_digest(root, commit=commit)
+    return {
+        "commands": digest.commands,
+        "settings": digest.settings,
+        "pins": digest.pins,
+        "architecture": digest.architecture,
+        "decisions": digest.decisions,
+        "content_hash": digest.content_hash,
+        "commit": digest.commit,
+    }

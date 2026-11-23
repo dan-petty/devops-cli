@@ -95,3 +95,15 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `topics` | [`observability_and_distributed_tracing.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/observability_and_distributed_tracing.md) | Observability And Distributed Tracing |
 | `topics` | [`rest_api_architecture_and_service_engineering.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/rest_api_architecture_and_service_engineering.md) | Rest Api Architecture And Service Engineering |
 | `topics` | [`zero_trust_security_and_compliance.md`](../src/devops_cli/ai/knowledge_base/it_domains/topics/zero_trust_security_and_compliance.md) | Zero Trust Security And Compliance |
+
+---
+
+## Project Digest
+
+Authoritative project facts generated at run time by the `project_digest` tool:
+
+- `commands`
+- `settings`
+- `pins`
+- `architecture`
+- `decisions`
