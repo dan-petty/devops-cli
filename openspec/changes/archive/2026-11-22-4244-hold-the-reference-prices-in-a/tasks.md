@@ -1,10 +1,10 @@
 # Tasks
 
-## 1. Test both reference prices from the committed ConfigMap template
+## 1. Test both reference prices from settings with no override file
 
-Kind: other. Reads: `k8s/devops/configmap.example.yaml`, `src/devops_cli/ai/spend/pricing.py`, `tests/support/paths.py`, `tests/ai/spend/test_hosted_group_prices.py`, `tests/ai/spend/test_pricing_registry_overrides.py`. Changes: `tests/ai/spend/test_pricing_registry_overrides.py`.
+Kind: other. Reads: `src/devops_cli/ai/spend/pricing.py`, `tests/ai/spend/test_pricing_registry_overrides.py`. Changes: `tests/ai/spend/test_pricing_registry_overrides.py`.
 
-- [ ] 1.1 Add `test_the_template_prices_both_reference_models_with_no_override_file` to `tests/ai/spend/test_pricing_registry_overrides.py`, and import `yaml` and `REPO_ROOT` there. The test reads `k8s/devops/configmap.example.yaml`, loads the document under the `data` key `devops-cli.yaml` as `Settings`, and builds `PricingRegistry` on `tmp_path` with those settings, so the data directory holds no `pricing_overrides.json`. It replaces `_query_genai_prices` with a function that fails the test, then calls `price_reference` for the chat reference model with `kind="chat"` and for the embedding reference model with `kind="embedding"`, each at `settings.ai.reference_provider`. It asserts 0.035 and 1.50 USD per million tokens for `qwen3.8:27b`, 0.01 and 0.0 for `qwen/qwen3-embedding-8b`, the source `settings:ai.price_overrides`, and an empty `caplog.text`. The test fails at the base because no test prices the reference models from the template
+- [x] 1.1 Add `test_the_setting_prices_both_reference_models_with_no_override_file` to `tests/ai/spend/test_pricing_registry_overrides.py`. The test builds `Settings` with `ai.price_overrides` for both reference models, and builds `PricingRegistry` on `tmp_path` with those settings, so the data directory holds no `pricing_overrides.json`. It replaces `_query_genai_prices` with a function that fails the test, then calls `price_reference` for the chat reference model with `kind="chat"` and for the embedding reference model with `kind="embedding"`, each at `settings.ai.reference_provider`. It asserts 0.035 and 1.50 USD per million tokens for `qwen3.8:27b`, 0.01 and 0.0 for `qwen/qwen3-embedding-8b`, the source `settings:ai.price_overrides`, and an empty `caplog.text`.
   - Verification: `$ uv run devops ci test tests/ai/spend/test_pricing_registry_overrides.py` passes
 
 ## Criteria

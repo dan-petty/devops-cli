@@ -2,7 +2,8 @@
 
 The file `pricing_overrides.json` in the data directory wins over the setting for one model. The
 setting and the file merge, and `devops ai cost set-price` never copies a price of the setting
-into the file.
+into the file. The setting holds the price of both reference models, so a new data volume needs
+no hand-written file (#4244).
 """
 
 from __future__ import annotations
@@ -182,4 +183,59 @@ def test_the_setting_loads_from_a_mapping_of_the_config_file() -> None:
 
     assert settings.ai.price_overrides[CHAT_MODEL] == AIPriceOverride(
         prompt_usd_per_million=0.035, completion_usd_per_million=1.5
+    )
+
+
+def test_the_setting_prices_both_reference_models_with_no_override_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The setting `ai.price_overrides` prices both reference models, so the reports show the
+    savings of a new data volume that holds no `pricing_overrides.json` (#4244)."""
+    settings = Settings(
+        ai=AIConfig(
+            reference_model=CHAT_MODEL,
+            reference_embedding_model=EMBEDDING_MODEL,
+            price_overrides={
+                CHAT_MODEL: AIPriceOverride(
+                    prompt_usd_per_million=0.035, completion_usd_per_million=1.5
+                ),
+                EMBEDDING_MODEL: AIPriceOverride(
+                    prompt_usd_per_million=0.01, completion_usd_per_million=0.0
+                ),
+            },
+        )
+    )
+    monkeypatch.setattr(
+        "devops_cli.ai.spend.pricing._query_genai_prices",
+        lambda *args, **kwargs: pytest.fail("the setting must price the reference models"),
+    )
+    registry = PricingRegistry(data_dir=tmp_path, settings=settings)
+
+    with caplog.at_level(logging.WARNING):
+        chat = registry.price_reference(
+            settings.ai.reference_model,
+            setting="ai.reference_model",
+            kind="chat",
+            provider=settings.ai.reference_provider,
+        )
+        embedding = registry.price_reference(
+            settings.ai.reference_embedding_model,
+            setting="ai.reference_embedding_model",
+            kind="embedding",
+            provider=settings.ai.reference_provider,
+        )
+
+    assert chat is not None, "the setting must price the chat reference model"
+    assert embedding is not None, "the setting must price the embedding reference model"
+    assert not (tmp_path / "ai" / "pricing_overrides.json").exists()
+    assert (
+        (settings.ai.reference_model, settings.ai.reference_embedding_model),
+        (chat.prompt_usd_per_million, chat.completion_usd_per_million, chat.source),
+        (embedding.prompt_usd_per_million, embedding.completion_usd_per_million, embedding.source),
+        caplog.text,
+    ) == (
+        (CHAT_MODEL, EMBEDDING_MODEL),
+        (0.035, 1.5, "settings:ai.price_overrides"),
+        (0.01, 0.0, "settings:ai.price_overrides"),
+        "",
     )
