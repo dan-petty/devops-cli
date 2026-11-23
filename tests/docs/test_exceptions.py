@@ -4,14 +4,8 @@ from __future__ import annotations
 
 import ast
 import inspect
-import json
-import os
 import re
-import subprocess
-import sys
 import textwrap
-
-import pytest
 
 from devops_cli.docs.generator import DocGenerator
 from devops_cli.exceptions import (
@@ -28,44 +22,6 @@ from devops_cli.exceptions import (
     ValidationError,
 )
 from tests.support.paths import REPO_ROOT
-
-# A pytest worker holds the modules that its earlier tests imported, so the probe runs in a fresh
-# interpreter. After the import step of the generator, it imports the module of each `.py` file of
-# the package that is not loaded yet, and prints those modules and the error classes that they
-# added (#6815).
-_UNLOADED_MODULES_PROBE = """\
-import importlib
-import json
-import sys
-from pathlib import Path
-
-import devops_cli
-from devops_cli.core.import_graph import module_name
-from devops_cli.docs.generator import DocGenerator
-from devops_cli.exceptions.base import DevOpsCLIError
-
-
-def error_classes():
-    found, pending = set(), [DevOpsCLIError]
-    while pending:
-        for sub in pending.pop().__subclasses__():
-            pending.append(sub)
-            found.add(f"{sub.__module__}.{sub.__qualname__}")
-    return found
-
-
-DocGenerator._import_all_exception_modules()
-loaded_errors = error_classes()
-package = Path(devops_cli.__file__).parent
-unloaded = []
-for path in sorted(package.rglob("*.py")):
-    name = module_name(path, package.parent)
-    if name not in sys.modules:
-        unloaded.append(name)
-        importlib.import_module(name)
-print(json.dumps({"modules": unloaded, "errors": sorted(error_classes() - loaded_errors)}))
-"""
-_CHILD_TIMEOUT_SECONDS = 180
 
 
 def test_base_devops_cli_error() -> None:
@@ -198,25 +154,20 @@ def _error_classes() -> list[type[DevOpsCLIError]]:
     return found
 
 
-@pytest.mark.live("python")
 def test_the_error_catalog_imports_the_module_of_each_source_file() -> None:
-    """The generator imports every module of devops-cli, so a new error class needs no list entry (#6815).
+    """The catalog imports the module of each `.py` file, so a new error class needs no list entry (#6815).
 
     A list of modules that a person kept left the four errors of `devops_cli.github.onboard` out
-    of docs/ERRORS.md, and no check failed.
+    of docs/ERRORS.md, and no check failed. The test compares names and not `sys.modules`. A
+    pytest worker holds the modules that its earlier tests imported.
     """
-    child = subprocess.run(
-        [sys.executable, "-P", "-c", _UNLOADED_MODULES_PROBE],
-        cwd=REPO_ROOT,
-        env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")},
-        capture_output=True,
-        text=True,
-        timeout=_CHILD_TIMEOUT_SECONDS,
-        check=False,
+    src = REPO_ROOT / "src"
+    files = (
+        path.relative_to(src).with_suffix("").parts for path in (src / "devops_cli").rglob("*.py")
     )
+    expected = {".".join(parts[:-1] if parts[-1] == "__init__" else parts) for parts in files}
 
-    assert child.returncode == 0, child.stderr
-    assert json.loads(child.stdout) == {"modules": [], "errors": []}
+    assert set(DocGenerator.catalog_module_names()) == expected
 
 
 def _declared_codes(cls: type[DevOpsCLIError]) -> tuple[object, object]:
