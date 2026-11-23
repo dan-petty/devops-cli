@@ -61,7 +61,7 @@ The store SHALL keep an Item's job record in a block `<!-- devops-roadmap-record
 - **THEN** the store reads the issue with an empty job record
 
 ### Requirement: Only the comment at the end of the body is the record block
-The store SHALL read as the job record block only a comment that is the last block of the issue body. A person can open a fence, or an HTML block that only an end text ends, above the record block. Then the store SHALL read a record block with a JSON object on the last line of the body. Each other quote of the block in a code span or a code block, and a comment that more text follows, SHALL stay in the body, SHALL read as no record and SHALL log no warning.
+The store SHALL read as the job record block only a comment that is the last block of the issue body. A person can open a fence or an HTML block above the record block and not close it. Only a blank line closes an HTML block such as `<details>`. Then the store SHALL read the record with a JSON object on the last line. Each other quote of the block in a code span or a code block SHALL stay in the body. So SHALL a comment that more text follows. Neither SHALL read as a record or log a warning.
 
 #### Scenario: A body quotes the record format
 - **WHEN** the body of an issue quotes the record block in a code span, a fenced code block or an indented code block, or holds the comment before more text
@@ -90,6 +90,12 @@ The store SHALL read as the job record block only a comment that is the last blo
 #### Scenario: The GitHub store keeps the record below an open block
 - **WHEN** the GitHub store writes two marks from one read of an issue in which a person opened a fence above the record block
 - **THEN** it sends one `PATCH` for each mark, the record holds the keys of the old record and both marks, and `devops_cli_roadmap_record_lost_edit_total` does not change
+
+#### Scenario: A person puts an HTML block directly above the record
+- **WHEN** a person puts `<details>`, `<div>` or `<div>x</div>` on the line directly above the record block that a job wrote
+- **THEN** the store reads the record, and the body that it gives is the body of the person without the record line
+- **AND** the next write of a mark puts a blank line before the record block
+- **AND** the body holds one record block with the keys of the old record and the mark
 
 ### Requirement: No roadmap job reads or writes a project board
 Intake, refine, return, run and the project metrics SHALL send no request to GitHub Projects, and SHALL read no `.github/roadmap.toml`.
