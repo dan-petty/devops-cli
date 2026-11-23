@@ -3196,6 +3196,12 @@ class RoadmapMessages:
         "--confirm applies to --decline only: a consolidate run writes a local plan and no GitHub "
         "change."
     )
+    consolidate_apply_needs_confirm: str = (
+        "--apply needs --confirm: run with --confirm to apply the group."
+    )
+    consolidate_apply_unknown: str = (
+        "The last plan holds no group {group}. Run consolidate, then give an id from its summary."
+    )
     retitle_title: str = "# Retitle for {repo}"
     retitle_none: str = (
         "No open item has a title summary over {limit} characters or a title type that the "

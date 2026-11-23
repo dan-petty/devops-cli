@@ -13,9 +13,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli
 
 Kind: behavior. Reads: `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/consolidate.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/support/fakes/roadmap_store.py`, `tests/roadmap/test_roadmap_consolidate.py`. Changes: `src/devops_cli/lang/en/messages.py`, `src/devops_cli/roadmap/consolidate.py`, `src/devops_cli/roadmap/consolidate_apply.py` (new), `tests/roadmap/test_roadmap_consolidate_apply.py` (new).
 
-- [ ] 2.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_apply_without_confirm_writes_nothing` and `test_unknown_group_id_writes_nothing`
+- [x] 2.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_apply_without_confirm_writes_nothing` and `test_unknown_group_id_writes_nothing`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` fails on the base
-- [ ] 2.2 Rename `_last_plan` to `last_plan` in `src/devops_cli/roadmap/consolidate.py` and update its two callers. Add `src/devops_cli/roadmap/consolidate_apply.py` with `group_of(plan, group_id)` and `apply_group(store, plan, group_id, *, confirm)`, which refuse a run with no confirmation and a group id that the plan does not hold, resolve every target from the group and the plan's member list, and dispatch one writer by `Shape`. Write each refusal message in `src/devops_cli/lang/en/messages.py`
+- [x] 2.2 Rename `_last_plan` to `last_plan` in `src/devops_cli/roadmap/consolidate.py` and update its two callers. Add `src/devops_cli/roadmap/consolidate_apply.py` with `group_of(plan, group_id)` and `apply_group(store, plan, group_id, *, confirm)`, which refuse a run with no confirmation and a group id that the plan does not hold, resolve every target from the group and the plan's member list, and dispatch one writer by `Shape`. Write each refusal message in `src/devops_cli/lang/en/messages.py`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` passes
 
 ## 3. Add the apply option and its documentation
