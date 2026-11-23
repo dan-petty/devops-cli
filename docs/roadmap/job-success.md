@@ -15,7 +15,7 @@ roadmap job result: job=<job> repo=<owner/repo> item=#<n> result=<result> succes
 - `job` is `stage`, `implement`, `refine`, `refine_judge`, `alternatives`, `intake`, `fix_plan`, `fix_checks`, `retitle` or `review`.
 - `success` is `true` when the result is the intended result of the job (table below).
 - `class` is the failure class of `roadmap/failure.py`, or `none`.
-- `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom` and `limit_reached`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
+- `infra` is `true` for a class that a cut of the infrastructure gives: `provider`, `ci_infra`, `oom`, `limit_reached` and `spend_limit`. The ratio of the dashboard counts these attempts as failures and shows their share apart. The job grade leaves them out of `p`.
 - `first_pass` is `true` when the attempt succeeded with no fix round (table below, #5168).
 - The counts and the names of the job follow, and the devops-cli version ends the line, so a query can compare two images. Every attempt logs `model_calls`, `tokens`, `seconds`, `cost_usd_micros` and `gh_requests` when recorded in its attempt context (#5168).
 

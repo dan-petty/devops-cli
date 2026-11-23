@@ -13,6 +13,8 @@
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/implement/test_roadmap_implement_submit.py`
 - [x] 2.2 Add the class, its action, its entry in `CLASS_BY_EXCEPTION` and `RETRY_AFTER`, and the text rule made from the message
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_failure.py tests/roadmap/stage/test_roadmap_stage_retry_after.py tests/roadmap/stage/test_roadmap_stage_job_entry.py tests/roadmap/implement/test_roadmap_implement_submit.py tests/roadmap/test_roadmap_faults.py`
+- [x] 2.3 Write a failing test: a result line of a stage or implement attempt with the class `spend_limit` has `infra=true`; add the class to `INFRA_CLASSES`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_job_result.py`
 
 ## 3. Manifests: the alert
 

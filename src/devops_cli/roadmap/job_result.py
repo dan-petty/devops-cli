@@ -184,7 +184,8 @@ def is_first_pass(job: RoadmapJob, result: str, counts: Mapping[str, int]) -> bo
 
 
 # The failure classes that a cut of the infrastructure gives: the model provider, the CI or the
-# cluster, the memory of a pod, and a used budget. The ratio of the dashboard counts them as
+# cluster, the memory of a pod, a used budget, and a provider key that reached its spend limit
+# (#6821). The ratio of the dashboard counts them as
 # failures and shows their share apart. The job grade (`roadmap/job_grade.py`) leaves them out of
 # its ratio, because the action of a grade is for the job.
 INFRA_CLASSES: Final[frozenset[FailureClass]] = frozenset(
@@ -193,6 +194,7 @@ INFRA_CLASSES: Final[frozenset[FailureClass]] = frozenset(
         FailureClass.CI_INFRA,
         FailureClass.OOM,
         FailureClass.LIMIT_REACHED,
+        FailureClass.SPEND_LIMIT,
     }
 )
 
