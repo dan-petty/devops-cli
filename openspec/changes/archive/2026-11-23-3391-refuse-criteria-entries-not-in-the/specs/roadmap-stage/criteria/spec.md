@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: An unmapped criterion is refused
-`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, an entry that names a group the plan does not have, and an entry whose text is not an acceptance criterion that a person wrote in the issue body. The problem SHALL quote the exact text of the entry. The check SHALL read the body of the issue with the block of the refine job cut off, so a list inside that block is no criterion. The stage prompt `src/devops_cli/ai/tasks/roadmap_stage_change.md` SHALL state that the check refuses an entry that no person wrote.
+`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, an entry that names a group the plan does not have, and an entry whose text is not an acceptance criterion that a person wrote in the issue body. The problem SHALL quote the exact text of the entry. The check SHALL read the body of the issue with the block of the refine job cut off. The stage prompt SHALL state that the check refuses an entry that no person wrote.
 
 #### Scenario: One of three criteria is unmapped
 - **WHEN** The issue has three acceptance criteria and the reply's `criteria` list maps only two

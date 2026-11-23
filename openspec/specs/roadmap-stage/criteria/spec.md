@@ -44,7 +44,7 @@ The stage reply SHALL hold a `criteria` list in which each entry gives the text 
 - **THEN** `criterion_problems` reports the unmatched entry
 
 ### Requirement: An unmapped criterion is refused
-`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, and an entry that names a group the plan does not have. The problem SHALL quote the exact text of the criterion. The check SHALL read the whole body of the issue.
+`check_proposal` SHALL refuse a reply that leaves an acceptance criterion of the issue with no entry in `criteria`, an entry that names a group the plan does not have, and an entry whose text is not an acceptance criterion that a person wrote in the issue body. The problem SHALL quote the exact text of the entry. The check SHALL read the body of the issue with the block of the refine job cut off. The stage prompt SHALL state that the check refuses an entry that no person wrote.
 
 #### Scenario: One of three criteria is unmapped
 - **WHEN** The issue has three acceptance criteria and the reply's `criteria` list maps only two
@@ -57,6 +57,14 @@ The stage reply SHALL hold a `criteria` list in which each entry gives the text 
 #### Scenario: An entry names a group that does not exist
 - **WHEN** An entry of `criteria` names group 3 and the plan has 2 groups
 - **THEN** `check_proposal` returns a problem that names the criterion and the count of groups
+
+#### Scenario: An entry copies a criterion of the refine block
+- **WHEN** The issue body has no `Acceptance criteria` heading outside the refine block and the reply holds one criterion of the refine block
+- **THEN** `check_proposal` returns one problem that quotes the copied criterion and says that no person wrote it
+
+#### Scenario: An issue with no person-written list takes an empty list
+- **WHEN** The issue body has no `Acceptance criteria` heading outside the refine block and the reply's `criteria` list is empty
+- **THEN** `check_proposal` returns no problem for the criteria mapping
 
 ### Requirement: Criteria section in tasks.md
 The `tasks.md` of a staged plan SHALL hold a `## Criteria` section before `## Workflow follow-up`. It SHALL list each criterion as a bullet with no checkbox, and each bullet SHALL start with a fixed word: `Group <n>:` and the criterion, or `Pending person:`, the criterion and the reason. A criterion that reads as a heading or a task SHALL add no group and no task.
@@ -81,7 +89,7 @@ The split request SHALL hold the `criteria` list, the split reply SHALL give it 
 - **THEN** `tasks.md` shows the new numbers
 
 ### Requirement: The replay judges the criteria gate on plans with a criteria list
-The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none.
+The golden-set replay SHALL run the `criteria` gate on a plan that has a `criteria` list, and SHALL not judge a recorded plan that has none. The `criteria` gate SHALL refuse a plan with an entry that no person wrote.
 
 #### Scenario: A plan leaves a criterion out
 - **WHEN** The replay runs a plan with a `criteria` list that leaves one criterion of its issue out
@@ -90,6 +98,10 @@ The golden-set replay SHALL run the `criteria` gate on a plan that has a `criter
 #### Scenario: A recorded plan has no list
 - **WHEN** The replay runs a recorded plan with no `criteria` key
 - **THEN** the `criteria` gate finds no problem
+
+#### Scenario: The criteria gate refuses an entry that no person wrote
+- **WHEN** The replay runs a plan whose `criteria` entry names a criterion that no person wrote in the issue body
+- **THEN** the `criteria` gate returns one problem that quotes the unknown entry
 
 ### Requirement: A struck-through acceptance criterion is not a criterion
 `acceptance_criteria` SHALL omit a top-level checklist item whose text starts and ends with `~~`, whether the task marker is unchecked or checked. It SHALL keep a non-struck item, an inline `~~` span included, in its original order.
