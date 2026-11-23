@@ -32,8 +32,8 @@ misconfigurations:
   - id: DS-0029
     paths:
       - .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile
-    statement: Harbor task-template Dockerfile in local virtualenv (#5947)
-    expired_at: 2026-11-19
+    statement: Harbor task-template Dockerfile in local virtualenv (#5947, #6856)
+    expired_at: 2026-11-26
   - id: DS-0002
     paths:
       - .venv/lib/python3.14/site-packages/harbor/cli/template-adapter/task-template/environment/Dockerfile
