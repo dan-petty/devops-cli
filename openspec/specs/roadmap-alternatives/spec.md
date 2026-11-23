@@ -944,7 +944,7 @@ The alternatives job SHALL accept the source URL of a page that `fetch_page` rea
 - **THEN** the plan holds no check, and its failure has the reason code `url`
 
 ### Requirement: A marker bounds a block only as an HTML block
-A check SHALL treat a marker as a block boundary only where CommonMark parses it as an HTML block of its own. A marker on the whole last line of a comment or of a declaration such as `<!DOCTYPE` SHALL be a boundary too. A marker that a person quotes in a code span, a code block or a paragraph SHALL stay in the text of the person. The check SHALL add its block at the end of a body that holds no such pair. A start marker or an end marker that is a boundary with no partner SHALL stop the write.
+A check SHALL treat a marker as a block boundary only where CommonMark parses it as an HTML block of its own. A marker on the last line of a comment or a declaration SHALL be a boundary too. So SHALL a marker line in an HTML block that only a blank line ends, if it starts the job blocks at the end. Each other marker that a person writes SHALL stay their text. The check SHALL add its block at the end of a body with no such pair. A boundary marker with no partner SHALL stop the write.
 
 #### Scenario: The body quotes both markers
 - **WHEN** a body quotes the alternatives start marker and the alternatives end marker in code spans, with the word to between them
@@ -966,6 +966,16 @@ A check SHALL treat a marker as a block boundary only where CommonMark parses it
 #### Scenario: A person opens a declaration above the block
 - **WHEN** the body holds an alternatives block, and a person writes `<!DOCTYPE html` above it with no `>`
 - **THEN** the start marker ends the declaration and bounds the block
+
+#### Scenario: A person removes the blank line above the block
+- **WHEN** the body holds an alternatives block, and a person puts a `<details>` part or `<div>x</div>` directly above it
+- **AND** the check runs three times on the item
+- **THEN** the first write adds a blank line after the text of the person and replaces the block in place
+- **AND** after each run the body holds one block, and only the first run checks the item
+
+#### Scenario: A person writes a lone start marker in a div block
+- **WHEN** a body holds no alternatives block, and a person writes the start marker of the check in a `<div>` block
+- **THEN** the check writes its block at the end of the body and keeps each line of the `<div>` block
 
 ### Requirement: A check keeps its block readable after an open block
 The check SHALL close a code fence or an HTML block that its own text leaves open, before its end marker. When the body ends in an open code fence or HTML block where the check adds its block, the check SHALL close that block on a line of its own before the start marker. The check SHALL record as `alternatives.body_hash` the hash of the body that it writes, so the next run finds one block and reads the item as unchanged.

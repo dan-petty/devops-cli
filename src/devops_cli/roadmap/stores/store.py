@@ -968,23 +968,29 @@ def _json_object(text: str) -> dict[str, Any] | None:
     return held if isinstance(held, dict) else None
 
 
-def _record_below_open_block(body: str) -> tuple[str, dict[str, Any]] | None:
+def _record_below_open_block(
+    body: str, last: tuple[int, int] | None
+) -> tuple[str, dict[str, Any]] | None:
     """The text before the last line of `body`, and the JSON object of that line, or None. The
     line must be the record block at the end of a block that `body` opens above it (#6785).
+    `last` is the start and the end of the last block of `body` when it is an HTML block.
 
     A person can open a fenced code block or an HTML block above the record block that a job
     wrote, and not close it. CommonMark then reads the record line as the last line of that
     block. A fence or a `<pre>` block runs to the end of the body. A comment ends at the record
     line, because that line is the first line that holds `-->`. The job block readers end such a
     block at the job blocks at its end (#6736). There, `close_open_block` decides that the block
-    is open. The record line ends the block for a read when three conditions are true. CommonMark
+    is open. Only a blank line ends an HTML block such as `<details>` or `<div>`. A person can
+    put such a line directly above the record, so the record line is the last line of that block
+    (#6791). `ends_at_a_blank_line` of `body_hash` tells that kind of the last block, with no new
+    parse. The record line ends the block for a read when three conditions are true. CommonMark
     parses the line alone as the record block. The line holds a JSON object. The text before the
-    line leaves a block open. A job writes no other record, so each other line stays the text of
-    the person, with no warning. CommonMark cannot tell a quote of the record that holds a JSON
-    object from the record. So such a quote on the last line of an open block reads as the
-    record."""
+    line leaves a block open, or the last block is of that kind and starts above the line. A job
+    writes no other record, so each other line stays the text of the person, with no warning.
+    CommonMark cannot tell a quote of the record that holds a JSON object from the record. So such
+    a quote on the last line of an open block reads as the record."""
     # `body_hash` imports this module, so the import waits for the first call.
-    from devops_cli.roadmap.body_hash import close_open_block
+    from devops_cli.roadmap.body_hash import close_open_block, ends_at_a_blank_line
 
     text = body.rstrip()
     start = max(text.rfind("\n"), text.rfind("\r")) + 1
@@ -993,8 +999,13 @@ def _record_below_open_block(body: str) -> tuple[str, dict[str, Any]] | None:
     if found is None or _record_block_span(line) is None:
         return None
     held = _json_object(found.group("record"))
+    if held is None:
+        return None
     rest = _without_separator(body[:start])
-    if held is None or close_open_block(rest) == rest:
+    in_html_block = (
+        last is not None and last[0] < start and ends_at_a_blank_line(body[last[0] : last[1]])
+    )
+    if not in_html_block and close_open_block(rest) == rest:
         return None
     return rest, held
 
@@ -1007,17 +1018,19 @@ def split_record(body: str, *, issue: str = "an issue") -> tuple[str, dict[str, 
     goes with it, so a body read back after `with_record` is the body written. If the body left
     a block open at its end, the read gives the body with the close of that block (#6729). A
     person can later open a block above the record block. The record line then ends that block
-    for the read, and the next write closes the block before the record (#6785). A body that
-    does not hold the block's opening text is not parsed: most issues and every pull request of
-    a listing have no record (#4445). Only a body whose last block is not the record gets a
-    second parse.
+    for the read, and the next write closes the block before the record (#6785). A person can
+    also remove the blank line between an HTML block such as `<details>` and the record. The
+    record line then ends that block for the read, and the next write puts the blank line back
+    (#6791). A body that does not hold the block's opening text is not parsed. Most issues and
+    every pull request of a listing have no record (#4445). Only a body whose last block is not
+    the record gets a second parse.
     """
     if _RECORD_OPENER not in body:
         return body, {}
     span = _record_block_span(body)
     found = _RECORD_BLOCK.fullmatch(body[span[0] : span[1]].strip()) if span else None
     if span is None or found is None:
-        return _record_below_open_block(body) or (body, {})
+        return _record_below_open_block(body, span) or (body, {})
     rest = _without_separator(body[: span[0]])
     held = _json_object(found.group("record"))
     if held is None:
