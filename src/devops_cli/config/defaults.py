@@ -714,6 +714,11 @@ DEFAULT_PROBE_POD_START_SECONDS: int = 120
 DEFAULT_PROBE_CONNECT_SECONDS: int = 3
 # The pod stops itself after this time, so a pod that `kubectl delete` missed does not stay.
 DEFAULT_PROBE_POD_LIFETIME_SECONDS: int = 600
+# Seconds that an HTTP probe retries a refused connection, its overall deadline, and one wait between
+# two attempts.
+DEFAULT_PROBE_WAIT_SECONDS: int = 20
+DEFAULT_PROBE_TIMEOUT_SECONDS: int = 60
+DEFAULT_PROBE_RETRY_SECONDS: int = 2
 
 DEFAULT_SIGNATURE_BODY: str = "..."
 DEFAULT_TOOL_INTERFACE_FORMAT: Literal["python", "markdown"] = "python"

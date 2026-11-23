@@ -618,6 +618,39 @@ devops k8s searxng-check [OPTIONS]
 
 ---
 
+## `devops k8s probe`
+
+**Probe one URL from one throwaway pod that carries a label, so the network policy of that
+label applies to it. It starts one pod, sends the request from it with kubectl exec and curl,
+and prints the HTTP status, or the exit code of curl for a path that no response reaches. It
+sends the request again while curl exits 7, the code of a refused connection, until kube-router
+programs the policy of the new pod and the --wait deadline passes. It deletes the pod, also
+after an error or the --timeout deadline. Each header value travels to curl on the standard
+input of the exec call, so no command line and no output holds it. A blocked path prints
+curl_exit=7 and exits 0: it is a measurement of the policy, not a fault. Exits non-zero when
+the probe measured nothing.**
+
+```bash
+devops k8s probe [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--label` | `string` | - | Label of the probe pod as key=value. Give the label of the workload whose network policy you test, so the policy applies to the pod. Repeat the option for each label. |
+| `--url` | `string` | - | The http or https URL of the request that the probe pod sends. |
+| `--method` | `string` | `GET` | HTTP method of the request (default: GET). |
+| `--header` | `string` | - | Header of the request as 'Name: value'. Repeat the option for each header. The value travels to curl on the standard input of the exec call, so no command line and no output holds it. |
+| `--namespace` | `string` | `devops` | Kubernetes namespace. |
+| `--image` | `string` | `curlimages/curl:8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93` | Image of the probe pod, pinned by digest: a value without @sha256: is refused before any kubectl call. The image must hold curl. Default: the pinned curlimages/curl. |
+| `--wait` | `float` | `20` | Seconds to send the request again while the pod's curl exits 7, the code of a refused connection, until kube-router programs the policy of the new pod. |
+| `--timeout` | `float` | `60` | Seconds after which the whole probe stops with a timeout, the start of the pod included. |
+| `--context` | `string` | - | Kubernetes cluster context name. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s create-tls-secret`
 
 **Create or update a kubernetes.io/tls secret from certificate and private key files.**

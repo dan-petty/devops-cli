@@ -147,6 +147,15 @@ also tries three connects from two throwaway pods, so the NetworkPolicy applies 
 pod that is not a client of the service to port 8080, and a pod with the label of the service
 to the metadata address and to a private ClusterIP. Run it at each bump of the image digest.
 Exits 1 when a row fails or a pod opens a connection. |
+|  | `devops k8s probe [OPTIONS]` | Probe one URL from one throwaway pod that carries a label, so the network policy of that
+label applies to it. It starts one pod, sends the request from it with kubectl exec and curl,
+and prints the HTTP status, or the exit code of curl for a path that no response reaches. It
+sends the request again while curl exits 7, the code of a refused connection, until kube-router
+programs the policy of the new pod and the --wait deadline passes. It deletes the pod, also
+after an error or the --timeout deadline. Each header value travels to curl on the standard
+input of the exec call, so no command line and no output holds it. A blocked path prints
+curl_exit=7 and exits 0: it is a measurement of the policy, not a fault. Exits non-zero when
+the probe measured nothing. |
 |  | `devops k8s create-tls-secret [OPTIONS] <secret_name>` | Create or update a kubernetes.io/tls secret from certificate and private key files. |
 |  | `devops k8s enable-tls [OPTIONS]` | Generate Homelab certificates and apply TLS secrets across Kubernetes cluster namespaces. |
 |  | `devops k8s validate [OPTIONS] <manifest_path>` | Validate Kubernetes YAML manifests against OpenAPI schemas using Kubeconform. |
