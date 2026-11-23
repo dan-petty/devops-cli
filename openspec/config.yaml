@@ -32,7 +32,7 @@ rules:
       Never add a requirement for compatibility with the old behavior.
   design:
     - >-
-      Record each rejected alternative with the evidence that rejected it.
+      Record each rejected alternative with the evidence that rejected it. A plan with a decision gives at least one rejected alternative under `## Rejected alternatives`, and its evidence holds a cited path or symbol, a `path:line`, a quoted command output or a number.
   tasks:
     - >-
       Write the tasks of the one pull request in "## <n>. <Group title>" groups. The pull request that closes the issue leaves no task unticked.

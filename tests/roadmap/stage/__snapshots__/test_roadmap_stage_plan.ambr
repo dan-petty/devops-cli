@@ -15,7 +15,7 @@
       
       ## Rejected alternatives
       
-      - **A new class**: The list already holds the data.
+      - **A new class**: src/devops_cli/roadmap/stage/stage_change.py:1866: the list already holds the data.
   
     ''',
     'openspec/changes/1-the-job-drops-a-comment/proposal.md': '''

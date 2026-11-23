@@ -31,7 +31,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 Cli = Callable[..., Any]
 CHANGE = "1-the-job-drops-a-comment"
 SET = REPO_ROOT / CASES_DIRECTORY
-CASES_COUNT = 62
+CASES_COUNT = 63
 
 
 @pytest.fixture(scope="module")
@@ -76,10 +76,10 @@ def test_the_replay_exits_0_and_lists_what_each_gate_caught(cli: Cli) -> None:
     result = _eval(cli, "--replay")
 
     assert result.exit_code == 0, result.output
-    assert "replay through the gates: 62 case(s), 6 good" in result.output
+    assert "replay through the gates: 63 case(s), 6 good" in result.output
     assert "paths    #3010" in result.output
     assert "spec_delta_wrong" in result.output
-    assert "Defects that a gate judges: 86 of 323 (27%)." in result.output
+    assert "Defects that a gate judges: 87 of 324 (27%)." in result.output
     assert "Defects that wait for a gate" not in result.output
     assert "Good plans that every gate accepts: 6 of 6." in result.output
     assert "Result: every gate refuses what it must refuse." in result.output
@@ -98,7 +98,7 @@ def test_the_replay_as_json_holds_the_totals_of_each_gate(cli: Cli) -> None:
         ("prompt_keys", 0),
     ]
     assert report["failures"] == []
-    assert report["defects"] == {"judged": 86, "known": 323}
+    assert report["defects"] == {"judged": 87, "known": 324}
     assert {t["type"]: (t["caught"], t["missed"], t["unjudged"]) for t in report["types"]}[
         "verify_form"
     ] == (7, 0, 12)
@@ -227,7 +227,14 @@ def _live_run(
     monkeypatch.setattr(factory, "get_task_model", task_model)
     folder = _live_set(tmp_path, stage_repo, cases)
     result = _eval(
-        cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "m-1", *flags
+        cli,
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "m-1",
+        *flags,
     )
     return result, asked
 
@@ -339,7 +346,8 @@ def _copy_of_the_live_case(folder: Path, name: str, **changes: str) -> None:
     shutil.copytree(folder / "live-case", folder / name)
     path = folder / name / "case.json"
     path.write_text(
-        json.dumps({**json.loads(path.read_text(encoding="utf-8")), **changes}), encoding="utf-8"
+        json.dumps({**json.loads(path.read_text(encoding="utf-8")), **changes}),
+        encoding="utf-8",
     )
 
 
@@ -449,7 +457,11 @@ def test_a_commit_that_the_repository_lacks_ends_its_case_and_the_other_case_is_
     assert result.exit_code == 1
     assert "1 case(s) could not run" in result.output
     report = _stored_report(result)
-    assert (report["cases"], report["ended"]["staged"], report["ended"]["failed"]) == (2, 1, 1)
+    assert (report["cases"], report["ended"]["staged"], report["ended"]["failed"]) == (
+        2,
+        1,
+        1,
+    )
 
 
 def _stored_report(result: Any) -> dict[str, Any]:
@@ -511,7 +523,13 @@ def test_the_report_names_no_spend_for_a_model_that_has_no_price(
     monkeypatch.setattr(factory, "get_task_model", lambda name, *, settings=None: script.model())
 
     result = _eval(
-        cli, "--cases", str(folder), "--source", str(stage_repo.clone), "--model", "no-such-model-1"
+        cli,
+        "--cases",
+        str(folder),
+        "--source",
+        str(stage_repo.clone),
+        "--model",
+        "no-such-model-1",
     )
 
     assert result.exit_code == 0, result.output

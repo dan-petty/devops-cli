@@ -1,0 +1,34 @@
+{
+ "issue": 2877,
+ "pull": 3168,
+ "title": "docs(openspec): plan #2877 Read check runs only in the implement watch",
+ "change": "2877-the-implement-job-watch-reads-commit",
+ "merge_commit": "0000000000000000000000000000000000000000",
+ "base_commit": "0000000000000000000000000000000000000000",
+ "verdict": "needs-fix",
+ "scores": {
+  "premise_ok": 5,
+  "fidelity": 4,
+  "task_quality": 4,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "state": "open",
+ "summary": "The plan states a decision and gives no rejected alternative. The stage check refuses the plan and requires at least one rejected alternative under `## Rejected alternatives`.",
+ "notes": [
+  "The plan is a synthetic defective plan based on #2877 that holds one decision and an empty `rejected` list.",
+  "The change was never merged as this plan, so `pull`, `merge_commit` and `base_commit` hold placeholders: the case reads no commit, and the facts hold the files of its tree."
+ ],
+ "defects": [
+  {
+   "type": "other",
+   "severity": "major",
+   "where": "design.md",
+   "problem": "The plan states a decision and gives no rejected alternative.",
+   "evidence": "The plan holds a decision and `rejected` is empty.",
+   "gate": "content",
+   "paths": [],
+   "message": "The plan states the decision 'Use read_check_runs in the watch' and gives no rejected alternative. Add at least one alternative to the `## Rejected alternatives` section of `design.md`."
+  }
+ ]
+}

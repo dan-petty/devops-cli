@@ -414,3 +414,10 @@ A finding of the review SHALL stay open when its quote, with white space folded,
 #### Scenario: A finding that quotes a requirement outside the bound
 - **WHEN** A review finding quotes a requirement that the stage context does not hold.
 - **THEN** The finding is advice, and the test asserts it.
+
+### Requirement: The verification prompt names the rejected alternatives
+The stage verification prompt SHALL name the rejected alternatives of the plan and the false premise finding that a fact the repository contradicts requires.
+
+#### Scenario: The verification prompt holds the rule
+- **WHEN** A test reads the stage verification prompt
+- **THEN** The text names the rejected alternatives and the false premise finding

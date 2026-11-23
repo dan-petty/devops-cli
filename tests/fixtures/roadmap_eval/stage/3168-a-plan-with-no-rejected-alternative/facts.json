@@ -1,0 +1,9 @@
+{
+ "tracked": [
+  "src/devops_cli/github/check_verdict.py",
+  "tests/github/test_check_verdict.py"
+ ],
+ "capabilities": [
+  "github-checks"
+ ]
+}

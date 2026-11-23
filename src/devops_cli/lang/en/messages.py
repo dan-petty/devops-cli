@@ -5292,6 +5292,15 @@ class RoadmapMessages:
         "The plan matches the security trigger `{trigger}` and has no security text. Add a "
         "non-blank `## Security` section to `design.md`."
     )
+    # A plan with a decision requires at least one rejected alternative with a fact (#3257).
+    stage_problem_no_alternative: str = (
+        "The plan states the decision '{decision}' and gives no rejected alternative. Add at least "
+        "one alternative to the `## Rejected alternatives` section of `design.md`."
+    )
+    stage_problem_alternative_fact: str = (
+        "The rejected alternative '{alternative}' gives only an opinion. State a fact: a cited path "
+        "or symbol, a line, a quoted command output, or a number."
+    )
     # An other group that changes only tests names the test function that it updates (#3433).
     stage_problem_test_only: str = (
         "The group '{title}' changes only tests, and its implementation names no test function in "

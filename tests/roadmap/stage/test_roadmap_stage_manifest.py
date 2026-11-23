@@ -113,7 +113,7 @@ PLAN_OF_THIS_CHANGE: dict[str, Any] = {
     "rejected": [
         {
             "alternative": "Name the kind test-first",
-            "evidence": "The name states the form and not the artifact, so a second form needs a third name.",
+            "evidence": "In `src/devops_cli/roadmap/stage/stage_change.py`, the name states the form and not the artifact, so a second form needs a third name.",
         }
     ],
     "groups": [
