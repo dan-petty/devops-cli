@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.201.0](https://github.com/dan-petty/devops-cli/compare/v0.200.1...v0.201.0) (2026-11-23)
+
+
+### Features
+
+* **ai:** generate the project digest from code at start ([#6862](https://github.com/dan-petty/devops-cli/issues/6862)) ([4042b02](https://github.com/dan-petty/devops-cli/commit/4042b02627fd9c84160b89e28f00a8094a42faae))
+* **research:** agent judges findings with read tools ([#6863](https://github.com/dan-petty/devops-cli/issues/6863)) ([9cc9877](https://github.com/dan-petty/devops-cli/commit/9cc98773ee4b0374e0f0facef50723fa2c68b9ce))
+* **research:** ask mode reads the index before the web ([#6867](https://github.com/dan-petty/devops-cli/issues/6867)) ([94d5190](https://github.com/dan-petty/devops-cli/commit/94d51907d2656b974478ebbe49eac48b1db4d77f))
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#6872](https://github.com/dan-petty/devops-cli/issues/6872)) ([4383eeb](https://github.com/dan-petty/devops-cli/commit/4383eeb9789c7a1d4a53726a8addd57ca2c266b3))
+
 ## [0.200.1](https://github.com/dan-petty/devops-cli/compare/v0.200.0...v0.200.1) (2026-11-23)
 
 
