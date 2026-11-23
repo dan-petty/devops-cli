@@ -49,6 +49,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     Verdict,
     left_out_note,
 )
+from devops_cli.roadmap.stage.stage_specs import read_base_specs
 from devops_cli.roadmap.stage.stage_toolbox import ToolboxClient, ToolboxModel, review
 from devops_cli.roadmap.stage.stage_verify import Finding, VerificationInput, open_findings
 
@@ -299,6 +300,7 @@ def _run_cases(
                     body=case.issue_body,
                     plan=case.plan,
                     source=source,
+                    specs=read_base_specs(source, tool),
                     window=task_window(_TASK),
                 )
                 reviewer = ToolboxClient(

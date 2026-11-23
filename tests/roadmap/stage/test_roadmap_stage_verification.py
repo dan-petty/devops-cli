@@ -133,6 +133,37 @@ def test_the_verifier_gets_the_issue_the_plan_and_the_cited_files_once_the_gates
     assert request["plan"]["summary"] == "Stop the job dropping a comment"
     assert SAMPLE_QUOTE in request["files"]["src/devops_cli/sample.py"]
     assert "tests/test_sample.py" not in request["files"]
+    assert "requirements" not in request
+
+
+@pytest.mark.usefixtures("openspec")
+def test_a_conflicting_added_requirement_that_quotes_the_context_stays_open(
+    stage_repo: StageRepo, model_fake: ModelFake, verifier: ModelFake
+) -> None:
+    quote = "The job SHALL keep every comment of a thread."
+    stage_repo.track(
+        {
+            "openspec/specs/custom-cap/spec.md": (
+                "# custom-cap Specification\n\n"
+                "## Purpose\nCustom purpose.\n\n"
+                "## Requirements\n\n"
+                f"### Requirement: Keep comments\n{quote}\n"
+            )
+        }
+    )
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    seed_stageable(
+        store, body=f"The job drops the last comment. Run `devops custom` and note: {quote}"
+    )
+    proposal = make_stage_proposal()
+    finding = _finding(DefectType.SPEC_DELTA_WRONG, quote)
+    model_fake.answer(proposal)
+    verifier.answer(Verification(findings=[finding]), later_review(HOLDS))
+
+    plan = _plan(store, stage_repo, verifier)
+
+    (change,) = plan.ready
+    assert change.open_findings == (finding,)
 
 
 def test_the_planner_without_a_verifier_makes_no_verification_call(

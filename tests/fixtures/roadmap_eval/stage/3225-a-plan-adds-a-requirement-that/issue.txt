@@ -1,0 +1,95 @@
+### What happened
+
+Every attempt of a step uses the same model tier. The Service runs on the homelab tiers, and the XML tool-call parser bug of one model family (#2953) fails the same call every time it is repeated. A harder step gets no stronger model.
+
+### What should happen
+
+- A ladder in config: tier per attempt and per step class (plan, edit, repair, review), for example a fast local model first, a stronger local tier on round 2, a configured fallback tier on round 3. Gateway tier health is read before a choice.
+- A step that fails on a provider error moves down the ladder without spending a repair round.
+
+### Acceptance criteria
+
+- [ ] A replay with a provider error on tier 1 succeeds on tier 2 and the trace names both.
+- [ ] The ladder is a setting and `devops config show` prints it.
+- [ ] The token cost per tier is recorded per item.
+- [ ] No hosted-provider call happens unless the setting names one.
+
+Related: tracker for this set (filed with it), #2908 (issue workflow), #2867 (draft PR evaluator), #3005 (task kind), #3010 to #3015 (plan gates), #2919 (stuck-item metrics), #2953 (Ollama parser).
+
+<!-- devops-roadmap-refine:start -->
+<!-- checked-at: sha=853987e755660857206c251e88f952b38d592d55 -->
+## Proposed design
+
+### Problem statement
+Every retry of a step uses the same model tier. A model-specific defect, such as the Ollama XML parser bug (#2953), fails the same call on every repeat. A step that needs a stronger model gets none. This issue adds a tier ladder so each attempt can use a different tier, and a provider error moves the step to the next tier without spending a repair round.
+
+### Acceptance criteria
+
+### Requirement: Ladder config
+The ladder SHALL be a config setting that maps each step class to a list of tiers, one per attempt.
+
+#### Scenario: config show prints the ladder
+- **WHEN** a ladder is set and `devops config show` is run
+- **THEN** the output lists the tier for each attempt of each step class
+
+### Requirement: Provider error tier move
+A step that fails on a provider error SHALL advance to the next tier without incrementing the repair round counter.
+
+#### Scenario: replay with provider error on tier 1
+- **WHEN** a step fails with a provider error on tier 1
+- **THEN** the next attempt uses tier 2 and the trace names both tiers
+
+### Requirement: Token cost per tier
+The token cost SHALL be recorded per tier per item in the item trace.
+
+#### Scenario: cost recorded after a step completes
+- **WHEN** a step completes on a given tier
+- **THEN** the item trace includes the token count attributed to that tier
+
+### Requirement: No hosted provider unless configured
+No hosted-provider call SHALL happen unless the ladder setting names one.
+
+#### Scenario: default ladder names only local tiers
+- **WHEN** the ladder setting names only local tiers
+- **THEN** no request is sent to a hosted provider
+
+### Requirement: Gateway tier health check
+Gateway tier health SHALL be read before a tier is chosen for an attempt.
+
+#### Scenario: unhealthy tier is skipped
+- **WHEN** a tier in the ladder is reported unhealthy by the gateway
+- **THEN** the step skips that tier and uses the next healthy tier
+
+### Existing Tool Considered
+No check has run. The project builds its own ladder logic on top of its existing model routing. The written cost is the tokens to implement the config schema, the tier-advancing retry logic, the gateway health check, and the per-tier cost tracking, plus the tokens to keep and fix that code until it matches a general-purpose router.
+
+### Key questions
+- **How is the ladder configured?**: A new config key holds a map of step class (plan, edit, repair, review) to a list of tiers, one per attempt. The list is ordered from weakest to strongest tier. (proposed)
+  - Chosen: Per-step-class list of tiers. The body states tier per attempt and per step class. This allows a fast local model for plan and a stronger tier for repair.
+  - Rejected: Single global list of tiers. Simpler, but does not allow different ladders for different step classes. The body requires per-step-class.
+  - Rejected: Per-attempt only, no step class. Does not distinguish plan from repair. The body requires per-step-class.
+- **How does a provider error trigger a tier move without spending a repair round?**: The step executor catches a provider error (HTTP 4xx or 5xx from the model gateway) and advances the attempt index. The repair round counter is not incremented. The next attempt uses the next tier in the ladder. (proposed)
+  - Chosen: Catch provider error and advance tier. The body states a provider error moves the step down the ladder without spending a repair round. This is the direct reading.
+  - Rejected: Treat as a normal failure and use a repair round. Wastes a repair round on a model defect. The body explicitly avoids this.
+  - Rejected: Retry same tier with backoff. Does not help when the defect is in the model itself, as in #2953.
+- **How is gateway tier health read before a choice?**: Before choosing a tier for an attempt, the executor queries the gateway health endpoint for that tier. An unhealthy tier is skipped and the next tier in the ladder is used. (proposed)
+  - Chosen: Query gateway health before each choice. The body states gateway tier health is read before a choice. This is the direct reading.
+  - Rejected: Cache health for a TTL. Adds complexity and a stale-cache risk. The body does not mention caching.
+  - Rejected: No health check. The body requires a health check. Rejecting it contradicts the requirement.
+- **How is token cost per tier recorded per item?**: Each step completion records the tier used and the token count in the item trace, keyed by tier. The trace accumulates one entry per tier per item. (proposed)
+  - Chosen: Per-tier token count in item trace. The body states the token cost per tier is recorded per item. This is the direct reading.
+  - Rejected: Aggregate total only. Loses the per-tier breakdown. The body requires per-tier.
+  - Rejected: Per-step only, no tier key. Does not attribute cost to a tier. The body requires per-tier.
+- **Which existing tool or library covers the need for a per-step-class model tier ladder with gateway health checks and per-tier cost tracking?**: No check has run. LiteLLM (BerriAI/litellm) provides fallback routing between models, but it does not provide per-step-class ladders, gateway tier health checks before choice, or per-tier token cost tracking per item. The project builds its own ladder logic on top of its existing model routing. [sources: docs/adr/0005-review-findings-come-from-tools-not-models.md]
+
+### Fit
+Fits in one pull request.
+
+### Suspected block
+None.
+
+### Dependencies
+None.
+<!-- devops-roadmap-refine:end -->
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Priority": "P2-Medium", "Status": "In Review", "Value": "Medium", "refine.alternatives_asked": null, "refine.block_paths": null, "refine.blocked_by": null, "refine.body_hash": "d7d0f9d43945c778777a9868e6e530971f2b56553f9855ed41ad0cb3bcb16e40", "refine.failed_body_hash": null, "refine.needs_split": "false", "refine.next_step": "ready", "refine.section_hash": "865bb985bb3110879c0ee05bb4abd0cfc4b65f76cae9deae67771fc64a857f1a", "stage.branch": null, "stage.file_cap": null, "stage.groups": null, "stage.needs_split": null, "stage.pr": null, "stage.ready": null, "stage.sha": null} -->

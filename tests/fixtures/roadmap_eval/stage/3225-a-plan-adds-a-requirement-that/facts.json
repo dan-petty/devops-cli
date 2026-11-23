@@ -1,0 +1,17 @@
+{
+ "tracked": [
+  "src/devops_cli/config/settings.py",
+  "src/devops_cli/commands/config.py",
+  "src/devops_cli/commands/roadmap.py",
+  "src/devops_cli/ai/client/factory.py",
+  "src/devops_cli/ai/gateway.py",
+  "src/devops_cli/roadmap/failure.py",
+  "src/devops_cli/roadmap/implement_step.py",
+  "src/devops_cli/roadmap/implement_run.py"
+ ],
+ "capabilities": [
+  "roadmap-implement-step",
+  "roadmap-implement-job",
+  "roadmap-failure-taxonomy"
+ ]
+}

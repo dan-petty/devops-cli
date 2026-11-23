@@ -93,7 +93,7 @@ The run hook offers no tool when the messages and one quarter of the window reac
 | :--- | :--- |
 | Repository context | 19,456 tokens, or half of a window that is smaller than 38,912 tokens |
 | Body of the item | 8,192 tokens, or one quarter of a window that is smaller than 32,768 tokens |
-| Capabilities | The names only. `read_spec` gives the purpose and the requirements of one capability on demand. |
+| Capabilities | The names, and the requirement text bounded by 12 requirements and 6,000 characters. `read_spec` gives the purpose and the requirements of one capability on demand. |
 | Comments of the item | The room that the body leaves under its cap, then at most 6,144 tokens of the context cap (`CONST_ROADMAP_STAGE_COMMENTS_MAX_TOKENS`), at most half of it. The context loses only the tokens past the room of the body, so the request is no larger than with no comment. |
 
 With the prompts, the first request counts about 34,000 tokens, and it leaves at least 8,192 tokens below the limit for the answers of the tools. The trace of the run records the tools that each request offered. When a run makes no tool call, the comment of the run says that the run offered tools and the model chose none. A run whose tools the window ended too soon fails the item (see below).

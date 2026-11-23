@@ -13,10 +13,19 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
+from devops_cli.roadmap.step_files import code_spans
+
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     from devops_cli.openspec.tool import OpenSpecTool
+
+REQUIREMENT_TEXT_MAX_COUNT: Final[int] = 12
+"""The maximum number of base requirements that the stage context holds."""
+
+REQUIREMENT_TEXT_MAX_CHARS: Final[int] = 6000
+"""The maximum characters of base requirement text that the stage context holds."""
 
 _SPECS_DIRECTORY: Final[tuple[str, str]] = ("openspec", "specs")
 _SPEC_FILE: Final[str] = "spec.md"
@@ -84,6 +93,49 @@ def read_base_specs(source: Path, tool: OpenSpecTool | None) -> dict[str, BaseSp
     if tool is None or not specs.is_dir():
         return {}
     return {
-        name: read_spec((specs / name / _SPEC_FILE).read_text(encoding="utf-8"))
+        name: read_spec(path.read_text(encoding="utf-8"))
         for name in sorted(spec_names(tool, source))
+        if (path := specs / name / _SPEC_FILE).is_file()
     }
+
+
+def _matches_spans(statement: str, spans: tuple[str, ...]) -> bool:
+    statement_folded = statement.casefold()
+    return any(span.casefold() in statement_folded for span in spans if span)
+
+
+def requirement_text(specs: Mapping[str, BaseSpec] | None, *, title: str, body: str) -> str:
+    """The bounded requirement text of the base specs that `title` and `body` cite."""
+    if not specs:
+        return ""
+    spans = tuple(dict.fromkeys(code_spans(f"{title}\n{body}")))
+    issue_text = f"{title}\n{body}"
+
+    name_matches: list[tuple[str, str, str]] = []
+    text_matches: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for cap_name, spec in specs.items():
+        cap_cited = cap_name in issue_text
+        for req_name, statement in spec.statements:
+            if cap_cited or req_name in issue_text:
+                name_matches.append((cap_name, req_name, statement))
+                seen.add((cap_name, req_name))
+
+    for cap_name, spec in specs.items():
+        for req_name, statement in spec.statements:
+            if (cap_name, req_name) not in seen and _matches_spans(statement, spans):
+                text_matches.append((cap_name, req_name, statement))
+                seen.add((cap_name, req_name))
+
+    all_matches = (name_matches + text_matches)[:REQUIREMENT_TEXT_MAX_COUNT]
+    lines: list[str] = []
+    current_chars = 0
+    for cap_name, req_name, statement in all_matches:
+        line = f"- {cap_name}: {req_name}: {statement}"
+        extra = len(line) + (1 if lines else 0)
+        if current_chars + extra <= REQUIREMENT_TEXT_MAX_CHARS:
+            lines.append(line)
+            current_chars += extra
+
+    return "\n".join(lines)

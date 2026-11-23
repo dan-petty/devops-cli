@@ -573,6 +573,43 @@ def test_a_plan_adding_a_roadmap_limit_gets_limit_classes_in_context(
     assert "tests/roadmap/test_roadmap_limit_classes.py" in request["context"]
 
 
+@pytest.mark.usefixtures("openspec")
+def test_the_request_context_holds_the_text_of_a_cited_requirement(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
+) -> None:
+    stage_repo.track(
+        {
+            "openspec/specs/custom-cap/spec.md": (
+                "# custom-cap Specification\n\n"
+                "## Purpose\nCustom purpose.\n\n"
+                "## Requirements\n\n"
+                "### Requirement: Run custom command\n"
+                "The job SHALL run `devops custom` when requested.\n"
+            )
+        }
+    )
+    number = seed_stageable(store, body="Run `devops custom`.")
+    model_fake.answer(make_stage_proposal())
+
+    _plan(store, stage_repo, item=number)
+
+    request = _requests(model_fake)[0]
+    assert "### Requirement text" in request["context"]
+    assert (
+        "- custom-cap: Run custom command: The job SHALL run `devops custom` when requested."
+        in request["context"]
+    )
+
+    model_fake.sent.clear()
+    model_fake.answer(make_stage_proposal())
+    store_unrelated = InMemoryRoadmapStore()
+    number_unrelated = seed_stageable(store_unrelated, body="The job drops the last comment.")
+    _plan(store_unrelated, stage_repo, item=number_unrelated)
+
+    request_unrelated = _requests(model_fake)[0]
+    assert "### Requirement text" not in request_unrelated["context"]
+
+
 def test_a_plan_with_no_item_to_stage_calls_no_model(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake
 ) -> None:

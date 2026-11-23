@@ -1,0 +1,32 @@
+{
+ "issue": 3060,
+ "pull": 3225,
+ "change": "3060-a-model-ladder-for-retries-with",
+ "merge_commit": "56c702a384aba7985212ee831b0ce8a4ac31a96a",
+ "base_commit": "dc26693ecf9b20b3cec6260cfaac54c397a8eb49",
+ "title": "docs(openspec): plan #3060 plan model tier ladder for retries",
+ "verdict": "needs-fix",
+ "state": "merged",
+ "scores": {
+  "premise_ok": 3,
+  "fidelity": 3,
+  "task_quality": 3,
+  "rule_compliance": 3,
+  "accuracy": 3
+ },
+ "summary": "The plan adds a requirement to roadmap-implement-step that states behavior already stated by a base requirement.",
+ "notes": [
+  "The plan is the plan of issue 3060."
+ ],
+ "defects": [
+  {
+   "type": "spec_delta_wrong",
+   "severity": "major",
+   "where": "specs/roadmap-implement-step/spec.md, The step chooses a tier per attempt from the ladder",
+   "problem": "The plan adds a requirement that states a behavior that a base requirement already states instead of changing that requirement.",
+   "evidence": "A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout.",
+   "gate": "none",
+   "reason": "The recorded plan passes the duplicate-name check so no gate of the job refuses it."
+  }
+ ]
+}

@@ -1,0 +1,295 @@
+{
+ "summary": "Read the plan of the change folder",
+ "pull_request_body": "Every retry of a step uses the same model tier. A model defect fails the same call on every repeat and a harder step gets no stronger model (#3060).",
+ "why": "Every retry of a step uses the same model tier. A model defect fails the same call on every repeat and a harder step gets no stronger model (#3060).",
+ "what_changes": [
+  "Add a config setting `roadmap.implement.ladder` that maps each step class (`plan`, `edit`, `repair`, `review`) to an ordered tier list.",
+  "Default the ladder to local model tiers only, following `SECURITY.md` item 12.",
+  "Validate that the ladder setting rejects hosted model names unless explicitly configured.",
+  "Print the ladder setting in `devops config show`.",
+  "Define an attempt as one run of a step with a specific tier from the ladder.",
+  "Rebuild the step agent for each attempt with the model and context window of that tier.",
+  "Advance to the next tier of the ladder when failure classification selects `FailureAction.CHANGE_TIER` (such as `FailureClass.PARSER`).",
+  "Do not increment the repair round counter when the step changes tiers.",
+  "Update `failure.py` so stop comments record a tier change as an action taken.",
+  "Read gateway tier health before a tier choice and skip a tier that the gateway reports unhealthy.",
+  "Record the tier and token counts of each completed step in `StepOutcome` and persist per-tier spend under `implement.spend` in the run record.",
+  "Add spec deltas to `roadmap-implement-step`, `roadmap-implement-job`, and `roadmap-failure-taxonomy`.",
+  "Record the order against #3207 for maintainer priority decision."
+ ],
+ "skip_specs": false,
+ "feasibility": [
+  "Gateway configuration in `k8s/llm/gateway/config.yaml:295, 310-311` shows LiteLLM router retries (`num_retries: 5`) and fallback routing (`devops-coder: [devops-reasoning, devops-chat]`).",
+  "Gateway model definitions in `k8s/llm/gateway/config.yaml:24-35` show `devops-coder` and `devops-reasoning` both map to `qwen3-coder:30b` on `ollama-48gib-fast`. Only `devops-chat` (`qwen3.8:27b`) provides an alternative model family on the cluster.",
+  "Gateway probing in `src/devops_cli/ai/gateway.py:460-476` (`_probe_gateway_http`) checks `/health/readiness` and `/health` for overall router availability. It provides no per-tier health status.",
+  "LiteLLM router fallbacks handle network and transport errors when an endpoint is down. LiteLLM cannot handle semantic failures where the model returns HTTP 200 with unparseable tool call syntax (`FailureClass.PARSER`, #2953).",
+  "The client ladder carries out `FailureAction.CHANGE_TIER` after parser classification failure. It rebuilds the agent with the appropriate model and context window.",
+  "The implementation checks run offline with `uv run devops ci test tests/config/test_settings.py`, `tests/commands/test_config_cmd.py`, `tests/ai/test_ai_gateway_probes.py`, `tests/roadmap/test_roadmap_failure.py`, `tests/roadmap/test_roadmap_implement_step.py`, and `tests/roadmap/test_roadmap_implement_records.py`."
+ ],
+ "existing_tool": "LiteLLM (`k8s/llm/gateway/config.yaml`) covers backend network retries and fallbacks between deployment targets. LiteLLM does not cover client-side recovery from semantic parser failures (`FailureClass.PARSER`). It does not provide per-step-class ladder configuration (`plan`, `edit`, `repair`, `review`). It does not adjust agent context windows across attempts, and does not record per-tier token spend in roadmap run records. The change builds the ladder mechanism on top of the existing gateway client. The cost to build, keep, and fix this feature is 24,000 tokens and 3 hours. The change deletes no internal code.",
+ "builds_own": false,
+ "decisions": [
+  {
+   "decision": "Store the ladder as `roadmap.implement.ladder: dict[str, list[str]]` in `RoadmapImplementConfig`.",
+   "reason": "`RoadmapImplementConfig` configures implement settings, supports setting variables, and prints in `devops config show`."
+  },
+  {
+   "decision": "Default the ladder to local model tiers only (`devops-coder`, `devops-reasoning`).",
+   "reason": "`SECURITY.md` item 12 states a prompt leaves the cluster only when a caller explicitly names a hosted group."
+  },
+  {
+   "decision": "Advance the ladder on `FailureAction.CHANGE_TIER` without incrementing repair rounds.",
+   "reason": "The failure taxonomy maps `FailureClass.PARSER` to `CHANGE_TIER`. Changing tiers addresses model defects without wasting code repair turns."
+  },
+  {
+   "decision": "Rebuild the step agent per attempt with the model and context window of that tier.",
+   "reason": "Tiers differ in context windows (262144 vs 160000 tokens), and output caps depend on window size."
+  },
+  {
+   "decision": "Record the tier in `StepOutcome` and itemize spend per tier under `implement.spend`.",
+   "reason": "The run record maintains `implement.spend` per item. Itemizing by tier enables spend tracking and cost audit."
+  },
+  {
+   "decision": "Check gateway tier health before each attempt and skip unhealthy tiers.",
+   "reason": "Probing health before an attempt prevents sending requests to offline backend pods."
+  }
+ ],
+ "rejected": [
+  {
+   "alternative": "A single global tier list across all step classes.",
+   "evidence": "Planning steps need large context windows for codebase exploration, while repair steps need specialized reasoning models for syntax fixing. A single list either over-spends on edits or starves repair steps."
+  },
+  {
+   "alternative": "Spend a repair round on parser errors.",
+   "evidence": "Issue #2953 proved that a model family with an XML tool-call bug repeats the exact same error on subsequent repair turns. Spending repair rounds on model bugs exhausts the repair budget without fixing code."
+  },
+  {
+   "alternative": "Cache gateway tier health with a TTL.",
+   "evidence": "`src/devops_cli/ai/gateway.py` has no per-group health endpoint, and backend pods can fail within the 1500s request timeout window. A TTL cache returns stale healthy status during outages."
+  },
+  {
+   "alternative": "Record aggregate token totals only.",
+   "evidence": "`docs/ROADMAP_WORKFLOW.md` and `devops ai spend` evaluate model cost efficiency. Without per-tier spend attribution in the run record, operators cannot measure the cost impact of tier escalations."
+  }
+ ],
+ "specs": [
+  {
+   "capability": "roadmap-failure-taxonomy",
+   "purpose": null,
+   "added": [],
+   "modified": [
+    {
+     "name": "The action left",
+     "text": "`left_action` SHALL give the default action of the class, or `wait` when the action taken is that default.",
+     "scenarios": [
+      {
+       "name": "A repair that did not work",
+       "when": "the class is `types` and the job took `repair`",
+       "then": "the action left is `wait`"
+      },
+      {
+       "name": "A tier change that did not work",
+       "when": "the class is `parser` and the job took `change_tier`",
+       "then": "the action left is `wait`"
+      },
+      {
+       "name": "No action taken",
+       "when": "the class is `oom` and the job took no action",
+       "then": "the action left is `raise_limit`"
+      }
+     ]
+    }
+   ],
+   "renamed": [],
+   "removed": []
+  },
+  {
+   "capability": "roadmap-implement-job",
+   "purpose": null,
+   "added": [
+    {
+     "name": "The spend itemizes token cost per tier",
+     "text": "The implement job SHALL itemize the spend of every step under the tier that served it in `implement.spend`.",
+     "scenarios": [
+      {
+       "name": "Spend itemized per tier",
+       "when": "two steps ran on tier `devops-coder` and tier `devops-reasoning`",
+       "then": "the record of the spend holds the token count for each tier and the aggregate total"
+      }
+     ]
+    }
+   ],
+   "modified": [],
+   "renamed": [],
+   "removed": []
+  },
+  {
+   "capability": "roadmap-implement-step",
+   "purpose": null,
+   "added": [],
+   "modified": [
+    {
+     "name": "A failed model call ends the step stopped",
+     "text": "A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. When the failure classification maps the failure to `change_tier` and the ladder for that step class has another tier available, the step SHALL advance to the next tier without incrementing the repair round counter. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.",
+     "scenarios": [
+      {
+       "name": "A model call fails in the first turn",
+       "when": "the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`",
+       "then": "the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of both files, the requests (the reply and the failed request) and the tokens, and the last text of the model, and the checkout is reset"
+      },
+      {
+       "name": "A model call fails in the extra turn",
+       "when": "the first turn passes every check and leaves a task unticked, and the model call of the extra turn for the ticks raises one of those errors",
+       "then": "the step reports stopped with a reason that starts with the class of the error, the outcome holds the masked diff of the work of the first turn, the requests of both turns, and the last text of the first turn, and the checkout is reset"
+      },
+      {
+       "name": "A parser failure advances to the next tier",
+       "when": "an attempt encounters an error classified as `change_tier` and another tier remains in the ladder",
+       "then": "the next attempt runs on the next tier of the ladder and the repair round counter does not change"
+      },
+      {
+       "name": "Ladder tiers exhausted",
+       "when": "an attempt encounters an error classified as `change_tier` and no further tiers remain in the ladder",
+       "then": "the step stops and resets the checkout"
+      }
+     ]
+    }
+   ],
+   "renamed": [],
+   "removed": []
+  }
+ ],
+ "groups": [
+  {
+   "title": "Add the ladder setting and validate against hosted models",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/config/settings.py",
+    "SECURITY.md"
+   ],
+   "changes": [
+    "src/devops_cli/config/settings.py",
+    "tests/config/test_settings.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a failing test that `roadmap.implement.ladder` defaults to local tiers only, rejects hosted model names",
+   "implementation": "Add the `ladder` field to `RoadmapImplementConfig`, default it to local tiers, validate tier names against hosted models",
+   "documentation": "Update `docs/CONFIGURATION.md`, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci test tests/config/test_settings.py",
+   "process": null,
+   "adds": []
+  },
+  {
+   "title": "Show the ladder in config show",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/config.py",
+    "src/devops_cli/config/settings.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/config.py",
+    "tests/commands/test_config_cmd.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a failing test that `devops config show` prints each step class and its tier list",
+   "implementation": "Print the ladder mapping in `devops config show` output",
+   "documentation": "Update `docs/commands/config.md`, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci test tests/commands/test_config_cmd.py",
+   "process": null,
+   "adds": []
+  },
+  {
+   "title": "Handle tier change in failure taxonomy and stop comments",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/roadmap/failure.py"
+   ],
+   "changes": [
+    "src/devops_cli/roadmap/failure.py",
+    "tests/roadmap/test_roadmap_failure.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a failing test that `left_action` and `failure_lines` record `FailureAction.CHANGE_TIER` as an action taken",
+   "implementation": "Update `left_action` and `failure_lines` to handle `FailureAction.CHANGE_TIER` when tier changes occurred",
+   "documentation": "Update `docs/roadmap/implement.md`, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_failure.py",
+   "process": null,
+   "adds": []
+  },
+  {
+   "title": "Read gateway tier health before choosing a tier",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/ai/gateway.py"
+   ],
+   "changes": [
+    "src/devops_cli/ai/gateway.py",
+    "tests/ai/test_ai_gateway_probes.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a failing test that queries tier health and skips an unhealthy tier",
+   "implementation": "Implement tier health probing in `GatewayRouter`",
+   "documentation": "Update `docs/roadmap/implement.md`, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci test tests/ai/test_ai_gateway_probes.py",
+   "process": null,
+   "adds": []
+  },
+  {
+   "title": "Choose tier per attempt and record token cost per tier in run record",
+   "kind": "behavior",
+   "reads": [
+    "src/devops_cli/commands/roadmap.py",
+    "src/devops_cli/ai/client/factory.py",
+    "src/devops_cli/roadmap/implement_step.py",
+    "src/devops_cli/roadmap/implement_run.py",
+    "src/devops_cli/roadmap/store.py",
+    "src/devops_cli/roadmap/failure.py"
+   ],
+   "changes": [
+    "src/devops_cli/commands/roadmap.py",
+    "src/devops_cli/roadmap/implement_step.py",
+    "src/devops_cli/roadmap/implement_run.py",
+    "tests/roadmap/test_roadmap_implement_step.py",
+    "tests/roadmap/test_roadmap_implement_records.py"
+   ],
+   "creates": [],
+   "creates_lines": {},
+   "test": "Add a failing test where tier 1 encounters `change_tier`, tier 2 succeeds, and the record names both tiers",
+   "implementation": "Select tier per attempt, advance on `change_tier`, add `tier` to `StepOutcome`, and record spend in `implement.spend`",
+   "documentation": "Update `docs/roadmap/implement.md`, run `uv run devops docs generate --sync-readme`",
+   "verify": "uv run devops ci test tests/roadmap/test_roadmap_implement_step.py",
+   "process": null,
+   "adds": []
+  }
+ ],
+ "criteria": [
+  {
+   "criterion": "A replay with a provider error on tier 1 succeeds on tier 2 and the trace names both.",
+   "group": 5,
+   "reason": null
+  },
+  {
+   "criterion": "The ladder is a setting and `devops config show` prints it.",
+   "group": 2,
+   "reason": null
+  },
+  {
+   "criterion": "The token cost per tier is recorded per item.",
+   "group": 5,
+   "reason": null
+  },
+  {
+   "criterion": "No hosted-provider call happens unless the setting names one.",
+   "group": 1,
+   "reason": null
+  }
+ ],
+ "dependencies": [],
+ "references": [],
+ "security": "",
+ "weakened_checks": []
+}

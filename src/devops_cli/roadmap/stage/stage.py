@@ -343,7 +343,7 @@ from devops_cli.roadmap.stage.stage_scoped_tests import (
     apply_scoped_tests,
     apply_scoped_tests_to_groups,
 )
-from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs
+from devops_cli.roadmap.stage.stage_specs import BaseSpec, read_base_specs, requirement_text
 from devops_cli.roadmap.stage.stage_split import ask_split
 from devops_cli.roadmap.stage.stage_time import job_time_failure, job_time_premise
 from devops_cli.roadmap.stage.stage_toolbox import (
@@ -2301,6 +2301,7 @@ class _Planner:
             earlier=earlier,
             previous=None if previous is None else previous.model_dump(mode="json"),
             pull_requests=self._named_pull_files(item, change.proposal),
+            specs=self._specs,
         )
 
     def _named_pull_files(self, item: Item, proposal: StageProposal) -> dict[int, PullRequestFiles]:
@@ -2438,6 +2439,9 @@ class _Planner:
         if matched:
             lines = [f"- {entry.path} ({entry.declaring_path}:{entry.line})" for entry in matched]
             context = f"{context}\n\n### Registry places\n\n" + "\n".join(lines)
+        req_text = requirement_text(self._specs, title=item.title, body=item.body)
+        if req_text:
+            context = f"{context}\n\n### Requirement text\n\n{req_text}"
         facts_context = collect_stage_facts_context(
             f"{item.title}\n{item.body}", self._read_fact_file
         )
