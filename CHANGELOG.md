@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.5](https://github.com/dan-petty/devops-cli/compare/v0.203.4...v0.203.5) (2026-11-23)
+
+
+### Bug Fixes
+
+* **ci:** bound the three hanging mutants-tree tests ([#6924](https://github.com/dan-petty/devops-cli/issues/6924)) ([cba12ea](https://github.com/dan-petty/devops-cli/commit/cba12ea6b79e94c889c418547bf5f307d26c1707))
+* **github:** keep the gh quota cache out of the working repository ([#6922](https://github.com/dan-petty/devops-cli/issues/6922)) ([16b52b2](https://github.com/dan-petty/devops-cli/commit/16b52b2b2a73952749e3da076cedd992a3097e8a))
+* **k8s:** add Local-Path Retain Migration runbook to k8s/README.md ([#6912](https://github.com/dan-petty/devops-cli/issues/6912)) ([8468829](https://github.com/dan-petty/devops-cli/commit/8468829264099d4f6bbdb43761660fd18d5f0697))
+* **security:** set restrictive security context on chart_render fixture ([#6923](https://github.com/dan-petty/devops-cli/issues/6923)) ([66b65d6](https://github.com/dan-petty/devops-cli/commit/66b65d62d97f79c095fadcbd0dab762e456c40c9))
+
 ## [0.203.4](https://github.com/dan-petty/devops-cli/compare/v0.203.3...v0.203.4) (2026-11-23)
 
 
