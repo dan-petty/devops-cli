@@ -155,9 +155,12 @@ def resolve_product_root(product_dir: Path | None = None, *, start: Path | None 
     return (_repository(folder) or folder) / _PRODUCT_BASE
 
 
-def _repository(folder: Path) -> Path | None:
+def find_repository(folder: Path) -> Path | None:
     """The nearest folder at or above `folder` that holds `.git`."""
     return next((path for path in (folder, *folder.parents) if (path / _GIT).exists()), None)
+
+
+_repository = find_repository
 
 
 def _profile_tree(checkout: Path) -> EnvironmentTree | None:

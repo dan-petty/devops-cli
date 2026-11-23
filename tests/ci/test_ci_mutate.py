@@ -9,8 +9,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ci.mutate import MutationTarget, select_targets, tally
+from devops_cli.ci.mutate import MutationTarget, prepare_mutants_tree, select_targets, tally
 from devops_cli.commands.ci import app, get_check_specs
+from devops_cli.k8s.environment import find_repository
+from devops_cli.telemetry.tracer import resolve_git_dir
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
@@ -212,6 +214,9 @@ def _setup_mutate_git_fake(git_fake: GitFake, root: Path) -> None:
     git_fake.answer(lambda call: bool(call.argv and "cat-file" in call.argv), _mutate_cat_file)
     git_fake.answer(
         lambda call: bool(call.argv and "ls-files" in call.argv), _mutate_ls_files(root)
+    )
+    git_fake.answer(
+        lambda call: bool(call.argv and "init" in call.argv), lambda call: ProcessAnswer(0, "", "")
     )
 
 
@@ -429,3 +434,56 @@ def _changed() -> list[tuple[str, str, str | None]]:
         *((PACKAGE_PATH, name, cls) for name, cls in CHANGED_IN_PACKAGE),
         *((MODULE_PATH, name, cls) for name, cls in CHANGED_IN_MODULE),
     ]
+
+
+def test_mutants_root_preparation_in_linked_worktree(tmp_path: Path, git_fake: GitFake) -> None:
+    """The preparation creates .git directory in mutants root and leaves parent .git file unchanged (#6448)."""
+    git_fake.answer(
+        lambda call: bool(call.argv and "init" in call.argv), lambda call: ProcessAnswer(0, "", "")
+    )
+    checkout = tmp_path / "worktree"
+    checkout.mkdir()
+    git_file = checkout / ".git"
+    git_file.write_text("gitdir: /some/path/to/main/.git/worktrees/worktree\n", encoding="utf-8")
+
+    mutants_dir = prepare_mutants_tree(checkout)
+
+    assert (mutants_dir / ".git").is_dir()
+    assert git_file.is_file()
+    assert (
+        git_file.read_text(encoding="utf-8")
+        == "gitdir: /some/path/to/main/.git/worktrees/worktree\n"
+    )
+
+
+def test_nearest_git_dir_is_inside_mutants_root(tmp_path: Path, git_fake: GitFake) -> None:
+    """_resolve_git_dir finds the mutants root .git and does not escape to parent (#6448)."""
+    git_fake.answer(
+        lambda call: bool(call.argv and "init" in call.argv), lambda call: ProcessAnswer(0, "", "")
+    )
+    checkout = tmp_path / "worktree"
+    checkout.mkdir()
+    (checkout / ".git").write_text("gitdir: /outside\n", encoding="utf-8")
+
+    mutants_dir = prepare_mutants_tree(checkout)
+    subfolder = mutants_dir / "tests" / "core"
+    subfolder.mkdir(parents=True)
+
+    resolved = resolve_git_dir(start_dir=subfolder)
+    assert resolved == mutants_dir / ".git"
+
+
+def test_mutants_tree_outside_checkout_finds_repository(tmp_path: Path, git_fake: GitFake) -> None:
+    """_repository returns the mutants root for any folder under it (#6448)."""
+    git_fake.answer(
+        lambda call: bool(call.argv and "init" in call.argv), lambda call: ProcessAnswer(0, "", "")
+    )
+    standalone = tmp_path / "standalone"
+    standalone.mkdir()
+
+    mutants_dir = prepare_mutants_tree(standalone)
+    subfolder = mutants_dir / "src" / "devops_cli"
+    subfolder.mkdir(parents=True)
+
+    repo = find_repository(subfolder)
+    assert repo == mutants_dir
