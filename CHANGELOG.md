@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.199.0](https://github.com/dan-petty/devops-cli/compare/v0.198.2...v0.199.0) (2026-11-23)
+
+
+### Features
+
+* **roadmap:** consolidate --apply writes one accepted group ([#6847](https://github.com/dan-petty/devops-cli/issues/6847)) ([617c0a9](https://github.com/dan-petty/devops-cli/commit/617c0a94937dd76702b776020d9b3021f88f78c1))
+
+
+### Bug Fixes
+
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.2 ([#6843](https://github.com/dan-petty/devops-cli/issues/6843)) ([e1e8747](https://github.com/dan-petty/devops-cli/commit/e1e874702b8461c0d4a19a7c0e4bcc4fddb33ccc))
+* **infra:** onboard, plan and apply read one requirements file ([#6848](https://github.com/dan-petty/devops-cli/issues/6848)) ([8f86eea](https://github.com/dan-petty/devops-cli/commit/8f86eea9cd259b767454f509cb74c4e06df04d44))
+
 ## [0.198.2](https://github.com/dan-petty/devops-cli/compare/v0.198.1...v0.198.2) (2026-11-23)
 
 
