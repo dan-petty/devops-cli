@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import re
 
+from devops_cli.config.constants import CONST_ROADMAP_PRIORITY_VALUES
 from devops_cli.exceptions.validation import ValidationError as InvalidInputError
 from devops_cli.lang import MESSAGES
 from devops_cli.output.console import print_info
 from devops_cli.roadmap.consolidate import Group, Plan
 from devops_cli.roadmap.consolidate_judge import Shape
-from devops_cli.roadmap.stores.store import CloseReason, GitHubState, RoadmapStore
+from devops_cli.roadmap.stores.store import (
+    CloseReason,
+    GitHubState,
+    ItemField,
+    RoadmapStore,
+    item_of,
+)
 
 CONSOLIDATE_SECTION_START = "<!-- devops-roadmap-consolidate:start -->"
 CONSOLIDATE_SECTION_END = "<!-- devops-roadmap-consolidate:end -->"
@@ -72,6 +79,36 @@ def _format_merge_section(group: Group, member_bodies: list[tuple[int, str]]) ->
     return "\n".join(parts)
 
 
+def _place_merge_priority(store: RoadmapStore, group: Group) -> None:
+    anchor_item = store.item(group.anchor)
+    if anchor_item is None:
+        anchor_issue = store.issue(group.anchor)
+        if anchor_issue is not None:
+            anchor_item = item_of(anchor_issue)
+
+    if anchor_item is None:
+        return
+
+    anchor_priority = anchor_item.priority
+    recorded_priority = anchor_item.job_record.get(ItemField.PRIORITY)
+    if anchor_priority != recorded_priority:
+        return
+
+    member_priorities = [
+        m_item.priority
+        for m in group.members
+        if (m_item := store.item(m.number)) is not None
+        and m_item.priority in CONST_ROADMAP_PRIORITY_VALUES
+    ]
+    candidates = (
+        member_priorities if anchor_priority is None else [anchor_priority, *member_priorities]
+    )
+    if candidates:
+        highest = min(candidates, key=CONST_ROADMAP_PRIORITY_VALUES.index)
+        if anchor_priority != highest:
+            store.set_field(anchor_item, ItemField.PRIORITY, highest)
+
+
 def _apply_merge(store: RoadmapStore, plan: Plan, group: Group) -> None:
     anchor_body = store.read_issue_body(group.anchor)
     member_bodies = [(m.number, store.read_issue_body(m.number)) for m in group.members]
@@ -91,6 +128,7 @@ def _apply_merge(store: RoadmapStore, plan: Plan, group: Group) -> None:
         new_body = f"{prefix}{marked_section}\n"
 
     store.write_issue_body(group.anchor, new_body)
+    _place_merge_priority(store, group)
 
     for member in group.members:
         comment = f"Merged into #{group.anchor}: {member.reason}"

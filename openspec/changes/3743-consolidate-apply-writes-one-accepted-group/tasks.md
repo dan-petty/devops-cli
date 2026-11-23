@@ -60,9 +60,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devop
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devops_cli/roadmap/consolidate.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/support/fakes/roadmap_store.py`. Changes: `src/devops_cli/roadmap/consolidate_apply.py`, `tests/roadmap/test_roadmap_consolidate_apply.py`.
 
-- [ ] 7.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_priority_moves_to_the_highest_member`, `test_person_priority_and_milestone_stay` and `test_plan_text_with_set_p0_writes_no_p0`
+- [x] 7.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_priority_moves_to_the_highest_member`, `test_person_priority_and_milestone_stay` and `test_plan_text_with_set_p0_writes_no_p0`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` fails on the base
-- [ ] 7.2 In the merge writer of `src/devops_cli/roadmap/consolidate_apply.py`, read the anchor with `src/devops_cli/roadmap/stores/store.py:def item`, compare its Priority with the value in its job record, and set the highest member Priority with `src/devops_cli/roadmap/stores/store.py:def set_field` only when the two agree. Write no milestone. Keep the write set to the anchor and the plan's member numbers, and interpret no plan text
+- [x] 7.2 In the merge writer of `src/devops_cli/roadmap/consolidate_apply.py`, read the anchor with `src/devops_cli/roadmap/stores/store.py:def item`, compare its Priority with the value in its job record, and set the highest member Priority with `src/devops_cli/roadmap/stores/store.py:def set_field` only when the two agree. Write no milestone. Keep the write set to the anchor and the plan's member numbers, and interpret no plan text
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` passes
 
 ## Criteria
