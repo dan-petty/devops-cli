@@ -16,9 +16,9 @@ Adds: `is_environment_path`, `outcome`, `check_the_branch_changes_no_environment
 
 Kind: other. Reads: `.github/renovate.json`, the preset `renovate/base.json` of dan-petty/infra. Changes: `.github/renovate.json`.
 
-- [ ] 2.1 Add the package rule with `matchFileNames` `k8s/**`, `!k8s/devops/**` and `!k8s/overlays/homelab/devops/**` and `enabled: false` to `.github/renovate.json`, with a description that names step 12 and step 17 of `docs/HOMELAB_REPO_SWITCH.md`
+- [x] 2.1 Add the package rule with `matchFileNames` `k8s/**`, `!k8s/devops/**` and `!k8s/overlays/homelab/devops/**` and `enabled: false` to `.github/renovate.json`, with a description that names step 12 and step 17 of `docs/HOMELAB_REPO_SWITCH.md`
   - Verification: `$ npx --yes --package renovate@44.239.2 -- renovate-config-validator --strict --no-global .github/renovate.json` exits 0
-- [ ] 2.2 Check the patterns with the matcher of Renovate 44.239.2: import `matchRegexOrGlobList` from `dist/util/string-match.js` of the package in Node, and give it the patterns of the rule with `k8s/llm/valkey.yaml`, `k8s/argocd/apps/argocd.yaml`, `k8s/devops/renovate/cronjob.yaml`, `k8s/overlays/homelab/devops/kustomization.yaml` and `Dockerfile`. Only the first two match
+- [x] 2.2 Check the patterns with the matcher of Renovate 44.239.2: import `matchRegexOrGlobList` from `dist/util/string-match.js` of the package in Node, and give it the patterns of the rule with `k8s/llm/valkey.yaml`, `k8s/argocd/apps/argocd.yaml`, `k8s/devops/renovate/cronjob.yaml`, `k8s/overlays/homelab/devops/kustomization.yaml` and `Dockerfile`. Only the first two match
 
 ## 3. Documents
 
