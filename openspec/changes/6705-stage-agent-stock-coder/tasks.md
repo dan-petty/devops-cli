@@ -76,9 +76,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/stage/stage_job.py`, `src/devops_
 
 Kind: behavior. Reads: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/roadmap/phases/names.py`, `tests/commands/test_all_commands_help_dryrun.py`, `tests/roadmap/implement/test_roadmap_implement_amend.py`. Changes: `src/devops_cli/commands/roadmap.py`, `src/devops_cli/lang/en/help.py`, `src/devops_cli/lang/en/messages.py`, `tests/roadmap/stage/test_roadmap_stage_job_entry.py`, `docs/commands/roadmap.md`.
 
-- [ ] 9.1 The failing cases are new in `tests/roadmap/stage/test_roadmap_stage_job_entry.py`. A phase needs its job item, `--confirm` and a run folder, and `--source` goes only with `prepare` and `all`. The three phases run in turn on one run folder. No phase runs `run_stage_job` with no run file
+- [x] 9.1 The failing cases are new in `tests/roadmap/stage/test_roadmap_stage_job_entry.py`. A phase needs its job item, `--confirm` and a run folder, and `--source` goes only with `prepare` and `all`. The three phases run in turn on one run folder. No phase runs `run_stage_job` with no run file
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_entry.py` fails on the base
-- [ ] 9.2 Add `--phase` (`RunPhase`, default `all`) and `--work` to `stage_cmd` in `src/devops_cli/commands/roadmap.py`, with their help in `src/devops_cli/lang/en/help.py` and the refusals in `src/devops_cli/lang/en/messages.py`. A phase other than `all` hardens the process, then calls its phase. Run `uv run devops docs generate`
+- [x] 9.2 Add `--phase` (`RunPhase`, default `all`) and `--work` to `stage_cmd` in `src/devops_cli/commands/roadmap.py`, with their help in `src/devops_cli/lang/en/help.py` and the refusals in `src/devops_cli/lang/en/messages.py`. A phase other than `all` hardens the process, then calls its phase. Run `uv run devops docs generate`
   - Verification: `$ uv run devops ci test tests/roadmap/stage/test_roadmap_stage_job_entry.py` passes
 
 ## 10. Document the phases and the measured checks

@@ -27,6 +27,7 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.constants import (
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
     CONST_ROADMAP_OWNER_SERVICE,
+    CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
 )
 from devops_cli.config.settings import RoadmapConfig
 from devops_cli.core import clock as clock_seam
@@ -52,6 +53,8 @@ from devops_cli.telemetry.instruments import ROADMAP_STAGE_TOTAL
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import github_json
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.github_identity import fail_the_github_lookup
+from tests.support.model_script import ModelScript, say
 from tests.support.roadmap_job_result import result_lines
 from tests.support.roadmap_stage import (
     OPEN_STEP_READS,
@@ -63,6 +66,7 @@ from tests.support.roadmap_stage import (
     seed_stageable,
     validate_args,
 )
+from tests.support.roadmap_stage_phases import gate_files, plan_files
 
 if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
@@ -1008,3 +1012,124 @@ def test_the_entry_module_calls_the_plan_and_the_writer_of_the_service_and_pushe
     }
 
     assert ({"plan_stage", "StageWriter"} <= called, words & {"push", "rebase"}) == (True, set())
+
+
+# ── The phases of the stage Job (#6705) ───────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("args", "named"),
+    [
+        pytest.param(("--job-item", "1", "--confirm", "--phase", "agent"), "--work", id="no-work"),
+        pytest.param(
+            ("--job-item", "1", "--phase", "prepare", "--work", "run"), "--work", id="no-confirm"
+        ),
+        pytest.param(
+            ("--confirm", "--phase", "publish", "--work", "run"), "--work", id="no-job-item"
+        ),
+        pytest.param(
+            (
+                "--job-item",
+                "1",
+                "--confirm",
+                "--phase",
+                "publish",
+                "--work",
+                "run",
+                "--source",
+                ".",
+            ),
+            "--source",
+            id="source-for-publish",
+        ),
+        pytest.param(
+            ("--job-item", "1", "--confirm", "--phase", "agent", "--work", "run", "--source", "."),
+            "--source",
+            id="source-for-agent",
+        ),
+    ],
+)
+def test_a_phase_needs_its_job_item_confirm_and_a_run_folder_and_no_source_after_prepare(
+    cli: Cli, model_fake: ModelFake, tmp_path: Path, args: tuple[str, ...], named: str
+) -> None:
+    result = cli("roadmap", "stage", "--repo", STAGE_REPO, *args)
+
+    assert (result.exit_code, model_fake.call_count) == (1, 0)
+    assert named in result.output
+    assert not (tmp_path / "run").exists()
+
+
+def test_the_three_phases_run_in_turn_on_one_run_folder(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Each phase makes its process unreadable to its children first. The spy replaces the kernel
+    call, which would change the test run. A stub agent writes the plan files and the body
+    candidate, as the shell of the agent would, and ends."""
+    from devops_cli.ai.client import factory
+    from devops_cli.core import process_hardening
+
+    stage_repo.track(gate_files(openspec_fake.version))
+    openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
+    github_api.route("POST", PULLS, OPENED)
+    number = seed_stageable(roadmap_store)
+    work = tmp_path / "run"
+    clone = work / "work" / CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
+    now = datetime.now(UTC)
+
+    def stub_agent() -> None:
+        for path, text in plan_files(now.date()).items():
+            (clone / path).parent.mkdir(parents=True, exist_ok=True)
+            (clone / path).write_text(text, encoding="utf-8")
+        (clone / "PLAN_PULL_REQUEST.md").write_text(
+            "# Keep the last comment\n\nThe job keeps the last comment.\n", encoding="utf-8"
+        )
+
+    calls: list[str] = []
+    monkeypatch.setattr(process_hardening, "deny_environment_reads", lambda: calls.append("hard"))
+    monkeypatch.setattr(
+        factory,
+        "get_task_model",
+        lambda _task: ModelScript(say("done"), effects={1: stub_agent}).model(),
+    )
+    base = ("--job-item", str(number), "--confirm", "--work", str(work))
+
+    codes = [_stage(cli, stage_repo, *base, "--phase", "prepare").exit_code]
+    with pytest.MonkeyPatch.context() as patch:
+        fail_the_github_lookup(patch)
+        codes.append(
+            cli("roadmap", "stage", "--repo", STAGE_REPO, *base, "--phase", "agent").exit_code
+        )
+    codes.append(
+        cli("roadmap", "stage", "--repo", STAGE_REPO, *base, "--phase", "publish").exit_code
+    )
+
+    item = roadmap_store.item(number)
+    assert item is not None
+    assert (codes, calls, item.job_record.get(StageRecordKey.PR)) == ([0, 0, 0], ["hard"] * 3, "5")
+
+
+def test_no_phase_runs_the_stage_job_in_one_process_with_no_run_file(
+    cli: Cli,
+    roadmap_store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    github_api.route("POST", PULLS, OPENED)
+    number = seed_stageable(roadmap_store)
+    no_findings(model_fake)
+    model_fake.answer(make_stage_proposal())
+
+    result = _stage(cli, stage_repo, "--job-item", str(number), "--confirm")
+
+    assert result.exit_code == StageJobExit.RESULT, result.output
+    assert sorted(path.name for path in tmp_path.rglob("state.json")) == []
+    assert sorted(path.name for path in tmp_path.rglob("outcome.json")) == []
+    assert model_fake.call_count >= 1

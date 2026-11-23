@@ -2117,6 +2117,14 @@ class RoadmapCommandHelp:
         "Also list the open items that the filter does not name, each with the family it "
         "misses, under 'Matched no filter'. Without it, the plan does not list them."
     )
+    stage_phase: str = (
+        "The phase of the stage Job, with --job-item, --confirm and --work: prepare (the reads, "
+        "the writes that need no model, and the clone of the stage agent with the dated scaffold), "
+        "agent (the stock Coder agent, with no store and no GitHub credential), publish (the "
+        "checks, the plan commit, the draft and the record), or all (the stage Job in one process, "
+        "with no run folder)."
+    )
+    stage_work: str = "The run folder of a phase other than all: state/, work/ and out/."
     return_item: str = (
         "Return an item to New with an evidence comment, handing it back to refinement when it "
         "cannot be built as specified or needs a refactor beyond its scope. The item gets the "

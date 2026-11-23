@@ -4833,6 +4833,13 @@ class RoadmapMessages:
     )
     # The stage Job of one item (#5483).
     stage_job_item_needs: str = "--job-item needs --confirm and no --item."
+    stage_phase_options: str = (
+        "A phase other than all runs only with --job-item, --confirm and --work <folder>."
+    )
+    stage_phase_source: str = (
+        "--source goes only with --phase prepare and --phase all: the agent phase works in the "
+        "clone of prepare, and publish clones the repository itself."
+    )
     stage_job_token_scope_refused: str = (
         "The stage Job for {repo} acts as the GitHub App and needs a token for that one "
         "repository. Set service.github_app.token_repository to {repo}; it is now {scoped}. "
