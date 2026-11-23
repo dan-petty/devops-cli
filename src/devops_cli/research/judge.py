@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from devops_cli.ai.client.factory import build_agent
 from devops_cli.ai.tools import Tool
 from devops_cli.ai.toolsets import FunctionToolset, create_function_toolset
+from devops_cli.security.prompt_injection import scan_injection_text
 
 if TYPE_CHECKING:
     from devops_cli.research.models import Component
@@ -42,6 +43,32 @@ class CitationCheck(BaseModel):
     kept: list[JudgeFinding]
     dropped: list[JudgeFinding]
     reasons: list[str]
+
+
+class JudgeStop(BaseModel):
+    """Reason and limit when judge loop stops early."""
+
+    setting: str
+    value: int
+    count: int = 0
+
+
+class JudgeLimits(BaseModel):
+    """Execution limits for the judge agent."""
+
+    record_limit: int | None = None
+    daily_token_limit: int | None = None
+    tokens_used_today: int = 0
+
+
+class JudgeReport(BaseModel):
+    """Outcome of a judge run over records."""
+
+    findings: list[JudgeFinding] = Field(default_factory=list)
+    dropped: list[JudgeFinding] = Field(default_factory=list)
+    withheld: list[str] = Field(default_factory=list)
+    stop: JudgeStop | None = None
+    tokens_used: int = 0
 
 
 class ReadOnlyCorpus(Protocol):
@@ -201,3 +228,110 @@ def file_judged_findings(
             file_candidate(candidate)
 
     return check
+
+
+def _record_text(record: Any) -> str:
+    """Extract text content from a record."""
+    if isinstance(record, dict):
+        return str(
+            record.get(
+                "text",
+                record.get(
+                    "summary",
+                    record.get("body", record.get("details", record.get("description", ""))),
+                ),
+            )
+        )
+    for attr in ("text", "summary", "body", "details", "description"):
+        val = getattr(record, attr, None)
+        if val is not None:
+            return str(val)
+    return str(record)
+
+
+def _record_id(record: Any) -> str:
+    """Extract identifier from a record."""
+    if isinstance(record, dict):
+        return str(record.get("id", record.get("record_id", record.get("advisory_id", ""))))
+    for attr in ("id", "record_id", "advisory_id"):
+        val = getattr(record, attr, None)
+        if val is not None:
+            return str(val)
+    return str(record)
+
+
+def withheld_record_ids(records: Sequence[Any]) -> list[str]:
+    """Run injection scanner on record texts and return ids of flagged records."""
+    flagged: list[str] = []
+    for rec in records:
+        text = _record_text(rec)
+        rec_id = _record_id(rec)
+        findings = scan_injection_text(text, location=rec_id)
+        if findings:
+            flagged.append(rec_id)
+    return flagged
+
+
+def judge_records(
+    records: Sequence[Any],
+    corpus: ReadOnlyCorpus,
+    model: Any,
+    limits: JudgeLimits | None = None,
+) -> JudgeReport:
+    """Evaluate candidate records with the judge agent subject to limits."""
+    report = JudgeReport()
+    flagged_ids = set(withheld_record_ids(records))
+    report.withheld = [
+        rec_id for rec_id in (_record_id(r) for r in records) if rec_id in flagged_ids
+    ]
+
+    agent = build_judge_agent(model, corpus)
+    records_judged = 0
+
+    for record in records:
+        rec_id = _record_id(record)
+        if rec_id in flagged_ids:
+            continue
+
+        current_tokens = (limits.tokens_used_today if limits else 0) + report.tokens_used
+        if (
+            limits
+            and limits.daily_token_limit is not None
+            and current_tokens >= limits.daily_token_limit
+        ):
+            report.stop = JudgeStop(
+                setting="research.judge.daily_token_limit",
+                value=limits.daily_token_limit,
+                count=records_judged,
+            )
+            break
+
+        if limits and limits.record_limit is not None and records_judged >= limits.record_limit:
+            report.stop = JudgeStop(
+                setting="research.judge.record_limit",
+                value=limits.record_limit,
+                count=records_judged,
+            )
+            break
+
+        rec_text = _record_text(record)
+        prompt = f"Evaluate record {rec_id}:\n{rec_text}"
+        result = agent.run_sync(prompt)
+        records_judged += 1
+
+        usage = getattr(result, "usage", None)
+        if usage is not None:
+            tokens = getattr(usage, "total_tokens", 0)
+            if not tokens:
+                tokens = getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0)
+            report.tokens_used += tokens
+
+        finding = result.output
+        if isinstance(finding, JudgeFinding):
+            check = check_judged_citations([finding], corpus)
+            if check.kept:
+                report.findings.append(finding)
+            if check.dropped:
+                report.dropped.extend(check.dropped)
+
+    return report
