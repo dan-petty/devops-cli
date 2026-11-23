@@ -1,7 +1,7 @@
 # repos-drift-alerts Specification
 
 ## Purpose
-The nightly Job that runs the drift check of the repository settings, `devops repos onboard --all --plan`, with a read-only identity, and the alert rules that tell an operator when a repository of `service.repos` is off its baseline, when the check cannot read a row, and when the check stops (#6783, ADR 0035).
+The nightly Job that runs the drift check of the repository settings, `devops repos onboard --all --plan`, as the GitHub App with the permissions of the drift check, and the alert rules that tell an operator when a repository of `service.repos` is off its baseline, when the check cannot read a row, and when the check stops (#6783, ADR 0035).
 
 ## Requirements
 

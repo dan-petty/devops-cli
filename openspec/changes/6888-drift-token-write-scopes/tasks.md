@@ -21,10 +21,10 @@ Kind: other. Reads: `k8s/devops/cronjob-repos-drift.yaml`. Changes: `k8s/devops/
 
 Kind: other. Reads: `docs/CLUSTER.md`, `docs/repos/onboard.md`, `k8s/README.md`, `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`. Changes: `docs/CLUSTER.md`, `docs/repos/onboard.md`, `k8s/README.md`, `docs/adr/0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md`, `docs/ENV_VARS.md`, `docs/CONFIGURATION.md`, `openspec/specs/repos-drift-alerts/spec.md`.
 
-- [ ] 3.1 Regenerate `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` with `devops docs generate`. In `docs/CLUSTER.md` (step 1 and Repository drift), `docs/repos/onboard.md` (The nightly Job), `k8s/README.md` (the row of `RepositorySettingsUnreadable`) and the Status History of ADR 0015, state the drift set with Contents write and Administration write, and that a plan sends GET requests only. Drop "read-only" from the Purpose of `openspec/specs/repos-drift-alerts/spec.md`
+- [x] 3.1 Regenerate `docs/ENV_VARS.md` and `docs/CONFIGURATION.md` with `devops docs generate`. In `docs/CLUSTER.md` (step 1 and Repository drift), `docs/repos/onboard.md` (The nightly Job), `k8s/README.md` (the row of `RepositorySettingsUnreadable`) and the Status History of ADR 0015, state the drift set with Contents write and Administration write, and that a plan sends GET requests only. Drop "read-only" from the Purpose of `openspec/specs/repos-drift-alerts/spec.md`
   - Verification: `$ uv run devops ci docs` passes
-- [ ] 3.2 No document, spec or manifest names the old constant, setting or variable
-  - Verification: `$ ! git grep -n "READ_TOKEN_PERMISSIONS\|GITHUB_APP_READ_ONLY\|github_app\.read_only\|read-only identity" -- src tests docs k8s openspec/specs`
+- [x] 3.2 No source file, test, document or manifest names the old constant, setting or variable. The spec deltas of this change replace them in `openspec/specs/`
+  - Verification: `$ ! git grep -n "READ_TOKEN_PERMISSIONS\|GITHUB_APP_READ_ONLY\|github_app\.read_only" -- src tests docs k8s`
 
 ## Workflow follow-up
 

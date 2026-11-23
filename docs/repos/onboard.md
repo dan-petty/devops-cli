@@ -79,14 +79,13 @@ The output ends with the person steps of the repository, each with the document 
 
 ## The nightly Job
 
-CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the drift check each night at 03:41 UTC in the runner image ([cluster](../CLUSTER.md#repository-drift)). It runs `devops repos onboard --all --plan --only 0,1,2,3,5,6,7,8,9,10,11`, the rows that a read token can read, all or in part:
+CronJob `repos-drift` (`k8s/devops/cronjob-repos-drift.yaml`, #6783) runs the drift check each night at 03:41 UTC in the runner image ([cluster](../CLUSTER.md#repository-drift)). It runs `devops repos onboard --all --plan --only 0,1,2,3,4,5,6,7,8,9,10,11`, the rows that its token can read:
 
-- Row 4 stays out: GitHub needs Administration write for `GET /repos/<repo>/code-quality/setup` ([permissions required for GitHub Apps](https://docs.github.com/en/rest/authentication/permissions-required-for-github-apps)).
 - Row 12 stays out: it needs the keyring map of the webhook secrets, a secret value, and #4417 deletes it.
 - Row 13 stays out: with `--all`, `service.repos` holds each repository, so the row reads no live state.
 - Rows 14 and 15 stay out: row 14 runs only with `--service`, and row 15 informs only and needs a Qdrant key.
 
-The pod acts as the GitHub App of the Service, and `service.github_app.read_only` makes its installation token ask for `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only: read on Actions, Administration, Checks, Contents, Environments, Issues, Metadata, Pull requests and Secrets. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes. No read permission gives the merge settings of row 2 or `bypass_actors` of row 10, so the Job gives these rows `not readable` with their person step, and not `pending` (#6875). Read them with your own login: `devops repos onboard <owner>/<name> --plan --only 2,10`.
+The pod acts as the GitHub App of the Service, and `service.github_app.drift_check` makes its installation token ask for `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` only: read on Actions, Checks, Environments, Issues, Metadata, Pull requests and Secrets, and read and write on Administration and Contents. GitHub gives the merge settings of row 2 only with Contents write, and `bypass_actors` of row 10 and the Code Quality setup of row 4 only with Administration write (#6888). The pod holds the key of the App, which can mint a write token anyway. A plan sends GET requests only: the writer of the command sends no write without `--confirm`, and `--all` refuses `--confirm`. An installation token has no OAuth scopes, and GitHub refuses it `GET /user`, so row 0 sends no such request and notes that the token reports no OAuth scopes.
 
 `--all --plan` sets the gauge `devops_cli_repos_drift_rows` of each repository, with the label `state`:
 

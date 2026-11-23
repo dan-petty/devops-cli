@@ -303,7 +303,7 @@ In-cluster webhook receiver and background job runner settings.
 | Option | Type | Default | Environment Variable | Description |
 |---|---|---|---|---|
 | `repos` | `list` | `[]` | `DEVOPS_CLI_SERVICE_REPOS` | Target repository list for service mode |
-| `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None token_repository=None read_only=False` | - | - |
+| `github_app` | `GitHubAppConfig` | `app_id=None installation_id=None slug=None token_repository=None drift_check=False` | - | - |
 | `poll_interval_seconds` | `int` | `151` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_SECONDS` | Periodic polling interval for service mode in seconds |
 | `poll_interval_idle_seconds` | `int` | `600` | `DEVOPS_CLI_SERVICE_POLL_INTERVAL_IDLE_SECONDS` | Polling interval for a repository with no open issues and no open pull requests, in seconds; a webhook starts its update at once |
 | `webhook_url` | `str` | `https://hooks.example.com/webhooks/github` | `DEVOPS_CLI_SERVICE_WEBHOOK_URL` | Public URL of the Service's GitHub webhook route, which onboarding compares with the repository hooks |
