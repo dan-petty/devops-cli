@@ -5570,6 +5570,10 @@ class RoadmapMessages:
     stage_problem_constant_mismatch: str = (
         "{constant} is {staged} in the staged tree, but the plan says {plan}."
     )
+    stage_problem_constant_undefined: str = (
+        "The plan claims the constant '{constant}' with the value {value}, but the staged "
+        "tree does not define that name as a module-level integer."
+    )
     stage_problem_trace_tool: str = (
         "The Feasibility section names the tool `{tool}`, but the run did not call it."
     )

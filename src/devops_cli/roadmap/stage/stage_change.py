@@ -1738,6 +1738,36 @@ def _lists_path(listed: Collection[str], path: str) -> bool:
     )
 
 
+def claim_problems(
+    claims: Sequence[StageConstantClaim],
+    constants: Mapping[str, int] | None,
+) -> list[str]:
+    """What is wrong with a structured constant claim (#3388). A claim whose name the staged
+    values do not hold is refused, and a claim whose value differs from the staged value is
+    refused. With no staged values it judges no claim."""
+    if not constants:
+        return []
+    texts_msg = MESSAGES.roadmap
+    problems: list[str] = []
+    for claim in claims:
+        if claim.name not in constants:
+            problems.append(
+                texts_msg.stage_problem_constant_undefined.format(
+                    constant=claim.name,
+                    value=claim.value,
+                )
+            )
+        elif constants[claim.name] != claim.value:
+            problems.append(
+                texts_msg.stage_problem_constant_mismatch.format(
+                    constant=claim.name,
+                    staged=constants[claim.name],
+                    plan=claim.value,
+                )
+            )
+    return list(dict.fromkeys(problems))
+
+
 def _what_changes_problems(proposal: StageProposal, tree: StagedTree) -> list[str]:
     """One problem for each repository path in a code span of a What Changes item that no group
     lists in `changes` or `creates` (#3411). The check reads the tree to tell a path from a word,
@@ -3091,7 +3121,11 @@ def check_gates(
             proposal,
             registry,
         ),
-        ProposalGate.CONSTANTS: constant_problems(plan_texts(proposal), constants or {}),
+        ProposalGate.CONSTANTS: (
+            claim_problems(proposal.constant_claims, constants)
+            if proposal.constant_claims
+            else constant_problems(plan_texts(proposal), constants or {})
+        ),
         ProposalGate.TRACE: _trace_problems(proposal, trace, probes, judged),
         ProposalGate.GROUP_FILES: group_files_problems(proposal.groups, tree),
     }
