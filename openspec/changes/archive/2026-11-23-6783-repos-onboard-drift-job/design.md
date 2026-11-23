@@ -30,7 +30,7 @@ The Job runs `devops repos onboard --all --plan --only 0,1,2,3,5,6,7,8,9,10,11`.
 - Schedule `41 3 * * *` (UTC), `concurrencyPolicy: Forbid`, `startingDeadlineSeconds: 3600`, no retry. A plan writes nothing, and the next night runs it again.
 - The runner image, which is `FROM` the devtools image: the devtools image gives `copier` to the runner image when dan-petty/devtools pull request 43 merges and Renovate updates the base. Until then, the rows that read the baseline are `not readable`.
 - `activeDeadlineSeconds: 1800`. The token lives 3600 s, so the deadline ends the pod first.
-- The pod label `app.kubernetes.io/name: repos-drift`. The default perimeter of the namespace selects it: DNS, the OTel collector and public HTTPS. It gets no key of the gateway, the cache Valkey or Qdrant.
+- The pod label `app.kubernetes.io/name: repos-drift`. The default perimeter of the namespace selects it: DNS, the gateway, the cache Valkey and Qdrant ports in namespace llm, the OTel collector and public HTTPS. It gets no key of the gateway, the cache Valkey or Qdrant.
 
 ### 7. The alerts
 - `RepositorySettingsDrift`: the last value of the last 2 days of a `drift` series is above 0.

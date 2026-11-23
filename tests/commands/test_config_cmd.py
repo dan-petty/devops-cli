@@ -112,6 +112,7 @@ def test_github_token_is_not_a_config_option() -> None:
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_APP_ID", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_INSTALLATION_ID", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY", True),
+            ("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR", False),
