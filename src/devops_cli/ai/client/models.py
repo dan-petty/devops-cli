@@ -148,9 +148,11 @@ class AICredentialsError(AIClientError):
 
 
 class AIKeySpendLimitError(AICredentialsError):
-    """Raised when the provider key behind a request reached its spend limit (#6821). Each call
-    fails until a person raises the spend limit of the key at the provider or changes the key, as
-    for a refused key, so each site that stops a run for a refused key stops for it too."""
+    """Raised when the provider key behind a request reached its spend limit (#6821).
+
+    Each call fails until a person raises the spend limit of the key at the provider or changes the
+    key, as for a refused key, so each site that stops a run for a refused key stops for it too.
+    """
 
 
 # The error text of a provider that says the key reached its spend limit: the 403 `Key limit

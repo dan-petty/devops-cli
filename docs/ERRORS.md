@@ -25,6 +25,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 |---|---|---|---|---|
 | `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when an AI provider request fails with a user-actionable message. |
 | `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when a provider rejects the request's credentials; retrying cannot help. |
+| `AIKeySpendLimitError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the provider key behind a request reached its spend limit (#6821). |
 | `AgentAuditFilingError` | `AGENT_AUDIT_FILING_FAILED` | `1` | Core | Raised when `devops roadmap intake` does not file one draft of `devops ai agent-audit` (#2346). |
 | `AnswerFlagError` | `ONBOARD_ANSWER_DIFFERS` | `2` | Devops_cli.github.onboard.baseline | A flag gives an answer that differs from `.copier-answers.yml` of the repository. |
 | `ApplicationSourceError` | `K8S_APPLICATION_SOURCE_ERROR` | `1` | K8s | Raised when a git source of an Argo CD Application cannot be read (#5131). |

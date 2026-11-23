@@ -21,7 +21,7 @@
 
 ## 4. Documents
 
-- [ ] 4.1 Name the class in docs/ROADMAP_WORKFLOW.md and docs/roadmap/stage.md, and the alert and the person step in docs/CLUSTER.md and k8s/README.md
+- [x] 4.1 Name the class in docs/ROADMAP_WORKFLOW.md and docs/roadmap/stage.md, and the alert and the person step in docs/CLUSTER.md and k8s/README.md, and regenerate the documentation with `devops docs generate` for the new error class and message
   - Verification: `$ uv run devops ci docs`
 
 - Pending a person: review the diff in tuicr (tuicr -r origin/main..HEAD).
