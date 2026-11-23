@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from enum import StrEnum
 from http import HTTPStatus
 from http.client import responses as http_phrases
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 import httpx2
 
@@ -18,6 +19,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.env import ENV_AGENT_GRANT, env_var_for_option
 from devops_cli.exceptions.ai import LLMInferenceError
 from devops_cli.http.urls import get_url_origin, read_url_or_authority
+from devops_cli.lang import ERRORS
 
 if TYPE_CHECKING:
     from pydantic_ai.messages import FinishReason
@@ -143,6 +145,56 @@ class StructuredOutputValidationError(AIClientError):
 
 class AICredentialsError(AIClientError):
     """Raised when a provider rejects the request's credentials; retrying cannot help."""
+
+
+class AIKeySpendLimitError(AICredentialsError):
+    """Raised when the provider key behind a request reached its spend limit (#6821).
+
+    Each call fails until a person raises the spend limit of the key at the provider or changes the
+    key, as for a refused key, so each site that stops a run for a refused key stops for it too.
+    """
+
+
+# The error text of a provider that says the key reached its spend limit: the 403 `Key limit
+# exceeded` of OpenRouter, which the LiteLLM gateway passes on in the `message` of its error.
+_SPEND_LIMIT_TEXT: Final[re.Pattern[str]] = re.compile(r"\bkey limit exceeded\b", re.IGNORECASE)
+
+
+def provider_error_text(body: object) -> str:
+    """The error text in the `body` of a model's error reply: the body when it is a string, else
+    its `message`, else its `error`, read the same way. No other value of a body is read, for
+    `mask_secrets` finds a secret by its form in a text, and not the value of a key such as
+    `api_key` in the repr of a dict, and a value that the model wrote does not decide a rule."""
+    if isinstance(body, str):
+        return body
+    if isinstance(body, Mapping):
+        return next(
+            (text for key in ("message", "error") if (text := provider_error_text(body.get(key)))),
+            "",
+        )
+    return ""
+
+
+def _parsed_body(body: object) -> object:
+    """`body`, parsed when it is a JSON text, as the text of a reply that no SDK read is."""
+    if not isinstance(body, str):
+        return body
+    try:
+        return json.loads(body)
+    except ValueError:
+        return body
+
+
+def spend_limit_error(status: int, body: object) -> AIKeySpendLimitError | None:
+    """The error of a reply that refused the key with HTTP `status` (401 or 403), when the error
+    text of its `body` says that the key reached its spend limit, else None (#6821). Each site that
+    maps a 401 or 403 to a credentials error asks this one rule first. The error holds no text of
+    the body, so it holds no key, URL or amount of the reply."""
+    if _SPEND_LIMIT_TEXT.search(provider_error_text(_parsed_body(body))) is None:
+        return None
+    return AIKeySpendLimitError(
+        ERRORS.ai.provider_key_spend_limit.format(status=status), status=status
+    )
 
 
 def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredentialsError:

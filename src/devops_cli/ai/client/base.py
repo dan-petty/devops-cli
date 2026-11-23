@@ -7,12 +7,21 @@ from typing import cast
 
 import httpx2
 
-from devops_cli.ai.client.models import AIClientError
+from devops_cli.ai.client.models import AIClientError, spend_limit_error
 from devops_cli.config.constants import CONST_AI_GATEWAY_PROVIDER
 from devops_cli.config.settings import AIConfig
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
 from devops_cli.http.retry import ConnectRetryPolicy
+
+
+def _reply_text(response: httpx2.Response) -> str:
+    """The text of `response`, or empty for a reply that the transport closed without a read of
+    its body."""
+    try:
+        return response.text
+    except httpx2.ResponseNotRead:
+        return ""
 
 
 def _clean_http_error_body(raw_body: str) -> str:
@@ -153,11 +162,12 @@ class BaseLLMProviderMixin:
         """Format informative provider HTTP error with status code and sanitized detail."""
         from devops_cli.ai.client.models import credentials_error
 
-        status = exc.response.status_code if isinstance(exc, httpx2.HTTPStatusError) else None
-        if status in (401, 403):
+        response = exc.response if isinstance(exc, httpx2.HTTPStatusError) else None
+        status = response.status_code if response is not None else None
+        if response is not None and status in (401, 403):
             provider_name = getattr(self._config, "provider", "AI")
             has_key = bool(getattr(self, "_api_key", None))
-            return credentials_error(
+            return spend_limit_error(status, _reply_text(response)) or credentials_error(
                 f"The {provider_name} provider", has_key=has_key, status=status
             )
         if status is not None:

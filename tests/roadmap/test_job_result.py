@@ -49,6 +49,23 @@ def test_a_line_holds_the_job_the_item_the_result_its_class_and_counts_in_order(
     ]
 
 
+def test_a_spent_provider_key_is_an_infrastructure_cut_and_stays_out_of_the_grade(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.INFO):
+        log_job_result(
+            RoadmapJob.STAGE, "owner/repo", 5, "failed", failure=FailureClass.SPEND_LIMIT
+        )
+        log_job_result(
+            RoadmapJob.IMPLEMENT, "owner/repo", 6, "stopped", failure=FailureClass.SPEND_LIMIT
+        )
+
+    assert [" class=spend_limit infra=true " in line for line in result_lines(caplog)] == [
+        True,
+        True,
+    ]
+
+
 def test_an_intended_result_with_no_failure_is_a_success_and_no_infrastructure_cut(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

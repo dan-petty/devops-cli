@@ -12,6 +12,10 @@ class AIErrorMessages:
     llm_failed_template_fallback: str = "LLM failed ({exc}), using template."
     empty_prompt: str = "Error: Prompt cannot be empty."
     provider_connection_error: str = "Could not connect to AI provider at {url}: {exc}"
+    provider_key_spend_limit: str = (
+        "The provider key reached its spend limit (HTTP {status}). A person raises the spend "
+        "limit of the key at the provider, or changes the key."
+    )
     unsupported_provider: str = "Unsupported AI provider '{provider}'."
     unknown_benchmark_type: str = "Unknown benchmark type '{value}': use one of {choices}."
     benchmark_corpus_conflict: str = (

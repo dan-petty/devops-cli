@@ -24,6 +24,7 @@ from devops_cli.ai.client.models import (
     credentials_error,
     origin_label,
     provider_finish_reason,
+    spend_limit_error,
 )
 from devops_cli.ai.client.network import (
     ReplySchema,
@@ -127,7 +128,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
         if status in (401, 403):
             provider_name = getattr(self._config, "provider", "AI")
             has_key = bool(getattr(self, "_api_key", None))
-            return credentials_error(
+            return spend_limit_error(status, raw_body) or credentials_error(
                 f"The {provider_name} provider", has_key=has_key, status=status
             )
         cleaned = _clean_http_error_body(raw_body)

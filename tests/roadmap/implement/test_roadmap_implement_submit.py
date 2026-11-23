@@ -21,6 +21,7 @@ import pytest
 from kubernetes.client.rest import ApiException
 from markdown_it import MarkdownIt
 
+from devops_cli.ai.client import models
 from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_IMPLEMENT_CONSECUTIVE_FAILURES,
     CONST_SERVICE_METRIC_IMPLEMENT_FAILURES,
@@ -814,6 +815,31 @@ def test_a_job_that_left_no_result_gets_the_class_of_its_log_in_the_record_the_c
     assert _failures("oom") - before == 1
     assert _record(store, number)["implement.failure"] == "oom"
     assert "Failure class: `oom`.\nAction taken: none.\nAction left: `raise_limit`:" in comment
+
+
+def test_a_job_that_a_spent_provider_key_stopped_counts_spend_limit_and_waits_for_a_person(
+    store: InMemoryRoadmapStore, staged_repo: StageRepo, api: GitHubApiFake, kube: FakeCluster
+) -> None:
+    """The Job stops for a spent key as for a refused key, and leaves no result, so the class
+    comes from the error line of its log (#6821)."""
+    number = seed_staged(store)
+    _round(store, staged_repo)
+    name = _jobs(kube)[0]["metadata"]["name"]
+    store.set_field(_held(store, number), ItemField.STATUS, "In Progress")
+    _end(kube, "Failed")
+    kube.core.answers["list_namespaced_pod"] = [pod(f"{name}-x1", namespace="devops")]
+    spent = models.spend_limit_error(403, "Key limit exceeded")
+    kube.core.answers["read_namespaced_pod_log"] = f"✗ Could not run the job: {spent}\n"
+    before = _failures("spend_limit")
+
+    _round(store, staged_repo)
+
+    (comment,) = [c for c in _comments(store, number) if c.startswith(MARKER)]
+    assert (
+        _failures("spend_limit") - before,
+        _record(store, number)["implement.failure"],
+        "Failure class: `spend_limit`.\nAction taken: none.\nAction left: `wait`:" in comment,
+    ) == (1, "spend_limit", True)
 
 
 @pytest.mark.usefixtures("no_continuation")
