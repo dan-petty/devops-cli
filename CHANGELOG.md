@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.203.0](https://github.com/dan-petty/devops-cli/compare/v0.202.0...v0.203.0) (2026-11-23)
+
+
+### Features
+
+* **k8s:** add a k8s subcommand that probes a policy path ([#6894](https://github.com/dan-petty/devops-cli/issues/6894)) ([b1fae4f](https://github.com/dan-petty/devops-cli/commit/b1fae4f98f3f97f7b4ce00d59367cdae5a6c77c2))
+
 ## [0.202.0](https://github.com/dan-petty/devops-cli/compare/v0.201.6...v0.202.0) (2026-11-23)
 
 
