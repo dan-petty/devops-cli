@@ -15,17 +15,32 @@ from devops_cli.research.judge import (
     judge_agreement_rate,
     judge_records,
 )
-from tests.research.test_research_judge import FakeCorpus
+from devops_cli.research.models import Component
 
 
-class EvalCorpus(FakeCorpus):
+class EvalCorpus:
     """Corpus pre-populated with evaluation records and URLs."""
 
     def __init__(self) -> None:
-        super().__init__()
-        for item in LABELED_FINDINGS:
-            self.records[item.record.id] = item.record.text
-            self.urls.add(item.record.url)
+        self.records: dict[str, str] = {
+            item.record.id: item.record.text for item in LABELED_FINDINGS
+        }
+        self.urls: set[str] = {item.record.url for item in LABELED_FINDINGS}
+
+    def record_text(self, record_id: str) -> str | None:
+        return self.records.get(record_id)
+
+    def holds_url(self, url: str) -> bool:
+        return url in self.urls
+
+    def stored_texts(self, query: str, regex: bool = False) -> list[str]:
+        return [t for t in self.records.values() if query in t]
+
+    def components(self) -> list[Component]:
+        return [item.record.component for item in LABELED_FINDINGS]
+
+    def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        return [{"path": "src/devops_cli/research/judge.py", "score": 0.9}]
 
 
 def test_labeled_evaluation_run(capsys: Any) -> None:
