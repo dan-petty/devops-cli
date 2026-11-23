@@ -195,3 +195,16 @@ def head_commit(root: Path) -> str:
     """Return the commit SHA of HEAD for the repository at root."""
     res = run_subprocess(["git", "rev-parse", "HEAD"], cwd=root, local_read=True)
     return res.stdout.strip()
+
+
+def digest_index_section(digest: ProjectDigest | None = None) -> str:
+    """Render the project digest section for the Knowledge Base catalog, naming sections only."""
+    sections = ["commands", "settings", "pins", "architecture", "decisions"]
+    lines = [
+        "## Project Digest",
+        "",
+        "Authoritative project facts generated at run time by the `project_digest` tool:",
+        "",
+        *(f"- `{s}`" for s in sections),
+    ]
+    return "\n".join(lines)

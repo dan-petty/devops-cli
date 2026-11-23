@@ -1396,7 +1396,17 @@ class DocGenerator:
             link_target = _format_article_link(art)
             lines.append(f"| `{category}` | [`{art.name}`]({link_target}) | {art_name} |")
 
-        lines.append("")
+        from devops_cli.ai.project_digest import digest_index_section
+
+        lines.extend(
+            [
+                "",
+                "---",
+                "",
+                digest_index_section(),
+                "",
+            ]
+        )
         return "\n".join(lines)
 
     def synced_blocks(self) -> dict[str, str]:

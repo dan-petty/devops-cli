@@ -25,6 +25,7 @@ from devops_cli.ai.project_digest import (
     settings_sections,
 )
 from devops_cli.ai.repomap import generate_repo_map
+from devops_cli.ai.tools.builtin_tools import project_digest
 from devops_cli.core.import_graph import build_import_graph
 from devops_cli.docs.adr_records import read_record_texts
 from devops_cli.docs.generator import DocGenerator, iter_settings_fields
@@ -201,3 +202,21 @@ def test_the_digest_hashes_its_sections_and_names_the_commit_it_was_given(
 
     monkeypatch.setattr("devops_cli.ai.project_digest.run_subprocess", fake_run_subprocess)
     assert head_commit(repo_root) == expected_sha
+
+
+def test_the_project_digest_tool_and_the_index_section_name_the_same_sections() -> None:
+    res = project_digest()
+    assert isinstance(res, dict)
+    assert "content_hash" in res
+    assert "commit" in res
+    assert len(res["content_hash"]) == 64
+
+    tool_sections = [k for k in res if k not in ("content_hash", "commit")]
+    expected_sections = ["commands", "settings", "pins", "architecture", "decisions"]
+    assert set(tool_sections) == set(expected_sections)
+
+    generator = DocGenerator()
+    kb_index = generator.generate_knowledge_base_index()
+    assert "## Project Digest" in kb_index
+    for section_name in tool_sections:
+        assert f"`{section_name}`" in kb_index
