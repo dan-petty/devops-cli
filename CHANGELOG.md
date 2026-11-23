@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.197.0](https://github.com/dan-petty/devops-cli/compare/v0.196.0...v0.197.0) (2026-11-23)
+
+
+### Features
+
+* **repos:** report the drift of onboarded repositories nightly ([#6816](https://github.com/dan-petty/devops-cli/issues/6816)) ([7432f0f](https://github.com/dan-petty/devops-cli/commit/7432f0f802db5be07142ec3c3ed93a5536226079))
+* **roadmap:** Add toolsets for implement and review ([#6810](https://github.com/dan-petty/devops-cli/issues/6810)) ([ec5b16b](https://github.com/dan-petty/devops-cli/commit/ec5b16bdc58e8a34f158d66c937df23919888a5b))
+
+
+### Bug Fixes
+
+* **deps:** update container images ([#6817](https://github.com/dan-petty/devops-cli/issues/6817)) ([fb349e5](https://github.com/dan-petty/devops-cli/commit/fb349e5376f703786bf6e370e0c57343a8c1bdbc))
+* **k8s:** start SearXNG when its metrics Secret is missing ([#6811](https://github.com/dan-petty/devops-cli/issues/6811)) ([a11d112](https://github.com/dan-petty/devops-cli/commit/a11d112b09cbe33131784e8c3eaea30f7b5f5345))
+
 ## [0.196.0](https://github.com/dan-petty/devops-cli/compare/v0.195.4...v0.196.0) (2026-11-22)
 
 
