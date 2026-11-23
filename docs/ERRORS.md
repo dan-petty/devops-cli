@@ -23,18 +23,18 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 
 | Exception | Error Code | Exit Code | Domain | Description |
 |---|---|---|---|---|
-| `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when an AI provider request fails with a user-actionable message. |
-| `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when a provider rejects the request's credentials; retrying cannot help. |
-| `AIKeySpendLimitError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the provider key behind a request reached its spend limit (#6821). |
+| `AIClientError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when an AI provider request fails with a user-actionable message. |
+| `AICredentialsError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when a provider rejects the request's credentials; retrying cannot help. |
+| `AIKeySpendLimitError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when the provider key behind a request reached its spend limit (#6821). |
 | `AgentAuditFilingError` | `AGENT_AUDIT_FILING_FAILED` | `1` | Core | Raised when `devops roadmap intake` does not file one draft of `devops ai agent-audit` (#2346). |
-| `AnswerFlagError` | `ONBOARD_ANSWER_DIFFERS` | `2` | Devops_cli.github.onboard.baseline | A flag gives an answer that differs from `.copier-answers.yml` of the repository. |
+| `AnswerFlagError` | `ONBOARD_ANSWER_DIFFERS` | `2` | Github | A flag gives an answer that differs from `.copier-answers.yml` of the repository. |
 | `ApplicationSourceError` | `K8S_APPLICATION_SOURCE_ERROR` | `1` | K8s | Raised when a git source of an Argo CD Application cannot be read (#5131). |
 | `ApprovalRequired` | `APPROVAL_REQUIRED` | `17` | Ai | Raised by a tool or validator when human approval is required to proceed. |
 | `ArgoCDGateError` | `ARGOCD_GATE_ERROR` | `1` | K8s | Raised when an Argo CD application fails offline build, value, or placeholder validation (#1343). |
 | `ArgoError` | `ARGO_ERROR` | `1` | Argo | Base exception for Argo CD, Rollouts, and Workflows operations. |
 | `ArgoResourceNotFoundError` | `ARGO_RESOURCE_NOT_FOUND` | `1` | Argo | Raised when an Argo custom resource does not exist in the target cluster. |
 | `ArgoWorkflowTimeoutError` | `ARGO_WORKFLOW_TIMEOUT` | `1` | Argo | Raised when an Argo Workflow does not reach a terminal phase within the wait budget. |
-| `BaselineUnreadableError` | `ONBOARD_BASELINE_UNREADABLE` | `1` | Devops_cli.github.onboard.baseline | The baseline cannot be read: no ref, no `copier` program, a failed render, or a settings |
+| `BaselineUnreadableError` | `ONBOARD_BASELINE_UNREADABLE` | `1` | Github | The baseline cannot be read: no ref, no `copier` program, a failed render, or a settings file that the schema refuses. `step` is the person step that makes it readable, if any. |
 | `BranchAlreadyExistsError` | `BRANCH_ALREADY_EXISTS` | `1` | Git | Raised when attempting to create a branch that already exists. |
 | `CallDeferred` | `CALL_DEFERRED` | `18` | Ai | Raised by a tool when execution is deferred to an external worker or async system. |
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
@@ -57,8 +57,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `DocsIngestionError` | `DOCS_INGESTION_ERROR` | `1` | Ai | Base exception for documentation ingestion errors. |
 | `DocsSiteError` | `DOCS_SITE_INVALID` | `1` | Validation | Raised when the docs site cannot be staged, or when its built pages fail a check. |
 | `DoctorCheckError` | `K8S_DOCTOR_CHECK_FAILED` | `1` | K8s | Raised inside `devops k8s doctor --stack` when one check fails; the message is its reason. |
-| `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Devops_cli.ai.rag.embeddings | Raised when embeddings generation fails across all endpoints. |
-| `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.gateway_tune | Raised when the gateway's deployments cannot be discovered or measured. |
+| `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Ai | Raised when embeddings generation fails across all endpoints. |
+| `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Ai | Raised when the gateway's deployments cannot be discovered or measured. |
 | `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |
 | `GitHubNotFoundError` | `GITHUB_NOT_FOUND` | `1` | Git | Raised when GitHub answers that what it was asked for does not exist (HTTP 404). |
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |
@@ -69,15 +69,15 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `GitOperationError` | `GIT_OPERATION_ERROR` | `1` | Git | Base exception for Git repository and branch operation failures. |
 | `GiteaAccessBlocked` | `GITEA_ACCESS_BLOCKED` | `1` | Gitea | Raised when Cloudflare Access blocks a Gitea request with a redirect or challenge. |
 | `GiteaError` | `GITEA_ERROR` | `1` | Gitea | Base exception for Gitea forge operations. |
-| `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Devops_cli.http.client | Raised when an invalid timeout parameter type is provided. |
+| `HTTPTimeoutTypeError` | `VALIDATION_ERROR` | `1` | Http | Raised when an invalid timeout parameter type is provided. |
 | `HarnessValidationError` | `HARNESS_VALIDATION_ERROR` | `1` | Ai | Raised when an AI evaluation or harness schema validation fails. |
-| `ImagePinError` | `K8S_IMAGE_PIN_ERROR` | `1` | K8s | Raised when an image that an Argo CD Application pins does not resolve in its registry, or an |
-| `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for |
+| `ImagePinError` | `K8S_IMAGE_PIN_ERROR` | `1` | K8s | Raised when an image that an Argo CD Application pins does not resolve in its registry, or an Application does not render (#1994). |
+| `ImplementEvalError` | `ROADMAP_EVAL_REFUSED` | `1` | Roadmap | Raised when `devops roadmap eval implement` cannot read or use a fixture, or is asked for one that does not exist (#3030). |
 | `InfraAccessRefusedError` | `INFRA_ACCESS_REFUSED` | `1` | Infra | An agent gave an agent access level above `none` for an infra repo. Only a person sets it. |
-| `InfraApplyRefusedError` | `INFRA_APPLY_REFUSED` | `1` | Infra | A guard of `devops infra apply` refused the apply before it changed a host: the plan, its |
+| `InfraApplyRefusedError` | `INFRA_APPLY_REFUSED` | `1` | Infra | A guard of `devops infra apply` refused the apply before it changed a host: the plan, its hash, age or arguments, the commit at origin, the host key checks, or the health of the cluster (#5125). |
 | `InfraError` | `INFRA_ERROR` | `1` | Infra | Base exception of the infra repo commands. |
-| `InfraNodeRefusedError` | `INFRA_NODE_REFUSED` | `1` | Infra | A guard of `devops infra node` refused the run before it changed a node: a host that is not |
-| `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A read of an infra repo failed: a git command of the read of its default branch, an Ansible |
+| `InfraNodeRefusedError` | `INFRA_NODE_REFUSED` | `1` | Infra | A guard of `devops infra node` refused the run before it changed a node: a host that is not in service in the inventory, a restart with no unit, `--force` from an agent, or host key checks off for an agent (#5128). |
+| `InfraReadError` | `INFRA_READ_FAILED` | `1` | Infra | A read of an infra repo failed: a git command of the read of its default branch, an Ansible command, or its output is not JSON. |
 | `InfraRepoNotFoundError` | `INFRA_REPO_NOT_FOUND` | `1` | Infra | The checkout of an infra repo is not where the settings or the arguments put it. |
 | `InvalidBranchNameError` | `INVALID_BRANCH_NAME` | `1` | Git | Raised when a proposed Git branch name violates naming conventions. |
 | `InvalidURLError` | `INVALID_URL` | `1` | Validation | Raised when an invalid URL or URI scheme is provided. |
@@ -91,42 +91,42 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `LLMInferenceError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Base exception for LLM provider invocation failures. |
 | `LibraryIngestionError` | `LIBRARY_INGESTION_ERROR` | `1` | Ai | Base exception for package introspection and library ingestion errors. |
 | `LibraryNotFoundError` | `LIBRARY_NOT_FOUND_ERROR` | `1` | Ai | Raised when target package could not be loaded or found in the environment. |
-| `LimitReached` | `LIMIT_REACHED` | `15` | Ai | A step spent one of its budgets of tokens or time, so it makes no more model requests |
+| `LimitReached` | `LIMIT_REACHED` | `15` | Ai | A step spent one of its budgets of tokens or time, so it makes no more model requests (#3053). The message names the setting and its value. |
 | `LogfireConfigurationError` | `LOGFIRE_CONFIG_ERROR` | `1` | Telemetry | Raised when the Logfire bridge cannot start. |
-| `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Devops_cli.telemetry.memory_profiler | Domain exception raised when memory profiling target resolution or execution fails. |
+| `MemoryProfilerError` | `PROFILER_ERROR` | `1` | Telemetry | Domain exception raised when memory profiling target resolution or execution fails. |
 | `ModelBundleError` | `MODEL_BUNDLE_ERROR` | `1` | Ai | Raised when an AI model bundle cannot be located, resolved, or loaded. |
 | `ModelGatewayUnreachableError` | `MODEL_GATEWAY_UNREACHABLE` | `1` | Ai | Raised when a model call through the gateway fails, so the command decided and wrote nothing. |
 | `ModelRetry` | `MODEL_RETRY_REQUESTED` | `14` | Ai | Raised by tools or output validators to request the model to retry with corrective feedback. |
 | `OtlpExportError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the collector does not take an OTLP export, with the failure as its message. |
 | `OtlpProtocolError` | `TELEMETRY_ERROR` | `1` | Telemetry | Raised when the OTLP protocol or endpoint asks for gRPC, which devops-cli does not send. |
-| `OutputCapReached` | `OUTPUT_CAP_REACHED` | `15` | Ai | A model reply ended with the finish reason `length`: the model did not stop, and the output |
+| `OutputCapReached` | `OUTPUT_CAP_REACHED` | `15` | Ai | A model reply ended with the finish reason `length`: the model did not stop, and the output cap ended the call (#2869). The message names the cap. The run drops a reply that a hook rejects, so the error holds it in `response`, for the spend. |
 | `OverWindowError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when the inputs of an implement step measure more than the window allows (#3057). |
 | `PageTextError` | `PAGE_TEXT_ERROR` | `1` | Ai | Raised when the Crawl4AI service returns no usable text for a page. |
-| `PhaseOutputError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` cannot read an output of the agent phase as data: a link in its path, a |
-| `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.pool_load | Prometheus could not answer a pool load query. |
-| `PublishRefusedError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` refuses the patch of the agent phase before the push: git cannot apply |
-| `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.rag.qdrant | Raised when an interaction with Qdrant fails. |
+| `PhaseOutputError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` cannot read an output of the agent phase as data: a link in its path, a file that is not a regular file, a file over its size limit, or text that is not the model of the file (#6601). |
+| `PoolLoadError` | `DEVOPS_CLI_ERROR` | `1` | Ai | Prometheus could not answer a pool load query. |
+| `PublishRefusedError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `publish` refuses the patch of the agent phase before the push: git cannot apply it, or it adds or changes a link, a gitlink, `.gitmodules` or a workflow file that the plan does not name (#6601). The message names the reason and each path, masked. |
+| `QdrantClientError` | `DEVOPS_CLI_ERROR` | `1` | Ai | Raised when an interaction with Qdrant fails. |
 | `RagIngestError` | `RAG_INGEST_FAILED` | `1` | Ai | Raised when one or more repositories fail during RAG ingestion. |
 | `RefusedPullReply` | `REFUSED_PULL_REPLY` | `1` | Roadmap | The pull request text broke form rules after one retry (#3599). |
 | `RegistryReadError` | `DOCKER_REGISTRY_READ_ERROR` | `1` | Docker | Raised when an image registry gives no digest for a tag: no anonymous pull, or a reply with no digest. |
 | `RegistryTagNotFoundError` | `DOCKER_REGISTRY_TAG_NOT_FOUND` | `1` | Docker | Raised when an image registry answers HTTP 404 for a tag: the tag is not there (yet). |
-| `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
+| `ReplyRejectedError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when the caller's validator refused a reply; it carries the reply, never cached. |
 | `ResponseTooLargeError` | `RESPONSE_TOO_LARGE` | `1` | Security | Raised when the body of a response passes the byte cap of its client. |
 | `ReviewHandOffRefusedError` | `REVIEW_HAND_OFF_REFUSED` | `1` | Ai | Raised when `devops review intake` refuses a session that is not on merged code. |
 | `ReviewPoolError` | `REVIEW_POOL_ERROR` | `1` | Ai | Raised when an error occurs during parallel review worker pool execution. |
 | `ReviewScannerMissingError` | `REVIEW_SCANNER_MISSING` | `1` | Ai | Raised when a review in the pod of a runner Job needs a scanner that its image lacks. |
 | `ReviewSessionExistsError` | `REVIEW_SESSION_EXISTS` | `1` | Ai | Raised when a review is published under the name of a session that is already published. |
-| `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Devops_cli.review.state | Exception raised for invalid review finding state or state transition. |
+| `ReviewStateError` | `REVIEW_STATE_ERROR` | `1` | Review | Exception raised for invalid review finding state or state transition. |
 | `RoadmapAlternativesError` | `ROADMAP_ALTERNATIVES_FAILED` | `1` | Roadmap | Raised after an alternatives run that tried items and checked none of them. |
-| `RoadmapClaimError` | `ROADMAP_ITEM_CLAIMED` | `1` | Roadmap | Raised when a claim of a roadmap Item is refused, because another owner holds it or |
+| `RoadmapClaimError` | `ROADMAP_ITEM_CLAIMED` | `1` | Roadmap | Raised when a claim of a roadmap Item is refused, because another owner holds it or because the issue is no Item (#2910). |
 | `RoadmapImplementError` | `ROADMAP_IMPLEMENT_REFUSED` | `1` | Roadmap | Raised when `devops roadmap implement` refuses to start a step, or cannot read its inputs. |
 | `RoadmapIntakeError` | `ROADMAP_INTAKE_FAILED` | `1` | Roadmap | Raised after an intake round in which the writes failed for one or more candidates. |
 | `RoadmapItemChangedError` | `ROADMAP_ITEM_CHANGED` | `1` | Roadmap | Raised before a job's field write that would revert a change made since it read the Item. |
 | `RoadmapMcpUnavailableError` | `ROADMAP_MCP_UNAVAILABLE` | `1` | Roadmap | Raised when the MCP server is unavailable at job start (#3221). |
 | `RoadmapOpenRefusedError` | `ROADMAP_OPEN_REFUSED` | `1` | Roadmap | Raised when devops roadmap step open refuses to open or update a pull request (#5020). |
-| `RoadmapPlanReadBackError` | `ROADMAP_PLAN_READ_BACK_MISMATCH` | `1` | Roadmap | Raised when the plan reader cannot read back the rendered files of a plan, or reads facts |
+| `RoadmapPlanReadBackError` | `ROADMAP_PLAN_READ_BACK_MISMATCH` | `1` | Roadmap | Raised when the plan reader cannot read back the rendered files of a plan, or reads facts that differ from the proposal (#5214). |
 | `RoadmapPlanRewriteError` | `ROADMAP_PLAN_REWRITE_REFUSED` | `1` | Roadmap | Raised when `devops roadmap plan-recheck --confirm` refuses to write a rewritten plan (#3556). |
-| `RoadmapPullReviewLimitError` | `ROADMAP_PULL_REVIEW_LIMIT` | `1` | Roadmap | Raised before the model call of the step `review` when its request is over the cap of new |
+| `RoadmapPullReviewLimitError` | `ROADMAP_PULL_REVIEW_LIMIT` | `1` | Roadmap | Raised before the model call of the step `review` when its request is over the cap of new tokens of one review (#5969). |
 | `RoadmapRecordMarkLostError` | `ROADMAP_RECORD_MARK_LOST` | `1` | Roadmap | Raised after a job record write when a mark remains missing after two rewrites (#4555). |
 | `RoadmapRefineError` | `ROADMAP_REFINE_FAILED` | `1` | Roadmap | Raised after a refine run in which the model call failed for one or more items. |
 | `RoadmapReviewError` | `ROADMAP_REVIEW_FAILED` | `1` | Roadmap | Raised when `devops roadmap review run` cannot resolve its window, read git or load a catalog. |
@@ -135,37 +135,37 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `RoadmapStageError` | `ROADMAP_STAGE_FAILED` | `1` | Roadmap | Raised after a stage run in which one or more items failed (#2654). |
 | `RoadmapStatusLostError` | `ROADMAP_STATUS_LOST` | `1` | Roadmap | Raised after a Status write when the issue, read again, holds another Status (#5018). |
 | `RoadmapTimeBudgetError` | `ROADMAP_TIME_BUDGET` | `1` | Roadmap | Raised before a model call of a step whose time budget is spent (#5363). |
-| `RouteRefusedError` | `ONBOARD_ROUTE_REFUSED` | `1` | Devops_cli.github.onboard.routes | A row asked for a write that no route of `ROUTES` holds. |
-| `RouteWriteError` | `ONBOARD_WRITE_FAILED` | `1` | Devops_cli.github.onboard.routes | A write of a route failed: the row that sent it fails, and the next run continues. |
-| `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.ai.run_store | No shared run index is configured. |
-| `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Devops_cli.github.ssh | Raised when SSH/signing key registration on GitHub fails. |
+| `RouteRefusedError` | `ONBOARD_ROUTE_REFUSED` | `1` | Github | A row asked for a write that no route of `ROUTES` holds. |
+| `RouteWriteError` | `ONBOARD_WRITE_FAILED` | `1` | Github | A write of a route failed: the row that sent it fails, and the next run continues. |
+| `RunIndexNotConfiguredError` | `DEVOPS_CLI_ERROR` | `1` | Ai | No shared run index is configured. |
+| `SSHRegistrationError` | `GITHUB_OPERATION_FAILED` | `1` | Github | Raised when SSH/signing key registration on GitHub fails. |
 | `SSRFBlockedError` | `SSRF_BLOCKED` | `2` | Security | Raised when an outbound HTTP request targets a private or forbidden network IP. |
 | `SandboxError` | `SANDBOX_ERROR` | `1` | Sandbox | Base exception for workload sandbox lifecycle operations. |
 | `SandboxNotFoundError` | `SANDBOX_NOT_FOUND_ERROR` | `1` | Sandbox | Raised when requested sandbox instance or container cannot be found. |
 | `SandboxPortAllocationError` | `SANDBOX_PORT_ALLOCATION_ERROR` | `1` | Sandbox | Raised when host port allocation encounters collisions or range exhaustion. |
 | `SandboxUnavailableError` | `SANDBOX_UNAVAILABLE_ERROR` | `1` | Sandbox | Raised when this host cannot start the sandbox of a review tool, so the tool does not run. |
 | `SandboxValidationError` | `SANDBOX_VALIDATION_ERROR` | `1` | Sandbox | Raised when sandbox configuration or directory mount paths violate security boundaries. |
-| `SearchFailed` | `WEB_SEARCH_FAILED` | `1` | Ai | Raised when no provider of a web search answered: each one failed, was skipped, or the |
-| `SearchQueryRefused` | `WEB_SEARCH_QUERY_REFUSED` | `1` | Ai | Raised when the guard stops a web search query before any provider runs. The message names |
+| `SearchFailed` | `WEB_SEARCH_FAILED` | `1` | Ai | Raised when no provider of a web search answered: each one failed, was skipped, or the deadline ended the search. |
+| `SearchQueryRefused` | `WEB_SEARCH_QUERY_REFUSED` | `1` | Ai | Raised when the guard stops a web search query before any provider runs. The message names the rule and never holds the query. |
 | `SecurityError` | `SECURITY_ERROR` | `1` | Security | Base exception for all security, policy, and egress violations. |
-| `ServiceAddressError` | `K8S_ERROR` | `1` | Devops_cli.k8s.service_proxy | Raised when a cluster service address cannot be resolved. |
-| `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | Devops_cli.k8s.node_port | A service cannot be reached from outside the cluster. |
-| `ServiceProbeError` | `K8S_SERVICE_PROBE_ERROR` | `1` | K8s | Raised when `devops k8s crawl4ai-check` or `devops k8s searxng-check` cannot probe a service: |
+| `ServiceAddressError` | `K8S_ERROR` | `1` | K8s | Raised when a cluster service address cannot be resolved. |
+| `ServiceNotReachableError` | `DEVOPS_CLI_ERROR` | `1` | K8s | A service cannot be reached from outside the cluster. |
+| `ServiceProbeError` | `K8S_SERVICE_PROBE_ERROR` | `1` | K8s | Raised when `devops k8s crawl4ai-check` or `devops k8s searxng-check` cannot probe a service: the forward, the throwaway pod or the probe fails, or a check fails (#3894, #3929). |
 | `ServiceRequestError` | `SERVICE_REQUEST_ERROR` | `1` | Http | Raised when a request to a cluster service fails after the attempts of its retry policy. |
 | `ServiceStatusError` | `SERVICE_STATUS_ERROR` | `1` | Telemetry | Raised when querying upstream published service status fails. |
 | `ServiceStoppingError` | `SERVICE_STOPPING` | `1` | Roadmap | Raised when a request ends because the Service is stopping (#2753). |
 | `StackCredentialError` | `K8S_STACK_CREDENTIAL_ERROR` | `1` | K8s | Raised when a stack credential cannot be read, checked, minted, revoked or stored (#2156). |
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
-| `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Devops_cli.ai.client.models | Raised when the model answered, but no answer validated against the schema after retries. |
+| `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
 | `TaskPromptNotFoundError` | `TASK_PROMPT_NOT_FOUND` | `1` | Ai | Raised when a prompt name is not a file of the `ai/tasks/` folder of the package. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
-| `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Devops_cli.core.templating | Raised when a template cannot be rendered into valid output. |
+| `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Core | Raised when a template cannot be rendered into valid output. |
 | `TokenCountError` | `TOKEN_COUNT_ERROR` | `10` | Ai | Raised when the tiktoken encoding is unavailable, so no exact token count exists. |
 | `ToolDownloadError` | `TOOL_DOWNLOAD_ERROR` | `1` | Tools | Raised when an external tool download fails or is rejected. |
 | `ToolExecutionError` | `TOOL_EXECUTION_ERROR` | `1` | Tools | Base exception for external developer tool and binary execution failures. |
 | `ToolFailed` | `TOOL_FAILED` | `16` | Ai | Raised when a tool encounters an unrecoverable runtime failure without requesting model retry. |
-| `TraceValidationError` | `VALIDATION_ERROR` | `1` | Devops_cli.telemetry.context | Raised when trace metadata or flags fail validation. |
+| `TraceValidationError` | `VALIDATION_ERROR` | `1` | Telemetry | Raised when trace metadata or flags fail validation. |
 | `UnexpectedModelBehavior` | `UNEXPECTED_MODEL_BEHAVIOR` | `15` | Ai | Raised when model retry budget is exhausted or model emits unrecoverable response. |
 | `ValidationError` | `VALIDATION_ERROR` | `1` | Validation | Base exception for user input and format validation failures. |
 | `ValkeyAuthenticationError` | `VALKEY_AUTHENTICATION_ERROR` | `1` | Valkey | Raised when Valkey password authentication fails. |

@@ -265,3 +265,67 @@ def test_no_error_class_has_an_init_that_only_forwards_to_its_base() -> None:
     }
 
     assert forwarding == set()
+
+
+class _WrappedDoc:
+    """A first sentence that wraps
+    over two lines, with a `|` bar.
+
+    A second paragraph that the row leaves out.
+    """
+
+
+def test_a_catalog_row_gives_the_whole_first_paragraph_of_the_docstring() -> None:
+    """A docstring that wraps its first sentence gives one whole sentence in the row, not its first line (#6830)."""
+    assert DocGenerator.catalog_description(_WrappedDoc) == (
+        "A first sentence that wraps over two lines, with a `\\|` bar."
+    )
+
+
+def test_a_catalog_row_with_no_docstring_gives_the_class_name() -> None:
+    """A class with no docstring gives its name as the description (#6830)."""
+
+    class _Bare:
+        pass
+
+    assert DocGenerator.catalog_description(_Bare) == "_Bare"
+
+
+def test_a_catalog_domain_names_the_area_and_not_the_module_path() -> None:
+    """The domain is the area of devops-cli, with no `devops_cli` prefix and no module path (#6830)."""
+    modules = [
+        "devops_cli.exceptions",
+        "devops_cli.exceptions.git",
+        "devops_cli.github.onboard.baseline",
+        "devops_cli.ai.client.models",
+        "devops_cli.telemetry.context",
+        "devops_cli",
+    ]
+    assert [DocGenerator.catalog_domain(module) for module in modules] == [
+        "Core",
+        "Git",
+        "Github",
+        "Ai",
+        "Telemetry",
+        "Core",
+    ]
+
+
+def test_a_catalog_row_leaves_out_a_class_that_a_test_defines() -> None:
+    """A class of a test module is no error of devops-cli, so the catalog gives no row for it (#6830)."""
+
+    class _OfATest(DevOpsCLIError):
+        """Ends with a colon:"""
+
+    assert "_OfATest" not in DocGenerator().generate_error_catalog_docs()
+
+
+def test_no_catalog_row_holds_a_module_path_or_ends_mid_sentence() -> None:
+    """The generated catalog gives each row a domain with no dot and a description that ends a sentence or a list lead-in (#6830)."""
+    rows = [
+        [cell.strip() for cell in re.split(r"(?<!\\)\|", line)[1:-1]]
+        for line in DocGenerator().generate_error_catalog_docs().splitlines()
+        if re.match(r"\| `\w+` \| `\w+` \| `\d+` \|", line)
+    ]
+
+    assert [row[0] for row in rows if "." in row[3] or row[4][-1] not in ".):`"] == []
