@@ -42,9 +42,9 @@ Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devop
 
 Kind: behavior. Reads: `src/devops_cli/roadmap/consolidate_apply.py`, `src/devops_cli/roadmap/consolidate.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/support/fakes/roadmap_store.py`. Changes: `src/devops_cli/roadmap/consolidate_apply.py`, `tests/roadmap/test_roadmap_consolidate_apply.py`.
 
-- [ ] 5.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_parent_sub_issue_links`, `test_parent_blocked_by_links` and `test_parent_anchor_comment_lists_the_children`; the first asserts `add_sub_issue(10, 11)` and `add_sub_issue(10, 12)`
+- [x] 5.1 `tests/roadmap/test_roadmap_consolidate_apply.py` gains `test_parent_sub_issue_links`, `test_parent_blocked_by_links` and `test_parent_anchor_comment_lists_the_children`; the first asserts `add_sub_issue(10, 11)` and `add_sub_issue(10, 12)`
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` fails on the base
-- [ ] 5.2 Add the parent writer to `src/devops_cli/roadmap/consolidate_apply.py`. Read the anchor and the children with `src/devops_cli/roadmap/stores/store.py:def issue`. Add a sub-issue link with `src/devops_cli/roadmap/stores/store.py:def add_sub_issue` for each child when neither the anchor nor the child holds a milestone, and add a blocked-by link from the child to the anchor with `add_blocked_by` when the anchor holds a milestone. Post one fixed-template comment on the anchor with `src/devops_cli/roadmap/stores/store.py:def comment` that lists the children in the plan's order
+- [x] 5.2 Add the parent writer to `src/devops_cli/roadmap/consolidate_apply.py`. Read the anchor and the children with `src/devops_cli/roadmap/stores/store.py:def issue`. Add a sub-issue link with `src/devops_cli/roadmap/stores/store.py:def add_sub_issue` for each child when neither the anchor nor the child holds a milestone, and add a blocked-by link from the child to the anchor with `add_blocked_by` when the anchor holds a milestone. Post one fixed-template comment on the anchor with `src/devops_cli/roadmap/stores/store.py:def comment` that lists the children in the plan's order
   - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_consolidate_apply.py` passes
 
 ## 6. Apply a duplicate and a link-only group

@@ -97,7 +97,21 @@ def _apply_merge(store: RoadmapStore, plan: Plan, group: Group) -> None:
 
 
 def _apply_parent(store: RoadmapStore, plan: Plan, group: Group) -> None:
-    pass
+    anchor_issue = store.issue(group.anchor)
+    anchor_has_milestone = anchor_issue is not None and bool(anchor_issue.milestone)
+
+    for member in group.members:
+        child_issue = store.issue(member.number)
+        child_has_milestone = child_issue is not None and bool(child_issue.milestone)
+        if anchor_has_milestone:
+            store.add_blocked_by(member.number, group.anchor)
+        elif not child_has_milestone:
+            store.add_sub_issue(group.anchor, member.number)
+
+    lines = ["Consolidated parent task with children in order:"]
+    for member in group.members:
+        lines.append(f"- #{member.number}")
+    store.comment(group.anchor, "\n".join(lines))
 
 
 def _apply_close(store: RoadmapStore, plan: Plan, group: Group) -> None:

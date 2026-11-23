@@ -200,3 +200,83 @@ def test_second_apply_replaces_the_section() -> None:
     assert "Updated cause." in body
     assert "Initial cause." not in body
     assert body.startswith(anchor_prefix)
+
+
+def test_parent_sub_issue_links() -> None:
+    store = InMemoryRoadmapStore()
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n")
+    c1 = store.seed_issue("Child 1", body="C1 body.\n")
+    c2 = store.seed_issue("Child 2", body="C2 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.PARENT,
+        members=(
+            GroupMember(number=c1, action=Action.CHILD, reason="Sub-task 1."),
+            GroupMember(number=c2, action=Action.CHILD, reason="Sub-task 2."),
+        ),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    parent_record = next(i for i in store.issues() if i.number == anchor)
+    child1_record = next(i for i in store.issues() if i.number == c1)
+    child2_record = next(i for i in store.issues() if i.number == c2)
+    assert parent_record.sub_issues == 2
+    assert child1_record.parent == anchor
+    assert child2_record.parent == anchor
+    assert "add_blocked_by" not in store.writes
+
+
+def test_parent_blocked_by_links() -> None:
+    store = InMemoryRoadmapStore()
+    store.seed_milestone("v1.0")
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n", milestone="v1.0")
+    c1 = store.seed_issue("Child 1", body="C1 body.\n")
+    c2 = store.seed_issue("Child 2", body="C2 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.PARENT,
+        members=(
+            GroupMember(number=c1, action=Action.CHILD, reason="Backlog child 1."),
+            GroupMember(number=c2, action=Action.CHILD, reason="Backlog child 2."),
+        ),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    assert store.blocked_by(c1) == [anchor]
+    assert store.blocked_by(c2) == [anchor]
+    assert "add_sub_issue" not in [w.operation for w in store.job_writes()]
+
+
+def test_parent_anchor_comment_lists_the_children() -> None:
+    store = InMemoryRoadmapStore()
+    anchor = store.seed_issue("Anchor", body="Anchor body.\n")
+    c1 = store.seed_issue("Child 1", body="C1 body.\n")
+    c2 = store.seed_issue("Child 2", body="C2 body.\n")
+
+    group = make_group(
+        "g1",
+        anchor=anchor,
+        shape=Shape.PARENT,
+        members=(
+            GroupMember(number=c1, action=Action.CHILD, reason="First child."),
+            GroupMember(number=c2, action=Action.CHILD, reason="Second child."),
+        ),
+    )
+    plan = make_plan(groups=(group,))
+
+    apply_group(store, plan, "g1", confirm=True)
+
+    comments = store.comments_on(anchor)
+    assert len(comments) == 1
+    comment_text = comments[0].body
+    assert f"#{c1}" in comment_text
+    assert f"#{c2}" in comment_text
+    assert comment_text.index(f"#{c1}") < comment_text.index(f"#{c2}")
