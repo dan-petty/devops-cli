@@ -23,6 +23,7 @@ from devops_cli.roadmap.stage.stage_change import (
     PURPOSE_MIN_CHARS,
     SUMMARY_MAX_CHARS,
     GroupKind,
+    StageConstantClaim,
     StageDecision,
     StageGroup,
     StageProposal,
@@ -111,6 +112,7 @@ def test_the_top_level_keys_of_the_reply_are_the_fields_of_the_proposal() -> Non
         StageReference,
         StageRename,
         StageRemoval,
+        StageConstantClaim,
     ],
 )
 def test_each_list_of_keys_of_the_reply_is_the_fields_of_a_model(

@@ -513,6 +513,20 @@ class StageReference(_Reply):
         return self
 
 
+class StageConstantClaim(_Reply):
+    """A claim that an existing constant of the staged tree holds an integer value (#3388)."""
+
+    name: str
+    value: int
+
+    @field_validator("name")
+    @classmethod
+    def _is_identifier(cls, name: str) -> str:
+        if not name.isidentifier():
+            raise ValueError(f"{name!r} is not a Python identifier")
+        return name
+
+
 class GroupKind(StrEnum):
     """What a task group does. `behavior` adds or changes what the code does: its work starts with
     a failing test. `manifest` creates or changes a rule file, a dashboard file or a case file: its
@@ -732,6 +746,7 @@ class StageProposal(_Reply):
     dependencies: list[Line] = Field(default_factory=list)
     references: list[StageReference] = Field(default_factory=list)
     security: OptionalLine = ""
+    constant_claims: list[StageConstantClaim] = Field(default_factory=list)
     # The plan reader fills this list from `## Weakened checks` of `proposal.md` (#3490). The reply
     # schema does not show it: `render_change` writes no such section, so a key in a reply is lost.
     weakened_checks: SkipJsonSchema[list[WeakenedCheck]] = Field(default_factory=list)
