@@ -125,6 +125,7 @@ from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.adr import Adr, fit_to_budget, names, read_adrs, rejects
 from devops_cli.roadmap.agent_run import error_answer
 from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
+from devops_cli.roadmap.ask_tools import ResearchAsk, ResearchToolset, research_ask
 from devops_cli.roadmap.body_hash import (
     block_marker_spans,
     close_blocks_before_markers,
@@ -351,7 +352,7 @@ class Search:
 
 
 @dataclass
-class AlternativesTools:
+class AlternativesTools(ResearchToolset):
     """The tools of one item's check. `search_web` runs at most
     `CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES` searches, and the two fact tools make at most
     `CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS` reads together. A tool answers a failed read, or a
@@ -370,6 +371,11 @@ class AlternativesTools:
     comments: CommentReader = field(
         default_factory=lambda: CommentReader(max_chars=CONST_ROADMAP_REFINE_TOOL_MAX_CHARS)
     )
+    research: ResearchAsk | None = None
+
+    def __post_init__(self) -> None:
+        if self.research is None and self.pages is not None:
+            self.research = research_ask(self.pages, TOOLSET_ALTERNATIVES)
 
     @property
     def queries(self) -> list[str]:
@@ -535,6 +541,9 @@ class AlternativesTools:
         ]
         if self.pages is not None:
             methods.append(self.fetch_page)
+        if self.research is not None:
+            methods.append(self.research_lookup)
+            methods.append(self.research_grep)
         return [Tool(method, takes_ctx=False) for method in methods]
 
 
@@ -1407,7 +1416,12 @@ def _check_one(
     comments = trusted_replies(store.comments_on(item.number))
     held = held_comments(comments)
     reader = CommentReader(held, max_chars=CONST_ROADMAP_REFINE_TOOL_MAX_CHARS)
-    tools = AlternativesTools(store=store, pages=pages, comments=reader)
+    tools = AlternativesTools(
+        store=store,
+        pages=pages,
+        comments=reader,
+        research=research_ask(pages, TOOLSET_ALTERNATIVES),
+    )
     request = alternatives_request(item, comments, adrs, fetch=fetch)
     texts = MESSAGES.roadmap
     if chain is None:

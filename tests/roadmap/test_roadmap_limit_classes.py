@@ -172,6 +172,14 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "kept",
         "page fetches of one item; each one loads a page in the browser of the Crawl4AI service",
     ),
+    "DEFAULT_ROADMAP_RESEARCH_MAX_CALLS_PER_RUN": (
+        "setting",
+        "the most ask-mode research tool calls one roadmap run may make (#3915)",
+    ),
+    "DEFAULT_ROADMAP_RESEARCH_ANSWER_EXPIRY_DAYS": (
+        "setting",
+        "the days a research answer stays fresh in the index before a refresh (#3915)",
+    ),
     "CONST_ROADMAP_PAGE_FETCH_MAX_CHARS": (
         "kept",
         "the size of one page answer; the same as another tool answer, bounded by the window",

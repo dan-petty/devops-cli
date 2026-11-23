@@ -113,6 +113,14 @@ TOOLS: Final[dict[str, ToolEntry]] = {
         "Lists the open issues and pull requests of the repository that name some words.",
         _STAGE_EXTENDED,
     ),
+    "research_lookup": _read(
+        "Answers a question from the research index first, or searches and fetches.",
+        _STAGE_EXTENDED,
+    ),
+    "research_grep": _read(
+        "Finds an exact term or regular expression pattern in the research index.",
+        _STAGE_EXTENDED,
+    ),
     # The one tool that `stage-research` adds (#3243).
     "search_web": _read(
         "Searches the web and returns titles, URLs and cut snippets.",

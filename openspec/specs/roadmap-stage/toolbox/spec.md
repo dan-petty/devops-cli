@@ -74,15 +74,15 @@ When a request offers no tool, a call of the model to a function tool SHALL get 
 - **THEN** the item fails, and the reason names the retry limit 2, and no budget limit
 
 ### Requirement: The setting toolset chooses the tools of a plan run
-The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `base` SHALL have no GitHub tool and SHALL need no GitHub client.
+The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, with the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET`. The default SHALL be `extended`. The settings SHALL refuse any other value and name it. The example ConfigMap of the Service SHALL set the key. The toolset `extended` SHALL hold `research_lookup` and `research_grep`. The toolset `base` SHALL have no GitHub tool, SHALL hold neither ask-mode tool and SHALL need no GitHub client.
 
 #### Scenario: The default
 - **WHEN** no config file and no variable sets `roadmap.stage.toolset`
-- **THEN** the toolset is `extended`, and a plan run offers thirteen tools
+- **THEN** the toolset is `extended`, and a plan run offers fifteen tools
 
 #### Scenario: The base toolset
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `base`
-- **THEN** a plan run offers the ten tools, and none of `references`, `read_issue` and `find_issues`
+- **THEN** a plan run offers the ten tools, and none of `references`, `read_issue`, `find_issues`, `research_lookup` and `research_grep`
 
 #### Scenario: A value that is none of the two
 - **WHEN** the variable is `wide`
@@ -90,7 +90,7 @@ The setting `roadmap.stage.toolset` SHALL be `base`, `extended` or `research`, w
 
 #### Scenario: The research toolset
 - **WHEN** the variable `DEVOPS_CLI_ROADMAP_STAGE_TOOLSET` is `research`
-- **THEN** a plan run offers fourteen tools: every tool of `extended` and `search_web`
+- **THEN** a plan run offers sixteen tools: every tool of `extended` and `search_web`
 
 ### Requirement: The tool references counts a text in every file of the commit
 `references(name)` SHALL run `git grep -n -I -F` for the text over the whole staged commit with no cap for a file. It SHALL answer the count of files and lines, and for each file its path, its exact count of lines and its first five line numbers. It SHALL answer as text for a name that is empty, longer than 100 characters, or not one line.

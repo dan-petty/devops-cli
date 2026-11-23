@@ -255,3 +255,36 @@ def test_a_page_with_no_text_is_an_empty_answer(service: WebFake) -> None:
     answer = _found(_PAGE).fetch(_PAGE)
 
     assert answer == empty_answer("The page has no text.")
+
+
+def test_page_of_returns_page_text_and_counts_stage_telemetry(
+    service: WebFake, otlp: FakeCollector
+) -> None:
+    from pydantic_ai.messages import ToolReturn
+
+    from devops_cli.ai.page_text import PageText
+    from devops_cli.roadmap.page_fetch import TOOLSET_STAGE
+
+    _serve(service, "content")
+    pages = PageFetch(TOOLSET_STAGE)
+    pages.offer([_PAGE])
+
+    outcome = pages.page_of(_PAGE)
+    assert isinstance(outcome, PageText)
+    assert outcome.text == "content"
+    assert outcome.source_url == _PAGE
+    assert pages.fetches == 1
+    assert _PAGE in pages.fetched
+    assert _points(otlp) == [({"toolset": "stage", "result": "ok"}, 1.0)]
+
+    refused = pages.page_of("https://example.com/unnamed")
+    assert isinstance(refused, ToolReturn)
+    assert "not in a search result" in str(refused.return_value)
+
+    urls = [f"https://example.com/p/{n}" for n in range(CONST_ROADMAP_PAGE_FETCH_MAX)]
+    pages.offer(urls)
+    for u in urls[:-1]:
+        pages.page_of(u)
+    limit_outcome = pages.page_of(urls[-1])
+    assert isinstance(limit_outcome, ToolReturn)
+    assert "limit for this item is reached" in str(limit_outcome.return_value)

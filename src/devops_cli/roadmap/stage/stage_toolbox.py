@@ -37,7 +37,9 @@ from devops_cli.exceptions.roadmap import RoadmapStageError
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.tool import OpenSpecTool
 from devops_cli.roadmap.agent_run import RunLimit, RunTrace, StopCause, StopReason
+from devops_cli.roadmap.ask_tools import research_ask
 from devops_cli.roadmap.mcp import ROLE_PLANNING, RoadmapMcpToolset, build_roadmap_mcp_toolset
+from devops_cli.roadmap.page_fetch import TOOLSET_STAGE, PageFetch
 from devops_cli.roadmap.refine.refine_investigation import InvestigationStopped, investigate
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_github import StageGitHub
@@ -146,8 +148,16 @@ class ToolboxClient:
             LaterVerification: settings.roadmap.stage.review_calls_notice,
         }
         chosen = toolset or settings.roadmap.stage.toolset
+        pages = PageFetch(TOOLSET_STAGE) if settings.crawl4ai.url else None
+        research = research_ask(pages, TOOLSET_STAGE) if pages is not None else None
         self._tools = StageTools(
-            source=source, sha=sha, openspec=openspec, toolset=chosen, github=github
+            source=source,
+            sha=sha,
+            openspec=openspec,
+            toolset=chosen,
+            github=github,
+            pages=pages,
+            research=research,
         )
         self._instructions = with_call_budget(load_task_prompt(TOOLS_TASK), settings.roadmap.stage)
         if chosen in ("extended", "research"):
