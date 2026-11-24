@@ -33,13 +33,13 @@
   refine example/app: grade too few (Not graded). Show p and the interval. Give no grade.
     Failure classes: none 2, head_moved 1.
     All attempts: 26, success ratio 0.85, infrastructure cuts 1.
-    Version 0.120.0: 22 of 25, p 0.88 [0.70, 0.96].
+    Version 0.120.0: 22 of 25, p 0.88 [0.70, 0.96], all attempts 26, infrastructure cuts 1, infrastructure share 0.04.
     Signal: infrastructure. More than 20% of 10 attempts or more in 24 h are infrastructure cuts.
   
   intake example/app: grade 60 (Ineffective). Look for implementation alternatives, or serious defects that a fix can correct.
     Failure classes: head_moved 12, concurrency 2, parser 1.
     All attempts: 41, success ratio 0.61, infrastructure cuts 0.
-    Version 0.118.0: 20 of 34, p 0.59 [0.42, 0.74].
+    Version 0.118.0: 20 of 34, p 0.59 [0.42, 0.74], all attempts 34, infrastructure cuts 0, infrastructure share 0.00.
     Signal: broken. 5 attempts or more in 6 h, and no success.
   
   Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull requests of the bot.

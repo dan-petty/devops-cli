@@ -116,7 +116,6 @@ from devops_cli.roadmap.implement.implement_scoped_ci import (
     run_scoped_checks,
     scoped_checks,
 )
-from devops_cli.roadmap.implement.implement_shell_policy import shown
 from devops_cli.roadmap.phases.rebase import (
     ARCHIVE_MESSAGE,
     archive_change,
@@ -125,6 +124,7 @@ from devops_cli.roadmap.phases.rebase import (
     unmerged,
 )
 from devops_cli.roadmap.stage.stage_job import install_request_budget
+from devops_cli.roadmap.verification_command import shown
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.implement.implement_report import StopFacts
@@ -132,6 +132,7 @@ from devops_cli.roadmap.implement.implement_step import (
     EarlierStop,
     FixRequest,
     ItemReader,
+    StepConversation,
     StepOutcome,
     StepStatus,
     TierSpend,
@@ -591,6 +592,8 @@ class _ItemRun:
     # The comments of the item and the time at which its plan merged, which `prepare` read for the
     # steps of the run (#6167).
     comments: StepComments = field(default_factory=StepComments)
+    # One conversation carried across the task groups of the item (#6527).
+    conversation: StepConversation = field(default_factory=StepConversation)
 
     def __post_init__(self) -> None:
         held = self.target.item.job_record
@@ -1116,6 +1119,7 @@ class _ItemRun:
                     recorded_tests=self._recorded_tests(),
                     earlier=self._take_earlier(),
                     comments=self.comments,
+                    conversation=self.conversation,
                 )
             except OverWindowError as err:
                 self._handle_over_window(group, err, change, tasks_text, tasks_file, tasks)

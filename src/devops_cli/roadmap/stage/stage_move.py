@@ -22,7 +22,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_shell_policy import (
+from devops_cli.roadmap.verification_command import (
     NEGATIVE_SEARCH_WORD,
     read_negative_search,
 )

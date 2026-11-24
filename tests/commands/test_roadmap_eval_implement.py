@@ -203,7 +203,9 @@ def test_a_run_that_fails_on_the_second_fixture_still_writes_the_report_of_the_f
     root.mkdir()
     for name in ("a-case", "b-case"):
         write_fixture(root, folder=name, case=case_data(name=name, base=base))
-    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), ValueError("model broke"))
+    script = ModelScript(
+        tool_calls(*the_whole_group()), say("Done."), say("Done."), ValueError("model broke")
+    )
     factory.set_llm_client_override(script.model())
 
     result = _eval(cli, root, source=repo)

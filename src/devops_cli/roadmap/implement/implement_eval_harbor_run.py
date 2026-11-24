@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.roadmap import ImplementEvalError
 from devops_cli.roadmap.implement.implement_eval_harbor import TASK_CONFIG_FILE
-from devops_cli.roadmap.implement.implement_shell_policy import shown
+from devops_cli.roadmap.verification_command import shown
 
 HARBOR_BIN = "harbor"
 # The folder of the reports of the runs, under the data directory, and the file of one report.

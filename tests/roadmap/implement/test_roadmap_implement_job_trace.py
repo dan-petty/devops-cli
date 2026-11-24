@@ -251,7 +251,9 @@ def test_the_spend_holds_the_repair_rounds_of_a_step_and_the_requests_of_its_rou
             ("write_file", {"path": TASKS_PATH, "content": TICKED_FIRST}),
         ),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(("write_file", {"path": shout, "content": SHOUT})),
+        say("The unused import is gone."),
         say("The unused import is gone."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
@@ -261,4 +263,4 @@ def test_the_spend_holds_the_repair_rounds_of_a_step_and_the_requests_of_its_rou
 
     rows = {row["step"]: row for row in _spend(job_world)["steps"]}
     assert rows["group 1"]["repair_rounds"] == 1
-    assert rows["group 1"]["requests"] == len(_model_events(job_world, "group 1")) == 4
+    assert rows["group 1"]["requests"] == len(_model_events(job_world, "group 1")) == 6

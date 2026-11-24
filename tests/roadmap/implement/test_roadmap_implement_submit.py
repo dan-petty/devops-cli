@@ -2539,3 +2539,65 @@ def test_change_folder_for_target_unplanned() -> None:
     planned = MagicMock(spec=PlannedChanges)
     folder = implement_submit._change_folder_for_target(Path("/root"), planned, target)
     assert folder == Path("/root/openspec/changes/1-foo")
+
+
+def test_two_groups_of_an_item_share_one_conversation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two groups of one item run through `_groups` pass one `StepConversation` so the second
+    `run_step` gets the conversation that the first one left (#6527)."""
+    from pydantic_ai.conversation import Conversation
+
+    from devops_cli.roadmap.implement import implement_run
+    from devops_cli.roadmap.implement.implement import ImplementTarget
+    from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus
+    from devops_cli.roadmap.project_profile import ProjectProfile
+    from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET
+
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_staged(store)
+    item = store.item(number)
+    assert item is not None
+    change = tmp_path / "openspec" / "changes" / f"{number}-shared-conv"
+    change.mkdir(parents=True)
+    tasks_path = change / "tasks.md"
+    tasks_path.write_text(TASKS, encoding="utf-8")
+
+    sentinel = Conversation()
+    seen: list[tuple[int, Any, Any]] = []
+
+    def fake_run_step(store_arg: Any, *, item: int, group: int, **kwargs: Any) -> StepOutcome:
+        conv = kwargs.get("conversation")
+        seen.append((group, conv, None if conv is None else conv.current))
+        if group == 1:
+            tasks_path.write_text(TASKS.replace("- [ ] 1.1", "- [x] 1.1"), encoding="utf-8")
+            if conv is not None:
+                conv.current = sentinel
+        else:
+            tasks_path.write_text(
+                TASKS.replace("- [ ] 1.1", "- [x] 1.1").replace("- [ ] 2.1", "- [x] 2.1"),
+                encoding="utf-8",
+            )
+        return StepOutcome(item=item, group=group, title=f"group {group}", status=StepStatus.DONE)
+
+    monkeypatch.setattr(implement_run, "run_step", fake_run_step)
+    run = implement_run._ItemRun(
+        store=store,
+        repo=STAGE_REPO,
+        path=tmp_path,
+        target=ImplementTarget(item=item, branch="feat/1-shared", pull=PULL, retry=False),
+        model=object(),
+        window=128_000,
+        default="main",
+    )
+    run._profile = ProjectProfile(preset=DEVOPS_CLI_PRESET)
+    monkeypatch.setattr(run, "_hooks_config", lambda: None)
+    monkeypatch.setattr(run, "_recorded_tests", frozenset)
+    monkeypatch.setattr(run, "_check_premise", lambda _tasks: False)
+
+    run._groups()
+
+    assert [group for group, _, _ in seen] == [1, 2]
+    assert seen[0][1] is not None
+    assert seen[1][1] is seen[0][1]
+    assert seen[1][2] is sentinel

@@ -54,47 +54,12 @@ A stopped step SHALL give `mask_secrets` at most `CONST_ROADMAP_IMPLEMENT_DIFF_R
 - **WHEN** the discarded work holds a Latin-1 file
 - **THEN** the step reports stopped with a diff that holds a replacement character in place of each byte that is not UTF-8, and raises no error
 
-### Requirement: The reason of a stopped run counts the refused and the retried tool calls
-A step that stops on a pydantic-ai error SHALL count the tool calls that a tool refused by its policy, by program, and the tool calls that came back as a retry for another cause. The reason SHALL end with both counts when a count is not zero. It SHALL list at most `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs, most refused first, and join the rest to `other`. A call counts as refused when the shell refused its command or an argument by its policy.
-
-#### Scenario: The call that exceeds the limit
-- **WHEN** the model is refused more often than `roadmap.implement.max_refusals` times, or `roadmap.implement.max_consecutive_refusals` times in a row
-- **THEN** the call that ends the run counts as refused too
-
-#### Scenario: Refused commands
-- **WHEN** the model calls the shell tool with `pytest tests/test_sample.py` in every reply, and `pytest` is not a program of the shell table
-- **THEN** the reason ends with a new line and "Refused commands: pytest 3. Other retries: 0.", where 3 is `roadmap.implement.max_consecutive_refusals`
-
-#### Scenario: Refused commands of two programs
-- **WHEN** the model is refused `python` four times and `cd` twice, and then another error ends the run
-- **THEN** the reason ends with "Refused commands: python 4, cd 2."
-
-#### Scenario: Refused commands of many programs
-- **WHEN** the model is refused more distinct programs than `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS`
-- **THEN** the reason lists that number of programs and the count of `other` holds the rest
-
-#### Scenario: Arguments that fail validation
-- **WHEN** the model calls the tool `read_file` without its `path` argument in every reply
-- **THEN** the reason ends with "Refused commands: 0. Other retries: 6."
-
-#### Scenario: A path outside the root
-- **WHEN** the model calls `read_file` with a path outside the root in five replies, and its next reply breaks the rules
-- **THEN** the reason ends with "Refused commands: 0. Other retries: 5."
-
-#### Scenario: A run with no retry
-- **WHEN** the model calls `read_file` with a valid path in every reply until the request limit
-- **THEN** the reason holds the message of the error and holds neither count
-
-#### Scenario: The call that spends the retries of a file tool
-- **WHEN** the model calls `edit_file` with an `old_text` that the file does not hold in six replies, and its next reply breaks the rules
-- **THEN** `Coder` answers the sixth call with a failed result, and the reason ends with "Refused commands: 0. Other retries: 5."
-
 ### Requirement: Every tool call of a step writes one line to the Job log
-The agent SHALL write one line to the standard error stream when each tool call ends. The line SHALL hold the name of the tool, the program of the `command` argument when the tool has one, and the outcome: `ok`, `refused`, `retry` or `failed`. A shell refusal has the outcome `refused`. The program SHALL be the first word of the command when it is a program of the allowlist or of `IMPLEMENT_SHELL_REPLACEMENTS`, else `other:<digest>`. The line SHALL hold nothing else but the reason of a retry.
+The agent SHALL write one line to the standard error stream when each tool call ends. The line SHALL hold the name of the tool, the program of its `command` argument when it has one, and the outcome: `ok`, `refused`, `retry` or `failed`. The program SHALL be the first word of the command when `RUNNER_TOOLS` holds it, else `other:<digest>`. The line SHALL hold nothing else but the reason of a retry.
 
 #### Scenario: A program of the allowlist
 - **WHEN** the model calls a tool with the command `git status`
-- **THEN** the line holds "program git"
+- **THEN** the line holds "program git", because `git` is a program of `RUNNER_TOOLS`
 
 #### Scenario: A call that returns
 - **WHEN** the model calls `write_file` with a path and a content, and then ends its run
@@ -110,7 +75,7 @@ The agent SHALL write one line to the standard error stream when each tool call 
 
 #### Scenario: A known program of the pipe table
 - **WHEN** the model calls the shell tool with `wc -l README.md`
-- **THEN** the line holds "program wc"
+- **THEN** the line holds "program other:" and 12 hexadecimal characters, because `wc` is no program of `RUNNER_TOOLS`
 
 #### Scenario: An unknown first word
 - **WHEN** the first word of a shell command is `secret-tool`, which is no known program
@@ -357,3 +322,10 @@ The executor SHALL refuse a tool call whose digest equals the digest of an earli
 #### Scenario: A path outside the checkout stays hidden
 - **WHEN** the earlier retry names a path outside the checkout
 - **THEN** the refusal text shows the text of `MESSAGES.roadmap.implement_tool_path_hidden` in place of that path
+
+### Requirement: The reason of a stopped run counts the retried tool calls
+A step that stops on a pydantic-ai error SHALL count the tool calls that came back as a retry for a cause other than a policy of the project, and the reason SHALL end with that count when it is not zero.
+
+#### Scenario: Retried calls
+- **WHEN** the model calls a file tool without its path argument in six replies, and its next reply breaks the rules
+- **THEN** the reason ends with a new line and Other retries: 6.

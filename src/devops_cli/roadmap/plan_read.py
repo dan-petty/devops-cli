@@ -51,7 +51,6 @@ from devops_cli.config.constants import (
 )
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.implement.implement_shell_policy import shown, verification_problem
 from devops_cli.roadmap.stage.stage_change import (
     REGENERATE_DOCUMENTS,
     GroupKind,
@@ -79,6 +78,7 @@ from devops_cli.roadmap.step_files import (
     adds_problem,
     parse_task_groups,
 )
+from devops_cli.roadmap.verification_command import shown, verification_problem
 from devops_cli.security.sanitizer import mask_secrets
 
 _CHANGE_FILE: Final[str] = "/.openspec.yaml"

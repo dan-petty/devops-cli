@@ -363,7 +363,7 @@ def test_implement_attempt_builds_mcp_toolset_from_settings(
         raise RuntimeError("stop after turn")
 
     monkeypatch.setattr("devops_cli.roadmap.implement.implement_step._run_agent", fake_turn)
-    tg = TaskGroup(1, "title", "prompt", "text")
+    tg = TaskGroup(1, "title", (), "prompt")
     inputs = StepInputs(tg, tmp_path, "tasks", "item", "inst", "msg", 1000)
     log = ToolCallLog()
 

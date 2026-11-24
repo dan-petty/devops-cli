@@ -119,7 +119,11 @@ def test_the_refine_row_equals_the_hand_count(web: WebFake) -> None:
         efficiency=None,
         versions=[
             VersionGrade(
-                version="0.120.0", measure=measure_grade(attempts=25, successes=22, first_pass=None)
+                version="0.120.0",
+                measure=measure_grade(attempts=25, successes=22, first_pass=None),
+                all_attempts=26,
+                infra_attempts=1,
+                infra_share=0.0385,
             )
         ],
         trend=[
@@ -166,7 +170,11 @@ def test_the_intake_row_gets_a_grade_and_the_broken_signal(web: WebFake) -> None
         efficiency=None,
         versions=[
             VersionGrade(
-                version="0.118.0", measure=measure_grade(attempts=34, successes=20, first_pass=None)
+                version="0.118.0",
+                measure=measure_grade(attempts=34, successes=20, first_pass=None),
+                all_attempts=34,
+                infra_attempts=0,
+                infra_share=0.0,
             )
         ],
         trend=[
@@ -569,3 +577,59 @@ def test_a_bot_pull_request_opened_before_the_window_adds_no_row(web: WebFake) -
     )
 
     assert [row.job for row in report.workflows if row.repo == "example/old"] == []
+
+
+def test_a_version_row_gives_every_attempt_and_its_infrastructure_share(
+    web: WebFake, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#6527: a version row counts every attempt and gives its infrastructure share beside the
+    measure of non-cut attempts."""
+    caplog.clear()
+    counts = {"tokens": 1000, "seconds": 60}
+    with caplog.at_level(logging.INFO, logger="devops_cli.roadmap.job_result"):
+        for item in range(1, 7):
+            log_job_result(RoadmapJob.IMPLEMENT, GRADES_REPO, item, "drafted", counts=counts)
+        for item in range(7, 10):
+            log_job_result(
+                RoadmapJob.IMPLEMENT,
+                GRADES_REPO,
+                item,
+                "stopped",
+                failure=FailureClass.TEST,
+                counts=counts,
+            )
+        for item in range(10, 13):
+            log_job_result(
+                RoadmapJob.IMPLEMENT,
+                GRADES_REPO,
+                item,
+                "stopped",
+                failure=FailureClass.CI_INFRA,
+                counts=counts,
+            )
+    loki = LokiFake()
+    for record in caplog.records:
+        if record.getMessage().startswith(LINE_PREFIX):
+            loki.push(SERVICE_STREAM, JsonLogFormatter().format(record))
+    loki.serve(web)
+
+    report = grade_report(GradeWindow.D7, None, LOKI_URL)
+    row = _row(report, "implement", GRADES_REPO)
+
+    assert len(row.versions) == 1
+    version = row.versions[0]
+    assert (
+        version.measure.attempts,
+        version.measure.successes,
+        version.all_attempts,
+        version.infra_attempts,
+        version.infra_share,
+    ) == (9, 6, 12, 3, 0.25)
+    version_line = next(
+        line
+        for line in render_grade_report(report).splitlines()
+        if line.lstrip().startswith("Version ")
+    )
+    assert "6 of 9" in version_line
+    assert "all attempts 12, infrastructure cuts 3" in version_line
+    assert "0.25" in version_line

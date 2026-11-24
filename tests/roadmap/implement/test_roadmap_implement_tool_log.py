@@ -25,8 +25,6 @@ from pydantic_ai.tools import ToolDefinition
 
 from devops_cli.config import constants
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_shell_policy import IMPLEMENT_SHELL_REPLACEMENTS
-from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
 from devops_cli.roadmap.implement.implement_step import StepOutcome, run_step
 from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, logged_program
 from devops_cli.roadmap.implement.implement_trace import argument_digest
@@ -70,25 +68,6 @@ def _step(store: InMemoryRoadmapStore, checkout: Path, script: ModelScript) -> S
 
 def _lines(capsys: pytest.CaptureFixture[str]) -> list[str]:
     return capsys.readouterr().err.splitlines()
-
-
-def test_a_refused_program_is_logged_by_name_with_its_first_arguments(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    script = ModelScript(
-        tool_call("run_command", command="pytest tests/test_sample.py --flag=sentinel-value"),
-        say("Done."),
-    )
-
-    _step(store, checkout, script)
-
-    assert _lines(capsys) == [
-        "Tool call: run_command, started: pytest tests/test_sample.py --flag=<masked>",
-        "Tool call: run_command, program pytest, refused.",
-    ]
 
 
 def _call_lines(command: str, capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -140,7 +119,6 @@ def test_a_program_of_the_allowlist_is_logged_by_name(
         PASSWORD,
         JWT_HEADER,
         "a" * 24,
-        "curl",
         "p0",
         "my-tool",
         "PYTHON",
@@ -154,7 +132,7 @@ def test_a_first_word_that_is_no_known_program_is_logged_as_other_with_a_digest(
     assert re.fullmatch(r"Tool call: shell, program other:[0-9a-f]{12}, ok\.", line)
 
 
-@pytest.mark.parametrize("program", ["head", "tail", "grep", "wc", "git", "python"])
+@pytest.mark.parametrize("program", ["git", "uv", "ruff", "mypy", "pytest", "python"])
 def test_a_known_first_word_is_logged_by_name_and_never_as_other(program: str) -> None:
     assert logged_program(program) == program
 
@@ -185,13 +163,6 @@ def test_no_word_has_no_program_and_a_word_that_shlex_cannot_read_is_other() -> 
     assert (logged_program(None), logged_program("").startswith("other:")) == ("", True)
 
 
-@pytest.mark.parametrize("word", sorted(set(IMPLEMENT_SHELL_REPLACEMENTS) - {"!"}))
-def test_a_program_of_the_table_of_replacements_is_logged_by_name(
-    capsys: pytest.CaptureFixture[str], word: str
-) -> None:
-    assert _program_line(f"{word} --flag 'a b'", capsys) == f"Tool call: shell, program {word}, ok."
-
-
 @pytest.mark.parametrize(
     "command", ["! Authorization: Bearer abcdef0123456789abcdef", "! git grep -n x src/", "!"]
 )
@@ -213,18 +184,11 @@ def test_a_command_with_no_program_is_logged_with_no_program(
 
 
 def test_a_secret_as_the_first_word_never_reaches_the_log_of_a_step(
-    store: InMemoryRoadmapStore,
-    checkout: Path,
-    programs: ProcessFake,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    script = ModelScript(tool_call("run_command", command="API_KEY=hunter2 uv run x"), say("Done."))
-
-    _step(store, checkout, script)
-
-    assert _lines(capsys) == [
-        "Tool call: run_command, started: other",
-        f"Tool call: run_command, program {logged_program('API_KEY=hunter2')}, refused.",
+    assert _call_lines("API_KEY=hunter2 uv run x", capsys) == [
+        "Tool call: shell, started: other",
+        f"Tool call: shell, program {logged_program('API_KEY=hunter2')}, ok.",
     ]
 
 
@@ -280,9 +244,6 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
     def fine() -> str:
         return "the output"
 
-    def forbidden(command: str) -> str:
-        raise ModelRetry("not here") from PermissionError("not here")
-
     def outside(path: str) -> str:
         raise ModelRetry("not here") from PermissionError("not here")
 
@@ -295,7 +256,6 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
     script = ModelScript(
         tool_calls(
             ("fine", {}),
-            ("forbidden", {"command": "cat"}),
             ("outside", {"path": "/y"}),
             ("again", {}),
             ("broken", {}),
@@ -305,22 +265,19 @@ def test_every_outcome_of_a_tool_call_has_its_line_and_its_count(
     log = ToolCallLog()
     agent = Agent(
         script.model(),
-        tools=[fine, forbidden, outside, again, broken],
-        capabilities=[ShellRefusal(log), log.hooks()],
+        tools=[fine, outside, again, broken],
+        capabilities=[log.hooks()],
     )
 
     agent.run_sync("go")
 
-    assert (sorted(_lines(capsys)), log.refused, log.retried) == (
+    assert (sorted(_lines(capsys)), log.retried) == (
         [
             "Tool call: again, retry (try again).",
             "Tool call: broken, failed.",
             "Tool call: fine, ok.",
-            "Tool call: forbidden, program cat, refused.",
-            "Tool call: forbidden, started: cat",
             "Tool call: outside, retry.",
         ],
-        Counter(cat=1),
         2,
     )
 
@@ -715,22 +672,26 @@ def test_a_refusal_by_policy_and_a_failed_validation_log_no_reason(
 
 
 def test_the_log_names_the_program_after_the_prefix_cd_checkout_and_not_the_cd(
-    store: InMemoryRoadmapStore,
     checkout: Path,
-    programs: ProcessFake,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The prefix `cd <checkout> &&` is dropped before the command runs (#3520), so the log shows
-    the program that the model asked for."""
-    script = ModelScript(
-        tool_call("run_command", command=f"cd {checkout} && python -V"), say("Done.")
-    )
+    """The prefix `cd <checkout> &&` is dropped before logging (#3520), so the log shows the
+    program that the model asked for."""
 
-    _step(store, checkout, script)
+    def run_command(command: str) -> str:
+        return "ok"
+
+    Agent(
+        ModelScript(
+            tool_call("run_command", command=f"cd {checkout} && python -V"), say("Done.")
+        ).model(),
+        tools=[run_command],
+        capabilities=[ToolCallLog(root=checkout).hooks()],
+    ).run_sync("go")
 
     assert _lines(capsys) == [
         "Tool call: run_command, started: python -V",
-        "Tool call: run_command, program python, refused.",
+        "Tool call: run_command, program python, ok.",
     ]
 
 
@@ -850,3 +811,50 @@ def test_the_counts_of_each_tool() -> None:
 
     assert log.calls == Counter({"read_file": 2, "pr_describe": 1})
     assert log.calls_text() == "read_file 2, pr_describe 1"
+
+
+def test_the_log_shows_a_program_of_the_runner_table_and_masks_the_rest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Group 8 (#6527): `_KNOWN_PROGRAMS` comes from `RUNNER_TOOLS`, masking `wc` and
+    `hunter2password`, and `ToolCallLog` holds no refusal counter or limit."""
+    log = ToolCallLog()
+
+    def write_file(path: str, content: str) -> str:
+        return "ok"
+
+    def read_file(path: str) -> str:
+        return "content"
+
+    def run_command(command: str) -> str:
+        return "ok"
+
+    Agent(
+        ModelScript(
+            tool_calls(
+                ("write_file", {"path": "src/a.py", "content": "x\n"}),
+                ("read_file", {}),
+                ("run_command", {"command": "git status"}),
+                ("run_command", {"command": "wc -l README.md"}),
+                ("run_command", {"command": "hunter2password x"}),
+            ),
+            say("Done."),
+        ).model(),
+        tools=[write_file, read_file, run_command],
+        capabilities=[log.hooks()],
+    ).run_sync("go")
+
+    lines = _lines(capsys)
+    assert "Tool call: write_file, ok." in lines
+    assert "Tool call: read_file, retry." in lines
+    assert "Tool call: run_command, program git, ok." in lines
+    other_lines = [
+        line
+        for line in lines
+        if re.fullmatch(r"Tool call: run_command, program other:[0-9a-f]{12}, ok\.", line)
+    ]
+    assert len(other_lines) == 2
+    assert not hasattr(log, "refused")
+    assert not hasattr(log, "refused_run")
+    assert not hasattr(log, "refuse")
+    assert not hasattr(log, "refused_text")

@@ -141,6 +141,7 @@ def test_a_repair_turn_of_a_behavior_group_may_not_change_source(
     script = ModelScript(
         tool_calls(*WORK),
         say("Done."),
+        say("Done."),
         tool_calls(write_call("src/sample.py", SHOUT_CODE + "\n# more\n")),
         say("Done."),
     )

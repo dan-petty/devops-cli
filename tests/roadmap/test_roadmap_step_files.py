@@ -7,8 +7,8 @@ gives the group no command.
 from __future__ import annotations
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
 from devops_cli.roadmap.step_files import TaskGroup, _task_of, adds_problem, parse_task_groups
+from devops_cli.roadmap.verification_command import verification_problem
 
 TEST_COMMAND = "uv run devops ci test tests/roadmap/test_roadmap_step_files.py"
 

@@ -409,7 +409,7 @@ def test_the_record_holds_the_base_until_the_draft(job_world: JobWorld) -> None:
     assert _record(job_world).get("implement.base") == before
     _continue(job_world)
 
-    job_world.run(ModelScript(*two_groups().replies[2:]))
+    job_world.run(ModelScript(*two_groups().replies[3:]))
 
     assert _record(job_world).get("implement.base") is None
 
@@ -431,7 +431,7 @@ def test_the_plan_title_of_a_staged_item_stays_after_a_stop_push(job_world: JobW
     job_world.run(_stop_after_group_one())
     _continue(job_world)
 
-    job_world.run(ModelScript(*two_groups().replies[2:]))
+    job_world.run(ModelScript(*two_groups().replies[3:]))
 
     (patched,) = job_world.sent("PATCH", f"pulls/{PULL}")
     assert patched["title"] == f"fix(roadmap): {PLAN_SUMMARY}"

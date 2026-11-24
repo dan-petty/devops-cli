@@ -89,7 +89,7 @@ def test_a_step_that_does_the_group_passes_the_six_properties_and_leaves_nothing
         "sample",
         "done",
         "",
-        2,
+        3,
         3,
     )
     assert _statuses(report) == dict.fromkeys(SIX, "pass")

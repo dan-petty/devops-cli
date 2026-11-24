@@ -401,7 +401,7 @@ def test_a_failed_check_whose_log_names_a_file_of_the_plan_is_repaired_and_pushe
         "Tier 2 model repaired check",
     )
     assert repo.origin_git("rev-parse", f"{new_head}~1") == head
-    assert len(script.seen) == 2
+    assert len(script.seen) == 3
     held = store.item(1)
     assert held is not None
     assert held.job_record.get(FixChecksRecordKey.RESULT) == "repaired"

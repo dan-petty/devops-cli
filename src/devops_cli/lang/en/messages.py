@@ -3491,7 +3491,7 @@ class RoadmapMessages:
         "The same call fails again. Send a smaller edit: write one file, or one small part of a "
         "file, in each tool call."
     )
-    implement_stop_counts: str = "Refused commands: {refused}. Other retries: {retried}."
+    implement_stop_counts: str = "Other retries: {retried}."
     implement_model_call_deadline: str = "{detail}, no complete reply in {seconds:g} seconds"
     implement_stop_limit: str = "The step spent its budget `{setting}={value}`."
     implement_stop_limit_extended: str = (
@@ -3512,19 +3512,18 @@ class RoadmapMessages:
     )
     implement_stop_limit_halted: str = (
         "The step spent its budget `{setting}={value}`. It got no extension: {edits} successful "
-        "edit(s) and {refused} refused command(s) in its last {calls} tool calls."
+        "edit(s) in its last {calls} tool calls."
     )
     implement_extension_extended: str = (
         "The step got one extension of its token budget (rule `implement.extension`), from "
-        "{limit} to {budget} new tokens: {edits} successful edit(s) and {refused} refused "
-        "command(s) in its last {calls} tool calls."
+        "{limit} to {budget} new tokens: {edits} successful edit(s) in its last {calls} tool calls."
     )
     implement_extension_section: str = (
         "\n\nBudget extensions (rule `implement.extension`):\n\n{lines}"
     )
     implement_extension_step: str = (
         "- {step}: {limit} to {budget} new tokens{cut}. Trigger: {edits} successful edit(s) "
-        "and {refused} refused command(s) in the last {calls} tool calls."
+        "in the last {calls} tool calls."
     )
     implement_extension_cut: str = " (the ceiling)"
     implement_stop_rounds: str = (
@@ -3543,35 +3542,6 @@ class RoadmapMessages:
     implement_removed_note: str = (
         " The step removed these files, because your group does not name them: {paths}. Keep a "
         "scratch file under `.data/agent/scratch/`."
-    )
-    implement_refusal_replacement: str = "Instead of `{program}`: {replacement}."
-    implement_refusal_allowed: str = (
-        "These programs are allowed: {programs}. Run the commands of the project with `uv run`, "
-        "for example `uv run devops ci test <file>`."
-    )
-    implement_refusal_python_code: str = (
-        "Write the code with `write_file` to `.data/agent/scratch/<name>.py`, then run "
-        "`uv run python .data/agent/scratch/<name>.py`."
-    )
-    implement_refusal_operator: str = (
-        "Run one command in each call. Do not chain commands. "
-        "Send each command as its own call, for example `git status --short`, then "
-        "`git log --oneline -5`. Do not use `cd`: every command runs in the checkout."
-    )
-    implement_refusal_pipe: str = (
-        "Shell operator '|' is not allowed{before}. Use `read_file` with `offset` and `limit`. "
-        "A pipe may end in {programs}."
-    )
-    implement_refusal_pipe_before: str = " before `{program}`"
-    implement_refusal_limit: str = (
-        "Too many commands refused by policy in one step: the limit is {limit}."
-    )
-    implement_refusal_consecutive_limit: str = (
-        "Too many consecutive commands refused by policy: the limit is {limit}."
-    )
-    implement_refusal_argument: str = (
-        "Command '{program}' has the argument '{argument}', which the shell does not allow. "
-        "{instead}"
     )
     runner_tool_missing: str = "Runner tool '{tool}' is not on PATH."
     runner_tool_failed: str = "Runner tool '{tool}': `{command}` exited with status {status}."
@@ -6934,7 +6904,10 @@ class RoadmapMessages:
     grades_drafts_pending: str = (
         "  Drafted attempts whose delivery is still a draft, out of the attempts: {drafts}."
     )
-    grades_version: str = "  Version {version}: {successes} of {attempts}, p {ratio} {interval}."
+    grades_version: str = (
+        "  Version {version}: {successes} of {attempts}, p {ratio} {interval}, all attempts "
+        "{all_attempts}, infrastructure cuts {infra}, infrastructure share {infra_share}."
+    )
     grades_efficiency: str = (
         "  Efficiency ({work}): tokens per attempt median {tokens_p50}, p90 {tokens_p90}, max "
         "{tokens_max}; tokens per success {tokens_success}; seconds per attempt median "

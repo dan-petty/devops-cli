@@ -308,6 +308,7 @@ def two_groups(*more: ModelResponse) -> ModelScript:
     return ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
         *more,

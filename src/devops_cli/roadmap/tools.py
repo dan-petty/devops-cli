@@ -225,6 +225,19 @@ def check_tables(tables: Mapping[str, Iterable[str]]) -> list[str]:
     ]
 
 
+TOOLS_PLACEHOLDER = "{{tools}}"
+
+
+def tools_table() -> str:
+    """The Markdown table of the tools of the implement step, from the tools registry."""
+    names = tool_names(HOLDER_IMPLEMENT)
+    rows = [
+        f"| `{name}` | {'read' if TOOLS[name].read_only else 'write'} | {TOOLS[name].purpose} |"
+        for name in names
+    ]
+    return "\n".join(["| Tool | Access | Use |", "| :--- | :--- | :--- |", *rows])
+
+
 __all__ = [
     "HOLDERS",
     "HOLDER_IMPLEMENT",
@@ -235,7 +248,9 @@ __all__ = [
     "HOLDER_STAGE_EXTENDED",
     "HOLDER_STAGE_RESEARCH",
     "TOOLS",
+    "TOOLS_PLACEHOLDER",
     "ToolEntry",
     "check_tables",
     "tool_names",
+    "tools_table",
 ]

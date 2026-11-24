@@ -12,26 +12,18 @@ holds the reason that the tool returned, which `logged_reason` masks, escapes an
 reason is the only evidence of why a tool kept refusing a call. The reason shows the `path`
 argument of the call only when the checkout holds that path, as the model chose the text of the
 argument. A refusal by policy and a failed validation have no reason. The program is the
-first word of the command, as the shell reads it, and only when it is a program that the project
-knows: a program of the allowlist, or a program of the table of replacements (#2773). Any other
-first word is written as "other:" and a digest of the word (#3520), also a short bare word, as the
-model can read a password or a token from a file and run it as a command. The digest is a keyed
-hash that changes with the process, so the same word has one digest in a run and a dictionary of
-passwords cannot find it. The tool name and the program tell a refused program from a refused path.
+first word of the command, as the shell reads it, and only when it is a program that the runner
+knows (`RUNNER_TOOLS`). Any other first word is written as "other:" and a digest of the word
+(#3520), also a short bare word, as the model can read a password or a token from a file and run
+it as a command. The digest is a keyed hash that changes with the process, so the same word has one
+digest in a run and a dictionary of passwords cannot find it. The tool name and the program tell a
+repeated failed call from a retried path.
 
-It also counts the shell commands that the shell refused by its policy, by program, and the calls
-that came back as a retry for another cause. A refusal of the shell comes back to the model as a
-tool result and adds no tool retry (#3271), so `ShellRefusal` tells the log of each refused call
-(`refuse`) and the line of the call says `refused`. A refusal of a file tool, such as a path outside
-the root, is an other retry. The reason of a stopped step holds both counts, so a person sees at
-once which program the model kept asking for. The step ends when the refusals pass
-`roadmap.implement.max_refusals`, or at `roadmap.implement.max_consecutive_refusals` refusals in a
-row (#4043): a call that is not refused resets that count. The log reads these settings when it is
-made, once for each step (#5440).
-
-The log keeps the tool name and the outcome of the last `roadmap.implement.extension_calls` calls
-(#4394). `progress` gives their counts, the digest that the rule of the extension of the
-step budget reads: the successful edits and the refused commands. The digest holds counts only.
+It counts each tool call and the calls that came back as a retry. A refusal of a file tool, such as
+a path outside the root, is a retry. The log keeps the tool name and the outcome of the last
+`roadmap.implement.extension_calls` calls (#4394). `progress` gives their counts, the digest that
+the rule of the extension of the step budget reads: the successful edits. The digest holds counts
+only.
 
 The line goes to the console stream, not to `logging`: a `devops` process has no handler for the
 level INFO, so such a line would never reach the Job log.
@@ -81,25 +73,15 @@ from devops_cli.output import print_muted
 from devops_cli.roadmap.agent_run import bounded_text
 from devops_cli.roadmap.implement.implement_base_replay import BaseReplay, VerifiedCommand
 from devops_cli.roadmap.implement.implement_limits import ProgressDigest
-from devops_cli.roadmap.implement.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
-    IMPLEMENT_SHELL_REPLACEMENTS,
-    IMPLEMENT_SHELL_TOOL,
-    NEGATIVE_SEARCH_WORD,
-    without_checkout_prefix,
-)
+from devops_cli.roadmap.implement.implement_shell import IMPLEMENT_SHELL_TOOL
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace, argument_digest
+from devops_cli.roadmap.runner_tools import tool_names as runner_tool_names
+from devops_cli.roadmap.verification_command import without_checkout_prefix
 from devops_cli.security.sanitizer import sanitize_command_args_for_display
 
 # The first words that the log may show. They are fixed in the code, so no text of the model
-# reaches the log, and the count of the programs in the reason stays small by design. The `!` of a
-# negative search is not one: the words after it are free text, so the log says "other" and a digest.
-_KNOWN_PROGRAMS = frozenset(
-    (
-        *IMPLEMENT_ALLOWED_PROGRAMS,
-        *(word for word in IMPLEMENT_SHELL_REPLACEMENTS if word != NEGATIVE_SEARCH_WORD),
-    )
-)
+# reaches the log, and the count of programs stays small by design.
+_KNOWN_PROGRAMS = frozenset(runner_tool_names())
 
 
 # The tools whose call with the outcome ok is a successful edit, for the digest of progress (#4394).
@@ -127,15 +109,14 @@ class ToolOutcome(StrEnum):
 
 def progress_digest(calls: Sequence[tuple[str, ToolOutcome]], size: int) -> ProgressDigest | None:
     """The counts of the last `size` (`roadmap.implement.extension_calls`) of `calls`, each a tool
-    name and an outcome: the successful edits and the refused commands (#4394). None when there are
-    fewer calls than that, as the counts of a short window say little."""
+    name and an outcome: the successful edits (#4394). None when there are fewer calls than that, as
+    the counts of a short window say little."""
     window = calls[-size:]
     if len(window) < size:
         return None
     return ProgressDigest(
         calls=len(window),
         edits=sum(tool in _EDIT_TOOLS and outcome is ToolOutcome.OK for tool, outcome in window),
-        refused=sum(outcome is ToolOutcome.REFUSED for _, outcome in window),
     )
 
 
@@ -318,27 +299,23 @@ def logged_reason(error: BaseException, args: ValidatedToolArgs, root: Path | No
 
 @dataclass
 class ToolCallLog:
-    """The counters of one step, and the hooks that fill them. `refused` counts the refused shell
-    commands by program, and `retried` the other retries, over all turns of the step. `reasons`
-    holds the last reasons of the retries of each tool (#2866), and `ended_on` the tool whose
-    retries ended the run. `root` is the checkout: a reason shows the `path` argument of a call
-    only when the checkout holds that path. A log with no root shows no path. With a `trace`, each call is also an event of it (#3032):
-    this log is the one place that knows a refusal by policy from another retry. `parser_failures` counts
-    the tool calls of the current tier that the provider could not parse (#3053); the tier loop
-    of the step sets it to 0 for each tier. `recent` holds the tool name and the outcome of the
-    last calls of the step, over all its turns and tiers (#4394). `refused_run` counts the shell
-    refusals in a row: a call that returns and is not refused resets it (#4043)."""
+    """The counters of one step, and the hooks that fill them. `calls` counts each tool, and
+    `retried` counts the retried tool calls, over all turns of the step. `reasons` holds the last
+    reasons of the retries of each tool (#2866), and `ended_on` the tool whose retries ended the
+    run. `root` is the checkout: a reason shows the `path` argument of a call only when the checkout
+    holds that path. A log with no root shows no path. With a `trace`, each call is also an event
+    of it (#3032). `parser_failures` counts the tool calls of the current tier that the provider
+    could not parse (#3053); the tier loop of the step sets it to 0 for each tier. `recent` holds
+    the tool name and the outcome of the last calls of the step, over all its turns and tiers
+    (#4394)."""
 
     root: Path | None = None
-    refused: Counter[str] = field(default_factory=Counter[str])
     calls: Counter[str] = field(default_factory=Counter[str])
     retried: int = 0
     reasons: dict[str, deque[str]] = field(default_factory=dict[str, deque[str]])
     ended_on: str = ""
     removed: list[str] = field(default_factory=list[str])
     trace: ImplementTrace | None = None
-    refusals: set[str] = field(default_factory=set[str])
-    refused_run: int = 0
     fail_to_pass: BaseReplay | None = None
     verified: list[VerifiedCommand] = field(default_factory=list[VerifiedCommand])
     parser_failures: int = 0
@@ -360,11 +337,6 @@ class ToolCallLog:
         """The digest of the last calls of the step, or None when it made too few (#4394)."""
         return progress_digest(tuple(self.recent), self.limits.extension_calls)
 
-    def refuse(self, tool_call_id: str | None) -> None:
-        """Note that the shell refused the call with this id and returned the refusal as a result.
-        The line of the call, when it ends, says `refused`, and the refusal counts."""
-        self.refusals.add(tool_call_id or "")
-
     def removed_strays(self, names: Sequence[str]) -> None:
         """Keep the names of the stray files that the step deleted (#3092), masked and cut as the
         text of an error is, and write one line to the Job log that names them."""
@@ -384,18 +356,6 @@ class ToolCallLog:
         if len(shown) > limit:
             text += MESSAGES.roadmap.implement_paths_more.format(count=len(shown) - limit)
         return text
-
-    def refused_text(self) -> str:
-        """The refused commands for the reason of a stop: the programs from the most refused to the
-        least, such as "python 4, cd 2", or "0" when none. It lists at most
-        `CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS` programs. The rest join the count of "other"."""
-        if not self.refused:
-            return "0"
-        ranked = self.refused.most_common()
-        shown = Counter(dict(ranked[:CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS]))
-        if rest := sum(count for _, count in ranked[CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS:]):
-            shown[MESSAGES.roadmap.implement_tool_other] += rest
-        return ", ".join(f"{program} {count}" for program, count in shown.most_common())
 
     def calls_text(self) -> str:
         """The tool calls of the step: the tools from the most called to the least, such as
@@ -446,8 +406,6 @@ class ToolCallLog:
         self.recent.append((tool, outcome))
         if digest and outcome in (ToolOutcome.RETRY, ToolOutcome.FAILED):
             self.failed.setdefault(digest, reason)
-        if outcome is ToolOutcome.REFUSED:
-            self.refused[program] += 1
         self.retried += outcome is ToolOutcome.RETRY
         texts = MESSAGES.roadmap
         if reason:
@@ -531,22 +489,9 @@ class ToolCallLog:
         except ToolFailedError:
             self._note(call.tool_name, program, ToolOutcome.FAILED, digest=digest)
             raise
-        refused = call.tool_call_id in self.refusals
-        self.refusals.discard(call.tool_call_id)
-        outcome = ToolOutcome.REFUSED if refused else ToolOutcome.OK
-        self.refused_run = self.refused_run + 1 if refused else 0
         shell = call.tool_name == IMPLEMENT_SHELL_TOOL
-        status = shell_exit_status(result) if shell and not refused else None
-        self._note(call.tool_name, program, outcome, digest=digest, status=status)
-        in_a_row = self.limits.max_consecutive_refusals
-        if refused and self.refused_run >= in_a_row:
-            raise UnexpectedModelBehavior(
-                MESSAGES.roadmap.implement_refusal_consecutive_limit.format(limit=in_a_row)
-            )
-        if refused and sum(self.refused.values()) > self.limits.max_refusals:
-            raise UnexpectedModelBehavior(
-                MESSAGES.roadmap.implement_refusal_limit.format(limit=self.limits.max_refusals)
-            )
+        status = shell_exit_status(result) if shell else None
+        self._note(call.tool_name, program, ToolOutcome.OK, digest=digest, status=status)
         return result
 
     async def _request(

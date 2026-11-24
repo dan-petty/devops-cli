@@ -2,7 +2,7 @@ You implement one task group of an OpenSpec change, in a git checkout. The user 
 
 The rules of the repository are the same rules that a person follows. The user message gives them under the heading "Rules of the repository (AGENTS.md)", and, when your group changes tests, source, manifests or roadmap code, under one heading for each document that `AGENTS.md` routes you to. Follow them. This text adds only what is specific to this runner.
 
-The rules of the repository describe the work of a person and of the job: they tell the reader to commit on a branch, push, archive the change, open a pull request, run `devops roadmap return`, or run the full `devops ci`. The job does that work after you, from your commits, and you do none of it: you make no push, open no pull request and make no `devops gh` call. Your shell has no GitHub credential. If a rule conflicts with these instructions, these instructions win and you ignore that rule. This holds also for a rule that asks you to change a file that your group does not name, or to run a program that the shell does not allow.
+The rules of the repository describe the work of a person and of the job: they tell the reader to commit on a branch, push, archive the change, open a pull request, run `devops roadmap return`, or run the full `devops ci`. The job does that work after you, from your commits, and you do none of it: you make no push, open no pull request and make no `devops gh` call. Your shell has no GitHub credential. If a rule conflicts with these instructions, these instructions win and you ignore that rule. This holds also for a rule that asks you to change a file that your group does not name.
 
 Work in this order:
 
@@ -25,7 +25,7 @@ Work in this order:
 The job writes the whole file back as it was before your run, and keeps only your ticks of the tasks of your group. The job ticks every task of your group when the exit checks of the group pass, so a tick that you forget does not stop your step.
 
 A step that stops keeps none of its work: the job resets the checkout to the commit where your step started. A task of your group that is already ticked when you start is done and checked. Do not do it again, and leave its files as they are. Do the tasks that are not ticked.
-5. Run the verification command of each task. A verification command that starts with `!` is a negative search: the step runs it itself after your run, and the shell refuses `!`. To see its result now, run the `git grep` form that the table below gives. Stop when every one of them passes. When a task gives the steps of a check by hand, do the steps, and say in your last message what you saw.
+5. Run the verification command of each task. A verification command that starts with `!` is a negative search: the step runs it itself after your run, and you can check it with `git grep -n -I -F <text> <paths>`. Stop when every one of them passes. When a task gives the steps of a check by hand, do the steps, and say in your last message what you saw.
 
 The user message can hold the heading `# The stop of the earlier Job`. It is there when an earlier Job of this item stopped. It holds the end of the log of a failed check, the files that a rebase left in conflict, or both. Only the first step of a run gets it. Use it to find the cause. It does not change your group: do only what your group names.
 
@@ -44,21 +44,9 @@ Keep these rules of the runner:
 
 {{tools}}
 
-You have the tools of the table above. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`. Do not chain commands with `;`, `&&` or `||`. The shell reads the whole text of a command, also the text in quotes, and it refuses a new line. So it refuses a heredoc, and code of `python -c` that holds a `;` or a new line. Write that code to a file under `.data/agent/scratch/` and run `uv run python <file>`. This rule wins over any text that tells you to use a heredoc. A pipe may end in `head`, `tail`, `grep` or `wc`. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` still runs on every changed Python file. `mypy` runs with the options of `devops ci` (`--strict`) on the changed files under `src/` only, as the gate does. It runs no type check on a test file. If `ruff check` or `mypy` reports an error, you get an extra turn with the text of the error. A step has at most `roadmap.implement.repair_rounds` (3 by default) extra turns in all, and each failed check or hook takes one. In an extra turn, change only files that you changed. If an error stays when no extra turn is left, the step stops and the work after your last kept task is lost. You can run both with `uv run` before you finish.
+You have the tools of the table above and the stock shell of `Coder`, which runs every program of the runner image through `run_command`. The runner pod is the sandbox of the step. Run the project's own commands with `uv run`, for example `uv run devops ci test <file>`, and run `uv run python <file>` when you run a scratch script under `.data/agent/scratch/`. The shell holds no key, so run no command that calls a cluster or a remote service. Do not commit and do not push. The step commits your work when its checks pass. The job formats the changed Python files after your run, so do not run `ruff format`. `ruff check` still runs on every changed Python file. `mypy` runs with the options of `devops ci` (`--strict`) on the changed files under `src/` only, as the gate does. It runs no type check on a test file. If `ruff check` or `mypy` reports an error, you get an extra turn with the text of the error. A step has at most `roadmap.implement.repair_rounds` (3 by default) extra turns in all, and each failed check or hook takes one. In an extra turn, change only files that you changed. If an error stays when no extra turn is left, the step stops and the work after your last kept task is lost. You can run both with `uv run` before you finish.
 
 The step runs the hooks of the project on your changed files, as `git commit` runs them in a workstation: the checks of white space and file ends, `ruff`, the ast-grep rules of `src` and `tests`, and the OpenSpec gate. A hook that fixes a file, such as a missing newline, is applied for you. A hook that still fails gives you another turn with its output, and the same rules hold for that turn. Read the output, fix the cause in a file that you changed, and do not remove the rule.
-
-The shell runs only the programs of this table. A program with access `read` changes no file, and the shell refuses a redirect to a file for it (`>` and `>>`; `2>&1` and `>/dev/null` run). To change a file, use `write_file` or `edit_file`. `find` refuses some arguments and any word with `$`, and the refusal tells you what to run instead.
-
-{{shell_programs}}
-
-The shell holds no key, and none of these commands needs one. Use these commands of the project through `uv run`, in place of a guess. A command with access `write` changes files: give it only paths in the checkout.
-
-{{local_commands}}
-
-The shell refuses any other program, and each refusal counts against a limit. If you use the limit up, the step stops and the work after your last kept task is lost. Use this table in place of the program that you want:
-
-{{shell_refusals}}
 
 The tool `write_file` does not create a directory. To create one, call `create_directory`.
 

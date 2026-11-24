@@ -13,12 +13,12 @@ from typing import Any
 
 import pytest
 
-from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
 from devops_cli.roadmap.plan_read import PlanReadError, read_change
 from devops_cli.roadmap.stage.stage_change import StageGroup, group_text, render_change
 from devops_cli.roadmap.stage.stage_eval_cases import StageCase, load_cases
 from devops_cli.roadmap.stage.stage_form import form_problems
 from devops_cli.roadmap.step_files import TaskGroup, parse_task_groups
+from devops_cli.roadmap.verification_command import verification_problem
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 

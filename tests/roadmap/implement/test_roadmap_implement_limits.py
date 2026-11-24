@@ -179,7 +179,7 @@ def test_a_token_cap_gets_no_extension_and_names_its_setting() -> None:
     """A cap replaces the step budget and its extension (#5971): a digest that would extend the
     step budget does not move the cap."""
     budget = StepBudget(
-        progress=lambda: ProgressDigest(calls=20, edits=5, refused=0),
+        progress=lambda: ProgressDigest(calls=20, edits=5),
         cap=TokenCap(setting="roadmap.fix_checks.token_budget", value=100),
     )
     budget.add(99)

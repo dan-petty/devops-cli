@@ -284,12 +284,12 @@ def test_a_cut_reply_after_other_replies_names_the_cap_and_keeps_the_counts(
     served: Any,
     small_cap: int,
 ) -> None:
-    refused = Reply(calls=(("run_command", {"command": "pytest tests/test_sample.py"}),))
-    model, _ = served(refused, Reply(text="Now I think.", endless=True))
+    retried = Reply(calls=(("read_file", {"path": "/etc/passwd"}),))
+    model, _ = served(retried, Reply(text="Now I think.", endless=True))
 
     outcome = _step(store, checkout, model)
 
-    assert outcome.reason == f"{CAP_REASON}\nRefused commands: pytest 1. Other retries: 0."
+    assert outcome.reason == f"{CAP_REASON}\nOther retries: 1."
 
 
 def test_a_reply_of_three_quarters_of_the_cap_passes(
@@ -311,7 +311,7 @@ def test_a_reply_of_three_quarters_of_the_cap_passes(
 
     outcome = _step(store, checkout, model)
 
-    assert (outcome.status, outcome.reason, len(server.bodies)) == (StepStatus.DONE, "", 3)
+    assert (outcome.status, outcome.reason, len(server.bodies)) == (StepStatus.DONE, "", 4)
     assert "tests/test_big_reply.py" in git(checkout, "show", "--name-only", "--format=", "HEAD")
 
 

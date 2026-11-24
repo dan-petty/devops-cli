@@ -209,12 +209,16 @@ def test_the_extra_turn_tells_the_agent_which_files_the_step_removed(
         unused, write_call("src/sample.py", SHOUT_CODE), write_call(TASKS_PATH, TICKED), stray
     )
     script = ModelScript(
-        first, say("Done."), tool_calls(write_call("tests/test_sample.py", TEST_BODY)), say("Ok.")
+        first,
+        say("Done."),
+        say("Done."),
+        tool_calls(write_call("tests/test_sample.py", TEST_BODY)),
+        say("Ok."),
     )
 
     outcome = _step(store, checkout, script)
 
-    sent = [str(getattr(part, "content", "")) for part in script.seen[2][-1].parts][-1]
+    sent = [str(getattr(part, "content", "")) for part in script.seen[3][-1].parts][-1]
     assert (outcome.status, outcome.removed) == (StepStatus.DONE, ("tmp_test_x.py",))
     assert sent.endswith(
         f"Change only the files that you changed.{TOLD} Then reply with one short message."

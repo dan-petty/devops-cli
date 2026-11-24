@@ -147,14 +147,11 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM,
     DEFAULT_ROADMAP_IMPLEMENT_EFFORT,
     DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
-    DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TIME_LIMIT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_ITEM_TOKEN_BUDGET,
     DEFAULT_ROADMAP_IMPLEMENT_LADDER_TIERS,
-    DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_MEMORY_LIMIT,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_PARALLEL_JOBS,
-    DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_REQUESTS,
     DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS,
     DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
@@ -1600,18 +1597,6 @@ class RoadmapImplementConfig(BaseModel):
         ge=0,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES,
     )
-    max_refusals: Annotated[int, Variable()] = Field(
-        description="The most commands that the shell of one implementation step may refuse by policy, extra turns included. The next refusal ends the run. The settings load refuses a value above 4 times the default",
-        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
-        ge=1,
-        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS,
-    )
-    max_consecutive_refusals: Annotated[int, Variable()] = Field(
-        description="The commands that the shell of one implementation step may refuse in a row, with no accepted tool call between them. The refusal that reaches it ends the run. It must not be above `max_refusals`. The settings load refuses a value above 4 times the default",
-        default=DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-        ge=1,
-        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-    )
     model_resends: Annotated[int, Variable()] = Field(
         description="How many times in a row an implementation step sends a model request again when the provider fails it inside an open stream with the status 400. A send that gets a reply starts the count again. 0 sends no request again. The settings load refuses a value above 4 times the default",
         default=DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS,
@@ -1624,19 +1609,13 @@ class RoadmapImplementConfig(BaseModel):
         ge=1,
         le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS,
     )
-    extension_max_refused: Annotated[int, Variable()] = Field(
-        description="The most refused commands in the last `extension_calls` tool calls of a step that still gets the extension of the rule `implement.extension`. It must not be above `extension_calls`. The settings load refuses a value above 4 times the default",
-        default=DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
-        ge=0,
-        le=CONST_ROADMAP_LIMIT_CEILING_FACTOR * DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED,
-    )
     step_token_budget: Annotated[int, Variable()] = Field(
         description="The most new tokens that the replies of one implementation step may report, summed over all its requests, its repair rounds and its tiers. The new tokens of a reply are its input tokens that the provider did not read from its cache, and its output tokens. Before each request the step compares its count with this budget. A step that has spent it gets one extension when its last tool calls show progress (see `step_token_ceiling`). Otherwise, and at the end of the extension, it stops with the class `limit_reached`, and the stop names this setting",
         default=DEFAULT_ROADMAP_IMPLEMENT_STEP_TOKEN_BUDGET,
         ge=1,
     )
     step_token_ceiling: Annotated[int | None, Variable()] = Field(
-        description="The most new tokens (see `step_token_budget`) that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last `extension_calls` tool calls hold at least one successful edit and at most `extension_max_refused` refused commands (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
+        description="The most new tokens (see `step_token_budget`) that one implementation step may reach with its one extension. A step that reaches `step_token_budget` gets one extension of half the budget when its last `extension_calls` tool calls hold at least one successful edit (the rule `implement.extension`), and the extension stops at this ceiling. It must not be below `step_token_budget`. When no config file and no variable sets it, it is twice `step_token_budget`, also after a change of the budget. The item budget still holds",
         default=None,
         ge=1,
     )
@@ -1788,17 +1767,8 @@ class RoadmapImplementConfig(BaseModel):
 
     @model_validator(mode="after")
     def _limits_nest(self) -> RoadmapImplementConfig:
-        """The refusals in a row are not above all refusals, the refused commands of the rule of
-        the extension are not above its window (#5440), and the deadline of a model call is not
-        above the time limit of its step (#5965). The error names both settings."""
-        _check_nested(
-            (self.max_consecutive_refusals, "max_consecutive_refusals"),
-            (self.max_refusals, "max_refusals"),
-        )
-        _check_nested(
-            (self.extension_max_refused, "extension_max_refused"),
-            (self.extension_calls, "extension_calls"),
-        )
+        """The deadline of a model call is not above the time limit of its step (#5965). The error
+        names both settings."""
         _check_nested(
             (self.request_timeout_seconds, "request_timeout_seconds"),
             (self.step_time_limit_seconds, "step_time_limit_seconds"),

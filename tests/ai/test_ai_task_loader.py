@@ -45,26 +45,21 @@ def _tasks_dir() -> Path:
 
 
 def test_a_prompt_renders_a_context_value() -> None:
-    """#4633: a caller that passes a context renders the prompt as a Jinja2 template."""
+    """#4633, #6527: a caller that passes a context renders the prompt as a Jinja2 template."""
     rendered = load_task_prompt(
         "roadmap_implement_step.md",
         tools="TOOLS-MARK",
-        shell_programs="PROGRAMS-MARK",
-        local_commands="COMMANDS-MARK",
-        shell_refusals="REFUSALS-MARK",
     )
 
     assert "TOOLS-MARK" in rendered
     assert "{{tools}}" not in rendered
-    assert "PROGRAMS-MARK" in rendered
-    assert "{{shell_programs}}" not in rendered
 
 
 def test_a_missing_context_value_raises() -> None:
     """#4633: `StrictUndefined` raises when the context does not hold a value that the template
     names."""
     with pytest.raises(UndefinedError, match="undefined"):
-        load_task_prompt("roadmap_implement_step.md", shell_programs="PROGRAMS-MARK")
+        load_task_prompt("roadmap_implement_step.md", other="MARK")
 
 
 def test_a_prompt_with_no_context_keeps_its_text() -> None:
@@ -84,52 +79,34 @@ def test_a_prompt_with_no_context_keeps_its_markers() -> None:
 
 
 def test_the_implement_prompt_gets_its_three_tables() -> None:
-    """#4633: the implement step prompt gets its three tables through context."""
-    from devops_cli.roadmap.implement.implement_shell_policy import (
-        local_commands_table,
-        programs_table,
-        refusals_table,
-    )
+    """#4633, #6527: the implement step prompt gets its tools table through context; the three
+    shell tables moved to stock Coder."""
     from devops_cli.roadmap.implement.implement_step import step_instructions
+    from devops_cli.roadmap.tools import tools_table
 
     prompt = step_instructions()
 
-    assert (
-        programs_table() in prompt,
-        local_commands_table() in prompt,
-        refusals_table() in prompt,
-        "{{" in prompt,
-    ) == (True, True, True, False)
+    assert (tools_table() in prompt, "{{" in prompt) == (True, False)
 
 
 def test_the_implement_prompt_equals_today_s_fill_prompt_output() -> None:
-    """#4633: the rendered implement prompt equals the output of the `str.replace` filling of
-    today."""
-    from devops_cli.roadmap.implement.implement_shell_policy import (
-        local_commands_table,
-        programs_table,
-        refusals_table,
-        tools_table,
-    )
+    """#4633, #6527: the rendered implement prompt equals replacing `{{tools}}` with `tools_table()`."""
     from devops_cli.roadmap.implement.implement_step import step_instructions
+    from devops_cli.roadmap.tools import tools_table
 
     raw = load_task_prompt("roadmap_implement_step.md")
-    today = (
-        raw.replace("{{tools}}", tools_table())
-        .replace("{{shell_programs}}", programs_table())
-        .replace("{{local_commands}}", local_commands_table())
-        .replace("{{shell_refusals}}", refusals_table())
-    )
+    today = raw.replace("{{tools}}", tools_table())
 
     assert step_instructions() == today
 
 
 def test_the_source_holds_no_fill_prompt_or_programs_placeholder() -> None:
-    """#4633: the `str.replace` filling is gone."""
-    import devops_cli.roadmap.implement.implement_shell_policy as policy
+    """#4633, #6527: the `str.replace` filling and shell program table placeholder are gone."""
+    import devops_cli.roadmap.tools as tools
 
-    assert not hasattr(policy, "fill_prompt")
-    assert not hasattr(policy, "PROGRAMS_PLACEHOLDER")
+    assert not hasattr(tools, "fill_prompt")
+    assert not hasattr(tools, "PROGRAMS_PLACEHOLDER")
+    assert "{{shell_programs}}" not in load_task_prompt("roadmap_implement_step.md")
 
 
 def test_prompt_version_covers_the_context() -> None:
