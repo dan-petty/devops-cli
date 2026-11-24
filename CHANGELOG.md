@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.205.0](https://github.com/dan-petty/devops-cli/compare/v0.204.0...v0.205.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Handle trusted issue_comment replies ([#6942](https://github.com/dan-petty/devops-cli/issues/6942)) ([4591d21](https://github.com/dan-petty/devops-cli/commit/4591d2101c80ae96deb63132e44c434fed591f58))
+
 ## [0.204.0](https://github.com/dan-petty/devops-cli/compare/v0.203.7...v0.204.0) (2026-11-24)
 
 
