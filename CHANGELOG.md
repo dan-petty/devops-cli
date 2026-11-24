@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.209.2](https://github.com/dan-petty/devops-cli/compare/v0.209.1...v0.209.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **ai:** widen pydantic-ai knowledge base manual version patterns ([#6999](https://github.com/dan-petty/devops-cli/issues/6999)) ([b7bc242](https://github.com/dan-petty/devops-cli/commit/b7bc242856245711f11252458e207e080739986c))
+* **infra:** report not found for missing pod in FakeCluster ([#6997](https://github.com/dan-petty/devops-cli/issues/6997)) ([5e24aa9](https://github.com/dan-petty/devops-cli/commit/5e24aa92d353cc9644e7af1e48167bbbca90ccd6))
+
 ## [0.209.1](https://github.com/dan-petty/devops-cli/compare/v0.209.0...v0.209.1) (2026-11-24)
 
 
