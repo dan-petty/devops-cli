@@ -167,7 +167,7 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
                 "none",
                 "false",
                 "true",
-                {"context_before": "30", "context_after": "30"},
+                {"context_before": "736", "context_after": "736"},
             ),
             (second, "error", "false", "provider", "true", "false", {}),
         )

@@ -14,6 +14,7 @@ from devops_cli.roadmap.stage.stage_change import (
     measure_groups,
 )
 from devops_cli.roadmap.step_files import named_files, packed_file, parse_task_groups
+from devops_cli.roadmap.step_rules import rules_sections
 from tests.support.builders import make_stage_proposal
 from tests.support.roadmap_stage import heavy_group
 
@@ -27,11 +28,19 @@ FILE_CAP = CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 
 
 def _file_tokens(clone: Path, group: StageGroup) -> int:
-    """The tokens of a group that are none of the shared text, the group text or the estimate of a
-    file that it creates."""
+    """The tokens of a group that are none of the shared text, the group text, the rules of the
+    checkout or the estimate of a file that it creates."""
     (measured,) = measure_groups(clone, [group], shared=[SHARED])
     created = sum(group.creates_lines.values()) * CREATED_LINE_TOKENS
-    return measured.tokens - count_tokens(SHARED) - count_tokens(group_text(1, group)) - created
+    (parsed,) = parse_task_groups(group_text(1, group))
+    rules = sum(count_tokens(section) for section in rules_sections(clone, parsed))
+    return (
+        measured.tokens
+        - count_tokens(SHARED)
+        - count_tokens(group_text(1, group))
+        - created
+        - rules
+    )
 
 
 def test_a_file_that_the_tasks_name_counts_at_most_the_file_cap_of_the_step(
@@ -81,12 +90,24 @@ def test_the_measure_counts_agents_md_and_the_routed_sections_that_the_step_read
     stage_repo: StageRepo,
 ) -> None:
     """The default group names `src/devops_cli/sample.py` and `tests/test_sample.py`, so the step
-    reads `AGENTS.md` and the testing sections (#3097)."""
-    from devops_cli.roadmap.step_rules import RULES_HEADING, route_heading
-
+    reads `AGENTS.md` and the testing sections (#3097). A clone with no `AGENTS.md` reads the
+    generic rules before it holds the file, and those go when it does."""
     clone = stage_repo.clone
     group = make_stage_proposal().groups[0]
+    (parsed,) = parse_task_groups(group_text(1, group))
+    generic = rules_sections(clone, parsed)
     (before,) = measure_groups(clone, [group], shared=[SHARED])
+
+    assert len(generic) == 1
+
+    from devops_cli.roadmap.step_rules import (
+        GENERIC_RULES_HEADING,
+        RULES_HEADING,
+        generic_rules,
+        route_heading,
+    )
+
+    generic_section = f"# {GENERIC_RULES_HEADING}\n\n{generic_rules(clone)}"
     (clone / "AGENTS.md").write_text("# Agents\n\nBe brief.\n", encoding="utf-8")
     (clone / "docs").mkdir()
     (clone / "docs" / "TESTING.md").write_text(
@@ -97,4 +118,7 @@ def test_the_measure_counts_agents_md_and_the_routed_sections_that_the_step_read
 
     rules = f"# {RULES_HEADING}\n\n# Agents\n\nBe brief."
     testing = f"{route_heading('docs/TESTING.md')}\n\n### Doubles\n\nDouble the edges."
-    assert after.tokens - before.tokens == count_tokens(rules) + count_tokens(testing)
+    assert generic == [generic_section]
+    assert after.tokens - before.tokens == (
+        count_tokens(rules) + count_tokens(testing) - count_tokens(generic_section)
+    )

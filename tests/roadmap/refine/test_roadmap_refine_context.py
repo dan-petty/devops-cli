@@ -15,6 +15,7 @@ import pytest
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.config import constants
 from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS,
     CONST_ROADMAP_REFINE_END_MARKER,
     CONST_ROADMAP_REFINE_START_MARKER,
 )
@@ -24,6 +25,7 @@ from devops_cli.roadmap.refine.refine import (
     collect_context,
     inspect_checkout,
 )
+from devops_cli.roadmap.step_rules import GENERIC_RULES_HEADING, RULES_HEADING
 from tests.support.roadmap_refine import REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -59,7 +61,7 @@ def test_inspect_checkout_origin_match_and_mismatch(git_repo: Path) -> None:
 def test_collect_context_and_truncation(git_repo: Path) -> None:
     sha = inspect_checkout(git_repo, REPO)
     body = "Review src/sample.py:1-2 and `hello_world` identifier."
-    ctx = collect_context(git_repo, sha, body, max_tokens=1000)
+    ctx = collect_context(git_repo, sha, body, max_tokens=4000)
     assert (
         "Project Context" in ctx,
         "ADR 1" in ctx,
@@ -77,9 +79,87 @@ def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> No
     adr_file.write_text("# ADR 0016\nSpecial ADR content.\n", encoding="utf-8")
     new_sha = inspect_checkout(git_repo, REPO)
 
-    ctx = collect_context(git_repo, new_sha, "body", max_tokens=1000)
+    ctx = collect_context(git_repo, new_sha, "body", max_tokens=4000)
     assert "Special ADR content." in ctx
     assert "0002-café decision with space.md" in ctx
+
+
+def test_the_context_holds_the_agents_md_of_the_sha(stage_repo: StageRepo) -> None:
+    """The context holds the `AGENTS.md` of the item's commit under its own heading, before the
+    other sections of the repository (#4650)."""
+    rule = "1. **A known first rule line.**"
+    stage_repo.track({"AGENTS.md": f"# AGENTS.md\n\n{rule}\n"})
+    sha = stage_repo.git("rev-parse", "HEAD")
+
+    ctx = collect_context(stage_repo.clone, sha, "body", max_tokens=4000)
+
+    heading = f"# {RULES_HEADING}"
+    assert (heading in ctx, rule in ctx) == (True, True)
+    assert ctx.index(heading) < ctx.index(rule)
+    assert ctx.index(heading) < ctx.index("### CONTEXT.md")
+
+
+def test_a_commit_without_context_md_keeps_the_rules_and_no_context_section(
+    stage_repo: StageRepo,
+) -> None:
+    """`CONTEXT.md` stays optional: a commit with `AGENTS.md` and no `CONTEXT.md` gives the rules
+    section and no `CONTEXT.md` section (#4650)."""
+    stage_repo.track({"AGENTS.md": "# AGENTS.md\n\n1. **A known first rule line.**\n"})
+    stage_repo.untrack("CONTEXT.md")
+    sha = stage_repo.git("rev-parse", "HEAD")
+
+    ctx = collect_context(stage_repo.clone, sha, "body", max_tokens=4000)
+
+    assert (f"# {RULES_HEADING}" in ctx, "### CONTEXT.md" in ctx) == (True, False)
+
+
+def test_the_context_takes_the_agents_md_of_the_sha_and_not_the_working_tree(
+    stage_repo: StageRepo,
+) -> None:
+    """The context reads the `AGENTS.md` at the item's `sha`, not from the working tree (#4650)."""
+    stage_repo.track({"AGENTS.md": "# AGENTS.md\n\n1. **Rule of the commit.**\n"})
+    sha = stage_repo.git("rev-parse", "HEAD")
+    (stage_repo.clone / "AGENTS.md").write_text(
+        "# AGENTS.md\n\n1. **Rule of the working tree.**\n", encoding="utf-8"
+    )
+
+    ctx = collect_context(stage_repo.clone, sha, "body", max_tokens=4000)
+
+    assert ("Rule of the commit." in ctx, "Rule of the working tree." in ctx) == (True, False)
+
+
+def test_a_large_agents_md_section_stays_under_the_cap(stage_repo: StageRepo) -> None:
+    """A 44,535-character `AGENTS.md` gives a section of at most
+    `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens (#4650)."""
+    line = "A rule of the target repository holds for every task. "
+    text = (line * (44_535 // len(line) + 1))[:44_535]
+    stage_repo.track({"AGENTS.md": f"# AGENTS.md\n\n{text}\n"})
+    sha = stage_repo.git("rev-parse", "HEAD")
+
+    ctx = collect_context(stage_repo.clone, sha, "body", max_tokens=200_000)
+
+    section = ctx.split(f"# {RULES_HEADING}\n\n", 1)[1].split("\n\n### ", 1)[0]
+    assert (len(text), count_tokens(section) <= CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS) == (
+        44_535,
+        True,
+    )
+
+
+def test_a_commit_without_agents_md_gets_the_generic_rules(stage_repo: StageRepo) -> None:
+    """A commit with no `AGENTS.md` gets one section of the generic kit rules, under a heading that
+    states that they are generic, and no rule of the working-tree file (#4650)."""
+    (stage_repo.clone / "AGENTS.md").write_text(
+        "# AGENTS.md\n\n1. **Rule of the working tree.**\n", encoding="utf-8"
+    )
+    sha = stage_repo.git("rev-parse", "HEAD")
+
+    ctx = collect_context(stage_repo.clone, sha, "body", max_tokens=4000)
+
+    headings = [
+        line for line in ctx.splitlines() if line.startswith("# ") and "rules" in line.casefold()
+    ]
+    assert headings == [f"# {GENERIC_RULES_HEADING}"]
+    assert "Rule of the working tree." not in ctx
 
 
 def _write(repo: Path, rel: str, text: str) -> None:
@@ -259,7 +339,7 @@ def test_collect_identifiers_handles_git_grep_timeout(
         return original_run(cmd, *args, **kwargs)
 
     monkeypatch.setattr(refine, "run_subprocess", mock_run_subprocess)
-    ctx = collect_context(git_repo, sha, body, max_tokens=1000)
+    ctx = collect_context(git_repo, sha, body, max_tokens=4000)
     assert "Identifier matches" not in ctx
     assert "Project Context" in ctx
 
