@@ -851,6 +851,9 @@ class InfraCommandHelp:
     drift_repo: str = (
         "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
     )
+    drift_all: str = (
+        "Check the drift of each repo in infra.repos whose agent access level is plan or higher."
+    )
     drift_playbook: str = "The playbook, as a path from the repo root. Default: site.yaml."
     apply: str = (
         "Apply a saved plan of devops infra plan to the hosts of an infra repo. The apply needs the "
@@ -1791,6 +1794,11 @@ class RoadmapCommandHelp:
         "roadmap.review.mode. Without it, the step prints the verdict and writes nothing."
     )
     step_review_dry_run: str = "Make no network request and change nothing."
+    step_infra_plan: str = (
+        "Plan an open infra pull request and post or update its marked comment (#5129)."
+    )
+    step_infra_plan_pull: str = "Number of the pull request to plan."
+    step_infra_plan_head: str = "Commit SHA of the pull request head."
     eval_app: str = (
         "Score the roadmap jobs. grades reads the live result lines of each job in Loki. Each "
         "other command runs a job's real code on committed cases with a chosen model. Each is on "

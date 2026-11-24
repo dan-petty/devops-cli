@@ -1,0 +1,98 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: infra-drift
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: infra-drift
+    app.kubernetes.io/component: infra
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  entrypoint: drift
+  synchronization:
+    mutex:
+      name: infra-drift
+  serviceAccountName: devops-cli
+  activeDeadlineSeconds: 7200
+  ttlStrategy:
+    secondsAfterCompletion: 3600
+  podGC:
+    strategy: OnWorkflowSuccess
+  podMetadata:
+    labels:
+      app.kubernetes.io/name: devops-cli-job
+      app.kubernetes.io/component: infra
+      app.kubernetes.io/part-of: devops-cli-stack
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  templates:
+    - name: drift
+      metadata:
+        labels:
+          app.kubernetes.io/name: devops-cli-job
+          app.kubernetes.io/component: infra
+          app.kubernetes.io/part-of: devops-cli-stack
+      container:
+        image: ghcr.io/dan-petty/devops-cli/runner
+        imagePullPolicy: IfNotPresent
+        command: [devops]
+        args: ["infra", "drift", "--all"]
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+        envFrom:
+          - secretRef:
+              name: devops-cli
+        env:
+          - name: DEVOPS_CLI_CONFIG
+            value: /config/devops-cli.yaml
+          - name: DEVOPS_CLI_DATA_DIR
+            value: /home/devops/.data
+          - name: OTEL_SERVICE_NAME
+            value: devops-cli-infra-drift
+          - name: K8S_CONTEXT
+            value: homelab-k3s
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: ANSIBLE_SSH_PRIVATE_KEY_FILE
+            value: /secrets/ssh/id_ed25519
+        volumeMounts:
+          - name: tmp
+            mountPath: /tmp
+          - name: home
+            mountPath: /home/devops
+          - name: config
+            mountPath: /config
+            readOnly: true
+          - name: ssh-key
+            mountPath: /secrets/ssh
+            readOnly: true
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 2Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: devops-cli-config
+        - name: ssh-key
+          secret:
+            secretName: infra-ssh-key
+            defaultMode: 0400

@@ -71,6 +71,7 @@ class ServiceRow(StrEnum):
     FIX_CHECKS = "fix-checks"
     FIX_CONFLICT = "fix-conflict"
     FIX_PLAN = "fix-plan"
+    INFRA_PLAN = "infra-plan"
 
 
 def is_name_segment(text: str) -> bool:

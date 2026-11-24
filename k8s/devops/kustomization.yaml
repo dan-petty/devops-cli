@@ -10,8 +10,11 @@ resources:
 - volume-move.yaml
 - networkpolicy.yaml
 - networkpolicy-rag-ingest.yaml
+- networkpolicy-infra.yaml
 - workflowtemplate-rag-ingest.yaml
 - cronworkflow-rag-ingest.yaml
+- workflowtemplate-infra-drift.yaml
+- cronworkflow-infra-drift.yaml
 - crawl4ai
 - mcp-server
 - searxng

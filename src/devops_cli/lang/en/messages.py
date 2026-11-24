@@ -1501,6 +1501,12 @@ class InfraMessages:
     )
     drift_issue_unchanged: str = "Drift unchanged in issue #{number}."
     drift_issue_none: str = "No issue needed."
+    drift_repo_and_all_exclusive: str = "Give an infra repo or --all, not both."
+    drift_target_needed: str = (
+        "Name an infra repo or give --all to check every repo of infra.repos."
+    )
+    drift_all_no_repos: str = "No repo in infra.repos has agent access level plan or higher."
+    infra_plan_refused: str = "Agent access level of {repo} is below plan. No plan generated."
     # `devops infra apply` (#5125): the problems of a node step, and the report of an apply.
     apply_node_not_ready: str = "{node} is not Ready ({ready})"
     apply_node_pressure: str = "{node} has {condition}"
