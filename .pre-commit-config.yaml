@@ -52,7 +52,7 @@ repos:
         stages: [pre-commit]
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: 0.31.3
+    rev: 0.39.0
     hooks:
       - id: check-jsonschema
         files: ^osv-scanner\.toml$
