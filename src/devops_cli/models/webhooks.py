@@ -90,6 +90,20 @@ class WebhookCheckSuite(BaseModel):
     pull_requests: tuple[WebhookPullRequest, ...] = ()
 
 
+class WebhookRelease(BaseModel):
+    """The release a release event is about: its tag, the page a person reads, the notes that link
+    the closed issues and the flags that a refusal reads. A draft carries no publication time."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    tag_name: str
+    html_url: str
+    body: str | None = None
+    draft: bool = False
+    prerelease: bool = False
+    published_at: datetime | None = None
+
+
 class GitHubWebhookPayload(BaseModel):
     """What every GitHub event carries that the Service reads. The rest of a payload differs by
     event and is ignored. An event has no `action` when GitHub gives it none (a `ping`, a `push`),
@@ -104,6 +118,7 @@ class GitHubWebhookPayload(BaseModel):
     pull_request: WebhookPullRequest | None = None
     check_suite: WebhookCheckSuite | None = None
     comment: WebhookComment | None = None
+    release: WebhookRelease | None = None
 
     @property
     def delivery_numbers(self) -> tuple[int, ...]:

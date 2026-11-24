@@ -73,6 +73,34 @@ def test_an_issue_comment_payload_exposes_the_comment_and_the_pull_request_marke
     assert issue.issue.pull_request is None
 
 
+def test_a_published_release_payload_parses() -> None:
+    """Verify that a published release payload exposes its tag, its URL, its body and its flags."""
+    payload = GitHubWebhookPayload.model_validate(
+        {
+            "action": "published",
+            "repository": {"full_name": "example/example"},
+            "release": {
+                "tag_name": "v1.2.3",
+                "html_url": "https://github.com/example/example/releases/tag/v1.2.3",
+                "body": "## What changed\n\n- Close #123",
+                "draft": False,
+                "prerelease": False,
+                "published_at": "2026-11-24T05:20:00Z",
+            },
+        },
+    )
+
+    assert payload.action == "published"
+    assert payload.release is not None
+    assert payload.release.tag_name == "v1.2.3"
+    assert payload.release.html_url == "https://github.com/example/example/releases/tag/v1.2.3"
+    assert payload.release.body == "## What changed\n\n- Close #123"
+    assert payload.release.draft is False
+    assert payload.release.prerelease is False
+    assert payload.release.published_at == datetime(2026, 11, 24, 5, 20, tzinfo=UTC)
+    assert payload.delivery_numbers == ()
+
+
 def test_a_delivery_numbers_the_issue_its_pull_requests_and_nothing() -> None:
     """Verify that the numbers of a delivery follow the object that it names."""
     issue = GitHubWebhookPayload.model_validate(

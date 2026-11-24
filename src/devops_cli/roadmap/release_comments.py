@@ -10,6 +10,8 @@ missing ledger reads as empty. A failed read of the cluster or the registry stop
 the `Released in` pass, and fails the row after both passes, naming the releases. A release that
 is newer than `CONST_ROADMAP_RELEASE_IMAGE_GRACE_MINUTES` and whose image tag is not in the
 registry yet (HTTP 404) is no fault: the pass skips it and tries again in a later round (#3507).
+The update scoped to a published release delivery runs the `Released in` pass at once on that one
+release (#4416).
 """
 
 from __future__ import annotations
@@ -113,6 +115,29 @@ def _comment_once(store: RoadmapStore, number: int, first_line: str, body: str) 
         store.comment(number, body)
 
 
+def comment_one_release(
+    store: RoadmapStore,
+    feed: GitHubReleaseFeed,
+    release: ReleaseInfo,
+    *,
+    ledger_path: Path,
+) -> None:
+    """Post `Released in <tag>` once on each closed issue that `release` carries, as the update
+    scoped to a published delivery does, and set the flag of the tag in the ledger (#4416). The
+    `Live since` pass stays the round's, which waits for the images of the release and reconciles
+    a delivery that never came, so this posts no live comment."""
+    ledger = ReleaseLedger.read(ledger_path)
+    flags = ledger.releases.setdefault(release.tag, ReleaseFlags())
+    try:
+        if flags.released:
+            return
+        for number in feed.closed_issues(release):
+            _comment_once(store, number, marker(release.tag, _RELEASED), released_body(release))
+        flags.released = True
+    finally:
+        ledger.write(ledger_path)
+
+
 def comment_releases(
     store: RoadmapStore,
     feed: GitHubReleaseFeed,
@@ -188,4 +213,11 @@ def _live_pass(
     return []
 
 
-__all__ = ["ReleaseLedger", "comment_releases", "live_body", "marker", "released_body"]
+__all__ = [
+    "ReleaseLedger",
+    "comment_one_release",
+    "comment_releases",
+    "live_body",
+    "marker",
+    "released_body",
+]

@@ -1881,15 +1881,13 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
         ("push", _event_payload(None, ref="refs/heads/main", deleted=False)),
         ("workflow_run", _event_payload("completed")),
         ("milestone", _event_payload("closed")),
-        ("release", _event_payload("published")),
     ],
 )
 def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_round(
     event: str, payload: dict[str, Any]
 ) -> None:
-    """Branch and tag creations, pushes (a default-branch push included), milestones,
-    GitHub Releases and every other event the roadmap's jobs read nothing from are acknowledged
-    and run nothing. A repeat
+    """Branch and tag creations, pushes (a default-branch push included), milestones and every
+    other event the roadmap's jobs read nothing from are acknowledged and run nothing. A repeat
     of such a delivery is acknowledged again, since the delivery cache holds only deliveries a
     consumer took."""
     lanes = _unblocked_lanes()
@@ -2241,10 +2239,12 @@ def _runbook_step_8() -> str:
 
 
 def test_the_event_set_and_step_8_name_the_same_events() -> None:
-    """The roadmap consumer takes the pull request, review, check and comment events beside the
-    issues events, and step 8 of the runbook names each event that the hook must send, so the hook
-    and the consumer never drift apart (#4413, #4415). An intake key for a comment would make the
-    intake row due for a comment, so the comment event stays out of the intake keys."""
+    """The roadmap consumer takes the pull request, review, check, comment and release events
+    beside the issues events, and step 8 of the runbook names each event that the hook must send,
+    so the hook and the consumer never drift apart (#4413, #4415, #4416). An intake key for a
+    comment would make the intake row due for a comment, so the comment event stays out of the
+    intake keys, and a release delivery names no issue, so the release event stays out of them
+    too."""
     step = _runbook_step_8()
 
     assert (
@@ -2262,6 +2262,7 @@ def test_the_event_set_and_step_8_name_the_same_events() -> None:
             "issues",
             "pull_request",
             "pull_request_review",
+            "release",
         ],
         [],
         [],

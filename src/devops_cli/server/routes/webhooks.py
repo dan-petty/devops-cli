@@ -54,6 +54,7 @@ from devops_cli.config.constants import (
     CONST_SERVICE_SOURCE_WEBHOOK,
     CONST_SERVICE_STATUS_COMMENT_REFUSED,
     CONST_SERVICE_STATUS_OWN_WRITE,
+    CONST_SERVICE_STATUS_RELEASE_REFUSED,
     CONST_SERVICE_STATUS_UNTRUSTED_COMMENT,
     WebhookExposure,
     WebhookProviderName,
@@ -74,6 +75,9 @@ _COMMENT_CREATED_ACTION: Final[str] = "created"
 
 _BOT_SUFFIX: Final[str] = "[bot]"
 """How GitHub ends the login of every bot account, the App's own bot included (#4415)."""
+
+_RELEASE_PUBLISHED_ACTION: Final[str] = "published"
+"""The one action of a release delivery that the roadmap consumer takes (#4416)."""
 
 # The outcome each refusal status counts as; any other refusal counts as ignored (#2475).
 _REFUSAL_OUTCOMES: Final[Mapping[str, str]] = {
@@ -176,6 +180,22 @@ def _comment_refusal(payload: GitHubWebhookPayload, comment: WebhookComment | No
     if comment.author_association not in CONST_ROADMAP_TRUSTED_AUTHORS:
         return CONST_SERVICE_STATUS_UNTRUSTED_COMMENT
     return None
+
+
+def _release_refusal(payload: GitHubWebhookPayload) -> str | None:
+    """The status of a release delivery that the roadmap consumer ignores, before any GitHub
+    request: an action that is not `published`, a draft, a prerelease, or a release that holds no
+    publication time. A delivery that carries no release object is not refused (#4416)."""
+    release = payload.release
+    if release is None:
+        return None
+    unwanted = (
+        payload.action != _RELEASE_PUBLISHED_ACTION
+        or release.draft
+        or release.prerelease
+        or release.published_at is None
+    )
+    return CONST_SERVICE_STATUS_RELEASE_REFUSED if unwanted else None
 
 
 class WebhookConsumer(BaseModel):
@@ -364,6 +384,7 @@ def _build_delivery_and_subject(
     numbers = payload.delivery_numbers if payload is not None else ()
     issue = payload.issue.number if payload is not None and payload.issue else None
     comment = payload.comment if payload is not None else None
+    release = payload.release if payload is not None else None
     subject = issue if issue is not None else next(iter(numbers), None)
     delivery = WebhookDelivery(
         repo=repo,
@@ -373,6 +394,7 @@ def _build_delivery_and_subject(
         pull_numbers=numbers,
         comment=None if comment is None else comment.body,
         comment_at=None if comment is None else comment.created_at,
+        release=release,
     )
     return delivery, subject
 
@@ -408,8 +430,9 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     stays a hint (ADR 0017). Each trigger names the issue of the delivery, or its first pull
     request, as its subject (#5553, #4413). A comment delivery is taken only when a person with
     write access created it on an issue (#4415), and it runs the row that its text wakes: the
-    `implement` row for a retry command and the `refine` row for another comment. The handler only
-    adds to the queues of the lanes and returns."""
+    `implement` row for a retry command and the `refine` row for another comment. A release
+    delivery is taken only when it is a published release that carries its publication time
+    (#4416). The handler only adds to the queues of the lanes and returns."""
 
     def deliver(
         repo: str,
@@ -436,7 +459,9 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
         _remember_delivery_issue(repo, payload)
         delivery, subject = _build_delivery_and_subject(repo, event, action, payload)
         scoped = scoped_update_of(delivery)
-        if scoped is not None and subject is not None:
+        # A delivery that names no issue number and no pull request number stays a whole-round
+        # hint, unless it carries a release, which its scoped update reads (#4416).
+        if scoped is not None and (subject is not None or delivery.release is not None):
             lane = lane_of_row(scoped.job, service_manager.config.lanes)
 
             def run_scoped() -> None:
@@ -472,9 +497,13 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
 
     def refuse_comment(payload: GitHubWebhookPayload) -> str | None:
         """The status of a delivery that the roadmap consumer ignores, before any GitHub request:
-        the App bot's own write, else the refusal of the comment that the payload carries, if it
-        carries one (#4415)."""
-        return refuse_own_write(payload) or _comment_refusal(payload, payload.comment)
+        the App bot's own write, else the refusal of the comment that the payload carries (#4415),
+        else the refusal of the release that it carries (#4416)."""
+        return (
+            refuse_own_write(payload)
+            or _comment_refusal(payload, payload.comment)
+            or _release_refusal(payload)
+        )
 
     return WebhookConsumer(
         name="roadmap",
