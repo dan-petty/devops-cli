@@ -27,10 +27,16 @@ def _step(job: dict[str, Any], name: str) -> dict[str, Any]:
 def test_the_pull_request_check_builds_the_mcp_server_target_at_or_below_3gb() -> None:
     """The pull request check SHALL build the mcp-server target and keep it at or below 3GB."""
     job = _workflow("ci.yml")["jobs"]["mcp-server-image"]
-    build = _step(job, "Build and Load MCP Server Image")
+    build = _step(job, "Build and Load Runner and MCP Server Images")
+    bake = _step(job, "Write Docker Bake Definition")["run"]
     smoke = _step(job, "Run MCP Server Image Smoke Test")["run"]
 
-    assert build["with"]["target"] == "mcp-server"
+    assert build["with"]["source"] == "."
+    assert build["with"]["files"] == "docker-bake.hcl"
+    assert "mcp-server" in build["with"]["targets"].split()
+    assert 'target "mcp-server"' in bake
+    assert 'no-cache-filter = ["mcp-server"]' in bake
+    assert 'cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/mcp-server:buildcache"]' in bake
 
     (bound,) = re.findall(r'"\$size" -gt (\d+)', smoke)
     assert int(bound) <= 3000000000

@@ -682,7 +682,6 @@ def _ci_image_content_paths(workflow: Path, job_name: str) -> set[str]:
     ("job_name", "dockerfile_rel"),
     [
         ("service-image", "Dockerfile"),
-        ("runner-image", "Dockerfile"),
         ("mcp-server-image", "Dockerfile"),
     ],
 )
