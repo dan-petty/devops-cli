@@ -60,6 +60,12 @@ repos:
         args: [--schemafile, osv-scanner.schema.json]
         stages: [pre-commit]
 
+  - repo: https://github.com/shenxianpeng/hadolint-pre-commit
+    rev: v2.15.1.3
+    hooks:
+      - id: hadolint
+        stages: [pre-commit]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.17.6
     hooks:

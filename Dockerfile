@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
+# check=error=true
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # The Node runtime that installs OpenSpec and runs it in the Service and MCP server images. Its major
@@ -12,7 +13,7 @@ FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b
 # and the digest of this line, in the devtools group with the devcontainer image (#4361). The runner
 # uses the OpenSpec of this image. The OpenSpec pin of the project reaches a runner Job through the
 # coder bootstrap (#6517) after #6409.
-FROM ghcr.io/dan-petty/devtools:1.1.6@sha256:faaedce3dec1156df018c6992db041c55f82e1b3dc785dcef8ec786c817d0f36 AS devtools
+FROM ghcr.io/dan-petty/devtools:1.1.8@sha256:b3c8349ad3596e8c2b3e1faab9c5e8eaf601050889ac4ad7b20360dcfc03e156 AS devtools
 
 # The runtime requirements of `uv.lock` with the `review` extra, with their hashes and without the
 # project (#4550). A release changes the project version in `pyproject.toml` and `uv.lock`, but not
@@ -34,6 +35,7 @@ FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138
 COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /app
+# hadolint ignore=DL3064
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
@@ -84,6 +86,7 @@ WORKDIR /app
 # Job. The build forbids a Python download, and the `.python-version` of a checkout can name a
 # patch release that the devtools image lacks, so `UV_PYTHON` names the Python of the devtools image,
 # which uv uses for that minor release.
+# hadolint ignore=DL3064
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     UV_PYTHON=/usr/bin/python3.14 \
@@ -178,6 +181,7 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
+# hadolint ignore=DL3064
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
@@ -203,6 +207,7 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
+# hadolint ignore=DL3064
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \

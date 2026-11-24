@@ -147,7 +147,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     _checkout("deptry", "ci:deps"),
     _checkout("ast-grep", "ci:constructs", "hook:ast-grep-scan"),
     _checkout("zizmor", "ci:zizmor"),
-    _checkout("pre-commit", "job"),
+    _checkout("pre-commit", "ci:hadolint", "job"),
     _devtools("curl", "test:live"),
     _devtools("jq", "test:live"),
     _devtools("promtool", "gate:test"),
