@@ -23,6 +23,8 @@ before a job picks the item, so the job leaves the item out with the branch name
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
 
@@ -291,6 +293,46 @@ def _split_by_scope(
     return inside, kept
 
 
+def _current_branch(repo_root: Path) -> str | None:
+    """Return the current branch of the clone, or None if HEAD is detached."""
+    proc = run_subprocess(
+        [CONST_GIT_CLI, "-C", str(repo_root), "symbolic-ref", "--short", "-q", "HEAD"],
+        check=False,
+        quiet=True,
+        local_read=True,
+    )
+    if proc.returncode == 0:
+        branch = proc.stdout.strip()
+        return branch if branch else None
+    return None
+
+
+def _restore_branch(repo_root: Path, branch: str) -> None:
+    """Restore the clone HEAD to branch when it became detached."""
+    proc = run_subprocess(
+        [CONST_GIT_CLI, "-C", str(repo_root), "checkout", branch],
+        check=False,
+        quiet=True,
+    )
+    if proc.returncode != 0:
+        raise _failure(
+            f"Cannot restore HEAD to branch '{branch}': {mask_secrets(git_message(proc))}"
+        )
+
+
+@contextmanager
+def preserve_head(repo_root: Path) -> Iterator[None]:
+    """Ensure the clone stays on its original branch across worktree operations."""
+    initial_branch = _current_branch(repo_root)
+    try:
+        yield
+    finally:
+        if initial_branch is not None:
+            current = _current_branch(repo_root)
+            if current != initial_branch:
+                _restore_branch(repo_root, initial_branch)
+
+
 def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> ReclaimResult:
     """Remove the worktrees that `prune --confirm` removes and that `add` manages: under the
     managed folder, clean, with no ignored data file, not locked, not the current directory, and at
@@ -310,16 +352,19 @@ def reclaim_merged_worktrees(repo_root: Path, *, dry_run: bool = False) -> Recla
     if dry_run:
         plan = plan_prune(entries, repo=repo, managed_root=folder)
         return ReclaimResult(kept=kept, requests=plan.requests)
-    try:
-        report = prune_worktrees(repo_root, entries, repo=repo, managed_root=folder, confirm=True)
-    except DevOpsCLIError as exc:
-        return ReclaimResult(kept=kept, error=str(exc))
-    failed = [f"{item.path}: {item.reason}" for item in report.items if item.status == "failed"]
-    return ReclaimResult(
-        removed=[item for item in report.items if item.status == "removed"],
-        kept=kept,
-        error="; ".join(failed) or None,
-    )
+    with preserve_head(repo_root):
+        try:
+            report = prune_worktrees(
+                repo_root, entries, repo=repo, managed_root=folder, confirm=True
+            )
+        except DevOpsCLIError as exc:
+            return ReclaimResult(kept=kept, error=str(exc))
+        failed = [f"{item.path}: {item.reason}" for item in report.items if item.status == "failed"]
+        return ReclaimResult(
+            removed=[item for item in report.items if item.status == "removed"],
+            kept=kept,
+            error="; ".join(failed) or None,
+        )
 
 
 def check_authors(issue: int, branch: str, authors: list[str]) -> None:
@@ -543,11 +588,12 @@ def add_worktree(
         )
     origin = origin or _CloneOrigin(repo_root)
     heads = origin.heads()
-    if (pushed := _staged_branch(heads, issue)) is None:
-        branch = _new_branch(issue, type_, slug)
-        return _create(repo_root, issue, branch, directory, reclaim, heads, origin)
-    _check_names(issue, pushed, type_, slug)
-    return _take_over(repo_root, issue, pushed, directory, reclaim, heads, origin)
+    with preserve_head(repo_root):
+        if (pushed := _staged_branch(heads, issue)) is None:
+            branch = _new_branch(issue, type_, slug)
+            return _create(repo_root, issue, branch, directory, reclaim, heads, origin)
+        _check_names(issue, pushed, type_, slug)
+        return _take_over(repo_root, issue, pushed, directory, reclaim, heads, origin)
 
 
 def read_remote_heads(repo_root: Path) -> str:
