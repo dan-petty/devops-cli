@@ -1,0 +1,23 @@
+# Design
+
+## Decisions
+
+- **Record the start page choice in a decision record and plan no environment file in this repository.**: `tests/gate/k8s_checks/environment_freeze.py:67:is an environment path, and dan-petty/homelab holds the environment.` refuses a branch that changes a path under `k8s` outside the two product folders, and `docs/HOMELAB_REPO_SWITCH.md:184:The rule is by folder, so a new environment file is refused too.` makes a new folder an environment path too.
+- **Homepage is the cluster start page.**: The alternatives check of 2026-11-13 gives the verdict in-use, and Homepage is the only tool of those compared that discovers links from Kubernetes Ingress and Traefik IngressRoute annotations.
+- **The page serves the `start` host of the configured domain, and no apex route exists.**: The owner decision of 2026-11-11 in the body of #4598 sets the host to `start` and skips the apex redirect, and the wildcard tunnel route and Access application cover each host under the domain.
+- **The record enters as accepted with its body hash, and the merge accepts it.**: `docs/adr/README.md:40:3. The merge by the owner accepts the record.` gives the approval with the merge, and `src/devops_cli/docs/adr_records.py:32:_MAX_BODY_WORDS: Final = 1000` holds the body to 1000 words.
+- **The index table of `docs/adr/README.md` is regenerated, never edited by hand.**: `docs/adr/README.md:142:writes this table from the front matter of each record` names the generator, and `tests/invariants/test_adr_records.py:22:def test_the_index_of_the_readme_is_the_generated_index() -> None:` fails on a row that the generator would not write.
+- **The manifests, the Application and the live checks belong to dan-petty/homelab.**: `docs/HOMELAB_REPO_SWITCH.md:268:Homelab CI runs the environment checks that #5131 lists.` puts the checks of the environment in the repository that holds it.
+- **The record keeps the theme input of the design spec: `color: stone` and no `theme` key.**: The owner decision 11 of #4735, recorded in the comment of 2026-11-11 on #4598, leaves the theme unset so the theme switcher stays.
+- **The plan writes no Start page section in the README of the environment tree.**: `tests/gate/k8s_checks/environment_freeze.py:74:these files and this check.` deletes the environment files of this repository at step 17, and the section would document a page that dan-petty/homelab deploys, so the record carries the host and the Application instead.
+
+## Rejected alternatives
+
+- **Plan the start page manifests, the namespace entry and the Application in this repository.**: `tests/gate/k8s_checks/environment_freeze.py:67:is an environment path, and dan-petty/homelab holds the environment.` is the message of the row for each of those paths, and `docs/HOMELAB_REPO_SWITCH.md:184:The rule is by folder, so a new environment file is refused too.` covers the new folder.
+- **Register `startpage` in `CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK` and in `APPLICATIONS_BY_STACK`.**: `docs/HOMELAB_REPO_SWITCH.md:254:delete the override path of #1290: the constants` deletes both tables and the override path at step 15, so a new entry would be deleted with them.
+- **Put the page under a product folder such as the homelab overlay of the devops product to pass the freeze row.**: `tests/gate/k8s_checks/environment_freeze.py:26:_PRODUCT_FOLDERS: Final[tuple[PurePosixPath, ...]] = (` names only the two product folders, the page is no part of the devops product, and `docs/HOMELAB_REPO_SWITCH.md:284:delete the environment files of the path list, the overlay` deletes that overlay.
+- **Write the Start page section in the README of the environment tree from this repository.**: `tests/gate/k8s_checks/environment_freeze.py:74:these files and this check.` deletes those files at step 17, and pull request #6978 changes `k8s/README.md` now, so a section here would describe a page that another repository deploys.
+
+## Security
+
+Nothing crosses a trust boundary in this repository: the change writes one decision record and one index table, and creates no cluster object, role or policy. The record states that the page reads namespaces, pods, nodes, ingresses, ingressroutes and metrics with `get` and `list` only, holds no verb on Secrets, and admits no egress to a public address. A person must confirm at the merge that the record keeps that read-only role and that the perimeter of the page in dan-petty/homelab admits no public egress, because no test of this repository reads a cluster object. `uv run devops ci test tests/invariants/test_adr_records.py` fails if the record breaks the rules of the decision records, and the owner's review fails the change if the record states a write verb, a Secret read or a public egress.
