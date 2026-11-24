@@ -1575,6 +1575,14 @@ class InfraMessages:
         "The apply stopped: {reason}. The node stays as the step left it, cordoned after a drain. "
         "Read the runner artifacts, fix the cause, then plan and apply again."
     )
+    apply_role_own_node: str = "its pod node"
+    apply_role_control_plane: str = "the control-plane node"
+    apply_stop_cluster_node: str = (
+        "The host {host} ({node}) is {role}. Run devops infra apply on a workstation."
+    )
+    infra_apply_refused: str = (
+        "Refused: repo {repo} is below agent access safe. An infra apply needs safe or full."
+    )
     apply_plan_title: str = "Plan for the apply of the plan {id} of {repo} at {path}"
     apply_dry_run_note: str = (
         "Each disruptive host runs alone in plan order. The node of a host stays cordoned when it "
