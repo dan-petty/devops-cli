@@ -28,6 +28,7 @@ from tests.support.infra import (
     ORIGIN_COMMIT,
     SSH_KEY_NAME,
     FakeCluster,
+    FakeCNPGCluster,
     FakeNode,
     answer_default_branch,
     answer_runs,
@@ -871,3 +872,169 @@ def test_dry_run_starts_no_process(
     assert len(lab.process_fake.calls) == calls
     shown = result.output.replace(str(tmp_path), "<tmp>").replace(plan["id"], "<plan id>")
     assert shown == snapshot
+
+
+def test_a_single_instance_cnpg_cluster_opens_window_and_is_audited(
+    lab: Lab, person_caller: None
+) -> None:
+    c = FakeCNPGCluster(
+        "llm-gateway-db",
+        "llm",
+        "node-3",
+        instances=1,
+        tracking_id="llm:postgresql.cnpg.io/Cluster:llm/llm-gateway-db",
+    )
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 0, result.output
+    assert "patch llm-gateway-db open" in lab.steps
+    assert "patch llm-gateway-db close" in lab.steps
+    open_idx = lab.steps.index("patch llm-gateway-db open")
+    check_idx = lab.steps.index("drain check node-3")
+    uncordon_idx = lab.steps.index("uncordon node-3")
+    close_idx = lab.steps.index("patch llm-gateway-db close")
+    assert open_idx < check_idx
+    assert uncordon_idx < close_idx
+
+    assert (
+        f"Down during the maintenance window of {NODE_3}: llm/llm-gateway-db (Cluster)"
+        in result.output
+    )
+
+    from devops_cli.config.settings import load_settings
+    from devops_cli.core.repo import resolve_data_path
+
+    log = resolve_data_path(load_settings().data.audit_log_path)
+    [host] = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])["details"]["hosts"]
+    assert "llm/llm-gateway-db (Cluster)" in host["down_during_apply"]
+    assert host["down_during_window"] == ["llm/llm-gateway-db (Cluster)"]
+
+
+def test_a_two_instance_cnpg_cluster_gets_no_window(lab: Lab, person_caller: None) -> None:
+    c = FakeCNPGCluster("shared-db", "db", "node-3", instances=2)
+    lab.cluster.cnpg_clusters = {"shared-db": c}
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 0, result.output
+    assert "patch shared-db open" not in lab.steps
+    assert "patch shared-db close" not in lab.steps
+
+
+def test_repo_agent_access_below_full_gets_no_window(lab: Lab, person_caller: None) -> None:
+    c = FakeCNPGCluster("llm-gateway-db", "llm", "node-3", instances=1)
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan, level="safe")
+
+    assert result.exit_code == 1
+    assert "patch llm-gateway-db open" not in lab.steps
+    assert "global timeout reached" in result.output
+
+
+def test_an_unhealthy_cnpg_cluster_after_window_stops_the_apply(
+    lab: Lab, person_caller: None
+) -> None:
+    c = FakeCNPGCluster("llm-gateway-db", "llm", "node-3", instances=1)
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+
+    def corrupt_phase(call: ProcessCall) -> None:
+        c.phase = "Setting up primary"
+
+    lab.runs(site_events)
+    answer_runs(lab.process_fake, lab.bin_dir, steps=lab.steps, after=corrupt_phase)
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert "llm/llm-gateway-db is not healthy (Setting up primary)" in result.output
+    assert f"{NODE_3} stopped at the step health" in result.output
+
+
+def test_an_argocd_application_with_self_heal_and_no_ignore_differences_refuses_the_host(
+    lab: Lab, person_caller: None
+) -> None:
+    c = FakeCNPGCluster(
+        "llm-gateway-db",
+        "llm",
+        "node-3",
+        instances=1,
+        tracking_id="llm:postgresql.cnpg.io/Cluster:llm/llm-gateway-db",
+    )
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    lab.cluster.applications["llm"] = {
+        "spec": {
+            "syncPolicy": {"automated": {"selfHeal": True}},
+            "ignoreDifferences": [],
+        }
+    }
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert (
+        "The Argo CD Application llm has selfHeal on and would revert spec.nodeMaintenanceWindow "
+        "on llm/llm-gateway-db. Add an ignoreDifferences entry for /spec/nodeMaintenanceWindow to llm."
+        in result.output
+    )
+    assert "patch llm-gateway-db open" not in lab.steps
+    assert "drain check node-3" not in lab.steps
+
+
+def test_a_cnpg_cluster_with_field_in_git_refuses_the_host(
+    lab: Lab, infra_repo: Path, person_caller: None
+) -> None:
+    manifest = infra_repo / "k8s" / "llm" / "db.yaml"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata:\n  name: llm-gateway-db\n"
+        "spec:\n  nodeMaintenanceWindow:\n    inProgress: true\n",
+        encoding="utf-8",
+    )
+    answer_default_branch(lab.process_fake, infra_repo)
+    c = FakeCNPGCluster("llm-gateway-db", "llm", "node-3", instances=1)
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert (
+        "llm/llm-gateway-db sets spec.nodeMaintenanceWindow in git. Remove it before you apply."
+        in result.output
+    )
+    assert "patch llm-gateway-db open" not in lab.steps
+    assert "drain check node-3" not in lab.steps
+
+
+def test_cnpg_patch_open_failure_stops_the_host(lab: Lab, person_caller: None) -> None:
+    c = FakeCNPGCluster("llm-gateway-db", "llm", "node-3", instances=1)
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    lab.cluster.patch_error = "patch open failed: connection reset"
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert "patch open failed: connection reset" in result.output
+    assert f"{NODE_3} stopped at the step drain check" in result.output
+
+
+def test_cnpg_patch_close_failure_stops_the_host(lab: Lab, person_caller: None) -> None:
+    c = FakeCNPGCluster("llm-gateway-db", "llm", "node-3", instances=1)
+    lab.cluster.cnpg_clusters = {"llm-gateway-db": c}
+    lab.cluster.patch_close_error = "patch close failed: connection reset"
+    plan = lab.plan(NODE_3)
+
+    result = lab.apply(plan)
+
+    assert result.exit_code == 1
+    assert "patch close failed: connection reset" in result.output
+    assert f"{NODE_3} stopped at the step health" in result.output

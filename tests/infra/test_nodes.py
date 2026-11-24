@@ -16,20 +16,24 @@ import pytest
 from devops_cli.config.settings import load_settings
 from devops_cli.infra.nodes import (
     Cluster,
+    CnpgCluster,
     boot_id,
+    cnpg_field_in_git,
     critical_alerts,
     drain_args,
     grace_period,
+    has_cnpg_ignore_differences,
     is_evicted,
     is_pinned,
     node_problems,
     parse_node,
+    yaml_has_cnpg_window,
 )
 from devops_cli.models.infra import NodeState
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.process import ProcessFake
-from tests.support.infra import KUBE_CONTEXT, FakeCluster, FakeNode
+from tests.support.infra import KUBE_CONTEXT, FakeCluster, FakeCNPGCluster, FakeNode
 
 _GIB = 1024**3
 
@@ -395,3 +399,149 @@ def test_the_node_gate_does_not_read_the_alerts(
 
     assert Cluster(KUBE_CONTEXT, load_settings()).node_health() == []
     assert web.sent == []
+
+
+def test_cnpg_window_clusters_and_guards(cluster: FakeCluster, tmp_path: Path) -> None:
+    c1 = FakeCNPGCluster(
+        "llm-db", "llm", "node-1", instances=1, tracking_id="llm:Cluster:llm/llm-db"
+    )
+    c2 = FakeCNPGCluster("shared-db", "db", "node-1", instances=2)
+    c3 = FakeCNPGCluster("other-db", "other", "node-2", instances=1)
+    cluster.cnpg_clusters = {"llm-db": c1, "shared-db": c2, "other-db": c3}
+
+    target_cluster = Cluster(KUBE_CONTEXT, load_settings())
+    pods = target_cluster.pods("node-1")
+    window_clusters = target_cluster.cnpg_window_clusters("node-1", pods)
+    assert len(window_clusters) == 1
+    assert window_clusters[0].name == "llm-db"
+
+    # Guard 1: Git field check
+    project = tmp_path / "project"
+    project.mkdir()
+    manifest = project / "llm-db.yaml"
+    manifest.write_text(
+        "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata:\n  name: llm-db\nspec:\n  nodeMaintenanceWindow:\n    inProgress: true\n"
+    )
+    assert (
+        target_cluster.check_cnpg_guards(window_clusters[0], project)
+        == "llm/llm-db sets spec.nodeMaintenanceWindow in git. Remove it before you apply."
+    )
+
+    # Remove field from git
+    manifest.write_text(
+        "apiVersion: postgresql.cnpg.io/v1\nkind: Cluster\nmetadata:\n  name: llm-db\nspec:\n  instances: 1\n"
+    )
+
+    # Guard 2: Argo CD selfHeal without ignoreDifferences
+    cluster.applications["llm"] = {
+        "spec": {
+            "syncPolicy": {"automated": {"selfHeal": True}},
+            "ignoreDifferences": [],
+        }
+    }
+    assert (
+        target_cluster.check_cnpg_guards(window_clusters[0], project)
+        == "The Argo CD Application llm has selfHeal on and would revert spec.nodeMaintenanceWindow on llm/llm-db. Add an ignoreDifferences entry for /spec/nodeMaintenanceWindow to llm."
+    )
+
+    # With ignoreDifferences
+    cluster.applications["llm"]["spec"]["ignoreDifferences"] = [
+        {"kind": "Cluster", "name": "llm-db", "jsonPointers": ["/spec/nodeMaintenanceWindow"]}
+    ]
+    assert target_cluster.check_cnpg_guards(window_clusters[0], project) is None
+
+
+def test_patch_cnpg_window_and_health_wait(cluster: FakeCluster, clock: ClockFake) -> None:
+    c1 = FakeCNPGCluster("llm-db", "llm", "node-1", instances=1)
+    cluster.cnpg_clusters = {"llm-db": c1}
+    target_cluster = Cluster(KUBE_CONTEXT, load_settings())
+
+    cnpg_c = CnpgCluster("llm-db", "llm", 1, "llm-db-1")
+    assert target_cluster.patch_cnpg_window(cnpg_c, in_progress=True) is None
+    assert c1.in_progress is True
+    assert cluster.steps == ["patch llm-db open"]
+
+    assert target_cluster.patch_cnpg_window(cnpg_c, in_progress=False) is None
+    assert c1.in_progress is False
+    assert cluster.steps[-1] == "patch llm-db close"
+
+    # Health wait when healthy
+    assert target_cluster.wait_cnpg_healthy([cnpg_c]) == []
+
+    # Health wait when unhealthy
+    c1.phase = "Setting up primary"
+    problems = target_cluster.wait_cnpg_healthy([cnpg_c])
+    assert problems == ["llm/llm-db is not healthy (Setting up primary)"]
+
+
+def test_cnpg_clusters_and_guards_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target_cluster = Cluster(KUBE_CONTEXT, load_settings())
+    assert target_cluster.wait_cnpg_healthy([]) == []
+    assert not yaml_has_cnpg_window(":::invalid yaml:::", "test-cluster")
+
+    c = CnpgCluster("test-db", "llm", 1, "test-db-1")
+    assert not cnpg_field_in_git(c, tmp_path / "non-existent")
+
+    sub = tmp_path / "sub.yaml"
+    sub.mkdir()
+    assert not cnpg_field_in_git(c, tmp_path)
+    sub.rmdir()
+
+    unreadable = tmp_path / "bad.yaml"
+    unreadable.write_text("nodeMaintenanceWindow: true\ntest-db: true\n")
+    orig_read_text = Path.read_text
+
+    def raise_oserror(self: Path, *args: object, **kwargs: object) -> str:
+        if self == unreadable:
+            raise OSError("simulated error")
+        return orig_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", raise_oserror)
+    assert not cnpg_field_in_git(c, tmp_path)
+
+    app: dict[str, object] = {"spec": {"ignoreDifferences": ["not a dict"]}}
+    assert not has_cnpg_ignore_differences(app, c)
+
+    app["spec"] = {"ignoreDifferences": [{"kind": "Deployment"}]}
+    assert not has_cnpg_ignore_differences(app, c)
+
+    app["spec"] = {"ignoreDifferences": [{"kind": "Cluster", "group": "other.group"}]}
+    assert not has_cnpg_ignore_differences(app, c)
+
+    app["spec"] = {"ignoreDifferences": [{"kind": "Cluster", "name": "other-db"}]}
+    assert not has_cnpg_ignore_differences(app, c)
+
+    app["spec"] = {
+        "ignoreDifferences": [{"kind": "Cluster", "name": "test-db", "namespace": "other-ns"}]
+    }
+    assert not has_cnpg_ignore_differences(app, c)
+
+    app["spec"] = {
+        "ignoreDifferences": [
+            {
+                "kind": "Cluster",
+                "name": "test-db",
+                "namespace": "llm",
+                "jqPathExpressions": [".spec.nodeMaintenanceWindow"],
+            }
+        ]
+    }
+    assert has_cnpg_ignore_differences(app, c)
+
+
+def test_wait_cnpg_healthy_error_branches(cluster: FakeCluster, clock: ClockFake) -> None:
+    c1 = FakeCNPGCluster("llm-db", "llm", "node-1", instances=1)
+    cluster.cnpg_clusters = {"llm-db": c1}
+    target_cluster = Cluster(KUBE_CONTEXT, load_settings())
+    cnpg_c = CnpgCluster("llm-db", "llm", 1, "llm-db-1")
+
+    c1.primary_ready = False
+    problems = target_cluster.wait_cnpg_healthy([cnpg_c])
+    assert problems == ["primary pod llm/llm-db-1 is not Ready"]
+
+    del cluster.cnpg_clusters["llm-db"]
+    problems = target_cluster.wait_cnpg_healthy([cnpg_c])
+    assert 'clusters.postgresql.cnpg.io "llm-db" not found' in problems[0]
+
+    cluster.down = 1
+    assert target_cluster.cnpg_clusters() == []

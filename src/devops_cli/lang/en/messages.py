@@ -1553,6 +1553,17 @@ class InfraMessages:
         "Down during the apply of {host}, because only its node can mount their volumes: "
         "{workloads}"
     )
+    apply_down_window: str = "Down during the maintenance window of {host}: {clusters}"
+    apply_cnpg_in_git: str = (
+        "{cluster} sets spec.nodeMaintenanceWindow in git. Remove it before you apply."
+    )
+    apply_cnpg_self_heal: str = (
+        "The Argo CD Application {app} has selfHeal on and would revert "
+        "spec.nodeMaintenanceWindow on {cluster}. Add an ignoreDifferences entry for "
+        "/spec/nodeMaintenanceWindow to {app}."
+    )
+    apply_cnpg_unhealthy: str = "{cluster} is not healthy ({phase})"
+    apply_cnpg_pod_not_ready: str = "primary pod {pod} is not Ready"
     apply_pinned_unread: str = "not read: {problem}"
     apply_stopped: str = (
         "The apply stopped: {reason}. The node stays as the step left it, cordoned after a drain. "
