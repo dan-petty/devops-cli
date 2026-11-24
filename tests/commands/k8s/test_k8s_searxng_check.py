@@ -39,6 +39,29 @@ _SEARXNG_IP = "192.0.2.10"
 _ROADMAP_IP = "192.0.2.20"
 _METADATA = "169.254.169.254"
 _EXTERNAL = "https://example.com/redirected"
+_PROBE_TEMPLATE_JSON = json.dumps(
+    {
+        "apiVersion": "batch/v1",
+        "kind": "CronJob",
+        "metadata": {"name": "service-probe", "namespace": "devops"},
+        "spec": {
+            "jobTemplate": {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "probe",
+                                    "image": "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    }
+)
 _ROWS = (
     "json-general",
     "json-it",
@@ -136,6 +159,7 @@ def _is_get_of(name: str) -> Callable[[ProcessCall], bool]:
 def cluster(service: _Service, process_fake: ProcessFake, clock: ClockFake) -> ProcessFake:
     """A cluster that blocks every pod, a running forward, and the ClusterIP of each Service."""
     process_fake.answer(lambda call: call.detached, ProcessAnswer(process=RunningForward()))
+    process_fake.answer(_is_get_of("service-probe"), ProcessAnswer(stdout=_PROBE_TEMPLATE_JSON))
     process_fake.answer(_is_get_of("searxng"), ProcessAnswer(stdout=_SEARXNG_IP))
     process_fake.answer(_is_get_of("roadmap-service"), ProcessAnswer(stdout=_ROADMAP_IP))
     process_fake.answer(_is_exec, ProcessAnswer(returncode=1))

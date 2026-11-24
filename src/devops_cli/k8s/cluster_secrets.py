@@ -420,6 +420,15 @@ def load_cluster_secrets(path: Path) -> tuple[ClusterSecret, ...]:
 _FIXTURE_SECRETS_FILE = (
     Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cluster-secrets.toml"
 )
+_FALLBACK_FIXTURE_SECRETS_FILE = Path("tests/fixtures/cluster-secrets.toml")
+
+
+def _resolve_fixture_secrets_file() -> Path | None:
+    if _FIXTURE_SECRETS_FILE.is_file():
+        return _FIXTURE_SECRETS_FILE
+    if _FALLBACK_FIXTURE_SECRETS_FILE.is_file():
+        return _FALLBACK_FIXTURE_SECRETS_FILE
+    return None
 
 
 def load_cluster_secrets_table(
@@ -452,8 +461,8 @@ def load_cluster_secrets_table(
         direct = k8s_dir / "cluster-secrets.toml"
         if direct.is_file():
             env_file = direct
-    if env_file is None and k8s_dir is None and _FIXTURE_SECRETS_FILE.is_file():
-        env_file = _FIXTURE_SECRETS_FILE
+    if env_file is None:
+        env_file = _resolve_fixture_secrets_file()
 
     env_rows = load_cluster_secrets(env_file) if env_file is not None else ()
     return (*env_rows, *CLUSTER_SECRETS)

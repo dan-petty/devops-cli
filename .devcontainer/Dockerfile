@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 # check=error=true
 
+ARG BASE_IMAGE=base
+
 # The devcontainer image: the devtools image, the venv of devops-cli and the project. Each tool
 # comes from the devtools image (https://github.com/dan-petty/devtools), which names the source
 # of each tool. This file pins the image by digest, and Renovate moves the digest. The two Dev
 # Container Features of .devcontainer/image/devcontainer.json add the user vscode and Podman.
-FROM ghcr.io/dan-petty/devtools:1.1.6@sha256:faaedce3dec1156df018c6992db041c55f82e1b3dc785dcef8ec786c817d0f36 AS devtools
+FROM ghcr.io/dan-petty/devtools:1.1.8@sha256:b3c8349ad3596e8c2b3e1faab9c5e8eaf601050889ac4ad7b20360dcfc03e156 AS devtools
 
 # The requirements of `uv.lock`, with their hashes and without the project (#4550). A release
 # changes the project version in `pyproject.toml` and `uv.lock`, but not this file, and BuildKit
@@ -23,6 +25,7 @@ RUN UV_PYTHON_DOWNLOADS=never uv export --locked --no-dev --extra review --no-em
 # counts tokens with no download. /run/user/1000 holds the container-local session bus of
 # gnome-keyring; /tmp is shared.
 FROM devtools AS venv
+# hadolint ignore=DL3064
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
@@ -34,9 +37,16 @@ RUN --mount=type=bind,from=lock,source=/lock/requirements.txt,target=/tmp/requir
     && uv pip sync --python /opt/devops-cli/.venv/bin/python --require-hashes /tmp/requirements.txt \
     && /opt/devops-cli/.venv/bin/python -c "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
 
+# The base stage: base tools and venv without the project package. The Dev Containers CLI builds
+# this stage with its Features (.devcontainer/image/devcontainer.json) so the Feature layers land
+# on this stage, before the project layer (#6470).
+FROM venv AS base
+ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
+USER vscode
+
 # The project, built and installed into the venv. A change of `src/` builds this stage again; the
-# last stage copies from it only the package, its dist-info and its console script.
-FROM venv AS project
+# project stage copies from it only the package, its dist-info and its console script.
+FROM venv AS builder
 COPY pyproject.toml README.md /tmp/devops-cli/
 COPY src/ /tmp/devops-cli/src/
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -62,11 +72,11 @@ COPY --from=devtools /usr/local/bin/gitleaks /usr/local/bin/helm /usr/local/bin/
 # is the last directory of PATH, so its python does not hide the python of the system. The
 # remoteEnv PATH of .devcontainer/devcontainer.json puts .venv/bin first, so in this repository
 # `devops` is the editable install of the checkout (#2449). The project layer is the last layer of
-# this file, and `--link` makes it independent of the layers under it. The Dev Containers CLI adds
-# the layers of the two Features over it (#6470).
-FROM venv
-ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
-COPY --link --from=project --parents /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli \
+# this file, and `--link` makes it independent of the layers under it. In CI, BASE_IMAGE points to
+# the Feature image built from `base`, so the Feature layers stay under the project layer (#6470).
+FROM ${BASE_IMAGE} AS project
+COPY --link --from=builder --parents /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli \
     /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli-*.dist-info \
     /opt/devops-cli/.venv/bin/devops /
+# hadolint ignore=DL3066
 USER vscode

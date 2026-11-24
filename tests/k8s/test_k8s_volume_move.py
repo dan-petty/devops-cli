@@ -56,6 +56,9 @@ LAST_APPLIED = json.dumps(
 )
 TRACKING = "argocd.argoproj.io/tracking-id"
 PAUSE = ("bootstrap", "cluster", "grafana")
+VOLUME_MOVE_IMAGE = (
+    "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
+)
 
 
 def _claim_object() -> dict[str, Any]:
@@ -133,6 +136,7 @@ class Cluster:
     claim_exists: bool = True
     owner_kind: str | None = None
     tracked: bool = True
+    cronjob_exists: bool = True
     known_applications: tuple[str, ...] = ("bootstrap", "cluster", "grafana", "loki")
     timeout_on: str | None = None
     changes: list[str] = field(default_factory=list)
@@ -174,8 +178,44 @@ class Cluster:
             "deployment": lambda _args: json.dumps(self._workload()),
             "statefulset": lambda _args: json.dumps(self._workload()),
             "applications": lambda _args: json.dumps({"items": self._applications()}),
+            "cronjob": self._get_cronjob,
         }
         return readers[what](args)
+
+    def _get_cronjob(self, args: list[str]) -> str:
+        if not self.cronjob_exists:
+            return ""
+        return json.dumps(
+            {
+                "apiVersion": "batch/v1",
+                "kind": "CronJob",
+                "metadata": {"name": "volume-move", "namespace": "devops"},
+                "spec": {
+                    "suspend": True,
+                    "jobTemplate": {
+                        "spec": {
+                            "template": {
+                                "spec": {
+                                    "containers": [
+                                        {
+                                            "name": "copy",
+                                            "image": VOLUME_MOVE_IMAGE,
+                                            "securityContext": {
+                                                "allowPrivilegeEscalation": False,
+                                                "readOnlyRootFilesystem": True,
+                                                "runAsNonRoot": True,
+                                                "runAsUser": 65534,
+                                                "capabilities": {"drop": ["ALL"]},
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                },
+            }
+        )
 
     def _get_claim(self, args: list[str]) -> str:
         if args[2] == f"{CLAIM}-move":
@@ -398,6 +438,7 @@ PLAN = VolumeMovePlan(
     source_tolerations=({"key": "example.com/dedicated", "operator": "Exists"},),
     applications=("grafana",),
     paused=PAUSE,
+    image=VOLUME_MOVE_IMAGE,
 )
 BEFORE_COPY = [
     *_pause(False, PAUSE),
@@ -927,6 +968,7 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
         )
 
     order = [
+        first("get", "cronjob", "volume-move"),
         first("get", "pvc", "--ignore-not-found", "-o", "json"),
         first("patch", "application", '"enabled": false'),
         first("scale", "--replicas=0"),
@@ -939,11 +981,34 @@ def test_the_dry_run_makes_no_request_and_lists_the_writes_in_order(
         first("patch", "application", '"enabled": true'),
     ]
     assert order == sorted(order)
-    assert argvs[order[6]][3:6] == ("delete", "pvc", CLAIM)
+    assert argvs[order[7]][3:6] == ("delete", "pvc", CLAIM)
     assert {argv[:3] for argv in argvs} == {
         ("kubectl", "--context", CONTEXT),
         ("bash", "-o", "pipefail"),
     }
+
+
+def test_plan_volume_move_raises_when_cronjob_missing(cluster: Cluster) -> None:
+    cluster.cronjob_exists = False
+    with pytest.raises(VolumeMoveError) as exc_info:
+        plan_volume_move(NAMESPACE, CLAIM, parents=PARENTS, context=CONTEXT)
+    assert exc_info.value.error_code == "K8S_VOLUME_MOVE_FAILED"
+    assert "volume-move" in str(exc_info.value)
+
+
+def test_copy_pods_use_template_image_and_allow_root(cluster: Cluster, tmp_path: Path) -> None:
+    _move(tmp_path)
+    copy_pods = [
+        obj
+        for obj in cluster.created
+        if obj.get("kind") == "Pod"
+        and obj.get("metadata", {}).get("name") in ("grafana-src", "grafana-dst")
+    ]
+    assert len(copy_pods) == 2
+    for pod in copy_pods:
+        container = pod["spec"]["containers"][0]
+        assert container["image"] == VOLUME_MOVE_IMAGE
+        assert "securityContext" not in container
 
 
 # ── The command ────────────────────────────────────────────────────────────

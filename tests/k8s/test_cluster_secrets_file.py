@@ -161,3 +161,72 @@ option = "baz"
     )
     with pytest.raises(ValidationError, match="secret entry must specify exactly one of"):
         load_cluster_secrets(multi_source)
+
+
+def test_load_cluster_secrets_table_resolves_fixture_when_installed_in_site_packages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When devops_cli is imported from site-packages (like in the Service image),
+    load_cluster_secrets_table still locates the repository fixture."""
+    import devops_cli.k8s.cluster_secrets as cs
+
+    fake_pkg_file = Path(
+        "/app/.venv/lib/python3.14/site-packages/devops_cli/k8s/cluster_secrets.py"
+    )
+    monkeypatch.setattr(cs, "__file__", str(fake_pkg_file))
+    monkeypatch.setattr(
+        cs,
+        "_FIXTURE_SECRETS_FILE",
+        fake_pkg_file.parents[3] / "tests" / "fixtures" / "cluster-secrets.toml",
+    )
+
+    table = cs.load_cluster_secrets_table()
+    assert len(table) == 23
+    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
+    assert any(s.ref == "argocd/argocd-notifications-secret" for s in table)
+
+
+def test_resolve_fixture_secrets_file_variants(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test resolution of fixture secrets file across primary, fallback, and absent paths."""
+    import devops_cli.k8s.cluster_secrets as cs
+
+    # Primary exists
+    fake_primary = tmp_path / "primary.toml"
+    fake_primary.write_text("[[secret]]\n", encoding="utf-8")
+    monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", fake_primary)
+    assert cs._resolve_fixture_secrets_file() == fake_primary
+
+    # Primary missing, fallback exists
+    monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", tmp_path / "missing1.toml")
+    fake_fallback = tmp_path / "fallback.toml"
+    fake_fallback.write_text("[[secret]]\n", encoding="utf-8")
+    monkeypatch.setattr(cs, "_FALLBACK_FIXTURE_SECRETS_FILE", fake_fallback)
+    assert cs._resolve_fixture_secrets_file() == fake_fallback
+
+    # Both missing
+    monkeypatch.setattr(cs, "_FALLBACK_FIXTURE_SECRETS_FILE", tmp_path / "missing2.toml")
+    assert cs._resolve_fixture_secrets_file() is None
+
+
+def test_load_cluster_secrets_table_resolves_fixture_when_env_lacks_secrets() -> None:
+    """When env has no cluster_secrets, load_cluster_secrets_table falls back to fixture."""
+    import devops_cli.k8s.cluster_secrets as cs
+
+    table = cs.load_cluster_secrets_table(object())
+    assert len(table) == 23
+    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
+
+
+def test_load_cluster_secrets_table_resolves_fixture_when_k8s_dir_lacks_secrets(
+    tmp_path: Path,
+) -> None:
+    """When k8s_dir has no cluster-secrets.toml, load_cluster_secrets_table falls back to fixture."""
+    import devops_cli.k8s.cluster_secrets as cs
+
+    empty_k8s = tmp_path / "k8s"
+    empty_k8s.mkdir()
+    table = cs.load_cluster_secrets_table(k8s_dir=empty_k8s)
+    assert len(table) == 23
+    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)

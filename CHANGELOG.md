@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.206.2](https://github.com/dan-petty/devops-cli/compare/v0.206.1...v0.206.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **k8s:** hermetically resolve cluster secrets fixture ([#6959](https://github.com/dan-petty/devops-cli/issues/6959)) ([c5f5bfd](https://github.com/dan-petty/devops-cli/commit/c5f5bfd4f65e41b1a95f625b93e5418e374a5ef0))
+
+
+### Code Refactoring
+
+* **k8s:** take helper pod and harbor task images from manifests ([#6958](https://github.com/dan-petty/devops-cli/issues/6958)) ([f96dc6b](https://github.com/dan-petty/devops-cli/commit/f96dc6b5e6ddd5e8aca8ef6406d5e84ad2c2d3d3))
+
+## [0.206.1](https://github.com/dan-petty/devops-cli/compare/v0.206.0...v0.206.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **k8s:** Resolve cluster secrets fixture in installed package ([#6949](https://github.com/dan-petty/devops-cli/issues/6949)) ([d8cdab0](https://github.com/dan-petty/devops-cli/commit/d8cdab0fec4227810cc08c500bdfc8f8f8b9e8dc))
+
+## [0.206.0](https://github.com/dan-petty/devops-cli/compare/v0.205.0...v0.206.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Wake two rows on a closed plan pull request ([#6945](https://github.com/dan-petty/devops-cli/issues/6945)) ([d8799eb](https://github.com/dan-petty/devops-cli/commit/d8799eb8446265112408afd4e4eba88b365ba66c))
+
+
+### Bug Fixes
+
+* **deps:** update @fission-ai/openspec to v2.1.1 ([#6909](https://github.com/dan-petty/devops-cli/issues/6909)) ([69160bc](https://github.com/dan-petty/devops-cli/commit/69160bc3e2422ebc12b3c49b83d2f39ae32942b4))
+
 ## [0.205.0](https://github.com/dan-petty/devops-cli/compare/v0.204.0...v0.205.0) (2026-11-24)
 
 

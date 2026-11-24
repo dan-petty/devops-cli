@@ -42,8 +42,23 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
 
 
 def test_service_dockerfile_base_images_pinned_by_digest() -> None:
-    """Every FROM and COPY --from= image in Dockerfile carries @sha256: (stage names exempt, also
-    as the base of another stage: the runner stage is built from `builder`)."""
+    """Every FROM and COPY --from= image in Dockerfile carries @sha256:, Dockerfile sets
+    # check=error=true, and .dockerignore drops bytecode (#6415)."""
+    dockerfile_text = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile_text.splitlines()[1].strip() == "# check=error=true"
+
+    dockerignore_lines = [
+        line.strip()
+        for line in (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    src_index = dockerignore_lines.index("!src/**")
+    assert dockerignore_lines[src_index + 1 : src_index + 4] == [
+        "**/__pycache__",
+        "**/*.pyc",
+        "**/*.pyo",
+    ]
+
     unpinned = _unpinned_dockerfile_images(REPO_ROOT / "Dockerfile")
     assert unpinned == []
 

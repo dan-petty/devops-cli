@@ -1,0 +1,5 @@
+# Apt packages float with the Debian security updates that the final stages
+# take, by the owner decision of 2026-11-19 that devops-cli is not a package
+# manager.
+ignored:
+  - DL3008

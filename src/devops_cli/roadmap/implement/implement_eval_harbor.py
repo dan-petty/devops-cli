@@ -12,6 +12,7 @@ changes one function here and its test, and nothing else.
 
 from __future__ import annotations
 
+import importlib.resources
 from pathlib import Path
 
 from devops_cli.config.constants import CONST_CANONICAL_OCI_SOURCE
@@ -34,10 +35,6 @@ TASK_CONFIG_FILE = "task.toml"
 # container of the task. The test script writes 1 or 0 there.
 REWARD_FILE = "/logs/reward.txt"
 
-# The base image of the task: the Python 3.14 image of the Dockerfile of this repository.
-_BASE_IMAGE = "python:3.14-slim-trixie"
-# The image that holds uv, at the version that the Dockerfile of this repository pins.
-_UV_IMAGE = "ghcr.io/astral-sh/uv:0.13.7"
 # The limits of the container of a task. A check of the fixture runs the whole test suite of the
 # repository, so the limits are those of the runner image.
 _CPUS = 2
@@ -67,21 +64,14 @@ def instruction_text(loaded: LoadedCase) -> str:
 def dockerfile_text(loaded: LoadedCase) -> str:
     """The environment of the task: this repository at the base commit of the fixture, with the
     interpreter, uv and the tools that the checks of the fixture use."""
+    base = (
+        importlib.resources.files("devops_cli.roadmap.implement.harbor")
+        .joinpath("Dockerfile")
+        .read_text(encoding="utf-8")
+        .rstrip()
+    )
     return (
-        "# The environment of the task: this repository at the base commit of the fixture, with\n"
-        "# the interpreter, uv and the tools that the checks of the fixture use.\n"
-        f"FROM {_BASE_IMAGE}\n"
-        "\n"
-        "ENV PYTHONUNBUFFERED=1 \\\n"
-        "    UV_COMPILE_BYTECODE=1 \\\n"
-        "    UV_LINK_MODE=copy\n"
-        "\n"
-        "RUN apt-get update \\\n"
-        "    && apt-get install -y --no-install-recommends ca-certificates git \\\n"
-        "    && rm -rf /var/lib/apt/lists/*\n"
-        "\n"
-        f"COPY --from={_UV_IMAGE} /uv /uvx /usr/local/bin/\n"
-        "\n"
+        f"{base}\n\n"
         "WORKDIR /app\n"
         f"RUN git clone --quiet {CONST_CANONICAL_OCI_SOURCE} /app \\\n"
         f"    && git -C /app checkout --quiet --detach {loaded.case.base}\n"

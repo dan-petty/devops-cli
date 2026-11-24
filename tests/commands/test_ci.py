@@ -929,6 +929,36 @@ def test_the_release_attests_and_tags_only_the_devcontainer_digest_its_smoke_tes
         "org.opencontainers.image.version",
     }
 
+    # The devcontainer image build keeps the Feature layers under the project layer (#6470).
+    import yaml
+
+    dockerfile = (REPO_ROOT / ".devcontainer" / "Dockerfile").read_text(encoding="utf-8")
+    assert "ARG BASE_IMAGE=base" in dockerfile
+    assert "FROM venv AS base" in dockerfile
+    assert "FROM venv AS builder" in dockerfile
+    assert "FROM ${BASE_IMAGE} AS project" in dockerfile
+
+    action_path = REPO_ROOT / ".github" / "actions" / "devcontainer-image" / "action.yml"
+    action = yaml.safe_load(action_path.read_text(encoding="utf-8"))
+    action_steps = {s.get("name", ""): s for s in action["runs"]["steps"]}
+
+    config_step = action_steps["Write the build configuration"]
+    assert '.build.target = "base"' in config_step["run"]
+
+    feature_step = action_steps["Build the image with its features and push it by digest"]
+    assert "devcontainer.js" in feature_step["run"]
+    assert "devcontainer.build.json" in feature_step["run"]
+
+    project_step = action_steps["Build the project layer and push the final image by digest"]
+    assert project_step["id"] == "build"
+    assert "--target project" in project_step["run"]
+    assert '--build-arg "BASE_IMAGE=${IMAGE}@${FEATURE_DIGEST}"' in project_step["run"]
+    assert (
+        "--output type=image,push-by-digest=true,name-canonical=true,push=true"
+        in project_step["run"]
+    )
+    assert action["outputs"]["digest"]["value"] == "${{ steps.build.outputs.digest }}"
+
 
 def test_service_image_smoke_test_parity() -> None:
     """The smoke-test run: block in ci.yml and in the Verify job of release-image.yml must be

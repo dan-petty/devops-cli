@@ -23,9 +23,9 @@ The pod must pass two checks of the cluster:
   endpoint of the Service. (A ReplicaSet does not adopt the pod either: its selector holds the
   `pod-template-hash` label, which the pod lacks.)
 
-The pod runs the image that its caller names. The TCP probe pod runs `PROBE_IMAGE`, and its `nc`
-applet connects with `nc -w 3 <host> <port> </dev/null` and exits with 0 when the connect succeeds
-and 1 when it fails or times out. The applet has no `-z` option: BusyBox 1.37.0 `nc --help` lists
+The pod runs the image that its caller names. The TCP probe pod runs the image of suspended
+CronJob `devops/service-probe`, and its `nc` applet connects with `nc -w 3 <host> <port> </dev/null`
+and exits with 0 when the connect succeeds and 1 when it fails or times out. The applet has no `-z` option: BusyBox 1.37.0 `nc --help` lists
 `-e`, `-l`, `-p`, `-s`, `-w` and `-i`, and `nc -z` exits 1 against an open port. The exit codes were
 checked against the pinned image with a listener, a closed port and an address that drops packets.
 The HTTP probe pod runs `CURL_IMAGE`, and its `curl` prints the HTTP status and exits 7 when it
@@ -43,6 +43,7 @@ import signal
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
 import httpx2
 
@@ -63,14 +64,10 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions.k8s import ServiceProbeError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client, request_headers
-from devops_cli.lang import ERRORS
+from devops_cli.lang import ERRORS, MESSAGES
 
 logger = logging.getLogger(__name__)
 
-# BusyBox 1.37.0 on Docker Hub: the index digest of the tag, which covers each platform.
-PROBE_IMAGE = (
-    "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
-)
 # curlimages/curl 8.23.0 on Docker Hub, read from the registry with `tag_digest`: the index digest
 # of the tag, which covers each platform. The image holds `curl`, `sh` and `sleep`.
 CURL_IMAGE = (
@@ -147,33 +144,92 @@ def _label_selector(labels: Mapping[str, str]) -> str:
     return ",".join(f"{key}={value}" for key, value in labels.items())
 
 
-def _pod_overrides(name: str, *, image: str) -> dict[str, object]:
-    """The pod spec that `kubectl run --overrides` merges: the `restricted` level of Pod Security,
-    a readiness probe that never succeeds, and a lifetime."""
-    security = {
+def _read_probe_template(
+    context: str | None = None,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    """Read the probe image and security contexts from suspended CronJob devops/service-probe."""
+    argv = kubectl_argv(
+        "get",
+        "cronjob",
+        "service-probe",
+        "-n",
+        "devops",
+        "--ignore-not-found",
+        "-o",
+        "json",
+        context=context,
+    )
+    code, stdout, stderr = _kubectl(argv)
+    if code != 0 or not stdout.strip():
+        detail = stderr.strip() if code != 0 else ""
+        raise ServiceProbeError(
+            MESSAGES.k8s.job_cronjob_missing.format(cronjob="service-probe")
+            + (f": {detail}" if detail else "")
+        )
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError as err:
+        raise ServiceProbeError(
+            f"CronJob devops/service-probe returned invalid JSON: {err}"
+        ) from err
+    if not data:
+        raise ServiceProbeError(MESSAGES.k8s.job_cronjob_missing.format(cronjob="service-probe"))
+    pod_spec = (
+        data.get("spec", {})
+        .get("jobTemplate", {})
+        .get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+    )
+    pod_security = dict(pod_spec.get("securityContext") or {})
+    containers = pod_spec.get("containers") or []
+    container = next((c for c in containers if c.get("name") == "probe"), None)
+    if not container or not container.get("image"):
+        raise ServiceProbeError("CronJob devops/service-probe has no probe container with an image")
+    image = str(container["image"])
+    container_security = dict(container.get("securityContext") or {})
+    return image, pod_security, container_security
+
+
+def _pod_overrides(
+    name: str,
+    *,
+    image: str,
+    pod_security: Mapping[str, Any] | None = None,
+    container_security: Mapping[str, Any] | None = None,
+) -> dict[str, object]:
+    """The pod spec that `kubectl run --overrides` merges: the security contexts from the
+    template, a readiness probe that never succeeds, and a lifetime."""
+    default_security = {
         "runAsNonRoot": True,
         "runAsUser": _NON_ROOT_ID,
         "runAsGroup": _NON_ROOT_ID,
         "seccompProfile": {"type": "RuntimeDefault"},
     }
+    pod_sec = dict(pod_security) if pod_security is not None else default_security
+    cont_sec = (
+        dict(container_security)
+        if container_security is not None
+        else {
+            **pod_sec,
+            "allowPrivilegeEscalation": False,
+            "capabilities": {"drop": ["ALL"]},
+            "readOnlyRootFilesystem": True,
+        }
+    )
     return {
         "apiVersion": "v1",
         "spec": {
             "automountServiceAccountToken": False,
             "activeDeadlineSeconds": DEFAULT_PROBE_POD_LIFETIME_SECONDS,
             "terminationGracePeriodSeconds": 0,
-            "securityContext": security,
+            "securityContext": pod_sec,
             "containers": [
                 {
                     "name": name,
                     "image": image,
                     "command": ["sleep", str(DEFAULT_PROBE_POD_LIFETIME_SECONDS)],
-                    "securityContext": {
-                        **security,
-                        "allowPrivilegeEscalation": False,
-                        "capabilities": {"drop": ["ALL"]},
-                        "readOnlyRootFilesystem": True,
-                    },
+                    "securityContext": cont_sec,
                     "readinessProbe": {"exec": {"command": ["false"]}, "periodSeconds": 5},
                     "resources": {
                         "requests": {"cpu": "10m", "memory": "16Mi"},
@@ -379,8 +435,17 @@ def _start_pod(
     context: str | None,
     *,
     image: str,
+    pod_security: Mapping[str, Any] | None = None,
+    container_security: Mapping[str, Any] | None = None,
 ) -> None:
-    overrides = json.dumps(_pod_overrides(name, image=image))
+    overrides = json.dumps(
+        _pod_overrides(
+            name,
+            image=image,
+            pod_security=pod_security,
+            container_security=container_security,
+        )
+    )
     code, _, stderr = _kubectl(_run_argv(name, namespace, labels, overrides, context, image=image))
     if code != 0:
         raise ServiceProbeError(
@@ -443,8 +508,17 @@ def probe_from_pod(
     deleted (the error names the command that deletes it).
     """
     name = f"{name_prefix}-{secrets.token_hex(4)}"
+    image, pod_security, container_security = _read_probe_template(context)
     try:
-        _start_pod(name, namespace, labels, context, image=PROBE_IMAGE)
+        _start_pod(
+            name,
+            namespace,
+            labels,
+            context,
+            image=image,
+            pod_security=pod_security,
+            container_security=container_security,
+        )
         rows = [
             PodProbeRow(role=target.role, reached=_connects(name, namespace, target, context))
             for target in targets
@@ -473,10 +547,12 @@ def plan_probe_from_pod(
     targets: Sequence[PodTarget],
     name_prefix: str,
     context: str | None = None,
+    image: str | None = None,
 ) -> list[PlannedRequest]:
     """The calls of `probe_from_pod`, in order, with a placeholder for the pod name and the pod
     spec. The plan holds the role of each target, never its address."""
     name = f"{name_prefix}-<suffix>"
+    image = image or "<template image>"
     plan = [
         PlannedRequest(
             method="kubectl run",
@@ -488,7 +564,7 @@ def plan_probe_from_pod(
                     labels,
                     "<restricted pod spec>",
                     context,
-                    image=PROBE_IMAGE,
+                    image=image,
                 )
             ),
         )
