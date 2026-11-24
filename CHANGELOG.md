@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.210.0](https://github.com/dan-petty/devops-cli/compare/v0.209.2...v0.210.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** comment releases from GitHub release webhooks ([#7003](https://github.com/dan-petty/devops-cli/issues/7003)) ([5c1ef88](https://github.com/dan-petty/devops-cli/commit/5c1ef8815f8579aca41d9419e0a8a7e0fe69bb92))
+* **roadmap:** give refine and the step the target AGENTS.md ([#7001](https://github.com/dan-petty/devops-cli/issues/7001)) ([4992ab2](https://github.com/dan-petty/devops-cli/commit/4992ab2f3e0890368bf3c16b21813015ff90f6dd))
+
 ## [0.209.2](https://github.com/dan-petty/devops-cli/compare/v0.209.1...v0.209.2) (2026-11-24)
 
 
