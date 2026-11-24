@@ -81,6 +81,18 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     searxng = {c for c in containers if c[1] in ("searxng", "render-settings")}
     containers -= searxng
     assert ({c[0] for c in searxng}, len({c[2] for c in searxng})) == ({"Deployment"}, 1)
+    # Suspended CronJob templates `service-probe` and `volume-move` pin third-party images by tag
+    # and digest (#6411), and Renovate updates the pins.
+    probe = next(c for c in containers if c[1] == "probe")
+    assert probe[0] == "CronJob"
+    assert probe[2].startswith("busybox:")
+    assert "@sha256:" in probe[2]
+    containers.discard(probe)
+    copy_container = next(c for c in containers if c[1] == "copy")
+    assert copy_container[0] == "CronJob"
+    assert copy_container[2].startswith("debian:")
+    assert "@sha256:" in copy_container[2]
+    containers.discard(copy_container)
     # Each container of the runner image gets the digest, the init containers of the runner
     # template too (#3700).
     runners = {c for c in containers if c[2].startswith(runner)}
