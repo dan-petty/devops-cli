@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.208.0](https://github.com/dan-petty/devops-cli/compare/v0.207.0...v0.208.0) (2026-11-24)
+
+
+### Features
+
+* **infra:** report drift of an infra repo ([#6965](https://github.com/dan-petty/devops-cli/issues/6965)) ([5ae79a4](https://github.com/dan-petty/devops-cli/commit/5ae79a4105c85844b04291f852f15071b53086c4))
+
 ## [0.207.0](https://github.com/dan-petty/devops-cli/compare/v0.206.2...v0.207.0) (2026-11-24)
 
 
