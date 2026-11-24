@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS
+from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from tests.support.base_replay import answer_pytest_on_base, junit
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -104,8 +105,9 @@ def test_a_behavior_group_whose_tests_pass_on_base_is_refused_with_the_files_nam
     outcome = _run(store, checkout, script)
 
     budget = DEFAULT_ROADMAP_IMPLEMENT_REPAIR_ROUNDS
-    assert (outcome.status, outcome.reason) == (
+    assert (outcome.status, outcome.failure_class, outcome.reason) == (
         StepStatus.STOPPED,
+        FailureClass.PLAN_DEFECT,
         PASSES_REASON + rounds_spent(budget),
     )
 
@@ -156,8 +158,13 @@ def test_a_collection_error_on_base_does_not_count_as_a_failure_on_base(
 
     outcome = _run(store, checkout, script)
 
-    assert (outcome.status, outcome.reason.startswith(COLLECTION_REASON)) == (
+    assert (
+        outcome.status,
+        outcome.failure_class,
+        outcome.reason.startswith(COLLECTION_REASON),
+    ) == (
         StepStatus.STOPPED,
+        FailureClass.PLAN_DEFECT,
         True,
     )
     assert _replay(outcome) == ("errors_on_base", ())
@@ -224,8 +231,14 @@ def test_a_behavior_group_that_changes_no_test_file_is_refused_without_a_repair_
 
     outcome = _run(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.repair_rounds) == (
+    assert (
+        outcome.status,
+        outcome.failure_class,
+        outcome.reason,
+        outcome.repair_rounds,
+    ) == (
         StepStatus.STOPPED,
+        FailureClass.PLAN_DEFECT,
         NO_TEST_REASON,
         0,
     )

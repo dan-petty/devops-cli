@@ -166,6 +166,21 @@ FROM_THE_JOB = [
         id="plan-open-finding",
     ),
     pytest.param(
+        FailureEvidence(text=TEXTS.implement_stop_no_test_file),
+        FailureClass.PLAN_DEFECT,
+        id="plan-no-test-file",
+    ),
+    pytest.param(
+        FailureEvidence(text=TEXTS.implement_stop_base_passes.format(files="tests/test_sample.py")),
+        FailureClass.PLAN_DEFECT,
+        id="plan-base-passes",
+    ),
+    pytest.param(
+        FailureEvidence(text=TEXTS.implement_stop_base_errors.format(files="tests/test_sample.py")),
+        FailureClass.PLAN_DEFECT,
+        id="plan-base-errors",
+    ),
+    pytest.param(
         FailureEvidence(text="The function is already deleted in the current codebase."),
         FailureClass.PREMISE_FALSE,
         id="premise-already-deleted",
