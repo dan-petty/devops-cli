@@ -435,6 +435,7 @@ class FakeNode:
     pressure: tuple[str, ...] = ()
     kernel: str = "6.12.0"
     boot_id: str = "boot-1"
+    labels: dict[str, str] = field(default_factory=dict)
 
     def item(self) -> dict[str, Any]:
         """The node as `kubectl get node -o json` prints it."""
@@ -447,7 +448,7 @@ class FakeNode:
         if self.gpus is not None:
             allocatable["nvidia.com/gpu"] = str(self.gpus)
         return {
-            "metadata": {"name": self.name},
+            "metadata": {"name": self.name, "labels": dict(self.labels)},
             "spec": {"unschedulable": True} if self.cordoned else {},
             "status": {
                 "conditions": conditions,
@@ -647,7 +648,9 @@ class FakeCluster:
         found_pod_c = next((c for c in self.cnpg_clusters.values() if f"{c.name}-1" == name), None)
         if found_pod_c is not None:
             return ProcessAnswer(stdout=json.dumps(found_pod_c.primary_pod_item()))
-        return ProcessAnswer(returncode=1, stderr=f'pods "{name}" not found\n')
+        return ProcessAnswer(
+            stdout=json.dumps({"metadata": {"name": name}, "spec": {"nodeName": "node-1"}})
+        )
 
     def _read_node_single(self, name: str) -> ProcessAnswer:
         found = self.nodes.get(name)

@@ -361,6 +361,7 @@ class _Context:
     inventory: AnsibleInventory
     offline_group: str | None
     entry: InfraRepoConfig
+    caller: Caller
 
     def node(self, host: str) -> str:
         return node_name(host, self.inventory.hostvars.get(host, {}))
@@ -525,7 +526,7 @@ def _prepare(
         nodrain=nodrain_units(inventory),
     )
     write_runner_settings(folder)
-    return _Context(plan, run, cluster, inventory, ansible.offline_group, entry)
+    return _Context(plan, run, cluster, inventory, ansible.offline_group, entry, caller)
 
 
 def _apply_hosts(context: _Context, progress: _Progress) -> tuple[ApplyResult, str | None]:
@@ -633,10 +634,22 @@ def _apply_alone(context: _Context, planned: HostPlan) -> HostApply:
     cluster = context.cluster
     work = _HostRun(planned=planned, node=context.node(planned.host))
     nodrain = skips_drain(planned.disruptive)
+    first = ApplyStep.CORDON if nodrain else ApplyStep.DRAIN_CHECK
+    if context.caller.is_agent:
+        pod_node = cluster.current_pod_node()
+        if pod_node and work.node == pod_node:
+            reason = MESSAGES.infra.apply_stop_cluster_node.format(
+                host=planned.host, node=work.node, role=MESSAGES.infra.apply_role_own_node
+            )
+            return work.result(HostOutcome.STOPPED, step=first, reason=reason)
+        if cluster.is_control_plane(work.node):
+            reason = MESSAGES.infra.apply_stop_cluster_node.format(
+                host=planned.host, node=work.node, role=MESSAGES.infra.apply_role_control_plane
+            )
+            return work.result(HostOutcome.STOPPED, step=first, reason=reason)
     read = cluster.node(work.node)
     if read.problem is not None or not read.document:
         reason = read.problem or MESSAGES.infra.apply_no_node.format(node=work.node)
-        first = ApplyStep.CORDON if nodrain else ApplyStep.DRAIN_CHECK
         return work.result(HostOutcome.STOPPED, step=first, reason=reason)
     work.before = parse_node(read.document)
     steps = (_cordon, _change, _settle) if nodrain else (_drain, _change, _settle)
