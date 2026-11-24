@@ -120,3 +120,17 @@ def test_the_product_base_is_k8s_devops_of_the_current_repository(tmp_path: Path
         resolve_product_root(tmp_path / "base", start=repo),
         tree_at(repo / "k8s").repo,
     ) == (repo / "k8s" / "devops", tmp_path / "base", repo)
+
+
+def test_environment_tree_cluster_secrets_resolves_fixture_in_repository(
+    tmp_path: Path,
+) -> None:
+    """When the environment root has no cluster-secrets.toml, EnvironmentTree falls back to
+    tests/fixtures/cluster-secrets.toml in the repository."""
+    repo = _checkout(tmp_path / "repo")
+    fixture = repo / "tests" / "fixtures" / "cluster-secrets.toml"
+    fixture.parent.mkdir(parents=True)
+    fixture.write_text("[[secret]]\n", encoding="utf-8")
+    tree = EnvironmentTree(root=repo / "k8s", repo=repo)
+
+    assert tree.cluster_secrets == fixture

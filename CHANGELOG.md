@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.206.0](https://github.com/dan-petty/devops-cli/compare/v0.205.0...v0.206.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Wake two rows on a closed plan pull request ([#6945](https://github.com/dan-petty/devops-cli/issues/6945)) ([d8799eb](https://github.com/dan-petty/devops-cli/commit/d8799eb8446265112408afd4e4eba88b365ba66c))
+
+
+### Bug Fixes
+
+* **deps:** update @fission-ai/openspec to v2.1.1 ([#6909](https://github.com/dan-petty/devops-cli/issues/6909)) ([69160bc](https://github.com/dan-petty/devops-cli/commit/69160bc3e2422ebc12b3c49b83d2f39ae32942b4))
+
+## [0.205.0](https://github.com/dan-petty/devops-cli/compare/v0.204.0...v0.205.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Handle trusted issue_comment replies ([#6942](https://github.com/dan-petty/devops-cli/issues/6942)) ([4591d21](https://github.com/dan-petty/devops-cli/commit/4591d2101c80ae96deb63132e44c434fed591f58))
+
 ## [0.204.0](https://github.com/dan-petty/devops-cli/compare/v0.203.7...v0.204.0) (2026-11-24)
 
 

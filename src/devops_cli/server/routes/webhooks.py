@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_ISSUE_STATE_CLOSED,
     CONST_MAX_ERROR_DETAIL_LENGTH,
     CONST_ROADMAP_PRIORITY_LABEL_PREFIX,
+    CONST_ROADMAP_TRUSTED_AUTHORS,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_CHAT_COMMAND_ROADMAP,
     CONST_SERVICE_CHAT_RESULT_ERROR,
@@ -51,18 +52,26 @@ from devops_cli.config.constants import (
     CONST_SERVICE_ROADMAP_CLOSE_REASON_UNKNOWN,
     CONST_SERVICE_ROADMAP_CLOSE_REASONS,
     CONST_SERVICE_SOURCE_WEBHOOK,
+    CONST_SERVICE_STATUS_COMMENT_REFUSED,
     CONST_SERVICE_STATUS_OWN_WRITE,
+    CONST_SERVICE_STATUS_UNTRUSTED_COMMENT,
     WebhookExposure,
     WebhookProviderName,
 )
 from devops_cli.lang import MESSAGES
-from devops_cli.models.webhooks import GitHubWebhookPayload
+from devops_cli.models.webhooks import GitHubWebhookPayload, WebhookComment
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 if TYPE_CHECKING:
     from devops_cli.server.service import ServiceManager
 
 logger = logging.getLogger(__name__)
+
+_COMMENT_CREATED_ACTION: Final[str] = "created"
+"""The one action of a comment delivery that the roadmap consumer takes (#4415)."""
+
+_BOT_SUFFIX: Final[str] = "[bot]"
+"""How GitHub ends the login of every bot account, the App's own bot included (#4415)."""
 
 # The outcome each refusal status counts as; any other refusal counts as ignored (#2475).
 _REFUSAL_OUTCOMES: Final[Mapping[str, str]] = {
@@ -140,6 +149,30 @@ class WebhookProvider(BaseModel):
 
 def _takes_every_payload(_payload: GitHubWebhookPayload) -> str | None:
     """The refusal of a consumer that narrows its events no further."""
+    return None
+
+
+def _refuses_comment(payload: GitHubWebhookPayload) -> bool:
+    """Whether a comment delivery is one that the roadmap consumer never takes: a comment whose
+    action is not `created`, a comment on a pull request, or a comment of a bot. GitHub reports a
+    comment on a pull request as an `issue_comment` event whose issue carries the marker, so the
+    marker alone tells the two apart, with no request (#4415)."""
+    sender = payload.sender
+    bot = sender is not None and sender.login.endswith(_BOT_SUFFIX)
+    on_pull_request = payload.issue is not None and payload.issue.pull_request is not None
+    return payload.action != _COMMENT_CREATED_ACTION or on_pull_request or bot
+
+
+def _comment_refusal(payload: GitHubWebhookPayload, comment: WebhookComment | None) -> str | None:
+    """The status of the comment that a delivery carries, or None when the delivery carries none
+    or the comment is one the roadmap consumer takes. A comment whose author has no write access
+    is refused under its own status, as the repository is public (#4415)."""
+    if comment is None:
+        return None
+    if _refuses_comment(payload):
+        return CONST_SERVICE_STATUS_COMMENT_REFUSED
+    if comment.author_association not in CONST_ROADMAP_TRUSTED_AUTHORS:
+        return CONST_SERVICE_STATUS_UNTRUSTED_COMMENT
     return None
 
 
@@ -273,8 +306,10 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     scoped runs its scoped update on the lane of its job (`lane_of_row`), over the issue and the
     pull requests that the delivery names; another event, and a delivery that names no number,
     stays a hint (ADR 0017). Each trigger names the issue of the delivery, or its first pull
-    request, as its subject (#5553, #4413). The handler only adds to the queues of the lanes and
-    returns."""
+    request, as its subject (#5553, #4413). A comment delivery is taken only when a person with
+    write access created it on an issue (#4415), and it runs the row that its text wakes: the
+    `implement` row for a retry command and the `refine` row for another comment. The handler only
+    adds to the queues of the lanes and returns."""
 
     def deliver(
         repo: str,
@@ -287,11 +322,11 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
         from devops_cli.roadmap.run import (
-            SCOPED_UPDATES,
             WebhookDelivery,
             lane_of_row,
             lanes_to_wake,
             run_scoped_update,
+            scoped_update_of,
             scoped_update_wakes_lanes,
         )
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
@@ -299,12 +334,19 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
 
         numbers = payload.delivery_numbers if payload is not None else ()
         issue = payload.issue.number if payload is not None and payload.issue else None
+        comment = payload.comment if payload is not None else None
         subject = issue if issue is not None else next(iter(numbers), None)
-        scoped = SCOPED_UPDATES.get((event, action))
+        delivery = WebhookDelivery(
+            repo=repo,
+            event=event,
+            action=action,
+            number=issue,
+            pull_numbers=numbers,
+            comment=None if comment is None else comment.body,
+            comment_at=None if comment is None else comment.created_at,
+        )
+        scoped = scoped_update_of(delivery)
         if scoped is not None and subject is not None:
-            delivery = WebhookDelivery(
-                repo=repo, event=event, action=action, number=issue, pull_numbers=numbers
-            )
             lane = lane_of_row(scoped.job, service_manager.config.lanes)
 
             def run_scoped() -> None:
@@ -338,12 +380,18 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
         own_write = bot and sender and sender.login.lower() == bot.lower()
         return CONST_SERVICE_STATUS_OWN_WRITE if own_write else None
 
+    def refuse_comment(payload: GitHubWebhookPayload) -> str | None:
+        """The status of a delivery that the roadmap consumer ignores, before any GitHub request:
+        the App bot's own write, else the refusal of the comment that the payload carries, if it
+        carries one (#4415)."""
+        return refuse_own_write(payload) or _comment_refusal(payload, payload.comment)
+
     return WebhookConsumer(
         name="roadmap",
         provider=WebhookProviderName.GITHUB,
         events=CONST_ROADMAP_WEBHOOK_EVENTS,
         deliver=deliver,
-        refusal=refuse_own_write,
+        refusal=refuse_comment,
     )
 
 

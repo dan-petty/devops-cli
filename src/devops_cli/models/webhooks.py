@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -29,15 +31,16 @@ class WebhookLabel(BaseModel):
     name: str
 
 
-class WebhookIssue(BaseModel):
-    """The issue an issue event is about. `labels` and `state_reason` serve the count of closed
-    roadmap items (#4580)."""
+class WebhookComment(BaseModel):
+    """The comment an `issue_comment` event is about: its body, the commenter's relation to the
+    repository as GitHub gives it (`OWNER`, `MEMBER`, `COLLABORATOR`, `NONE` and others) and the
+    time it was made. A refusal reads the association and a scoped update reads the body."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
-    number: int | None = None
-    labels: tuple[WebhookLabel, ...] = ()
-    state_reason: str | None = None
+    body: str
+    author_association: str
+    created_at: datetime
 
 
 class WebhookPullRequest(BaseModel):
@@ -46,6 +49,19 @@ class WebhookPullRequest(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     number: int | None = None
+
+
+class WebhookIssue(BaseModel):
+    """The issue an issue event is about. `labels` and `state_reason` serve the count of closed
+    roadmap items (#4580). `pull_request` marks the issue of a comment that is on a pull request,
+    which GitHub reports as an issue event (#4415)."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    number: int | None = None
+    labels: tuple[WebhookLabel, ...] = ()
+    state_reason: str | None = None
+    pull_request: WebhookPullRequest | None = None
 
 
 class WebhookCheckSuite(BaseModel):
@@ -70,6 +86,7 @@ class GitHubWebhookPayload(BaseModel):
     issue: WebhookIssue | None = None
     pull_request: WebhookPullRequest | None = None
     check_suite: WebhookCheckSuite | None = None
+    comment: WebhookComment | None = None
 
     @property
     def delivery_numbers(self) -> tuple[int, ...]:
