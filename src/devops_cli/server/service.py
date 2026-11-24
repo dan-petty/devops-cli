@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.telemetry import TelemetryConfig
+from opentelemetry.trace import TracerProvider
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 from pydantic import ValidationError as MalformedRecordError
@@ -73,6 +75,7 @@ from devops_cli.server.routes.webhooks import (
     WebhookConsumer,
     create_webhook_router,
 )
+from devops_cli.telemetry.library_spans import install_library_spans
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 from devops_cli.telemetry.tracer import get_tracer
 
@@ -1211,38 +1214,24 @@ def _append_trace_headers(response: Response, tracer: Any, start_time: float) ->
     return response
 
 
-async def _service_trace_middleware(request: Request, call_next: Any) -> Any:
-    """HTTP tracing and timing middleware for service application."""
+async def _service_headers_middleware(request: Request, call_next: Any) -> Any:
+    """Attach process timing and trace context headers to the HTTP response."""
     start_time = time.perf_counter()
-    if request.url.path in CONST_SERVICE_PROBE_PATHS:
-        response = await call_next(request)
-        response.headers["X-Process-Time"] = f"{time.perf_counter() - start_time:.4f}s"
-        response.headers["X-DevOps-Version"] = __version__
-        return response
-
+    response = await call_next(request)
     tracer = get_tracer()
-    span_name = f"HTTP {request.method} {request.url.path}"
-    headers_dict = dict(request.headers)
-    safe_url = str(request.url.replace(query=""))
-    with tracer.span(
-        span_name,
-        kind="server",
-        attributes={
-            "http.request.method": request.method,
-            "url.full": safe_url,
-            "url.path": request.url.path,
-            "url.scheme": request.url.scheme,
-            "server.address": request.url.hostname or "localhost",
-            "server.port": request.url.port or 8000,
-            "user_agent.original": request.headers.get("user-agent", ""),
-        },
-        parent_context=headers_dict,
-    ) as handle:
-        response = await call_next(request)
-        _append_trace_headers(response, tracer, start_time)
-        handle.set_attribute("http.response.status_code", response.status_code)
-        handle.set_attribute("http.status_code", response.status_code)
-        return response
+    return _append_trace_headers(response, tracer, start_time)
+
+
+def _service_telemetry_config(tracer_provider: TracerProvider | None = None) -> TelemetryConfig:
+    """Configure FastAPI native OpenTelemetry telemetry with probe exclusions."""
+    config: TelemetryConfig = {
+        "exclude": lambda scope: scope.get("path") in CONST_SERVICE_PROBE_PATHS,
+    }
+    if tracer_provider is not None:
+        config["tracer_provider"] = tracer_provider
+    elif get_tracer().enabled:
+        install_library_spans()
+    return config
 
 
 def rows_lease_of_pod(environ: Mapping[str, str] | None = None) -> LeaseHolder | None:
@@ -1276,6 +1265,7 @@ def create_service_app(
     rows_lease: LeaseHolder | None = None,
     read_row_state: Callable[[], None] | None = None,
     lanes: Mapping[str, LaneSpec] | None = None,
+    tracer_provider: TracerProvider | None = None,
 ) -> FastAPI:
     """Construct production FastAPI service application. `jobs` is each lane's job, run by one
     worker per lane of each repository, the default logging job in one lane when none is given;
@@ -1329,13 +1319,14 @@ def create_service_app(
         redoc_url=None,
         openapi_url=None,
         lifespan=lifespan,
+        telemetry=_service_telemetry_config(tracer_provider),
     )
     app.state.service_manager = manager
     app.state.jobs = lane_jobs
     app.state.lanes = dict(lanes or {})
     app.state.pause_until = pause_reader
 
-    app.middleware("http")(_service_trace_middleware)
+    app.middleware("http")(_service_headers_middleware)
     app.include_router(create_webhook_router(manager, consumers))
 
     @app.get("/readyz")
