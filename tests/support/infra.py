@@ -500,6 +500,73 @@ def _local_volume(node: str, app: str) -> dict[str, Any]:
 
 
 @dataclass
+class FakeCNPGCluster:
+    """One CloudNativePG cluster of `FakeCluster`."""
+
+    name: str
+    namespace: str
+    node: str
+    instances: int = 1
+    phase: str = "Cluster in healthy state"
+    primary_ready: bool = True
+    in_progress: bool = False
+    reuse_pvc: bool = True
+    tracking_id: str | None = None
+
+    def item(self) -> dict[str, Any]:
+        """The Cluster as `kubectl get clusters.postgresql.cnpg.io -o json` prints it."""
+        annotations: dict[str, str] = {}
+        if self.tracking_id:
+            annotations["argocd.argoproj.io/tracking-id"] = self.tracking_id
+        return {
+            "apiVersion": "postgresql.cnpg.io/v1",
+            "kind": "Cluster",
+            "metadata": {
+                "name": self.name,
+                "namespace": self.namespace,
+                "annotations": annotations,
+            },
+            "spec": {
+                "instances": self.instances,
+                "nodeMaintenanceWindow": {
+                    "inProgress": self.in_progress,
+                    "reusePVC": self.reuse_pvc,
+                },
+            },
+            "status": {
+                "instances": self.instances,
+                "currentPrimary": f"{self.name}-1",
+                "targetPrimary": f"{self.name}-1",
+                "phase": self.phase,
+                "readyInstances": self.instances if self.primary_ready else 0,
+            },
+        }
+
+    def primary_pod_item(self) -> dict[str, Any]:
+        """The primary pod of the cluster as `kubectl get pod -o json` prints it."""
+        return {
+            "metadata": {
+                "name": f"{self.name}-1",
+                "namespace": self.namespace,
+                "labels": {
+                    "cnpg.io/cluster": self.name,
+                    "cnpg.io/instanceRole": "primary",
+                },
+            },
+            "spec": {
+                "nodeName": self.node,
+                "terminationGracePeriodSeconds": 30,
+            },
+            "status": {
+                "phase": "Running",
+                "conditions": [
+                    {"type": "Ready", "status": "True" if self.primary_ready else "False"}
+                ],
+            },
+        }
+
+
+@dataclass
 class FakeCluster:
     """`kubectl` of the kube context `KUBE_CONTEXT`, answered from `nodes`. A cordon or a drain
     cordons the node, an uncordon makes it schedulable, a drain check of a node in `blocked` fails
@@ -516,6 +583,13 @@ class FakeCluster:
     graces: dict[str, int] = field(default_factory=dict)
     # The Deployment on each node whose pod mounts a volume that only that node can mount.
     pinned: dict[str, str] = field(default_factory=dict)
+    # The CloudNativePG clusters in the Kubernetes cluster.
+    cnpg_clusters: dict[str, FakeCNPGCluster] = field(default_factory=dict)
+    # The Argo CD Application objects in the cluster.
+    applications: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Patch errors to simulate
+    patch_error: str | None = None
+    patch_close_error: str | None = None
     # Whether each read of the nodes (`get nodes`) and of one node (`get node <name>`) is a step.
     reads: bool = False
     # Runs on each read of one node, before the answer, such as a node that boots after a read.
@@ -537,19 +611,63 @@ class FakeCluster:
             return self._read(args)
         return self._change(args)
 
-    def _read(self, args: tuple[str, ...]) -> ProcessAnswer:
-        if self.reads and args[1] in ("nodes", "node"):
-            self.steps.append(" ".join(args[:3]) if args[1] == "node" else "get nodes")
-        if args[1] == "nodes":
-            items = [node.item() for node in self.nodes.values()]
+    def _read_pods(self, args: tuple[str, ...]) -> ProcessAnswer:
+        name = args[args.index("--field-selector") + 1].removeprefix("spec.nodeName=")
+        pods = [_pod(name, self.graces[name])] if name in self.graces else []
+        if name in self.pinned:
+            pods.append(_pinned_pod(name, self.pinned[name]))
+        for c in self.cnpg_clusters.values():
+            if c.node == name:
+                pods.append(c.primary_pod_item())
+        return ProcessAnswer(stdout=json.dumps({"items": pods}))
+
+    def _read_cnpg(self, args: tuple[str, ...]) -> ProcessAnswer:
+        if "-A" in args or "--all-namespaces" in args:
+            items = [c.item() for c in self.cnpg_clusters.values()]
             return ProcessAnswer(stdout=json.dumps({"items": items}))
-        if args[1] == "pods":
-            name = args[args.index("--field-selector") + 1].removeprefix("spec.nodeName=")
-            pods = [_pod(name, self.graces[name])] if name in self.graces else []
-            if name in self.pinned:
-                pods.append(_pinned_pod(name, self.pinned[name]))
-            return ProcessAnswer(stdout=json.dumps({"items": pods}))
-        if args[1] == "pvc":
+        name = args[2]
+        found_cnpg = next((c for c in self.cnpg_clusters.values() if c.name == name), None)
+        if found_cnpg is None:
+            return ProcessAnswer(
+                returncode=1, stderr=f'clusters.postgresql.cnpg.io "{name}" not found\n'
+            )
+        return ProcessAnswer(stdout=json.dumps(found_cnpg.item()))
+
+    def _read_app(self, args: tuple[str, ...]) -> ProcessAnswer:
+        name = args[2]
+        app = self.applications.get(name)
+        if app is None:
+            return ProcessAnswer(
+                returncode=1, stderr=f'applications.argoproj.io "{name}" not found\n'
+            )
+        return ProcessAnswer(stdout=json.dumps(app))
+
+    def _read_pod_single(self, args: tuple[str, ...]) -> ProcessAnswer:
+        name = args[2]
+        found_pod_c = next((c for c in self.cnpg_clusters.values() if f"{c.name}-1" == name), None)
+        if found_pod_c is not None:
+            return ProcessAnswer(stdout=json.dumps(found_pod_c.primary_pod_item()))
+        return ProcessAnswer(returncode=1, stderr=f'pods "{name}" not found\n')
+
+    def _read_node_single(self, name: str) -> ProcessAnswer:
+        found = self.nodes.get(name)
+        if found is None:
+            return ProcessAnswer(returncode=1, stderr=f'nodes "{name}" not found\n')
+        if self.on_node_read is not None:
+            self.on_node_read(found)
+        return ProcessAnswer(stdout=json.dumps(found.item()))
+
+    def _read(self, args: tuple[str, ...]) -> ProcessAnswer:
+        kind = args[1]
+        if self.reads and kind in ("nodes", "node"):
+            self.steps.append(" ".join(args[:3]) if kind == "node" else "get nodes")
+        if kind == "nodes":
+            return ProcessAnswer(
+                stdout=json.dumps({"items": [node.item() for node in self.nodes.values()]})
+            )
+        if kind == "pods":
+            return self._read_pods(args)
+        if kind == "pvc":
             claims = [
                 {
                     "metadata": {"namespace": "apps", "name": f"data-{app}"},
@@ -558,17 +676,40 @@ class FakeCluster:
                 for app in self.pinned.values()
             ]
             return ProcessAnswer(stdout=json.dumps({"items": claims}))
-        if args[1] == "pv":
+        if kind == "pv":
             volumes = [_local_volume(node, app) for node, app in self.pinned.items()]
             return ProcessAnswer(stdout=json.dumps({"items": volumes}))
-        found = self.nodes.get(args[2])
-        if found is None:
-            return ProcessAnswer(returncode=1, stderr=f'nodes "{args[2]}" not found\n')
-        if self.on_node_read is not None:
-            self.on_node_read(found)
-        return ProcessAnswer(stdout=json.dumps(found.item()))
+        if kind in ("clusters.postgresql.cnpg.io", "cluster.postgresql.cnpg.io", "clusters"):
+            return self._read_cnpg(args)
+        if kind in ("application", "applications", "applications.argoproj.io"):
+            return self._read_app(args)
+        if kind == "pod":
+            return self._read_pod_single(args)
+        return self._read_node_single(args[2])
+
+    def _patch(self, args: tuple[str, ...]) -> ProcessAnswer:
+        patch_data = json.loads(args[args.index("-p") + 1])
+        maint = (patch_data.get("spec") or {}).get("nodeMaintenanceWindow") or {}
+        in_prog = maint.get("inProgress", False)
+        if in_prog and self.patch_error is not None:
+            return ProcessAnswer(returncode=1, stderr=self.patch_error)
+        if not in_prog and self.patch_close_error is not None:
+            return ProcessAnswer(returncode=1, stderr=self.patch_close_error)
+        target = args[2]
+        found_patch = next((c for c in self.cnpg_clusters.values() if c.name == target), None)
+        if found_patch is None:
+            return ProcessAnswer(
+                returncode=1, stderr=f'clusters.postgresql.cnpg.io "{target}" not found\n'
+            )
+        found_patch.in_progress = maint.get("inProgress", found_patch.in_progress)
+        found_patch.reuse_pvc = maint.get("reusePVC", found_patch.reuse_pvc)
+        action = "open" if found_patch.in_progress else "close"
+        self.steps.append(f"patch {target} {action}")
+        return ProcessAnswer(stdout=f"cluster.postgresql.cnpg.io/{target} patched\n")
 
     def _change(self, args: tuple[str, ...]) -> ProcessAnswer:
+        if args[0] == "patch":
+            return self._patch(args)
         node = self.nodes[args[1]]
         if args[0] == "cordon":
             self.steps.append(f"cordon {node.name}")
@@ -581,6 +722,15 @@ class FakeCluster:
                     returncode=1,
                     stderr='error when evicting pods/"db-1" -n "db": global timeout reached: 30s\n',
                 )
+            for c in self.cnpg_clusters.values():
+                if c.node == node.name and c.instances == 1 and not c.in_progress:
+                    return ProcessAnswer(
+                        returncode=1,
+                        stderr=(
+                            f'error when evicting pods/"{c.name}-1" -n "{c.namespace}": '
+                            "global timeout reached: 30s\n"
+                        ),
+                    )
             return ProcessAnswer(stdout=f"node/{node.name} drained (server dry run)\n")
         if args[0] == "drain":
             self.steps.append(f"drain {node.name}")

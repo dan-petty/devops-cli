@@ -33,9 +33,11 @@ from devops_cli.infra.node_run import (
 )
 from devops_cli.infra.nodes import (
     CLAIMS_ARGS,
+    CNPG_CLUSTERS_ARGS,
     CRITICAL_ALERTS_QUERY,
     GET_NODES_ARGS,
     VOLUMES_ARGS,
+    cnpg_patch_args,
     cordon_args,
     drain_args,
     get_node_args,
@@ -384,6 +386,12 @@ def _host_steps(
             kubectl(
                 "the PersistentVolumes, for the volumes that only one node mounts", VOLUMES_ARGS
             ),
+            kubectl(f"the CloudNativePG clusters of {host}", CNPG_CLUSTERS_ARGS),
+            kubectl(
+                f"the CloudNativePG maintenance window of {host}",
+                cnpg_patch_args(f"<cluster of {host}>", f"<namespace of {host}>", in_progress=True),
+                condition="agent access is full and the host runs a single-instance primary",
+            ),
             kubectl(
                 f"the server dry run of the drain of {host}",
                 drain_args(node, DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS, server_dry_run=True),
@@ -416,6 +424,25 @@ def _host_steps(
             f"the uncordon of {host}",
             uncordon_args(node),
             condition="the node was schedulable before the drain",
+        ),
+        kubectl(
+            f"the end of the CloudNativePG maintenance window of {host}",
+            cnpg_patch_args(f"<cluster of {host}>", f"<namespace of {host}>", in_progress=False),
+            condition="the host opened a maintenance window",
+        ),
+        kubectl(
+            f"the CloudNativePG healthy state of {host}",
+            (
+                "get",
+                "clusters.postgresql.cnpg.io",
+                f"<cluster of {host}>",
+                "-n",
+                f"<namespace of {host}>",
+                "-o",
+                "json",
+            ),
+            repeat=wait,
+            condition="the host opened a maintenance window",
         ),
         *[
             replace(request, repeat=wait, condition="prometheus.url is set")
