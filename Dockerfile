@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
+# check=error=true
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # The Node runtime that installs OpenSpec and runs it in the Service and MCP server images. Its major

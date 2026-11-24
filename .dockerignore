@@ -4,5 +4,8 @@
 !README.md
 !src
 !src/**
+**/__pycache__
+**/*.pyc
+**/*.pyo
 !package.json
 !package-lock.json
