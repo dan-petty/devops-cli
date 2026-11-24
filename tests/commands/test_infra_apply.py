@@ -735,9 +735,12 @@ def test_an_agent_stops_before_its_own_pod_node_and_uncordons_nothing(
     assert not lab.cluster.nodes["node-2"].cordoned
 
 
-def test_an_agent_stops_before_the_control_plane_node(lab: Lab, agent_caller: None) -> None:
+def test_an_agent_stops_before_the_control_plane_node(
+    lab: Lab, agent_caller: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_LABEL
 
+    monkeypatch.setenv("HOSTNAME", "docker-container-runner")
     lab.cluster.nodes["node-1"].labels[CONST_K8S_CONTROL_PLANE_LABEL] = ""
     plan = lab.plan(NODE_1)
 
