@@ -648,9 +648,7 @@ class FakeCluster:
         found_pod_c = next((c for c in self.cnpg_clusters.values() if f"{c.name}-1" == name), None)
         if found_pod_c is not None:
             return ProcessAnswer(stdout=json.dumps(found_pod_c.primary_pod_item()))
-        return ProcessAnswer(
-            stdout=json.dumps({"metadata": {"name": name}, "spec": {"nodeName": "node-1"}})
-        )
+        return ProcessAnswer(returncode=1, stderr=f'pods "{name}" not found\n')
 
     def _read_node_single(self, name: str) -> ProcessAnswer:
         found = self.nodes.get(name)
