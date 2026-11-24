@@ -3,10 +3,11 @@ description: >-
   Build .devcontainer/image/devcontainer.json with the Dev Containers CLI of the devtools image that
   .devcontainer/Dockerfile pins, so the image holds the Dev Container Features, the user vscode and
   the devcontainer.metadata label a child repository reads, for linux/amd64 only and with no
-  emulation, and push it by digest (#1895). The pull request job and the release job both call
-  this action, so the pull request check builds what the release publishes; each then starts the
-  digest with .github/actions/devcontainer-smoke before anything attests or tags it. The caller
-  checks out the repository and logs in to every registry it names.
+  emulation, and push it by digest (#1895). The Feature layers stay under the project layer (#6470).
+  The pull request job and the release job both call this action, so the pull request check builds
+  what the release publishes; each then starts the digest with .github/actions/devcontainer-smoke
+  before anything attests or tags it. The caller checks out the repository and logs in to every
+  registry it names.
 
 inputs:
   image:
@@ -54,24 +55,20 @@ runs:
         docker buildx build --file .devcontainer/Dockerfile --target devcontainers-cli \
           --output "type=local,dest=$RUNNER_TEMP/devcontainers-cli" .
 
-    # `devcontainer build --label` adds nothing to a Dockerfile configuration
-    # (devcontainers/cli#930), so the labels, the SBOM, the provenance and the metadata file that
-    # holds the digest reach `docker buildx build` through `build.options`. The configuration
+    # The Feature build targets the `base` stage of .devcontainer/Dockerfile, so the Dev Container
+    # Features land on the base image without the project package (#6470). The metadata file that
+    # holds the digest reaches `docker buildx build` through `build.options`. The configuration
     # stays in .devcontainer/image/, where its relative paths and devcontainer-lock.json resolve.
     - name: Write the build configuration
       shell: bash
-      env:
-        LABELS: ${{ inputs.labels }}
       run: |
         set -euo pipefail
-        jq --arg labels "$LABELS" --arg metadata "$RUNNER_TEMP/devcontainer-build-metadata.json" '
-          .build.options = (.build.options // [])
-            + [$labels | split("\n")[] | select(length > 0) | ("--label", .)]
-            + ["--sbom=true", "--provenance=mode=max", "--metadata-file", $metadata]
+        jq --arg metadata "$RUNNER_TEMP/devcontainer-features-metadata.json" '
+          .build.target = "base" |
+          .build.options = (.build.options // []) + ["--metadata-file", $metadata]
         ' .devcontainer/image/devcontainer.json > .devcontainer/image/devcontainer.build.json
 
     - name: Build the image with its features and push it by digest
-      id: build
       shell: bash
       env:
         IMAGE: ${{ inputs.image }}
@@ -90,6 +87,39 @@ runs:
           --platform linux/amd64 \
           --output type=image,push-by-digest=true,name-canonical=true,push=true \
           "${CACHE_ARGS[@]}"
+
+    # The project layer is added in a second build using the `project` stage of .devcontainer/Dockerfile
+    # starting FROM the Feature image digest (#6470). It receives the labels, SBOM, provenance, and
+    # outputs the final digest.
+    - name: Build the project layer and push the final image by digest
+      id: build
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        LABELS: ${{ inputs.labels }}
+        CACHE_FROM: ${{ inputs.cache-from }}
+      run: |
+        set -euo pipefail
+        FEATURE_DIGEST=$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/devcontainer-features-metadata.json")
+        LABEL_ARGS=()
+        while read -r LABEL; do
+          if [ -n "$LABEL" ]; then LABEL_ARGS+=(--label "$LABEL"); fi
+        done <<< "$LABELS"
+        CACHE_ARGS=()
+        if [ -n "$CACHE_FROM" ]; then CACHE_ARGS+=(--cache-from "$CACHE_FROM"); fi
+        docker buildx build \
+          --file .devcontainer/Dockerfile \
+          --target project \
+          --build-arg "BASE_IMAGE=${IMAGE}@${FEATURE_DIGEST}" \
+          --platform linux/amd64 \
+          --sbom=true \
+          --provenance=mode=max \
+          --output type=image,push-by-digest=true,name-canonical=true,push=true \
+          --metadata-file "$RUNNER_TEMP/devcontainer-build-metadata.json" \
+          "${LABEL_ARGS[@]}" \
+          "${CACHE_ARGS[@]}" \
+          --tag "$IMAGE" \
+          .
         echo "digest=$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/devcontainer-build-metadata.json")" >> "$GITHUB_OUTPUT"
 
     # The push and the cache export are done, so the builder's state only takes disk space that

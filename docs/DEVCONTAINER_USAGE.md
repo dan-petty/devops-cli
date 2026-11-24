@@ -255,9 +255,11 @@ USER vscode
   podman pull ghcr.io/dan-petty/devops-cli/devcontainer:latest
   ```
   After a rebuild, run `uv sync --all-groups --all-extras` once. Until `.venv` is full, `devops` is the copy in the image.
-- **An image change before a release**: CI builds and starts the image for each pull request that changes an image input other than `src/`, such as `.devcontainer/` or `uv.lock`, and daily from `main` ([SDLC.md](SDLC.md#the-devcontainer-image-devcontainer-imageyml-devcontainer)). To use the change in your own container first, build it and set `"image"` to its name until the release:
+- **An image change before a release**: CI builds and starts the image for each pull request that changes an image input other than `src/`, such as `.devcontainer/` or `uv.lock`, and daily from `main` ([SDLC.md](SDLC.md#the-devcontainer-image-devcontainer-imageyml-devcontainer)). To use the change in your own container first, build the Feature image and add the project layer:
   ```bash
-  devcontainer build --workspace-folder . --config .devcontainer/image/devcontainer.json --image-name devops-cli-devcontainer:local
+  jq '.build.target = "base"' .devcontainer/image/devcontainer.json > /tmp/devcontainer.base.json
+  devcontainer build --workspace-folder . --config /tmp/devcontainer.base.json --image-name devops-cli-devcontainer-base:local
+  docker buildx build --file .devcontainer/Dockerfile --target project --build-arg BASE_IMAGE=devops-cli-devcontainer-base:local -t devops-cli-devcontainer:local .
   ```
 - **Mounts that hold data**: the `.data` volume (agent worktrees and state), the home volume (the keyring and its copies, shell history, tool logins), the bind mount of the host `~/.ssh` and the `/tmp` volume. A test fails if one of them leaves the file. Before a change to the mounts or the image, export the volumes on the host:
   ```bash
