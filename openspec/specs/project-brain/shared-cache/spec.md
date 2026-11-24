@@ -122,20 +122,28 @@ A reader SHALL treat a shared value under an older key version, or with another 
 - **WHEN** the shared tier holds a PyPI fact under an older key version and a fact under the current key with another schema key
 - **THEN** each read returns the value of the source, and the shared tier then holds the source value under the current key with the current schema key
 
-### Requirement: No key of a private repository
-The visibility check SHALL give public, private or unknown; a failed read SHALL give unknown. The snapshot store SHALL write no key of a repository that the check does not give as public, and SHALL NOT use its shared copy. A private answer SHALL count `result="private"`, and SHALL remove a shared key of the repository and count `result="removed"`. An unknown answer SHALL count `result="unknown"`, and the store SHALL NOT read the records of or write the shared copy.
+### Requirement: A private repository's snapshot is shared only under the sweep user
+The visibility check SHALL give public, private or unknown, and a failed read SHALL give unknown. The snapshot store SHALL write, read and keep the shared copy of a private repository only when the process sends the ACL user `sweep`, and SHALL remove that copy under any other user or none. The store SHALL write no shared key and read no record of a repository whose visibility is unknown. The shared copy of a private repository SHALL keep the key and the TTL of a public repository.
 
 #### Scenario: Private repository
-- **WHEN** a listing round runs for a repository whose visibility read gives `isPrivate: true`
-- **THEN** the `valkey_server` fake holds no key that names the repository, the round reads GitHub, GitHub gets one visibility read, and `devops_cli_brain_reads_total{store="snapshot",result="private"}` and `devops_cli_brain_writes_total{store="snapshot",result="private"}` each rise by one
+- **WHEN** A listing round runs for a repository whose visibility read gives `isPrivate: true` and the process sends no ACL user
+- **THEN** The `valkey_server` fake holds no key that names the repository, the round reads GitHub, GitHub gets one visibility read, and `devops_cli_brain_reads_total{store="snapshot",result="private"}` and `devops_cli_brain_writes_total{store="snapshot",result="private"}` each rise by one
+
+#### Scenario: Private repository under the sweep user
+- **WHEN** A listing round runs for a repository whose visibility read gives `isPrivate: true` and the process sends the `sweep` user
+- **THEN** The `valkey_server` fake holds the snapshot key of the repository with its metadata, and `devops_cli_brain_writes_total{store="snapshot",result="shared"}` rises by one
+
+#### Scenario: The sweep user reads the shared copy of a private repository
+- **WHEN** A process that sends the `sweep` user loads the listing of a private repository that the shared tier holds
+- **THEN** The load gives the shared records and `devops_cli_brain_reads_total{store="snapshot",result="shared"}` rises by one
 
 #### Scenario: No visibility read without the shared tier
-- **WHEN** the `valkey_server` fake has `connected = False` and a listing round runs
-- **THEN** the round sends no visibility read to GitHub
+- **WHEN** The `valkey_server` fake has `connected = False` and a listing round runs
+- **THEN** The round sends no visibility read to GitHub
 
 #### Scenario: A repository that became private
-- **WHEN** a round of a public repository writes its shared snapshot, and a round in a new process finds that the repository is private
-- **THEN** the `valkey_server` fake holds no key, the round uses no shared copy, and `devops_cli_brain_writes_total{result="removed"}` rises by one
+- **WHEN** A round of a public repository writes its shared snapshot, and a round in a new process that sends no ACL user finds that the repository is private
+- **THEN** The `valkey_server` fake holds no key, the round uses no shared copy, and `devops_cli_brain_writes_total{result="removed"}` rises by one
 
 ### Requirement: An unknown answer removes a stale shared copy
 An unknown answer SHALL remove the shared copy of a repository and count `devops_cli_brain_writes_total{result="removed"}` when its last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min). The age SHALL be the TTL of a snapshot less the `PTTL` of its key, read with `meta` in one round trip. Valkey SHALL read the `PTTL` again and remove the key in one script. A fresher copy, a key with no TTL and a missing key SHALL stay.

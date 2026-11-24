@@ -375,6 +375,7 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_ROADMAP_PROJECT_REVIEW_NAMESPACES",  # #6615
         "DEVOPS_CLI_RESEARCH_JUDGE_RECORD_LIMIT",  # #3909
         "DEVOPS_CLI_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT",  # #3909
+        "DEVOPS_CLI_VALKEY_USER",  # #4704
     }
 )
 
@@ -495,6 +496,21 @@ def _is_field(settings: Settings, key: str) -> bool:
 def test_every_setting_variable_names_a_field() -> None:
     settings = Settings()
     assert [key for key in env.setting_variables() if not _is_field(settings, key)] == []
+
+
+def test_valkey_username_is_declared_with_its_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Valkey client sends the ACL user that `valkey.username` names, and an empty value keeps
+    the default user (#4704)."""
+    from devops_cli.config.settings import load_settings
+
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_USER", "sweep")
+    assert (
+        env.setting_variables().get("valkey.username"),
+        load_settings().valkey.username,
+        Settings().valkey.username,
+    ) == ("DEVOPS_CLI_VALKEY_USER", "sweep", None)
 
 
 def test_the_options_module_is_gone() -> None:

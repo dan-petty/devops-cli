@@ -44,6 +44,25 @@ LLM_GATEWAY_MASTER_KEY = "llm_gateway_master_key"
 # The password of devops-cli's cache Valkey in the cluster (#1655). A workstation's
 # `valkey.password` is the password of the Valkey that its own `valkey.url` names.
 DEVOPS_CACHE_VALKEY_AUTH_KEY = "valkey_devops_password"
+# The password of each ACL role user of devops-cli's cache Valkey (#4704). No Settings option reads
+# them: the pod reads them from the aclfile, and a process that sends a role sends its password as
+# `valkey.password`. Each role user reaches only the key patterns of its role.
+DEVOPS_CACHE_VALKEY_SWEEP_KEY = "valkey_devops_sweep"
+DEVOPS_CACHE_VALKEY_BRAIN_KEY = "valkey_devops_brain"
+DEVOPS_CACHE_VALKEY_AGENT_KEY = "valkey_devops_agent"
+DEVOPS_CACHE_VALKEY_METRICS_KEY = "valkey_devops_metrics"
+# The aclfile of devops-cli's cache Valkey, built from the password of `default` and from the four
+# role passwords (#4704). `sweep` writes the roadmap and gh keys, `brain` writes the brain keys and
+# reads the roadmap ones, `agent` writes the rag keys and reads the brain fact keys, and `metrics`
+# holds the commands of the exporter scrape and no key pattern. `default` stays on until #6600.
+DEVOPS_CACHE_VALKEY_ACL_TEMPLATE = (
+    "user default on >{password} ~* &* +@all\n"
+    "user sweep on >{sweep} ~valkey:roadmap:* ~valkey:gh:* +@all -@dangerous\n"
+    "user brain on >{brain} ~valkey:brain:* %R~valkey:roadmap:* +@all -@dangerous\n"
+    "user agent on >{agent} ~valkey:rag:* %R~valkey:brain:v1:fact:* +@all -@dangerous\n"
+    "user metrics on >{metrics} +info +config|get +dbsize +client|list +slowlog|get "
+    "+memory|usage +ping\n"
+)
 # LiteLLM refuses a master key without this prefix.
 LITELLM_KEY_PREFIX = "sk-"
 # The database password of Mattermost on CloudNativePG (#1391).
@@ -234,6 +253,20 @@ _MCP_TOKEN = KeyringSource.for_credential("mcp.token")
 _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
 _DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
+_DEVOPS_CACHE_VALKEY_SWEEP = KeyringSource(DEVOPS_CACHE_VALKEY_SWEEP_KEY)
+_DEVOPS_CACHE_VALKEY_BRAIN = KeyringSource(DEVOPS_CACHE_VALKEY_BRAIN_KEY)
+_DEVOPS_CACHE_VALKEY_AGENT = KeyringSource(DEVOPS_CACHE_VALKEY_AGENT_KEY)
+_DEVOPS_CACHE_VALKEY_METRICS = KeyringSource(DEVOPS_CACHE_VALKEY_METRICS_KEY)
+_DEVOPS_CACHE_VALKEY_ACL = DerivedSource(
+    DEVOPS_CACHE_VALKEY_ACL_TEMPLATE,
+    {
+        "password": _DEVOPS_CACHE_VALKEY_AUTH,
+        "sweep": _DEVOPS_CACHE_VALKEY_SWEEP,
+        "brain": _DEVOPS_CACHE_VALKEY_BRAIN,
+        "agent": _DEVOPS_CACHE_VALKEY_AGENT,
+        "metrics": _DEVOPS_CACHE_VALKEY_METRICS,
+    },
+)
 
 
 class WorkloadModel(BaseModel):
@@ -483,8 +516,10 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         restarts=(Workload("deployment", "valkey-runs"),),
         labels={"app.kubernetes.io/name": "valkey-runs"},
     ),
-    # The password of devops-cli's cache Valkey, which the Service and the cluster jobs send from
-    # Secret devops/devops-cli (#1655).
+    # The ACL users of devops-cli's cache Valkey, which the Service and the cluster jobs send from
+    # Secret devops/devops-cli (#1655, #4704). The pod mounts key `users.acl` at /run/valkey and
+    # starts valkey-server with `--aclfile`, and the exporter scrapes as `metrics`. Key `password`
+    # keeps the `default` user on until #6600 turns it off.
     ClusterSecret(
         namespace="llm",
         name="valkey-devops-auth",
@@ -495,6 +530,27 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
                 _DEVOPS_CACHE_VALKEY_AUTH,
                 generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
             ),
+            SecretEntry(
+                "sweep",
+                _DEVOPS_CACHE_VALKEY_SWEEP,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+            ),
+            SecretEntry(
+                "brain",
+                _DEVOPS_CACHE_VALKEY_BRAIN,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+            ),
+            SecretEntry(
+                "agent",
+                _DEVOPS_CACHE_VALKEY_AGENT,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+            ),
+            SecretEntry(
+                "metrics",
+                _DEVOPS_CACHE_VALKEY_METRICS,
+                generator=_DEVOPS_CACHE_VALKEY_GENERATOR,
+            ),
+            SecretEntry("users.acl", _DEVOPS_CACHE_VALKEY_ACL),
         ),
         restarts=(Workload("deployment", "valkey-devops"),),
         labels={"app.kubernetes.io/name": "valkey-devops"},

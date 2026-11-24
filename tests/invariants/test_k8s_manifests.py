@@ -15,7 +15,11 @@ import pytest
 from devops_cli.config.env import keyring_names, option_env_vars
 from devops_cli.k8s.cluster_secrets import (
     CLUSTER_SECRETS,
+    DEVOPS_CACHE_VALKEY_AGENT_KEY,
     DEVOPS_CACHE_VALKEY_AUTH_KEY,
+    DEVOPS_CACHE_VALKEY_BRAIN_KEY,
+    DEVOPS_CACHE_VALKEY_METRICS_KEY,
+    DEVOPS_CACHE_VALKEY_SWEEP_KEY,
     GRAFANA_RENDERER_AUTH_KEY,
     GRAFANA_SECURITY_KEY,
     LLM_GATEWAY_MASTER_KEY,
@@ -51,6 +55,10 @@ def test_keyring_sources_are_managed_keys_or_declared_keyring_only() -> None:
             {
                 LLM_GATEWAY_MASTER_KEY,
                 DEVOPS_CACHE_VALKEY_AUTH_KEY,
+                DEVOPS_CACHE_VALKEY_SWEEP_KEY,
+                DEVOPS_CACHE_VALKEY_BRAIN_KEY,
+                DEVOPS_CACHE_VALKEY_AGENT_KEY,
+                DEVOPS_CACHE_VALKEY_METRICS_KEY,
                 MATTERMOST_DB_AUTH_KEY,
                 SEARXNG_SERVER_KEY,
                 SEARXNG_METRICS_AUTH_KEY,

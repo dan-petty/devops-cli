@@ -235,14 +235,24 @@ def _count_error(op: str, error: ValkeyCacheError) -> None:
 
 
 class _SettingsValkeyCredentialProvider(valkey.credentials.CredentialProvider):
-    """The credential provider of the Valkey cache tier, resolving the password on connect."""
+    """The credential provider of the Valkey cache tier, resolving the user and the password on
+    connect."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     def get_credentials(self) -> tuple[str] | tuple[str, str]:
-        pw = get_valkey_password(self._settings)
-        return (pw,) if pw else None  # type: ignore[return-value]
+        """The password, with the ACL user that `valkey.username` names when it names one.
+
+        A password that no source gives returns None, and the connection sends no AUTH, as a
+        Valkey that needs no password admits it. An empty `valkey.username` sends the password
+        alone, which authenticates the `default` user of a server that keeps it.
+        """
+        password = get_valkey_password(self._settings)
+        if not password:
+            return None  # type: ignore[return-value]
+        user = self._settings.valkey.username
+        return (user, password) if user else (password,)
 
 
 def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:

@@ -557,6 +557,10 @@ class ValkeyConfig(BaseModel):
         ),
     )
     password: str | None = None
+    username: Annotated[str | None, Variable(segment="user")] = Field(
+        default=None,
+        description="The ACL user that a Valkey client sends, such as `sweep`, `brain`, `agent` or `metrics`; an empty value sends no user and keeps the default user",
+    )
     timeout: Annotated[float, Variable()] = Field(
         description=f"Valkey network socket connection/read timeout in seconds; the shared cache of embeddings, threat intel and library symbols waits at most {DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS} s for a connection (default: {DEFAULT_VALKEY_TIMEOUT_SECONDS})",
         default=DEFAULT_VALKEY_TIMEOUT_SECONDS,
