@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.1](https://github.com/dan-petty/devops-cli/compare/v0.211.0...v0.211.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **roadmap:** a test-first stop of implement is not ci_infra ([#7016](https://github.com/dan-petty/devops-cli/issues/7016)) ([ade5b1c](https://github.com/dan-petty/devops-cli/commit/ade5b1ce6abdee0983eae0484483c8b6dba84a7b))
+
 ## [0.211.0](https://github.com/dan-petty/devops-cli/compare/v0.210.2...v0.211.0) (2026-11-24)
 
 
