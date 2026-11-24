@@ -79,14 +79,16 @@ tests:
   - name: A row whose new error series reaches 3 fires; one more error of an older series does not
     interval: 1m
     input_series:
-      # A new series: 3 failed rounds in a row, then the job is suspended.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
+      # The recorded increase of the last hour (#4562): the refine row of the model lane reaches 3
+      # failed jobs, and the metrics row of the status lane gets one more error while its recorded
+      # success series grows, so the alert clears that row.
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x60 1x4 2x4 3x40'
-      # A series that was there an hour ago and gets one more error.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="error"}'
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="status", row="metrics", result="error"}'
         values: '5x70 6x40'
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="success"}'
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="status", row="metrics", result="success"}'
         values: '0+1x110'
+      # The raw series of another job: the recorded series holds no job label, and no rule reads it.
       - series: 'devops_cli_service_jobs_total{job="kubernetes-pods", repo="example/app", lane="model", row="refine", result="error"}'
         values: '0+1x110'
     alert_rule_test:
@@ -111,9 +113,9 @@ tests:
   - name: An error series with no sample near the start of the hour counts only the errors of the hour
     interval: 10m
     input_series:
-      # Samples at 50m, 70m and 110m: two jobs failed in the hour before 120m. The series has no
-      # sample in the 5 minutes before 60m, and it is not new.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
+      # The recorded increase of the hour (#4562) at 50m, 70m and 110m: the recorded value counts
+      # the errors of the hour, so the alert fires at 120m and counts no earlier failure.
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x5 5 _ 6 _ _ _ 7'
     alert_rule_test:
       - eval_time: 120m
@@ -131,8 +133,9 @@ tests:
   - name: A new error series with one sample of 3 fires
     interval: 10m
     input_series:
-      # One sample at 60m: 3 jobs failed before the Service sent the series.
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="model", row="refine", result="error"}'
+      # The recorded increase of the hour (#4562) starts at 60m with one sample of 3: 3 jobs failed
+      # before the Service sent the series. The alert waits 30 minutes before it fires.
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="model", row="refine", result="error"}'
         values: '_x5 0 3'
     alert_rule_test:
       - eval_time: 65m
@@ -153,12 +156,15 @@ tests:
   - name: A row that fails each round fires while another row of its lane succeeds
     interval: 1m
     input_series:
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="implement", result="error"}'
-        values: '0+1x110'
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="implement", result="success"}'
+      # The recorded increase of the hour (#4562): the implement row fails each round while its
+      # recorded success series stays at 0, so the alert fires for that row, and the metrics row of
+      # the same lane succeeds, so it holds no recorded error series.
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="status", row="implement", result="error"}'
+        values: '1x110'
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="status", row="implement", result="success"}'
         values: '0x110'
-      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", lane="status", row="metrics", result="success"}'
-        values: '0+1x110'
+      - series: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example/app", lane="status", row="metrics", result="success"}'
+        values: '1x110'
     alert_rule_test:
       - eval_time: 45m
         alertname: RoadmapServiceJobsFailing
@@ -328,12 +334,10 @@ tests:
   - name: 600 GitHub requests in an hour fire
     interval: 1m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
-        values: '0+10x90'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x120'
+      # The recorded ratio of the last hour (#4562): the spent requests of the Service over the
+      # limit it reports. 600 of the 500 requests of the hour is 1.2.
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '1.2x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -341,20 +345,16 @@ tests:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The roadmap Service sent 600 GitHub requests in the last hour"
+              summary: "The roadmap Service used 120% of its hourly GitHub request budget"
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: 600 GitHub requests in an hour with 480 answered 304 stay quiet
     interval: 1m
     input_series:
       # GitHub does not count a 304 answer against its rate limit, and the budget leaves it out
-      # (#3939): 120 requests count.
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="200"}'
-        values: '0+2x90'
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="core", status="304"}'
-        values: '0+8x90'
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x120'
+      # (#3939): 120 of the 600 requests counted, 120 of 500 is 0.24.
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '0.24x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -363,14 +363,10 @@ tests:
   - name: A GitHub request stream that starts in the hour counts its first flush
     interval: 5m
     input_series:
-      # The first flush of the stream at 60m holds 300 requests, and 20 more come every 5
-      # minutes: 520 requests in the hour before 115m.
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
-        values: '_x12 300+20x11'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x30'
+      # The recorded ratio of the hour (#4562): 300 of the 500 requests of the hour at 60m (0.6),
+      # and 20 more every 5 minutes, 520 at 115m (1.04).
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x12 0.6+0.04x11'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -378,20 +374,16 @@ tests:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The roadmap Service sent 520 GitHub requests in the last hour"
+              summary: "The roadmap Service used 104% of its hourly GitHub request budget"
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A GitHub request stream from before the hour counts only the requests of the hour
     interval: 10m
     input_series:
-      # Samples at 50m, 70m and 110m of a stream at 2000 requests: 20 requests in the hour before
-      # 120m. The stream has no sample in the 5 minutes before 60m, and it is not new.
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
-        values: '_x5 2000 _ 2010 _ _ _ 2020'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x30'
+      # The recorded ratio of the hour (#4562) at 0.4: the recording rule counts the requests of the
+      # hour alone, so the ratio stays below 0.9.
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x5 0.4x8'
     alert_rule_test:
       - eval_time: 120m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -400,14 +392,12 @@ tests:
   - name: 300 GitHub requests in an hour stay quiet; a workstation's requests do not count
     interval: 1m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
-        values: '0+5x90'
+      # The recorded ratio of the Service: 300 of the 500 requests of the hour (0.6).
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '0.6x120'
+      # The raw series of another job: the recorded ratio holds no job label, and no rule reads it.
       - series: 'devops_cli_github_requests_total{job="devops-cli", resource="graphql"}'
         values: '0+10x90'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -416,12 +406,9 @@ tests:
   - name: 400 GitHub requests in an hour stay quiet for a limit of 500
     interval: 5m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
-        values: '_x12 400x11'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x30'
+      # The recorded ratio of the hour (#4562): 400 of the 500 requests of the limit (0.8).
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x12 0.8x11'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -430,12 +417,9 @@ tests:
   - name: 900 GitHub requests in an hour stay quiet for a limit of 2000
     interval: 5m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
-        values: '_x12 900x11'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '2000x30'
+      # The recorded ratio of the hour (#4562): 900 of the 2000 requests of the limit (0.45).
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x12 0.45x11'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -444,12 +428,10 @@ tests:
   - name: 600 GitHub requests in an hour stay quiet for a limit of 2000, where they fire for 500
     interval: 5m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
-        values: '_x12 600x11'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '2000x30'
+      # The recorded ratio of the hour (#4562): 600 of the 2000 requests of the limit (0.3), which
+      # is above 0.9 for a limit of 500.
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x12 0.3x11'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -458,12 +440,9 @@ tests:
   - name: 1900 GitHub requests in an hour fire for a limit of 2000
     interval: 5m
     input_series:
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
-        values: '_x12 1900x11'
-      # The Service reports its budget on its own scrape, so the series has the pod's instance and
-      # pod labels, and the request counter (OTLP) has another instance (#2755).
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '2000x30'
+      # The recorded ratio of the hour (#4562): 1900 of the 2000 requests of the limit (0.95).
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '_x12 0.95x11'
     alert_rule_test:
       - eval_time: 115m
         alertname: RoadmapServiceGitHubRequestsHigh
@@ -471,12 +450,14 @@ tests:
           - exp_labels:
               severity: warning
             exp_annotations:
-              summary: "The roadmap Service sent 1900 GitHub requests in the last hour"
+              summary: "The roadmap Service used 95% of its hourly GitHub request budget"
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: A Service that reports no limit raises no volume alert; RoadmapServiceUnavailable covers a Service that is down
     interval: 5m
     input_series:
+      # No limit means no recorded ratio, so the alert stays quiet. The raw request series of the
+      # Service is in the case, and no rule reads it.
       - series: 'devops_cli_github_requests_total{job="roadmap-service", instance="roadmap-service", resource="graphql"}'
         values: '_x12 1900x11'
     alert_rule_test:
@@ -487,14 +468,13 @@ tests:
   - name: The GitHub requests of the stage Jobs do not count in the budget of the Service
     interval: 1m
     input_series:
-      # A stage Job sends its telemetry as job="roadmap-stage" (#4559) and counts its requests in
-      # a budget of its own: 300 requests of the Service and 300 of a stage Job in the hour.
-      - series: 'devops_cli_github_requests_total{job="roadmap-service", resource="graphql"}'
-        values: '0+5x90'
+      # The recorded ratio of the Service: 300 of the 500 requests of the hour (0.6). A stage Job
+      # sends its telemetry as job="roadmap-stage" (#4559) and counts its requests in a budget of
+      # its own, which RoadmapStageGitHubRequestsHigh watches: 300 of 1000.
+      - series: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+        values: '0.6x120'
       - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", status="200"}'
         values: '0+5x90'
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x120'
       - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
         values: '1000x120'
     alert_rule_test:
@@ -513,8 +493,6 @@ tests:
         values: '0+16x90'
       - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
         values: '1000x120'
-      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-service", instance="192.0.2.10:8000", namespace="devops", pod="roadmap-service-5d9c7b8f4-x2k7q", container="service"}'
-        values: '500x120'
     alert_rule_test:
       - eval_time: 90m
         alertname: RoadmapStageGitHubRequestsHigh
@@ -661,13 +639,16 @@ tests:
   # A row that stays suspended (#4065). The gauge is 1 while a row waits for its retry time or for
   # new input, by `repo`, `row` and `class`, and 0 after the row runs again. The rule waits 3
   # hours, so a wait of the longest class that a probe round ends (6 hours) alerts once, and a short
-  # outage that the first probe round ends does not.
+  # outage that the first probe round ends does not. The alert reads the recorded gauge of the group
+  # `roadmap-service-recording` (#4562): the recording rule drops the job label, so one series holds
+  # the rows of the Service and of the row pods. The raw series of another job is in the case, and
+  # no rule reads it.
   - name: A row that stays suspended for 3 hours fires with its class; a row that runs again and another job do not count
     interval: 1m
     input_series:
-      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="provider"}'
+      - series: 'repo_row_class:devops_cli_service_job_suspended:max{repo="example/app", row="intake", class="provider"}'
         values: '0x5 1x300'
-      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="stage", class="parser"}'
+      - series: 'repo_row_class:devops_cli_service_job_suspended:max{repo="example/app", row="stage", class="parser"}'
         values: '0x5 1x60 0x240'
       - series: 'devops_cli_service_job_suspended{job="devops-cli", repo="example/app", row="intake", class="provider"}'
         values: '1x305'
@@ -703,9 +684,9 @@ tests:
   - name: A row whose class changes keeps one alert, for the class that is 1
     interval: 1m
     input_series:
-      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="provider"}'
+      - series: 'repo_row_class:devops_cli_service_job_suspended:max{repo="example/app", row="intake", class="provider"}'
         values: '0x5 1x60 0x240'
-      - series: 'devops_cli_service_job_suspended{job="roadmap-service", repo="example/app", row="intake", class="ci_infra"}'
+      - series: 'repo_row_class:devops_cli_service_job_suspended:max{repo="example/app", row="intake", class="ci_infra"}'
         values: '0x65 1x240'
     alert_rule_test:
       - eval_time: 300m

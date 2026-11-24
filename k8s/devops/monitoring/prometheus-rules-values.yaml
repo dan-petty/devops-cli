@@ -9,11 +9,42 @@
 # `rule_files` of the environment values name /etc/config/devops_cli_alerting_rules.yml, so the
 # server loads this file next to the environment rules. A group name is unique over both files.
 #
-# Every rule carries `severity` (critical or warning), as the environment rules do (k8s/README.md,
-# Alerting).
+# Every alert rule carries `severity` (critical or warning), as the environment rules do
+# (k8s/README.md, Alerting). A recording rule carries no severity and no annotation: it only
+# records a series.
 serverFiles:
   devops_cli_alerting_rules.yml:
     groups:
+      # The row work series that more than one consumer reads (#4562): the failed jobs of the last
+      # hour, the budget used ratio and the suspended rows. The alert, the dashboard panel and the
+      # start page read the recorded series, so the move of the row work into roadmap-<row> pods
+      # changes one name here and no consumer. Each rule matches job=~"roadmap-service|roadmap-.+":
+      # the Service's own job, and the job of a row pod, which k8s-monitoring names after the pod.
+      # The router keeps its own job, so its series, such as
+      # devops_cli_service_identity_refused_total, stay on job="roadmap-service" and get no rule
+      # here. Each name follows the `level:metric:operations` form of the Prometheus naming
+      # practice. The sums drop the job label, so one recorded series holds the series of the
+      # Service and of each row pod, before and after the move.
+      - name: roadmap-service-recording
+        rules:
+          # The failed jobs of one row, beside the successful ones: the alert compares the two
+          # results of one repo, lane and row, so the rule keeps the result label.
+          - record: repo_lane_row:devops_cli_service_jobs_total:increase1h
+            expr: >-
+              sum by (repo, lane, row, result) (increase(devops_cli_service_jobs_total{job=~"roadmap-service|roadmap-.+"}[1h]))
+          # The gauge is 1 while a row waits for its retry time or for new input, by repo, row and
+          # class (#4065).
+          - record: repo_row_class:devops_cli_service_job_suspended:max
+            expr: >-
+              max by (repo, row, class) (devops_cli_service_job_suspended{job=~"roadmap-service|roadmap-.+"})
+          # The spent requests of the last hour over the hourly budget (#3939). The request
+          # counter comes over OTLP and the limit from the scrape of the pod, so their instance
+          # labels differ: each side is summed to one series, and the ratio needs no join.
+          - record: service:devops_cli_service_budget_requests_per_limit:ratio
+            expr: >-
+              sum(devops_cli_service_budget_spent_requests{job=~"roadmap-service|roadmap-.+"})
+              /
+              sum(devops_cli_service_budget_limit_requests{job=~"roadmap-service|roadmap-.+"})
       # The roadmap Service (#2472). Two paths send its series, and both give them
       # job="roadmap-service": k8s-monitoring's annotation autodiscovery scrapes its /metrics and
       # names the job after the pod's app.kubernetes.io/name, and the OpenTelemetry collector
@@ -54,12 +85,16 @@ serverFiles:
               description: "In the last 15 minutes GitHub refused a {{ $labels.resource }} request of the roadmap Service or a stage Job with a rate limit, or gave a 5xx for a read. The process waited and sent the request again (docs/CLUSTER.md, Roadmap service)."
           # When all jobs of one row of a repository fail in one hour, alert after 30 minutes. A
           # round counts each of its rows, so a join on the lane hides a row that fails while
-          # another row of its lane succeeds (#3495).
+          # another row of its lane succeeds (#3495). The recorded series holds the increase of the
+          # last hour by repo, lane, row and result (#4562), so the alert compares the two results
+          # of one row and reads the series of the Service and of the row pods alike. The rule
+          # reads the last value of the hour, as the counter rule did, so a gap in the recorded
+          # series does not clear the alert before its hour ends.
           - alert: RoadmapServiceJobsFailing
             expr: >-
-              sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="error"}[1h])) > 0
+              sum by (repo, lane, row) (last_over_time(repo_lane_row:devops_cli_service_jobs_total:increase1h{result="error"}[1h])) > 0
               unless on (repo, lane, row)
-              sum by (repo, lane, row) (increase(devops_cli_service_jobs_total{job="roadmap-service", result="success"}[1h])) > 0
+              sum by (repo, lane, row) (last_over_time(repo_lane_row:devops_cli_service_jobs_total:increase1h{result="success"}[1h])) > 0
             for: 30m
             labels:
               severity: warning
@@ -128,26 +163,21 @@ serverFiles:
               summary: "The roadmap Service has an unavailable replica"
               description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has had an unavailable replica for 10 minutes (docs/CLUSTER.md, Roadmap service)."
           # 90% of the hourly budget that the Service reports (service.github_requests_per_hour,
-          # 500 by default). The Service holds its requests at the budget: a request waits when
-          # the hour has no room. The request counter comes over OTLP and the limit from the
-          # scrape of the pod, so their instance labels differ and on() joins the two sums. A
-          # Service that is down reports no limit: RoadmapServiceUnavailable covers that case.
-          # The sums leave out status 304: GitHub does not count such an answer against its rate
-          # limit, and the budget does not count it either (#3939). A stage Job (job
-          # roadmap-stage, #4559) counts its requests in a budget of its own, so its requests do
-          # not count here: RoadmapStageGitHubRequestsHigh watches them.
+          # 500 by default). The recorded ratio of the last hour is the spent requests over that
+          # limit (#4562): the request counter comes over OTLP and the limit from the scrape of the
+          # pod, so their instance labels differ, and the recording rule sums each side to one
+          # series. A Service that is down reports no limit: RoadmapServiceUnavailable covers that
+          # case. The budget leaves out the answers with status 304: GitHub does not count such an
+          # answer against its rate limit, and the budget does not count it either (#3939). A stage
+          # Job (job roadmap-stage, #4559) keeps a budget of its own, which
+          # RoadmapStageGitHubRequestsHigh watches.
           - alert: RoadmapServiceGitHubRequestsHigh
-            expr: >-
-              sum(
-              (last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
-              unless last_over_time(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h] offset 1h))
-              or increase(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h])
-              ) > on() 0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-service"})
+            expr: service:devops_cli_service_budget_requests_per_limit:ratio > 0.9
             for: 0m
             labels:
               severity: warning
             annotations:
-              summary: 'The roadmap Service sent {{ printf "%.0f" $value }} GitHub requests in the last hour'
+              summary: 'The roadmap Service used {{ $value | humanizePercentage }} of its hourly GitHub request budget'
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
           # 90% of the hourly budget of a stage Job (roadmap.stage.github_requests_per_hour), which
           # the pod reports while it runs. Every stage pod sends the one instance roadmap-stage, so
@@ -195,10 +225,12 @@ serverFiles:
               description: "The roadmap Service could not write its {{ $labels.record }} record to its volume, so a restart loses what the record holds. The Service goes on with memory only. Check the free space and the permissions of the volume, and the log line that starts with Could not write (docs/CLUSTER.md, Roadmap service)."
           # A row that failed its limit of rounds in a row waits for its retry time or for new input
           # (#4065). The gauge is 1 while it waits, by repo, row and class, and the series of an old
-          # class is set to 0. The rule waits 3 hours: a wait of 1 hour that the first probe round
-          # ends does not alert, and a row that fails probe rounds, or waits 6 hours, does.
+          # class is set to 0. The recorded gauge of the group `roadmap-service-recording` holds the
+          # rows of the Service and of the row pods, with no job label (#4562). The rule waits 3
+          # hours: a wait of 1 hour that the first probe round ends does not alert, and a row that
+          # fails probe rounds, or waits 6 hours, does.
           - alert: RoadmapServiceRowSuspended
-            expr: max by (repo, row, class) (devops_cli_service_job_suspended{job="roadmap-service"}) > 0
+            expr: max by (repo, row, class) (repo_row_class:devops_cli_service_job_suspended:max) > 0
             for: 3h
             labels:
               severity: warning
