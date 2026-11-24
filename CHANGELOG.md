@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.210.1](https://github.com/dan-petty/devops-cli/compare/v0.210.0...v0.210.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **service:** deduplicate server span and exclude probe paths ([#7008](https://github.com/dan-petty/devops-cli/issues/7008)) ([169198e](https://github.com/dan-petty/devops-cli/commit/169198eda7657cfbefdeb66feaa9dbb6d2ad707e))
+
 ## [0.210.0](https://github.com/dan-petty/devops-cli/compare/v0.209.2...v0.210.0) (2026-11-24)
 
 
