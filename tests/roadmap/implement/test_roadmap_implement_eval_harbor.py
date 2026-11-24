@@ -3,6 +3,7 @@ and one task folder for each committed fixture."""
 
 from __future__ import annotations
 
+import importlib.resources
 from pathlib import Path
 
 import pytest
@@ -42,21 +43,15 @@ EXPECTED_INSTRUCTION = (
     "\n" + PLAN["tasks.md"]
 )
 
+SHIPPED_DOCKERFILE = (
+    importlib.resources.files("devops_cli.roadmap.implement.harbor")
+    .joinpath("Dockerfile")
+    .read_text(encoding="utf-8")
+    .rstrip()
+)
+
 EXPECTED_DOCKERFILE = (
-    "# The environment of the task: this repository at the base commit of the fixture, with\n"
-    "# the interpreter, uv and the tools that the checks of the fixture use.\n"
-    "FROM python:3.14-slim-trixie\n"
-    "\n"
-    "ENV PYTHONUNBUFFERED=1 \\\n"
-    "    UV_COMPILE_BYTECODE=1 \\\n"
-    "    UV_LINK_MODE=copy\n"
-    "\n"
-    "RUN apt-get update \\\n"
-    "    && apt-get install -y --no-install-recommends ca-certificates git \\\n"
-    "    && rm -rf /var/lib/apt/lists/*\n"
-    "\n"
-    "COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /uvx /usr/local/bin/\n"
-    "\n"
+    f"{SHIPPED_DOCKERFILE}\n\n"
     "WORKDIR /app\n"
     "RUN git clone --quiet https://github.com/dan-petty/devops-cli /app \\\n"
     f"    && git -C /app checkout --quiet --detach {BASE}\n"

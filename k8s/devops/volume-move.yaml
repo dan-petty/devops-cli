@@ -1,0 +1,59 @@
+# The suspended template CronJob for volume move copy pods (#6411).
+# devops k8s volume move reads the image from this template in the cluster.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: volume-move
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: volume-move
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/job-ttl-seconds-after-finished: >-
+      A suspended template. The Job made from it keeps the TTL that
+      docs/guidelines/kubernetes.md (Bounded) asks for each Job (#6068).
+    ignore-check.kube-linter.io/no-liveness-probe: >-
+      A suspended template runs no container (#6411).
+    ignore-check.kube-linter.io/no-readiness-probe: >-
+      A suspended template serves no traffic (#6411).
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: volume-move
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: copy
+              image: debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
+              imagePullPolicy: IfNotPresent
+              command: ["sleep", "3600"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi

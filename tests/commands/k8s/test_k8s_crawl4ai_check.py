@@ -38,6 +38,29 @@ _PORT = 18235
 _BASE = f"http://127.0.0.1:{_PORT}"
 _BLOCKED = b'{"detail":"URL blocked (SSRF protection): URL blocked"}'
 _CLUSTER_IP = "192.0.2.10"
+_PROBE_TEMPLATE_JSON = json.dumps(
+    {
+        "apiVersion": "batch/v1",
+        "kind": "CronJob",
+        "metadata": {"name": "service-probe", "namespace": "devops"},
+        "spec": {
+            "jobTemplate": {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "probe",
+                                    "image": "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+    }
+)
 
 # The routes, as the command names them, with the method of each.
 _ROUTES = {
@@ -128,6 +151,12 @@ def cluster(
     process_fake.answer(
         lambda call: call.argv[:1] == ("kubectl",) and "get" in call.argv,
         ProcessAnswer(stdout=_CLUSTER_IP),
+    )
+    process_fake.answer(
+        lambda call: (
+            call.argv[:1] == ("kubectl",) and "get" in call.argv and "service-probe" in call.argv
+        ),
+        ProcessAnswer(stdout=_PROBE_TEMPLATE_JSON),
     )
     process_fake.answer(_is_exec, ProcessAnswer(returncode=1))
     return process_fake
