@@ -1718,6 +1718,12 @@ CONST_SERVICE_SOURCE_POLL: Final[str] = "poll"
 CONST_SERVICE_PING_EVENT: Final[str] = "ping"
 # The status of a delivery the GitHub App's own bot sent: the roadmap does not answer its own write.
 CONST_SERVICE_STATUS_OWN_WRITE: Final[str] = "ignored_own_write"
+# The status of a comment delivery the roadmap consumer refuses before any GitHub request: an action
+# that is not `created`, a pull request comment, or a bot's comment (#4415).
+CONST_SERVICE_STATUS_COMMENT_REFUSED: Final[str] = "ignored_comment_refused"
+# The status of a comment delivery whose author is outside `CONST_ROADMAP_TRUSTED_AUTHORS`: the
+# repository is public, so only an account with write access may wake a roadmap job (#4415).
+CONST_SERVICE_STATUS_UNTRUSTED_COMMENT: Final[str] = "ignored_untrusted_comment"
 
 
 class WebhookProviderName(StrEnum):
@@ -4021,8 +4027,12 @@ CONST_ROADMAP_STAGE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
 CONST_ROADMAP_WATCH_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
     {"pull_request", "pull_request_review", "check_suite"}
 )
+# The webhook events that a delivery runs the scoped update of a comment for (#4415): a person's
+# retry or reply wakes its row at once. The event holds no intake key, because an intake key would
+# make the intake row due for a comment.
+CONST_ROADMAP_COMMENT_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset({"issue_comment"})
 # The webhook events the roadmap jobs' batch keys name and the watch row reads, the events the
-# Service's roadmap consumer takes (#1386, #4413).
+# Service's roadmap consumer takes (#1386, #4413, #4415).
 CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
     {
         event
@@ -4030,6 +4040,7 @@ CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
         if source == CONST_SERVICE_SOURCE_WEBHOOK
     }
     | CONST_ROADMAP_WATCH_WEBHOOK_EVENTS
+    | CONST_ROADMAP_COMMENT_WEBHOOK_EVENTS
 )
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"

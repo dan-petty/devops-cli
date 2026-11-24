@@ -1,6 +1,8 @@
 """The scoped update that a webhook delivery runs at once, and the poll that reconciles after it
-(#1533). The scoped intake reads every issue through the listing snapshot (#3670), and a pull
-request, review or check suite delivery runs the watch row scoped to its pull requests (#4413).
+(#1533). The scoped intake reads every issue through the listing snapshot (#3670), a pull
+request, review or check suite delivery runs the watch row scoped to its pull requests (#4413),
+and a trusted comment runs the row that its text wakes, on the checkout of that row's lane
+(#4415).
 """
 
 from __future__ import annotations
@@ -12,13 +14,18 @@ import httpx2
 import pytest
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.config.constants import CONST_ROADMAP_WATCH_LEDGER_FILENAME
+from devops_cli.config.constants import (
+    CONST_GITHUB_CLONE_URL,
+    CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_WATCH_LEDGER_FILENAME,
+)
 from devops_cli.config.settings import AIConfig
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, ModelProposal
 from devops_cli.roadmap.run import (
     SCOPED_UPDATES,
     JobOutcome,
     WebhookDelivery,
+    lane_clone_dirname,
     lane_of_row,
     read_intake_record,
     run_scoped_update,
@@ -28,14 +35,16 @@ from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import intake_listing
 from devops_cli.roadmap.stores.store import (
     CloseReason,
+    ImplementRecordKey,
     ItemField,
     StageRecordKey,
 )
 from tests.support.fakes.embeddings import FakeEmbedder
+from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, RunnerSession, github_json
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.fakes.process import ProcessFake
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.llm_stream_fakes import serve_llm
 from tests.support.roadmap_intake import FINISHED, on_github
@@ -45,10 +54,12 @@ from tests.support.roadmap_run import (
     REPO_DIR,
     TWENTY_MINUTES_AGO,
     IntakeModel,
+    bare_remote,
     intake_table,
     make_candidates,
     poll_round,
     read_schedule,
+    serve_as,
     stamp_successes,
     webhook_delivery,
 )
@@ -119,9 +130,103 @@ def _delivery(event: str, action: str, *pulls: int) -> WebhookDelivery:
     return WebhookDelivery(repo=REPO, event=event, action=action, pull_numbers=pulls)
 
 
+def _comment(text: str, number: int) -> WebhookDelivery:
+    """A delivery of the comment `text` that a trusted person wrote on issue `number`."""
+    return WebhookDelivery(
+        repo=REPO, event="issue_comment", action="created", number=number, comment=text
+    )
+
+
 def _for_pull(requests: list[str], pull: int) -> list[str]:
     """Each request of `requests` that names pull request `pull`."""
     return [request for request in requests if f"/pulls/{pull}" in request]
+
+
+def _blocked_with_retry(store: InMemoryRoadmapStore) -> int:
+    """A Blocked item that a stop of the implement job left, its stop comment, and the retry
+    comment of a person after it."""
+    number = store.seed_issue("fix(cli): the job stopped", fields={ItemField.PRIORITY: "P1-High"})
+    item = store.item(number)
+    assert item is not None
+    store.set_field(
+        item,
+        ItemField.STATUS,
+        "Blocked",
+        marks={
+            ImplementRecordKey.STOPPED: "group 2",
+            ImplementRecordKey.JOB: "devops-cli-runner-1",
+            ImplementRecordKey.JOB_STATE: "failed",
+        },
+    )
+    store.seed_comment(
+        number,
+        f"{CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER}\nStopped at group 2.",
+        author_association="NONE",
+    )
+    store.as_actor("owner").comment(number, "implement: retry")
+    return number
+
+
+@pytest.mark.usefixtures("cluster")
+def test_a_comment_delivery_runs_the_row_that_its_text_wakes(
+    github_api: GitHubApiFake,
+    child_argvs: list[list[str]],
+    git_fake: GitFake,
+    tmp_path: Path,
+) -> None:
+    """Test first for #4415: a delivery of a comment runs the row that its text wakes, scoped to the
+    issue it names and on the checkout of that row's lane. `implement: retry` runs the `implement`
+    row, whose own rule clears the stop of the item; any other comment runs the `refine` row, which
+    reads the one item that the reply names and no other candidate."""
+    from devops_cli.roadmap.run import scoped_update_of
+
+    # The lane clones that the Service's rows read, and the origin they clone (#5553).
+    git_fake.answer(
+        lambda call: "remote get-url" in " ".join(call.argv),
+        ProcessAnswer(stdout=f"https://github.com/{REPO}.git\n"),
+    )
+    serve_as(CONST_GITHUB_CLONE_URL.format(repo=REPO), bare_remote(tmp_path))
+    store, _, _ = make_candidates(3)
+    blocked = _blocked_with_retry(store)
+
+    rows = {
+        text: scoped_update_of(_comment(text, blocked)) for text in ("implement: retry", "reply")
+    }
+    seeded = len(store.job_writes())
+    reply = run_scoped_update(_comment("reply", 2), store, data_dir=tmp_path, now=NOW)
+    reply_writes = len(store.job_writes()) - seeded
+    unnumbered = run_scoped_update(
+        WebhookDelivery(repo=REPO, event="issue_comment", action="created", comment="reply"),
+        store,
+        data_dir=tmp_path,
+        now=NOW,
+    )
+    retry = run_scoped_update(
+        _comment("implement: retry", blocked), store, data_dir=tmp_path, now=NOW
+    )
+    item = store.item(blocked)
+    assert item is not None
+
+    assert (
+        {text: (update.job, lane_of_row(update.job)) for text, update in rows.items()},
+        reply,
+        reply_writes,
+        unnumbered,
+        retry,
+        (item.status, item.job_record.get(ImplementRecordKey.STOPPED)),
+        {
+            lane: any(lane_clone_dirname(lane) in " ".join(argv) for argv in child_argvs)
+            for lane in ("refine", "implement")
+        },
+    ) == (
+        {"implement: retry": ("implement", "implement"), "reply": ("refine", "refine")},
+        JobOutcome(set_ready=False, queue=0),
+        0,
+        JobOutcome(),
+        JobOutcome(),
+        ("Ready", None),
+        {"refine": True, "implement": True},
+    )
 
 
 def test_the_issues_actions_run_a_scoped_intake_on_the_lane_of_intake() -> None:

@@ -29,6 +29,7 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_MAX_ERROR_DETAIL_LENGTH,
+    CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_MAX_BODY_BYTES,
@@ -1876,7 +1877,6 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
 @pytest.mark.parametrize(
     ("event", "payload"),
     [
-        ("issue_comment", _event_payload("created")),
         ("create", _event_payload(None, ref="v1", ref_type="tag")),
         ("push", _event_payload(None, ref="refs/heads/main", deleted=False)),
         ("workflow_run", _event_payload("completed")),
@@ -1887,7 +1887,7 @@ def _delivery_series(client: TestClient) -> dict[tuple[str, str, str], float]:
 def test_an_event_no_consumer_subscribes_to_gets_no_subscriber_and_starts_no_round(
     event: str, payload: dict[str, Any]
 ) -> None:
-    """Comments, branch and tag creations, pushes (a default-branch push included), milestones,
+    """Branch and tag creations, pushes (a default-branch push included), milestones,
     GitHub Releases and every other event the roadmap's jobs read nothing from are acknowledged
     and run nothing. A repeat
     of such a delivery is acknowledged again, since the delivery cache holds only deliveries a
@@ -2241,16 +2241,29 @@ def _runbook_step_8() -> str:
 
 
 def test_the_event_set_and_step_8_name_the_same_events() -> None:
-    """The roadmap consumer takes the pull request, review and check events beside the issues
-    events, and step 8 of the runbook names each event that the hook must send, so the hook and
-    the consumer never drift apart (#4413)."""
+    """The roadmap consumer takes the pull request, review, check and comment events beside the
+    issues events, and step 8 of the runbook names each event that the hook must send, so the hook
+    and the consumer never drift apart (#4413, #4415). An intake key for a comment would make the
+    intake row due for a comment, so the comment event stays out of the intake keys."""
     step = _runbook_step_8()
 
     assert (
         sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
         sorted(event for event in CONST_ROADMAP_WEBHOOK_EVENTS if f"`{event}`" not in step),
+        [
+            event
+            for _source, event, _action in CONST_ROADMAP_INTAKE_BATCH_KEYS
+            if "comment" in event
+        ],
     ) == (
-        ["check_suite", "issues", "pull_request", "pull_request_review"],
+        [
+            "check_suite",
+            "issue_comment",
+            "issues",
+            "pull_request",
+            "pull_request_review",
+        ],
+        [],
         [],
     )
 
@@ -2405,13 +2418,14 @@ def test_every_path_counts_its_delivery_by_provider_event_and_outcome() -> None:
         ]
     statuses.append(_github_post(client, "issues", _event_payload(), "count-10").status_code)
     assert (statuses, _delivery_series(client)) == (
-        [202, 200, 200, 200, 200, 200, 200, 401, 415, 400, 400, 503],
+        [202, 200, 200, 200, 202, 200, 200, 401, 415, 400, 400, 503],
         {
             ("github", "issues", "accepted"): 1.0,
+            ("github", "issue_comment", "accepted"): 1.0,
             ("github", "issues", "ignored"): 1.0,
             ("github", "issues", "self"): 1.0,
             ("github", "ping", "ignored"): 1.0,
-            ("github", "other", "no_subscriber"): 3.0,
+            ("github", "other", "no_subscriber"): 2.0,
             ("github", "issues", "rejected"): 5.0,
         },
     )
