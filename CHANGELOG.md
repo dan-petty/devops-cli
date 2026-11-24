@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.204.0](https://github.com/dan-petty/devops-cli/compare/v0.203.7...v0.204.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** configure renovate rules and openspec requirement limits ([#6939](https://github.com/dan-petty/devops-cli/issues/6939)) ([7412de8](https://github.com/dan-petty/devops-cli/commit/7412de8cbea4e82b606bb5b7d0b787b3457ada80))
+
 ## [0.203.7](https://github.com/dan-petty/devops-cli/compare/v0.203.6...v0.203.7) (2026-11-23)
 
 
