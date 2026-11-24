@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.206.2](https://github.com/dan-petty/devops-cli/compare/v0.206.1...v0.206.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **k8s:** hermetically resolve cluster secrets fixture ([#6959](https://github.com/dan-petty/devops-cli/issues/6959)) ([c5f5bfd](https://github.com/dan-petty/devops-cli/commit/c5f5bfd4f65e41b1a95f625b93e5418e374a5ef0))
+
+
+### Code Refactoring
+
+* **k8s:** take helper pod and harbor task images from manifests ([#6958](https://github.com/dan-petty/devops-cli/issues/6958)) ([f96dc6b](https://github.com/dan-petty/devops-cli/commit/f96dc6b5e6ddd5e8aca8ef6406d5e84ad2c2d3d3))
+
 ## [0.206.1](https://github.com/dan-petty/devops-cli/compare/v0.206.0...v0.206.1) (2026-11-24)
 
 
