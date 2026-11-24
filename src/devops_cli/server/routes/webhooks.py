@@ -300,6 +300,28 @@ WEBHOOK_PROVIDERS: Final[Mapping[WebhookProviderName, WebhookProvider]] = {
 }
 
 
+def _handle_infra_plan_event(
+    repo: str,
+    event: str,
+    action: str,
+    payload: GitHubWebhookPayload | None,
+    service_manager: ServiceManager,
+) -> bool:
+    """Launch an infra-plan Job on pull_request synchronize deliveries (#5129). Return True if event is consumed."""
+    if event != "pull_request" or action != "synchronize":
+        return False
+    from devops_cli.config.settings import load_settings
+
+    active_settings = load_settings()
+    infra_repos = {r.repo for r in active_settings.infra.repos}
+    if repo not in infra_repos:
+        return False
+    pr = payload.pull_request if payload is not None else None
+    if pr is not None and pr.number is not None and pr.state == "open" and pr.head and pr.head.sha:
+        launch_infra_plan(repo, pr.number, pr.head.sha)
+    return repo not in service_manager.config.repos
+
+
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
     its repository, except the writes of the GitHub App's own bot. A subscribed event that can be
@@ -321,6 +343,8 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             CONST_SERVICE_METRIC_TRIGGERS,
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
+        if _handle_infra_plan_event(repo, event, action, payload, service_manager):
+            return
         from devops_cli.roadmap.run import (
             WebhookDelivery,
             lane_of_row,
@@ -329,8 +353,12 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             scoped_update_of,
             scoped_update_wakes_lanes,
         )
+        from devops_cli.roadmap.stores.brain_issues import issue_from_event, remember_issue
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
+
+        if payload is not None and payload.issue and payload.issue.number is not None:
+            remember_issue(repo, issue_from_event(repo, payload.issue))
 
         numbers = payload.delivery_numbers if payload is not None else ()
         issue = payload.issue.number if payload is not None and payload.issue else None
@@ -786,3 +814,25 @@ def create_webhook_router(
             name=f"receive_{provider.name}_webhook",
         )
     return router
+
+
+def launch_infra_plan(
+    repo: str,
+    pull: int,
+    head: str,
+    *,
+    jobs: Any = None,
+    playbook: str = "site.yaml",
+) -> str:
+    """Launch an infra-plan Job for `repo`, `pull` and `head`. Return the Job unit name."""
+    from devops_cli.exceptions.k8s import ClusterJobExistsError
+    from devops_cli.k8s.cluster_job_api import ClusterJobs
+    from devops_cli.roadmap.job_launcher import launch
+    from devops_cli.roadmap.steps.infra_plan import infra_plan_unit
+
+    unit = infra_plan_unit(repo, pull, head, playbook=playbook)
+    api = jobs or ClusterJobs()
+    try:
+        return launch(api, unit)
+    except ClusterJobExistsError:
+        return unit.name

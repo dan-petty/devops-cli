@@ -886,7 +886,12 @@ class ServiceManager:
         network.set_model_call_limit(config.model_call_concurrency)
         self.clock = clock
         self.sleep_func = sleep_func
-        self.managed_repos: set[str] = set(config.repos)
+        from devops_cli.config.settings import load_settings
+
+        active_settings = load_settings()
+        self.managed_repos: set[str] = set(config.repos) | {
+            r.repo for r in active_settings.infra.repos
+        }
         self.state_dir: Path | None = state_dir
         self.bot_login: str | None = config.github_app.bot_login
         self.delivery_cache = DeliveryLRUCache()
@@ -1031,7 +1036,7 @@ class ServiceManager:
         """Enqueue a trigger on every lane of the repository, or on `lane` alone; False for an
         unmanaged repository or an unknown lane. `subject` is the number of the issue that the
         event is about, which the batch of the lane keeps (#5553)."""
-        if repo not in self.managed_repos or (lane is not None and lane not in self.jobs):
+        if repo not in self.config.repos or (lane is not None and lane not in self.jobs):
             return False
         if source != CONST_SERVICE_SOURCE_POLL:
             # A webhook starts the update at once and ends the idle state (#3672).
@@ -1045,7 +1050,7 @@ class ServiceManager:
     def enqueue_scoped(self, repo: str, lane: str, scoped_func: Callable[[], None]) -> bool:
         """Enqueue a scoped update task on the specified lane worker of the repository; False for
         an unmanaged repository or unknown lane."""
-        if repo not in self.managed_repos:
+        if repo not in self.config.repos:
             return False
         worker = self.workers.get((repo, lane))
         if worker is None:

@@ -614,3 +614,9 @@ def test_the_review_scanners_are_runner_tools_from_the_devtools_image() -> None:
         sorted(set(REVIEW_SCANNERS) & set(NOT_IN_RUNNER)),
         sorted(analyzers - HELD),
     ) == ([], [], [], [])
+
+
+def test_ansible_runner_in_runner_tools() -> None:
+    runner_tool = next((t for t in RUNNER_TOOLS if t.name == "ansible-runner"), None)
+    assert runner_tool is not None
+    assert any(reason.startswith("job:") for reason in runner_tool.needed_by)

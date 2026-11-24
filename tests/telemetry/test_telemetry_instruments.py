@@ -702,6 +702,18 @@ def test_the_decision_point_duration_and_failed_instruments_are_declared() -> No
     assert [row for row in rows if row not in document] == []
 
 
+def test_the_brain_cache_counter_names_the_row_and_the_result() -> None:
+    """The brain cache counter names the row and the result (#6013)."""
+    declared = {instrument.name: instrument for instrument in INSTRUMENTS}
+    assert "devops_cli_brain_cache_total" in declared
+    counter = declared["devops_cli_brain_cache_total"]
+    assert (counter.kind, counter.unit) == (InstrumentKind.COUNTER, "1")
+    assert "row" in counter.description
+    assert "result" in counter.description
+    assert "hit" in counter.description
+    assert "miss" in counter.description
+
+
 def test_counters_are_monotonic_deltas_from_the_workload_not_the_process(
     otlp: FakeCollector, monkeypatch: pytest.MonkeyPatch
 ) -> None:

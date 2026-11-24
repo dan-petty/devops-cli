@@ -137,6 +137,7 @@ RUNNER_TOOLS: tuple[RunnerTool, ...] = (
     ),
     _devtools("git", "ci:git", "ci:lint", "ci:constructs", "ci:domain", "job"),
     _devtools("gh", "job"),
+    _devtools("ansible-runner", "job:infra-drift", "job:infra-plan"),
     _devtools("node", "ci:openspec"),
     _devtools("openspec", "ci:openspec", "hook:openspec-gate"),
     _devtools("tofu", "gate:static"),

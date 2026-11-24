@@ -38,8 +38,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
+import yaml
+
+from devops_cli.config.constants import CONST_ARGOCD_TRACKING_ID_ANNOTATION
 from devops_cli.config.defaults import (
     DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS,
     DEFAULT_INFRA_DRAIN_MARGIN_SECONDS,
@@ -113,6 +117,46 @@ def pods_args(node: str) -> tuple[str, ...]:
 
 CLAIMS_ARGS: Final[tuple[str, ...]] = ("get", "pvc", "--all-namespaces", "-o", "json")
 VOLUMES_ARGS: Final[tuple[str, ...]] = ("get", "pv", "-o", "json")
+CNPG_CLUSTERS_ARGS: Final[tuple[str, ...]] = (
+    "get",
+    "clusters.postgresql.cnpg.io",
+    "--all-namespaces",
+    "-o",
+    "json",
+)
+
+
+@dataclass(frozen=True)
+class CnpgCluster:
+    """A CloudNativePG cluster in the Kubernetes cluster."""
+
+    name: str
+    namespace: str
+    instances: int
+    primary: str
+    tracking_application: str | None = None
+
+
+def cnpg_patch_args(
+    name: str, namespace: str, *, in_progress: bool, reuse_pvc: bool = True
+) -> tuple[str, ...]:
+    """The patch arguments that open or close the CloudNativePG maintenance window."""
+    spec: dict[str, Any] = {"inProgress": in_progress}
+    if in_progress:
+        spec["reusePVC"] = reuse_pvc
+    patch = json.dumps({"spec": {"nodeMaintenanceWindow": spec}})
+    return (
+        "patch",
+        "clusters.postgresql.cnpg.io",
+        name,
+        "-n",
+        namespace,
+        "--type=merge",
+        "-p",
+        patch,
+    )
+
+
 _HOSTNAME_LABEL: Final[str] = "kubernetes.io/hostname"
 _IN: Final[str] = "In"
 _POD_TEMPLATE_HASH: Final[str] = "pod-template-hash"
@@ -436,6 +480,148 @@ class Cluster:
             return []
         return self._wait(self.alert_health)
 
+    def cnpg_clusters(self) -> list[CnpgCluster]:
+        """All CloudNativePG clusters in the Kubernetes cluster."""
+        read = self._kubectl(CNPG_CLUSTERS_ARGS, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+        if read.problem is not None or not read.document:
+            return []
+        items = (read.document or {}).get("items") or ()
+        clusters = []
+        for item in items:
+            metadata = item.get("metadata") or {}
+            status = item.get("status") or {}
+            name = str(metadata.get("name") or "")
+            namespace = str(metadata.get("namespace") or "")
+            instances = int(
+                status.get("instances") or (item.get("spec") or {}).get("instances") or 1
+            )
+            primary = str(
+                status.get("targetPrimary") or status.get("currentPrimary") or f"{name}-1"
+            )
+            tracking = (
+                (metadata.get("annotations") or {}).get(CONST_ARGOCD_TRACKING_ID_ANNOTATION, "")
+            ).partition(":")[0] or None
+            clusters.append(CnpgCluster(name, namespace, instances, primary, tracking))
+        return clusters
+
+    def cnpg_window_clusters(
+        self, node: str, pods: Iterable[Mapping[str, Any]]
+    ) -> tuple[CnpgCluster, ...]:
+        """The single-instance CloudNativePG clusters whose primary pod runs on `node`."""
+        node_pods = {
+            (
+                (pod.get("metadata") or {}).get("namespace"),
+                (pod.get("metadata") or {}).get("name"),
+            )
+            for pod in pods
+        }
+        found = []
+        for cluster in self.cnpg_clusters():
+            if cluster.instances != 1:
+                continue
+            primary_on_node = (cluster.namespace, cluster.primary) in node_pods or any(
+                (pod.get("metadata") or {}).get("namespace") == cluster.namespace
+                and ((pod.get("metadata") or {}).get("labels") or {}).get("cnpg.io/cluster")
+                == cluster.name
+                for pod in pods
+            )
+            if primary_on_node:
+                found.append(cluster)
+        return tuple(found)
+
+    def patch_cnpg_window(
+        self, cluster: CnpgCluster, *, in_progress: bool, reuse_pvc: bool = True
+    ) -> str | None:
+        """Set spec.nodeMaintenanceWindow on `cluster`; none on success, problem string on error."""
+        args = cnpg_patch_args(
+            cluster.name, cluster.namespace, in_progress=in_progress, reuse_pvc=reuse_pvc
+        )
+        return self._kubectl(args, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS).problem
+
+    def check_cnpg_guards(self, cluster: CnpgCluster, project: Path) -> str | None:
+        """Refuse when `nodeMaintenanceWindow` is in git for `cluster`, or when its Argo CD
+        Application has `selfHeal` enabled without an `ignoreDifferences` entry for
+        `/spec/nodeMaintenanceWindow`."""
+        if cnpg_field_in_git(cluster, project):
+            return MESSAGES.infra.apply_cnpg_in_git.format(
+                cluster=f"{cluster.namespace}/{cluster.name}"
+            )
+        if cluster.tracking_application:
+            app_read = self._kubectl(
+                ("get", "application", cluster.tracking_application, "-n", "argocd", "-o", "json"),
+                DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS,
+            )
+            if app_read.document:
+                app = app_read.document
+                sync_policy = (app.get("spec") or {}).get("syncPolicy") or {}
+                self_heal = bool((sync_policy.get("automated") or {}).get("selfHeal"))
+                if self_heal and not has_cnpg_ignore_differences(app, cluster):
+                    return MESSAGES.infra.apply_cnpg_self_heal.format(
+                        app=cluster.tracking_application,
+                        cluster=f"{cluster.namespace}/{cluster.name}",
+                    )
+        return None
+
+    def wait_cnpg_healthy(self, clusters: Iterable[CnpgCluster]) -> list[str]:
+        """Wait until each cluster in `clusters` reports `Cluster in healthy state` with its
+        primary Ready on two reads one poll interval apart; the problems of the last read when the
+        time ends."""
+        clusters_tuple = tuple(clusters)
+        if not clusters_tuple:
+            return []
+
+        def check() -> list[str]:
+            problems = []
+            for cluster in clusters_tuple:
+                c_read = self._kubectl(
+                    (
+                        "get",
+                        "clusters.postgresql.cnpg.io",
+                        cluster.name,
+                        "-n",
+                        cluster.namespace,
+                        "-o",
+                        "json",
+                    ),
+                    DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS,
+                )
+                if c_read.problem is not None:
+                    problems.append(c_read.problem)
+                    continue
+                doc = c_read.document or {}
+                phase = (doc.get("status") or {}).get("phase")
+                if phase != "Cluster in healthy state":
+                    problems.append(
+                        MESSAGES.infra.apply_cnpg_unhealthy.format(
+                            cluster=f"{cluster.namespace}/{cluster.name}", phase=phase or "unknown"
+                        )
+                    )
+                pod_read = self._kubectl(
+                    (
+                        "get",
+                        "pod",
+                        cluster.primary,
+                        "-n",
+                        cluster.namespace,
+                        "-o",
+                        "json",
+                    ),
+                    DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS,
+                )
+                if pod_read.problem is not None:
+                    problems.append(pod_read.problem)
+                    continue
+                pod_doc = pod_read.document or {}
+                if _condition(pod_doc, _READY) != _TRUE:
+                    problems.append(
+                        MESSAGES.infra.apply_cnpg_pod_not_ready.format(
+                            pod=f"{cluster.namespace}/{cluster.primary}"
+                        )
+                    )
+            return problems
+
+        return self._wait(check)
+
     def _wait(
         self, read: Callable[[], list[str]], *, reads: int = _CLEAR_READS, first_wait: bool = True
     ) -> list[str]:
@@ -493,22 +679,87 @@ def _last_line(text: str) -> str:
     return mask_secrets(lines[-1]) if lines else ""
 
 
+def yaml_has_cnpg_window(content: str, cluster_name: str) -> bool:
+    if "nodeMaintenanceWindow" not in content or cluster_name not in content:
+        return False
+    try:
+        documents = yaml.safe_load_all(content)
+        return any(
+            isinstance(doc, dict)
+            and doc.get("kind") == "Cluster"
+            and (doc.get("metadata") or {}).get("name") == cluster_name
+            and "nodeMaintenanceWindow" in (doc.get("spec") or {})
+            for doc in documents
+        )
+    except yaml.YAMLError:
+        return False
+
+
+def cnpg_field_in_git(cluster: CnpgCluster, project: Path) -> bool:
+    """Whether `nodeMaintenanceWindow` is present in git for `cluster` under `project`."""
+    if not project.is_dir():
+        return False
+    for path in project.rglob("*.y*ml"):
+        if not path.is_file():
+            continue
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if yaml_has_cnpg_window(content, cluster.name):
+            return True
+    return False
+
+
+def has_cnpg_ignore_differences(app: Mapping[str, Any], cluster: CnpgCluster) -> bool:
+    """Whether the Argo CD Application `app` ignores differences for `nodeMaintenanceWindow` on
+    `cluster`."""
+    entries = (app.get("spec") or {}).get("ignoreDifferences") or []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        if kind and kind != "Cluster":
+            continue
+        group = entry.get("group")
+        if group and group not in ("postgresql.cnpg.io", ""):
+            continue
+        name = entry.get("name")
+        if name and name != cluster.name:
+            continue
+        namespace = entry.get("namespace")
+        if namespace and namespace != cluster.namespace:
+            continue
+        pointers = entry.get("jsonPointers") or ()
+        if any(p.startswith("/spec/nodeMaintenanceWindow") for p in pointers):
+            return True
+        jq_exprs = entry.get("jqPathExpressions") or ()
+        if any("nodeMaintenanceWindow" in expr for expr in jq_exprs):
+            return True
+    return False
+
+
 __all__ = [
     "CLAIMS_ARGS",
+    "CNPG_CLUSTERS_ARGS",
     "CRITICAL_ALERTS_QUERY",
     "GET_NODES_ARGS",
     "KUBECTL",
     "VOLUMES_ARGS",
     "Alerts",
     "Cluster",
+    "CnpgCluster",
     "Read",
     "alert_node",
     "boot_id",
+    "cnpg_field_in_git",
+    "cnpg_patch_args",
     "cordon_args",
     "critical_alerts",
     "drain_args",
     "get_node_args",
     "grace_period",
+    "has_cnpg_ignore_differences",
     "is_evicted",
     "is_pinned",
     "kubectl_argv",
@@ -518,4 +769,5 @@ __all__ = [
     "pods_args",
     "uncordon_args",
     "workload",
+    "yaml_has_cnpg_window",
 ]

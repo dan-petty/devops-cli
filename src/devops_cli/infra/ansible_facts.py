@@ -180,7 +180,7 @@ def install_requirements(
     result = run_subprocess(
         galaxy_argv(tool, req_file, target),
         cwd=project,
-        env=config_env(project),
+        env=config_env(project) | {"ANSIBLE_COLLECTIONS_PATH": str(target)},
         quiet=True,
         timeout=DEFAULT_INFRA_GALAXY_TIMEOUT_SECONDS,
     )

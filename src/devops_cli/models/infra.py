@@ -319,6 +319,11 @@ class HostApply(BaseModel):
         "only the node can mount, as <namespace>/<name> (<kind>): they are down until the node "
         "is uncordoned",
     )
+    down_during_window: tuple[str, ...] = Field(
+        default=(),
+        description="The CloudNativePG clusters in a maintenance window on the node, as "
+        "<namespace>/<name> (Cluster)",
+    )
     before: NodeState | None = Field(
         default=None, description="The node before the drain; none for a host that is not drained"
     )

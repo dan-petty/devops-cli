@@ -23,7 +23,9 @@ with these guards for every caller and at every level:
    `service-restart-nodrain:<unit>`, skips the drain check and the drain: the apply cordons its
    node, then runs the fresh check, the run, the Ready and health waits, the uncordon and the
    alerts. A k3s restart keeps its containers (`KillMode=process`), so no pod is evicted, and a
-   control plane whose PodDisruptionBudgets allow no eviction is not drained.
+   control plane whose PodDisruptionBudgets allow no eviction is not drained. At `full` agent
+   access, single-instance CloudNativePG clusters on the node get a maintenance window before
+   the drain check, the window closes after uncordon, and the apply waits for cluster health.
 7. **Result matches the plan.** A task that changed in the run and that the plan does not show
    as changed or unchecked stops the apply.
 8. **Stop at the first failure.** The apply stops, the node stays cordoned, and the command
@@ -66,7 +68,7 @@ from devops_cli.infra.ansible_facts import (
     read_config,
     read_inventory,
 )
-from devops_cli.infra.nodes import Cluster, parse_node
+from devops_cli.infra.nodes import Cluster, CnpgCluster, parse_node
 from devops_cli.infra.onboard import OnboardTarget
 from devops_cli.infra.plan import (
     PLAN_FILE,
@@ -358,6 +360,7 @@ class _Context:
     cluster: Cluster
     inventory: AnsibleInventory
     offline_group: str | None
+    entry: InfraRepoConfig
 
     def node(self, host: str) -> str:
         return node_name(host, self.inventory.hostvars.get(host, {}))
@@ -522,7 +525,7 @@ def _prepare(
         nodrain=nodrain_units(inventory),
     )
     write_runner_settings(folder)
-    return _Context(plan, run, cluster, inventory, ansible.offline_group)
+    return _Context(plan, run, cluster, inventory, ansible.offline_group, entry)
 
 
 def _apply_hosts(context: _Context, progress: _Progress) -> tuple[ApplyResult, str | None]:
@@ -592,6 +595,8 @@ class _HostRun:
     before: NodeState | None = None
     unplanned: tuple[PlanTask, ...] = ()
     down: tuple[str, ...] = ()
+    down_window: tuple[str, ...] = ()
+    cnpg_clusters: tuple[CnpgCluster, ...] = ()
 
     def result(
         self,
@@ -611,6 +616,7 @@ class _HostRun:
             runner_idents=tuple(self.idents),
             unplanned=self.unplanned,
             down_during_apply=self.down,
+            down_during_window=self.down_window,
             before=self.before,
             after=after,
         )
@@ -658,11 +664,27 @@ def _cordon(context: _Context, work: _HostRun) -> _Stop | None:
 
 
 def _drain(context: _Context, work: _HostRun) -> _Stop | None:
-    """Name the workloads that are down while the node is cordoned, check the drain with a server
+    """Name the workloads that are down while the node is cordoned, open any CloudNativePG
+    maintenance window for single-instance clusters on the node, check the drain with a server
     dry run, then drain the node within the longest grace period of its pods."""
     cluster = context.cluster
     pods = cluster.pods(work.node)
     work.down = cluster.down_during_apply(work.node, pods)
+    if context.entry.agent_access is AgentAccess.FULL:
+        window_clusters = cluster.cnpg_window_clusters(work.node, pods)
+        if window_clusters:
+            project = context.run.folder / PROJECT_FOLDER
+            for c in window_clusters:
+                if (problem := cluster.check_cnpg_guards(c, project)) is not None:
+                    return ApplyStep.DRAIN_CHECK, problem
+            for c in window_clusters:
+                if (
+                    problem := cluster.patch_cnpg_window(c, in_progress=True, reuse_pvc=True)
+                ) is not None:
+                    return ApplyStep.DRAIN_CHECK, problem
+            work.cnpg_clusters = window_clusters
+            work.down_window = tuple(f"{c.namespace}/{c.name} (Cluster)" for c in window_clusters)
+            work.down = tuple(sorted((*work.down, *work.down_window)))
     if (problem := cluster.drain_check(work.node)) is not None:
         return ApplyStep.DRAIN_CHECK, problem
     if (problem := cluster.drain(work.node, cluster.drain_bound(pods))) is not None:
@@ -692,9 +714,10 @@ def _change(context: _Context, work: _HostRun) -> _Stop | None:
 
 def _settle(context: _Context, work: _HostRun) -> _Stop | None:
     """Wait for Ready and the GPUs of before, and for the health of every node, then uncordon a
-    node that was schedulable before, and wait for the critical alerts to clear. The nodes come
-    before the uncordon, so a node that is not healthy after the host leaves it cordoned. The
-    alerts come after it, because Prometheus can mount a volume that only this node mounts."""
+    node that was schedulable before, close any CloudNativePG maintenance windows and wait for
+    healthy state, and wait for the critical alerts to clear. The nodes come before the uncordon,
+    so a node that is not healthy after the host leaves it cordoned. The alerts come after it,
+    because Prometheus can mount a volume that only this node mounts."""
     cluster = context.cluster
     before = work.before
     gpus = before.gpu_allocatable if before else None
@@ -704,6 +727,12 @@ def _settle(context: _Context, work: _HostRun) -> _Stop | None:
         return ApplyStep.HEALTH, "; ".join(problems)
     if before is not None and not before.cordoned and (problems := cluster.uncordon(work.node)):
         return ApplyStep.UNCORDON, "; ".join(problems)
+    if work.cnpg_clusters:
+        for c in work.cnpg_clusters:
+            if (problem := cluster.patch_cnpg_window(c, in_progress=False)) is not None:
+                return ApplyStep.HEALTH, problem
+        if problems := cluster.wait_cnpg_healthy(work.cnpg_clusters):
+            return ApplyStep.HEALTH, "; ".join(problems)
     if problems := cluster.wait_alerts_clear():
         return ApplyStep.ALERTS, "; ".join(problems)
     return None
@@ -737,6 +766,7 @@ def audit_details(report: ApplyReport) -> dict[str, Any]:
                 "reason": host.reason,
                 "runner_idents": list(host.runner_idents),
                 "down_during_apply": list(host.down_during_apply),
+                "down_during_window": list(host.down_during_window),
             }
             for host in report.hosts
         ],
@@ -825,9 +855,19 @@ def render_apply_footer(report: ApplyReport) -> list[str]:
         *report.left_out_alerts,
     ]
     lines += [
-        texts.apply_down.format(host=host.host, workloads=", ".join(host.down_during_apply))
+        texts.apply_down.format(
+            host=host.host,
+            workloads=", ".join(
+                w for w in host.down_during_apply if w not in host.down_during_window
+            ),
+        )
         for host in report.hosts
-        if host.down_during_apply
+        if any(w not in host.down_during_window for w in host.down_during_apply)
+    ]
+    lines += [
+        texts.apply_down_window.format(host=host.host, clusters=", ".join(host.down_during_window))
+        for host in report.hosts
+        if host.down_during_window
     ]
     if report.folder:
         lines.append(texts.apply_folder.format(folder=report.folder))

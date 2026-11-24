@@ -84,6 +84,31 @@ devops infra plan [OPTIONS] <repo> <playbook>
 
 ---
 
+## `devops infra drift`
+
+**Check an infra repo for drift against its in-service hosts, report drifted hosts, and keep one marker issue in the repo. An agent needs the agent access level plan or above.**
+
+```bash
+devops infra drift [OPTIONS] <repo>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<repo>` | `string` | No | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--all` | `boolean` | - | Check the drift of each repo in infra.repos whose agent access level is plan or higher. |
+| `--playbook` | `string` | `site.yaml` | The playbook, as a path from the repo root. Default: site.yaml. |
+| `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops infra apply`
 
 **Apply a saved plan of devops infra plan to the hosts of an infra repo. The apply needs the plan id and the playbook, limit and tags of the plan, a plan not older than infra.plan_max_age_hours, a commit that origin holds and a healthy cluster. The hosts with no disruptive change run together. Each disruptive host runs alone in plan order: drain check, drain, a fresh check that must equal the plan, the run, Ready with the GPUs of before, the health of the nodes, uncordon only when the node was schedulable before, and no critical alert. A host whose disruptive classes are all service-restart-nodrain:\<unit\> is cordoned instead, because the restart of such a unit keeps its containers: the cordon, the fresh check, the run, Ready, the health of the nodes, the uncordon only when the node was schedulable before, and no critical alert, with no drain check and no drain. The health checks leave out the nodes of the hosts out of service and each critical alert whose node label names one of them, and the report names each alert that they left out. The drain waits for the longest grace period of a pod of the node, and the apply names each workload that is down while the node is cordoned, because only that node can mount its volume. A change that the plan does not show, or the first failure, stops the apply. Each apply writes an audit record. An agent needs the agent access level safe for a plan with no disruptive change and no unchecked task, else full; an agent applies only a commit of the default branch, or at full the head of an open pull request, and only with host key checks on. An agent runs the command as one plain command: the project allow rule Bash(uv run devops *) lets it start, and the owner keeps that rule. A compound shell line (an assignment, ;, &&, |) goes to the auto-mode classifier. The agent access level of the repo is the real control.**

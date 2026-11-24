@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "devops-cli"
-version = "0.206.2"
+version = "0.208.0"
 
 description = "DevOps CLI for managing repos, SSH keys, Kubernetes, and more"
 requires-python = ">=3.14"
@@ -86,7 +86,7 @@ dependencies = [
     "packageurl-python==0.17.6",
     "jq==1.13.0",
     "harbor==0.27.0",
-    "tomlkit==0.15.2",
+    "tomlkit==0.15.3",
     "numpy==2.5.5",
     "pytrec-eval-terrier==0.5.11",
     "wcmatch==12.0.4",

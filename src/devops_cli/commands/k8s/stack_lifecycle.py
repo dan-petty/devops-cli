@@ -324,6 +324,7 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
     "devops": [
         Path("networkpolicy.yaml"),
         Path("networkpolicy-rag-ingest.yaml"),
+        Path("networkpolicy-infra.yaml"),
         Path("serviceaccount.yaml"),
         Path("cronjob.yaml"),
         Path("cronjob-runner.yaml"),
@@ -379,6 +380,8 @@ PRODUCT_POST_HELM_BY_STACK: dict[str, tuple[Path, ...]] = {
     "devops": (
         Path("workflowtemplate-rag-ingest.yaml"),
         Path("cronworkflow-rag-ingest.yaml"),
+        Path("workflowtemplate-infra-drift.yaml"),
+        Path("cronworkflow-infra-drift.yaml"),
         Path("searxng", "servicemonitor.yaml"),
     ),
 }

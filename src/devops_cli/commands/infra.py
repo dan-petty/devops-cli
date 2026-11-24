@@ -248,6 +248,50 @@ def plan(
         raise typer.Exit(1)
 
 
+@app.command("drift", help=HELP.infra.drift)
+@dry_run_class("no-external-request")
+@trace_span("infra.drift")
+def drift(
+    repo: Annotated[str | None, typer.Argument(help=HELP.infra.drift_repo)] = None,
+    all_: Annotated[bool, typer.Option("--all", help=HELP.infra.drift_all)] = False,
+    playbook: Annotated[
+        str, typer.Option("--playbook", help=HELP.infra.drift_playbook)
+    ] = "site.yaml",
+    path: Annotated[Path | None, typer.Option("--path", help=HELP.infra.onboard_path)] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Report drift of an infra repo against in-service hosts."""
+    from devops_cli.config.settings import load_settings
+    from devops_cli.infra.drift import drift_entry, run_drift, run_drift_all
+    from devops_cli.infra.onboard import resolve_target
+
+    if all_ and repo is not None:
+        raise typer.BadParameter(MESSAGES.infra.drift_repo_and_all_exclusive)
+    if not all_ and repo is None:
+        raise typer.BadParameter(MESSAGES.infra.drift_target_needed)
+
+    settings = load_settings()
+    if all_:
+        exit_code, lines = run_drift_all(
+            settings, playbook=playbook, dry_run=dry_run or is_dry_run()
+        )
+        write_stdout("\n".join(lines) + "\n")
+        if exit_code != 0:
+            raise typer.Exit(exit_code)
+        return
+
+    if repo is None:
+        raise typer.BadParameter(MESSAGES.infra.drift_target_needed)
+    target = resolve_target(repo, path=path, settings=settings)
+    entry = drift_entry(target, settings)
+    exit_code, lines = run_drift(
+        target, entry, settings, playbook=playbook, dry_run=dry_run or is_dry_run()
+    )
+    write_stdout("\n".join(lines) + "\n")
+    if exit_code != 0:
+        raise typer.Exit(exit_code)
+
+
 @app.command("apply", help=HELP.infra.apply)
 @dry_run_class("request-plan")
 @trace_span("infra.apply")

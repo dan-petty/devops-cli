@@ -43,12 +43,23 @@ class WebhookComment(BaseModel):
     created_at: datetime
 
 
+class WebhookPullRequestHead(BaseModel):
+    """The head commit and ref of a pull request."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    sha: str | None = None
+    ref: str | None = None
+
+
 class WebhookPullRequest(BaseModel):
-    """A pull request that an event is about. Routing reads its number alone."""
+    """A pull request that an event is about."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     number: int | None = None
+    state: str | None = None
+    head: WebhookPullRequestHead | None = None
 
 
 class WebhookIssue(BaseModel):
@@ -59,9 +70,13 @@ class WebhookIssue(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     number: int | None = None
+    title: str = ""
+    body: str = ""
+    state: str = "open"
     labels: tuple[WebhookLabel, ...] = ()
     state_reason: str | None = None
     pull_request: WebhookPullRequest | None = None
+    updated_at: datetime | None = None
 
 
 class WebhookCheckSuite(BaseModel):
