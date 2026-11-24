@@ -42,6 +42,7 @@ RUN --mount=type=bind,from=lock,source=/lock/requirements.txt,target=/tmp/requir
 # on this stage, before the project layer (#6470).
 FROM venv AS base
 ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
+# hadolint ignore=DL3066
 USER vscode
 
 # The project, built and installed into the venv. A change of `src/` builds this stage again; the
