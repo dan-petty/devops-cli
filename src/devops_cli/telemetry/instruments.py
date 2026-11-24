@@ -935,11 +935,18 @@ REPOS_DRIFT_ROWS = Instrument(
     "values of each repository, zero included, and counts no row that informs only",
 )
 
+INFRA_DRIFT_HOSTS = Instrument(
+    "devops_cli_infra_drift_hosts",
+    InstrumentKind.GAUGE,
+    "1",
+    "Hosts of an infra repo with drift in the last drift check, by repo",
+)
+
 INFRA_RUNS_TOTAL = Instrument(
     "devops_cli_infra_runs_total",
     InstrumentKind.COUNTER,
     "1",
-    "Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply, node drain, node uncordon, node restart or node reboot) and result: ok, refused or stopped",
+    "Runs of devops infra that can change or check the hosts of an infra repo, by repo, command (apply, drift, node drain, node uncordon, node restart or node reboot) and result: ok, drift, refused, stopped or failed",
 )
 
 INSTRUMENTS: tuple[Instrument, ...] = (
@@ -1054,6 +1061,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     UPSTREAM_COMPONENT_STATUS,
     RESEARCH_OPEN_FINDINGS,
     REPOS_DRIFT_ROWS,
+    INFRA_DRIFT_HOSTS,
     INFRA_RUNS_TOTAL,
 )
 
@@ -1139,6 +1147,7 @@ __all__ = [
     "GITHUB_GRAPHQL_POINTS_TOTAL",
     "GITHUB_REQUESTS_TOTAL",
     "GITHUB_THROTTLE_WAIT",
+    "INFRA_DRIFT_HOSTS",
     "INFRA_RUNS_TOTAL",
     "INSTRUMENTS",
     "PROJECT_CI_RUNS",

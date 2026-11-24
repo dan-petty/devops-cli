@@ -208,7 +208,8 @@ writes by name.
 | `devops_cli_upstream_component_status` | Gauge | `1` | Upstream cloud service component status code (0=operational, 1=degraded, 2=partial_outage, 3=major_outage) by service and component. |
 | `devops_cli_research_open_findings` | Gauge | `1` | Open research findings, by severity: the advisories that affect a pin of the project. `devops research sweep` sets one value for each severity of the scale, with zero for a severity that has no finding. It sets none when a lookup got no answer. |
 | `devops_cli_repos_drift_rows` | Gauge | `1` | Rows of the last drift check of a repository of service.repos, by repo and state: drift (pending, failed or waiting) or not_readable. `devops repos onboard --all --plan` sets both values of each repository, zero included, and counts no row that informs only. |
-| `devops_cli_infra_runs_total` | Counter | `1` | Runs of devops infra that can change the hosts of an infra repo, by repo, command (apply, node drain, node uncordon, node restart or node reboot) and result: ok, refused or stopped. |
+| `devops_cli_infra_drift_hosts` | Gauge | `1` | Hosts of an infra repo with drift in the last drift check, by repo. |
+| `devops_cli_infra_runs_total` | Counter | `1` | Runs of devops infra that can change or check the hosts of an infra repo, by repo, command (apply, drift, node drain, node uncordon, node restart or node reboot) and result: ok, drift, refused, stopped or failed. |
 
 No process sends local savings in USD. `devops_cli_ai_tokens_total{local="true"}`
 counts the tokens that a local model ran for devops-cli. The AI spend dashboard takes

@@ -1482,6 +1482,25 @@ class InfraMessages:
         "Check mode changes no host. A task with check_mode: false runs for real; devops infra "
         "onboard lists each one."
     )
+    # `devops infra drift` (#5127): drift detection report, host changes and issue messages.
+    drift_title: str = "Drift report for {repo} ({playbook})"
+    drift_no_drift: str = "No drift detected on {repo}."
+    drift_detected: str = "Drift detected on {repo}: {count} host(s) in drift."
+    drift_host_header: str = "Host {host}:"
+    drift_changed_task: str = "  Changed: {name} ({path}) [{action}]"
+    drift_unchecked_task: str = "  Unchecked: {name} ({path}) [{action}]"
+    drift_plan_id: str = "Plan ID: {id}"
+    drift_issue_opened: str = (
+        "Opened drift issue #{number}: https://github.com/{repo}/issues/{number}"
+    )
+    drift_issue_updated: str = (
+        "Updated drift issue #{number}: https://github.com/{repo}/issues/{number}"
+    )
+    drift_issue_closed: str = (
+        "Closed drift issue #{number}: https://github.com/{repo}/issues/{number}"
+    )
+    drift_issue_unchanged: str = "Drift unchanged in issue #{number}."
+    drift_issue_none: str = "No issue needed."
     # `devops infra apply` (#5125): the problems of a node step, and the report of an apply.
     apply_node_not_ready: str = "{node} is not Ready ({ready})"
     apply_node_pressure: str = "{node} has {condition}"

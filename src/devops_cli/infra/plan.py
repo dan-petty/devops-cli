@@ -749,11 +749,17 @@ def _playbook(project: Path, playbook: str) -> str:
     Raises:
         InfraReadError: the playbook is not a file in the repo.
     """
-    path = (project / playbook).resolve()
     root = project.resolve()
-    if not path.is_relative_to(root) or not path.is_file():
-        raise InfraReadError(ERRORS.infra.playbook_not_found.format(playbook=playbook))
-    return path.relative_to(root).as_posix()
+    direct = (project / playbook).resolve()
+    if direct.is_relative_to(root) and direct.is_file():
+        return direct.relative_to(root).as_posix()
+
+    for sub in ("ansible/playbooks", "playbooks"):
+        candidate = (project / sub / playbook).resolve()
+        if candidate.is_relative_to(root) and candidate.is_file():
+            return candidate.relative_to(root).as_posix()
+
+    raise InfraReadError(ERRORS.infra.playbook_not_found.format(playbook=playbook))
 
 
 def _read(path: Path) -> str:
