@@ -90,8 +90,8 @@ EXPECTED = [
     _component(
         (ComponentKind.CHART, Ecosystem.HELM), "qdrant", "1.19.1", "k8s/argocd/apps/qdrant.yaml", 9
     ),
-    _component(_IMAGE, "valkey/valkey", "9.1.2-alpine", "k8s/llm/valkey.yaml", 10),
-    _component(_IMAGE, "example/untagged", "latest", "k8s/llm/valkey.yaml", 12),
+    _component(_IMAGE, "valkey/valkey", "9.1.2-alpine", "k8s/llm/valkey.yaml", 17),
+    _component(_IMAGE, "example/untagged", "latest", "k8s/llm/valkey.yaml", 30),
     _component(_IMAGE, "ghcr.io/example-org/web", "v0.11.4", "k8s/llm/values-web.yaml", 3),
     _component(_PIP, "httpx2", "2.13.1", "pyproject.toml", 5),
     _component(_PIP, "pyyaml", "6.0.3", "pyproject.toml", 6),
