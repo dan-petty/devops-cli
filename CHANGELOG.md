@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.209.0](https://github.com/dan-petty/devops-cli/compare/v0.208.0...v0.209.0) (2026-11-24)
+
+
+### Features
+
+* **infra:** apply a merged infra PR in a step job ([#6980](https://github.com/dan-petty/devops-cli/issues/6980)) ([e3329b3](https://github.com/dan-petty/devops-cli/commit/e3329b3348a21be75251db79c9749d4b560b9832))
+* **infra:** Open CloudNativePG window before drain ([#6976](https://github.com/dan-petty/devops-cli/issues/6976)) ([16a309e](https://github.com/dan-petty/devops-cli/commit/16a309eda6aaa95badd90f6cae3abbc2d7a39e4f))
+* **infra:** run drift in cluster and plan infra PRs ([#6977](https://github.com/dan-petty/devops-cli/issues/6977)) ([4c8afce](https://github.com/dan-petty/devops-cli/commit/4c8afce8c74d2dca30c8046100ed5fa24bc35d0a))
+* **monitoring:** Record the shared roadmap Service selectors ([#6978](https://github.com/dan-petty/devops-cli/issues/6978)) ([205ebcb](https://github.com/dan-petty/devops-cli/commit/205ebcbf6671785af716b52276371aeab7fc9e01))
+* **service:** cache GitHub issue state in the brain from webhooks ([#6966](https://github.com/dan-petty/devops-cli/issues/6966)) ([ed82af5](https://github.com/dan-petty/devops-cli/commit/ed82af5ef37d36f379d2156c2c8c30538173b4e3))
+
 ## [0.208.0](https://github.com/dan-petty/devops-cli/compare/v0.207.0...v0.208.0) (2026-11-24)
 
 
