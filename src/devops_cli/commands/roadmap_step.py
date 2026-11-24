@@ -10,6 +10,7 @@ from __future__ import annotations
 from devops_cli.commands.roadmap_step_fix_checks import fix_checks_cmd
 from devops_cli.commands.roadmap_step_fix_conflict import fix_conflict_cmd
 from devops_cli.commands.roadmap_step_fix_plan import fix_plan_cmd
+from devops_cli.commands.roadmap_step_infra_apply import infra_apply_cmd
 from devops_cli.commands.roadmap_step_infra_plan import infra_plan_cmd
 from devops_cli.commands.roadmap_step_open import open_cmd
 from devops_cli.commands.roadmap_step_ready import ready_cmd
@@ -22,6 +23,7 @@ step_app = new_typer(help=HELP.roadmap.step_app, no_args_is_help=True)
 step_app.command("fix-checks", help=HELP.roadmap.step_fix_checks)(fix_checks_cmd)
 step_app.command("fix-conflict", help=HELP.roadmap.step_fix_conflict)(fix_conflict_cmd)
 step_app.command("fix-plan", help=HELP.roadmap.step_fix_plan)(fix_plan_cmd)
+step_app.command("infra-apply", help=HELP.roadmap.step_infra_apply)(infra_apply_cmd)
 step_app.command("infra-plan", help=HELP.roadmap.step_infra_plan)(infra_plan_cmd)
 step_app.command("open", help=HELP.roadmap.step_open)(open_cmd)
 step_app.command("ready", help=HELP.roadmap.step_ready)(ready_cmd)
