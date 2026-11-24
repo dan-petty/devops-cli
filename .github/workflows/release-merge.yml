@@ -57,7 +57,7 @@ jobs:
           # This workflow holds a write token, so it restores no cache another run could have
           # written (zizmor cache-poisoning).
           enable-cache: false
-          version: "0.13.9"
+          version: "0.13.10"
           python-version: "3.14"
 
       # The step gets GITHUB_TOKEN and no App token. Its standard output holds only the lines
