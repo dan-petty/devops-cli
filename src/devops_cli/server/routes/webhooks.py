@@ -58,6 +58,8 @@ from devops_cli.config.constants import (
     WebhookExposure,
     WebhookProviderName,
 )
+from devops_cli.config.settings import load_settings
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
 from devops_cli.models.webhooks import GitHubWebhookPayload, WebhookComment
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
@@ -310,7 +312,6 @@ def _handle_infra_plan_event(
     """Launch an infra-plan Job on pull_request synchronize deliveries (#5129). Return True if event is consumed."""
     if event != "pull_request" or action != "synchronize":
         return False
-    from devops_cli.config.settings import load_settings
 
     active_settings = load_settings()
     infra_repos = {r.repo for r in active_settings.infra.repos}
@@ -319,7 +320,84 @@ def _handle_infra_plan_event(
     pr = payload.pull_request if payload is not None else None
     if pr is not None and pr.number is not None and pr.state == "open" and pr.head and pr.head.sha:
         launch_infra_plan(repo, pr.number, pr.head.sha)
-    return repo not in service_manager.config.repos
+    repos = getattr(service_manager.config, "repos", ())
+    return repo not in repos
+
+
+def _handle_infra_apply_event(
+    repo: str,
+    event: str,
+    action: str,
+    payload: GitHubWebhookPayload | None,
+    service_manager: ServiceManager,
+) -> bool:
+    """Launch an infra apply job when a pull request of an infra repo merges (#5130). Return True if event is consumed."""
+    if event != "pull_request" or action != "closed" or payload is None:
+        return False
+    pr = payload.pull_request
+    if pr is None or not pr.merged or not pr.number:
+        return False
+    commit = pr.merge_commit_sha or (pr.head.sha if pr.head else None)
+    if not commit:
+        return False
+
+    settings = load_settings()
+    ref = RepoRef(repo)
+    if not settings.infra.entry(ref):
+        return False
+    from devops_cli.roadmap.steps.infra_apply import launch_infra_apply
+
+    launch_infra_apply(repo, pr.number, commit, settings=settings)
+    repos = getattr(service_manager.config, "repos", ())
+    return repo not in repos
+
+
+def _build_delivery_and_subject(
+    repo: str,
+    event: str,
+    action: str,
+    payload: GitHubWebhookPayload | None,
+) -> tuple[Any, int | None]:
+    """Build the typed WebhookDelivery and determine the subject issue/PR number."""
+    from devops_cli.roadmap.run import WebhookDelivery
+
+    numbers = payload.delivery_numbers if payload is not None else ()
+    issue = payload.issue.number if payload is not None and payload.issue else None
+    comment = payload.comment if payload is not None else None
+    subject = issue if issue is not None else next(iter(numbers), None)
+    delivery = WebhookDelivery(
+        repo=repo,
+        event=event,
+        action=action,
+        number=issue,
+        pull_numbers=numbers,
+        comment=None if comment is None else comment.body,
+        comment_at=None if comment is None else comment.created_at,
+    )
+    return delivery, subject
+
+
+def _handle_and_filter_infra(
+    repo: str,
+    event: str,
+    action: str,
+    payload: GitHubWebhookPayload | None,
+    service_manager: ServiceManager,
+) -> bool:
+    """Launch infra plan or apply jobs if applicable; return True to skip roadmap delivery."""
+    if _handle_infra_plan_event(repo, event, action, payload, service_manager):
+        return True
+    if _handle_infra_apply_event(repo, event, action, payload, service_manager):
+        return True
+    return False
+
+
+def _remember_delivery_issue(repo: str, payload: GitHubWebhookPayload | None) -> None:
+    """Remember the delivery issue if present."""
+    if payload is not None and payload.issue and payload.issue.number is not None:
+        from devops_cli.roadmap.stores.brain_issues import issue_from_event, remember_issue
+
+        remember_issue(repo, issue_from_event(repo, payload.issue))
 
 
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
@@ -343,36 +421,20 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             CONST_SERVICE_METRIC_TRIGGERS,
             labels={"repo": repo, "source": CONST_SERVICE_SOURCE_WEBHOOK},
         )
-        if _handle_infra_plan_event(repo, event, action, payload, service_manager):
+        if _handle_and_filter_infra(repo, event, action, payload, service_manager):
             return
         from devops_cli.roadmap.run import (
-            WebhookDelivery,
             lane_of_row,
             lanes_to_wake,
             run_scoped_update,
             scoped_update_of,
             scoped_update_wakes_lanes,
         )
-        from devops_cli.roadmap.stores.brain_issues import issue_from_event, remember_issue
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
 
-        if payload is not None and payload.issue and payload.issue.number is not None:
-            remember_issue(repo, issue_from_event(repo, payload.issue))
-
-        numbers = payload.delivery_numbers if payload is not None else ()
-        issue = payload.issue.number if payload is not None and payload.issue else None
-        comment = payload.comment if payload is not None else None
-        subject = issue if issue is not None else next(iter(numbers), None)
-        delivery = WebhookDelivery(
-            repo=repo,
-            event=event,
-            action=action,
-            number=issue,
-            pull_numbers=numbers,
-            comment=None if comment is None else comment.body,
-            comment_at=None if comment is None else comment.created_at,
-        )
+        _remember_delivery_issue(repo, payload)
+        delivery, subject = _build_delivery_and_subject(repo, event, action, payload)
         scoped = scoped_update_of(delivery)
         if scoped is not None and subject is not None:
             lane = lane_of_row(scoped.job, service_manager.config.lanes)
