@@ -2880,6 +2880,7 @@ class BrainStore(StrEnum):
 
     SNAPSHOT = "snapshot"
     FACT = "fact"
+    ISSUE = "issue"
 
 
 class BrainRead(StrEnum):

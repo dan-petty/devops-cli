@@ -329,8 +329,12 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             scoped_update_of,
             scoped_update_wakes_lanes,
         )
+        from devops_cli.roadmap.stores.brain_issues import issue_from_event, remember_issue
         from devops_cli.roadmap.stores.listing_snapshot import intake_listing
         from devops_cli.roadmap.stores.store import get_roadmap_store
+
+        if payload is not None and payload.issue and payload.issue.number is not None:
+            remember_issue(repo, issue_from_event(repo, payload.issue))
 
         numbers = payload.delivery_numbers if payload is not None else ()
         issue = payload.issue.number if payload is not None and payload.issue else None

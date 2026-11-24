@@ -120,8 +120,9 @@ class TieredMapping[V](MutableMapping[str, V]):
         self.store = store
         self._adapter = adapter
         self._schema_key: str | None = None
-        self._memory: TLRUCache[str, _Held[V]] = TLRUCache(
-            maxsize=entries, ttu=_expiry, timer=_monotonic
+        self._entries = entries
+        self._memory: TLRUCache[str, _Held[V]] = (
+            TLRUCache(maxsize=entries, ttu=_expiry, timer=_monotonic) if entries > 0 else None  # type: ignore[assignment]
         )
         self._lock = threading.Lock()
         self._generation = _generation
@@ -138,11 +139,12 @@ class TieredMapping[V](MutableMapping[str, V]):
         return f"{self.prefix}{_SEPARATOR}{key}"
 
     def __getitem__(self, key: str) -> V:
-        with self._lock:
-            held = self._current().get(key)
-        if held is not None:
-            count_read(self.store, BrainRead.MEMORY)
-            return held.value
+        if self._entries > 0:
+            with self._lock:
+                held = self._current().get(key)
+            if held is not None:
+                count_read(self.store, BrainRead.MEMORY)
+                return held.value
         tier = shared_cache_tier()
         read = None if tier is None else tier.get_with_ttl(self.shared_key(key))
         text, remaining = (None, _PTTL_NO_KEY) if read is None else read
@@ -156,8 +158,9 @@ class TieredMapping[V](MutableMapping[str, V]):
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: V) -> None:
-        with self._lock:
-            self._current()[key] = _Held(value, _monotonic() + self.ttl)
+        if self._entries > 0:
+            with self._lock:
+                self._current()[key] = _Held(value, _monotonic() + self.ttl)
         encoded = self.schema_key.encode() + _SEPARATOR.encode() + self._adapter.dump_json(value)
         if len(encoded) > DEFAULT_BRAIN_VALUE_MAX_BYTES:
             count_write(self.store, BrainWrite.OVERSIZE)
@@ -167,18 +170,23 @@ class TieredMapping[V](MutableMapping[str, V]):
         count_write(self.store, BrainWrite.SHARED if sent else BrainWrite.SKIPPED)
 
     def __delitem__(self, key: str) -> None:
-        with self._lock:
-            self._current().pop(key, None)
+        if self._entries > 0:
+            with self._lock:
+                self._current().pop(key, None)
         tier = shared_cache_tier()
         if tier is not None:
             tier.unlink(self.shared_key(key))
 
     def __iter__(self) -> Iterator[str]:
+        if self._entries <= 0:
+            return iter(())
         with self._lock:
             keys = list(self._current())
         return iter(keys)
 
     def __len__(self) -> int:
+        if self._entries <= 0:
+            return 0
         with self._lock:
             return len(self._current())
 
@@ -186,7 +194,7 @@ class TieredMapping[V](MutableMapping[str, V]):
         """Keep a value read from Valkey in memory for the `remaining` milliseconds of its key,
         or for `ttl` seconds when that is sooner or the key has no TTL. A key that expired
         between `GET` and `PTTL` leaves the memory tier as it is."""
-        if remaining == _PTTL_NO_KEY:
+        if self._entries <= 0 or remaining == _PTTL_NO_KEY:
             return
         seconds = self.ttl if remaining == _PTTL_NO_EXPIRY else min(self.ttl, remaining / 1000)
         with self._lock:
@@ -195,6 +203,8 @@ class TieredMapping[V](MutableMapping[str, V]):
     def _current(self) -> TLRUCache[str, _Held[V]]:
         """The memory tier, emptied first when `reset_tiered_mappings` started a new generation.
         The caller holds the lock."""
+        if self._entries <= 0:
+            return None  # type: ignore[return-value]
         if self._generation != _generation:
             self._memory.clear()
             self._generation = _generation

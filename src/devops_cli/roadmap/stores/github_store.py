@@ -37,6 +37,7 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from email.parser import HeaderParser
 from http import HTTPStatus
 from itertools import islice
 from pathlib import PurePosixPath
@@ -50,7 +51,10 @@ from devops_cli.config.constants import (
     CONST_GH_ISSUE_EVENT_CHANGE_KINDS,
     CONST_GH_RAW_CONTENT_ACCEPT,
 )
-from devops_cli.config.defaults import DEFAULT_GH_ISSUE_TIMELINE_LIMIT, DEFAULT_GH_REST_PER_PAGE
+from devops_cli.config.defaults import (
+    DEFAULT_GH_ISSUE_TIMELINE_LIMIT,
+    DEFAULT_GH_REST_PER_PAGE,
+)
 from devops_cli.exceptions.git import (
     GitHubFileNotFoundError,
     GitHubOperationError,
@@ -63,7 +67,13 @@ from devops_cli.github.check_verdict import read_check_runs
 from devops_cli.github.error_classifier import classify_gh_failure, gh_http_status
 from devops_cli.github.rate_limiter import run_gh
 from devops_cli.github.repo_ref import is_repository_name
+from devops_cli.github.request_scope import request_labels
 from devops_cli.github.session import get_github_session
+from devops_cli.roadmap.stores.brain_issues import (
+    CachedIssue,
+    cached_issue,
+    remember_issue,
+)
 from devops_cli.roadmap.stores.comment_repeat import refused_repeat
 from devops_cli.roadmap.stores.listing_snapshot import FULL_LISTING, ListingRead
 from devops_cli.roadmap.stores.store import (
@@ -105,6 +115,7 @@ from devops_cli.roadmap.stores.store import (
     with_record,
 )
 from devops_cli.telemetry.instruments import (
+    BRAIN_CACHE_TOTAL,
     ROADMAP_RECORD_LOST_EDIT_TOTAL,
     ROADMAP_RECORD_REPAIRS_TOTAL,
     emit,
@@ -772,6 +783,22 @@ def renames_args(repo: str, number: Number) -> list[str]:
 # ── Adapter ───────────────────────────────────────────────────────────────────
 
 
+def _parse_revalidate_response(
+    proc: subprocess.CompletedProcess[str], fallback_etag: str | None
+) -> tuple[int | None, str | None, str]:
+    """Extract the HTTP status, ETag, and body from `proc`."""
+    if proc.returncode != 0:
+        return gh_http_status(proc.stderr or proc.stdout or ""), fallback_etag, ""
+    answer = (proc.stdout or "").replace("\r\n", "\n")
+    head, _, body = answer.partition("\n\n")
+    status_line = head.partition("\n")[0]
+    tokens = status_line.split()
+    status = int(tokens[1]) if len(tokens) >= 2 and tokens[1].isdigit() else None
+    fields = HeaderParser().parsestr(head.partition("\n")[2])
+    etag = fields.get("etag") or fallback_etag
+    return status, etag, body
+
+
 class GitHubRoadmapStore(RoadmapStore):
     """The roadmap on GitHub, read and written as whoever `gh` is logged in as. One store lives
     for one command or one Service round: it keeps the listing of every issue for its life."""
@@ -848,8 +875,55 @@ class GitHubRoadmapStore(RoadmapStore):
     def issue(self, number: int) -> IssueRecord | None:
         """The issue numbered `number`, Item or not, from one read, or None when it is a pull
         request or does not exist."""
+        row = request_labels().get("row", "")
+        cached = cached_issue(self._repo, number)
+        if cached is not None and cached.is_fresh():
+            emit(BRAIN_CACHE_TOTAL, 1, {"row": row, "result": "hit"})
+            return cached.record
+
+        emit(BRAIN_CACHE_TOTAL, 1, {"row": row, "result": "miss"})
+        if cached is not None:
+            return self._revalidate_issue(number, cached)
+
         found = self._read_or_none(issue_args(self._repo, number), _ISSUE, f"issue #{number}")
-        return None if found is None or found.pull_request is not None else found.record()
+        if found is None or found.pull_request is not None:
+            return None
+        record = found.record()
+        remember_issue(
+            self._repo,
+            CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)),
+        )
+        return record
+
+    def _revalidate_issue(self, number: int, entry: CachedIssue) -> IssueRecord | None:
+        """Revalidate a stale cached issue with a conditional GET carrying its ETag."""
+        args = [*issue_args(self._repo, number), "--include"]
+        if entry.etag:
+            args.extend(["-H", f"If-None-Match: {entry.etag}"])
+        proc = self._run(args)
+        status, etag, body = _parse_revalidate_response(proc, entry.etag)
+        now = datetime.now(UTC)
+
+        if status == HTTPStatus.NOT_MODIFIED:
+            new_entry = entry.model_copy(update={"checked_at": now, "etag": etag})
+            remember_issue(self._repo, new_entry)
+            return new_entry.record
+
+        if status == HTTPStatus.NOT_FOUND:
+            return None
+
+        if proc.returncode != 0 and status != HTTPStatus.OK:
+            raise self._failure(proc, args, f"revalidate issue #{number}", "roadmap.read")
+
+        payload = self._validate(body or proc.stdout or "", _ISSUE, f"issue #{number}")
+        if payload.pull_request is not None:
+            return None
+        record = payload.record()
+        new_entry = CachedIssue(record=record, etag=etag, checked_at=now)
+        remember_issue(self._repo, new_entry)
+        if self._all is not None:
+            self._all = self._all | {record.number: record}
+        return record
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""
@@ -1219,6 +1293,14 @@ class GitHubRoadmapStore(RoadmapStore):
             self._all = (self._all or {}) | {
                 number: kept.model_copy(update={"labels": (*kept.labels, label)})
             }
+        cached = cached_issue(self._repo, number)
+        existing = cached.record if cached is not None else kept
+        if existing is not None and label not in existing.labels:
+            new_record = existing.model_copy(update={"labels": (*existing.labels, label)})
+            remember_issue(
+                self._repo,
+                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC)),
+            )
 
     def unlabel_issue(self, number: int, label: str) -> None:
         """Remove `label` from issue or pull request `number`; GitHub keeps its other labels."""
@@ -1230,6 +1312,16 @@ class GitHubRoadmapStore(RoadmapStore):
                     update={"labels": tuple(held for held in kept.labels if held != label)}
                 )
             }
+        cached = cached_issue(self._repo, number)
+        existing = cached.record if cached is not None else kept
+        if existing is not None and label in existing.labels:
+            new_record = existing.model_copy(
+                update={"labels": tuple(held for held in existing.labels if held != label)}
+            )
+            remember_issue(
+                self._repo,
+                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC)),
+            )
 
     def evidence_holds(self, evidence: Evidence) -> bool:
         """Whether GitHub confirms the evidence. The value is one path segment of its endpoint,
@@ -1432,6 +1524,10 @@ class GitHubRoadmapStore(RoadmapStore):
         record = issue.record()
         if self._all is not None:
             self._all = self._all | {record.number: record}
+        remember_issue(
+            self._repo,
+            CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)),
+        )
         return record
 
     def _write(self, args: list[str], action: str, *, input: str | None = None) -> str:

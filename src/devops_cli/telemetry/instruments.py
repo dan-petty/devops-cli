@@ -707,6 +707,13 @@ EMBEDDING_CACHE_LOOKUPS_TOTAL = Instrument(
     "or miss. A hit names its tier: memory for the cache of the process, valkey, or disk for "
     "the cache file that keeps the vectors of intake between runs",
 )
+BRAIN_CACHE_TOTAL = Instrument(
+    "devops_cli_brain_cache_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Reads of the cached issue in the project brain (#6013), by row and result: hit when the brain "
+    "answered, or miss when GitHub was read",
+)
 BRAIN_READS_TOTAL = Instrument(
     "devops_cli_brain_reads_total",
     InstrumentKind.COUNTER,
@@ -1028,6 +1035,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     ROADMAP_STAGE_GATE_PROBLEMS,
     ROADMAP_STAGE_GATE_REFUSALS_TOTAL,
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
+    BRAIN_CACHE_TOTAL,
     BRAIN_READS_TOTAL,
     BRAIN_WRITES_TOTAL,
     VALKEY_CACHE_ERRORS_TOTAL,
@@ -1130,6 +1138,7 @@ __all__ = [
     "AI_SPEND_USD_TOTAL",
     "AI_STRUCTURED_ATTEMPTS_TOTAL",
     "AI_TOKENS_TOTAL",
+    "BRAIN_CACHE_TOTAL",
     "BRAIN_GITHUB_REQUESTS_SAVED_TOTAL",
     "BRAIN_READS_TOTAL",
     "BRAIN_WRITES_TOTAL",
