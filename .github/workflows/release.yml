@@ -96,7 +96,7 @@ jobs:
           # This workflow publishes, so it restores no cache another run could have written
           # (zizmor cache-poisoning).
           enable-cache: false
-          version: "0.13.9"
+          version: "0.13.10"
           python-version: "3.14"
 
       - name: Build Distribution Packages (Wheel & sdist)
