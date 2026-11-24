@@ -1,5 +1,6 @@
 """The row `release_comments`: the Service comments the version on each closed issue that a release
-carries, and the time the images of the release run in the cluster (#2917).
+carries, and the time the images of the release run in the cluster (#2917). The update scoped to a
+published release delivery runs the `Released in` pass of that one release at once (#4416).
 
 GitHub is faked at the `gh` process edge (`GitHubFake`), the registry at the HTTP edge
 (`RegistryFake`). The cluster is read by a function that each test gives the digests it holds.
@@ -19,8 +20,8 @@ from devops_cli.exceptions import RoadmapRunError
 from devops_cli.exceptions.k8s import ClusterJobError
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
-from devops_cli.roadmap.release_comments import comment_releases
-from devops_cli.roadmap.release_feed import GitHubReleaseFeed
+from devops_cli.roadmap.release_comments import comment_one_release, comment_releases
+from devops_cli.roadmap.release_feed import GitHubReleaseFeed, ReleaseInfo
 from devops_cli.roadmap.release_roll import RolledDigests
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from tests.support.fakes.github import RunnerSession
@@ -400,3 +401,43 @@ def test_a_registry_status_other_than_404_fails_the_round_for_a_new_release(
         pytest.raises(RoadmapRunError, match=r"v1\.1\.0"),
     ):
         _round(github, ledger, roll=lambda: _rolled("v1.1.0"), client=client)
+
+
+# ── The scoped update of a published delivery ──
+
+
+def _published(*pulls: int) -> ReleaseInfo:
+    """Release `v1.2.3`, just published, whose changelog names pull requests `pulls`."""
+    return ReleaseInfo(
+        tag="v1.2.3",
+        url="https://example.com/releases/tag/v1.2.3",
+        published_at=NOW,
+        draft=False,
+        prerelease=False,
+        body=_changelog(*pulls),
+    )
+
+
+def test_one_release_comments_its_closed_issue_once(github: GitHubFake, ledger: Path) -> None:
+    """Test first for #4416: the update scoped to a published delivery posts `Released in <tag>` on
+    each closed issue of its release at once, and a second delivery posts nothing. It sets the flag
+    of the ledger, and it posts no `Live since` comment, which the round of the row keeps for the
+    images of the release."""
+    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+    github.seed_issue(21, "pull", state="closed", body="Closes #123", pull_request=True)
+    github.seed_issue(123, "one", state="closed")
+    feed = GitHubReleaseFeed(REPO, runner=github)
+
+    comment_one_release(store, feed, _published(21), ledger_path=ledger)
+    comment_one_release(store, feed, _published(21), ledger_path=ledger)
+
+    first_lines = [body.split("\n")[0] for body in github.comments.get(123, [])]
+    assert (
+        first_lines,
+        [line for line in first_lines if " live " in line],
+        json.loads(ledger.read_text("utf-8"))["releases"]["v1.2.3"],
+    ) == (
+        ["<!-- devops roadmap release v1.2.3 released -->"],
+        [],
+        {"released": True, "live": False},
+    )

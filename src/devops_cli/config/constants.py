@@ -1724,6 +1724,9 @@ CONST_SERVICE_STATUS_COMMENT_REFUSED: Final[str] = "ignored_comment_refused"
 # The status of a comment delivery whose author is outside `CONST_ROADMAP_TRUSTED_AUTHORS`: the
 # repository is public, so only an account with write access may wake a roadmap job (#4415).
 CONST_SERVICE_STATUS_UNTRUSTED_COMMENT: Final[str] = "ignored_untrusted_comment"
+# The status of a release delivery the roadmap consumer refuses before any GitHub request: an action
+# that is not `published`, a draft, a prerelease, or a release with no publication time (#4416).
+CONST_SERVICE_STATUS_RELEASE_REFUSED: Final[str] = "ignored_release_refused"
 
 
 class WebhookProviderName(StrEnum):
@@ -4036,8 +4039,12 @@ CONST_ROADMAP_WATCH_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
 # retry or reply wakes its row at once. The event holds no intake key, because an intake key would
 # make the intake row due for a comment.
 CONST_ROADMAP_COMMENT_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset({"issue_comment"})
+# The webhook events that a delivery runs the scoped update of a release for (#4416): a published
+# release posts `Released in <tag>` at once. The event holds no intake key, because a release
+# delivery names no issue.
+CONST_ROADMAP_RELEASE_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset({"release"})
 # The webhook events the roadmap jobs' batch keys name and the watch row reads, the events the
-# Service's roadmap consumer takes (#1386, #4413, #4415).
+# Service's roadmap consumer takes (#1386, #4413, #4415, #4416).
 CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
     {
         event
@@ -4046,6 +4053,7 @@ CONST_ROADMAP_WEBHOOK_EVENTS: Final[frozenset[str]] = frozenset(
     }
     | CONST_ROADMAP_WATCH_WEBHOOK_EVENTS
     | CONST_ROADMAP_COMMENT_WEBHOOK_EVENTS
+    | CONST_ROADMAP_RELEASE_WEBHOOK_EVENTS
 )
 CONST_PROJECT_TEMPLATE_PATH: Final[str] = ".github/project-template.json"
 CONST_ROADMAP_EPIC_LABEL: Final[str] = "type/epic"

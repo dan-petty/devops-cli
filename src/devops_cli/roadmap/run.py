@@ -132,6 +132,7 @@ from devops_cli.exceptions import (
 from devops_cli.exceptions.git import GitHubUnauthenticatedError
 from devops_cli.github.request_scope import request_scope
 from devops_cli.lang import ERRORS, MESSAGES
+from devops_cli.models.webhooks import WebhookRelease
 
 # `alternatives` imports pydantic_ai too: import it here for the same reason (#2535).
 from devops_cli.roadmap.alternatives import (
@@ -160,8 +161,8 @@ from devops_cli.roadmap.open_row import run_open_round
 # import it for the first time together, so import it at module level, in the Service's main
 # thread, before any worker starts (#2535).
 from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
-from devops_cli.roadmap.release_comments import comment_releases
-from devops_cli.roadmap.release_feed import GitHubReleaseFeed
+from devops_cli.roadmap.release_comments import comment_one_release, comment_releases
+from devops_cli.roadmap.release_feed import GitHubReleaseFeed, ReleaseInfo
 from devops_cli.roadmap.release_roll import cluster_digests
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
 from devops_cli.roadmap.service_stop import service_stopping, stop_before
@@ -675,7 +676,8 @@ class WebhookDelivery:
     repository, the event, its action, the number of the issue it is about and the numbers of the
     pull requests it names (ADR 0017). A delivery that names no issue number carries None, and one
     that names no pull request carries no number (#4413). A delivery of a comment carries its text
-    and the time it was written, and the row that the text wakes reads them (#4415)."""
+    and the time it was written, and the row that the text wakes reads them (#4415). A delivery of
+    a release carries its release, and a release names no issue number (#4416)."""
 
     repo: str
     event: str
@@ -684,6 +686,7 @@ class WebhookDelivery:
     pull_numbers: tuple[int, ...] = ()
     comment: str | None = None
     comment_at: datetime | None = None
+    release: WebhookRelease | None = None
 
 
 def _intake_one(
@@ -750,6 +753,41 @@ def _watch_one(
         repo_dir=repo_dir,
         now=now,
         pull_numbers=delivery.pull_numbers,
+    )
+    return JobOutcome()
+
+
+def _release_one(
+    store: RoadmapStore,
+    delivery: WebhookDelivery,
+    *,
+    repo_dir: Path,
+    now: datetime,
+    **_: Any,
+) -> JobOutcome:
+    """Comment the version of the release that `delivery` carries on each closed issue of that
+    release at once, with the ledger, the marker and the body of the `release_comments` row
+    (#4416). The row keeps its round, which posts `Live since` once the images of the release run
+    in the cluster and reconciles a delivery that never came. A delivery that carries no release
+    comments nothing."""
+    from devops_cli.config.constants import CONST_ROADMAP_RELEASE_LEDGER_FILENAME
+
+    release = delivery.release
+    if release is None:
+        return JobOutcome()
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    comment_one_release(
+        store,
+        GitHubReleaseFeed(delivery.repo),
+        ReleaseInfo(
+            tag=release.tag_name,
+            url=release.html_url,
+            published_at=release.published_at or now,
+            draft=release.draft,
+            prerelease=release.prerelease,
+            body=release.body or "",
+        ),
+        ledger_path=repo_dir / CONST_ROADMAP_RELEASE_LEDGER_FILENAME,
     )
     return JobOutcome()
 
@@ -1386,10 +1424,15 @@ _SCOPED_WATCH_ACTIONS: tuple[tuple[str, str], ...] = (
 
 _SCOPED_WATCH = ScopedUpdate(job="watch", runner=_watch_one)
 
+# The row that comments the version of a release on its closed issues (#4416). It calls no model
+# and needs no clone, and its round keeps the `Live since` pass.
+_SCOPED_RELEASE = ScopedUpdate(job="release_comments", runner=_release_one)
+
 SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
     {
         **{("issues", action): _SCOPED_INTAKE for action in ("opened", "edited", "reopened")},
         **{key: _SCOPED_WATCH for key in _SCOPED_WATCH_ACTIONS},
+        ("release", "published"): _SCOPED_RELEASE,
     }
 )
 """The scoped update of each event and action that has one (ADR 0017). An event or action that

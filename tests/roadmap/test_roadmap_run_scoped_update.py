@@ -1,12 +1,13 @@
 """The scoped update that a webhook delivery runs at once, and the poll that reconciles after it
 (#1533). The scoped intake reads every issue through the listing snapshot (#3670), a pull
 request, review or check suite delivery runs the watch row scoped to its pull requests (#4413),
-and a trusted comment runs the row that its text wakes, on the checkout of that row's lane
-(#4415).
+a trusted comment runs the row that its text wakes, on the checkout of that row's lane
+(#4415), and a published release delivery comments the closed issues of its release (#4416).
 """
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -17,9 +18,11 @@ from devops_cli.ai.client import LLMClient
 from devops_cli.config.constants import (
     CONST_GITHUB_CLONE_URL,
     CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER,
+    CONST_ROADMAP_RELEASE_LEDGER_FILENAME,
     CONST_ROADMAP_WATCH_LEDGER_FILENAME,
 )
 from devops_cli.config.settings import AIConfig
+from devops_cli.models.webhooks import WebhookRelease
 from devops_cli.roadmap.intake.intake_model import GatewayIntakeModel, ModelProposal
 from devops_cli.roadmap.run import (
     SCOPED_UPDATES,
@@ -46,6 +49,7 @@ from tests.support.fakes.http import WebFake
 from tests.support.fakes.otlp import FakeCollector
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.gh_process import answer_gh
 from tests.support.llm_stream_fakes import serve_llm
 from tests.support.roadmap_intake import FINISHED, on_github
 from tests.support.roadmap_run import (
@@ -231,8 +235,9 @@ def test_a_comment_delivery_runs_the_row_that_its_text_wakes(
 
 def test_the_issues_actions_run_a_scoped_intake_on_the_lane_of_intake() -> None:
     """`issues` opened, edited and reopened each run intake of one issue, on the lane of intake,
-    and each pull request, review and check suite action runs the watch row, on the lane of
-    watch (#1534, #4413, #5553)."""
+    each pull request, review and check suite action runs the watch row, on the lane of
+    watch, and a published `release` delivery runs the `release_comments` row, on the lane of that
+    row (#1534, #4413, #4416, #5553)."""
     assert {
         key: (update.job, lane_of_row(update.job)) for key, update in SCOPED_UPDATES.items()
     } == {
@@ -242,12 +247,77 @@ def test_the_issues_actions_run_a_scoped_intake_on_the_lane_of_intake() -> None:
         **{("pull_request", action): ("watch", "watch") for action in _PULL_ACTIONS},
         ("pull_request_review", "submitted"): ("watch", "watch"),
         ("check_suite", "completed"): ("watch", "watch"),
+        ("release", "published"): ("release_comments", "release_comments"),
     }
     assert {
         lane_of_row(update.job, {"status": ["watch"]})
         for key, update in SCOPED_UPDATES.items()
-        if key[0] != "issues"
+        if key[0] != "issues" and key[0] != "release"
     } == {"status"}
+
+
+def test_a_release_delivery_comments_its_closed_issue_once(
+    gh_edge: ProcessFake, tmp_path: Path
+) -> None:
+    """Test first for #4416: a published `release` delivery runs the `release_comments` row scoped
+    to its release, on the lane of that row. It posts `Released in <tag>` once on each closed issue
+    of the release, writes the flag in `release_comments.json`, and posts no `Live since` comment,
+    which the round of the row keeps for the images of the release."""
+    store, _, _ = make_candidates(123)
+    answer_gh(
+        gh_edge,
+        "api",
+        f"repos/{REPO}/issues/21",
+        stdout=json.dumps(
+            {
+                "state": "closed",
+                "body": "Closes #123",
+                "pull_request": {"url": f"https://api.github.com/repos/{REPO}/pulls/21"},
+            }
+        ),
+    )
+    answer_gh(
+        gh_edge,
+        "api",
+        f"repos/{REPO}/issues/123",
+        stdout=json.dumps({"state": "closed", "body": "the item"}),
+    )
+    delivery = WebhookDelivery(
+        repo=REPO,
+        event="release",
+        action="published",
+        release=WebhookRelease(
+            tag_name="v1.2.3",
+            html_url="https://example.com/releases/tag/v1.2.3",
+            body="* **a:** x ([#21](https://example.com/issues/21))\n",
+            published_at=NOW,
+        ),
+    )
+
+    first = run_scoped_update(delivery, store, data_dir=tmp_path, now=NOW)
+    posted = [comment.body.split("\n")[0] for comment in store.comments_on(123)]
+    second = run_scoped_update(delivery, store, data_dir=tmp_path, now=NOW)
+    again = [comment.body.split("\n")[0] for comment in store.comments_on(123)]
+    ledger = json.loads(
+        (tmp_path / REPO_DIR / CONST_ROADMAP_RELEASE_LEDGER_FILENAME).read_text(encoding="utf-8")
+    )
+    update = SCOPED_UPDATES[("release", "published")]
+
+    assert (
+        first,
+        second,
+        (posted, again),
+        [line for line in again if " live " in line],
+        ledger["releases"]["v1.2.3"],
+        (update.job, lane_of_row(update.job)),
+    ) == (
+        JobOutcome(),
+        JobOutcome(),
+        (["<!-- devops roadmap release v1.2.3 released -->"],) * 2,
+        [],
+        {"released": True, "live": False},
+        ("release_comments", "release_comments"),
+    )
 
 
 @pytest.mark.usefixtures("cluster")
