@@ -84,7 +84,6 @@ def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> Non
         ("CronJob", "devops-cli-runner", "prepare"): (cluster, "devops"),
         ("CronJob", "devops-cli-runner", "agent"): (cluster, "devops"),
         ("CronJob", "devops-cli-runner", "publish"): (cluster, "devops"),
-        ("CronJob", "renovate", "token"): (cluster, "devops"),
         ("CronJob", "repos-drift", "repos-drift"): (cluster, "devops"),
         ("CronJob", "roadmap-stage", "stage"): (cluster, "devops"),
         ("Deployment", "mcp-server", "mcp-server"): (cluster, "devops"),
