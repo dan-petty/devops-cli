@@ -32,7 +32,7 @@ dependencies = [
     "tldextract==5.4.0",
     "pathspec==1.1.1",
     "python-hcl2==8.2.0",
-    "packaging==26.3",
+    "packaging==26.4",
     "platformdirs==4.14.8",
     "fastapi==0.165.0",
     "uvicorn==0.54.0",
