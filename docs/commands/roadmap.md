@@ -746,6 +746,24 @@ devops roadmap step fix-plan [OPTIONS]
 | `--confirm` | `boolean` | - | Run the attempt: call the models, push a better revision, and write the label, the comment and the record. It acts in every mode of roadmap.fix_plan.mode. |
 | `--skip-wait` | `boolean` | - | Leave out the wait of 6 hours after the last attempt, for the one item that --item or --pull names. Needs --confirm. The limits of roadmap.fix_plan.head_attempts on the head and roadmap.fix_plan.revisions stay, but a head whose counted attempts ran on an older release gets one more attempt. The Service never uses it. |
 
+### `devops roadmap step infra-apply`
+
+**Apply a merged infra pull request in a step job (#5130).**
+
+```bash
+devops roadmap step infra-apply [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--repo`, `-R` | `string` | - | Repository as owner/name (default: this checkout's origin). |
+| `--pull`, `-p` | `integer` | - | Number of the merged pull request to apply. |
+| `--commit` | `string` | - | Merge commit SHA of the pull request to apply. |
+| `--playbook` | `string` | `site.yaml` | Playbook to apply (default: site.yaml). |
+| `--dry-run` | `boolean` | - | Make no network request and change nothing. |
+
 ### `devops roadmap step infra-plan`
 
 **Plan an open infra pull request and post or update its marked comment (#5129).**

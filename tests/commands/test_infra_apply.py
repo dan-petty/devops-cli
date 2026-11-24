@@ -708,6 +708,52 @@ def test_an_agent_cannot_apply_a_commit_of_another_branch(
     assert "An agent applies only a commit of the default branch" in result.output
 
 
+def test_an_agent_stops_before_its_own_pod_node_and_uncordons_nothing(
+    lab: Lab, agent_caller: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NODE_NAME", "node-2")
+    plan = lab.plan(f"{NODE_1},{NODE_2}")
+
+    result = lab.apply_json(plan)
+
+    assert result.exit_code == 1, result.output
+    assert lab.steps == [
+        "drain check node-1",
+        "drain node-1",
+        f"check {NODE_1}",
+        f"run {NODE_1}",
+        "uncordon node-1",
+    ]
+    report = json.loads(result.output)
+    assert report["result"] == "stopped"
+    assert "node-2.example.com (node-2) is its pod node" in report["reason"]
+    assert "Run devops infra apply on a workstation" in report["reason"]
+    hosts = _hosts(result)
+    assert hosts[NODE_1]["outcome"] == "applied"
+    assert hosts[NODE_2]["outcome"] == "stopped"
+    assert hosts[NODE_2]["step"] == "drain check"
+    assert not lab.cluster.nodes["node-2"].cordoned
+
+
+def test_an_agent_stops_before_the_control_plane_node(lab: Lab, agent_caller: None) -> None:
+    from devops_cli.config.constants import CONST_K8S_CONTROL_PLANE_LABEL
+
+    lab.cluster.nodes["node-1"].labels[CONST_K8S_CONTROL_PLANE_LABEL] = ""
+    plan = lab.plan(NODE_1)
+
+    result = lab.apply_json(plan)
+
+    assert result.exit_code == 1, result.output
+    assert lab.steps == []
+    report = json.loads(result.output)
+    assert report["result"] == "stopped"
+    assert "node-1.example.com (node-1) is the control-plane node" in report["reason"]
+    assert "Run devops infra apply on a workstation" in report["reason"]
+    hosts = _hosts(result)
+    assert hosts[NODE_1]["outcome"] == "stopped"
+    assert not lab.cluster.nodes["node-1"].cordoned
+
+
 def test_the_audit_record_holds_each_field_and_no_secret(
     lab: Lab, ssh_key_dir: Path, agent_caller: None
 ) -> None:
