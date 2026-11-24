@@ -1780,18 +1780,18 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         ): "Git diff to check changed service image sources",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
         (
-            "runner-image",
-            "Detect Image Content Changes",
-        ): "Git diff to check changed runner image sources",
-        ("runner-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
-        (
             "mcp-server-image",
             "Detect Image Content Changes",
-        ): "Git diff to check changed mcp-server image sources",
+        ): "Git diff to check changed runner and mcp-server image sources",
+        (
+            "mcp-server-image",
+            "Write Docker Bake Definition",
+        ): "Writes the bake file of the runner and mcp-server targets, which one bake step builds (#4649)",
         (
             "mcp-server-image",
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
+        ("mcp-server-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
         (
             "test",
             "Changed-Line Coverage",

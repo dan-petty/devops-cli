@@ -532,18 +532,19 @@ jobs:
           image-ref: devops-cli-service:local
           category: trivy-image-service
 
-  # Builds, smoke-tests and scans the runner image of every pull request but the release pull
-  # request, without pushing it; release.yml publishes it when a release is created (#2667). It
-  # runs next to the Service image job, so it adds no time to that job. It shares only the `lock`
-  # stage with that job, and it reads only the cache that the release writes on main.
-  runner-image:
+  # Builds, smoke-tests and scans the runner and MCP server images of every pull request but the
+  # release pull request, without pushing them (#2667, #3220). One job builds both targets with one
+  # bake call, so a push starts one hosted job fewer and each pull request queues behind fewer
+  # jobs (#4649). Each target keeps its own registry cache and rebuilds its own final stage;
+  # release.yml publishes both images when a release is created.
+  mcp-server-image:
     name: Runner Image
     if: >-
       (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
       && !(startsWith(github.head_ref, 'release-please--')
       && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-26.04
-    timeout-minutes: 12
+    timeout-minutes: 18
     permissions:
       contents: read
       security-events: write
@@ -594,18 +595,68 @@ jobs:
         if: steps.image_changes.outputs.changed == 'true'
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Build and Load Runner Image
+      # One bake call builds the runner and the MCP server target in one build graph, so the stages
+      # that both targets share build one time. The step writes the bake file, so the cache ref of
+      # each target keeps the expression of the repository and the job commits no static bake file.
+      # The last stage of `mcp-server` runs `apt-get upgrade`, so that target names the stage in
+      # `no-cache-filter`: a cached layer would keep packages a security update has since fixed.
+      # The runner runs no `apt-get upgrade` of its own (docs/CLUSTER.md), so it sets none.
+      - name: Write Docker Bake Definition
         if: steps.image_changes.outputs.changed == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          cat > docker-bake.hcl <<EOF
+          target "runner" {
+            context = "."
+            dockerfile = "Dockerfile"
+            target = "runner"
+            tags = ["devops-cli-runner:local"]
+            cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/runner:buildcache"]
+          }
+
+          target "mcp-server" {
+            context = "."
+            dockerfile = "Dockerfile"
+            target = "mcp-server"
+            tags = ["devops-cli-mcp-server:local"]
+            no-cache-filter = ["mcp-server"]
+            cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/mcp-server:buildcache"]
+          }
+          EOF
+
+      - name: Build and Load Runner and MCP Server Images
+        if: steps.image_changes.outputs.changed == 'true'
+        timeout-minutes: 12
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
         with:
-          context: .
-          file: ./Dockerfile
-          target: runner
+          source: .
+          files: docker-bake.hcl
+          targets: |
+            runner
+            mcp-server
           load: true
           push: false
-          tags: devops-cli-runner:local
-          # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/runner:buildcache
+
+      - name: Run MCP Server Image Smoke Test
+        if: steps.image_changes.outputs.changed == 'true'
+        env:
+          IMAGE: devops-cli-mcp-server:local
+        run: |
+          docker run --rm --entrypoint id "$IMAGE" -u
+          docker run --rm "$IMAGE" --version
+          docker run --rm --entrypoint kubectl "$IMAGE" version --client
+          docker run --rm --entrypoint helm "$IMAGE" version
+          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
+          if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
+
+      - name: Scan MCP Server Image for Vulnerabilities
+        if: steps.image_changes.outputs.changed == 'true'
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
+        with:
+          image-ref: devops-cli-mcp-server:local
+          category: trivy-image-mcp-server
 
       - name: Run Runner Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
@@ -634,101 +685,6 @@ jobs:
           # binaries go to code scanning and stop no build (SECURITY.md, Dedicated Development
           # Resources and Sandboxes). The Service and MCP server scans keep the gate.
           exit-code: "0"
-
-  # Builds, smoke-tests and scans the MCP server image of every pull request but the release pull
-  # request, without pushing it (#3220).
-  mcp-server-image:
-    name: MCP Server Image
-    if: >-
-      (github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request')
-      && !(startsWith(github.head_ref, 'release-please--')
-      && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-26.04
-    timeout-minutes: 12
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Detect Image Content Changes
-        id: image_changes
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          IMAGE_CONTENT_PATHS: |
-            Dockerfile
-            .dockerignore
-            .trivyignore.yaml
-            .github/actions/image-scan
-            src
-            pyproject.toml
-            uv.lock
-            package.json
-            package-lock.json
-            README.md
-            .github/workflows/ci.yml
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "Workflow dispatch triggered; rebuilding."
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git fetch --no-tags origin "$BASE_REF"
-          readarray -t WATCHED < <(printf '%s\n' "$IMAGE_CONTENT_PATHS" | sed '/^[[:space:]]*$/d')
-          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" -- "${WATCHED[@]}")
-          if [ -n "$CHANGED" ]; then
-            echo "Image content changed; rebuilding:"
-            echo "$CHANGED"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No image content changed; skipping rebuild."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up Docker Buildx
-        if: steps.image_changes.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Build and Load MCP Server Image
-        if: steps.image_changes.outputs.changed == 'true'
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: ./Dockerfile
-          target: mcp-server
-          load: true
-          push: false
-          tags: devops-cli-mcp-server:local
-          no-cache-filters: mcp-server
-          # Reads the cache that the release writes on main, as the Service image job does.
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/mcp-server:buildcache
-
-      - name: Run MCP Server Image Smoke Test
-        if: steps.image_changes.outputs.changed == 'true'
-        env:
-          IMAGE: devops-cli-mcp-server:local
-        run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm "$IMAGE" --version
-          docker run --rm --entrypoint kubectl "$IMAGE" version --client
-          docker run --rm --entrypoint helm "$IMAGE" version
-          size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
-          if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
-
-      - name: Scan MCP Server Image for Vulnerabilities
-        if: steps.image_changes.outputs.changed == 'true'
-        timeout-minutes: 4
-        uses: ./.github/actions/image-scan
-        with:
-          image-ref: devops-cli-mcp-server:local
-          category: trivy-image-mcp-server
-
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
   # the PyPI round-trip never sits on the pull request critical path.
