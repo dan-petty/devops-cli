@@ -148,9 +148,14 @@ def test_valkey_url_is_the_one_option_that_names_the_valkey_address() -> None:
         sorted(ValkeyConfig.model_fields),
         [runner.invoke(app, ["get", key]).exit_code for key in ("valkey.host", "valkey.db")],
     ) == (
-        ["valkey.password", "valkey.timeout", "valkey.url"],
-        ["DEVOPS_CLI_VALKEY_PASSWORD", "DEVOPS_CLI_VALKEY_TIMEOUT", "DEVOPS_CLI_VALKEY_URL"],
-        ["password", "threat_intel_ttl", "timeout", "url"],
+        ["valkey.password", "valkey.timeout", "valkey.url", "valkey.username"],
+        [
+            "DEVOPS_CLI_VALKEY_PASSWORD",
+            "DEVOPS_CLI_VALKEY_TIMEOUT",
+            "DEVOPS_CLI_VALKEY_URL",
+            "DEVOPS_CLI_VALKEY_USER",
+        ],
+        ["password", "threat_intel_ttl", "timeout", "url", "username"],
         [1, 1],
     )
 

@@ -71,24 +71,36 @@ def _public(repo: str) -> Visibility:
     return Visibility.PUBLIC
 
 
+def _private(repo: str) -> Visibility:
+    from devops_cli.roadmap.stores.listing_shared import Visibility
+
+    return Visibility.PRIVATE
+
+
 def _tiered(
     root: Path,
     *,
     at: datetime = STARTED,
     visibility: Callable[[str], Visibility] = _public,
     shared: Callable[[], ValkeySnapshotStore | None] | None = None,
+    user: str | None = None,
 ) -> TieredSnapshotStore:
     """The tiered store of a process at `at`, over the local directory `root`.
+
+    `user` gives the ACL user that the process sends; with none, the store reads
+    `valkey.username`, which the test config leaves empty.
 
     The import is local, so the module loads on a base without the store.
     """
     from devops_cli.roadmap.stores.listing_shared import TieredSnapshotStore, shared_snapshot_store
 
+    sent = {} if user is None else {"user": lambda: user}
     return TieredSnapshotStore(
         FileSnapshotStore(root),
         shared=shared or shared_snapshot_store,
         visibility=visibility,
         clock=lambda: at,
+        **sent,
     )
 
 
@@ -444,6 +456,35 @@ def test_no_key_of_a_private_repository_is_written(
         {("snapshot", "private"): 1.0},
         {("snapshot", "private"): 1.0},
     )
+
+
+@pytest.mark.usefixtures("shared_valkey")
+def test_a_private_repository_is_shared_only_under_the_sweep_user(
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+    valkey_server: FakeServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A round of a private repository writes its shared copy while the process sends the `sweep`
+    user, and a round of a new process that sends no user removes the copy and uses none."""
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.roadmap.stores.listing_shared import SWEEP_USER
+
+    github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
+    github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_USER", SWEEP_USER)
+    reset_settings_cache()
+
+    _round(_tiered(tmp_path, visibility=_private))
+    swept = _shared(valkey_server)
+
+    _new_process()
+    monkeypatch.delenv("DEVOPS_CLI_VALKEY_USER")
+    reset_settings_cache()
+    later = STARTED + timedelta(hours=1)
+    _round(_tiered(tmp_path, at=later, visibility=_private), at=later)
+
+    assert (swept, _keys(valkey_server)) == (("2026-01-01T08:59:00Z", ["2", "1"]), [])
 
 
 def _round_after_a_failed_visibility_read(

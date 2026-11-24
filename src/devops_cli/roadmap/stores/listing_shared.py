@@ -45,19 +45,20 @@ and 14 MB with zlib. The key lives `DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS` after it
 local and the shared copy, drops a copy with another schema key or a full read older than
 `DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS`, and takes the copy with the newer watermark. It
 saves the shared copy first and then the local file. While Valkey fails, it reads and writes the
-local file only. Until `valkey-devops` has role ACL users (#4704), the shared tier holds no data
-of a private repository (ADR 0023 section 8): the store reads the visibility of a repository only
-after Valkey answered, and uses and writes the shared copy only for a public answer. A private
-answer removes the shared copy of a repository that became private. A failed visibility read
-gives an unknown answer: the store does not read or write the shared copy, and reads the
-visibility again after `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`. A save comes only after a
-public answer, which a process keeps for `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min). An
-unknown answer removes a copy whose last save, which the TTL of the key gives, is older than that
-time, and leaves a fresher copy (#6611). Valkey reads the TTL again and removes the key in one
-script, so a save during the visibility read keeps the copy. Thus a short failure keeps a fresh
-copy, and a failure that goes on, such as a token that cannot see a repository that became
-private, removes the copy at most 1 hour after the change, at the first run after that: the bound
-that the owner accepted on 2026-11-21.
+local file only. The shared tier holds the data of a private repository only for the process that
+sends the `sweep` ACL user of `valkey-devops` (#4704), which holds `~valkey:roadmap:*` (ADR 0023
+section 8): the store reads the visibility of a repository only after Valkey answered, and uses
+and writes the shared copy for a public answer, and for a private answer only under `SWEEP_USER`.
+A private answer under any other user or none removes the shared copy of a repository that became
+private. A failed visibility read gives an unknown answer: the store does not read or write the
+shared copy, and reads the visibility again after `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`.
+A save comes only after a public answer, which a process keeps for
+`DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (30 min). An unknown answer removes a copy whose last save,
+which the TTL of the key gives, is older than that time, and leaves a fresher copy (#6611). Valkey
+reads the TTL again and removes the key in one script, so a save during the visibility read keeps
+the copy. Thus a short failure keeps a fresh copy, and a failure that goes on, such as a token that
+cannot see a repository that became private, removes the copy at most 1 hour after the change, at
+the first run after that: the bound that the owner accepted on 2026-11-21.
 """
 
 from __future__ import annotations
@@ -99,6 +100,7 @@ from devops_cli.config.defaults import (
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS,
 )
+from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.repo_ref import RepoRef
@@ -661,7 +663,8 @@ def shared_snapshot_store() -> ValkeySnapshotStore | None:
 
 class Visibility(StrEnum):
     """The answer of the visibility check of a repository: public, private, or unknown when the
-    read of GitHub failed. Only a public repository has a shared copy (ADR 0023 section 8)."""
+    read of GitHub failed. A public repository has a shared copy, and so has a private one while
+    the process sends the `sweep` ACL user (ADR 0023 section 8)."""
 
     PUBLIC = "public"
     PRIVATE = "private"
@@ -750,13 +753,25 @@ def _stale(held: HeldMeta) -> bool:
     return 0 <= held.pttl < _STALE_TTL_BELOW_MS
 
 
+SWEEP_USER: Final[str] = "sweep"
+"""The ACL user of the role that writes the shared snapshot of a private repository (#4704).
+The `sweep` user holds `~valkey:roadmap:*`, so its process reads and writes the shared copy of a
+private repository; no other role does."""
+
+
+def _configured_valkey_user() -> str | None:
+    """The ACL user that this process sends, from `valkey.username`; None when it names none."""
+    return load_settings().valkey.username or None
+
+
 @dataclass(frozen=True)
 class TieredSnapshotStore:
     """The local snapshot store of a process and the shared one in Valkey, as one store.
 
     `shared` gives the shared store of the process, None when there is no Valkey tier.
     `visibility` gives the visibility of a repository. `clock` gives the time now, which the age
-    of a full read is measured from.
+    of a full read is measured from. `user` gives the ACL user that the process sends, which
+    `valkey.username` names: only `SWEEP_USER` shares a private repository.
     """
 
     local: SnapshotStore
@@ -764,6 +779,7 @@ class TieredSnapshotStore:
     visibility: Callable[[str], Visibility] = repository_visibility
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
+    user: Callable[[], str | None] = _configured_valkey_user
 
     def load(self, repo: str) -> ListingSnapshot | None:
         local = self.local.load(repo)
@@ -816,12 +832,16 @@ class TieredSnapshotStore:
         return shared.write(snapshot, held)
 
     def _checked(self, shared: ValkeySnapshotStore, repo: str, held: HeldMeta | None) -> Visibility:
-        """The visibility of `repo`. A private answer removes the shared copy, so the shared tier
-        keeps no copy of a repository that became private. An unknown answer removes a copy whose
-        last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and leaves a
-        fresher copy as it is. Valkey checks the age again when it removes the copy, so a save
-        during the visibility read keeps it."""
+        """The visibility of `repo`, where a private repository is public to `SWEEP_USER`: the
+        process that sends that ACL user reads and writes the shared copy of a private repository
+        (#4704). A private answer of any other user or of none removes the shared copy, so the
+        shared tier keeps no copy that its role cannot read. An unknown answer removes a copy
+        whose last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and
+        leaves a fresher copy as it is. Valkey checks the age again when it removes the copy, so a
+        save during the visibility read keeps it."""
         visibility = self.visibility(repo)
+        if visibility is Visibility.PRIVATE and self.user() == SWEEP_USER:
+            visibility = Visibility.PUBLIC
         if held is None:
             return visibility
         if visibility is Visibility.PRIVATE:
@@ -851,6 +871,7 @@ class TieredSnapshotStore:
 
 __all__ = [
     "META_FIELD",
+    "SWEEP_USER",
     "HeldMeta",
     "SharedMeta",
     "TieredSnapshotStore",

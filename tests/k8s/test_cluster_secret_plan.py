@@ -38,6 +38,7 @@ from devops_cli.k8s.cluster_secrets import (
     secrets_by_ref,
 )
 from devops_cli.k8s.secret_push import (
+    EntryState,
     PushMode,
     PushOptions,
     PushResult,
@@ -382,6 +383,51 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             ("deployment/valkey-devops",),
         ),
         (
+            "llm/valkey-devops-auth",
+            "sweep",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
+            "llm/valkey-devops-auth",
+            "brain",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
+            "llm/valkey-devops-auth",
+            "agent",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
+            "llm/valkey-devops-auth",
+            "metrics",
+            "llm",
+            True,
+            SecretGenerator(encoding="hex", nbytes=32, prefix=""),
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
+            "llm/valkey-devops-auth",
+            "users.acl",
+            "llm",
+            True,
+            None,
+            None,
+            ("deployment/valkey-devops",),
+        ),
+        (
             "devops/crawl4ai",
             "CRAWL4AI_API_TOKEN",
             "devops",
@@ -554,6 +600,70 @@ def test_table_holds_each_secret_entry_with_its_source_and_restarts() -> None:
             (),
         ),
     ]
+
+
+def test_valkey_role_passwords_and_derived_aclfile(
+    cluster: FakeCluster, monkeypatch: pytest.MonkeyPatch, keyring_store: FakeKeyring
+) -> None:
+    """The plan generates one hex password for each role user of the cache Valkey and builds the
+    aclfile of Secret llm/valkey-devops-auth from them and from key `password`, so a second plan
+    changes nothing (#4704)."""
+    backend = _install(monkeypatch, cluster, keyring_store, values={})
+    (row,) = [s for s in load_cluster_secrets_table() if s.ref == "llm/valkey-devops-auth"]
+    plan = plan_push([row], PushOptions(context="test-ctx"))
+    values = {entry.entry.key: entry.value or "" for entry in plan.secrets[0].entries}
+    roles = ("sweep", "brain", "agent", "metrics")
+    acl = values.get("users.acl", "")
+    users = {line.split()[1]: line for line in acl.splitlines() if line.startswith("user ")}
+    assert (
+        [key for key in roles if len(values.get(key, "")) != 64],
+        [key for key in roles if not set(values.get(key, "")) <= set("0123456789abcdef")],
+        list(users),
+        f"user default on >{values.get('password', '')} " in acl,
+        [f"user {key} on >{values.get(key, '')} " in acl for key in roles],
+    ) == ([], [], ["default", "sweep", "brain", "agent", "metrics"], True, [True] * 4)
+
+    assert (
+        "~valkey:roadmap:*" in users.get("sweep", ""),
+        "~valkey:gh:*" in users.get("sweep", ""),
+        "~valkey:brain:*" in users.get("brain", ""),
+        "%R~valkey:roadmap:*" in users.get("brain", ""),
+        "~valkey:rag:*" in users.get("agent", ""),
+        "%R~valkey:brain:v1:fact:*" in users.get("agent", ""),
+        "~valkey:roadmap:*" in users.get("agent", ""),
+        [
+            token in users.get("metrics", "")
+            for token in (
+                "+info",
+                "+config|get",
+                "+dbsize",
+                "+client|list",
+                "+slowlog|get",
+                "+memory|usage",
+                "+ping",
+            )
+        ],
+        [token in users.get("metrics", "") for token in ("+@all", "+@write", "~")],
+        [
+            token in users.get(key, "")
+            for key in ("sweep", "brain", "agent")
+            for token in ("+@all", "-@dangerous")
+        ],
+    ) == (True, True, True, True, True, True, False, [True] * 7, [False] * 3, [True] * 6)
+
+    backend.values.update(
+        {
+            entry.entry.source.key: entry.value or ""
+            for entry in plan.secrets[0].entries
+            if isinstance(entry.entry.source, KeyringSource)
+        }
+    )
+    cluster.add_secret("llm", "valkey-devops-auth", values)
+    again = plan_push([row], PushOptions(context="test-ctx"))
+    assert (
+        [(entry.entry.key, entry.state) for entry in again.secrets[0].entries],
+        again.secrets[0].data().get("users.acl"),
+    ) == ([(key, EntryState.UNCHANGED) for key in values], values["users.acl"])
 
 
 def test_the_object_store_admin_password_is_generated_and_the_s3_identities_file_is_empty() -> None:

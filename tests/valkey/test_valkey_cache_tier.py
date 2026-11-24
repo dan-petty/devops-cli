@@ -19,7 +19,12 @@ from fakeredis import FakeServer, FakeValkey
 from devops_cli.valkey.client import ValkeyClient
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.otlp import FakeCollector
-from tests.support.fakes.valkey import SilentValkey, valkey_client_on
+from tests.support.fakes.valkey import (
+    SilentValkey,
+    bulk_reply,
+    serving_valkey,
+    valkey_client_on,
+)
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
 if TYPE_CHECKING:
@@ -268,6 +273,41 @@ def test_a_valkey_url_that_is_not_valid_turns_each_cache_off_with_one_warning(
         1,
         True,
     )
+
+
+# The password of the cache that the configured tier authenticates with.
+_PASSWORD = "FAKE-4704-value"
+
+
+@pytest.mark.usefixtures("keyring_store")
+@pytest.mark.parametrize(
+    ("valkey_user", "authenticated"),
+    [
+        pytest.param("sweep", ["AUTH", "sweep", _PASSWORD], id="the-role-user"),
+        pytest.param("", ["AUTH", _PASSWORD], id="the-default-user"),
+    ],
+)
+def test_configured_tier_sends_the_user_of_valkey_username(
+    monkeypatch: pytest.MonkeyPatch,
+    valkey_user: str,
+    authenticated: list[str],
+) -> None:
+    """The tier of the loaded settings authenticates as the ACL user that `valkey.username`
+    names, and as the default user when it names none."""
+    from devops_cli.config.settings import reset_settings_cache
+    from devops_cli.valkey.cache import shared_cache_tier
+
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
+    monkeypatch.setenv("DEVOPS_CLI_VALKEY_USER", valkey_user)
+    with serving_valkey({"GET": bulk_reply(b"value")}) as (port, received):
+        monkeypatch.setenv("DEVOPS_CLI_VALKEY_URL", f"valkey://127.0.0.1:{port}")
+        reset_settings_cache()
+        tier = shared_cache_tier()
+        assert tier is not None
+        value = tier.get("key")
+        tier.client.close()
+
+    assert (value, received) == ("value", [authenticated, ["GET", "key"]])
 
 
 # ── The commands of the shared tier of the project brain (#4668) ──────────────
