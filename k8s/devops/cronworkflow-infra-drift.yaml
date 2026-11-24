@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: infra-drift
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: infra-drift
+    app.kubernetes.io/component: infra
+    app.kubernetes.io/part-of: devops-cli-stack
+spec:
+  schedule: "0 6 * * *"
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    workflowTemplateRef:
+      name: infra-drift

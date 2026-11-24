@@ -96,12 +96,13 @@ devops infra drift [OPTIONS] <repo>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<repo>` | `string` | Yes | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
+| `<repo>` | `string` | No | The infra repo: owner/name, or the folder of a checkout, which its remote origin names. |
 
 **Options:**
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--all` | `boolean` | - | Check the drift of each repo in infra.repos whose agent access level is plan or higher. |
 | `--playbook` | `string` | `site.yaml` | The playbook, as a path from the repo root. Default: site.yaml. |
 | `--path` | `path` | - | The folder of the checkout. Default: the path of the entry, else <repos.base_dir>/\<owner\>/\<name\>. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |

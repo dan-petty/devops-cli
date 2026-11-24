@@ -88,5 +88,6 @@ def check_each_devops_cli_container_names_the_cluster_and_its_namespace() -> Non
         ("CronJob", "roadmap-stage", "stage"): (cluster, "devops"),
         ("Deployment", "mcp-server", "mcp-server"): (cluster, "devops"),
         ("Deployment", "roadmap-service", "service"): (cluster, "devops"),
+        ("WorkflowTemplate", "infra-drift", "drift"): (cluster, "devops"),
         ("WorkflowTemplate", "rag-ingest", "ingest"): (cluster, "devops"),
     }

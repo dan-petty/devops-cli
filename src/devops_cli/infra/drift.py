@@ -245,6 +245,49 @@ def run_drift(
     return exit_code, report_lines
 
 
+def run_drift_all(
+    settings: Settings,
+    *,
+    playbook: str = DEFAULT_PLAYBOOK,
+    dry_run: bool = False,
+    client: GitHubClient | None = None,
+) -> tuple[int, list[str]]:
+    """Execute drift check for each repo in settings.infra.repos with agent access >= plan.
+
+    Returns exit code (1 if any failure, 2 if any drift, 0 if all clean) and report lines.
+    """
+    from devops_cli.infra.access import _ORDER
+    from devops_cli.infra.onboard import resolve_target
+
+    eligible = [
+        entry
+        for entry in settings.infra.repos
+        if _ORDER.index(entry.agent_access) >= _ORDER.index(AgentAccess.PLAN)
+    ]
+    if not eligible:
+        return 0, [MESSAGES.infra.drift_all_no_repos]
+
+    any_failure = False
+    any_drift = False
+    all_lines: list[str] = []
+
+    for entry in eligible:
+        target = resolve_target(entry.repo, path=entry.path, settings=settings)
+        code, lines = run_drift(
+            target, entry, settings, playbook=playbook, dry_run=dry_run, client=client
+        )
+        if all_lines:
+            all_lines.append("")
+        all_lines.extend(lines)
+        if code == 1:
+            any_failure = True
+        elif code == 2:
+            any_drift = True
+
+    overall_code = 1 if any_failure else (2 if any_drift else 0)
+    return overall_code, all_lines
+
+
 __all__ = [
     "DEFAULT_PLAYBOOK",
     "DRIFT_ACTION",
@@ -257,4 +300,5 @@ __all__ = [
     "render_drift_issue_body",
     "render_drift_report",
     "run_drift",
+    "run_drift_all",
 ]
