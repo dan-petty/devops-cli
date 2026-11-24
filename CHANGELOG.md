@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.209.1](https://github.com/dan-petty/devops-cli/compare/v0.209.0...v0.209.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#6991](https://github.com/dan-petty/devops-cli/issues/6991)) ([cb542e0](https://github.com/dan-petty/devops-cli/commit/cb542e099fec88d194e05ba361f6cb24154483c0))
+* **deps:** update Node.js to 4d00acb ([#6986](https://github.com/dan-petty/devops-cli/issues/6986)) ([7dc0dac](https://github.com/dan-petty/devops-cli/commit/7dc0dac437ff33139d7b9cb34fd4464cf18d8114))
+* **deps:** update python:3.14-slim-trixie Docker digest to d712121 ([#6987](https://github.com/dan-petty/devops-cli/issues/6987)) ([5359335](https://github.com/dan-petty/devops-cli/commit/5359335c3a9979c9606ea6f603f31fc43417f2de))
+
 ## [0.209.0](https://github.com/dan-petty/devops-cli/compare/v0.208.0...v0.209.0) (2026-11-24)
 
 

@@ -93,17 +93,26 @@ def test_loader_matches_tool_versions_inventory_floor_and_kubernetes() -> None:
         language_floor="py314",
         python_pin="3.14",
         tool_versions={"bandit": "1.9.4", "semgrep": "1.179.0", "kube-linter": "0.8.3"},
-        locked_packages={"pkg:pypi/pydantic": ["2.13.5"], "pkg:pypi/ruff": ["0.16.8"]},
+        locked_packages={
+            "pkg:pypi/pydantic": ["2.13.5"],
+            "pkg:pypi/pydantic-ai": ["2.73.0"],
+            "pkg:pypi/pydantic-ai-harness": ["0.73.0"],
+            "pkg:pypi/ruff": ["0.16.8"],
+        },
         kubernetes_version="v1.31.0",
     )
-    matched, _drift = load_matched_kb_manuals(environment=env, kubernetes_version="v1.31.0")
+    matched, drift = load_matched_kb_manuals(environment=env, kubernetes_version="v1.31.0")
 
     matched_paths = {m.path for m in matched}
     assert "it_domains/tools/bandit.md" in matched_paths
     assert "devops_cli/libraries/bandit_actionlint.md" in matched_paths
     assert "devops_cli/libraries/pydantic.md" in matched_paths
+    assert "devops_cli/libraries/pydantic_ai.md" in matched_paths
+    assert "devops_cli/libraries/pydantic_ai_harness.md" in matched_paths
+    assert "it_domains/tools/pydantic_ai.md" in matched_paths
     assert "it_domains/tools/semgrep.md" in matched_paths
     assert "it_domains/topics/cloud_native_kubernetes_and_gitops.md" in matched_paths
+    assert not any("pydantic_ai" in d.path for d in drift)
 
     # Verify reference item format kb:<path>@<sha>
     for m in matched:

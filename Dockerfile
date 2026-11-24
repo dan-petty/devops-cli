@@ -5,7 +5,7 @@ FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678
 # The Node runtime that installs OpenSpec and runs it in the Service and MCP server images. Its major
 # version is the one of `.node-version`. These images are on trixie, and the Node package of sid
 # needs a newer glibc.
-FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS node
+FROM node:24.22.3-trixie-slim@sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4 AS node
 
 # The devtools image (https://github.com/dan-petty/devtools): Debian sid with the development tools.
 # Its README names the source of each tool. The runner image builds FROM it, and the Service and MCP
@@ -21,7 +21,7 @@ FROM ghcr.io/dan-petty/devtools:1.1.8@sha256:b3c8349ad3596e8c2b3e1faab9c5e8eaf60
 # files that it reads. So the dependency layers of the runner, Service and MCP server images keep
 # their cache when only `src/` and the version change, and a node that holds the previous release
 # pulls only the project layer.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS lock
+FROM python:3.14-slim-trixie@sha256:d712121441a48a45f8452726ccc9fcf7094d8da24ccc2a588bea02fe18d3fb91 AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -30,7 +30,7 @@ RUN uv export --locked --no-dev --extra review --no-emit-project --format requir
 
 # uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
 # project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS deps
+FROM python:3.14-slim-trixie@sha256:d712121441a48a45f8452726ccc9fcf7094d8da24ccc2a588bea02fe18d3fb91 AS deps
 
 COPY --from=uv /uv /uvx /usr/local/bin/
 
@@ -143,7 +143,7 @@ ENTRYPOINT ["devops"]
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
 # runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
 # image, and OpenSpec from the `openspec` stage. The image holds no uv, curl or pip.
-FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f AS service-deps
+FROM python:3.14-slim-trixie@sha256:d712121441a48a45f8452726ccc9fcf7094d8da24ccc2a588bea02fe18d3fb91 AS service-deps
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     git \

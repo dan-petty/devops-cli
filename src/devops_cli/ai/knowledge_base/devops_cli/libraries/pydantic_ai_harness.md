@@ -1,6 +1,6 @@
 ---
 applies_to:
-  - "pkg:pypi/pydantic-ai-harness@0.71.*"
+  - "pkg:pypi/pydantic-ai-harness@0.*"
 sources:
   - "https://github.com/pydantic/pydantic-ai"
   - "https://pydantic.dev/docs/ai/harness/"
