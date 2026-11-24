@@ -1,0 +1,59 @@
+# The suspended template CronJob for service probe pods (#6411).
+# The service probe reads the image and security context from this template in the cluster.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: service-probe
+  namespace: devops
+  labels:
+    app.kubernetes.io/name: service-probe
+    app.kubernetes.io/part-of: devops-cli-stack
+  annotations:
+    ignore-check.kube-linter.io/job-ttl-seconds-after-finished: >-
+      A suspended template. The Job made from it keeps the TTL that
+      docs/guidelines/kubernetes.md (Bounded) asks for each Job (#6068).
+    ignore-check.kube-linter.io/no-liveness-probe: >-
+      A suspended template runs no container (#6411).
+    ignore-check.kube-linter.io/no-readiness-probe: >-
+      A suspended template serves no traffic (#6411).
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Allow
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 86400
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: service-probe
+            app.kubernetes.io/part-of: devops-cli-stack
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: probe
+              image: busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+              imagePullPolicy: IfNotPresent
+              command: ["sleep", "3600"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 100m
+                  memory: 32Mi

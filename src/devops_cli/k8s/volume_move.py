@@ -57,7 +57,6 @@ from devops_cli.config.defaults import (
     DEFAULT_ARGOCD_NAMESPACE,
     DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS,
-    DEFAULT_K8S_VOLUME_MOVE_IMAGE,
     DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_ROLLOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
@@ -113,6 +112,7 @@ class VolumeMovePlan:
     source_tolerations: tuple[dict[str, Any], ...] = ()
     applications: tuple[str, ...] = ()
     paused: tuple[str, ...] = ()
+    image: str = ""
 
     @property
     def move_claim(self) -> str:
@@ -219,6 +219,28 @@ def _read_json(args: Sequence[str], context: str | None) -> dict[str, Any]:
             )
         ) from exc
     return decoded if isinstance(decoded, dict) else {}
+
+
+def read_volume_move_image(context: str | None = None) -> str:
+    """Read the copy container image from suspended CronJob devops/volume-move in the cluster."""
+    data = _read_json(
+        ["get", "cronjob", "volume-move", "-n", "devops", "--ignore-not-found", "-o", "json"],
+        context,
+    )
+    if not data:
+        raise VolumeMoveError(MESSAGES.k8s.job_cronjob_missing.format(cronjob="volume-move"))
+    pod_spec = (
+        data.get("spec", {})
+        .get("jobTemplate", {})
+        .get("spec", {})
+        .get("template", {})
+        .get("spec", {})
+    )
+    containers = pod_spec.get("containers") or []
+    container = next((c for c in containers if c.get("name") == "copy"), None)
+    if not container or not container.get("image"):
+        raise VolumeMoveError("CronJob devops/volume-move has no copy container with an image")
+    return str(container["image"])
 
 
 def _wait_args(target: str, namespace: str, condition: str, seconds: int) -> list[str]:
@@ -405,6 +427,7 @@ def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, 
         if destination
         else (plan.source_pod, plan.claim, CONST_K8S_VOLUME_MOVE_SOURCE_DIR)
     )
+    image = plan.image or read_volume_move_image()
     spec: dict[str, Any] = {
         "restartPolicy": "Never",
         "terminationGracePeriodSeconds": 0,
@@ -412,7 +435,7 @@ def _copy_pod_manifest(plan: VolumeMovePlan, *, destination: bool) -> dict[str, 
         "containers": [
             {
                 "name": "copy",
-                "image": DEFAULT_K8S_VOLUME_MOVE_IMAGE,
+                "image": image,
                 "command": ["sleep", "infinity"],
                 "volumeMounts": [{"name": "data", "mountPath": path, "readOnly": not destination}],
             }
@@ -764,6 +787,7 @@ def plan_volume_move(
     if isinstance(target, str) or problems:
         raise _refuse(namespace, claim, problems)
     node, free = target
+    image = read_volume_move_image(context)
     return VolumeMovePlan(
         namespace=namespace,
         claim=claim,
@@ -782,6 +806,7 @@ def plan_volume_move(
         source_tolerations=tuple((pods[0].get("spec") or {}).get("tolerations") or ()),
         applications=applications,
         paused=paused,
+        image=image,
     )
 
 
@@ -1227,6 +1252,7 @@ def _placeholder_plan(
         pods=("<pod>",),
         applications=("<application>",),
         paused=(*parents, "<application>"),
+        image="<template image>",
     )
 
 
@@ -1256,6 +1282,11 @@ def _dry_run_reads(
     node = to_node or "<worker-node>"
     leftovers = [f"pod/{plan.source_pod}", f"pod/{plan.destination_pod}", f"pvc/{plan.move_claim}"]
     return [
+        _planned(
+            ["get", "cronjob", "volume-move", "-n", "devops", "--ignore-not-found", "-o", "json"],
+            context,
+            "the copy container image of suspended CronJob devops/volume-move",
+        ),
         _planned(
             ["get", "pvc", claim, "-n", ns, "--ignore-not-found", "-o", "json"],
             context,
@@ -1507,6 +1538,7 @@ __all__ = [
     "empty_args",
     "parse_claim_ref",
     "plan_volume_move",
+    "read_volume_move_image",
     "rebound_claim",
     "run_volume_move",
 ]
