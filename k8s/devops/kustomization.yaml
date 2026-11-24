@@ -13,5 +13,4 @@ resources:
 - crawl4ai
 - mcp-server
 - searxng
-- renovate
 - roadmap-service

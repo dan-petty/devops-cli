@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -17,7 +16,6 @@ from devops_cli.config.constants import (
 from tests.support.paths import REPO_ROOT
 
 K8S_DIR = REPO_ROOT / "k8s"
-RENOVATE_IMAGE = re.compile(r"ghcr\.io/renovatebot/renovate:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}")
 
 
 def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when_missing(
@@ -83,16 +81,6 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     searxng = {c for c in containers if c[1] in ("searxng", "render-settings")}
     containers -= searxng
     assert ({c[0] for c in searxng}, len({c[2] for c in searxng})) == ({"Deployment"}, 1)
-    # CronJob `renovate` pins the Renovate release by tag and digest, and its init container
-    # `seed` runs the same image (#4905). Its init container `token` runs the Service image, so
-    # Image Updater's digest reaches it as it reaches the other containers of that image.
-    renovate = {c for c in containers if c[1] in ("renovate", "seed")}
-    containers -= renovate
-    assert (
-        {c[0] for c in renovate},
-        len({c[2] for c in renovate}),
-        all(RENOVATE_IMAGE.fullmatch(c[2]) and c[3] == "IfNotPresent" for c in renovate),
-    ) == ({"CronJob"}, 1, True)
     # Each container of the runner image gets the digest, the init containers of the runner
     # template too (#3700).
     runners = {c for c in containers if c[2].startswith(runner)}
@@ -104,7 +92,6 @@ def check_both_workloads_run_the_digest_image_updater_sets_and_pull_it_only_when
     ) == ({(f"{runner}:latest@{digest}", "IfNotPresent")}, True)
     assert containers == {
         ("CronJob", "devops-cli", f"{service}:latest@{digest}", "IfNotPresent"),
-        ("CronJob", "token", f"{service}:latest@{digest}", "IfNotPresent"),
         ("Deployment", "mcp-server", "ghcr.io/dan-petty/devops-cli/mcp-server", "IfNotPresent"),
         ("Deployment", "service", f"{service}:latest@{digest}", "IfNotPresent"),
     }
