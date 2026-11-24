@@ -193,7 +193,10 @@ def test_resolve_fixture_secrets_file_variants(
     import devops_cli.k8s.cluster_secrets as cs
 
     # Primary exists
-    assert cs._resolve_fixture_secrets_file() == cs._FIXTURE_SECRETS_FILE
+    fake_primary = tmp_path / "primary.toml"
+    fake_primary.write_text("[[secret]]\n", encoding="utf-8")
+    monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", fake_primary)
+    assert cs._resolve_fixture_secrets_file() == fake_primary
 
     # Primary missing, fallback exists
     monkeypatch.setattr(cs, "_FIXTURE_SECRETS_FILE", tmp_path / "missing1.toml")
@@ -212,5 +215,18 @@ def test_load_cluster_secrets_table_resolves_fixture_when_env_lacks_secrets() ->
     import devops_cli.k8s.cluster_secrets as cs
 
     table = cs.load_cluster_secrets_table(object())
+    assert len(table) == 23
+    assert any(s.ref == "object-store/seaweedfs-admin" for s in table)
+
+
+def test_load_cluster_secrets_table_resolves_fixture_when_k8s_dir_lacks_secrets(
+    tmp_path: Path,
+) -> None:
+    """When k8s_dir has no cluster-secrets.toml, load_cluster_secrets_table falls back to fixture."""
+    import devops_cli.k8s.cluster_secrets as cs
+
+    empty_k8s = tmp_path / "k8s"
+    empty_k8s.mkdir()
+    table = cs.load_cluster_secrets_table(k8s_dir=empty_k8s)
     assert len(table) == 23
     assert any(s.ref == "object-store/seaweedfs-admin" for s in table)

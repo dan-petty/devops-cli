@@ -4632,7 +4632,7 @@ CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT: Final[str] = (
     "printf 'entries %s\\nfiles %s\\nbytes %s\\nmetadata %s\\ncontent %s\\n'"
     ' "$entries" "$files" "$bytes" "$metadata" "$content"\n'
 )
-"""The bash script each copy pod runs on its side, with the directory as `$1` (debian:trixie-slim).
+"""The bash script each copy pod runs on its side, with the directory as `$1` (CronJob devops/volume-move).
 
 It counts the entries and the regular files, adds the bytes of the regular files (not `du`,
 which counts directory blocks), and makes a digest of each entry's type, mode, numeric owner and

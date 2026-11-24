@@ -32,14 +32,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import (
     DEFAULT_K8S_VOLUME_MOVE_COPY_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_DETAIL_CHARS,
-    DEFAULT_K8S_VOLUME_MOVE_IMAGE,
     DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_K8S_VOLUME_MOVE_WAIT_SECONDS,
 )
 from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.requests import PlannedRequest, render_request_plan
 from devops_cli.exceptions.k8s import VolumeMoveError, VolumeMoveRefusedError
-from devops_cli.k8s.volume_move import copy_argv, digest_args, empty_args
+from devops_cli.k8s.volume_move import copy_argv, digest_args, empty_args, read_volume_move_image
 from devops_cli.lang import MESSAGES
 from devops_cli.output import write_stderr, write_stdout
 
@@ -71,6 +70,7 @@ class MeasurePlan:
     storage_class: str
     copies: int = MEASURE_COPIES
     bytes_per_copy: int = MEASURE_BYTES
+    image: str = ""
 
     @property
     def source_claim(self) -> str:
@@ -109,7 +109,13 @@ class CopyRun:
         return self.complete and self.source_digest == self.destination_digest
 
 
-def plan_measure(source_node: str, target_node: str, storage_class: str) -> MeasurePlan:
+def plan_measure(
+    source_node: str,
+    target_node: str,
+    storage_class: str,
+    *,
+    image: str = "",
+) -> MeasurePlan:
     """The plan of one measure run, which refuses the same node for both sides."""
     if source_node == target_node:
         raise VolumeMoveRefusedError(_SAME_NODE.format(node=source_node))
@@ -118,6 +124,7 @@ def plan_measure(source_node: str, target_node: str, storage_class: str) -> Meas
         source_node=source_node,
         target_node=target_node,
         storage_class=storage_class,
+        image=image,
     )
 
 
@@ -146,8 +153,9 @@ def _claim_manifest(plan: MeasurePlan, name: str) -> dict[str, Any]:
     }
 
 
-def pod_manifests(plan: MeasurePlan) -> list[dict[str, Any]]:
+def pod_manifests(plan: MeasurePlan, *, image: str = "") -> list[dict[str, Any]]:
     """The two pods, each pinned to its node, read-write on its claim and holding no token."""
+    pod_image = image or plan.image or "<template image>"
     return [
         _pod_manifest(
             plan,
@@ -155,6 +163,7 @@ def pod_manifests(plan: MeasurePlan) -> list[dict[str, Any]]:
             claim=plan.source_claim,
             node=plan.source_node,
             directory=CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
+            image=pod_image,
         ),
         _pod_manifest(
             plan,
@@ -162,12 +171,13 @@ def pod_manifests(plan: MeasurePlan) -> list[dict[str, Any]]:
             claim=plan.destination_claim,
             node=plan.target_node,
             directory=CONST_K8S_VOLUME_MOVE_DESTINATION_DIR,
+            image=pod_image,
         ),
     ]
 
 
 def _pod_manifest(
-    plan: MeasurePlan, *, pod: str, claim: str, node: str, directory: str
+    plan: MeasurePlan, *, pod: str, claim: str, node: str, directory: str, image: str = ""
 ) -> dict[str, Any]:
     return {
         "apiVersion": "v1",
@@ -185,7 +195,7 @@ def _pod_manifest(
             "containers": [
                 {
                     "name": "copy",
-                    "image": DEFAULT_K8S_VOLUME_MOVE_IMAGE,
+                    "image": image,
                     "command": ["sleep", "infinity"],
                     "volumeMounts": [{"name": "data", "mountPath": directory, "readOnly": False}],
                 }
@@ -331,10 +341,11 @@ def run_measure(plan: MeasurePlan, context: str | None) -> list[CopyRun]:
     """Make every copy of the plan, and delete the temporary namespace when the run ends."""
     runs: list[CopyRun] = []
     try:
+        image = plan.image or read_volume_move_image(context)
         _create(_namespace_manifest(plan), context, f"namespace {plan.namespace}")
         for manifest in claim_manifests(plan):
             _create(manifest, context, f"claim {manifest['metadata']['name']}")
-        for manifest in pod_manifests(plan):
+        for manifest in pod_manifests(plan, image=image):
             _create(manifest, context, f"pod {manifest['metadata']['name']}")
         for pod in (plan.source_pod, plan.destination_pod):
             _kubectl(_wait_args(plan, pod), context, f"pod {pod}", timeout=_WAIT_TIMEOUT)
