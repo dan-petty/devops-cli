@@ -9,8 +9,10 @@ documents that `AGENTS.md` routes the group to, when a path that the group names
 carry the rules for that kind of change.
 
 A test reads the "Where to look" table of `AGENTS.md` and fails when a route names a row that the
-table lacks, a document that the row does not link, a missing document, or a missing section. The
-step and the stage job call `rules_sections`, so the measure counts what the step reads.
+table lacks, a document that the row does not link, a missing document, or a missing section. A
+checkout with no `AGENTS.md` gets the generic rules of the kit, rendered from the toolchain that its
+manifests detect, under a heading that states that they are generic. The step and the stage job
+call `rules_sections`, so the measure counts what the step reads.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from devops_cli.config.constants import (
 from devops_cli.roadmap.step_files import TaskGroup, section_text
 
 RULES_HEADING: Final[str] = "Rules of the repository (AGENTS.md)"
+GENERIC_RULES_HEADING: Final[str] = "Generic rules of the kit (no AGENTS.md)"
 _LOCATION_MARK: Final[str] = "::"
 
 
@@ -114,6 +117,26 @@ def route_text(source: Path, route: Route) -> str:
     return truncate_to_token_limit(text, CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
 
 
+def rules_section(heading: str, text: str) -> str:
+    """The section of the rules `text` under `heading`, with the text cut to
+    `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens, so a large file in a branch cannot fill the
+    window."""
+    cut = truncate_to_token_limit(text, CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS)
+    return f"# {heading}\n\n{cut}"
+
+
+def generic_rules(source: Path) -> str:
+    """The generic rules of the kit for the checkout `source`, rendered from the toolchain that
+    its manifests detect. The imports sit in the function so a command that loads this module does
+    not load the template stack."""
+    from devops_cli.ai.instruction_generator import (
+        generate_agents_md,
+        parse_project_metadata,
+    )
+
+    return generate_agents_md(parse_project_metadata(source)).strip()
+
+
 def _matches(route: Route, paths: set[PurePosixPath]) -> bool:
     return any(path.full_match(pattern) for path in paths for pattern in route.patterns)
 
@@ -131,16 +154,16 @@ def routes_for(group: TaskGroup) -> list[Route]:
 
 def rules_sections(source: Path, group: TaskGroup) -> list[str]:
     """The sections of the rules for `group`, each under its heading: `AGENTS.md` of the checkout
-    first, then the routed sections of each document the checkout holds. A text is cut to
-    `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens, so a large file in a branch cannot fill the
-    window. A checkout with no `AGENTS.md` has no rules, and gives no section."""
+    first, then the routed sections of each document the checkout holds. A checkout with no
+    `AGENTS.md` gets the generic rules of the kit under their own heading first instead. A text is
+    cut to `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens, so a large file in a branch cannot
+    fill the window."""
     agents = source / CONST_AGENTS_MD_FILENAME
-    if not agents.is_file():
-        return []
-    rules = truncate_to_token_limit(
-        agents.read_text(encoding="utf-8").strip(), CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
-    )
-    sections = [f"# {RULES_HEADING}\n\n{rules}"]
+    if agents.is_file():
+        rules = rules_section(RULES_HEADING, agents.read_text(encoding="utf-8").strip())
+    else:
+        rules = rules_section(GENERIC_RULES_HEADING, generic_rules(source))
+    sections = [rules]
     for route in routes_for(group):
         text = route_text(source, route)
         if text:

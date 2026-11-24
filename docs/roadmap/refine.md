@@ -6,6 +6,8 @@
 
 Refine uses the code and the documents of the repository. For an item it writes a proposed design, tasks and acceptance criteria. When the item is whole, it sets the Status to Ready.
 
+The context of a round holds the rules of the repository first. It reads the `AGENTS.md` of the item's commit, and not the working tree, under the heading `Rules of the repository (AGENTS.md)`. A rules section holds at most `CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS` tokens. A commit with no `AGENTS.md` gives one section of the generic rules of the kit under the heading `Generic rules of the kit (no AGENTS.md)`. The generic rules name only the toolchain that the checkout detects, so a checkout with no Python manifest gets no line that says Python. The context reads `CONTEXT.md` and the first five ADRs of `docs/adr` after the rules. The cut of the caller takes the end of the context first, so the rules stay when the budget is small.
+
 An item that refine cannot set to Ready gets a next step. The step is one of these:
 
 - The questions that a person answers.

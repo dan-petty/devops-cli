@@ -165,6 +165,7 @@ from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
+    CONST_AGENTS_MD_FILENAME,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -261,6 +262,12 @@ from devops_cli.roadmap.refine.refine_investigation import (
 from devops_cli.roadmap.service_stop import raise_if_service_stops
 from devops_cli.roadmap.status_sync import StatusFacts, owns_status, write_status
 from devops_cli.roadmap.step_files import section_text
+from devops_cli.roadmap.step_rules import (
+    GENERIC_RULES_HEADING,
+    RULES_HEADING,
+    generic_rules,
+    rules_section,
+)
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     ChangeKind,
@@ -1055,6 +1062,15 @@ def collect_context(
 ) -> RefineContext:
     """Collects docs, cited code, grep results, and repo map, capped to token budget."""
     sections: list[str] = []
+
+    # The rules of the repository at the item's commit: its AGENTS.md, or the generic rules of the
+    # kit when that commit holds none. They come first, because the cut of the budget takes the
+    # end of the text first (#4650).
+    agents = _read_git_file(source, sha, CONST_AGENTS_MD_FILENAME)
+    if agents:
+        sections.append(rules_section(RULES_HEADING, agents.strip()))
+    else:
+        sections.append(rules_section(GENERIC_RULES_HEADING, generic_rules(source)))
 
     # CONTEXT.md
     ctx = _read_git_file(source, sha, "CONTEXT.md")

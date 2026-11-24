@@ -176,10 +176,43 @@ def test_a_routed_section_has_the_heading_of_its_document() -> None:
 
 
 def test_a_checkout_without_agents_md_gets_no_section(tmp_path: Path) -> None:
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "TESTING.md").write_text("## Conventions\n\n### Doubles\n\nText.\n")
+    """A checkout with no `AGENTS.md` gets no section of its rules: the generic rules stand in
+    under their own heading (#4650)."""
+    sections = rules_sections(tmp_path, _group("tests/test_sample.py"))
 
-    assert rules_sections(tmp_path, _group("tests/test_sample.py")) == []
+    assert [section for section in sections if section.startswith(f"# {RULES_HEADING}")] == []
+
+
+def test_a_checkout_without_agents_md_gets_the_generic_rules(tmp_path: Path) -> None:
+    sections = rules_sections(tmp_path, _group("tests/test_sample.py"))
+
+    assert len(sections) == 1
+
+    from devops_cli.roadmap.step_rules import GENERIC_RULES_HEADING
+
+    assert _headings(sections) == [f"# {GENERIC_RULES_HEADING}"]
+
+
+def test_a_checkout_without_agents_md_keeps_its_routed_sections(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "TESTING.md").write_text(
+        "## Conventions\n\n### Doubles\n\nText.\n", encoding="utf-8"
+    )
+
+    headings = _headings(rules_sections(tmp_path, _group("tests/test_sample.py")))
+
+    assert len(headings) == 2
+
+    from devops_cli.roadmap.step_rules import GENERIC_RULES_HEADING
+
+    assert headings == [f"# {GENERIC_RULES_HEADING}", route_heading("docs/TESTING.md")]
+
+
+def test_the_generic_rules_name_no_python_without_a_python_manifest(tmp_path: Path) -> None:
+    sections = rules_sections(tmp_path, _group("tests/test_sample.py"))
+
+    assert len(sections) == 1
+    assert [line for line in sections[0].splitlines() if "Python" in line] == []
 
 
 def test_a_routed_document_that_the_checkout_lacks_adds_no_section(tmp_path: Path) -> None:
