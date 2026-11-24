@@ -59,6 +59,8 @@ class WebhookPullRequest(BaseModel):
 
     number: int | None = None
     state: str | None = None
+    merged: bool | None = None
+    merge_commit_sha: str | None = None
     head: WebhookPullRequestHead | None = None
 
 
