@@ -9,20 +9,26 @@ lands with the item that adds the Secret's consumer.
 from __future__ import annotations
 
 import secrets
+import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Self
 from urllib.parse import quote
 
 import yaml
-
-from devops_cli.config.constants import (
-    CONST_GITHUB_APP_PRIVATE_KEY_ENV,
-    CONST_K8S_GITEA_ADMIN_USER,
-    CONST_K8S_MATTERMOST_URL,
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    model_validator,
 )
+
+from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
 from devops_cli.config.env import credential
+from devops_cli.exceptions import ConfigurationError
 
 MANAGED_BY_LABEL = "app.kubernetes.io/managed-by"
 MANAGED_BY_VALUE = "devops-cli"
@@ -229,65 +235,240 @@ _LLM_GATEWAY_KEY = KeyringSource(LLM_GATEWAY_MASTER_KEY)
 _DEVOPS_CACHE_VALKEY_AUTH = KeyringSource(DEVOPS_CACHE_VALKEY_AUTH_KEY)
 _DEVOPS_CACHE_VALKEY_GENERATOR = SecretGenerator("hex", 32)
 
+
+class WorkloadModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["deployment", "statefulset", "daemonset"]
+    name: str
+
+
+class GeneratorModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    encoding: Literal["hex", "urlsafe"]
+    nbytes: int
+    prefix: str = ""
+
+
+class AdoptFromModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    namespace: str
+    name: str
+    key: str
+
+
+class KeyringSourceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+    option: str | None = None
+
+
+class SettingSourceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    option: str
+
+
+class LiteralSourceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: str
+
+
+class DerivedInputModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    keyring: KeyringSourceModel | None = None
+    setting: SettingSourceModel | None = None
+    literal: LiteralSourceModel | None = None
+
+    @model_validator(mode="after")
+    def validate_one_source(self) -> Self:
+        sources = [self.keyring, self.setting, self.literal]
+        if sum(1 for s in sources if s is not None) != 1:
+            raise ValueError("derived input must specify exactly one of: keyring, setting, literal")
+        return self
+
+
+class DerivedSourceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    template: str
+    inputs: dict[str, DerivedInputModel] = Field(default_factory=dict)
+
+
+class SecretEntryModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+    required: bool = True
+    value_prefix: str = ""
+    keyring: KeyringSourceModel | None = None
+    setting: SettingSourceModel | None = None
+    literal: LiteralSourceModel | None = None
+    derived: DerivedSourceModel | None = None
+    generator: GeneratorModel | None = None
+    adopt_from: AdoptFromModel | None = None
+
+    @model_validator(mode="after")
+    def validate_one_source(self) -> Self:
+        sources = [self.keyring, self.setting, self.literal, self.derived]
+        if sum(1 for s in sources if s is not None) != 1:
+            raise ValueError(
+                "secret entry must specify exactly one of: keyring, setting, literal, derived"
+            )
+        return self
+
+
+class SecretTableModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    namespace: str
+    name: str
+    stack: str
+    restarts: list[WorkloadModel] = Field(default_factory=list)
+    labels: dict[str, str] = Field(default_factory=dict)
+    change_note: str = ""
+    secret_type: SecretType = "Opaque"
+    gate_namespace: str | None = None
+    entry: list[SecretEntryModel] = Field(
+        default_factory=list, validation_alias=AliasChoices("entry", "entries")
+    )
+
+
+class ClusterSecretsFileModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    secret: list[SecretTableModel] = Field(
+        default_factory=list, validation_alias=AliasChoices("secret", "secrets")
+    )
+
+
+_CLUSTER_SECRETS_ADAPTER: TypeAdapter[ClusterSecretsFileModel] = TypeAdapter(
+    ClusterSecretsFileModel
+)
+
+
+def _build_plain_source(input_model: DerivedInputModel) -> PlainSource:
+    if input_model.keyring is not None:
+        return KeyringSource(input_model.keyring.key, input_model.keyring.option)
+    if input_model.setting is not None:
+        return SettingSource(input_model.setting.option)
+    if input_model.literal is not None:
+        return LiteralSource(input_model.literal.value)
+    raise ValueError("derived input has no source")
+
+
+def _build_secret_entry(entry: SecretEntryModel) -> SecretEntry:
+    source: SecretSource
+    if entry.keyring is not None:
+        source = KeyringSource(entry.keyring.key, entry.keyring.option)
+    elif entry.setting is not None:
+        source = SettingSource(entry.setting.option)
+    elif entry.literal is not None:
+        source = LiteralSource(entry.literal.value)
+    elif entry.derived is not None:
+        inputs = {k: _build_plain_source(v) for k, v in entry.derived.inputs.items()}
+        source = DerivedSource(entry.derived.template, inputs)
+    else:
+        raise ValueError("entry has no source")
+
+    generator = (
+        SecretGenerator(
+            entry.generator.encoding,
+            entry.generator.nbytes,
+            prefix=entry.generator.prefix,
+        )
+        if entry.generator
+        else None
+    )
+    adopt_from = (
+        SecretKeyRef(
+            entry.adopt_from.namespace,
+            entry.adopt_from.name,
+            entry.adopt_from.key,
+        )
+        if entry.adopt_from
+        else None
+    )
+    return SecretEntry(
+        key=entry.key,
+        source=source,
+        required=entry.required,
+        generator=generator,
+        adopt_from=adopt_from,
+        value_prefix=entry.value_prefix,
+    )
+
+
+def _build_cluster_secret(table: SecretTableModel) -> ClusterSecret:
+    restarts = tuple(Workload(w.kind, w.name) for w in table.restarts)
+    entries = tuple(_build_secret_entry(e) for e in table.entry)
+    return ClusterSecret(
+        namespace=table.namespace,
+        name=table.name,
+        stack=table.stack,
+        entries=entries,
+        restarts=restarts,
+        labels=table.labels,
+        change_note=table.change_note,
+        secret_type=table.secret_type,
+        gate_namespace=table.gate_namespace,
+    )
+
+
+def load_cluster_secrets(path: Path) -> tuple[ClusterSecret, ...]:
+    """Read a cluster-secrets.toml file and build existing ClusterSecret dataclasses."""
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+    validated = _CLUSTER_SECRETS_ADAPTER.validate_python(data)
+    return tuple(_build_cluster_secret(table) for table in validated.secret)
+
+
+_FIXTURE_SECRETS_FILE = (
+    Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "cluster-secrets.toml"
+)
+_FALLBACK_FIXTURE_SECRETS_FILE = Path("tests/fixtures/cluster-secrets.toml")
+
+
+def _resolve_fixture_secrets_file() -> Path | None:
+    if _FIXTURE_SECRETS_FILE.is_file():
+        return _FIXTURE_SECRETS_FILE
+    if _FALLBACK_FIXTURE_SECRETS_FILE.is_file():
+        return _FALLBACK_FIXTURE_SECRETS_FILE
+    return None
+
+
+def load_cluster_secrets_table(
+    env: Any = None,
+    *,
+    k8s_dir: Path | None = None,
+) -> tuple[ClusterSecret, ...]:
+    """Load the full cluster secrets table: environment rows from cluster-secrets.toml and product rows."""
+    if env is None and k8s_dir is None:
+        try:
+            from devops_cli.k8s.environment import resolve_environment
+
+            env = resolve_environment(None)
+        except ConfigurationError:
+            env = None
+    elif env is None and k8s_dir is not None:
+        try:
+            from devops_cli.k8s.environment import tree_at
+
+            env = tree_at(k8s_dir)
+        except ConfigurationError, OSError:
+            env = None
+
+    env_file: Path | None = None
+    if env is not None:
+        cluster_secrets_path = getattr(env, "cluster_secrets", None)
+        if isinstance(cluster_secrets_path, Path) and cluster_secrets_path.is_file():
+            env_file = cluster_secrets_path
+    if env_file is None and k8s_dir is not None:
+        direct = k8s_dir / "cluster-secrets.toml"
+        if direct.is_file():
+            env_file = direct
+    if env_file is None:
+        env_file = _resolve_fixture_secrets_file()
+
+    env_rows = load_cluster_secrets(env_file) if env_file is not None else ()
+    return (*env_rows, *CLUSTER_SECRETS)
+
+
 CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
-    ClusterSecret(
-        namespace="llm",
-        name="llm-gateway-secrets",
-        stack="llm",
-        entries=(
-            SecretEntry(
-                "master-key",
-                _LLM_GATEWAY_KEY,
-                generator=SecretGenerator("hex", 24, prefix=LITELLM_KEY_PREFIX),
-                value_prefix=LITELLM_KEY_PREFIX,
-            ),
-            # The keys of the hosted model groups. The gateway starts without them (#3113).
-            SecretEntry(
-                "gemini-api-key",
-                KeyringSource.for_credential("gemini.api_key"),
-                required=False,
-            ),
-            SecretEntry(
-                "anthropic-api-key",
-                KeyringSource.for_credential("anthropic.api_key"),
-                required=False,
-            ),
-            SecretEntry(
-                "openrouter-api-key",
-                KeyringSource.for_credential("openrouter.api_key"),
-                required=False,
-            ),
-        ),
-        restarts=(Workload("deployment", "llm-gateway"),),
-        labels={"app.kubernetes.io/name": "llm-gateway"},
-        change_note=(
-            "Open WebUI keeps the gateway connection stored in its database: update the key "
-            "under Admin Panel > Settings > Connections."
-        ),
-    ),
-    # Qdrant requires the key, and Open WebUI reads it as QDRANT_API_KEY when its pod starts.
-    ClusterSecret(
-        namespace="llm",
-        name="qdrant-api-key",
-        stack="llm",
-        entries=(
-            SecretEntry(
-                "api-key",
-                KeyringSource.for_credential("qdrant.api_key"),
-                generator=SecretGenerator("urlsafe", 32),
-            ),
-            # The read-only key that a pod which loads Secret devops-cli with envFrom holds (a Job of
-            # CronJob devops-cli, the MCP server): it admits every read and refuses write and delete
-            # (#3823).
-            SecretEntry(
-                "read-only-api-key",
-                KeyringSource.for_credential("qdrant.read_only_api_key"),
-                generator=SecretGenerator("urlsafe", 32),
-            ),
-        ),
-        restarts=(Workload("statefulset", "qdrant"), Workload("statefulset", "open-webui")),
-        labels={"app.kubernetes.io/name": "qdrant"},
-    ),
     ClusterSecret(
         namespace="llm",
         name="valkey-runs-auth",
@@ -301,22 +482,6 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "valkey-runs"),),
         labels={"app.kubernetes.io/name": "valkey-runs"},
-    ),
-    # The cache Valkey's password, which a workstation sends through `devops k8s port-forward`.
-    # Open WebUI loads the Secret with envFrom, so its key is the variable's name.
-    ClusterSecret(
-        namespace="llm",
-        name="valkey-auth",
-        stack="llm",
-        entries=(
-            SecretEntry(
-                "VALKEY_PASSWORD",
-                KeyringSource.for_credential("valkey.password"),
-                generator=SecretGenerator("hex", 32),
-            ),
-        ),
-        restarts=(Workload("deployment", "valkey"), Workload("statefulset", "open-webui")),
-        labels={"app.kubernetes.io/name": "valkey"},
     ),
     # The password of devops-cli's cache Valkey, which the Service and the cluster jobs send from
     # Secret devops/devops-cli (#1655).
@@ -333,20 +498,6 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         restarts=(Workload("deployment", "valkey-devops"),),
         labels={"app.kubernetes.io/name": "valkey-devops"},
-    ),
-    ClusterSecret(
-        namespace="cloudflared",
-        name="cloudflared-token",
-        stack=BASE_STACK,
-        entries=(
-            SecretEntry(
-                "token",
-                KeyringSource.for_credential("cloudflare.tunnel_token"),
-                required=False,
-            ),
-        ),
-        restarts=(Workload("deployment", "cloudflared"),),
-        labels={"app.kubernetes.io/name": "cloudflared"},
     ),
     # The bearer token of Crawl4AI, which refuses to listen beyond loopback without it (#3882).
     # The pod reads the token at start, so a change restarts it.
@@ -547,180 +698,6 @@ CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (
         ),
         labels={"app.kubernetes.io/name": "rag-ingest"},
     ),
-    ClusterSecret(
-        namespace="monitoring",
-        name="grafana-admin",
-        stack="infra",
-        entries=(
-            SecretEntry("admin-user", LiteralSource("admin")),
-            SecretEntry(
-                "admin-password",
-                KeyringSource.for_credential("grafana.password"),
-                generator=SecretGenerator("urlsafe", 32),
-                adopt_from=SecretKeyRef("monitoring", "grafana", "admin-password"),
-            ),
-            SecretEntry(
-                "secret-key",
-                KeyringSource(GRAFANA_SECURITY_KEY),
-                generator=SecretGenerator("urlsafe", 32),
-            ),
-            SecretEntry(
-                "llm-gateway-key",
-                _LLM_GATEWAY_KEY,
-                generator=SecretGenerator("hex", 24, prefix=LITELLM_KEY_PREFIX),
-                value_prefix=LITELLM_KEY_PREFIX,
-            ),
-        ),
-        restarts=(Workload("deployment", "grafana"),),
-        labels={"app.kubernetes.io/name": "grafana"},
-    ),
-    # The token of the Grafana image renderer. Grafana sends it with each render request, and the
-    # renderer refuses a request without it. Both pods read it at start, so a change restarts both.
-    ClusterSecret(
-        namespace="monitoring",
-        name="grafana-image-renderer",
-        stack="infra",
-        entries=(
-            SecretEntry(
-                "token",
-                KeyringSource(GRAFANA_RENDERER_AUTH_KEY),
-                generator=SecretGenerator("urlsafe", 32),
-            ),
-        ),
-        restarts=(
-            Workload("deployment", "grafana"),
-            Workload("deployment", "grafana-image-renderer"),
-        ),
-        labels={"app.kubernetes.io/name": "grafana-image-renderer"},
-    ),
-    ClusterSecret(
-        namespace="monitoring",
-        name="alertmanager-mattermost",
-        stack="infra",
-        entries=(
-            SecretEntry(
-                "url",
-                DerivedSource(
-                    f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}",
-                    {"hook": KeyringSource.for_credential("mattermost.alerts_hook")},
-                ),
-                required=False,
-            ),
-        ),
-        labels={"app.kubernetes.io/name": "alertmanager"},
-    ),
-    # The GitHub App of Argo CD's GitHub notifier (#2000). Its `service.github` refers to these
-    # keys as `$github-appID`, `$github-installationID` and `$github-privateKey`. The values
-    # (`notifications.secret.create: false`) leave this Secret to the push. Argo CD reads the
-    # Secret when it builds each notification, so no workload restarts. The three keys are
-    # required: the engine builds all notifiers together, so a notifier that lacks a key fails
-    # every notification, including the Mattermost alerts.
-    ClusterSecret(
-        namespace="argocd",
-        name="argocd-notifications-secret",
-        stack="infra",
-        entries=(
-            SecretEntry("github-appID", SettingSource("argocd.github_app_id")),
-            SecretEntry(
-                "github-installationID", SettingSource("argocd.github_app_installation_id")
-            ),
-            SecretEntry(
-                "github-privateKey", KeyringSource.for_credential("argocd.github_app_private_key")
-            ),
-            SecretEntry(
-                "mattermost-deploys-url",
-                DerivedSource(
-                    f"{CONST_K8S_MATTERMOST_URL}/hooks/{{hook}}",
-                    {"hook": KeyringSource.for_credential("mattermost.deploys_hook")},
-                ),
-                required=False,
-            ),
-        ),
-        labels={"app.kubernetes.io/part-of": "argocd"},
-    ),
-    # Gitea's admin (#1081). A person types the password, so the push never makes one. The user
-    # is the chart's default, which Gitea does not reserve. Each start of Gitea sets the
-    # admin's password to this Secret's (`gitea.admin.passwordMode: keepUpdated`).
-    ClusterSecret(
-        namespace="gitea",
-        name="gitea-admin",
-        stack="gitea",
-        entries=(
-            SecretEntry("username", LiteralSource(CONST_K8S_GITEA_ADMIN_USER)),
-            SecretEntry("password", KeyringSource.for_credential("gitea.admin_password")),
-        ),
-        restarts=(Workload("deployment", "gitea"),),
-        labels={"app.kubernetes.io/name": "gitea"},
-    ),
-    # Argo CD repository credentials for internal Gitea (#1082).
-    # Allows Argo CD repo-server to pull Git repositories from the in-cluster Gitea service.
-    # Gated by namespace `gitea` so clusters without Gitea (such as minikube) skip it.
-    ClusterSecret(
-        namespace="argocd",
-        name="gitea-repo-creds",
-        gate_namespace="gitea",
-        stack="gitea",
-        entries=(
-            SecretEntry("url", LiteralSource("http://gitea-http.gitea.svc.cluster.local:3000/")),
-            SecretEntry("username", SettingSource("gitea.argocd_username")),
-            SecretEntry("type", LiteralSource("git")),
-            SecretEntry("password", KeyringSource.for_credential("gitea.argocd_token")),
-        ),
-        labels={"argocd.argoproj.io/secret-type": "repo-creds"},
-    ),
-    ClusterSecret(
-        namespace="mattermost",
-        name="mattermost-db",
-        stack="chat",
-        secret_type=_BASIC_AUTH_SECRET_TYPE,
-        entries=(
-            SecretEntry("username", LiteralSource("mattermost")),
-            SecretEntry(
-                "password",
-                KeyringSource(MATTERMOST_DB_AUTH_KEY),
-                generator=SecretGenerator("urlsafe", 32),
-                adopt_from=SecretKeyRef("mattermost", "mattermost-db", "password"),
-            ),
-            SecretEntry(
-                "DB_CONNECTION_STRING",
-                DerivedSource(
-                    "postgres://{username}:{password}@mattermost-db-rw.mattermost.svc.cluster.local:5432/mattermost?sslmode=require&connect_timeout=10",
-                    {
-                        "username": LiteralSource("mattermost"),
-                        "password": KeyringSource(MATTERMOST_DB_AUTH_KEY),
-                    },
-                ),
-            ),
-        ),
-        labels={"app.kubernetes.io/name": "mattermost-db"},
-    ),
-    # The admin of the object store (#4750). With no password, the admin HTTP API has no
-    # authentication (GHSA-m3m8-mrgq-hf9h). Nobody types the password: the push makes it. The JWT
-    # signing keys have no row, because the SeaweedFS operator mints them in Secret
-    # seaweedfs-security-config.
-    ClusterSecret(
-        namespace="object-store",
-        name="seaweedfs-admin",
-        stack="infra",
-        entries=(
-            SecretEntry("adminUser", LiteralSource("admin")),
-            SecretEntry(
-                "adminPassword",
-                KeyringSource(SEAWEEDFS_ADMIN_AUTH_KEY),
-                generator=SecretGenerator("urlsafe", 32),
-            ),
-        ),
-        restarts=(Workload("statefulset", "seaweedfs-admin"),),
-        labels={"app.kubernetes.io/name": "seaweedfs"},
-    ),
-    ClusterSecret(
-        namespace="object-store",
-        name="seaweedfs-s3",
-        stack="infra",
-        entries=(SecretEntry("s3.json", LiteralSource(SEAWEEDFS_S3_NO_IDENTITIES)),),
-        restarts=(Workload("deployment", "seaweedfs-s3"),),
-        labels={"app.kubernetes.io/name": "seaweedfs"},
-    ),
 )
 
 # The Secrets that serve an optional feature: a workload starts without one, and only that
@@ -733,23 +710,29 @@ OPTIONAL_FEATURE_SECRETS: Final[tuple[str, ...]] = (
 )
 
 
-def secret_names(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> list[str]:
+def secret_names(table: Iterable[ClusterSecret] | None = None) -> list[str]:
     """Every `namespace/name` in the table, in its order."""
+    if table is None:
+        table = load_cluster_secrets_table()
     return [secret.ref for secret in table]
 
 
 def secrets_for_stacks(
-    stacks: Iterable[str], table: Iterable[ClusterSecret] = CLUSTER_SECRETS
+    stacks: Iterable[str], table: Iterable[ClusterSecret] | None = None
 ) -> tuple[ClusterSecret, ...]:
     """The rows of the given stacks, in table order."""
+    if table is None:
+        table = load_cluster_secrets_table()
     wanted = set(stacks)
     return tuple(secret for secret in table if secret.stack in wanted)
 
 
 def secrets_by_ref(
-    refs: Iterable[str], table: Iterable[ClusterSecret] = CLUSTER_SECRETS
+    refs: Iterable[str], table: Iterable[ClusterSecret] | None = None
 ) -> tuple[tuple[ClusterSecret, ...], list[str]]:
     """The rows named `namespace/name`, in table order, and the names the table lacks."""
+    if table is None:
+        table = load_cluster_secrets_table()
     wanted = list(dict.fromkeys(refs))
     rows = tuple(table)
     known = {secret.ref for secret in rows}
@@ -758,8 +741,10 @@ def secrets_by_ref(
     ]
 
 
-def table_stacks(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> tuple[str, ...]:
+def table_stacks(table: Iterable[ClusterSecret] | None = None) -> tuple[str, ...]:
     """The stacks the table's rows belong to, in table order."""
+    if table is None:
+        table = load_cluster_secrets_table()
     return tuple(dict.fromkeys(secret.stack for secret in table))
 
 
@@ -771,9 +756,11 @@ def keyring_sources(entry: SecretEntry) -> tuple[KeyringSource, ...]:
 
 
 def generator_for_option(
-    option: str, table: Iterable[ClusterSecret] = CLUSTER_SECRETS
+    option: str, table: Iterable[ClusterSecret] | None = None
 ) -> SecretGenerator | None:
     """The generator the table declares for the managed credential `option`."""
+    if table is None:
+        table = load_cluster_secrets_table()
     return next(
         (
             entry.generator
@@ -787,9 +774,11 @@ def generator_for_option(
 
 
 def generator_option_names(
-    table: Iterable[ClusterSecret] = CLUSTER_SECRETS,
+    table: Iterable[ClusterSecret] | None = None,
 ) -> tuple[str, ...]:
     """The managed credential options whose row declares a generator, sorted."""
+    if table is None:
+        table = load_cluster_secrets_table()
     return tuple(
         sorted(
             {
@@ -804,8 +793,10 @@ def generator_option_names(
     )
 
 
-def keyring_only_keys(table: Iterable[ClusterSecret] = CLUSTER_SECRETS) -> frozenset[str]:
+def keyring_only_keys(table: Iterable[ClusterSecret] | None = None) -> frozenset[str]:
     """The keyring keys the table declares that no Settings option reads."""
+    if table is None:
+        table = load_cluster_secrets_table()
     return frozenset(
         source.key
         for secret in table
@@ -875,7 +866,7 @@ def _check_secret_ref(
 
 def check_secret_key_refs(
     k8s_dir: Path | str,
-    table: Iterable[ClusterSecret] = CLUSTER_SECRETS,
+    table: Iterable[ClusterSecret] | None = None,
 ) -> list[str]:
     """Verify that every secretKeyRef in manifests or values under `k8s_dir` referencing a Secret
     in `table` names a key of that Secret's entries.
@@ -884,6 +875,8 @@ def check_secret_key_refs(
     `table` (such as chart-made or operator-made Secrets).
     """
     root = Path(k8s_dir)
+    if table is None:
+        table = load_cluster_secrets_table()
     table_list = tuple(table)
     table_by_ref = {s.ref: s for s in table_list}
     table_by_name: dict[str, list[ClusterSecret]] = {}

@@ -112,6 +112,12 @@ def test_the_kube_linter_row_lints_the_applications_of_the_tree() -> None:
     )
 
 
+def test_the_hadolint_row_runs_the_pre_commit_hook() -> None:
+    """The row runs `uv run pre-commit run hadolint --all-files` over all files (#6418)."""
+    spec = get_check_spec("hadolint")
+    assert spec.cmd == ["uv", "run", "pre-commit", "run", "hadolint", "--all-files"]
+
+
 def test_a_row_with_a_hand_written_command_runs_dry_run(recorder: list[list[str]]) -> None:
     """A row with a hand-written command plans its command under dry-run."""
     res = runner.invoke(app, ["lint", "--dry-run"])

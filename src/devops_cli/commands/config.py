@@ -264,11 +264,16 @@ def _store_generated(key: str, *, rotate: bool, dry_run: bool) -> None:
     keyring: no argument, file, log record or output holds it. A dry run prints the kind, the
     byte count and a masked placeholder, and reads nothing.
     """
-    from devops_cli.k8s.cluster_secrets import generator_for_option, generator_option_names
+    from devops_cli.k8s.cluster_secrets import (
+        generator_for_option,
+        generator_option_names,
+        load_cluster_secrets_table,
+    )
 
-    generator = generator_for_option(key)
+    table = load_cluster_secrets_table()
+    generator = generator_for_option(key, table=table)
     if generator is None:
-        options = ", ".join(generator_option_names())
+        options = ", ".join(generator_option_names(table=table))
         print_error(
             MESSAGES.config.generate_no_generator.format(key=key, options=options),
             prefix=False,

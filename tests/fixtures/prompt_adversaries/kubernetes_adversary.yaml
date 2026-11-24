@@ -16,6 +16,10 @@ spec:
       labels:
         app: injection-daemon
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
         - name: agent
           image: example.com/agent:1.0.0
+          securityContext:
+            readOnlyRootFilesystem: true

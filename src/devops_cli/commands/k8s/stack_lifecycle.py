@@ -60,6 +60,7 @@ from devops_cli.k8s.argocd_overrides import (
 from devops_cli.k8s.cluster_secrets import (
     BASE_STACK,
     DETACHED_STACKS,
+    load_cluster_secrets_table,
     secrets_for_stacks,
 )
 from devops_cli.k8s.configmap import (
@@ -341,10 +342,6 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
         Path("searxng", "networkpolicy-client.yaml"),
         Path("searxng", "networkpolicy.yaml"),
         Path("searxng", "service.yaml"),
-        Path("renovate", "configmap.yaml"),
-        Path("renovate", "networkpolicy.yaml"),
-        Path("renovate", "pvc.yaml"),
-        Path("renovate", "cronjob.yaml"),
         Path("roadmap-service", "serviceaccount.yaml"),
         Path("roadmap-service", "role.yaml"),
         Path("roadmap-service", "admissionpolicy.yaml"),
@@ -915,7 +912,8 @@ def _post_deploy_credentials(
     if "infra" in selected_stacks:
         from devops_cli.k8s.credentials import sync_k8s_credentials
 
-        _report_credential_sync(sync_k8s_credentials(context=effective_context, stack="infra"))
+        infra_stack = "infra"
+        _report_credential_sync(sync_k8s_credentials(context=effective_context, stack=infra_stack))
         print_info(
             "[dim]Tempo HTTP API: http://localhost:3200 (namespace: otel)[/dim]",
             prefix=False,
@@ -969,7 +967,9 @@ def _push_stacks_for(selected_stacks: Sequence[str], context: str | None) -> lis
     return [BASE_STACK, *selected_stacks, *detached]
 
 
-def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list[str]:
+def _dry_run_secrets(
+    selected_stacks: Sequence[str], push_secrets: bool, env: EnvironmentTree | None = None
+) -> list[str]:
     """The Secrets and key names a deploy would push, from the table alone, running nothing.
 
     A detached stack's rows are pushed only where its namespace exists, which a dry run does
@@ -978,10 +978,11 @@ def _dry_run_secrets(selected_stacks: Sequence[str], push_secrets: bool) -> list
     if not push_secrets:
         return []
     detached = set(DETACHED_STACKS) - set(selected_stacks)
+    table = load_cluster_secrets_table(env=env)
     return [
         f"{secret.ref}: {', '.join(entry.key for entry in secret.entries)}"
         + (f" (if namespace {secret.namespace} exists)" if secret.stack in detached else "")
-        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *detached])
+        for secret in secrets_for_stacks([BASE_STACK, *selected_stacks, *detached], table=table)
     ]
 
 
@@ -1504,6 +1505,7 @@ def _handle_argo_managed_deployment(
     sandbox_config_map: str | None,
     domain: str | None = None,
     revision: str | None = None,
+    env: EnvironmentTree | None = None,
 ) -> None:
     """Supply the values git never holds, and leave every manifest to Argo CD.
 
@@ -1515,7 +1517,9 @@ def _handle_argo_managed_deployment(
     overrides = _homelab_host_overrides(selected_stacks, domain, revision, kubectl_ctx)
     if push_secrets:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
-        push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+        push_for_stacks(
+            _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
+        )
     if config_map is not None:
         _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
     if sandbox_config_map is not None:
@@ -1630,7 +1634,7 @@ def _render_deploy_stack_dry_run(
             "port_forward": port_forward,
             "configure_urls": configure_urls,
             "config_writes": config_writes,
-            "secrets": _dry_run_secrets(selected_stacks, push_secrets),
+            "secrets": _dry_run_secrets(selected_stacks, push_secrets, env=env),
             "helm_releases": [r["name"] for r in all_releases],
             "helm_commands": helm_commands,
             "source_fetches": [list(command) for command in source_fetches],
@@ -1784,6 +1788,7 @@ def deploy_stack(
                 sandbox_config_map,
                 domain=domain,
                 revision=argocd_revision,
+                env=env,
             )
             return
 
@@ -1796,7 +1801,9 @@ def deploy_stack(
         # 5. Push the stacks' Secrets before anything reads them
         if push_secrets:
             print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
-            push_for_stacks(_push_stacks_for(selected_stacks, effective_context), effective_context)
+            push_for_stacks(
+                _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
+            )
 
         # 5b. Verify Helm version requirement before Helm operations
         is_v4 = _check_helm_version_for_deploy(all_releases)

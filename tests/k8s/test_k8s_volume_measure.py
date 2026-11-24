@@ -9,6 +9,7 @@ each test fails there on its own.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -21,7 +22,6 @@ from devops_cli.config.constants import (
     CONST_K8S_VOLUME_MOVE_DIGEST_SCRIPT,
     CONST_K8S_VOLUME_MOVE_SOURCE_DIR,
 )
-from devops_cli.config.defaults import DEFAULT_K8S_VOLUME_MOVE_IMAGE
 from devops_cli.exceptions.k8s import VolumeMoveRefusedError
 from devops_cli.k8s.volume_move import copy_argv
 from devops_cli.lang import MESSAGES
@@ -30,6 +30,9 @@ from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 if TYPE_CHECKING:
     from devops_cli.k8s.volume_move_measure import CopyRun
 
+VOLUME_MOVE_IMAGE = (
+    "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2"
+)
 SOURCE_NODE = "node-a"
 TARGET_NODE = "node-b"
 STORAGE_CLASS = "local-path"
@@ -117,15 +120,16 @@ def test_the_measure_pods_carry_no_service_account_token(process_fake: ProcessFa
     # Imported here, so the file collects on the base commit and this test fails there.
     from devops_cli.k8s.volume_move_measure import plan_measure, pod_manifests
 
-    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS)
+    plan = plan_measure(SOURCE_NODE, TARGET_NODE, STORAGE_CLASS, image=VOLUME_MOVE_IMAGE)
 
     pods = pod_manifests(plan)
 
     assert [pod["spec"]["automountServiceAccountToken"] for pod in pods] == [False, False]
     assert [pod["spec"]["containers"][0]["image"] for pod in pods] == [
-        DEFAULT_K8S_VOLUME_MOVE_IMAGE,
-        DEFAULT_K8S_VOLUME_MOVE_IMAGE,
+        VOLUME_MOVE_IMAGE,
+        VOLUME_MOVE_IMAGE,
     ]
+    assert [pod["spec"]["containers"][0].get("securityContext") for pod in pods] == [None, None]
     assert [pod["spec"]["containers"][0]["command"] for pod in pods] == [
         ["sleep", "infinity"],
         ["sleep", "infinity"],
@@ -169,6 +173,25 @@ class MeasureCluster:
         return _completed(argv, 0, stdout=self._read(args))
 
     def _read(self, args: list[str]) -> str:
+        if args[:3] == ["get", "cronjob", "volume-move"]:
+            return json.dumps(
+                {
+                    "apiVersion": "batch/v1",
+                    "kind": "CronJob",
+                    "metadata": {"name": "volume-move", "namespace": "devops"},
+                    "spec": {
+                        "jobTemplate": {
+                            "spec": {
+                                "template": {
+                                    "spec": {
+                                        "containers": [{"name": "copy", "image": VOLUME_MOVE_IMAGE}]
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
+            )
         if args[0] != "exec":
             return ""
         if args[-1] == CONST_K8S_VOLUME_MOVE_SOURCE_DIR:

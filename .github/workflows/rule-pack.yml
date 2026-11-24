@@ -36,7 +36,7 @@ jobs:
     name: Rule Pack Tests
     runs-on: ubuntu-26.04
     container:
-      image: ghcr.io/dan-petty/devtools:1.1.6@sha256:faaedce3dec1156df018c6992db041c55f82e1b3dc785dcef8ec786c817d0f36
+      image: ghcr.io/dan-petty/devtools:1.1.8@sha256:b3c8349ad3596e8c2b3e1faab9c5e8eaf601050889ac4ad7b20360dcfc03e156
     timeout-minutes: 5
     permissions:
       contents: read

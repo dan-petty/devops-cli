@@ -8,8 +8,9 @@ keyring and the cluster to print each key's state, and writes nothing.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Annotated
+from collections.abc import Iterable, Sequence
+from pathlib import Path
+from typing import Annotated, Any
 
 import typer
 
@@ -21,9 +22,9 @@ from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions.k8s import ClusterSecretPushError, ClusterSecretWriteError
 from devops_cli.k8s.cluster_secrets import (
     BASE_STACK,
-    CLUSTER_SECRETS,
     DETACHED_STACKS,
     ClusterSecret,
+    load_cluster_secrets_table,
     secret_names,
     secrets_by_ref,
     secrets_for_stacks,
@@ -46,33 +47,43 @@ from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import print_error, print_info, print_warning
 
 
-def _push_stacks() -> tuple[str, ...]:
+def _push_stacks(table: tuple[ClusterSecret, ...] | None = None) -> tuple[str, ...]:
     """The stacks `--stack` accepts: the table's, deploy-stack's and `all`."""
-    return tuple(dict.fromkeys((BASE_STACK, *VALID_STACKS, *DETACHED_STACKS, *table_stacks())))
+    t = table if table is not None else load_cluster_secrets_table()
+    return tuple(dict.fromkeys((BASE_STACK, *VALID_STACKS, *DETACHED_STACKS, *table_stacks(t))))
 
 
-def _select(stack: str, only: Sequence[str]) -> tuple[ClusterSecret, ...]:
+def _select(
+    stack: str, only: Sequence[str], table: tuple[ClusterSecret, ...] | None = None
+) -> tuple[ClusterSecret, ...]:
     """The rows `--only` names, else the rows of `--stack`; an unknown name exits 2."""
+    current_table = table if table is not None else load_cluster_secrets_table()
     if only:
-        selected, unknown = secrets_by_ref(only)
+        selected, unknown = secrets_by_ref(only, table=current_table)
         if unknown:
             print_error(
                 MESSAGES.k8s.push_unknown_secret.format(
-                    names=", ".join(unknown), known=", ".join(secret_names())
+                    names=", ".join(unknown), known=", ".join(secret_names(current_table))
                 ),
                 prefix=False,
                 safe=True,
             )
             raise typer.Exit(2)
         return selected
-    if stack not in _push_stacks():
+    if stack not in _push_stacks(current_table):
         print_error(
-            MESSAGES.k8s.push_unknown_stack.format(stack=stack, known=", ".join(_push_stacks())),
+            MESSAGES.k8s.push_unknown_stack.format(
+                stack=stack, known=", ".join(_push_stacks(current_table))
+            ),
             prefix=False,
             safe=True,
         )
         raise typer.Exit(2)
-    return CLUSTER_SECRETS if stack == CONST_K8S_ALL_STACKS else secrets_for_stacks([stack])
+    return (
+        current_table
+        if stack == CONST_K8S_ALL_STACKS
+        else secrets_for_stacks([stack], table=current_table)
+    )
 
 
 def _render(plan: PushPlan, options: PushOptions, *, preview: bool) -> None:
@@ -174,9 +185,22 @@ def run_push(
     return PushResult(mode, plan)
 
 
-def push_for_stacks(stacks: Sequence[str], context: str | None) -> None:
+def push_for_stacks(
+    stacks: Sequence[str],
+    context: str | None,
+    table: Iterable[ClusterSecret] | None = None,
+    k8s_dir: Path | None = None,
+    env: Any = None,
+) -> None:
     """deploy-stack's push: its stacks' rows with `--stack` semantics, no rotation, restarts on."""
-    run_push(secrets_for_stacks(stacks), PushOptions(context=context), mode=PushMode.PUSH)
+    full_table = (
+        tuple(table) if table is not None else load_cluster_secrets_table(env=env, k8s_dir=k8s_dir)
+    )
+    run_push(
+        secrets_for_stacks(stacks, table=full_table),
+        PushOptions(context=context),
+        mode=PushMode.PUSH,
+    )
 
 
 @dry_run_class("request-plan")
@@ -196,6 +220,7 @@ def push_secrets(
     ] = None,
     plan: Annotated[bool, typer.Option("--plan", help=HELP.k8s.push_plan)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.push_dry_run)] = False,
+    k8s_dir: Annotated[Path | None, typer.Option("--k8s-dir", help=HELP.k8s.k8s_dir)] = None,
 ) -> None:
     """Write the cluster's Secrets from the OS keyring: workstation keyring → cluster.
 
@@ -205,7 +230,8 @@ def push_secrets(
     effective_context = runtime.resolve_effective_context(context)
     if effective_context:
         runtime._validate_kubeconfig_context_name(effective_context, "context")
-    selected = _select(stack, only or [])
+    table = load_cluster_secrets_table(k8s_dir=k8s_dir)
+    selected = _select(stack, only or [], table=table)
     options = PushOptions(
         context=effective_context,
         rotate=rotate,

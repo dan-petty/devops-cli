@@ -1337,8 +1337,6 @@ DEFAULT_K8S_DOCTOR_HTTP_TIMEOUT_SECONDS: float = 15.0
 DEFAULT_K8S_DOCTOR_EGRESS_PROBE_SECONDS: int = 5
 
 # ── Kubernetes Local-Path Volume Move Defaults (#2186) ───────────────────────
-# GNU tar, findutils, coreutils, mawk and bash, with no package to install.
-DEFAULT_K8S_VOLUME_MOVE_IMAGE: str = "debian:trixie-slim"
 # A plain kubectl request: a read, a patch, a create, a scale or a delete without a wait.
 DEFAULT_K8S_VOLUME_MOVE_REQUEST_TIMEOUT_SECONDS: float = 120.0
 # How long `kubectl wait` waits for a pod to be Ready or gone, a delete and a claim to bind.

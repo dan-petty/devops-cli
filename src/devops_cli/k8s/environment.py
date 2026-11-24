@@ -31,6 +31,7 @@ _GPU_THRESHOLDS: Final[Path] = Path("llm/profiles/gpu-thresholds.yaml")
 _TIER_TEMPLATES: Final[Path] = Path("llm/profiles/tier-templates")
 _LLM_SERVICES: Final[Path] = Path("llm/profiles/services.yaml")
 _PRODUCT_BASE: Final[Path] = Path("k8s/devops")
+_CLUSTER_SECRETS: Final[Path] = Path("cluster-secrets.toml")
 OPTION: Final[str] = "--k8s-dir"
 PRODUCT_OPTION: Final[str] = "--product-dir"
 
@@ -90,6 +91,20 @@ class EnvironmentTree:
     def llm_services(self) -> Path:
         """The Services of the Ollama tiers."""
         return self.root / _LLM_SERVICES
+
+    @property
+    def cluster_secrets(self) -> Path:
+        """The cluster secrets file holding environment Secret rows."""
+        direct = self.root / _CLUSTER_SECRETS
+        if direct.is_file():
+            return direct
+        nested = self.root / "k8s" / _CLUSTER_SECRETS
+        if nested.is_file():
+            return nested
+        fixture = self.repo / "tests" / "fixtures" / _CLUSTER_SECRETS
+        if fixture.is_file():
+            return fixture
+        return direct
 
 
 def tree_at(root: Path) -> EnvironmentTree:
@@ -155,9 +170,12 @@ def resolve_product_root(product_dir: Path | None = None, *, start: Path | None 
     return (_repository(folder) or folder) / _PRODUCT_BASE
 
 
-def _repository(folder: Path) -> Path | None:
+def find_repository(folder: Path) -> Path | None:
     """The nearest folder at or above `folder` that holds `.git`."""
     return next((path for path in (folder, *folder.parents) if (path / _GIT).exists()), None)
+
+
+_repository = find_repository
 
 
 def _profile_tree(checkout: Path) -> EnvironmentTree | None:

@@ -2,6 +2,72 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.206.2](https://github.com/dan-petty/devops-cli/compare/v0.206.1...v0.206.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **k8s:** hermetically resolve cluster secrets fixture ([#6959](https://github.com/dan-petty/devops-cli/issues/6959)) ([c5f5bfd](https://github.com/dan-petty/devops-cli/commit/c5f5bfd4f65e41b1a95f625b93e5418e374a5ef0))
+
+
+### Code Refactoring
+
+* **k8s:** take helper pod and harbor task images from manifests ([#6958](https://github.com/dan-petty/devops-cli/issues/6958)) ([f96dc6b](https://github.com/dan-petty/devops-cli/commit/f96dc6b5e6ddd5e8aca8ef6406d5e84ad2c2d3d3))
+
+## [0.206.1](https://github.com/dan-petty/devops-cli/compare/v0.206.0...v0.206.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **k8s:** Resolve cluster secrets fixture in installed package ([#6949](https://github.com/dan-petty/devops-cli/issues/6949)) ([d8cdab0](https://github.com/dan-petty/devops-cli/commit/d8cdab0fec4227810cc08c500bdfc8f8f8b9e8dc))
+
+## [0.206.0](https://github.com/dan-petty/devops-cli/compare/v0.205.0...v0.206.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Wake two rows on a closed plan pull request ([#6945](https://github.com/dan-petty/devops-cli/issues/6945)) ([d8799eb](https://github.com/dan-petty/devops-cli/commit/d8799eb8446265112408afd4e4eba88b365ba66c))
+
+
+### Bug Fixes
+
+* **deps:** update @fission-ai/openspec to v2.1.1 ([#6909](https://github.com/dan-petty/devops-cli/issues/6909)) ([69160bc](https://github.com/dan-petty/devops-cli/commit/69160bc3e2422ebc12b3c49b83d2f39ae32942b4))
+
+## [0.205.0](https://github.com/dan-petty/devops-cli/compare/v0.204.0...v0.205.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** Handle trusted issue_comment replies ([#6942](https://github.com/dan-petty/devops-cli/issues/6942)) ([4591d21](https://github.com/dan-petty/devops-cli/commit/4591d2101c80ae96deb63132e44c434fed591f58))
+
+## [0.204.0](https://github.com/dan-petty/devops-cli/compare/v0.203.7...v0.204.0) (2026-11-24)
+
+
+### Features
+
+* **roadmap:** configure renovate rules and openspec requirement limits ([#6939](https://github.com/dan-petty/devops-cli/issues/6939)) ([7412de8](https://github.com/dan-petty/devops-cli/commit/7412de8cbea4e82b606bb5b7d0b787b3457ada80))
+
+## [0.203.7](https://github.com/dan-petty/devops-cli/compare/v0.203.6...v0.203.7) (2026-11-23)
+
+
+### Bug Fixes
+
+* **security:** add readOnlyRootFilesystem to adversary fixture ([#6932](https://github.com/dan-petty/devops-cli/issues/6932)) ([2d2b3ea](https://github.com/dan-petty/devops-cli/commit/2d2b3eaff37cd8ac593a35d56ca342c1cff61787))
+
+## [0.203.6](https://github.com/dan-petty/devops-cli/compare/v0.203.5...v0.203.6) (2026-11-23)
+
+
+### Bug Fixes
+
+* **ci:** fix mutants tree tests reading git tracking or src ([#6931](https://github.com/dan-petty/devops-cli/issues/6931)) ([5e8a265](https://github.com/dan-petty/devops-cli/commit/5e8a26511d3ed70e468069d57953725265d1392e))
+* **ci:** the stats run fails in the mutants tree ([#6926](https://github.com/dan-petty/devops-cli/issues/6926)) ([715f48d](https://github.com/dan-petty/devops-cli/commit/715f48ddb0c727ef57f9b1da83453da63f95918f))
+* **deps:** update node to v24.22.3 ([#6916](https://github.com/dan-petty/devops-cli/issues/6916)) ([02a3599](https://github.com/dan-petty/devops-cli/commit/02a3599fb684df76dba0e6e74a70ab3935e995f2))
+
+
+### Code Refactoring
+
+* **k8s:** read the environment Secret rows from homelab ([#6928](https://github.com/dan-petty/devops-cli/issues/6928)) ([17e6ceb](https://github.com/dan-petty/devops-cli/commit/17e6cebc8700930fa49bcb948ce51daa7945f2a3))
+
 ## [0.203.5](https://github.com/dan-petty/devops-cli/compare/v0.203.4...v0.203.5) (2026-11-23)
 
 

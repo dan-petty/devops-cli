@@ -231,6 +231,7 @@ the probe measured nothing. |
 |  | `devops ci fail-to-pass [OPTIONS]` | Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. A module that only loses checks, and a deleted module, run no gate row. A fix that changes no source code and only deletes checks needs no proof. |
 |  | `devops ci zizmor [OPTIONS]` | Run the zizmor check. |
 |  | `devops ci constructs [OPTIONS]` | Run the constructs check. |
+|  | `devops ci hadolint [OPTIONS]` | Run the hadolint check. |
 |  | `devops ci openspec [OPTIONS]` | Run the openspec check. |
 |  | `devops ci git [OPTIONS]` | Run the git check. |
 |  | `devops ci bwrap [OPTIONS]` | Run the bwrap check. |

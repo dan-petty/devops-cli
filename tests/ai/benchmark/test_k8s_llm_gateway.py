@@ -35,7 +35,7 @@ from devops_cli.config.defaults import (
     DEFAULT_REVIEW_TIMEOUT_SECONDS,
 )
 from devops_cli.config.settings import AIConfig, Settings
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from devops_cli.k8s.cluster_secrets import load_cluster_secrets_table
 from devops_cli.k8s.gpu_matrix import (
     get_gateway_routing_entries,
     get_service_aliases,
@@ -1293,7 +1293,7 @@ def _hosted_violations(config: dict[str, Any], deployment: dict[str, Any]) -> li
         for v in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
         if "secretKeyRef" in v.get("valueFrom", {})
     }
-    secret = next(s for s in CLUSTER_SECRETS if s.ref == f"llm/{HOSTED_SECRET}")
+    secret = next(s for s in load_cluster_secrets_table() if s.ref == f"llm/{HOSTED_SECRET}")
     optional_keys = {entry.key for entry in secret.entries if not entry.required}
     router = config["router_settings"]
     chains = [*router.get("fallbacks", []), *router.get("context_window_fallbacks", [])]

@@ -12,6 +12,9 @@ check_secret_key_refs: Any = getattr(_cs, "check_secret_key_refs", None)
 _check_secret_ref: Any = getattr(_cs, "_check_secret_ref", None)
 CLUSTER_SECRETS: Any = getattr(_cs, "CLUSTER_SECRETS", ())
 ClusterSecret: Any = getattr(_cs, "ClusterSecret", None)
+load_cluster_secrets_table: Any = getattr(
+    _cs, "load_cluster_secrets_table", lambda: CLUSTER_SECRETS
+)
 
 
 def test_unknown_credential_key_fails_the_check(tmp_path: Path) -> None:
@@ -45,7 +48,7 @@ apiKey:
         )
         if s.ref == "llm/qdrant-api-key"
         else s
-        for s in CLUSTER_SECRETS
+        for s in load_cluster_secrets_table()
     )
 
     findings = check_secret_key_refs(tmp_path, table=table_without_read_only)
@@ -84,7 +87,7 @@ apiKey:
 def test_check_secret_ref_matches_unique_name_without_namespace(tmp_path: Path) -> None:
     """_check_secret_ref matches a unique secret name when doc_ns is empty (#6064)."""
     assert _check_secret_ref is not None, "_check_secret_ref is not implemented"
-    table_list = tuple(CLUSTER_SECRETS)
+    table_list = tuple(load_cluster_secrets_table())
     table_by_ref = {s.ref: s for s in table_list}
     table_by_name: dict[str, list[Any]] = {}
     for s in table_list:

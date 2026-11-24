@@ -71,7 +71,7 @@ The poll SHALL run intake when the repository has an issue newer than the newest
 - **THEN** the poll runs intake, the model judges nothing in that round, and the poll after it runs no intake
 
 ### Requirement: The Service runs a subscribed event's scoped update on the lane of its table row
-The roadmap consumer of the Service SHALL hand each subscribed webhook event that has a row in `SCOPED_UPDATES` and names an issue number or a pull request number to its scoped update, on the lane that holds the row of the update (`lane_of_row` with `service.lanes`). The delivery SHALL run the scoped update on the worker of that lane and SHALL queue no full round on any lane.
+The roadmap consumer of the Service SHALL hand each subscribed webhook event that `scoped_update_of` gives an update and that names an issue number or a pull request number to that scoped update, on the lane that holds the row of the update (`lane_of_row` with `service.lanes`). The delivery SHALL run the scoped update on the worker of that lane and SHALL queue no full round on any lane.
 
 #### Scenario: A subscribed issues delivery runs on the triage lane
 - **WHEN** a signed delivery of `issues` `opened`, `edited` or `reopened` with an issue number arrives, and the Service runs the default lanes
@@ -104,11 +104,15 @@ After a scoped update that places a critical fix or a P0 item, the Service SHALL
 - **THEN** `schedule.json` holds a `refine_due` stamp, and the lane of `refine` runs a round in which `refine` is due
 
 ### Requirement: A webhook key makes only the rows that declare it due
-A row of the due table SHALL be due by a webhook key only when its `batch_keys` hold that key. `refine` SHALL declare `edited`, `labeled` and `unlabeled`, `retitle` SHALL declare `edited`, and `stage` and `implement` SHALL declare `labeled`, `unlabeled` and `closed`, each as an `issues` key.
+A row of the due table SHALL be due by a webhook key only when its `batch_keys` hold that key. `refine` SHALL declare `edited`, `labeled` and `unlabeled`, `retitle` SHALL declare `edited`, and `stage` and `implement` SHALL declare `labeled`, `unlabeled` and `closed` as `issues` keys and `closed` as a `pull_request` key.
 
 #### Scenario: A labeled delivery
 - **WHEN** every row is fresh by its interval and a signed `issues` `labeled` delivery arrives
 - **THEN** `refine`, `stage` and `implement` are due, and `intake`, `retitle` and `alternatives` are not
+
+#### Scenario: A closed plan pull request makes the stage and implement rows due
+- **WHEN** every row of the due table is fresh by its interval and the batch holds the key `("webhook", "pull_request", "closed")`
+- **THEN** the `stage` and `implement` rows are due, and each other row of the due table is not due
 
 ### Requirement: A pull request, review or check suite delivery runs the watch row scoped to its pull requests
 `SCOPED_UPDATES` SHALL hold a row for each action that a pull request, a pull request review or a check suite delivery carries, with the job `watch` and a runner that runs `watch_round` narrowed to the pull request numbers of the delivery, on the lane of the row `watch`. The runner SHALL write no job's last success, and a delivery of the App's own bot SHALL run no scoped update.
@@ -128,3 +132,21 @@ A row of the due table SHALL be due by a webhook key only when its `batch_keys` 
 #### Scenario: A delivery of the App's own bot starts nothing
 - **WHEN** a signed `pull_request` delivery carries the login of the App's bot as its sender
 - **THEN** the consumer refuses the delivery and runs no scoped update
+
+### Requirement: An issue comment delivery runs the row that its text wakes
+The roadmap consumer SHALL run the scoped update that `scoped_update_of` gives a trusted `issue_comment` delivery, on the lane of that row: the `implement` row when the comment body is the retry command, and the `refine` row otherwise. The row's own predicate SHALL decide its work, and the delivery SHALL queue no whole round on any lane and SHALL write no due mark.
+
+#### Scenario: A retry comment clears the stop and submits a Job
+- **WHEN** a test delivers a signed trusted `implement: retry` comment for a Blocked issue that holds a Service stop
+- **THEN** `scoped_update_of` gives the `implement` row, the stop clears through the retry rule, and the row submits one runner Job
+
+#### Scenario: A trusted reply runs the refine row
+- **WHEN** a test delivers a signed trusted comment that is not the retry command on an open issue
+- **THEN** `scoped_update_of` gives the `refine` row, `plan_refine` reads that one item number, and no whole round is queued on any lane
+
+### Requirement: A closed plan pull request wakes the lanes of its rows
+After the scoped watch round of a `pull_request` `closed` delivery, the Service SHALL enqueue the trigger `("webhook", "pull_request", "closed")`, with the pull request as its subject, on each lane of the repository but the lane of the update. When `service.lanes` puts another row into the lane of the update, the Service SHALL also enqueue the trigger on that lane.
+
+#### Scenario: A closed plan pull request wakes the lanes of its rows
+- **WHEN** a signed `pull_request` `closed` delivery names pull request 42 and the scoped watch round runs on the lane `watch`
+- **THEN** the Service enqueues the trigger `("webhook", "pull_request", "closed")` with 42 as its subject on each lane but the lane `watch`

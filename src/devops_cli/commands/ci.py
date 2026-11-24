@@ -143,6 +143,7 @@ CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "deps",
     "constructs",
     "devcontainer",
+    "hadolint",
     "openspec",
     "git",
     "test-settings",
@@ -1035,6 +1036,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "devops", "devcontainer", "validate", "--workspace", "."],
             span_name="ci.step.devcontainer",
             metric_step="devcontainer",
+        ),
+        CheckSpec(
+            name="hadolint",
+            display_title=MESSAGES.ci.hadolint,
+            cmd=["uv", "run", "pre-commit", "run", "hadolint", "--all-files"],
+            span_name="ci.step.hadolint",
+            metric_step="hadolint",
         ),
         CheckSpec(
             name="openspec",
@@ -2764,7 +2772,7 @@ def mutate(
         set_dry_run(True)
     if not _verify_python_314_environment():
         raise typer.Exit(1)
-    from devops_cli.ci.mutate import select_targets
+    from devops_cli.ci.mutate import prepare_mutants_tree, select_targets
 
     targets = select_targets(_get_project_root(), paths or [], changed=changed, base=base)
     if not targets:
@@ -2774,6 +2782,7 @@ def mutate(
     if is_dry_run():
         _plan_mutation(run_cmd)
         return
+    prepare_mutants_tree(_get_project_root())
     if not _run(run_cmd, timeout=DEFAULT_CI_MUTATE_TIMEOUT_SECONDS):
         raise typer.Exit(1)
     results = _capture(_MUTMUT_RESULTS)

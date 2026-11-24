@@ -35,6 +35,52 @@ _PREFIX = "crawl4ai-check"
 _URL = "http://mcp-server.devops.svc.cluster.local:8001/implementation/mcp"
 _HTTP_PREFIX = "devops-probe"
 _CANNOT_CONNECT = 7
+_PROBE_TEMPLATE_IMAGE = (
+    "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec"
+)
+_PROBE_TEMPLATE_JSON = json.dumps(
+    {
+        "apiVersion": "batch/v1",
+        "kind": "CronJob",
+        "metadata": {"name": "service-probe", "namespace": "devops"},
+        "spec": {
+            "jobTemplate": {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "securityContext": {
+                                "runAsNonRoot": True,
+                                "runAsUser": 65534,
+                                "runAsGroup": 65534,
+                                "seccompProfile": {"type": "RuntimeDefault"},
+                            },
+                            "containers": [
+                                {
+                                    "name": "probe",
+                                    "image": _PROBE_TEMPLATE_IMAGE,
+                                    "securityContext": {
+                                        "allowPrivilegeEscalation": False,
+                                        "capabilities": {"drop": ["ALL"]},
+                                        "readOnlyRootFilesystem": True,
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                }
+            }
+        },
+    }
+)
+
+
+def _is_cronjob_get(call: ProcessCall) -> bool:
+    return "get" in call.argv and "cronjob" in call.argv and "service-probe" in call.argv
+
+
+@pytest.fixture(autouse=True)
+def answer_cronjob_template(process_fake: ProcessFake) -> None:
+    process_fake.answer(_is_cronjob_get, ProcessAnswer(stdout=_PROBE_TEMPLATE_JSON))
 
 
 def _is_exec(call: ProcessCall) -> bool:
@@ -179,7 +225,15 @@ def test_the_pod_starts_first_each_target_is_probed_and_the_pod_is_deleted_last(
     name = run[run.index("run") + 1]
     delete = calls[-1]
     probed = [" ".join(after_separator(argv)) for argv in calls if verb(argv) == "exec"]
-    assert (verbs[0], verbs[-1], verbs.count("exec"), name in delete, namespace_of(delete)) == (
+    assert (
+        verbs[0],
+        verbs[1],
+        verbs[-1],
+        verbs.count("exec"),
+        name in delete,
+        namespace_of(delete),
+    ) == (
+        "get",
         "run",
         "delete",
         2,
@@ -420,3 +474,61 @@ def test_the_plan_of_the_http_probe_names_the_pod_the_curl_line_and_the_url() ->
     )
     assert request.stdin == 'header = "<value>"\n'
     assert "s3cr3t" not in " ".join(run.argv + request.argv)
+
+
+def test_the_probe_reads_image_and_security_context_from_the_cluster_cronjob_template(
+    process_fake: ProcessFake,
+) -> None:
+    custom_template = json.dumps(
+        {
+            "spec": {
+                "jobTemplate": {
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "securityContext": {
+                                    "runAsNonRoot": True,
+                                    "runAsUser": 10001,
+                                    "runAsGroup": 10001,
+                                    "seccompProfile": {"type": "RuntimeDefault"},
+                                },
+                                "containers": [
+                                    {
+                                        "name": "probe",
+                                        "image": "busybox:1.37.0@sha256:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff",
+                                        "securityContext": {
+                                            "allowPrivilegeEscalation": False,
+                                            "capabilities": {"drop": ["ALL"]},
+                                            "readOnlyRootFilesystem": True,
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+    process_fake.answer(_is_cronjob_get, ProcessAnswer(stdout=custom_template))
+    process_fake.answer(_is_exec, ProcessAnswer(returncode=1))
+
+    _probe()
+
+    run = _run_call(process_fake)
+    assert (
+        flag(run, "--image")
+        == "busybox:1.37.0@sha256:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff"
+    )
+    overrides = json.loads(flag(run, "--overrides"))
+    effective = _effective_security_context(overrides)
+    assert effective["runAsUser"] == 10001
+
+
+def test_a_missing_cronjob_template_raises_service_probe_error(
+    process_fake: ProcessFake,
+) -> None:
+    process_fake.answer(_is_cronjob_get, ProcessAnswer(stdout=""))
+
+    with pytest.raises(ServiceProbeError, match="devops/service-probe"):
+        _probe()

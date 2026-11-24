@@ -24,7 +24,7 @@ import yaml
 from kubernetes.utils.quantity import parse_quantity
 
 from devops_cli.k8s.argocd_gate import discover_path_applications
-from devops_cli.k8s.cluster_secrets import CLUSTER_SECRETS
+from devops_cli.k8s.cluster_secrets import load_cluster_secrets_table
 from tests.gate.k8s_render import kustomize
 from tests.support.k8s_tree import TREE
 from tests.support.paths import REPO_ROOT
@@ -1042,7 +1042,7 @@ def secret_reference_problems(
 
 
 def check_every_secret_that_the_store_reads_has_a_cluster_secret_row() -> None:
-    refs = [secret.ref for secret in CLUSTER_SECRETS]
+    refs = [secret.ref for secret in load_cluster_secrets_table()]
 
     assert secret_reference_problems(_store(), refs) == []
 
@@ -1050,7 +1050,7 @@ def check_every_secret_that_the_store_reads_has_a_cluster_secret_row() -> None:
 def check_the_secret_rule_names_a_reference_with_no_row() -> None:
     seaweed = _seaweed()
     seaweed["spec"]["admin"]["credentialsSecret"]["name"] = "seaweedfs-missing"
-    refs = [secret.ref for secret in CLUSTER_SECRETS]
+    refs = [secret.ref for secret in load_cluster_secrets_table()]
 
     assert any(
         f"{NAMESPACE}/seaweedfs-missing" in p for p in secret_reference_problems([seaweed], refs)
