@@ -258,6 +258,13 @@ class _Planned(NamedTuple):
     folder: str
 
 
+def comment_asks_retry(body: str) -> bool:
+    """Whether the text `body` of a comment is the retry command that a trusted person writes to
+    clear the stop of an item (#4415). The route and the stop pass read the command through this
+    one function, so the command has one text."""
+    return body.strip().casefold() == CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT
+
+
 def retry_asked(comments: Sequence[IssueComment]) -> bool:
     """Whether a trusted commenter asked for a retry after the last comment of the job."""
     marked = [
@@ -268,7 +275,7 @@ def retry_asked(comments: Sequence[IssueComment]) -> bool:
     after = comments[marked[-1] + 1 :] if marked else comments
     return any(
         comment.author_association in CONST_ROADMAP_TRUSTED_AUTHORS
-        and comment.body.strip().casefold() == CONST_ROADMAP_IMPLEMENT_RETRY_COMMENT
+        and comment_asks_retry(comment.body)
         for comment in after
     )
 
@@ -721,6 +728,7 @@ __all__ = [
     "ImplementTarget",
     "NeedsFix",
     "RecordedBranch",
+    "comment_asks_retry",
     "dry_run_implement",
     "parse_implement_filters",
     "plan_implement",

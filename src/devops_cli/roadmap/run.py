@@ -42,7 +42,10 @@ The alternatives row is due every 239 minutes by default and on a first run, and
 A subscribed webhook event runs the update scoped to it at once (`run_scoped_update`, ADR 0017):
 `issues` opened, edited or reopened runs intake of that one issue on the lane of `intake`. A scoped
 update writes no job's last success, so the poll still judges every change since then; it
-records the issue it decided in `IntakeRecord`, so the poll does not decide it again.
+records the issue it decided in `IntakeRecord`, so the poll does not decide it again. A trusted
+comment of a person runs the row that its text wakes, scoped to its issue: the `implement` row for
+the retry command, whose own rule clears the stop, and the `refine` row for any other reply
+(#4415).
 """
 
 from __future__ import annotations
@@ -139,6 +142,7 @@ from devops_cli.roadmap.alternatives import (
 )
 from devops_cli.roadmap.clone_git import default_branch
 from devops_cli.roadmap.failure import FailureClass, failure_class_of, retry_after
+from devops_cli.roadmap.implement.implement import comment_asks_retry
 from devops_cli.roadmap.implement.implement_submit import run_implement_round
 from devops_cli.roadmap.inbox import emit_inbox_counts, read_inbox
 from devops_cli.roadmap.intake.intake import (
@@ -670,13 +674,16 @@ class WebhookDelivery:
     """What a webhook delivery of a subscribed event carries that its scoped update reads: the
     repository, the event, its action, the number of the issue it is about and the numbers of the
     pull requests it names (ADR 0017). A delivery that names no issue number carries None, and one
-    that names no pull request carries no number (#4413)."""
+    that names no pull request carries no number (#4413). A delivery of a comment carries its text
+    and the time it was written, and the row that the text wakes reads them (#4415)."""
 
     repo: str
     event: str
     action: str
     number: int | None = None
     pull_numbers: tuple[int, ...] = ()
+    comment: str | None = None
+    comment_at: datetime | None = None
 
 
 def _intake_one(
@@ -686,6 +693,7 @@ def _intake_one(
     repo_dir: Path,
     now: datetime,
     model: IntakeModel | None = None,
+    **_: Any,
 ) -> JobOutcome:
     """Decide and place the one issue `delivery` names, when it is a candidate, with intake's
     own decision code (ADR 0017). The record of what it decided is merged into the intake record
@@ -728,6 +736,7 @@ def _watch_one(
     repo_dir: Path,
     now: datetime,
     model: IntakeModel | None = None,
+    **_: Any,
 ) -> JobOutcome:
     """Run the `watch` row scoped to the pull requests that `delivery` names (#4413). The ledger
     `watch.json` lies beside `schedule.json`, as the round of the row writes it, and a number that
@@ -745,6 +754,53 @@ def _watch_one(
     return JobOutcome()
 
 
+def _scoped_clone(repo: str, data_dir: Path, lane: str) -> Path:
+    """The checkout of `lane` that a scoped runner reads, cloned or updated as the round of the lane
+    does, so a comment runs on the working tree of its own lane (#5553, #4415)."""
+    return ensure_checkout(repo, data_dir, dirname=lane_clone_dirname(lane))
+
+
+def _refine_one(
+    store: RoadmapStore,
+    delivery: WebhookDelivery,
+    *,
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Run the `refine` row for the one issue that `delivery` names, in the checkout of its lane
+    (#4415). A person's reply is what the row reads, so the round narrows to that item and reads no
+    other candidate; a delivery that names no issue number refines nothing."""
+    if delivery.number is None:
+        return JobOutcome()
+    return _run_refine_adapter(
+        store, repo=delivery.repo, clone_path=clone_path, item_number=delivery.number
+    )
+
+
+def _implement_one(
+    store: RoadmapStore,
+    delivery: WebhookDelivery,
+    *,
+    clone_path: Path | None = None,
+    **_: Any,
+) -> JobOutcome:
+    """Run the `implement` row in the checkout of its lane, as a comment that a person wrote wakes
+    it (#4415). The row keeps its own decisions: the rule `retry` of `clear_stops` clears the stop
+    of an `implement: retry` comment, and the round submits the runner Job of an item that the
+    comment made takeable."""
+    return _run_implement_adapter(store, repo=delivery.repo, clone_path=clone_path)
+
+
+def scoped_update_of(delivery: WebhookDelivery) -> ScopedUpdate | None:
+    """The update that `delivery` runs at once (ADR 0017): the row of its event and action, or, for
+    a delivery that carries a comment, the `implement` row when the comment asks for a retry and the
+    `refine` row for any other comment (#4415). An event and action with no update keeps its
+    delivery a hint that makes a whole round due."""
+    if delivery.comment is not None:
+        return _SCOPED_IMPLEMENT if comment_asks_retry(delivery.comment) else _SCOPED_REFINE
+    return SCOPED_UPDATES.get((delivery.event, delivery.action))
+
+
 def _job_clone(job: str, clone_path: Path | None) -> Path:
     """The clone `job` reads its repository in. A row that gives it none is a due-table error,
     never a reason to read the working directory instead (#1358)."""
@@ -759,6 +815,7 @@ def _run_refine_adapter(
     store: RoadmapStore,
     repo: str = "",
     clone_path: Path | None = None,
+    item_number: int | None = None,
     **_: Any,
 ) -> JobOutcome:
     """Run refine job and return JobOutcome; each item is written when it is done, so the stop
@@ -766,12 +823,18 @@ def _run_refine_adapter(
     items are written, when the model call or the write failed for any item. The stop ends the
     run, but the items that failed before it still fail the run (#2753). The outcome holds the
     items that the selection ordered as the queue of the row (#5470). The round acts as the
-    account of the run, whose own comment answers no owner question (#3077)."""
+    account of the run, whose own comment answers no owner question (#3077). With `item_number`,
+    the round reads the one item that a person's reply wakes (#4415)."""
     source = _job_clone("refine", clone_path)
     writer = RefineWriter(store, repo)
     try:
         plan = plan_refine(
-            store, repo=repo, source=source, writer=writer, actor=_current_actor(store)
+            store,
+            repo=repo,
+            source=source,
+            writer=writer,
+            actor=_current_actor(store),
+            item_number=item_number,
         )
         writer.write_waiting(plan)
     except ServiceStoppingError:
@@ -1289,13 +1352,22 @@ def lane_clone_dirname(lane: str) -> str:
 class ScopedUpdate:
     """The update that one subscribed event runs at once, scoped to its delivery: the job whose
     decision code it narrows, and its runner (ADR 0017). It runs on the lane of its job
-    (`lane_of_row`)."""
+    (`lane_of_row`), and `needs_clone` says that its runner reads the checkout of that lane, which
+    `run_scoped_update` makes (#4415)."""
 
     job: str
     runner: Callable[..., JobOutcome]
+    needs_clone: bool = False
 
 
 _SCOPED_INTAKE = ScopedUpdate(job="intake", runner=_intake_one)
+
+# The rows that a trusted comment wakes (#4415): the `implement` row for a retry command, whose own
+# rule clears the stop, and the `refine` row for any other comment, which reads the reply. Both read
+# the checkout of their lane.
+_SCOPED_REFINE = ScopedUpdate(job="refine", runner=_refine_one, needs_clone=True)
+
+_SCOPED_IMPLEMENT = ScopedUpdate(job="implement", runner=_implement_one, needs_clone=True)
 
 # The actions of a pull request, a pull request review and a check suite that change the state or
 # the checks of a staged draft. The watch row reads the checks and the label of each draft itself,
@@ -1361,18 +1433,23 @@ def run_scoped_update(
     and writes no job's last success: the reconciling poll still judges every change made since
     each job's last round, so a scoped update never hides a change it did not handle. Its model
     and GitHub requests name its job as their row, as the job counter does (#4522). The counter
-    names `lane`, the lane it runs on, or the default lane of its job."""
-    update = SCOPED_UPDATES.get((delivery.event, delivery.action))
+    names `lane`, the lane it runs on, or the default lane of its job. A runner that reads a
+    checkout gets the clone of that lane, cloned or updated as its round does (#4415)."""
+    update = scoped_update_of(delivery)
     if update is None:
         return None
     counted_lane = lane or lane_of_row(update.job)
+    resolved = _resolve_data_dir(data_dir)
     schedule_path = _resolve_roadmap_repo_path(
-        _resolve_data_dir(data_dir),
+        resolved,
         delivery.repo,
         CONST_ROADMAP_RUN_STATE_FILENAME,
         error_cls=GitOperationError,
     )
     try:
+        clone_path = (
+            _scoped_clone(delivery.repo, resolved, counted_lane) if update.needs_clone else None
+        )
         with request_scope(row=update.job):
             outcome = update.runner(
                 store,
@@ -1380,6 +1457,7 @@ def run_scoped_update(
                 repo_dir=schedule_path.parent,
                 now=now or datetime.now(UTC),
                 model=model,
+                clone_path=clone_path,
             )
     except Exception as exc:
         _count_job(delivery.repo, counted_lane, update.job, _failed_result(exc))
@@ -2307,6 +2385,7 @@ __all__ = [
     "retire_lane_state",
     "run_due_jobs",
     "run_scoped_update",
+    "scoped_update_of",
     "scoped_update_wakes_lanes",
     "service_job",
     "service_jobs",

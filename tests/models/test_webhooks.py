@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from devops_cli.models.webhooks import GitHubWebhookPayload
 
 
@@ -30,6 +32,45 @@ def test_a_pull_request_and_a_check_suite_payload_validate() -> None:
     assert check_suite.check_suite is not None
     assert check_suite.delivery_numbers == (42,)
     assert check_suite.issue is None
+
+
+def test_an_issue_comment_payload_exposes_the_comment_and_the_pull_request_marker() -> None:
+    """Verify that a comment payload carries its comment and the marker of a pull request issue."""
+    comment = GitHubWebhookPayload.model_validate(
+        {
+            "action": "created",
+            "repository": {"full_name": "example/example"},
+            "issue": {
+                "number": 7,
+                "pull_request": {"url": "https://api.example.com/repos/example/example/pulls/42"},
+            },
+            "comment": {
+                "body": "implement: retry",
+                "author_association": "MEMBER",
+                "created_at": "2026-11-23T22:18:00Z",
+            },
+            "sender": {"login": "example-person"},
+        },
+    )
+    issue = GitHubWebhookPayload.model_validate(
+        {
+            "action": "opened",
+            "repository": {"full_name": "example/example"},
+            "issue": {"number": 7},
+        },
+    )
+
+    assert comment.comment is not None
+    assert comment.comment.body == "implement: retry"
+    assert comment.comment.author_association == "MEMBER"
+    assert comment.comment.created_at == datetime(2026, 11, 23, 22, 18, tzinfo=UTC)
+    assert comment.issue is not None
+    assert comment.issue.pull_request is not None
+    assert comment.issue.pull_request.number is None
+
+    assert issue.comment is None
+    assert issue.issue is not None
+    assert issue.issue.pull_request is None
 
 
 def test_a_delivery_numbers_the_issue_its_pull_requests_and_nothing() -> None:
