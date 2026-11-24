@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.0](https://github.com/dan-petty/devops-cli/compare/v0.210.2...v0.211.0) (2026-11-24)
+
+
+### Features
+
+* **k8s:** Give valkey-devops one ACL user for each role ([#7007](https://github.com/dan-petty/devops-cli/issues/7007)) ([1b83f6c](https://github.com/dan-petty/devops-cli/commit/1b83f6cbc6b89a9a7d17ff86dfe82a192476db88))
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#7013](https://github.com/dan-petty/devops-cli/issues/7013)) ([edd576f](https://github.com/dan-petty/devops-cli/commit/edd576ffb4a72b58b5706da1c4535e14ce3c3666))
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.9 ([#7012](https://github.com/dan-petty/devops-cli/issues/7012)) ([86267af](https://github.com/dan-petty/devops-cli/commit/86267aff7241cfa3ebe8f0c2a0364e8e278ed803))
+* **repos:** preserve clone branch after worktrees add ([#7009](https://github.com/dan-petty/devops-cli/issues/7009)) ([8a1004f](https://github.com/dan-petty/devops-cli/commit/8a1004f8b73d1367199c88c52f36c81dae7e2f26))
+
+
+### Performance Improvements
+
+* **ci:** Build the Runner and MCP images in one job ([#7006](https://github.com/dan-petty/devops-cli/issues/7006)) ([0dc7fa9](https://github.com/dan-petty/devops-cli/commit/0dc7fa942122d4a476d91025c707bb86a40cbef2))
+
 ## [0.210.2](https://github.com/dan-petty/devops-cli/compare/v0.210.1...v0.210.2) (2026-11-24)
 
 
