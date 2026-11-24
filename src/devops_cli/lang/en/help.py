@@ -844,6 +844,14 @@ class InfraCommandHelp:
         "The ref at origin to plan: a branch of origin, or pull/<number>/head for the head of a "
         "pull request. Default: the default branch."
     )
+    drift: str = (
+        "Check an infra repo for drift against its in-service hosts, report drifted hosts, "
+        "and keep one marker issue in the repo. An agent needs the agent access level plan or above."
+    )
+    drift_repo: str = (
+        "The infra repo: owner/name, or the folder of a checkout, which its remote origin names."
+    )
+    drift_playbook: str = "The playbook, as a path from the repo root. Default: site.yaml."
     apply: str = (
         "Apply a saved plan of devops infra plan to the hosts of an infra repo. The apply needs the "
         "plan id and the playbook, limit and tags of the plan, a plan not older than "

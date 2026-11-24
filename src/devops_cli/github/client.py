@@ -878,6 +878,11 @@ class GitHubClient:
         path = _repo_path(repo, f"issues/{number}")
         self._session.rest("PATCH", path, body={"body": body})
 
+    def close_issue(self, repo: str, number: int, *, reason: str = "completed") -> None:
+        """Close the issue `number` in `repo` with state_reason `reason`."""
+        path = _repo_path(repo, f"issues/{number}")
+        self._session.rest("PATCH", path, body={"state": "closed", "state_reason": reason})
+
     def create_issue_comment(self, repo: str, number: int, body: str) -> None:
         """Post `body` as a comment on the issue or pull request `number`."""
         path = _repo_path(repo, f"issues/{number}/comments")
