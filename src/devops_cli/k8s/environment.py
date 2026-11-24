@@ -101,6 +101,9 @@ class EnvironmentTree:
         nested = self.root / "k8s" / _CLUSTER_SECRETS
         if nested.is_file():
             return nested
+        fixture = self.repo / "tests" / "fixtures" / _CLUSTER_SECRETS
+        if fixture.is_file():
+            return fixture
         return direct
 
 
