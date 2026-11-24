@@ -36,6 +36,7 @@ gap in which the API server of a control-plane node restarts.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,7 +44,10 @@ from typing import Any, Final
 
 import yaml
 
-from devops_cli.config.constants import CONST_ARGOCD_TRACKING_ID_ANNOTATION
+from devops_cli.config.constants import (
+    CONST_ARGOCD_TRACKING_ID_ANNOTATION,
+    CONST_K8S_CONTROL_PLANE_LABEL,
+)
 from devops_cli.config.defaults import (
     DEFAULT_INFRA_DRAIN_CHECK_TIMEOUT_SECONDS,
     DEFAULT_INFRA_DRAIN_MARGIN_SECONDS,
@@ -356,6 +360,34 @@ class Cluster:
     def node(self, name: str) -> Read:
         """The JSON of the node `name`."""
         return self._kubectl(get_node_args(name), DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+
+    def is_control_plane(self, node: str) -> bool:
+        """Whether `node` is a control-plane node: its labels have
+        `CONST_K8S_CONTROL_PLANE_LABEL` or `node-role.kubernetes.io/master`."""
+        read = self.node(node)
+        if read.problem is not None or not read.document:
+            return False
+        labels = (read.document.get("metadata") or {}).get("labels") or {}
+        return CONST_K8S_CONTROL_PLANE_LABEL in labels or "node-role.kubernetes.io/master" in labels
+
+    def current_pod_node(self) -> str | None:
+        """The node of the current process pod, from `NODE_NAME` env var, else from reading the
+        pod named in `POD_NAME` or `HOSTNAME`."""
+        if env_node := os.environ.get("NODE_NAME"):
+            return env_node
+        pod = os.environ.get("POD_NAME") or os.environ.get("HOSTNAME")
+        if not pod:
+            return None
+        ns = os.environ.get("POD_NAMESPACE")
+        args = (
+            ("get", "pod", pod, "-n", ns, "-o", "json") if ns else ("get", "pod", pod, "-o", "json")
+        )
+        read = self._kubectl(args, DEFAULT_INFRA_KUBECTL_TIMEOUT_SECONDS)
+        if read.problem is None and read.document:
+            node_name = (read.document.get("spec") or {}).get("nodeName")
+            if node_name:
+                return str(node_name)
+        return None
 
     def health(self) -> list[str]:
         """The problems of the cluster: each node that is not Ready or has pressure, and each

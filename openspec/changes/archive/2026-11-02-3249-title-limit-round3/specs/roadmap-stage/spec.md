@@ -38,4 +38,3 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 #### Scenario: A blank summary
 - **WHEN** the model gives a summary of spaces and new lines only
 - **THEN** the schema refuses the reply, because the title would show no summary
-

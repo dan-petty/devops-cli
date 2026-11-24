@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "devops-cli": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "fastmcp",
+        "devops",
+        "mcp",
+        "serve",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "PATH": "/workspaces/devops-cli/.venv/bin:/home/vscode/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      },
+      "cwd": "/workspaces/devops-cli"
+    }
+  }
+}

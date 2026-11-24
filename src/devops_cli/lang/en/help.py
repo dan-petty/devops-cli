@@ -1794,6 +1794,11 @@ class RoadmapCommandHelp:
         "roadmap.review.mode. Without it, the step prints the verdict and writes nothing."
     )
     step_review_dry_run: str = "Make no network request and change nothing."
+    step_infra_apply: str = "Apply a merged infra pull request in a step job (#5130)."
+    step_infra_apply_pull: str = "Number of the merged pull request to apply."
+    step_infra_apply_commit: str = "Merge commit SHA of the pull request to apply."
+    step_infra_apply_playbook: str = "Playbook to apply (default: site.yaml)."
+    step_infra_apply_dry_run: str = "Make no network request and change nothing."
     step_infra_plan: str = (
         "Plan an open infra pull request and post or update its marked comment (#5129)."
     )
