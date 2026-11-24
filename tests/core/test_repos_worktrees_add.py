@@ -1127,3 +1127,62 @@ def test_worktrees_add_refuses_type_or_slug_differing_from_title(cli: Cli, repo:
         "--no-reclaim",
     )
     assert bad_slug.exit_code != 0
+
+
+def test_worktrees_add_create_path_keeps_clone_branch(
+    cli: Cli, repo: Path, standard_dir: Path
+) -> None:
+    """A successful worktrees add create path leaves clone on its original branch (#6354)."""
+    result = _add(cli, repo)
+    assert result.exit_code == 0, result.output
+    assert _git_out(repo, "symbolic-ref", "--short", "-q", "HEAD").stdout.strip() == "main"
+
+
+def test_worktrees_add_take_over_path_keeps_clone_branch(
+    cli: Cli, repo: Path, origin: Path, tmp_path: Path, config: Any, standard_dir: Path
+) -> None:
+    """A successful worktrees add take-over path leaves clone on its original branch (#6354)."""
+    config(service={"github_app": {"slug": "devops-roadmap"}})
+    _push_branch(origin, tmp_path, STAGED, BOT)
+    result = _add(cli, repo, issue=ISSUE)
+    assert result.exit_code == 0, result.output
+    assert _git_out(repo, "symbolic-ref", "--short", "-q", "HEAD").stdout.strip() == "main"
+
+
+def test_reclaim_merged_worktrees_keeps_clone_branch_when_prune_detaches_head(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reclaim restores the clone branch when prune_worktrees detaches HEAD (#6354)."""
+    import devops_cli.git.worktree_add
+    from devops_cli.git.worktree_add import reclaim_merged_worktrees
+    from devops_cli.git.worktree_inventory import WorktreePruneReport
+
+    def fake_prune(*args: Any, **kwargs: Any) -> WorktreePruneReport:
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--detach"], check=True)
+        return WorktreePruneReport(items=[])
+
+    monkeypatch.setattr(devops_cli.git.worktree_add, "prune_worktrees", fake_prune)
+    reclaim_merged_worktrees(repo)
+    assert _git_out(repo, "symbolic-ref", "--short", "-q", "HEAD").stdout.strip() == "main"
+
+
+def test_add_worktree_raises_git_operation_error_when_head_restore_fails(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command raises GitOperationError naming original branch when restore fails (#6354)."""
+    import devops_cli.git.worktree_add
+    from devops_cli.exceptions.git import GitOperationError
+    from devops_cli.git.worktree_add import add_worktree
+
+    original_create = devops_cli.git.worktree_add._create
+
+    def fake_create(*args: Any, **kwargs: Any) -> Any:
+        res = original_create(*args, **kwargs)
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--detach"], check=True)
+        (repo / ".git" / "index.lock").touch()
+        return res
+
+    monkeypatch.setattr(devops_cli.git.worktree_add, "_create", fake_create)
+
+    with pytest.raises(GitOperationError, match="main"):
+        add_worktree(repo, issue=2337, type_="feat", slug="worktrees-add")
