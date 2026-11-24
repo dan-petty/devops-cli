@@ -248,3 +248,33 @@ def test_the_brain_counters_send_only_fixed_labels(
     ]
 
     assert (len(points) >= 3, unbounded) == (True, [])
+
+
+def test_shared_only_mapping(shared_valkey: ValkeyCacheTier, valkey_server: FakeServer) -> None:
+    """A mapping with entries=0 stores only in Valkey and skips local memory tier."""
+    from devops_cli.valkey.tiered import TieredMapping
+
+    mapping: TieredMapping[_Fact] = TieredMapping(_PREFIX, TypeAdapter(_Fact), ttl=_TTL, entries=0)
+    fact = _Fact(name="tool", stars=5)
+    mapping["tool"] = fact
+
+    assert mapping["tool"] == fact
+    assert len(mapping) == 0
+    assert list(mapping) == []
+    assert mapping._current() is None
+
+    del mapping["tool"]
+    assert "tool" not in mapping
+
+
+def test_delitem_in_memory_and_shared(
+    shared_valkey: ValkeyCacheTier, valkey_server: FakeServer
+) -> None:
+    """Deleting an item removes it from memory and from the shared tier."""
+    facts = _facts()
+    fact = _Fact(name="item", stars=2)
+    facts["item"] = fact
+    assert facts["item"] == fact
+
+    del facts["item"]
+    assert "item" not in facts

@@ -1,0 +1,56 @@
+# Tasks
+
+## 1. Add the brain entry of a cached issue
+
+Kind: behavior. Reads: `src/devops_cli/valkey/tiered.py`, `src/devops_cli/github/repo_ref.py`, `src/devops_cli/roadmap/stores/store.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `tests/roadmap/stores/test_listing_shared.py`, `tests/support/fakes/valkey.py`. Changes: `src/devops_cli/roadmap/stores/brain_issues.py` (new), `src/devops_cli/config/constants.py`, `src/devops_cli/config/defaults.py`, `tests/roadmap/stores/test_brain_issues.py` (new).
+Adds: `CachedIssue`, `issue_cache`, `cached_issue`, `remember_issue`, `DEFAULT_BRAIN_ISSUE_TTL_SECONDS`, `DEFAULT_BRAIN_ISSUE_MAX_AGE_SECONDS`
+
+- [x] 1.1 Write the failing cases in `tests/roadmap/stores/test_brain_issues.py`, over the `valkey_server` fake: `test_a_stored_issue_comes_back` for the scenario `A stored issue comes back` of the requirement `The brain holds the issue that a row reads`, where the fake tier holds the entry and the read gives the record with no GitHub call; `test_a_key_names_its_repository_and_object` for the scenario `A key names its repository and object` of the requirement `The cached issue key names its repository and number`, which compares `RepoRef.valkey_key("brain-issue", "6013")` with the key that `issue_cache` builds and scans `RepoRef.valkey_patterns` for it; and `test_the_issue_key_has_a_ttl`, which takes the `TieredMapping` that `issue_cache` builds, writes one entry, and asserts that the key of the entry on the `valkey_server` fake has a TTL above 0, for the requirement `Each value has a bound and each key a TTL`
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_brain_issues.py` fails on the base
+- [x] 1.2 Add `src/devops_cli/roadmap/stores/brain_issues.py` after the shape of `src/devops_cli/valkey/tiered.py:100:class TieredMapping[V](MutableMapping[str, V]):`. `CachedIssue` holds the `IssueRecord`, the `ETag` of the answer and the time of its last check. `issue_cache(repo)` builds a `TieredMapping[CachedIssue]` with `prefix=RepoRef(repo).valkey_key("brain-issue")`, `ttl=DEFAULT_BRAIN_ISSUE_TTL_SECONDS`, `store=BrainStore.ISSUE` and `entries=0`, so the shared tier is the only copy. `cached_issue(repo, number)` and `remember_issue(repo, entry)` read and write the entry under the key `str(number)`. Add `ISSUE = "issue"` to `BrainStore` in `src/devops_cli/config/constants.py`, and `DEFAULT_BRAIN_ISSUE_TTL_SECONDS: int = 86_400` and `DEFAULT_BRAIN_ISSUE_MAX_AGE_SECONDS: int = 3_600` to `src/devops_cli/config/defaults.py` beside the fact TTL
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_brain_issues.py` passes
+
+## 2. Declare the per-row cache counter
+
+Kind: behavior. Reads: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/telemetry/test_telemetry_instruments.py`, `src/devops_cli/github/request_scope.py`. Changes: `src/devops_cli/telemetry/instruments.py`, `docs/TELEMETRY.md`, `tests/telemetry/test_telemetry_instruments.py`.
+Adds: `BRAIN_CACHE_TOTAL`
+
+- [x] 2.1 Write the failing case in `tests/telemetry/test_telemetry_instruments.py`, `test_the_brain_cache_counter_names_the_row_and_the_result`, for the scenario `A cache hit is counted for its row` of the requirement `The cache counts a hit and a miss for each row`: the instrument `devops_cli_brain_cache_total` is declared as a counter of `1`, and its text names the labels `row` and `result` with the values `hit` and `miss`
+  - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` fails on the base
+- [x] 2.2 Declare `BRAIN_CACHE_TOTAL` beside `BRAIN_READS_TOTAL` in `src/devops_cli/telemetry/instruments.py`, and add its row to the table of `docs/TELEMETRY.md` after the row of `devops_cli_brain_reads_total`, with `row` taken from the bounded row of `request_labels` and `result` in `hit` and `miss`. Update the list of counters in `tests/telemetry/test_telemetry_instruments.py`
+  - Verification: `$ uv run devops ci test tests/telemetry/test_telemetry_instruments.py` passes
+- [x] 2.3 Edit `docs/TELEMETRY.md` with the row of `devops_cli_brain_cache_total`, its kind, its unit and its two label values
+  - Verification: `$ uv run devops ci docs` passes
+
+## 3. Read, write and revalidate the cached issue in the store
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/stores/github_store.py`, `src/devops_cli/roadmap/stores/brain_issues.py`, `src/devops_cli/github/error_classifier.py`, `src/devops_cli/github/hook_deliveries.py`, `src/devops_cli/github/request_scope.py`, `src/devops_cli/telemetry/instruments.py`, `tests/roadmap/stores/test_roadmap_github_store_issue_writes.py`, `tests/roadmap/stores/test_roadmap_github_store_read_failures.py`, `tests/roadmap/stores/test_listing_shared.py`, `tests/roadmap/stores/test_listing_snapshot.py`, `tests/roadmap/stores/test_roadmap_github_store_paging.py`, `tests/roadmap/stores/test_roadmap_github_store_record_writes.py`, `tests/roadmap/stores/test_roadmap_github_store_repository.py`, `tests/roadmap/stores/test_roadmap_store_body_with_marks.py`, `tests/roadmap/stores/test_roadmap_store_contract.py`, `tests/roadmap/stores/test_roadmap_store_install.py`, `tests/roadmap/intake/test_roadmap_intake_command.py`, `tests/roadmap/intake/test_roadmap_intake_github_requests.py`, `tests/roadmap/test_roadmap_run_github_requests.py`, `tests/roadmap/test_roadmap_run_metrics.py`, `tests/github/test_github_metrics.py`, `tests/github/test_github_metrics_request_budget.py`, `tests/github/test_service_limits.py`, `tests/roadmap/intake/test_roadmap_intake_dry_run.py`, `tests/roadmap/intake/test_roadmap_intake_write_failures.py`, `tests/roadmap/test_roadmap_alternatives.py`, `tests/roadmap/test_roadmap_claim.py`, `tests/roadmap/test_roadmap_dry_runs.py`, `tests/roadmap/test_roadmap_inbox_command.py`, `tests/roadmap/test_roadmap_inbox_requests.py`, `tests/roadmap/test_roadmap_release_comments.py`, `tests/roadmap/test_roadmap_repair_command.py`, `tests/roadmap/test_roadmap_run_job_rows.py`, `tests/roadmap/test_roadmap_run_lanes.py`, `tests/roadmap/test_roadmap_run_scoped_update.py`. Changes: `src/devops_cli/roadmap/stores/github_store.py`, `tests/roadmap/stores/test_github_store_brain.py` (new).
+Adds: `_revalidate_issue`
+
+- [x] 3.1 Write the failing cases in `tests/roadmap/stores/test_github_store_brain.py`, over a fake runner of `GhRunner` and a fake tier: `test_a_fresh_entry_sends_no_request` for the scenario `A fresh entry sends no request`, `test_a_miss_reads_github_once_and_fills_the_entry` for `A miss reads GitHub once and fills the entry`, `test_a_label_write_fills_the_entry` for `A label write fills the entry`, `test_the_tier_refuses_a_connection` for `The tier refuses a connection`, `test_a_second_read_in_the_same_hour_sends_no_request` for `A second read in the same hour sends no request`, `test_a_304_answer_keeps_the_stored_issue` for `A 304 answer keeps the stored issue`, and `test_one_hour_of_a_quiet_repository_costs_fewer_than_20_requests` for `One simulated hour of a quiet repository`
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_github_store_brain.py` fails on the base
+- [x] 3.2 In `src/devops_cli/roadmap/stores/github_store.py`, `issue` reads `cached_issue(self._repo, number)` first. An entry younger than `DEFAULT_BRAIN_ISSUE_MAX_AGE_SECONDS` comes back with no request and counts `BRAIN_CACHE_TOTAL{row,result="hit"}` with the row of `request_labels()`. An entry older than that sends `_revalidate_issue(number, entry)`, and no entry reads GitHub through `_read_or_none` as today; both count a `miss`. `_revalidate_issue` runs `issue_args` with `--include` and `-H If-None-Match: <etag>`, reads the status line with the stdlib header parser as `src/devops_cli/github/hook_deliveries.py:94:def _next_endpoint(` does, and reads the status of a failed command with `gh_http_status`; a `304` keeps the record and the `ETag` and moves the check time, a `200` replaces both, and the entry is written with `remember_issue`. `_kept` writes each `PATCH` answer with `remember_issue`, and `label_issue` and `unlabel_issue` write the record they hold with the new label set, because `src/devops_cli/roadmap/stores/github_store.py:1186:self._write(label_args(self._repo, number, label), f"label #{number} {label}")` keeps no answer of the issue. A tier that does not answer gives no entry, so the row reads GitHub as today
+  - Verification: `$ uv run devops ci test tests/roadmap/stores/test_github_store_brain.py` passes
+
+## 4. Write the cached issue from the webhook payload before the wake
+
+Kind: behavior. Reads: `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/models/webhooks.py`, `src/devops_cli/roadmap/stores/brain_issues.py`, `src/devops_cli/roadmap/stores/store.py`, `tests/server/test_server_service.py`, `tests/server/routes/test_k8s_roadmap_service.py`, `tests/server/test_mattermost_slash_command.py`, `tests/telemetry/test_service_counter_series.py`. Changes: `src/devops_cli/server/routes/webhooks.py`, `src/devops_cli/models/webhooks.py`, `src/devops_cli/roadmap/stores/brain_issues.py`, `tests/server/routes/test_webhooks_brain.py` (new).
+Adds: `issue_from_event`
+
+- [x] 4.1 Write the failing case in `tests/server/routes/test_webhooks_brain.py`, `test_a_labeled_issue_event_writes_the_entry_before_the_wake`, for the scenario `A labeled issue event writes the entry and wakes the row` of the requirement `The roadmap consumer writes the cached issue before it wakes the lane`, over a fake tier and a fake lane trigger: the entry holds the label set with the event time, and the trigger records one wake
+  - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py` fails on the base
+- [x] 4.2 Add `title`, `body`, `state` and `updated_at` to `WebhookIssue` in `src/devops_cli/models/webhooks.py`. Add `issue_from_event(repo, issue)` to `src/devops_cli/roadmap/stores/brain_issues.py`: it splits the body with `split_record` of `src/devops_cli/roadmap/stores/store.py` and builds the entry with no `ETag` and the check time now. At the top of `deliver` in `src/devops_cli/server/routes/webhooks.py`, before `enqueue_scoped` and `enqueue_trigger`, call `remember_issue(repo, issue_from_event(repo, payload.issue))` when the payload holds an issue with a number; a payload with no issue writes nothing
+  - Verification: `$ uv run devops ci test tests/server/routes/test_webhooks_brain.py` passes
+
+## 5. Describe the cached issue in the cluster guide
+
+Kind: other. Reads: `docs/CLUSTER.md`, `src/devops_cli/roadmap/stores/brain_issues.py`, `src/devops_cli/config/defaults.py`. Changes: `docs/CLUSTER.md`.
+
+- [x] 5.1 Edit `docs/CLUSTER.md` with the cached issue of a Service repository: its key, its one-day life, its one-hour revalidation with `If-None-Match`, the write of the roadmap consumer, the write-through of the store, the fallback while the shared tier does not answer, and the `row` and `result` labels of `devops_cli_brain_cache_total`
+  - Verification: `$ uv run devops ci docs` passes
+- [x] 5.2 Edit `docs/CLUSTER.md` with the cached issue, its key, its life, its writers, its revalidation and its counter
+  - Verification: `$ uv run devops ci docs` passes
+
+## Workflow follow-up
+
+- Pending a person: review the diff in tuicr (tuicr -r <base>..HEAD).

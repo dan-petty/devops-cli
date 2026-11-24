@@ -59,9 +59,13 @@ class WebhookIssue(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     number: int | None = None
+    title: str = ""
+    body: str = ""
+    state: str = "open"
     labels: tuple[WebhookLabel, ...] = ()
     state_reason: str | None = None
     pull_request: WebhookPullRequest | None = None
+    updated_at: datetime | None = None
 
 
 class WebhookCheckSuite(BaseModel):

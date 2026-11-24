@@ -35,6 +35,7 @@ import threading
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+import valkey.credentials
 from pybreaker import (
     STATE_OPEN,
     CircuitBreaker,
@@ -233,6 +234,17 @@ def _count_error(op: str, error: ValkeyCacheError) -> None:
     emit(VALKEY_CACHE_ERRORS_TOTAL, 1, {"op": op, "error": error.value})
 
 
+class _SettingsValkeyCredentialProvider(valkey.credentials.CredentialProvider):
+    """The credential provider of the Valkey cache tier, resolving the password on connect."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def get_credentials(self) -> tuple[str] | tuple[str, str]:
+        pw = get_valkey_password(self._settings)
+        return (pw,) if pw else None  # type: ignore[return-value]
+
+
 def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
     """A cache tier over the Valkey that `valkey.url` names.
 
@@ -244,7 +256,7 @@ def _configured_cache_tier(settings: Settings) -> ValkeyCacheTier:
     cfg = settings.valkey
     client = ValkeyClient(
         cfg.endpoint,
-        password=get_valkey_password(settings),
+        credential_provider=_SettingsValkeyCredentialProvider(settings),
         timeout=cfg.timeout,
         connect_timeout=min(cfg.timeout, DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS),
     )

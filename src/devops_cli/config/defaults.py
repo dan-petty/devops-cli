@@ -766,6 +766,10 @@ DEFAULT_BRAIN_VALUE_MAX_BYTES: int = 1_048_576
 DEFAULT_BRAIN_MEMORY_ENTRIES: int = 1024
 # How long a tool fact of PyPI or deps.dev is kept, in memory and in Valkey: 24 hours.
 DEFAULT_BRAIN_FACT_TTL_SECONDS: int = 86_400
+# The cached issue object of a repository lives 24 hours after its last write (#6013).
+DEFAULT_BRAIN_ISSUE_TTL_SECONDS: int = 86_400
+# A cached issue object older than this sends a conditional revalidation request (#6013).
+DEFAULT_BRAIN_ISSUE_MAX_AGE_SECONDS: int = 3_600
 # The shared listing snapshot of a repository lives 7 days after its last write (#4668).
 DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS: int = 604_800
 # A load of a shared snapshot stops after this time and the reader takes the local copy or reads
