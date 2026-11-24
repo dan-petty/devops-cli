@@ -73,8 +73,8 @@ Each event that a GitHub consumer of the Service takes, and each webhook event t
 - **WHEN** a test reads the events of each GitHub consumer of `service_consumers` and the webhook batch keys of `DEFAULT_DUE_TABLE`
 - **THEN** each consumer event is in `CONST_ROADMAP_WEBHOOK_EVENTS`, and each batch key event is a consumer event
 
-### Requirement: The consumer takes the pull request, review and check events
-The event set of the roadmap consumer, `CONST_ROADMAP_WEBHOOK_EVENTS`, SHALL hold `issues`, `pull_request`, `pull_request_review`, `check_suite` and `issue_comment`, and step 8 of the roadmap-service runbook, `docs/CLUSTER.md`, SHALL name the same events. `CONST_ROADMAP_INTAKE_BATCH_KEYS` SHALL hold no comment key, so a comment runs no intake batch.
+### Requirement: The consumer takes the pull request, review, check and release events
+The event set of the roadmap consumer, `CONST_ROADMAP_WEBHOOK_EVENTS`, SHALL hold `issues`, `pull_request`, `pull_request_review`, `check_suite`, `issue_comment` and `release`, and step 8 of the roadmap-service runbook, `docs/CLUSTER.md`, SHALL name the same events. `CONST_ROADMAP_INTAKE_BATCH_KEYS` SHALL hold no comment key and no release key, so a comment and a release run no intake batch.
 
 #### Scenario: The event set holds the pull, review and check events
 - **WHEN** a test reads `CONST_ROADMAP_WEBHOOK_EVENTS`
@@ -83,6 +83,10 @@ The event set of the roadmap consumer, `CONST_ROADMAP_WEBHOOK_EVENTS`, SHALL hol
 #### Scenario: The runbook step and the event set name the same events
 - **WHEN** a test reads `CONST_ROADMAP_WEBHOOK_EVENTS` and step 8 of `docs/CLUSTER.md`
 - **THEN** each event of the set is named in that step
+
+#### Scenario: The event set holds the pull, review, check and release events
+- **WHEN** a test reads `CONST_ROADMAP_WEBHOOK_EVENTS`
+- **THEN** the set holds `issues`, `pull_request`, `pull_request_review`, `check_suite`, `issue_comment` and `release`
 
 ### Requirement: The payload holds the comment and the pull request marker
 `GitHubWebhookPayload` SHALL parse an optional `comment` that holds `body`, `author_association` and `created_at`, and `WebhookIssue` SHALL parse an optional `pull_request` marker. A payload that holds neither SHALL validate as it did before.
@@ -120,3 +124,17 @@ The roadmap consumer MUST write the issue of a subscribed `issues` event into th
 #### Scenario: A labeled issue event writes the entry and wakes the row
 - **WHEN** The roadmap consumer receives an `issues` event with action `labeled` for an issue of a Service repository.
 - **THEN** The fake tier holds the new label set with the event time, and the fake lane trigger records one wake for the due row.
+
+### Requirement: The payload holds the release fields
+The model `GitHubWebhookPayload` SHALL parse the optional `release` object of a `release` delivery into `WebhookRelease`, with the fields `tag_name`, `html_url`, `body`, `draft`, `prerelease` and `published_at`. `published_at` SHALL be optional, so a delivery of a draft still validates and reaches the refusal instead of answering 400. The model SHALL ignore every other field of the release object.
+
+#### Scenario: A published release payload parses
+- **WHEN** a test validates a `release` payload with the action `published` and the six release fields
+- **THEN** the payload release holds the tag, the URL and the body, and `draft` and `prerelease` are false
+
+### Requirement: The consumer refuses an unwanted release delivery
+The roadmap consumer SHALL refuse a `release` delivery before any GitHub request when its action is not `published`, when the release is a draft, when it is a prerelease, or when it carries no publication time. It SHALL answer each with `CONST_SERVICE_STATUS_RELEASE_REFUSED`, which counts as `ignored`, and SHALL queue no round and no scoped update.
+
+#### Scenario: An unwanted release is refused
+- **WHEN** a test sends a signed `release` delivery with the action `created`, one of a draft, one of a prerelease and one whose release holds no publication time
+- **THEN** each delivery is answered with `CONST_SERVICE_STATUS_RELEASE_REFUSED`, the lanes queue no round, and the fake GitHub client records no request
