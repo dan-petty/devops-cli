@@ -4017,10 +4017,14 @@ CONST_ROADMAP_REFINE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
 CONST_ROADMAP_RETITLE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "edited"),
 )
+# The webhook keys that make the stage and the implement rows due: a label change changes the set
+# that stage acts on, and a closed plan pull request hands its change folder to the implement row
+# when it merged, or frees a `planned_limit` slot when it did not (#4412, #4414).
 CONST_ROADMAP_STAGE_BATCH_KEYS: Final[tuple[tuple[str, str, str], ...]] = (
     ("webhook", "issues", "labeled"),
     ("webhook", "issues", "unlabeled"),
     ("webhook", "issues", "closed"),
+    ("webhook", "pull_request", "closed"),
 )
 # The webhook events that a delivery runs the watch row for (#4413): a new head or a review of a
 # staged pull request, and a finished check suite of one.

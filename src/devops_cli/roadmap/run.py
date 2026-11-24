@@ -1396,12 +1396,25 @@ SCOPED_UPDATES: Mapping[tuple[str, str], ScopedUpdate] = MappingProxyType(
 is not here keeps its delivery a hint that makes a whole round due."""
 
 
+# The delivery that wakes the lanes of the two rows that a closed plan pull request makes due
+# (#4414): the `implement` row sets `status/planned` and submits the runner Job of a merged plan,
+# and the `stage` row records the rejection of an unmerged one and returns the item to New.
+_CLOSED_PLAN: tuple[str, str] = ("pull_request", "closed")
+
+
 def scoped_update_wakes_lanes(delivery: WebhookDelivery, outcome: JobOutcome | None) -> bool:
     """Whether the lanes of `lanes_to_wake` run a round after the scoped update of
     `delivery` (#4412, #5553): after an edit, which changes the text that refine and retitle
-    read, and after a placement of a critical fix or a P0 item, which stamps `refine_due`. A lane
-    whose rows the trigger does not make due runs a round that sends no request."""
-    return delivery.action == "edited" or (outcome is not None and outcome.placed_critical_or_p0)
+    read, after a placement of a critical fix or a P0 item, which stamps `refine_due`, and after
+    a closed plan pull request, which makes the `stage` and `implement` rows due in their lanes
+    (#4414). A lane whose rows the trigger does not make due runs a round that sends no
+    request."""
+    closed_plan = (delivery.event, delivery.action) == _CLOSED_PLAN
+    return (
+        closed_plan
+        or delivery.action == "edited"
+        or (outcome is not None and outcome.placed_critical_or_p0)
+    )
 
 
 def lanes_to_wake(
