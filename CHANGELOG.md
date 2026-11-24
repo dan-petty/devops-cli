@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.2](https://github.com/dan-petty/devops-cli/compare/v0.211.1...v0.211.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** update @fission-ai/openspec to v2.2.0 ([#7020](https://github.com/dan-petty/devops-cli/issues/7020)) ([1698dec](https://github.com/dan-petty/devops-cli/commit/1698dec165dbca670f791daa4bbfd7dd4a9fc880))
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.10 ([#7019](https://github.com/dan-petty/devops-cli/issues/7019)) ([de2eee1](https://github.com/dan-petty/devops-cli/commit/de2eee192cd2ee17fc637ea4bb92b686b104bde8))
+
 ## [0.211.1](https://github.com/dan-petty/devops-cli/compare/v0.211.0...v0.211.1) (2026-11-24)
 
 
