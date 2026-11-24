@@ -1,6 +1,6 @@
 # The environment of the task: this repository at the base commit of the fixture, with
 # the interpreter, uv and the tools that the checks of the fixture use.
-FROM python:3.14-slim-trixie@sha256:d712121441a48a45f8452726ccc9fcf7094d8da24ccc2a588bea02fe18d3fb91
+FROM python:3.14-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
 
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
