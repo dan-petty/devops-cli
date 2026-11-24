@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.3](https://github.com/dan-petty/devops-cli/compare/v0.211.2...v0.211.3) (2026-11-24)
+
+
+### Bug Fixes
+
+* **security:** add securityContext to research valkey fixture ([#7024](https://github.com/dan-petty/devops-cli/issues/7024)) ([69aaacd](https://github.com/dan-petty/devops-cli/commit/69aaacd94a6e55d9ffef8ea201b1a185b181cec9))
+
 ## [0.211.2](https://github.com/dan-petty/devops-cli/compare/v0.211.1...v0.211.2) (2026-11-24)
 
 
