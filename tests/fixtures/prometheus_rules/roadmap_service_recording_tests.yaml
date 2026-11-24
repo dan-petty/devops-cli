@@ -1,0 +1,63 @@
+# promtool rule unit tests of the recording group roadmap-service-recording in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4562). Each rule records a row work series
+# of the roadmap Service under one name, so the alert, the dashboard panel and the start page that
+# read it keep working when the row work moves into roadmap-<row> pods and the job of its series
+# changes. Each rule matches job=~"roadmap-service|roadmap-.+": the Service's own job, and the job
+# of a row pod, which is named after the pod.
+#
+# tests/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files` names,
+# beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, one sample each `interval`, and evaluates the group once each interval. The
+# series of another job (a workstation as job="devops-cli") is in the case, and no rule may record
+# it: an extra sample fails the case. A range selector reads the samples of its window, and
+# increase() extrapolates to the edges: a counter that grows by 1 each minute gives 60 over the 59
+# minutes of the 1 hour window that ends at minute 60.
+rule_files:
+  - roadmap-service-recording.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: Each recording rule produces its series and stays quiet on a series of another job
+    interval: 1m
+    input_series:
+      # A row pod's job: the failed jobs of one row, the suspended gauge of one row, and the
+      # budget that the rows spend.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-1", repo="example-repo", lane="plan", row="refine", result="error"}'
+        values: '0+1x60'
+      - series: 'devops_cli_service_job_suspended{job="roadmap-1", repo="example-repo", row="refine", class="error"}'
+        values: '1x61'
+      - series: 'devops_cli_service_budget_spent_requests{job="roadmap-1"}'
+        values: '400x61'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-1"}'
+        values: '500x61'
+      # A workstation's series. A rule that matches them records 660 failed jobs of the row, an
+      # extra suspended row and a ratio of 1400 over 510, and the case fails.
+      - series: 'devops_cli_service_jobs_total{job="devops-cli", repo="example-repo", lane="plan", row="refine", result="error"}'
+        values: '0+10x60'
+      - series: 'devops_cli_service_job_suspended{job="devops-cli", repo="example-repo", row="intake", class="provider"}'
+        values: '1x61'
+      - series: 'devops_cli_service_budget_spent_requests{job="devops-cli"}'
+        values: '1000x61'
+      - series: 'devops_cli_service_budget_limit_requests{job="devops-cli"}'
+        values: '10x61'
+    promql_expr_test:
+      # 60 failed jobs of the row in the last hour, and none of the workstation's 600.
+      - expr: repo_lane_row:devops_cli_service_jobs_total:increase1h
+        eval_time: 60m
+        exp_samples:
+          - labels: 'repo_lane_row:devops_cli_service_jobs_total:increase1h{repo="example-repo", lane="plan", row="refine", result="error"}'
+            value: 60
+      # The row waits, so the recorded gauge is 1.
+      - expr: repo_row_class:devops_cli_service_job_suspended:max
+        eval_time: 60m
+        exp_samples:
+          - labels: 'repo_row_class:devops_cli_service_job_suspended:max{repo="example-repo", row="refine", class="error"}'
+            value: 1
+      # 400 of the 500 requests of the hour, and none of the workstation's 1000 of 10. A division
+      # names no metric, so the recorded series carries its record name as its name.
+      - expr: service:devops_cli_service_budget_requests_per_limit:ratio
+        eval_time: 60m
+        exp_samples:
+          - labels: 'service:devops_cli_service_budget_requests_per_limit:ratio'
+            value: 0.8

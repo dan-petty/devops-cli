@@ -52,19 +52,18 @@ Each description in the group SHALL end with `(docs/CLUSTER.md, Roadmap service)
 - **THEN** `RoadmapServiceGitHubThrottled` fires with the resource, and stops 15 minutes after the sample
 
 ### Requirement: Failed jobs and a stalled lane warn
-
-`RoadmapServiceJobsFailing` SHALL fire with warning severity after 30 minutes when all jobs of a repository and lane failed in 1 hour (errors increase with zero successes), joined on `repo` and `lane`. Its summary SHALL name the repository and lane, and its description SHALL give a Loki filter. `RoadmapServiceLaneStalled` SHALL fire after 10 minutes when no job started for 2 hours while a replica is available. In a new pod, the 2 hours SHALL start when the worker starts.
+`RoadmapServiceJobsFailing` SHALL fire with warning severity after 30 minutes when `repo_lane_row:devops_cli_service_jobs_total:increase1h` of the group `roadmap-service-recording` is above 0 for `result="error"` with no `result="success"` series of the same `repo`, `lane` and `row`. Its summary SHALL name the repository, the lane and the row. `RoadmapServiceLaneStalled` SHALL fire after 10 minutes when no job started for 2 hours while a replica is available.
 
 #### Scenario: A lane whose new error series reaches 3
-- **WHEN** `promtool test rules` evaluates an error series of one repository and lane that reaches 3 in the hour with zero successes
-- **THEN** `RoadmapServiceJobsFailing` fires with that repository and lane after 30 minutes
+- **WHEN** `promtool test rules` evaluates a recorded error series of one repository, lane and row that reaches 3 in the hour with no recorded success
+- **THEN** `RoadmapServiceJobsFailing` fires with that repository, lane and row after 30 minutes
 
 #### Scenario: A new error series with one sample
-- **WHEN** `promtool test rules` evaluates a new error series with one sample of 3 and zero successes
+- **WHEN** `promtool test rules` evaluates a recorded error series with one sample of 3 and no recorded success
 - **THEN** `RoadmapServiceJobsFailing` fires after 30 minutes
 
 #### Scenario: A sparse error series from before the hour
-- **WHEN** `promtool test rules` evaluates an error series with samples 5, 6 and 7 at 50, 70 and 110 minutes, at 120 minutes with zero successes
+- **WHEN** `promtool test rules` evaluates a recorded error series with samples 5, 6 and 7 at 50, 70 and 110 minutes, at 120 minutes with no recorded success
 - **THEN** `RoadmapServiceJobsFailing` fires after 30 minutes
 
 #### Scenario: No available replica
@@ -94,52 +93,42 @@ Each description in the group SHALL end with `(docs/CLUSTER.md, Roadmap service)
 - **THEN** `RoadmapServiceUnavailable` stays quiet
 
 ### Requirement: A high request volume warns
-
-`RoadmapServiceGitHubRequestsHigh` SHALL fire when the Service sent more GitHub requests in 1 hour, not counting the answers with status 304, than 90% of the budget in `devops_cli_service_budget_limit_requests`, and SHALL join the two with `on()`, because their `instance` labels differ. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer. Both SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
+`RoadmapServiceGitHubRequestsHigh` SHALL fire when `service:devops_cli_service_budget_requests_per_limit:ratio` of the group `roadmap-service-recording` is above 0.9, and its summary SHALL give the share of the hourly GitHub budget that the Service used, as a percentage. `RoadmapServiceModelRequestsHigh` SHALL fire above 352 model requests in 1 hour that the cache did not answer, SHALL count the first value of a new series, and SHALL NOT count a series from before the hour.
 
 #### Scenario: 600 GitHub requests in an hour
-
-- **WHEN** `promtool test rules` evaluates 600 GitHub requests of the Service in an hour and a reported limit of 500
-- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 600
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 1.2
+- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 120% of the budget
 
 #### Scenario: 400 GitHub requests in an hour with a limit of 500
-
-- **WHEN** `promtool test rules` evaluates 400 GitHub requests of the Service in an hour and a reported limit of 500
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 0.8
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 #### Scenario: 900 GitHub requests in an hour with a limit of 2000
-
-- **WHEN** `promtool test rules` evaluates 900 GitHub requests of the Service in an hour and a reported limit of 2000
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 0.45
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 #### Scenario: 1900 GitHub requests in an hour with a limit of 2000
-
-- **WHEN** `promtool test rules` evaluates 1900 GitHub requests of the Service in an hour and a reported limit of 2000
-- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 1900
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 0.95
+- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 95% of the budget
 
 #### Scenario: A GitHub request stream that starts in the hour
-
-- **WHEN** `promtool test rules` evaluates a new stream whose first sample is 300 and that grows by 20 every 5 minutes to 520, and a reported limit of 500
-- **THEN** `RoadmapServiceGitHubRequestsHigh` fires, and the summary gives 520
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio of a new stream, whose first sample is 0.6 and that rises to 1.04
+- **THEN** `RoadmapServiceGitHubRequestsHigh` fires
 
 #### Scenario: A sparse GitHub request stream from before the hour
-
-- **WHEN** `promtool test rules` evaluates a stream with samples 2000, 2010 and 2020 at 50, 70 and 110 minutes, at 120 minutes, and a reported limit of 500
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 0.4, with no sample before the hour
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 #### Scenario: A model request stream that starts in the hour
-
 - **WHEN** `promtool test rules` evaluates a new stream of model requests that the cache did not answer, whose first sample is 250 and that grows to 415, beside the same stream of cached answers
 - **THEN** `RoadmapServiceModelRequestsHigh` fires, and the summary gives 415
 
 #### Scenario: Cached model answers
-
 - **WHEN** the Service sent 300 model requests and the cache answered 600 more in an hour
 - **THEN** `RoadmapServiceModelRequestsHigh` stays quiet
 
 #### Scenario: 600 GitHub requests in an hour, 480 of them answered 304
-
-- **WHEN** `promtool test rules` evaluates 120 GitHub requests with status 200 and 480 with status 304 of the Service in an hour and a reported limit of 500
+- **WHEN** `promtool test rules` evaluates the recorded budget ratio at 0.24, the share of the 120 requests that GitHub counted
 - **THEN** `RoadmapServiceGitHubRequestsHigh` stays quiet
 
 ### Requirement: The webhook route has its own alert group
@@ -351,23 +340,23 @@ The rule group `roadmap-service` SHALL hold the warning alert `RoadmapServiceMem
 - **THEN** no alert fires for it.
 
 ### Requirement: A row that stays suspended warns
-`RoadmapServiceRowSuspended` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 3 hours while `devops_cli_service_job_suspended` of the job `roadmap-service` is above 0 for a `repo`, a `row` and a `class`, and its summary and description SHALL name the row, the repository and the class. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
+`RoadmapServiceRowSuspended` SHALL be an alert of the group `roadmap-service` with warning severity. It SHALL fire after 3 hours while `repo_row_class:devops_cli_service_job_suspended:max` of the group `roadmap-service-recording` is above 0 for a `repo`, a `row` and a `class`, and its summary and description SHALL name the row, the repository and the class. Its description SHALL end with `(docs/CLUSTER.md, Roadmap service)`, and that section SHALL name the alert and say what to check.
 
 #### Scenario: A row that stays suspended
-- **WHEN** `promtool test rules` evaluates the gauge of the row `intake` with `class="provider"` at 1 for more than 3 hours
+- **WHEN** `promtool test rules` evaluates the recorded gauge of the row `intake` with `class="provider"` at 1 for more than 3 hours
 - **THEN** `RoadmapServiceRowSuspended` fires with the repository, the row and the class, and it is quiet before the 3 hours pass
 
 #### Scenario: A row that runs again
-- **WHEN** `promtool test rules` evaluates the gauge of a row at 1 for 1 hour, then at 0
+- **WHEN** `promtool test rules` evaluates the recorded gauge of a row at 1 for 1 hour, then at 0
 - **THEN** `RoadmapServiceRowSuspended` stays quiet
 
 #### Scenario: A class that changes
-- **WHEN** `promtool test rules` evaluates the gauge of a row with `class="provider"` at 1 for 1 hour, then with `class="ci_infra"` at 1 for 4 hours
+- **WHEN** `promtool test rules` evaluates the recorded gauge of a row with `class="provider"` at 1 for 1 hour, then with `class="ci_infra"` at 1 for 4 hours
 - **THEN** `RoadmapServiceRowSuspended` fires with `class="ci_infra"` only
 
 #### Scenario: A series of another job
-- **WHEN** `promtool test rules` evaluates the gauge with `job="devops-cli"` or `job="kubernetes-pods"` at 1
-- **THEN** no alert counts it
+- **WHEN** `promtool test rules` evaluates the gauge with `job="devops-cli"` or `job="kubernetes-pods"` at 1 in the case file of `roadmap-service-recording`
+- **THEN** the recorded series is absent and no alert counts it
 
 ### Requirement: The metrics row counts the failed deliveries of the hooks
 Each time the metrics row runs, it SHALL read through `gh api` the active hooks of its repository and the failed deliveries of each (`status=failure`), 100 a page. It SHALL count from its last good read of the repository, or 15 minutes before the read when that is earlier, follow each `Link` until a delivery is older, read at most 10 pages of a hook, and set `devops_cli_service_webhook_delivery_failures` by `repo` and `code` to the deliveries that are not 2xx.
