@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.207.0](https://github.com/dan-petty/devops-cli/compare/v0.206.2...v0.207.0) (2026-11-24)
+
+
+### Features
+
+* **docker:** lint the Dockerfiles with hadolint in pre-commit ([#6944](https://github.com/dan-petty/devops-cli/issues/6944)) ([09ea9c8](https://github.com/dan-petty/devops-cli/commit/09ea9c87fb2a9e988506e66fa31cddcf342edb6e))
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#6953](https://github.com/dan-petty/devops-cli/issues/6953)) ([b27b8fc](https://github.com/dan-petty/devops-cli/commit/b27b8fc125a6d7c4f110691226db6d78e096bff0))
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.8 ([#6950](https://github.com/dan-petty/devops-cli/issues/6950)) ([db55a1b](https://github.com/dan-petty/devops-cli/commit/db55a1b24bc5d414a7d1bc041414d506f9dcc81e))
+* **docker:** ignore DL3066 on devcontainer base stage vscode user ([#6964](https://github.com/dan-petty/devops-cli/issues/6964)) ([e071c2e](https://github.com/dan-petty/devops-cli/commit/e071c2eef9fdcb3177e6676f6fda1ee2087f960b))
+
+
+### Performance Improvements
+
+* **devcontainer:** keep the Feature layers under the project layer ([#6941](https://github.com/dan-petty/devops-cli/issues/6941)) ([b431c53](https://github.com/dan-petty/devops-cli/commit/b431c53c42f6007b58516baf46d78e56f3525e85))
+
 ## [0.206.2](https://github.com/dan-petty/devops-cli/compare/v0.206.1...v0.206.2) (2026-11-24)
 
 
