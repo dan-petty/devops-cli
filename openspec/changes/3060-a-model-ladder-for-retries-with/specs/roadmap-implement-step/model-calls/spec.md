@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: A failed model call ends the step stopped
-A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped, and the step SHALL reset the checkout. When the failure classification maps the failure to `change_tier` and the ladder for that step class has another tier available, the step SHALL advance to the next tier without incrementing the repair round counter. The outcome of a failed turn SHALL hold the requests and the tokens that the turn spent, the failed request included, and the last text of the model, added to those of the turn before it.
+A run that ends on a failed model call (a `ModelAPIError` that is not a refused key) SHALL end as stopped and reset the checkout when no tier remains. On a `change_tier` failure with another tier available, the step SHALL advance to the next tier without incrementing repair rounds. The outcome of a failed turn SHALL hold the requests and tokens spent, the failed request included, and the last model text.
 
 #### Scenario: A model call fails in the first turn
 - **WHEN** the agent writes `src/sample.py` and a new test file, and its next model call raises a `ModelAPIError`, a `ModelHTTPError` with the status 503, or a `ModelRequestTimeout`

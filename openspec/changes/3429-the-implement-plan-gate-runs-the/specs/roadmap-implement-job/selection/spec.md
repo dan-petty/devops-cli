@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: The job leaves out an item whose plan fails the check
-The implement selection SHALL run `check_proposal` on the plan of a Staged or Planned item before it returns a target, and it SHALL leave the item out with the first problem as its reason when the check returns problems. When the check returns no problem, the selection SHALL run `validate_change` on the same change files with the tool that `openspec_tool()` yields, and it SHALL leave the item out with the first issue of the report as its reason when the validation returns a problem. It SHALL skip the validation when `openspec_tool()` yields None, and it SHALL leave the item out with the first line of the error when `validate_change` raises. One call of `plan_implement` SHALL enter the `openspec_tool()` context once for the whole run. It SHALL run no plan check on a Staged item whose branch head holds the archived change of the issue and no active one, because the job archives a change only after the plan passed the check.
+The implement selection SHALL run `check_proposal` on the plan of a Staged or Planned item before returning a target, leaving the item out with the first problem if checks fail. When accepted, it SHALL run `validate_change` with `openspec_tool()`, leaving the item out if validation fails or raises. The selection SHALL enter `openspec_tool()` once per run and skip plan checks on Staged items with an archived change.
 
 #### Scenario: A Staged item with a placeholder task
 - **WHEN** The branch of a Staged item holds a plan with the placeholder task `1.1 x`.
