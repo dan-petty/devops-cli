@@ -869,6 +869,86 @@ def test_service_tracing_middleware_adds_headers_and_skips_probes(
     )
 
 
+def test_service_creates_single_server_span_and_no_probe_spans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Service creates exactly one server span per request and none for probe paths (#5003)."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    import devops_cli.server.service as service_module
+
+    assert not hasattr(service_module, "_service_trace_middleware"), (
+        "_service_trace_middleware must be removed in favor of maintained FastAPI telemetry"
+    )
+
+    sent_payloads: list[tuple[str, dict[str, Any]]] = []
+    tracer = get_tracer()
+    tracer.enabled = True
+    monkeypatch.setattr(tracer, "_send_payload", lambda path, p: sent_payloads.append((path, p)))
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(trace, "get_tracer_provider", lambda: provider)
+
+    settings = _make_settings(repos=["example-org/repo1"])
+    secrets = {"example-org/repo1": "secret-1"}
+    app = create_service_app(settings=settings, secrets=secrets, tracer_provider=provider)
+
+    with TestClient(app) as client:
+        client.get("/healthz")
+        client.get("/readyz")
+        client.get("/metrics")
+
+        probe_server_spans = [s for s in exporter.get_finished_spans() if s.kind.name == "SERVER"]
+        assert len(probe_server_spans) == 0, (
+            f"Expected 0 probe server spans, got {probe_server_spans}"
+        )
+        server_payload_spans = [
+            span
+            for _, p in sent_payloads
+            for rs in p.get("resourceSpans", [])
+            for ss in rs.get("scopeSpans", [])
+            for span in ss.get("spans", [])
+            if span.get("kind") in ("SPAN_KIND_SERVER", "server")
+        ]
+        assert len(server_payload_spans) == 0, "Server span sent for probe paths"
+
+        payload = json.dumps(
+            {"repository": {"full_name": "example-org/repo1"}, "action": "opened"}
+        ).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+            CONST_GH_WEBHOOK_DELIVERY_HEADER: "deliv-trace-1",
+            CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(payload, "secret-1"),
+        }
+        res_webhook = client.post("/webhooks/github", content=payload, headers=headers)
+        assert res_webhook.status_code == 202
+
+        webhook_server_spans = [s for s in exporter.get_finished_spans() if s.kind.name == "SERVER"]
+        assert len(webhook_server_spans) == 1, (
+            f"Expected exactly 1 server span for webhook, got {len(webhook_server_spans)}: {webhook_server_spans}"
+        )
+        assert webhook_server_spans[0].name == "POST /webhooks/github"
+        assert webhook_server_spans[0].attributes is not None
+        assert webhook_server_spans[0].attributes.get("http.route") == "/webhooks/github"
+        server_payload_spans_after = [
+            span
+            for _, p in sent_payloads
+            for rs in p.get("resourceSpans", [])
+            for ss in rs.get("scopeSpans", [])
+            for span in ss.get("spans", [])
+            if span.get("kind") in ("SPAN_KIND_SERVER", "server")
+        ]
+        assert len(server_payload_spans_after) == 0, (
+            f"Expected no duplicate server span via tracer._send_payload, got {server_payload_spans_after}"
+        )
+
+
 def test_repo_worker_executes_batch_with_span(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test RepoWorker._execute_batch records tracer span with metadata, triggers, and error attributes."""
     sent_payloads: list[tuple[str, dict[str, Any]]] = []
