@@ -149,6 +149,7 @@
     {
       "description": "SearXNG publishes many tags a day. A tag has no minimum release age (CONTRIBUTING.md, Dependency Versions). Each tag ends in a commit hash, which the versioning ignores.",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
+      "commitMessageTopic": "searxng",
       "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-[0-9a-f]+$",
       "prBodyNotes": [
         "Before the merge, read the notes of the release on the engines that the settings keep, and run `devops k8s searxng-check` against the new image on the cluster (`docs/CLUSTER.md`, section SearXNG)."
@@ -175,7 +176,8 @@
       "description": ".node-version and the node image. The node image of the Dockerfile is a fix by the base image rule. A group takes the prefix of its first update, so the group sets the prefix itself.",
       "matchPackageNames": ["node"],
       "groupName": "node",
-      "commitMessagePrefix": "fix(deps):"
+      "commitMessagePrefix": "fix(deps):",
+      "allowedVersions": "<25.0.0"
     },
     {
       "description": "Every Python 3.<minor> place. A new minor gets its own branch, so its Dashboard approval does not stop the digest and patch updates.",
@@ -183,9 +185,16 @@
       "groupName": "python runtime",
       "commitMessagePrefix": "fix(deps):",
       "separateMultipleMinor": true,
+      "allowedVersions": "<3.15.0",
       "prBodyNotes": [
         "A new Python minor is a migration: change the other `python3.<minor>` paths (`git grep -n 'python3\\.'`) and the `python:3.<minor>-slim` defaults under `src/` in this pull request, then run the full gate."
       ]
+    },
+    {
+      "description": "A Python minor update waits for Dashboard approval so digest and patch updates continue without delay.",
+      "matchPackageNames": ["python"],
+      "matchUpdateTypes": ["minor", "major"],
+      "dependencyDashboardApproval": true
     },
     {
       "description": "The ruff dev dependency and the ruff-pre-commit hook.",
@@ -250,6 +259,7 @@
       "description": "A person runs devops k8s searxng-check against each new SearXNG image on the cluster, so a SearXNG update waits for an approval on the Dependency Dashboard. It gets its own branch, so that the other container images do not wait for it (#6029, #6051).",
       "matchPackageNames": ["searxng/searxng", "docker.io/searxng/searxng"],
       "groupName": "searxng",
+      "commitMessageTopic": "searxng",
       "dependencyDashboardApproval": true
     },
     {
@@ -261,6 +271,16 @@
       "description": "google-genai <= 2.34.0 (via pydantic-ai[spec]) restricts tenacity to <9.2.0.",
       "matchPackageNames": ["tenacity"],
       "allowedVersions": "<9.2.0"
+    },
+    {
+      "description": "The requires-python specification in pyproject.toml defines the runtime lower bound, not a pinned dependency. Renovate must not update it.",
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    },
+    {
+      "description": "The grafana-foundation-sdk package stays on releases before 1.0.0 to avoid PyPI epoch versions.",
+      "matchPackageNames": ["grafana-foundation-sdk"],
+      "allowedVersions": "<1.0.0"
     }
   ]
 }
