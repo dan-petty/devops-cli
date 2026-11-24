@@ -23,6 +23,7 @@ RUN UV_PYTHON_DOWNLOADS=never uv export --locked --no-dev --extra review --no-em
 # counts tokens with no download. /run/user/1000 holds the container-local session bus of
 # gnome-keyring; /tmp is shared.
 FROM devtools AS venv
+# hadolint ignore=DL3064
 ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
@@ -69,4 +70,5 @@ ENV PATH="${PATH}:/opt/devops-cli/.venv/bin"
 COPY --link --from=project --parents /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli \
     /opt/devops-cli/.venv/lib/python3.*/site-packages/devops_cli-*.dist-info \
     /opt/devops-cli/.venv/bin/devops /
+# hadolint ignore=DL3066
 USER vscode

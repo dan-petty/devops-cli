@@ -34,6 +34,7 @@ FROM python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c0049b408f52138
 COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /app
+# hadolint ignore=DL3064
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken
@@ -84,6 +85,7 @@ WORKDIR /app
 # Job. The build forbids a Python download, and the `.python-version` of a checkout can name a
 # patch release that the devtools image lacks, so `UV_PYTHON` names the Python of the devtools image,
 # which uv uses for that minor release.
+# hadolint ignore=DL3064
 ENV UV_COMPILE_BYTECODE=1 \
     UV_PYTHON_DOWNLOADS=never \
     UV_PYTHON=/usr/bin/python3.14 \
@@ -178,6 +180,7 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
+# hadolint ignore=DL3064
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \
@@ -203,6 +206,7 @@ RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 COPY --link --from=builder --parents /app/.venv/lib/python3.14/site-packages/devops_cli \
     /app/.venv/lib/python3.14/site-packages/devops_cli-*.dist-info /app/.venv/bin/devops /
 
+# hadolint ignore=DL3064
 ENV HOME=/home/devops \
     DEVOPS_CLI_DATA_DIR=/home/devops/.data \
     TIKTOKEN_CACHE_DIR=/app/.cache/tiktoken \

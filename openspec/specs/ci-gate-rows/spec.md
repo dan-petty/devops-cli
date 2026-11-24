@@ -327,3 +327,10 @@ The `k8s` row of `devops ci` SHALL refuse a branch that changes an environment p
 #### Scenario: git cannot give the changed paths
 - **WHEN** `git diff` exits with status 128, because the checkout has no `origin/main`
 - **THEN** the check fails, and its message names the status, the error of git and `origin/main`
+
+### Requirement: The table holds a hadolint row that runs the pre-commit hook
+The table of `devops ci` SHALL hold a row `hadolint` whose command runs `uv run pre-commit run hadolint --all-files`.
+
+#### Scenario: The row is the hadolint pre-commit hook
+- **WHEN** `devops ci --only hadolint --dry-run` runs
+- **THEN** the plan shows `uv run pre-commit run hadolint --all-files`
