@@ -1,5 +1,5 @@
-"""The rows that each `issues` webhook key makes due, and the wake of the model lane after a
-scoped update (#4412)."""
+"""The rows that each webhook key makes due, and the wake of the model lane after a scoped
+update (#4412, #4414)."""
 
 from __future__ import annotations
 
@@ -55,6 +55,23 @@ def test_an_issues_key_makes_due_only_the_rows_that_declare_it(
     assert (set(result), set(ran)) == (due, due)
 
 
+def test_a_closed_plan_pull_request_makes_the_stage_and_implement_rows_due(
+    roadmap_store: InMemoryRoadmapStore, tmp_path: Path
+) -> None:
+    """With every row fresh by its interval, a closed plan pull request makes the `stage` and
+    `implement` rows due, and no other row (#4414)."""
+    stamp_successes(tmp_path, **{name: NOW for name in _ROWS})
+    ran: list[str] = []
+    stubs = {name: recorded(ran, name) for name in _ROWS}
+    result = poll_round(
+        roadmap_store,
+        tmp_path,
+        table=build_stub_table(stubs),
+        batch={("webhook", "pull_request", "closed"): 1},
+    )
+    assert (set(result), set(ran)) == ({"stage", "implement"}, {"stage", "implement"})
+
+
 @pytest.mark.parametrize(
     ("action", "outcome", "wakes"),
     [
@@ -72,6 +89,23 @@ def test_a_scoped_update_wakes_the_other_lanes_for_an_edit_or_a_critical_placeme
     """An edit of an Item, and a placement of a critical fix or a P0 item, wake the other lanes;
     another scoped update does not (#4412, #5553)."""
     assert scoped_update_wakes_lanes(webhook_delivery(action, 7), outcome) is wakes
+
+
+def test_a_closed_plan_pull_request_wakes_the_lanes_of_its_rows() -> None:
+    """A closed plan pull request wakes the lanes of the rows that it makes due, with no
+    placement of a critical fix and with no edit; a closed issue wakes no other lane
+    (#4414)."""
+    assert (
+        scoped_update_wakes_lanes(webhook_delivery("closed", 42, event="pull_request"), None)
+        is True
+    )
+    assert (
+        scoped_update_wakes_lanes(
+            webhook_delivery("closed", 42, event="pull_request"), JobOutcome()
+        )
+        is True
+    )
+    assert scoped_update_wakes_lanes(webhook_delivery("closed", 42), None) is False
 
 
 def test_a_critical_placement_stamps_refine_due_and_the_model_lane_round_runs_refine(
