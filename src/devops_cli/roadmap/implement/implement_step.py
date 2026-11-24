@@ -1671,7 +1671,9 @@ def _fail_to_pass_failure(
         return None
     files = _changed_test_files(source, start)
     if not files:
-        return _Failure(MESSAGES.roadmap.implement_stop_no_test_file)
+        return _Failure(
+            MESSAGES.roadmap.implement_stop_no_test_file, klass=FailureClass.PLAN_DEFECT
+        )
     replay = replay_group_tests(source, start, files)
     log.fail_to_pass = replay
     if log.trace is not None:
@@ -1691,11 +1693,15 @@ def _replay_failure(replay: BaseReplay) -> _Failure | None:
             return None
         case BaseStatus.PASSES:
             return _Failure(
-                texts.implement_stop_base_passes.format(files=files), frozenset(replay.files)
+                texts.implement_stop_base_passes.format(files=files),
+                frozenset(replay.files),
+                klass=FailureClass.PLAN_DEFECT,
             )
         case BaseStatus.ERRORS:
             return _Failure(
-                texts.implement_stop_base_errors.format(files=files), frozenset(replay.files)
+                texts.implement_stop_base_errors.format(files=files),
+                frozenset(replay.files),
+                klass=FailureClass.PLAN_DEFECT,
             )
         case BaseStatus.NOT_RUN:
             return _Failure(
@@ -2004,7 +2010,7 @@ def _extra_ask(
     caller counts the turns against `repair_rounds`."""
     if failure is None:
         return None
-    if failure.klass in (FailureClass.PLAN_DEFECT, FailureClass.PREMISE_FALSE):
+    if failure.klass is FailureClass.PREMISE_FALSE:
         return None
     if failure.repair_paths is None:
         return None

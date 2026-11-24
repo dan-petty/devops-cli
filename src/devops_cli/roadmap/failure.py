@@ -287,6 +287,11 @@ _REFUSED_AT_START: Final[re.Pattern[str]] = re.compile(rf"\A{_REFUSED_COMMAND}",
 # hold it in a test or a plan.
 _SPEND_LIMIT: Final[str] = _text_around(ERRORS.ai.provider_key_spend_limit, "status")
 
+# The messages of a behavior group that stops for its test-first checks (#6874).
+_NO_TEST_FILE: Final[str] = re.escape(MESSAGES.roadmap.implement_stop_no_test_file)
+_BASE_PASSES: Final[str] = _text_around(MESSAGES.roadmap.implement_stop_base_passes, "files")
+_BASE_ERRORS: Final[str] = _text_around(MESSAGES.roadmap.implement_stop_base_errors, "files")
+
 
 def _rule(klass: FailureClass, pattern: str) -> tuple[FailureClass, re.Pattern[str]]:
     return klass, re.compile(pattern, _FLAGS)
@@ -365,7 +370,8 @@ _PREMISE = re.compile(
 # step (#3476).
 _PLAN = re.compile(
     r"has a task that is not ticked"
-    r"|inputs of the step measure|not a file on the default branch|open finding|verdict/fix-plan",
+    r"|inputs of the step measure|not a file on the default branch|open finding|verdict/fix-plan"
+    rf"|{_NO_TEST_FILE}|{_BASE_PASSES}|{_BASE_ERRORS}",
     _FLAGS,
 )
 
