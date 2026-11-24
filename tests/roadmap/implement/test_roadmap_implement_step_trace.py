@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 from pydantic_ai import Agent
+from pydantic_ai.workspaces import CommandResult, WorkspaceError
+from pydantic_ai.workspaces.local import LocalWorkspaceBackend
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_TRACE_CHARS
 from devops_cli.lang import MESSAGES
@@ -119,11 +121,17 @@ def test_the_outcome_holds_the_input_tokens_of_the_first_model_request(
 
 
 def test_a_refused_command_and_a_retried_edit_are_tool_events(
-    store: InMemoryRoadmapStore, checkout: Path
+    store: InMemoryRoadmapStore, checkout: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    async def fail_run(*_args: object, **_kwargs: object) -> CommandResult:
+        raise WorkspaceError("failed")
+
+    monkeypatch.setattr(LocalWorkspaceBackend, "run", fail_run)
     trace = ImplementTrace(step="group 1")
+    command = ("run_command", {"command": "pytest tests/test_sample.py"})
     script = ModelScript(
-        tool_calls(("run_command", {"command": "pytest tests/test_sample.py"}), MISSING_EDIT),
+        tool_calls(command),
+        tool_calls(command, MISSING_EDIT),
         say("Done."),
     )
 
@@ -173,8 +181,12 @@ def test_the_call_that_spends_the_retries_of_a_tool_fails_and_its_repeat_does_no
 
 
 def test_the_same_call_twice_has_one_digest_and_no_event_holds_the_command(
-    store: InMemoryRoadmapStore, checkout: Path
+    store: InMemoryRoadmapStore, checkout: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    async def ok_run(*_args: object, **_kwargs: object) -> CommandResult:
+        return CommandResult(exit_code=0, stdout="", stderr="")
+
+    monkeypatch.setattr(LocalWorkspaceBackend, "run", ok_run)
     trace = ImplementTrace(step="group 1")
     same = ("run_command", {"command": "pytest tests/test_sample.py --flag=sentinel-value"})
     other = ("run_command", {"command": "pytest tests/other_sentinel.py"})
@@ -202,7 +214,11 @@ def test_a_failed_lint_one_repair_round_and_a_pass_give_check_retry_check(
         write_call(TASKS_PATH, TICKED),
     )
     script = ModelScript(
-        first, say("Done."), tool_calls(write_call("tests/test_sample.py", TEST_BODY)), say("Ok.")
+        first,
+        say("Done."),
+        say("Done."),
+        tool_calls(write_call("tests/test_sample.py", TEST_BODY)),
+        say("Ok."),
     )
 
     outcome = _step(store, checkout, script, trace)

@@ -279,7 +279,7 @@ def test_the_check_runs_before_the_formatter_and_the_verification_commands(
 
     assert outcome.status is StepStatus.STOPPED
     assert programs_run(programs, "uv") == []
-    assert len(script.seen) == 2
+    assert len(script.seen) == 3
 
 
 def test_a_step_that_adds_a_test_to_an_existing_file_ends_done(
@@ -490,7 +490,9 @@ def test_a_lost_test_gets_one_repair_turn_that_restores_it(
         TICK,
     )
     repair_turn = tool_calls(write_call(OLD_PATH, OLD))
-    script = ModelScript(first_turn, say("Done."), repair_turn, say("Restored the test."))
+    script = ModelScript(
+        first_turn, say("Done."), say("Done."), repair_turn, say("Restored the test.")
+    )
     trace = ImplementTrace(step="group 1")
 
     outcome = run_step(
@@ -505,7 +507,7 @@ def test_a_lost_test_gets_one_repair_turn_that_restores_it(
 
     assert outcome.status is StepStatus.DONE
     assert outcome.reason == ""
-    assert outcome.requests == 4
+    assert outcome.requests == 6
     attempts = [event.fields for event in trace.events if event.kind is TraceEventKind.ATTEMPT]
     first, second = attempts
     assert (first["number"], first["outcome"], first["next"], first["class"]) == (

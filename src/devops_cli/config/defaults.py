@@ -1116,27 +1116,13 @@ DEFAULT_ROADMAP_IMPLEMENT_MAX_TOOL_CALLS: int = 1500
 # The consecutive failures that a tool may answer as a retry, such as an `edit_file` whose text is
 # not found. `Coder` answers the next failure with a failed result and the run goes on; arguments
 # that break the schema of the tool end the run. A successful call of a tool resets its count
-# (`pydantic_ai/tool_manager.py`), so the count is of failures in a row. A refusal of the shell by
-# policy is a tool result, not a failure, so it adds nothing to this count (#3271). A failure is
-# the model's to correct, as the harness's own file tools allow five.
+# (`pydantic_ai/tool_manager.py`), so the count is of failures in a row. A failure is the model's
+# to correct, as the harness's own file tools allow five.
 DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES: int = 5
-# The commands that the shell of a step may refuse by policy before the run ends (#3271). The
-# refusals count no tool retry, so this total is the stop of a model that loops on a refused
-# command. A step of one item keeps one count across its extra turns.
-DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS: int = 30
-# The commands that the shell may refuse in a row, with no accepted tool call between them, before
-# the run ends (#4043). A model that repeats a refused command asks again in every reply, and each
-# reply holds the whole history: one run spent 8,022,108 tokens in 77 requests on 4 refused
-# commands. The count spans the step, extra turns included, and any tool call that is not refused
-# resets it. The total limit above still stops a model that alternates refused and accepted calls.
-DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS: int = 3
-# The window and the refused commands of the rule `implement.extension` (ADR 0020, #4394), with
+# The window of the rule `implement.extension` (ADR 0020, #4394), with
 # `CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS`. Pilot 3 gave the numbers: the Job logs of 14 days
-# (2026-10-27 to 2026-11-10), 33 labelled checkpoints from 28 items. In the last 20 calls before the
-# stop, each of the 16 stops that a person finished later held at least 1 successful edit and at
-# most 3 refused commands, and the stops that repeated refused commands held 4 or more.
+# (2026-10-27 to 2026-11-10), 33 labelled checkpoints from 28 items.
 DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS: int = 20
-DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED: int = 3
 # How many times in a row a step sends a model request again when the provider fails it inside an
 # open stream with the status 400 (#2794): a tool call that the model ended early, which the next
 # sample can make whole. The resend adds to the retries of the client (`ai.max_retries`, #2500).

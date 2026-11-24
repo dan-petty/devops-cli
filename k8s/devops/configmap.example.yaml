@@ -328,6 +328,4 @@ data:
         max_requests: 1000
         max_tool_calls: 3000
         tool_retries: 10
-        max_refusals: 60
-        max_consecutive_refusals: 6
         model_resends: 2

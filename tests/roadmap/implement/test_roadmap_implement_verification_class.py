@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from devops_cli.roadmap.failure import FailureClass
-from devops_cli.roadmap.implement.implement_shell_policy import read_verification
+from devops_cli.roadmap.verification_command import read_verification
 
 
 def _argv(command: str) -> list[str]:
@@ -23,7 +23,7 @@ def _argv(command: str) -> list[str]:
 
 
 def test_a_pytest_command_has_the_class_test() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv("uv run pytest tests/roadmap/implement/test_roadmap_implement_shell_policy.py")
 
@@ -31,7 +31,7 @@ def test_a_pytest_command_has_the_class_test() -> None:
 
 
 def test_a_mypy_command_has_the_class_types() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv("uv run mypy src/devops_cli/roadmap/failure.py")
 
@@ -39,7 +39,7 @@ def test_a_mypy_command_has_the_class_types() -> None:
 
 
 def test_a_ruff_command_has_the_class_lint() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv("uv run ruff check src/devops_cli/roadmap/failure.py")
 
@@ -47,7 +47,7 @@ def test_a_ruff_command_has_the_class_lint() -> None:
 
 
 def test_a_devops_ci_test_command_has_the_class_test() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv(
         "uv run devops ci test tests/roadmap/implement/test_roadmap_implement_shell_policy.py"
@@ -61,7 +61,7 @@ def test_a_devops_ci_test_command_has_the_class_test() -> None:
     [("lint", FailureClass.LINT), ("typecheck", FailureClass.TYPES)],
 )
 def test_a_devops_ci_row_has_the_class_of_its_program(row: str, klass: FailureClass) -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv(f"uv run devops ci {row}")
 
@@ -69,7 +69,7 @@ def test_a_devops_ci_row_has_the_class_of_its_program(row: str, klass: FailureCl
 
 
 def test_a_devops_command_that_names_no_class_has_none() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv("uv run devops docs check")
 
@@ -77,7 +77,7 @@ def test_a_devops_command_that_names_no_class_has_none() -> None:
 
 
 def test_a_program_that_names_no_class_has_none() -> None:
-    from devops_cli.roadmap.implement.implement_shell_policy import verification_class
+    from devops_cli.roadmap.verification_command import verification_class
 
     argv = _argv("uv run grep -n ruff src/")
 

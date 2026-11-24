@@ -9,8 +9,8 @@ the item's title, problem and acceptance criteria, the change's `proposal.md`, `
 first request and refuses a step that does not fit the window of `ai.tasks.implement`.
 
 The run is one pydantic-ai agent on the harness's `Coder`, tuned where its parts are public: a
-shell with an allowlist that waits for each command up to the command limit, a smaller cap on each
-tool result, and the window of the task. The step
+stock shell that waits for each command up to the command limit, a smaller cap on each tool
+result, and the window of the task. The step
 judges the exit, not the model: the tasks of the group change only in their checkboxes, the
 verification commands pass, the static checks pass on the changed files, and the hooks pass. Then
 the job ticks every task of the group (#3488), so a model that did the work and forgot the ticks
@@ -20,7 +20,7 @@ the step started (#6559). A step writes nothing to GitHub.
 
 from __future__ import annotations
 
-import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -34,7 +34,6 @@ from http import HTTPStatus
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
-from platformdirs import user_cache_dir
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, Tool, capture_run_messages
 from pydantic_ai.capabilities import AbstractCapability, LocalWorkspace
@@ -140,19 +139,7 @@ from devops_cli.roadmap.implement.implement_limits import (
     limit_hooks,
 )
 from devops_cli.roadmap.implement.implement_output_cap import output_cap_hooks
-from devops_cli.roadmap.implement.implement_shell_policy import (
-    HARNESS_DENIED_OPERATORS,
-    IMPLEMENT_SHELL_PROGRAMS,
-    IMPLEMENT_SHELL_TOOL,
-    local_commands_table,
-    programs_table,
-    read_verification,
-    refusals_table,
-    shown,
-    tools_table,
-    verification_class,
-)
-from devops_cli.roadmap.implement.implement_shell_refusal import ShellRefusal
+from devops_cli.roadmap.implement.implement_shell import shell_timeout_hooks, step_shell
 from devops_cli.roadmap.implement.implement_strategy import (
     AttemptStrategy,
     repo_map_section,
@@ -190,7 +177,8 @@ from devops_cli.roadmap.step_files import (
 )
 from devops_cli.roadmap.step_rules import rules_sections
 from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, ToolchainPreset
-from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, tool_names
+from devops_cli.roadmap.tools import HOLDER_IMPLEMENT, tool_names, tools_table
+from devops_cli.roadmap.verification_command import read_verification, shown, verification_class
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -201,15 +189,9 @@ _PROMPT = "roadmap_implement_step.md"
 
 
 def step_instructions() -> str:
-    """The instructions of the implement step: the prompt with its four tables, which the caller
-    passes as the context of the prompt (#4633)."""
-    return load_task_prompt(
-        _PROMPT,
-        tools=tools_table(),
-        shell_programs=programs_table(),
-        local_commands=local_commands_table(),
-        shell_refusals=refusals_table(),
-    )
+    """The instructions of the implement step: the prompt with its tools table, which the caller
+    passes as the context of the prompt (#4633, #6527)."""
+    return load_task_prompt(_PROMPT, tools=tools_table())
 
 
 # The start, in lower case, of the title of each section in which the refine job writes one
@@ -225,6 +207,26 @@ def step_usage_limits(implement: RoadmapImplementConfig | None = None) -> UsageL
     settings as they are now (#5440)."""
     limits = implement or load_settings().roadmap.implement
     return UsageLimits(request_limit=limits.max_requests, tool_calls_limit=limits.max_tool_calls)
+
+
+_REGEX_META = re.compile(r"[\\.^$*+?{}\[\]()|]")
+
+
+def _literal_pattern(command: str) -> str:
+    """Escape regex metacharacters in literal verification commands passed to
+    `RequireVerification` (#6527)."""
+    return _REGEX_META.sub(lambda match: f"\\{match.group(0)}", command)
+
+
+def project_checks(group: TaskGroup, preset: ToolchainPreset = DEVOPS_CLI_PRESET) -> list[str]:
+    """The checks that `RequireVerification` expects for `group`: the verification commands of
+    `group` and the static check of `preset`, once each."""
+    checks = list(group.verification_commands)
+    if preset.static_check is not None:
+        check = shlex.join(preset.static_check)
+        if check not in checks:
+            checks.append(check)
+    return checks
 
 
 class StepClass(StrEnum):
@@ -592,6 +594,13 @@ class TierSpend(BaseModel):
         )
 
 
+@dataclass
+class StepConversation:
+    """One `Conversation` carried across the task groups of an item (#6527)."""
+
+    current: Conversation | None = None
+
+
 class StepOutcome(BaseModel):
     """The report of a step. `reason` is why a stopped step stopped: the class and the message of
     the pydantic-ai error that ended the run, with the counts of refused and retried tool calls
@@ -650,38 +659,8 @@ class StepOutcome(BaseModel):
 # ── The agent ─────────────────────────────────────────────────────────────────────────────
 
 
-_PASSED_VARIABLES = ("UV_PYTHON", "PYTEST_XDIST_AUTO_NUM_WORKERS")
-
-
-def shell_environment(home: Path, source: Path) -> dict[str, str]:
-    """The variables a shell command gets on top of the workspace's own: a scratch `home` in place
-    of the user's, so that no git configuration, credential helper or key of the user reaches the
-    agent, no system git configuration, no prompt for a password, the cache of `uv` where the
-    user keeps it, so that `uv run` finds its packages, and a PATH with the Node tools and the venv
-    of the checkout `source` first, as the bootstrap of the Job built them: the runner image holds
-    no dev dependency (#6517). The variables in `_PASSED_VARIABLES` go on
-    when the process has them. `UV_PYTHON`: the runner image sets it, as it forbids a Python
-    download and `uv run` finds no interpreter without it. `PYTEST_XDIST_AUTO_NUM_WORKERS`: the
-    pod of the runner sets it to its CPU limit, as `pytest-xdist` counts the CPUs of the node and
-    a test run started one worker for each of them (#2806). `AI_AGENT` names the agent tool, so a
-    usage error of a devops command that the agent runs records the caller agent (#4839). A live
-    broker of the step adds its address and the token of the step, which are no variables of the
-    job and hold no AI key (#3820)."""
-    env = {
-        "HOME": str(home),
-        "XDG_CONFIG_HOME": str(home / ".config"),
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_TERMINAL_PROMPT": "0",
-        "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR") or user_cache_dir("uv"),
-        "AI_AGENT": "devops-implement",
-        **checkout_environment(source),
-    }
-    env.update({name: os.environ[name] for name in _PASSED_VARIABLES if os.environ.get(name)})
-    broker = live_broker()
-    if broker is not None and broker.token is not None:
-        env["DEVOPS_CLI_BROKER_URL"] = broker.url
-        env["DEVOPS_CLI_BROKER_TOKEN"] = broker.token
-    return env
+# The folder of repository Agent Skills loaded for every implement step (#6527).
+_SKILLS_DIR: Final[str] = ".agents/skills"
 
 
 def _tune(
@@ -689,29 +668,15 @@ def _tune(
     window: int,
     home: Path,
     source: Path,
-    command_timeout: float,
     tool_retries: int,
 ) -> AbstractCapability[None]:
-    """One part of `Coder`, changed for a step: the shell takes the allowlist, the scratch home
-    and the refusal of the operators that start a second command (the pipe is read by `ShellRefusal`),
-    the file tools take the failures in a row of `roadmap.implement.tool_retries` (#5440) in place
-    of the 5 of `Coder`, the tool results get the cap of
-    a step, and the context controls get the window of the task, in place of the registry's. The
-    shell is the tool `run_command`, which waits until its command ends, up to `command_timeout`
-    seconds, and then kills it. The persistent tool `shell` of `Coder` returned after 270 s with a
-    PID and a log, and had a background mode with no notice at the end, so the agent polled the log
-    (#4493). Neither tool keeps a working directory or a variable from one call to the next."""
+    """One part of `Coder`, changed for a step: the shell is `step_shell` with no allowed or
+    denied command list, the file tools take the failures in a row of
+    `roadmap.implement.tool_retries` (#5440) in place of the 5 of `Coder`, the tool results get the
+    cap of a step, and the context controls get the window of the task, in place of the
+    registry's."""
     if isinstance(capability, Shell):
-        return replace(
-            capability,
-            tools=[IMPLEMENT_SHELL_TOOL],
-            default_timeout=command_timeout,
-            allowed_commands=list(IMPLEMENT_SHELL_PROGRAMS),
-            denied_commands=[],
-            denied_operators=list(HARNESS_DENIED_OPERATORS),
-            allow_interactive=False,
-            env=shell_environment(home, source),
-        )
+        return step_shell(home, source)
     if isinstance(capability, FileSystem):
         return replace(
             capability,
@@ -789,27 +754,34 @@ def build_agent(
     log: ToolCallLog,
     budget: StepBudget,
     *,
+    checks: Sequence[str] = (),
     mcp_toolset: AbstractToolset[Any] | None = None,
     tools: Sequence[Tool[None]] = (),
 ) -> Agent[None, str]:
     """The agent of a step, with `tools` beside those of the harness, such as `read_comment`
-    (#6167): `Coder` on a local workspace at `source`, whose shell runs with the
-    scratch `home` and waits for each command up to `roadmap.implement.command_timeout_seconds`
-    (#4493), the hint that a refusal of the shell adds (#2773), and the hooks of `log` for its
-    tool calls (#2758). It has no `delegate_task` tool, so the limits of a run cover the whole step,
-    and it loads no instruction file of the checkout, so its context is the inputs of the step. Each
-    model call has an output cap, a share of `window`, and a deadline (#2869). Before each request the
-    agent compares `budget` with its limits (#3053). The shell is no security boundary: the runner
-    of the step is the sandbox."""
+    (#6167): stock `Coder` on a local workspace at `source`, with `repo_context` enabled, `Skills`
+    over `.agents/skills`, `RequireVerification` with `checks`, `WrapUpAtLimits`, `step_shell` with
+    the scratch `home`, and the hooks of `log` for its tool calls (#2758, #6527). It has no
+    `delegate_task` tool, so the limits of a run cover the whole step. Each model call has an
+    output cap, a share of `window`, and a deadline (#2869). Before each request the agent compares
+    `budget` with its limits (#3053). The shell is no security boundary: the runner pod is the
+    sandbox."""
     from pydantic_ai_harness.coder import Coder
+    from pydantic_ai_harness.require_verification import RequireVerification
+    from pydantic_ai_harness.skills import Skills
+    from pydantic_ai_harness.wrap_up_at_limits import WrapUpAtLimits
 
-    coder = Coder[None](instructions=instructions, repo_context=False, sub_agents=False)
-    command_timeout = load_settings().roadmap.implement.command_timeout_seconds
+    coder = Coder[None](
+        instructions=instructions,
+        autonomy="max",
+        repo_context=True,
+        sub_agents=False,
+    )
     # The visitor replaces leaves and removes none, so the tree is never empty.
     tuned = cast(
         AbstractCapability[None],
         coder.visit_and_replace(
-            lambda leaf: _tune(leaf, window, home, source, command_timeout, log.limits.tool_retries)
+            lambda leaf: _tune(leaf, window, home, source, log.limits.tool_retries)
         ),
     )
     toolsets = [mcp_toolset] if mcp_toolset is not None else None
@@ -826,8 +798,13 @@ def build_agent(
         capabilities=[
             LocalWorkspace(source),
             tuned,
-            ShellRefusal(log, source, command_timeout),
+            Skills[None](_SKILLS_DIR, missing_directories="skip"),
+            RequireVerification[None](
+                verification_commands=[_literal_pattern(check) for check in checks]
+            ),
+            WrapUpAtLimits[None](),
             log.hooks(),
+            shell_timeout_hooks(load_settings().roadmap.implement.command_timeout_seconds),
             output_cap_hooks(output_cap(window)),
             limit_hooks(budget),
         ],
@@ -896,20 +873,18 @@ def _last_text(messages: Sequence[ModelMessage]) -> str:
 
 
 def _with_counts(reason: str, log: ToolCallLog) -> str:
-    """`reason`, then the counts of refused and retried tool calls when either is not zero, then
-    the last reasons of the tool whose retries ended the run (#2866)."""
-    if not (log.refused or log.retried):
+    """`reason`, then the count of retried tool calls when it is not zero, then the last reasons
+    of the tool whose retries ended the run (#2866)."""
+    if not log.retried:
         return reason
-    counts = MESSAGES.roadmap.implement_stop_counts.format(
-        refused=log.refused_text(), retried=log.retried
-    )
+    counts = MESSAGES.roadmap.implement_stop_counts.format(retried=log.retried)
     return "\n".join(line for line in (reason, counts, log.retries_text()) if line)
 
 
 def _stop_reason(stopped: AgentRunError, log: ToolCallLog) -> str:
     """The reason of a run that a pydantic-ai error ended (#2758): the class and the message of the
-    error, then the counts of refused and retried tool calls when either is not zero. It reads
-    `message`, not `str()`, which adds the `body`, the text of the model (#2778)."""
+    error, then the count of retried tool calls when it is not zero. It reads `message`, not
+    `str()`, which adds the `body`, the text of the model (#2778)."""
     texts = MESSAGES.roadmap
     reason = texts.run_stop_reason.format(
         error=type(stopped).__name__, message=bounded_text(stopped.message)
@@ -2247,6 +2222,7 @@ def _attempt(
     trace: ImplementTrace | None = None,
     mcp_toolset: AbstractToolset[Any] | None = None,
     tools: bool = True,
+    conversation: StepConversation | None = None,
 ) -> StepOutcome:
     """Run the agent one tier at a time, then judge the exit and commit. A failed check or a
     hook gets an extra turn while one of the `roadmap.implement.repair_rounds` rounds is
@@ -2278,6 +2254,7 @@ def _attempt(
     spent: dict[str, TierSpend] = {}
     tried: list[str] = []
     attempt = 0
+    seed = conversation.current if conversation is not None else None
     with tempfile.TemporaryDirectory(prefix="devops-implement-home-") as home:
         while True:
             tier, attempt = _tier_for_attempt(tiers, attempt, tier_health)
@@ -2293,13 +2270,14 @@ def _attempt(
                 Path(home),
                 log,
                 limits,
+                checks=project_checks(inputs.group, inputs.preset),
                 mcp_toolset=mcp_toolset,
                 tools=inputs.step_comments.tools() if inputs.step_comments is not None else (),
             )
             log.fail_to_pass = None
             log.verified.clear()
             log.parser_failures = 0
-            run = _run_agent(agent, tier_model, log, message, usage_limits=usage_limits)
+            run = _run_agent(agent, tier_model, log, message, seed, usage_limits=usage_limits)
             first_request = first_request or run.first_request_tokens
             failure = (
                 _Failure(run.reason, klass=run.failure_class)
@@ -2336,7 +2314,10 @@ def _attempt(
                 run, repaired, attempt=attempt, tiers=tiers, message=inputs.message
             )
             if moved is None:
+                if conversation is not None:
+                    conversation.current = run.conversation
                 break
+            seed = None
             _discard(source, start)
             attempt += 1
             number += 1
@@ -2447,6 +2428,7 @@ def run_step(
     token_cap: TokenCap | None = None,
     comments: StepComments | None = None,
     tools: bool = True,
+    conversation: StepConversation | None = None,
 ) -> StepOutcome:
     """Run group `group` of item `item` in the checkout `source`, with the pydantic-ai `model`.
 
@@ -2535,6 +2517,7 @@ def run_step(
             trace=trace,
             mcp_toolset=mcp_toolset,
             tools=tools,
+            conversation=conversation,
         )
         outcome = outcome.model_copy(update={"comments": inputs.comments.used})
         done = outcome.status is StepStatus.DONE
@@ -2566,6 +2549,7 @@ def run_fix_step(
     token_cap: TokenCap | None = None,
     comments: StepComments | None = None,
     tools: bool = True,
+    conversation: StepConversation | None = None,
 ) -> StepOutcome:
     """Run the fix of the failed check `fix` for item `item` in the checkout `source`: a step
     whose group is "Make check <name> pass". It commits with the type and the scope of the item,
@@ -2592,6 +2576,8 @@ def run_fix_step(
         usage_limits=usage_limits,
         token_cap=token_cap,
         comments=comments,
+        tools=tools,
+        conversation=conversation,
     )
 
 

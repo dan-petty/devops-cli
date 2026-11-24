@@ -51,6 +51,7 @@ def _removal(*more: tuple[str, dict[str, Any]]) -> ModelScript:
     return ModelScript(
         tool_calls(write_call(OLD_PATH, WITHOUT_A), *more, *group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
     )

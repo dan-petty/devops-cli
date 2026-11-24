@@ -140,7 +140,9 @@ def test_a_hook_failure_goes_to_the_agent_and_a_repair_ends_the_step_done(
     """An ast-grep violation: `pytest.raises` with no `match`."""
     _stage_fails_on(programs, "pytest.raises(ValueError)")
     repair = write_call("tests/test_sample.py", RAISES_MATCH)
-    script = ModelScript(_work(RAISES), say("Done."), tool_calls(repair), say("Added the match."))
+    script = ModelScript(
+        _work(RAISES), say("Done."), say("Done."), tool_calls(repair), say("Added the match.")
+    )
 
     outcome = _step(store, checkout, script)
 
@@ -148,10 +150,10 @@ def test_a_hook_failure_goes_to_the_agent_and_a_repair_ends_the_step_done(
         StepStatus.DONE,
         "",
         1,
-        4,
+        6,
     )
     assert git(checkout, "show", "HEAD:tests/test_sample.py") + "\n" == RAISES_MATCH
-    assert _prompt(script, 2).startswith(
+    assert _prompt(script, 3).startswith(
         "A hook of the project failed on your changes:\n\n"
         "The hooks of the stage pre-commit failed with the exit status 1.\n"
         f"{HOOK_REPORT}\n\nThe hooks of the project check each commit."
@@ -172,7 +174,7 @@ def test_a_hook_failure_that_the_agent_cannot_fix_uses_every_round_and_stops_wit
         StepStatus.STOPPED,
         "",
         3,
-        5,
+        6,
     )
     assert outcome.reason == (
         f"The hooks of the stage pre-commit failed with the exit status 1.\n{HOOK_REPORT}"
@@ -192,7 +194,7 @@ def test_an_error_of_the_hook_tool_stops_the_step_with_no_extra_turn(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.repair_rounds, len(script.seen)) == (StepStatus.STOPPED, 0, 2)
+    assert (outcome.status, outcome.repair_rounds, len(script.seen)) == (StepStatus.STOPPED, 0, 3)
     assert outcome.reason == (
         "The hooks of the stage pre-commit failed with the exit status 3.\n"
         "An unexpected error has occurred"
@@ -211,7 +213,7 @@ def test_no_repair_round_leaves_a_hook_failure_to_stop_the_step(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.repair_rounds, len(script.seen)) == (StepStatus.STOPPED, 0, 2)
+    assert (outcome.status, outcome.repair_rounds, len(script.seen)) == (StepStatus.STOPPED, 0, 3)
 
 
 def test_a_repair_that_breaks_ruff_gets_the_next_round(
@@ -222,7 +224,14 @@ def test_a_repair_that_breaks_ruff_gets_the_next_round(
     spoil = write_call("tests/test_sample.py", BAD_TEST)
     fix = write_call("tests/test_sample.py", TEST_BODY)
     script = ModelScript(
-        _work(RAISES), say("Done."), tool_calls(spoil), say("Changed."), tool_calls(fix), say("Ok.")
+        _work(RAISES),
+        say("Done."),
+        say("Done."),
+        tool_calls(spoil),
+        say("Changed."),
+        say("Changed."),
+        tool_calls(fix),
+        say("Ok."),
     )
 
     outcome = _step(store, checkout, script)
@@ -232,7 +241,7 @@ def test_a_repair_that_breaks_ruff_gets_the_next_round(
         2,
         3,
     )
-    assert _prompt(script, 4).startswith("A static check of your group failed:")
+    assert _prompt(script, 6).startswith("A static check of your group failed:")
 
 
 def test_a_missing_tick_takes_no_repair_round(

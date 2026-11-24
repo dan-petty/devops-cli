@@ -104,8 +104,7 @@ def _prompt(script: ModelScript, request: int) -> str:
     """The user message of request number `request` (from 1) that the model saw."""
     return "\n".join(
         str(part.content)
-        for message in script.seen[request - 1]
-        for part in getattr(message, "parts", ())
+        for part in getattr(script.seen[request - 1][-1], "parts", ())
         if isinstance(part, UserPromptPart)
     )
 
@@ -456,7 +455,7 @@ def test_handoff_no_later_step_of_the_run_gets_it(job_world: JobWorld) -> None:
 
     job_world.run(script)
 
-    second = _prompt(script, 3)
+    second = _prompt(script, 4)
     assert "Document the function" in second
     assert (HEADING in second, LOG in second, FILES[0] in second) == (False, False, False)
 

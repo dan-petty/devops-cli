@@ -384,9 +384,9 @@ def test_spend_survives_kill_the_drafted_end_writes_the_sum_of_the_jobs(
     steps = spend["steps"]
     assert isinstance(steps, list)
     assert applied.drafted == (1,)
-    assert (spend["requests"], spend["input_tokens"]) == (6, 3 * GROUP_TOKENS)
+    assert (spend["requests"], spend["input_tokens"]) == (7, GROUP_TOKENS + 5 * REQUEST_TOKENS)
     assert [step["step"] for step in steps] == ["group 1", "group 1", "group 2"]
-    assert "6 model requests" in job_world.issue_comments()[0]
+    assert "7 model requests" in job_world.issue_comments()[0]
 
 
 def test_spend_survives_kill_a_retry_of_a_person_starts_from_zero(
@@ -468,7 +468,12 @@ def test_a_return_to_new_keeps_the_spend_of_the_run_for_the_report(job_world: Jo
     )
 
     applied = job_world.run(
-        ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say(premise))
+        ModelScript(
+            tool_calls(*group_one_calls()),
+            say("Group 1 is done."),
+            say("Group 1 is done."),
+            say(premise),
+        )
     )
 
     status, record = _item(job_world)
@@ -477,7 +482,7 @@ def test_a_return_to_new_keeps_the_spend_of_the_run_for_the_report(job_world: Jo
         (),
         "New",
         "returned",
-        3,
+        4,
     )
     assert spend["input_tokens"] > 0
 
@@ -493,7 +498,12 @@ def test_a_return_to_new_keeps_the_counted_spend_for_the_report(job_world: JobWo
     )
 
     job_world.run(
-        ModelScript(tool_calls(*group_one_calls()), say("Group 1 is done."), say(premise))
+        ModelScript(
+            tool_calls(*group_one_calls()),
+            say("Group 1 is done."),
+            say("Group 1 is done."),
+            say(premise),
+        )
     )
 
     assert _item(job_world)[1].get("implement.spend_counted") == "100"

@@ -239,3 +239,16 @@ def test_an_agents_md_under_the_cap_is_not_cut() -> None:
     [section, *_] = rules_sections(REPO_ROOT, _group())
 
     assert TRUNCATED not in section
+
+
+def test_the_preset_holds_no_shell_table() -> None:
+    """#6527: a toolchain preset holds no shell allowlist, local command, or refusal table."""
+    from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, NEUTRAL_PRESET
+
+    for preset in (DEVOPS_CLI_PRESET, NEUTRAL_PRESET):
+        assert not hasattr(preset, "shell_programs")
+        assert not hasattr(preset, "local_commands")
+        assert not hasattr(preset, "refusals")
+    joined = "\n".join(rules_sections(REPO_ROOT, _group("src/devops_cli/roadmap/step.py")))
+    assert "{{shell_programs}}" not in joined
+    assert "SHELL_PROGRAMS" not in joined

@@ -14,16 +14,16 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
-from devops_cli.roadmap.implement.implement_shell_policy import (
+from devops_cli.roadmap.implement.implement_step import commands_failure
+from devops_cli.roadmap.stage.stage_change import StageGroup
+from devops_cli.roadmap.stage.stage_form import form_problems
+from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.verification_command import (
     NEGATIVE_SEARCH_LITERAL_SIGNS,
     NEGATIVE_SEARCH_OPTION_LETTERS,
     VERIFICATION_FIRST_WORDS,
     verification_problem,
 )
-from devops_cli.roadmap.implement.implement_step import commands_failure
-from devops_cli.roadmap.stage.stage_change import StageGroup
-from devops_cli.roadmap.stage.stage_form import form_problems
-from devops_cli.roadmap.step_files import parse_task_groups
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.implement_step import make_checkout, programs_run

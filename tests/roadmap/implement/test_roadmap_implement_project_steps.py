@@ -153,6 +153,7 @@ def test_an_agent_that_adds_the_declaration_in_the_checkout_adds_no_step(
             ),
         ),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
     )
@@ -176,6 +177,7 @@ def test_an_agent_that_removes_the_declaration_in_the_checkout_removes_no_step(
                 },
             ),
         ),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),

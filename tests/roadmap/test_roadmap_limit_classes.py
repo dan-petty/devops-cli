@@ -90,6 +90,10 @@ REMOVED: Final[tuple[str, ...]] = (
     # The review reads no page of runs (#6603), so the page cap of 1,000 is gone. It splits a slice
     # at the count cap `CONST_ROADMAP_REVIEW_RUN_COUNT_CAP`.
     "DEFAULT_ROADMAP_REVIEW_RUN_RESULT_CAP",
+    # Shell refusal limits removed when implement switched to the stock shell (#6527).
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS",
+    "DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS",
+    "DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED",
 )
 
 LIMITS: Final[dict[str, tuple[str, str]]] = {
@@ -447,15 +451,7 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_TOOL_RETRIES": (
         "setting",
-        "failures of a tool in a row before the run ends; a shell refusal is no failure (#3271); a setting since #5440",
-    ),
-    "DEFAULT_ROADMAP_IMPLEMENT_MAX_REFUSALS": (
-        "setting",
-        "refused shell commands of one step; a refusal counts no tool retry, so this ends a loop; a setting since #5440",
-    ),
-    "DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS": (
-        "setting",
-        "refused shell commands in a row, with no accepted tool call between them (#4043); this ends a tight loop early; a setting since #5440",
+        "failures of a tool in a row before the run ends; a setting since #5440",
     ),
     "DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_CALLS": (
         "setting",
@@ -464,10 +460,6 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS": (
         "other",
         "the edits that the rule implement.extension asks for (#4394); no run is cut by it",
-    ),
-    "DEFAULT_ROADMAP_IMPLEMENT_EXTENSION_MAX_REFUSED": (
-        "setting",
-        "the refused commands that the rule implement.extension allows (#4394); a setting since #5440",
     ),
     "CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT": (
         "other",

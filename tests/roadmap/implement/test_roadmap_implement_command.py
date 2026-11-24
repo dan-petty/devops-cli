@@ -91,7 +91,7 @@ def test_a_done_step_prints_its_outcome_as_json_and_exits_0(
             "last_message": "The group is done.",
         },
         True,
-        2,
+        3,
     )
     assert result.stderr.splitlines() == ["Tool call: write_file, ok."] * 3
 

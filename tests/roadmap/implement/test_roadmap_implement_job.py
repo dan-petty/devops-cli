@@ -359,7 +359,9 @@ def test_the_pull_request_comment_names_the_tools_of_the_job(
             *group_one_calls(),
         ),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT})),
+        say("Fixed the check."),
         say("Fixed the check."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
@@ -627,7 +629,7 @@ def test_the_issue_gets_one_comment_with_the_pull_request_and_the_spend(
     assert len(comments) == 1
     assert comments[0].startswith(MARKER)
     assert f"The draft pull request #{PULL} holds the final title and body." in comments[0]
-    assert "4 model requests" in comments[0]
+    assert "5 model requests" in comments[0]
 
 
 def test_the_record_keeps_the_last_group_the_last_commit_and_the_spend_of_every_step(
@@ -641,7 +643,7 @@ def test_the_record_keeps_the_last_group_the_last_commit_and_the_spend_of_every_
     assert (record["implement.group"], record["implement.sha"], spend["requests"]) == (
         "2",
         tip,
-        4,
+        5,
     )
     assert spend["input_tokens"] > 0
 
@@ -818,6 +820,7 @@ def test_apply_implement_gives_a_step_shell_the_broker_variables_and_no_ai_key(
     script = ModelScript(
         tool_calls(("run_command", {"command": "git status"}), *group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
     )
@@ -880,6 +883,7 @@ def test_a_step_that_stops_blocks_the_item_with_a_comment_and_a_record(
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         say("I could not do group 2."),
     )
 
@@ -908,6 +912,7 @@ def test_a_stop_writes_one_status_comment_to_the_pull_request(job_world: JobWorl
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         say("I could not do group 2."),
     )
 
@@ -929,6 +934,7 @@ def test_the_stop_comment_names_the_failure_class_the_action_taken_and_the_actio
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         say("I could not do group 2."),
     )
 
@@ -947,6 +953,7 @@ def test_the_trace_holds_the_class_and_the_action_left_of_a_stop(
 ) -> None:
     script = ModelScript(
         tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         say("I could not do group 2."),
     )
@@ -988,6 +995,7 @@ def _stop_with_a_dangerous_diff(job_world: JobWorld) -> str:
     write = ("write_file", {"path": "CONTEXT.md", "content": DIFF_TEXT})
     script = ModelScript(
         tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(write),
         ModelAPIError("example-model", "The provider broke."),
@@ -1032,6 +1040,7 @@ def test_the_stop_comment_of_a_cut_diff_says_that_it_is_cut(job_world: JobWorld)
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(long_note),
         ModelAPIError("example-model", "The provider broke."),
     )
@@ -1049,6 +1058,7 @@ def test_the_stop_comment_of_a_failed_model_call_holds_the_diff_of_the_discarded
     write = ("write_file", {"path": "CONTEXT.md", "content": "A note.\n"})
     script = ModelScript(
         tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(write),
         ModelAPIError("example-model", "The provider broke."),
@@ -1086,6 +1096,7 @@ def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) ->
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls(TICKED_FIRST)),
         say("Wrote the note."),
     )
@@ -1102,7 +1113,7 @@ def test_the_stop_comment_cuts_a_reason_that_is_too_long(job_world: JobWorld) ->
 def test_a_stop_pushes_the_commits_of_the_steps_that_passed_and_leaves_the_draft(
     job_world: JobWorld,
 ) -> None:
-    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
+    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Done."), say("Stuck."))
 
     job_world.run(script)
 
@@ -1119,7 +1130,7 @@ def test_a_stop_after_the_first_group_of_a_planned_item_leaves_a_draft_that_clos
     """The draft that `_publish` opens carries the closing keyword of the delivered issue (#3273).
     The stop never reaches the body of the final step, so the draft body is the last body, and
     `devops pr check-readiness` must not call the pull request ungrounded."""
-    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
+    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Done."), say("Stuck."))
 
     planned_world.run(script)
 
@@ -1522,7 +1533,7 @@ def test_a_person_who_claims_while_group_one_runs_ends_the_job_before_the_push(
     (comment,) = job_world.issue_comments()
     status, record = _item(job_world)
     assert (applied.yielded, applied.drafted, applied.stopped, applied.failed) == ((1,), (), (), ())
-    assert (len(script.seen), job_world.origin_log()) == (4, ["fix(roadmap): plan"])
+    assert (len(script.seen), job_world.origin_log()) == (5, ["fix(roadmap): plan"])
     assert (job_world.sent("PATCH", f"pulls/{PULL}"), job_world.pull.ready_calls) == ([], [])
     assert (status, record.get("implement.stopped")) == ("In Progress", None)
     assert (_owner(job_world), comment.startswith(MARKER)) == (["owner/human"], True)
@@ -1562,7 +1573,7 @@ def test_a_claim_made_while_the_last_group_runs_ends_the_job_before_the_push(
     applied = job_world.run(script)
 
     (comment,) = job_world.issue_comments()
-    assert (applied.yielded, applied.drafted, len(script.seen)) == ((1,), (), 4)
+    assert (applied.yielded, applied.drafted, len(script.seen)) == ((1,), (), 5)
     assert (job_world.origin_log(), job_world.pull.ready_calls) == (["fix(roadmap): plan"], [])
     assert "end of the last group" in comment
 
@@ -1615,7 +1626,7 @@ def test_a_claim_made_while_a_group_runs_beats_the_stop_of_that_group(
     world_name: str, request: pytest.FixtureRequest
 ) -> None:
     world: JobWorld = request.getfixturevalue(world_name)
-    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Stuck."))
+    script = ModelScript(tool_calls(*group_one_calls()), say("Done."), say("Done."), say("Stuck."))
     script.effects[3] = _claim(world, "owner/human")
 
     applied = world.run(script)
@@ -1881,6 +1892,7 @@ class TestFailToPassOfABehaviorGroup:
         script = ModelScript(
             tool_calls(*group_one),
             say("Group 1 is done."),
+            say("Group 1 is done."),
             tool_calls(*group_two_calls(BEHAVIOR_TICKED)),
             say("Group 2 is done."),
         )
@@ -1954,11 +1966,13 @@ class TestFailToPassOfTwoBehaviorGroups:
                 write_call(TASKS_PATH, TWO_FIRST_TICKED),
             ),
             say("Group 1 is done."),
+            say("Group 1 is done."),
             tool_calls(
                 write_call("tests/test_whisper.py", WHISPER_TEST_BODY),
                 write_call("src/devops_cli/whisper.py", WHISPER),
                 write_call(TASKS_PATH, TWO_TICKED),
             ),
+            say("Group 2 is done."),
             say("Group 2 is done."),
         )
 
@@ -2036,6 +2050,7 @@ def _run_group_one(job_world: JobWorld, tasks: str) -> ImplementApplied:
             write_call("src/devops_cli/shout.py", SHOUT),
             write_call(TASKS_PATH, first),
         ),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(*group_two_calls(both)),
         say("Group 2 is done."),
@@ -2195,6 +2210,7 @@ class TestAGuardOfAGroupThatIsNotBehavior(_PremiseWorld):
                 write_call(TASKS_PATH, both.replace("- [x] 2.", "- [ ] 2.")),
             ),
             say("Group 1 is done."),
+            say("Group 1 is done."),
             tool_calls(*group_two_calls(both)),
             say("Group 2 is done."),
         )
@@ -2254,6 +2270,7 @@ def test_a_passing_group_without_a_model_tick_is_ticked_by_the_job_and_pushed(
     checks pass, and the work commit on origin holds the tick (#3488, #3702)."""
     script = ModelScript(
         tool_calls(("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT})),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),

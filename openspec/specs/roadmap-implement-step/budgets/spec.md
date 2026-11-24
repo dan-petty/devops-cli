@@ -162,67 +162,67 @@ The setting `roadmap.implement.step_token_ceiling` SHALL set the most tokens, in
 - **THEN** loading the settings fails and the message names `step_token_ceiling`
 
 ### Requirement: A step that makes progress gets one extension of its token budget
-When a step reaches `roadmap.implement.step_token_budget` and no other budget is spent, the step SHALL read the digest of its last `extension_calls` tool calls (default 20) in its tool log. With at least 1 successful edit and at most `extension_max_refused` refused commands (default 3), the step SHALL raise its token budget one time by 50 percent, up to `step_token_ceiling`, and go on. The rule is the only resolver of the decision point `implement.extension`, and no decision model takes part.
+When a step reaches `roadmap.implement.step_token_budget` and no other budget is spent, the step SHALL read the digest of its last `extension_calls` tool calls (default 20) in its tool log. With at least 1 successful edit, the step SHALL raise its token budget one time by 50 percent, up to `step_token_ceiling`, and go on. The rule is the only resolver of the decision point `implement.extension`, and no decision model takes part.
 
 #### Scenario: The shapes of pilot 3 that a person finished
-- **WHEN** a step reaches a budget of 50 tokens with the counts (successful edits, refused commands) of one of the 16 stops of pilot 3 that a person finished later, from (1, 3) to (10, 0)
-- **THEN** the budget is not spent, and the extension holds a budget of 75 tokens and those counts
+- **WHEN** a step reaches a budget of 50 tokens with the successful edits of one of the 16 stops of pilot 3 that a person finished later, from 1 to 10 in its last 20 tool calls
+- **THEN** the budget is not spent, and the extension holds a budget of 75 tokens and that count
 
 #### Scenario: The ceiling cuts the extension
-- **WHEN** `step_token_budget` is 50, `step_token_ceiling` is 60 and the step makes progress at its budget
+- **WHEN** the step budget is 50 tokens, the ceiling is 60 tokens and the step makes progress at its budget
 - **THEN** the extension holds a budget of 60 tokens and says that the ceiling cut it
 
 ### Requirement: The digest of progress holds counts of the tool log
-The digest SHALL count, in the last `roadmap.implement.extension_calls` tool calls of the step (default 20) over all its turns and tiers, the successful edits (a `write_file` or an `edit_file` call with the outcome ok) and the refused commands (a call with the outcome refused). A log with fewer tool calls than that SHALL give no digest. The digest SHALL hold counts only.
+The digest SHALL count, in the last `roadmap.implement.extension_calls` tool calls of the step (default 20) over all its turns and tiers, the successful edits, which are a write_file or an edit_file call with the outcome ok. A log with fewer tool calls than that SHALL give no digest. The digest SHALL hold counts only.
 
 #### Scenario: The counts of the last calls
-- **WHEN** the log holds 21 calls: an `edit_file` with the outcome ok, 15 reads, a `write_file` with the outcome ok, an `edit_file` with the outcome retry, a `write_file` that failed and 2 refused shell calls
-- **THEN** the digest holds 20 calls, 1 successful edit and 2 refused commands, because the first edit is out of the window
+- **WHEN** the log holds 21 calls: an edit_file with the outcome ok, 17 reads, a write_file with the outcome ok, an edit_file with the outcome retry and a write_file that failed
+- **THEN** the digest holds 20 calls and 1 successful edit, because the first edit is out of the window
 
 #### Scenario: A short log
 - **WHEN** the log holds 19 calls
 - **THEN** the log gives no digest
 
 ### Requirement: The Job log and the outcome show the extension
-The step SHALL write one line to the Job log that names the rule `implement.extension`, the old and the new budget, and the counts. The outcome of the step SHALL hold the extension: the old budget, the new budget, the counts and whether the ceiling cut it.
+The step SHALL write one line to the Job log that names the rule `implement.extension`, the old and the new budget, and the count. The outcome of the step SHALL hold the extension: the old budget, the new budget, the count and whether the ceiling cut it.
 
 #### Scenario: A step that edits at its budget
-- **WHEN** `step_token_budget` is 250 and the first reply makes 20 tool calls with 3 successful edits and counts 280 new tokens
-- **THEN** the model gets a second request, the step ends done, and the Job log names the extension from 250 to 375 new tokens with 3 successful edits and 0 refused commands
+- **WHEN** the step budget is 250 tokens and the first reply makes 20 tool calls with 3 successful edits and counts 280 new tokens
+- **THEN** the model gets a second request, the step ends done, and the Job log names the extension from 250 to 375 new tokens with 3 successful edits
 
 ### Requirement: A step with no progress at its token budget stops as before
-The step SHALL stop with the class `limit_reached` at its token budget, and SHALL name `roadmap.implement.step_token_budget` and its value, when its tool log gives no digest, when the digest holds no successful edit or more than `roadmap.implement.extension_max_refused` refused commands (default 3), when the ceiling leaves no room above the tokens already used, or when the step already used its extension. A step SHALL decide one time at each limit.
+The step SHALL stop with the class limit_reached at its token budget, and SHALL name the step token budget and its value, when its tool log gives no digest, when the digest holds no successful edit, when the ceiling leaves no room above the tokens already used, or when the step already used its extension. A step SHALL decide one time at each limit.
 
 #### Scenario: The shapes of pilot 3 that repeated refused commands
-- **WHEN** a step reaches a budget of 50 tokens with the counts (0, 11), (1, 10), (0, 16), (1, 4) or (0, 9)
-- **THEN** the step stops, and the reason names `roadmap.implement.step_token_budget=50` and the counts in its last 20 tool calls
+- **WHEN** a step reaches a budget of 50 tokens with no successful edit in its last 20 tool calls
+- **THEN** the step stops, and the reason names the step token budget of 50 and that its last 20 tool calls hold no successful edit
 
 #### Scenario: A step that repeats refused commands
-- **WHEN** `step_token_budget` is 50 and the first reply makes 20 tool calls with 4 refused commands and no edit
-- **THEN** the model gets no second request, the step stops with the class `limit_reached`, and the outcome holds no extension
+- **WHEN** the step budget is 50 tokens and the first reply makes 20 tool calls with no edit
+- **THEN** the model gets no second request, the step stops with the class limit_reached, and the outcome holds no extension
 
 #### Scenario: The item budget holds
-- **WHEN** a step got its extension and then reaches `item_token_budget` before the end of the extension
-- **THEN** the step stops with the class `limit_reached`, and the reason names `roadmap.implement.item_token_budget`
+- **WHEN** a step got its extension and then reaches the item token budget before the end of the extension
+- **THEN** the step stops with the class limit_reached, and the reason names the item token budget
 
 ### Requirement: The reason of a stop at the token budget names its cause
-The reason of a stop at the token budget SHALL give the counts of the digest, say that the log holds fewer tool calls than `roadmap.implement.extension_calls` (default 20), name the ceiling and its value, or name the new budget of the extension.
+The reason of a stop at the token budget SHALL give the count of the digest, say that the log holds fewer tool calls than the extension window (default 20), name the ceiling and its value, or name the new budget of the extension.
 
 #### Scenario: A short log at the budget
 - **WHEN** a step reaches its budget after 3 tool calls
-- **THEN** the step stops with the class `limit_reached`, and the reason says that the log holds fewer than 20 tool calls
+- **THEN** the step stops with the class limit_reached, and the reason says that the log holds fewer than 20 tool calls
 
 #### Scenario: The second limit
 - **WHEN** an extended step reaches its new budget of 75 tokens
-- **THEN** the step stops with the class `limit_reached`, and the reason names `roadmap.implement.step_token_budget=50` and the extension to 75 new tokens
+- **THEN** the step stops with the class limit_reached, and the reason names the step budget of 50 tokens and the extension to 75 new tokens
 
 #### Scenario: The ceiling ends the extension
 - **WHEN** the ceiling of 60 tokens cut the extension and the step reaches 60 tokens
-- **THEN** the step stops, and the reason names `roadmap.implement.step_token_ceiling=60`
+- **THEN** the step stops, and the reason names the ceiling of 60 tokens
 
 #### Scenario: The ceiling leaves no room
-- **WHEN** `step_token_ceiling` is equal to `step_token_budget` and the step makes progress at its budget
-- **THEN** the step stops, and the reason names `roadmap.implement.step_token_ceiling` and its value
+- **WHEN** the ceiling is equal to the step budget and the step makes progress at its budget
+- **THEN** the step stops, and the reason names the ceiling and its value
 
 ### Requirement: The decisions of the extension are counted
 Each decision of the rule `implement.extension` SHALL add 1 to `devops_cli_roadmap_implement_extension_total` with the label `decision`, `extended` or `halted`, and 0 to the other value, so the metric has 2 series. A step SHALL count at most two decisions: one extension and one stop.
@@ -258,39 +258,42 @@ The step budget, its ceiling and the item budget SHALL count the new tokens of e
 - **WHEN** no setting changes the step budget and each reply reports 39300 input tokens, none of them read from the cache, and 200 output tokens
 - **THEN** the step makes at least 200 requests before its token budget, as when the budget counted all input tokens
 
-### Requirement: The limits that end an implement step are settings
-The implement step SHALL read each limit that ends its run from `roadmap.implement` when the step starts. The default of each new setting SHALL be the value of the constant that it replaces, so a step with no configuration does not change. The file tools of the harness SHALL take `tool_retries` in place of their own count.
-
-#### Scenario: No configuration
-- **WHEN** no source sets `max_requests`, `max_tool_calls`, `tool_retries`, `max_refusals`, `max_consecutive_refusals`, `model_resends`, `extension_calls` and `extension_max_refused`
-- **THEN** they are 500, 1500, 5, 30, 3, 1, 20 and 3, the values of the constants that they replace
-
-#### Scenario: The refusal and retry limits of a setting
-- **WHEN** `max_consecutive_refusals` is 5, `max_refusals` is 7 and `tool_retries` is 2
-- **THEN** 5 refusals in a row stop a step, 7 refusals between accepted calls stop a step at its eighth request, and a third call of `read_file` in a row with no `path` argument stops a step
-
-#### Scenario: No resend and a small request limit
-- **WHEN** `model_resends` is 0 and `max_requests` is 2
-- **THEN** a request that fails with a 400 inside a stream is not sent again, and a model that reads in every reply gets 2 requests
-
-#### Scenario: The window of the extension
-- **WHEN** `extension_calls` is 10 and `extension_max_refused` is 5
-- **THEN** the digest of the tool log counts the last 10 calls, and a step at its token budget with 5 refused commands in them gets the extension
-
-### Requirement: An implement limit has a ceiling and an order
-The settings load SHALL refuse a value of an implement limit above 4 times its default (`CONST_ROADMAP_LIMIT_CEILING_FACTOR`) with an error that names the setting. It SHALL refuse `max_consecutive_refusals` above `max_refusals`, and `extension_max_refused` above `extension_calls`, with an error that names both settings.
-
-#### Scenario: A value above the ceiling
-- **WHEN** `roadmap.implement.max_refusals` is 121
-- **THEN** the settings load fails with an error that names `roadmap.implement.max_refusals`
-
-#### Scenario: Refusals in a row above the total
-- **WHEN** `max_refusals` is 2 and `max_consecutive_refusals` keeps its default of 3
-- **THEN** the settings load fails with the error `max_consecutive_refusals must not be above max_refusals`
-
 ### Requirement: A shell call through the broker counts as a model call of the step
 A request that the broker forwards SHALL count against the step budget as a model call of the agent: `StepBudget.add` SHALL take the new tokens of its gateway usage. The step SHALL record its requests, input tokens, cache-read tokens and output tokens in `StepOutcome.tier_spend` under the tier of the attempt that made the call, and SHALL stop at its budget before its next model request.
 
 #### Scenario: The budget and the tier record hold the shell call
 - **WHEN** A shell call through the broker returns a gateway answer with usage on the tier of the current attempt
 - **THEN** The step budget counts the new tokens of that usage and the tier record of that tier holds the same requests and tokens as a model call of the agent
+
+### Requirement: Each limit that ends an implement step is a setting
+The implement step SHALL read each limit that ends its run from `roadmap.implement` when the step starts. The default of each new setting SHALL be the value of the constant that it replaces, so a step with no configuration does not change. The file tools of the harness SHALL take the tool retries in place of their own count. The settings SHALL hold no limit on refused commands.
+
+#### Scenario: No configuration
+- **WHEN** no source sets the request limit, the tool-call limit, the tool retries or the extension window
+- **THEN** the request limit, the tool-call limit, the tool retries and the extension window are 500, 1500, 5 and 20, the values of the constants that they replace
+
+#### Scenario: The retry limit of a setting
+- **WHEN** the tool retries are 2
+- **THEN** a third call of a file tool in a row with no path argument stops a step
+
+#### Scenario: No resend and a small request limit
+- **WHEN** the resends are 0 and the request limit is 2
+- **THEN** a request that fails with a 400 inside a stream is not sent again, and a model that reads in every reply gets 2 requests
+
+#### Scenario: The window of the extension
+- **WHEN** the extension window is 10
+- **THEN** the digest of the tool log counts the last 10 calls, and a step at its token budget with a successful edit in them gets the extension
+
+### Requirement: An implement limit has a ceiling
+The settings load SHALL refuse a value of an implement limit above `CONST_ROADMAP_LIMIT_CEILING_FACTOR` times its default, with an error that names the setting.
+
+#### Scenario: A value above the ceiling
+- **WHEN** the request limit of an implement step is above that ceiling
+- **THEN** the settings load fails with an error that names the setting of the request limit
+
+### Requirement: The implement settings hold no refusal count
+The settings of `roadmap.implement` SHALL hold no max_refusals, no max_consecutive_refusals and no extension_max_refused, and the settings load SHALL ignore a key that names one.
+
+#### Scenario: A configuration names a refusal count
+- **WHEN** a configuration sets a total of refusals, a count of refusals in a row and a refused window of the extension
+- **THEN** the settings load, and the settings hold none of the three names

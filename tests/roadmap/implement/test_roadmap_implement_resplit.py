@@ -210,6 +210,7 @@ def test_a_group_over_the_limit_is_split_once_with_groups_and_criteria_renumbere
             ("write_file", {"path": "src/devops_cli/shout.py", "content": SHOUT}),
         ),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         # Group 2 (new)
         tool_calls(
             ("edit_file", {"path": TASKS_PATH, "old_text": "- [ ] 2.1", "new_text": "- [x] 2.1"}),

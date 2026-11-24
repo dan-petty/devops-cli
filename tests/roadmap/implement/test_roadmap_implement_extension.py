@@ -45,47 +45,44 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 BUDGET = "`roadmap.implement.step_token_budget=50`"
 
-# The counts (successful edits, refused commands) in the last 20 tool calls before a stop of
-# pilot 3 (2026-10-27 to 2026-11-10). Each item of EXTEND stopped with the class `limit_reached`,
+# The counts of successful edits in the last 20 tool calls before a stop of pilot 3
+# (2026-10-27 to 2026-11-10). Each item of EXTEND stopped with the class `limit_reached`,
 # and a person then finished it with a few commits on the branch of the run.
 EXTEND = {
-    3075: (2, 2),
-    3217: (2, 1),
-    3247: (1, 1),
-    3251: (4, 3),
-    3253: (2, 0),
-    3347: (8, 0),
-    3404: (4, 0),
-    3417: (10, 0),
-    3443: (2, 0),
-    3451: (3, 0),
-    3456: (1, 1),
-    3485: (4, 0),
-    3654: (3, 1),
-    3991: (2, 0),
-    4004: (1, 3),
-    4079: (2, 0),
+    3075: 2,
+    3217: 2,
+    3247: 1,
+    3251: 4,
+    3253: 2,
+    3347: 8,
+    3404: 4,
+    3417: 10,
+    3443: 2,
+    3451: 3,
+    3456: 1,
+    3485: 4,
+    3654: 3,
+    3991: 2,
+    4004: 1,
+    4079: 2,
 }
-# Each item of SPIN stopped above 6.4 million input tokens with another class (`refused_tool`,
-# `ci_infra`, `lint`, `no_change_in_fix`): the run repeated refused commands and made no progress.
+# Each item of SPIN stopped with another class (`refused_tool`, `ci_infra`, `lint`,
+# `no_change_in_fix`): items with no edit in the last 20 tool calls make no progress.
 SPIN = {
-    2469: (0, 11),
-    2554: (1, 10),
-    2570: (0, 16),
-    2636: (1, 4),
-    3394: (0, 9),
+    2469: 0,
+    2570: 0,
+    3394: 0,
 }
-# The edges of the rule: no edit, and one refused command over the limit.
-EDGES = {"no edit": (0, 0), "no edit and 3 refused": (0, 3), "4 refused": (1, 4)}
+# The edge of the rule: no edit in the last 20 tool calls.
+EDGES = {"no edit": 0}
 
 READ = ("read_file", {"path": "src/sample.py"})
 # The new tokens of the first reply of the whole group and 17 reads: 50 input and 230 output.
 FIRST = 280
-REFUSED = ("run_command", {"command": "pytest tests/test_sample.py"})
 
 
-def _digest(edits: int, refused: int) -> ProgressDigest:
-    return ProgressDigest(calls=20, edits=edits, refused=refused)
+def _digest(edits: int) -> ProgressDigest:
+    return ProgressDigest(calls=20, edits=edits)
 
 
 @pytest.fixture
@@ -160,12 +157,12 @@ def test_a_step_budget_with_no_ceiling_set_gets_its_whole_extension(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
     config(roadmap={"implement": {"step_token_budget": 12_000_000}})
-    budget = StepBudget(progress=lambda: _digest(2, 0))
+    budget = StepBudget(progress=lambda: _digest(2))
     budget.add(12_000_000)
 
     assert budget.spent() is None
     assert budget.extension == BudgetExtension(
-        limit=12_000_000, budget=18_000_000, calls=20, edits=2, refused=0
+        limit=12_000_000, budget=18_000_000, calls=20, edits=2
     )
 
 
@@ -187,29 +184,27 @@ def test_a_ceiling_below_the_step_budget_is_refused(config: Callable[..., Path])
         load_settings()
 
 
-def test_the_rule_extends_by_half_the_budget_for_one_edit_and_at_most_three_refusals() -> None:
+def test_the_rule_extends_by_half_the_budget_for_one_edit() -> None:
     assert (
         setting_default("roadmap.implement.extension_calls"),
         constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS,
-        setting_default("roadmap.implement.extension_max_refused"),
         constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT,
-    ) == (20, 1, 3, 50)
+    ) == (20, 1, 50)
 
 
-def test_the_settings_set_the_window_and_the_refused_commands_of_the_rule(
+def test_the_settings_set_the_window_of_the_rule(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
-    """The step reads `roadmap.implement.extension_calls` and `extension_max_refused` when it
-    starts (#5440)."""
-    config(roadmap={"implement": {"extension_calls": 10, "extension_max_refused": 5}})
+    """The step reads `roadmap.implement.extension_calls` when it starts (#5440, #6527)."""
+    config(roadmap={"implement": {"extension_calls": 10}})
     log = ToolCallLog()
     for _ in range(12):
         log.recent.append(("write_file", ToolOutcome.OK))
-    budget = _budget(config, ProgressDigest(calls=10, edits=1, refused=5))
+    budget = _budget(config, ProgressDigest(calls=10, edits=1))
     budget.add(50)
 
     assert (log.progress(), budget.spent()) == (
-        ProgressDigest(calls=10, edits=10, refused=0),
+        ProgressDigest(calls=10, edits=10),
         None,
     )
     assert budget.extension is not None
@@ -218,20 +213,32 @@ def test_the_settings_set_the_window_and_the_refused_commands_of_the_rule(
 # ── The digest of the tool log ────────────────────────────────────────────────────────────
 
 
-def test_the_digest_counts_the_successful_edits_and_the_refused_commands_of_the_last_calls() -> (
-    None
-):
+def test_the_digest_counts_only_the_successful_edits() -> None:
+    """Group 6 (#6527): `progress_digest` counts successful edits only, with no refused field."""
+    calls = [
+        ("write_file", ToolOutcome.OK),
+        *[("read_file", ToolOutcome.OK)] * 16,
+        ("edit_file", ToolOutcome.OK),
+        ("edit_file", ToolOutcome.RETRY),
+        ("write_file", ToolOutcome.FAILED),
+    ]
+
+    digest = progress_digest(calls, 20)
+
+    assert digest == ProgressDigest(calls=20, edits=2)
+    assert not hasattr(digest, "refused")
+
+
+def test_the_digest_counts_the_successful_edits_of_the_last_calls() -> None:
     calls = [
         ("edit_file", ToolOutcome.OK),
-        *[("read_file", ToolOutcome.OK)] * 15,
+        *[("read_file", ToolOutcome.OK)] * 17,
         ("write_file", ToolOutcome.OK),
         ("edit_file", ToolOutcome.RETRY),
         ("write_file", ToolOutcome.FAILED),
-        ("shell", ToolOutcome.REFUSED),
-        ("shell", ToolOutcome.REFUSED),
     ]
 
-    assert progress_digest(calls, 20) == ProgressDigest(calls=20, edits=1, refused=2)
+    assert progress_digest(calls, 20) == ProgressDigest(calls=20, edits=1)
 
 
 def test_a_log_with_fewer_calls_than_the_window_gives_no_digest() -> None:
@@ -241,45 +248,41 @@ def test_a_log_with_fewer_calls_than_the_window_gives_no_digest() -> None:
 # ── The rule, on the shapes of pilot 3 ────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize(("edits", "refused"), EXTEND.values(), ids=[f"#{n}" for n in EXTEND])
+@pytest.mark.parametrize("edits", EXTEND.values(), ids=[f"#{n}" for n in EXTEND])
 def test_a_step_that_made_progress_gets_one_extension_of_half_its_budget(
-    config: Callable[..., Path], counted: list[tuple[str, float]], edits: int, refused: int
+    config: Callable[..., Path], counted: list[tuple[str, float]], edits: int
 ) -> None:
-    budget = _budget(config, _digest(edits, refused))
+    budget = _budget(config, _digest(edits))
     budget.add(50)
 
     assert budget.spent() is None
-    assert budget.extension == BudgetExtension(
-        limit=50, budget=75, calls=20, edits=edits, refused=refused
-    )
+    assert budget.extension == BudgetExtension(limit=50, budget=75, calls=20, edits=edits)
     assert counted == [("extended", 1), ("halted", 0)]
 
 
 @pytest.mark.parametrize(
-    ("edits", "refused"),
+    "edits",
     [*SPIN.values(), *EDGES.values()],
     ids=[*(f"#{n}" for n in SPIN), *EDGES],
 )
 def test_a_step_that_spins_stops_at_its_budget_with_the_counts(
-    config: Callable[..., Path], counted: list[tuple[str, float]], edits: int, refused: int
+    config: Callable[..., Path], counted: list[tuple[str, float]], edits: int
 ) -> None:
-    budget = _budget(config, _digest(edits, refused))
+    budget = _budget(config, _digest(edits))
     budget.add(50)
 
     reason = budget.spent()
 
     assert reason is not None
     assert BUDGET in reason
-    assert (
-        f"{edits} successful edit(s) and {refused} refused command(s) in its last 20 tool calls"
-    ) in reason
+    assert f"{edits} successful edit(s) in its last 20 tool calls" in reason
     assert (budget.extension, counted) == (None, [("extended", 0), ("halted", 1)])
 
 
 def test_a_second_limit_stops_the_step_and_names_the_extension(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
-    budget = _budget(config, _digest(2, 0))
+    budget = _budget(config, _digest(2))
     budget.add(50)
     budget.spent()
     budget.add(25)
@@ -294,7 +297,7 @@ def test_a_second_limit_stops_the_step_and_names_the_extension(
 def test_the_stop_decides_once_and_counts_once(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
-    budget = _budget(config, _digest(0, 11))
+    budget = _budget(config, _digest(0))
     budget.add(50)
 
     first, second = budget.spent(), budget.spent()
@@ -306,7 +309,7 @@ def test_the_stop_decides_once_and_counts_once(
 def test_the_ceiling_cuts_the_extension_and_the_stop_names_it(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
-    budget = _budget(config, _digest(2, 0), ceiling=60)
+    budget = _budget(config, _digest(2), ceiling=60)
     budget.add(50)
     extended = budget.spent()
     budget.add(10)
@@ -314,9 +317,7 @@ def test_the_ceiling_cuts_the_extension_and_the_stop_names_it(
     reason = budget.spent()
 
     assert extended is None
-    assert budget.extension == BudgetExtension(
-        limit=50, budget=60, calls=20, edits=2, refused=0, ceiling=True
-    )
+    assert budget.extension == BudgetExtension(limit=50, budget=60, calls=20, edits=2, ceiling=True)
     assert reason is not None
     assert "`roadmap.implement.step_token_ceiling=60`" in reason
 
@@ -324,7 +325,7 @@ def test_the_ceiling_cuts_the_extension_and_the_stop_names_it(
 def test_a_ceiling_at_the_budget_leaves_no_room_for_an_extension(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
-    budget = _budget(config, _digest(2, 0), ceiling=50)
+    budget = _budget(config, _digest(2), ceiling=50)
     budget.add(50)
 
     reason = budget.spent()
@@ -352,7 +353,7 @@ def test_the_item_budget_holds_after_an_extension(
     config: Callable[..., Path], counted: list[tuple[str, float]]
 ) -> None:
     config(roadmap={"implement": {"item_token_budget": 70}})
-    budget = _budget(config, _digest(2, 0))
+    budget = _budget(config, _digest(2))
     budget.add(50)
     budget.spent()
     budget.add(20)
@@ -404,23 +405,21 @@ def test_a_step_that_edits_at_its_budget_gets_one_more_request_and_ends_done(
 
     outcome = _step(implement_store, implement_checkout, script, config, step_token_budget=250)
 
-    assert (len(script.seen), outcome.status, outcome.output_tokens) == (2, StepStatus.DONE, 232)
-    assert outcome.extension == BudgetExtension(limit=250, budget=375, calls=20, edits=3, refused=0)
+    assert (len(script.seen), outcome.status, outcome.output_tokens) == (3, StepStatus.DONE, 234)
+    assert outcome.extension == BudgetExtension(limit=250, budget=375, calls=20, edits=3)
     assert (
         "The step got one extension of its token budget (rule `implement.extension`), from 250 to "
-        "375 new tokens: 3 successful edit(s) and 0 refused command(s) in its last 20 tool calls."
+        "375 new tokens: 3 successful edit(s) in its last 20 tool calls."
     ) in capsys.readouterr().err
 
 
-def test_a_step_that_repeats_refused_commands_stops_at_its_budget(
+def test_a_step_with_no_edit_in_its_window_stops_at_its_budget(
     implement_store: InMemoryRoadmapStore,
     implement_checkout: Path,
     implement_programs: ProcessFake,
     config: Callable[..., Path],
 ) -> None:
-    # Two replies of two refusals each: a read between them keeps the refusals from being
-    # consecutive, and three in a row end the run (#4043).
-    reply = tool_calls(REFUSED, REFUSED, *_reads(8))
+    reply = tool_calls(*_reads(10))
     script = ModelScript(reply, reply, say("Done."))
 
     outcome = _step(implement_store, implement_checkout, script, config, step_token_budget=150)
@@ -431,9 +430,7 @@ def test_a_step_that_repeats_refused_commands_stops_at_its_budget(
         None,
     )
     assert "`roadmap.implement.step_token_budget=150`" in outcome.reason
-    assert "0 successful edit(s) and 4 refused command(s) in its last 20 tool calls" in (
-        outcome.reason
-    )
+    assert "0 successful edit(s) in its last 20 tool calls" in outcome.reason
 
 
 def test_an_extended_step_stops_at_its_second_limit(
@@ -456,7 +453,7 @@ def test_an_extended_step_stops_at_its_second_limit(
     assert (
         "`roadmap.implement.step_token_budget=200` and its one extension to 300 new tokens"
     ) in outcome.reason
-    assert outcome.extension == BudgetExtension(limit=200, budget=300, calls=20, edits=3, refused=0)
+    assert outcome.extension == BudgetExtension(limit=200, budget=300, calls=20, edits=3)
 
 
 def test_an_extended_step_stops_at_the_ceiling(
@@ -525,5 +522,5 @@ def test_an_extended_step_stops_at_the_item_budget(
 
     # The step counts 135, 198, 295, 430 and 485 new tokens after its 5 requests.
     assert (len(script.seen), outcome.failure_class) == (5, FailureClass.LIMIT_REACHED)
-    assert outcome.extension == BudgetExtension(limit=400, budget=600, calls=20, edits=3, refused=0)
+    assert outcome.extension == BudgetExtension(limit=400, budget=600, calls=20, edits=3)
     assert "`roadmap.implement.item_token_budget=450`" in outcome.reason

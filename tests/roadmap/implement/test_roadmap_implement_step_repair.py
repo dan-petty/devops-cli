@@ -111,7 +111,9 @@ def test_a_step_with_an_unused_import_ends_done_after_the_extra_turn_removes_it(
         write_call("src/sample.py", SHOUT_CODE),
         TICK,
     )
-    script = ModelScript(first, say("Done."), tool_calls(REPAIR), say("Removed the import."))
+    script = ModelScript(
+        first, say("Done."), say("Done."), tool_calls(REPAIR), say("Removed the import.")
+    )
 
     outcome = _step(store, checkout, script)
 
@@ -123,8 +125,8 @@ def test_a_step_with_an_unused_import_ends_done_after_the_extra_turn_removes_it(
         git(checkout, "show", "HEAD:tests/test_sample.py") + "\n",
         programs_run(programs, "uv").count(LINT),
         git(checkout, "status", "--porcelain"),
-    ) == (StepStatus.DONE, "", 4, before, TEST_BODY, 2, "")
-    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
+    ) == (StepStatus.DONE, "", 6, before, TEST_BODY, 2, "")
+    assert _prompt(script, 3) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
 
 
 def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_no_third_turn(
@@ -142,8 +144,8 @@ def test_a_step_that_still_fails_after_the_extra_turn_stops_and_the_model_gets_n
         StepStatus.STOPPED,
         f"{LINT} exited with status 1.\n{UNUSED}" + rounds_spent(1),
         "",
-        3,
-        3,
+        4,
+        4,
     )
     assert is_clean_at(checkout, head)
 
@@ -161,17 +163,21 @@ def test_a_failed_type_check_gets_the_extra_turn_with_its_text(
         TICK,
     )
     script = ModelScript(
-        work, say("Done."), tool_calls(write_call("src/sample.py", SHOUT_CODE)), say("Fixed.")
+        work,
+        say("Done."),
+        say("Done."),
+        tool_calls(write_call("src/sample.py", SHOUT_CODE)),
+        say("Fixed."),
     )
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.requests, programs_run(programs, "uv").count(TYPES)) == (
         StepStatus.DONE,
-        4,
+        6,
         2,
     )
-    assert _prompt(script, 2).startswith(
+    assert _prompt(script, 3).startswith(
         f"A static check of your group failed:\n\n{TYPES} exited with status 1.\n{BAD_TYPE}"
     )
 
@@ -183,12 +189,12 @@ def test_the_second_attempt_holds_the_map_entry_of_the_file_of_the_failure(
     files of the group (#3569)."""
     _lint_fails_on_an_unused_import(programs)
     script = ModelScript(
-        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+        tool_calls(*NOT_TICKED, TICK), say("Done."), say("Done."), tool_calls(REPAIR), say("Fixed.")
     )
 
     _step(store, checkout, script)
 
-    prompt = _prompt(script, 2)
+    prompt = _prompt(script, 3)
     assert "# Repository map" in prompt
     assert "tests/test_sample.py: test_shout" in prompt
 
@@ -205,7 +211,7 @@ def test_the_map_of_the_second_attempt_names_the_file_before_its_location(
         ),
     )
     script = ModelScript(
-        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+        tool_calls(*NOT_TICKED, TICK), say("Done."), say("Done."), tool_calls(REPAIR), say("Fixed.")
     )
 
     run_fix_step(
@@ -218,7 +224,7 @@ def test_the_map_of_the_second_attempt_names_the_file_before_its_location(
         hooks=checkout.parent / "pre-commit-trusted-config.yaml",
     )
 
-    assert "tests/test_sample.py: test_shout" in _prompt(script, 2)
+    assert "tests/test_sample.py: test_shout" in _prompt(script, 3)
 
 
 def test_the_second_attempt_holds_no_map_section_when_no_file_has_a_symbol(
@@ -230,7 +236,7 @@ def test_the_second_attempt_holds_no_map_section_when_no_file_has_a_symbol(
         ProcessAnswer(returncode=1, stdout="ast-grep scan....Failed\nno file matched\n"),
     )
     script = ModelScript(
-        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR), say("Fixed.")
+        tool_calls(*NOT_TICKED, TICK), say("Done."), say("Done."), tool_calls(REPAIR), say("Fixed.")
     )
 
     run_fix_step(
@@ -243,7 +249,7 @@ def test_the_second_attempt_holds_no_map_section_when_no_file_has_a_symbol(
         hooks=checkout.parent / "pre-commit-trusted-config.yaml",
     )
 
-    assert "# Repository map" not in _prompt(script, 2)
+    assert "# Repository map" not in _prompt(script, 3)
 
 
 def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_step(
@@ -253,7 +259,11 @@ def test_an_extra_turn_that_changes_a_file_the_step_did_not_change_stops_the_ste
     head = git(checkout, "rev-parse", "HEAD")
     other = write_call("src/other.py", "OTHER = 2\n")
     script = ModelScript(
-        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR, other), say("Fixed.")
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        say("Done."),
+        tool_calls(REPAIR, other),
+        say("Fixed."),
     )
 
     outcome = _step(store, checkout, script)
@@ -279,7 +289,11 @@ def test_an_extra_turn_that_writes_a_new_file_stops_the_step(
     _lint_fails_on_an_unused_import(programs)
     new = write_call("tests/test_sample_more.py", TEST_BODY)
     script = ModelScript(
-        tool_calls(*NOT_TICKED, TICK), say("Done."), tool_calls(REPAIR, new), say("Fixed.")
+        tool_calls(*NOT_TICKED, TICK),
+        say("Done."),
+        say("Done."),
+        tool_calls(REPAIR, new),
+        say("Fixed."),
     )
 
     outcome = _step(store, checkout, script)
@@ -298,14 +312,15 @@ def test_a_failure_gets_one_extra_turn_and_the_job_ticks_the_group(
     script = ModelScript(
         tool_calls(*NOT_TICKED),
         say("Done."),
+        say("Done."),
         tool_calls(REPAIR, TICK),
         say("Fixed and ticked."),
     )
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, outcome.requests) == (StepStatus.DONE, "", 4)
-    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
+    assert (outcome.status, outcome.reason, outcome.requests) == (StepStatus.DONE, "", 6)
+    assert _prompt(script, 3) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
@@ -315,12 +330,16 @@ def test_a_task_that_the_repair_turn_leaves_unticked_is_ticked_by_the_job(
     config(roadmap={"implement": {"repair_rounds": 1}})
     _lint_fails_on_an_unused_import(programs)
     script = ModelScript(
-        tool_calls(*NOT_TICKED), say("Done."), tool_calls(REPAIR), say("Fixed, no ticks.")
+        tool_calls(*NOT_TICKED),
+        say("Done."),
+        say("Done."),
+        tool_calls(REPAIR),
+        say("Fixed, no ticks."),
     )
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.reason, len(script.seen)) == (StepStatus.DONE, "", 4)
+    assert (outcome.status, outcome.reason, len(script.seen)) == (StepStatus.DONE, "", 6)
     assert git(checkout, "show", f"HEAD:{TASKS_PATH}") + "\n" == TICKED
 
 
@@ -342,7 +361,7 @@ def test_a_failed_verification_command_gets_no_extra_turn_when_no_round_is_left(
 
     assert (outcome.status, len(script.seen), programs_run(programs, "uv").count(LINT)) == (
         StepStatus.STOPPED,
-        2,
+        3,
         0,
     )
 
@@ -356,14 +375,16 @@ def test_a_clean_group_gets_no_extra_turn_and_is_ticked_by_the_job(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 2)
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
 
 
 def test_a_fix_step_gets_the_extra_turn_with_the_failure_and_no_list_of_ticks(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
-    script = ModelScript(tool_calls(*NOT_TICKED), say("Done."), tool_calls(REPAIR), say("Fixed."))
+    script = ModelScript(
+        tool_calls(*NOT_TICKED), say("Done."), say("Done."), tool_calls(REPAIR), say("Fixed.")
+    )
 
     outcome = run_fix_step(
         store,
@@ -374,8 +395,8 @@ def test_a_fix_step_gets_the_extra_turn_with_the_failure_and_no_list_of_ticks(
         window=WINDOW,
     )
 
-    assert (outcome.status, outcome.requests) == (StepStatus.DONE, 4)
-    assert _prompt(script, 2) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
+    assert (outcome.status, outcome.requests) == (StepStatus.DONE, 6)
+    assert _prompt(script, 3) == f"{FAILURE}{MAP}\n\n{ASK}{END}"
 
 
 def test_the_extra_turn_counts_against_the_request_limit_of_the_first_turn(
@@ -412,11 +433,11 @@ def test_the_failure_text_in_the_message_is_cut_to_the_reason_limit(
         lambda call: command_text(call).startswith("uv run ruff check"),
         ProcessAnswer(returncode=1, stdout=long_report),
     )
-    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), say("Cannot."))
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), say("Done."))
 
     _step(store, checkout, script)
 
-    prompt = _prompt(script, 2)
+    prompt = _prompt(script, 3)
     shown = prompt.split("A static check of your group failed:\n\n")[1].split(MAP)[0]
     assert len(shown) == CONST_ROADMAP_IMPLEMENT_REASON_CHARS
 
@@ -438,11 +459,11 @@ def test_the_failure_text_in_the_message_is_masked(
         lambda call: command_text(call).startswith("uv run ruff check"),
         ProcessAnswer(returncode=1, stdout=f"token {token}\n"),
     )
-    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), say("Cannot."))
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."), say("Done."))
 
     _step(store, checkout, script)
 
-    assert token not in _prompt(script, 2)
+    assert token not in _prompt(script, 3)
 
 
 def test_an_extra_turn_that_commits_is_reset_and_the_step_commits_the_repair(
@@ -459,9 +480,10 @@ def test_an_extra_turn_that_commits_is_reset_and_the_step_commits_the_repair(
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK),
         say("Done."),
+        say("Done."),
         tool_calls(REPAIR),
         say("Fixed."),
-        effects={4: agent_commits},
+        effects={5: agent_commits},
     )
 
     outcome = _step(store, checkout, script)
@@ -486,9 +508,10 @@ def test_an_extra_turn_that_commits_does_not_hide_a_failed_check_and_the_checkou
     script = ModelScript(
         tool_calls(*NOT_TICKED, TICK),
         say("Done."),
+        say("Done."),
         tool_calls(write_call("tests/test_sample.py", BAD_TEST + "\n")),
         say("Fixed."),
-        effects={4: agent_commits},
+        effects={5: agent_commits},
     )
 
     outcome = _step(store, checkout, script)
@@ -596,7 +619,7 @@ def test_a_failing_invariant_test_outside_changes_stops_the_step_with_no_extra_t
     ) == (
         StepStatus.STOPPED,
         FailureClass.PREMISE_FALSE,
-        2,
+        3,
     )
     assert "tests/k8s/test_perimeter.py::test_network_policy" in outcome.reason
     assert "tests/k8s/test_perimeter.py" in outcome.reason

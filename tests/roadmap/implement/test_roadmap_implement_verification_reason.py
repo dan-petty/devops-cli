@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_VERIFY_CHARS
-from devops_cli.roadmap.implement.implement_shell_policy import verification_problem
 from devops_cli.roadmap.implement.implement_step import (
     StepStatus,
     commands_failure,
@@ -25,6 +24,7 @@ from devops_cli.roadmap.implement.implement_step import (
 )
 from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_form import form_problems
+from devops_cli.roadmap.verification_command import verification_problem
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -274,8 +274,9 @@ def test_a_refused_command_of_2000_characters_is_named_whole_and_one_more_is_cut
 def test_step_5_of_the_prompt_gives_both_parts_of_the_sentence_about_a_bang_command() -> None:
     prompt = step_instructions()
 
-    assert "the step runs it itself after your run, and the shell refuses `!`" in prompt
-    assert "To see its result now, run the `git grep` form that the table below gives." in prompt
+    assert "the step runs it itself after your run" in prompt
+    assert "you can check it with `git grep -n -I -F <text> <paths>`" in prompt
+    assert "the shell refuses `!`" not in prompt
 
 
 def test_the_programs_run_stay_empty_for_a_refused_command(

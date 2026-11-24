@@ -130,6 +130,7 @@ def test_no_network_git_call_runs_a_program_that_the_home_folder_names(
     script = ModelScript(
         tool_calls(*group_one_calls()),
         say("Group 1 is done."),
+        say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),
         effects={2: plant},
@@ -158,6 +159,7 @@ def test_no_network_git_call_runs_a_program_that_the_configuration_of_the_clone_
 
     script = ModelScript(
         tool_calls(*group_one_calls()),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),

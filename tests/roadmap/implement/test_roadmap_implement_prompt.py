@@ -12,7 +12,6 @@ import pytest
 
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.settings import setting_default
-from devops_cli.roadmap.implement.implement_shell_policy import HARNESS_DENIED_OPERATORS
 from devops_cli.roadmap.step_files import code_spans
 from tests.support.paths import REPO_ROOT
 
@@ -114,7 +113,7 @@ def test_the_scratch_directory_is_the_same_in_the_prompt_and_in_agents_md() -> N
     [
         "Keep every test that exists",
         "Each reply of yours has an output cap",
-        "The shell refuses any other program",
+        "the stock shell of `Coder`, which runs every program of the runner image",
         "Tick each task of your group",
     ],
 )
@@ -230,19 +229,6 @@ def test_the_prompt_gives_the_number_of_extra_turns_that_a_step_allows() -> None
     assert f"`roadmap.implement.repair_rounds` ({rounds} by default)" in prompt
 
 
-def test_the_prompt_says_before_the_first_call_that_the_shell_refuses_a_heredoc() -> None:
-    """The base instructions of `Coder` tell the model to check behavior with a heredoc. The shell
-    refuses a new line and a `;` as operators, also inside quotes, so it refused each heredoc and
-    each code of `python -c` on more than one line, and each refusal counts toward the limit
-    (#4493). The prompt states the rule and the script file before the first call."""
-    prompt = load_task_prompt(PROMPT)
-    rule = next((line for line in prompt.splitlines() if "heredoc" in line), "")
-    named = ("`python -c`", "a new line", "`;`", f"`{SCRATCH_DIRECTORY}`", "`uv run python <file>`")
-
-    assert {"\n", ";"} <= set(HARNESS_DENIED_OPERATORS)
-    assert [word for word in named if word not in rule] == []
-
-
 def test_the_rendered_prompt_names_create_directory_and_holds_no_python_mkdir() -> None:
     from devops_cli.roadmap.implement.implement_step import step_instructions
 
@@ -263,3 +249,18 @@ def test_the_tools_table_lists_the_registry_tools() -> None:
         entry = TOOLS[name]
         access = "read" if entry.read_only else "write"
         assert f"| `{name}` | {access} | {entry.purpose} |" in prompt
+
+
+def test_the_instructions_hold_no_programs_table() -> None:
+    """#6527: the prompt names the stock shell of `Coder` and holds no allowlist or refusal
+    tables."""
+    from devops_cli.roadmap.implement.implement_step import step_instructions
+
+    prompt = step_instructions()
+
+    assert "Coder" in prompt
+    assert "runs every program of the runner image" in prompt
+    assert "| Program | Access | Use |" not in prompt
+    assert "| Command | Access | Use |" not in prompt
+    assert "| Program | Instead |" not in prompt
+    assert "{{" not in prompt

@@ -12,10 +12,6 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_REASON_CHARS
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_shell_policy import (
-    IMPLEMENT_ALLOWED_PROGRAMS,
-    verification_problem,
-)
 from devops_cli.roadmap.stage.stage_form import is_valid_verify
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.step_files import (
@@ -24,6 +20,7 @@ from devops_cli.roadmap.step_files import (
     TaskGroup,
     parse_task_groups,
 )
+from devops_cli.roadmap.verification_command import verification_problem
 from devops_cli.security.sanitizer import mask_secrets
 
 Kind = Literal["path", "add_path", "command", "task", "premise", "scope", "group"]
@@ -220,9 +217,6 @@ def _judge_command(
         return Refused(texts.implement_amend_refused_command_form, request=request)
     if request.old not in target.verification_commands or not is_valid_verify(request.new):
         return Refused(texts.implement_amend_refused_command_form, request=request)
-    words = request.new.split()
-    if not words or words[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
-        return Refused(texts.implement_amend_refused_command_form, request=request)
     if verification_problem(request.new) is not None:
         return Refused(texts.implement_amend_refused_command_form, request=request)
     if tree.paths_in(request.old) != tree.paths_in(request.new):
@@ -246,9 +240,6 @@ def _judge_task(request: PlanRequest, target: TaskGroup) -> tuple[str, Amendment
         return Refused(texts.implement_amend_refused_command_form, request=request)
     if request.verify:
         if not is_valid_verify(request.verify):
-            return Refused(texts.implement_amend_refused_command_form, request=request)
-        words = request.verify.split()
-        if not words or words[0] not in IMPLEMENT_ALLOWED_PROGRAMS:
             return Refused(texts.implement_amend_refused_command_form, request=request)
         if verification_problem(request.verify) is not None:
             return Refused(texts.implement_amend_refused_command_form, request=request)

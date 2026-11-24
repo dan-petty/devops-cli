@@ -114,7 +114,7 @@ def test_a_new_type_error_in_a_source_file_still_stops_the_step(
         StepStatus.STOPPED,
         f"{GATE} -- src/sample.py exited with status 1.\n{BAD_TYPE}" + rounds_spent(1),
         "",
-        3,
+        4,
     )
     assert is_clean_at(checkout, head)
 

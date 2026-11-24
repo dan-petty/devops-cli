@@ -58,7 +58,6 @@ from devops_cli.roadmap.implement.implement_run import (
     _step_spend,
 )
 from devops_cli.roadmap.implement.implement_scoped_ci import ScopedResult
-from devops_cli.roadmap.implement.implement_shell_policy import shown
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, TierSpend
 from devops_cli.roadmap.implement.implement_strength import StrengthReport, report_lines
 from devops_cli.roadmap.implement.implement_trace import (
@@ -87,6 +86,7 @@ from devops_cli.roadmap.stores.store import (
     RoadmapStore,
 )
 from devops_cli.roadmap.title_labels import title_labels
+from devops_cli.roadmap.verification_command import shown
 from devops_cli.security.sanitizer import mask_secrets
 
 

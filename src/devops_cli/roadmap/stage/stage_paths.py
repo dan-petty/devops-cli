@@ -59,11 +59,11 @@ from devops_cli.core.import_graph import build_import_graph, module_name
 from devops_cli.core.process import run_subprocess
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
-from devops_cli.roadmap.implement.implement_shell_policy import (
+from devops_cli.roadmap.step_files import code_spans
+from devops_cli.roadmap.verification_command import (
     NEGATIVE_SEARCH_WORD,
     read_negative_search,
 )
-from devops_cli.roadmap.step_files import code_spans
 
 if TYPE_CHECKING:
     from devops_cli.roadmap.stage.stage_change import StageGroup

@@ -31,12 +31,9 @@ OLD_VALUES: dict[str, int] = {
     "roadmap.stage.review_calls_notice": 60,
     "roadmap.implement.max_requests": 500,
     "roadmap.implement.max_tool_calls": 1500,
-    "roadmap.implement.max_refusals": 30,
-    "roadmap.implement.max_consecutive_refusals": 3,
     "roadmap.implement.tool_retries": 5,
     "roadmap.implement.model_resends": 1,
     "roadmap.implement.extension_calls": 20,
-    "roadmap.implement.extension_max_refused": 3,
     "roadmap.fix_plan.head_attempts": 2,
     "roadmap.fix_plan.revisions": 3,
 }
@@ -108,18 +105,6 @@ def test_a_value_above_the_ceiling_is_refused_with_the_name_of_the_setting(
     ("values", "inner", "outer"),
     [
         pytest.param(
-            {"roadmap.implement.max_refusals": 2},
-            "max_consecutive_refusals",
-            "max_refusals",
-            id="refusals-in-a-row-above-the-total",
-        ),
-        pytest.param(
-            {"roadmap.implement.extension_calls": 2},
-            "extension_max_refused",
-            "extension_calls",
-            id="refused-calls-above-the-window",
-        ),
-        pytest.param(
             {"roadmap.stage.plan_calls_advised": 41},
             "plan_calls_advised",
             "plan_calls_notice",
@@ -172,3 +157,22 @@ def test_the_live_doubled_values_load(config: Callable[..., Path]) -> None:
     stage = load_settings().roadmap.stage
 
     assert (stage.verify_repair_rounds, stage.verify_repair_rounds_ceiling) == (4, 8)
+
+
+def test_the_implement_settings_hold_no_refusal_count(config: Callable[..., Path]) -> None:
+    """Group 9 (#6527): the three refusal settings are gone and unknown keys still load."""
+    config(
+        roadmap={
+            "implement": {
+                "max_refusals": 30,
+                "max_consecutive_refusals": 3,
+                "extension_max_refused": 3,
+            }
+        }
+    )
+
+    implement = load_settings().roadmap.implement
+
+    assert not hasattr(implement, "max_refusals")
+    assert not hasattr(implement, "max_consecutive_refusals")
+    assert not hasattr(implement, "extension_max_refused")

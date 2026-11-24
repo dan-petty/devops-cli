@@ -30,11 +30,11 @@ from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_NAME_RE,
     CONST_OPENSPEC_CHANGES_DIR,
 )
-from devops_cli.roadmap.implement.implement_shell_policy import shown, verification_problem
 from devops_cli.roadmap.implement.implement_test_names import defined_tests
 from devops_cli.roadmap.plan_read import PlanReadError, recorded_tests, weakened_checks
 from devops_cli.roadmap.stage.stage_change import GroupKind, render_change
 from devops_cli.roadmap.step_files import COMMAND_MARK, parse_task_groups
+from devops_cli.roadmap.verification_command import shown, verification_problem
 from tests.support.builders import make_stage_proposal
 from tests.support.paths import REPO_ROOT
 

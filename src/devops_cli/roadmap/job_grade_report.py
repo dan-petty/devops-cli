@@ -200,6 +200,9 @@ class VersionGrade(BaseModel):
 
     version: str = Field(description="The devops-cli version that wrote the lines")
     measure: GradeMeasure = Field(description="Ratio, interval and grades of the version")
+    all_attempts: int = Field(description="All attempts, infrastructure cuts included")
+    infra_attempts: int = Field(description="Attempts that an infrastructure cut ended")
+    infra_share: float | None = Field(description="Infrastructure cuts / all attempts")
 
 
 class WindowGrade(BaseModel):
@@ -685,9 +688,12 @@ def _workflow(key: _Key, parsed: _Answers, verdicts: VerdictRead | None) -> Work
                     successes=version_counts.successes,
                     first_pass=None,
                 ),
+                all_attempts=version_counts.all_attempts,
+                infra_attempts=version_counts.infra,
+                infra_share=share(version_counts.infra, version_counts.all_attempts),
             )
             for version, version_counts in sorted(parsed.versions.get(key, {}).items())
-            if version_counts.attempts >= _MIN_VERSION_ATTEMPTS
+            if version_counts.all_attempts >= _MIN_VERSION_ATTEMPTS
         ],
         trend=[_window_grade(at, trend[at]) for at in TREND_WINDOWS],
         signals=_signals(trend),
@@ -878,6 +884,9 @@ def _details(row: WorkflowGrade) -> list[str]:
             attempts=version.measure.attempts,
             ratio=_ratio_text(version.measure.ratio),
             interval=_interval_text(version.measure),
+            all_attempts=version.all_attempts,
+            infra=version.infra_attempts,
+            infra_share=_ratio_text(version.infra_share),
         )
         for version in row.versions
     ]

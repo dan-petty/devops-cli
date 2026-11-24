@@ -84,12 +84,13 @@ def _git_push(world: JobWorld) -> list[ProcessCall]:
     return [call for call in world.programs.calls if call.argv[0] == "git" and "push" in call.argv]
 
 
-def _fix(round_number: int) -> tuple[ModelResponse, ModelResponse]:
+def _fix(round_number: int) -> tuple[ModelResponse, ...]:
     """A fix that changes the code in a way that no earlier fix did."""
     changed = SHOUT + "".join(f"\n\nVALUE_{k} = {k}\n" for k in range(round_number))
     path = "src/devops_cli/shout.py"
     return (
         tool_calls(("write_file", {"path": path, "content": changed})),
+        say(f"Fixed round {round_number}."),
         say(f"Fixed round {round_number}."),
     )
 
@@ -342,7 +343,7 @@ def test_an_ast_grep_violation_is_repaired_before_the_final_push(job_world: JobW
     listed = job_world.repo.origin_git("show", "--name-status", "-z", "--format=", archive)
     assert skips_archive_commit(listed + "\0", 1)
     assert _count(job_world, STATIC) == 2
-    fix_prompt = next(str(getattr(p, "content", "")) for p in script.seen[4][-1].parts)
+    fix_prompt = next(str(getattr(p, "content", "")) for p in script.seen[5][-1].parts)
     assert "ast-grep scan....Failed" in fix_prompt
 
 
@@ -427,7 +428,7 @@ def test_a_fix_step_that_spends_a_budget_keeps_the_work_and_names_the_action_lef
     """Each scripted request counts 50 input tokens and the output tokens of its parts, so the two
     groups spend 434 new tokens, and the last request starts at 379. The fix step finds the budget
     of the item spent, makes no request and stops with the class `limit_reached`."""
-    config(roadmap={"implement": {"item_token_budget": 400}})
+    config(roadmap={"implement": {"item_token_budget": 460}})
     _fails_until(job_world, STATIC, RULE, times=1)
 
     applied = job_world.run(two_groups())
@@ -552,6 +553,7 @@ def test_an_edit_of_the_hook_configuration_by_the_agent_skips_no_hook(job_world:
     skip = ("write_file", {"path": CONFIG, "content": "repos: []\n"})
     script = ModelScript(
         tool_calls(*group_one_calls(), skip),
+        say("Group 1 is done."),
         say("Group 1 is done."),
         tool_calls(*group_two_calls()),
         say("Group 2 is done."),

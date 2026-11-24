@@ -95,7 +95,7 @@ def test_a_failing_check_that_passes_on_the_second_attempt_shows_both_attempts(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _lint_fails_on_an_unused_import(programs)
-    script = ModelScript(FIRST, say("Done."), FIX, say("Removed the import."))
+    script = ModelScript(FIRST, say("Done."), say("Done."), FIX, say("Removed the import."))
 
     trace, reason, _ = _run(store, checkout, script)
 
@@ -120,7 +120,7 @@ def test_the_attempt_events_name_the_planned_and_repo_map_strategies(
 ) -> None:
     config(roadmap={"implement": {"repair_rounds": 1}})
     _lint_fails_on_an_unused_import(programs)
-    script = ModelScript(FIRST, say("Done."), FIX, say("Removed the import."))
+    script = ModelScript(FIRST, say("Done."), say("Done."), FIX, say("Removed the import."))
 
     trace, reason, _ = _run(store, checkout, script)
 
@@ -181,7 +181,9 @@ def test_a_failed_verification_command_gets_one_round_and_ends_done(
     repair_turn = tool_calls(
         write_call("tests/test_sample.py", TEST_BODY),
     )
-    script = ModelScript(first_turn, say("Done."), repair_turn, say("Fixed the test."))
+    script = ModelScript(
+        first_turn, say("Done."), say("Done."), repair_turn, say("Fixed the test.")
+    )
     trace = ImplementTrace(step="group 1")
     outcome = run_step(
         store,
@@ -194,7 +196,7 @@ def test_a_failed_verification_command_gets_one_round_and_ends_done(
     )
     assert outcome.status is StepStatus.DONE
     assert outcome.reason == ""
-    assert outcome.requests == 4
+    assert outcome.requests == 6
     first, second = _attempts(trace)
     assert (first["number"], first["outcome"], first["next"], first["class"]) == (
         1,

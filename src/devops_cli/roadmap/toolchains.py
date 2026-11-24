@@ -11,15 +11,7 @@ from typing import Final
 from devops_cli.config.commands import BIN_DEVOPS, BIN_OPENSPEC, BIN_PYTEST, BIN_UV
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_SCOPED_ROWS
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.implement.implement_shell_policy import (
-    LOCAL_COMMANDS,
-    SHELL_PROGRAMS,
-    SHELL_REFUSALS,
-    VERIFICATION_FIRST_WORDS,
-    LocalCommand,
-    ShellProgram,
-    ShellRefusal,
-)
+from devops_cli.roadmap.verification_command import VERIFICATION_FIRST_WORDS
 
 
 @dataclass(frozen=True)
@@ -27,9 +19,6 @@ class ToolchainPreset:
     """The check and command settings for one toolchain preset (#4635)."""
 
     name: str
-    shell_programs: tuple[ShellProgram, ...]
-    local_commands: tuple[LocalCommand, ...]
-    refusals: tuple[ShellRefusal, ...]
     static_check: tuple[str, ...] | None
     test_command: tuple[str, ...] | None
     test_selection: bool
@@ -46,9 +35,6 @@ class ToolchainPreset:
 
 DEVOPS_CLI_PRESET: Final[ToolchainPreset] = ToolchainPreset(
     name="devops-cli",
-    shell_programs=SHELL_PROGRAMS,
-    local_commands=LOCAL_COMMANDS,
-    refusals=SHELL_REFUSALS,
     static_check=(
         BIN_UV,
         "run",
@@ -73,9 +59,6 @@ DEVOPS_CLI_PRESET: Final[ToolchainPreset] = ToolchainPreset(
 
 NEUTRAL_PRESET: Final[ToolchainPreset] = ToolchainPreset(
     name="neutral",
-    shell_programs=(),
-    local_commands=(),
-    refusals=(),
     static_check=None,
     test_command=None,
     test_selection=False,

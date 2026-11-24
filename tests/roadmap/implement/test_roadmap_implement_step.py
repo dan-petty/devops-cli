@@ -37,19 +37,16 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_IMPLEMENT_TOOL_MAX_CHARS,
     CONST_ROADMAP_IMPLEMENT_TURN_RESERVE_TOKENS,
 )
-from devops_cli.config.defaults import DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS
 from devops_cli.config.settings import load_settings, setting_default
 from devops_cli.exceptions.roadmap import RoadmapImplementError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement import implement_step
 from devops_cli.roadmap.implement.implement_limits import StepBudget
-from devops_cli.roadmap.implement.implement_shell_policy import (
-    IMPLEMENT_SHELL_PROGRAMS,
-    VERIFICATION_FIRST_WORDS,
-)
+from devops_cli.roadmap.implement.implement_shell import shell_environment
 from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
+    StepConversation,
     StepOutcome,
     StepStatus,
     build_agent,
@@ -57,17 +54,19 @@ from devops_cli.roadmap.implement.implement_step import (
     issue_inputs,
     run_fix_step,
     run_step,
-    shell_environment,
 )
-from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog, logged_program
+from devops_cli.roadmap.implement.implement_tool_log import ToolCallLog
 from devops_cli.roadmap.implement.implement_trace import ImplementTrace, TraceEventKind
 from devops_cli.roadmap.step_files import parse_task_groups
+from devops_cli.roadmap.verification_command import VERIFICATION_FIRST_WORDS
 from tests.support.builders import make_item
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.implement_step import (
     CHECK,
     DOCS,
+    EVERY_TICK,
+    LATER_OPEN,
     SHOUT_CODE,
     TASKS,
     TASKS_PATH,
@@ -79,7 +78,6 @@ from tests.support.implement_step import (
     is_clean_at,
     make_checkout,
     programs_run,
-    refused_between_reads,
     rounds_spent,
     the_whole_group,
     write_call,
@@ -303,7 +301,7 @@ def test_a_group_that_the_agent_completes_ends_done_with_one_commit(
         "",
         head,
         "The group is done.",
-        2,
+        3,
         before,
         "chore: The first group (#1)",
         [TASKS_PATH, "src/sample.py", "tests/test_sample.py"],
@@ -319,7 +317,7 @@ def test_the_outcome_counts_the_tool_calls_of_all_replies(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, outcome.requests, outcome.tool_calls) == (StepStatus.DONE, 3, 3)
+    assert (outcome.status, outcome.requests, outcome.tool_calls) == (StepStatus.DONE, 4, 3)
 
 
 def test_the_exit_checks_format_first_run_each_command_once_then_the_static_checks_on_the_changed_files(
@@ -499,60 +497,6 @@ def test_a_commit_that_a_hook_refuses_stops_the_step_and_resets_the_checkout(
     )
 
 
-# What the refusal adds to the text of the shell (#2773).
-ALLOWED_HINT = (
-    "These programs are allowed: "
-    + ", ".join(f"`{program}`" for program in IMPLEMENT_SHELL_PROGRAMS)
-    + ". Run the commands of the project "
-    "with `uv run`, for example `uv run devops ci test <file>`."
-)
-OPERATOR_HINT = (
-    "Run one command in each call. Do not chain commands. "
-    "Send each command as its own call, for example `git status --short`, then "
-    "`git log --oneline -5`. Do not use `cd`: every command runs in the checkout."
-)
-
-
-def test_the_shell_tool_refuses_a_program_outside_the_allowlist_and_the_run_goes_on(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """A refused command starts no process: the process floor fails a test that starts one."""
-    script = ModelScript(
-        tool_call("run_command", command="curl http://example.com"),
-        tool_call("run_command", command="git status; curl http://example.com"),
-        say("Done."),
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.last_message, outcome.requests, script.tool_answers()) == (
-        "Done.",
-        3,
-        [
-            f"Command 'curl' is not in the allowed list. {ALLOWED_HINT}",
-            f"Shell operator ';' is not allowed. {OPERATOR_HINT}",
-        ],
-    )
-
-
-def test_the_shell_tool_refuses_the_devops_cli_and_openspec(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """The shell reaches no command that writes to GitHub: `devops gh` is not on its list."""
-    script = ModelScript(
-        tool_call("run_command", command="devops gh api -X POST repos/example/roadmap/issues"),
-        tool_call("run_command", command="openspec archive 1-sample-change"),
-        say("Done."),
-    )
-
-    _step(store, checkout, script)
-
-    assert script.tool_answers() == [
-        "Command 'devops' is not in the allowed list. Instead of `devops`: `uv run devops`.",
-        "Command 'openspec' is not in the allowed list. Instead of `openspec`: `uv run devops openspec check`.",
-    ]
-
-
 def test_the_shell_runs_with_a_scratch_home_the_cache_of_uv_and_the_tools_of_the_checkout(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -625,10 +569,168 @@ def test_the_agent_of_a_step_runs_its_shell_in_that_environment(
 
     shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
     assert [shell.env for shell in shells] == [shell_environment(tmp_path / "home", checkout)]
-    assert [shell.allowed_commands for shell in shells] == [list(IMPLEMENT_SHELL_PROGRAMS)]
+    assert [(list(shell.allowed_commands), list(shell.denied_commands)) for shell in shells] == [
+        ([], [])
+    ]
     assert [(list(shell.tools), shell.default_timeout) for shell in shells] == [
         (["run_command"], load_settings().roadmap.implement.command_timeout_seconds)
     ]
+
+
+def test_the_agent_of_a_step_is_stock_coder(tmp_path: Path, checkout: Path) -> None:
+    """Group 1 (#6527): stock `Coder` with `autonomy='max'` and `repo_context=True`, `Skills`,
+    `RequireVerification`, `WrapUpAtLimits`, and `step_shell` with no allowed or denied command
+    and no refusal wrapper."""
+    from pydantic_ai_harness.coder import Coder
+    from pydantic_ai_harness.repo_context import RepoContext
+    from pydantic_ai_harness.require_verification import RequireVerification
+    from pydantic_ai_harness.skills import Skills
+    from pydantic_ai_harness.sub_agents import SubAgents
+    from pydantic_ai_harness.wrap_up_at_limits import WrapUpAtLimits
+
+    sentinel = ["uv run sentinel-check-one", "uv run sentinel-check-two"]
+    log = ToolCallLog()
+    agent = build_agent(
+        ModelScript(say("x")).model(),
+        checkout,
+        "go",
+        WINDOW,
+        tmp_path / "home",
+        log,
+        StepBudget(progress=log.progress),
+        checks=sentinel,
+    )
+    leaves: list[Any] = []
+    agent.root_capability.visit_and_replace(lambda leaf: leaves.append(leaf) or leaf)
+    stock_leaves: list[Any] = []
+    Coder[None](instructions="go", autonomy="max", repo_context=True, sub_agents=False).apply(
+        stock_leaves.append
+    )
+
+    assert {type(leaf) for leaf in stock_leaves} <= {type(leaf) for leaf in leaves}
+    guidance = [leaf for leaf in leaves if type(leaf).__name__ == "_CoderGuidance"]
+    assert len(guidance) == 1
+    assert "Write checks from the task's stated behavior" in getattr(guidance[0], "guidance", "")
+    assert any(isinstance(leaf, RepoContext) for leaf in leaves)
+    assert not any(isinstance(leaf, SubAgents) for leaf in leaves)
+    shells = [leaf for leaf in leaves if isinstance(leaf, Shell)]
+    assert len(shells) == 1
+    assert (
+        list(shells[0].allowed_commands),
+        list(shells[0].denied_commands),
+        list(shells[0].denied_operators),
+        list(shells[0].tools),
+    ) == ([], [], [], ["run_command"])
+    assert not any(type(leaf).__name__ == "ShellRefusal" for leaf in leaves)
+    skills = [leaf for leaf in leaves if isinstance(leaf, Skills)]
+    assert [tuple(str(d) for d in skill.directories) for skill in skills] == [(".agents/skills",)]
+    verifications = [leaf for leaf in leaves if isinstance(leaf, RequireVerification)]
+    assert [list(v.verification_commands) for v in verifications] == [sentinel]
+    assert any(isinstance(leaf, WrapUpAtLimits) for leaf in leaves)
+
+    from devops_cli.roadmap.implement.implement_shell import step_shell
+    from devops_cli.roadmap.implement.implement_step import project_checks
+    from devops_cli.roadmap.step_files import parse_task_groups
+    from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, NEUTRAL_PRESET
+
+    direct_shell = step_shell(tmp_path / "home", checkout)
+    assert (
+        list(direct_shell.allowed_commands),
+        list(direct_shell.denied_commands),
+        list(direct_shell.tools),
+    ) == ([], [], ["run_command"])
+    [group] = parse_task_groups(
+        "## 1. One\n\n- [ ] 1.1 Do it\n  - Verification: `$ uv run sentinel-verify` passes\n"
+    )
+    assert DEVOPS_CLI_PRESET.static_check is not None
+    expected_static = " ".join(DEVOPS_CLI_PRESET.static_check)
+    assert project_checks(group, DEVOPS_CLI_PRESET) == ["uv run sentinel-verify", expected_static]
+    assert project_checks(group, NEUTRAL_PRESET) == ["uv run sentinel-verify"]
+
+
+def test_require_verification_redirects_an_unverified_edit(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """An edited run that ends without calling a project check is sent back once by
+    `RequireVerification` (#6527)."""
+    script = ModelScript(tool_calls(*the_whole_group()), say("Done."))
+
+    outcome = _step(store, checkout, script)
+
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
+    third_request_parts = [str(getattr(part, "content", "")) for part in script.seen[2][-1].parts]
+    assert any(
+        "You edited code, but no verification has passed" in text for text in third_request_parts
+    )
+
+
+def test_two_task_groups_share_one_conversation(
+    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
+) -> None:
+    """Two task groups of one item run with one `StepConversation` keep the messages of the first
+    run in the `Conversation` of the second run, with compaction controls enabled (#6527)."""
+    from pydantic_ai_harness.compaction import ClearToolResults
+
+    (checkout / TASKS_PATH).write_text(LATER_OPEN, encoding="utf-8")
+    git(checkout, "add", TASKS_PATH)
+    git(checkout, "commit", "-q", "-m", "Open group 2")
+
+    conversation = StepConversation()
+    script = ModelScript(
+        tool_calls(*the_whole_group()),
+        say("Group 1 is done."),
+        say("Group 1 is done."),
+        tool_calls(
+            write_call("docs/SAMPLE.md", "Updated doc.\n"),
+            write_call(TASKS_PATH, EVERY_TICK),
+        ),
+        say("Group 2 is done."),
+    )
+    first = run_step(
+        store,
+        item=1,
+        group=1,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        conversation=conversation,
+    )
+    second = run_step(
+        store,
+        item=1,
+        group=2,
+        source=checkout,
+        model=script.model(),
+        window=WINDOW,
+        conversation=conversation,
+    )
+
+    assert (first.status, second.status) == (StepStatus.DONE, StepStatus.DONE)
+    assert conversation.current is not None
+    history = " ".join(
+        str(getattr(part, "content", ""))
+        for message in conversation.current.messages
+        for part in getattr(message, "parts", ())
+    )
+    seen_in_second = " ".join(
+        str(getattr(part, "content", ""))
+        for message in script.seen[-1]
+        for part in getattr(message, "parts", ())
+    )
+    assert ("Add the failing test" in history, "Document the function" in history) == (True, True)
+    assert ("Add the failing test" in seen_in_second, "Group 1 is done." in seen_in_second) == (
+        True,
+        True,
+    )
+    log = ToolCallLog()
+    agent = build_agent(
+        script.model(), checkout, "go", WINDOW, checkout, log, StepBudget(progress=log.progress)
+    )
+    leaves: list[Any] = []
+    agent.root_capability.visit_and_replace(lambda leaf: leaves.append(leaf) or leaf)
+    compactors = [leaf for leaf in leaves if isinstance(leaf, ClearToolResults)]
+    assert len(compactors) == 1
+    assert compactors[0].context_window == WINDOW
 
 
 _BROKER_GATEWAY = "https://gateway.example.com/v1"
@@ -1036,7 +1138,7 @@ def test_an_agent_that_forgot_the_ticks_ends_done_with_no_extra_turn(
     ) == (
         StepStatus.DONE,
         "",
-        2,
+        3,
         before,
         [TASKS_PATH, "src/sample.py", "tests/test_sample.py"],
         "",
@@ -1053,14 +1155,14 @@ def test_a_failed_verification_command_gets_one_repair_round_and_stops_after_it(
     programs.answer(
         lambda call: command_text(call) == DOCS, ProcessAnswer(returncode=1, stdout="no docs\n")
     )
-    script = ModelScript(tool_calls(*WORK), say(FORGOT), say("Fixed."))
+    script = ModelScript(tool_calls(*WORK), say(FORGOT), say(FORGOT), say("Fixed."))
 
     outcome = _step(store, checkout, script)
 
     assert (outcome.status, outcome.reason, len(script.seen)) == (
         StepStatus.STOPPED,
         f"{DOCS} exited with status 1.\nno docs" + rounds_spent(1),
-        3,
+        4,
     )
 
 
@@ -1077,7 +1179,7 @@ def test_a_failed_static_check_gets_one_extra_turn_for_it_and_none_for_the_ticks
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 3)
+    assert (outcome.status, len(script.seen)) == (StepStatus.STOPPED, 4)
     assert outcome.reason.endswith("exited with status 1.\nerror: bad type" + rounds_spent(1))
 
 
@@ -1085,7 +1187,9 @@ def test_the_spend_of_both_turns_is_in_the_ledger_and_the_outcome(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake, spend_ledger: SpendLedger
 ) -> None:
     _ruff_fails_once(programs)
-    script = ModelScript(tool_calls(*WORK), say("Done."), tool_calls(TICK), say("Ticked."))
+    script = ModelScript(
+        tool_calls(*WORK), say("Done."), say("Done."), tool_calls(TICK), say("Ticked.")
+    )
 
     outcome = _step(store, checkout, script)
 
@@ -1098,7 +1202,7 @@ def test_the_spend_of_both_turns_is_in_the_ledger_and_the_outcome(
         sum(row[1] for row in rows),
         sum(row[2] for row in rows),
         outcome.requests,
-    ) == (["implement", "implement"], outcome.input_tokens, outcome.output_tokens, 4)
+    ) == (["implement", "implement"], outcome.input_tokens, outcome.output_tokens, 5)
 
 
 def test_a_fix_step_gets_no_extra_turn(
@@ -1108,7 +1212,7 @@ def test_a_fix_step_gets_no_extra_turn(
 
     outcome = _fix(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 2)
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
 
 
 def test_the_inputs_of_a_step_name_the_tasks_file_and_those_of_a_fix_step_do_not(
@@ -1353,93 +1457,18 @@ RETRY_LIMIT_MESSAGE = (
 )
 
 
-REFUSAL_LIMIT_MESSAGE = (
-    "Too many consecutive commands refused by policy: the limit is "
-    f"{DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}."
-)
 BROKE = UnexpectedModelBehavior("The reply broke the rules.")
 
 
-def test_a_model_that_keeps_calling_a_refused_program_stops_with_the_message_and_the_count(
+def test_the_stop_reason_counts_only_the_retried_calls(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
-    """The shell refuses `pytest`. The model asks for `pytest` in every reply, as the Job on #2656
-    may have done: the third refusal in a row ends the run (#3271, #4043)."""
-    head = git(checkout, "rev-parse", "HEAD")
-    script = ModelScript(tool_call("run_command", command="pytest tests/test_sample.py"))
+    """Group 7 (#6527): the reason of a stopped step holds only `Other retries: N.`."""
+    outcome = _step(store, checkout, ModelScript(tool_call("read_file")))
 
-    outcome = _step(store, checkout, script)
-
-    assert (outcome.status, outcome.reason, outcome.requests, is_clean_at(checkout, head)) == (
-        StepStatus.STOPPED,
-        f"UnexpectedModelBehavior: {REFUSAL_LIMIT_MESSAGE}\n"
-        f"Refused commands: pytest {DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS}. "
-        "Other retries: 0.",
-        DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS,
-        True,
-    )
-
-
-def test_the_reason_counts_the_refused_commands_by_program_from_the_most_refused(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(
-        *(
-            refused_between_reads(f"{program} x")
-            for program in "cd python cd python python python".split()
-        ),
-        BROKE,
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert outcome.reason.endswith("\nRefused commands: python 4, cd 2. Other retries: 0.")
-
-
-def test_the_reason_joins_the_programs_beyond_the_limit_to_other(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """Five programs, one of them twice: the reason lists four, and the fifth joins `other`."""
-    script = ModelScript(
-        *(
-            refused_between_reads(f"{name} x")
-            for name in ("pytest", "rg", "pip", "cd", "python3", "python3")
-        ),
-        BROKE,
-    )
-
-    outcome = _step(store, checkout, script)
-
-    assert constants.CONST_ROADMAP_IMPLEMENT_REFUSED_PROGRAMS == 4
-    assert outcome.reason.endswith(
-        "\nRefused commands: python3 2, pytest 1, rg 1, pip 1, other 1. Other retries: 0."
-    )
-
-
-def test_a_first_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    script = ModelScript(tool_call("run_command", command="API_KEY=hunter2 uv run x"), BROKE)
-
-    outcome = _step(store, checkout, script)
-
-    shown = logged_program("API_KEY=hunter2")
-    assert outcome.reason.endswith(f"\nRefused commands: {shown} 1. Other retries: 0.")
-    assert "hunter2" not in outcome.reason
-
-
-def test_a_short_word_that_is_no_known_program_is_counted_as_other_and_never_shown(
-    store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
-) -> None:
-    """A password that the model read from a file is a short bare word, and the mask of secrets
-    leaves it as it is. The reason goes to a comment on GitHub, so it must not show the word."""
-    script = ModelScript(tool_call("run_command", command="hunter2password x"), BROKE)
-
-    outcome = _step(store, checkout, script)
-
-    shown = logged_program("hunter2password")
-    assert outcome.reason.endswith(f"\nRefused commands: {shown} 1. Other retries: 0.")
-    assert "hunter2password" not in outcome.reason
+    assert outcome.status is StepStatus.STOPPED
+    assert outcome.reason.endswith("\nOther retries: 6.")
+    assert "Refused commands" not in outcome.reason
 
 
 def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retries(
@@ -1452,7 +1481,7 @@ def test_a_model_that_sends_invalid_arguments_stops_with_the_count_of_other_retr
     assert (outcome.status, outcome.reason) == (
         StepStatus.STOPPED,
         f"UnexpectedModelBehavior: {RETRY_LIMIT_MESSAGE.replace('shell', 'read_file')}\n"
-        "Refused commands: 0. Other retries: 6.",
+        "Other retries: 6.",
     )
 
 
@@ -1463,7 +1492,7 @@ def test_a_model_that_asks_for_a_path_outside_the_root_counts_other_retries_not_
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith("\nRefused commands: 0. Other retries: 5.")
+    assert outcome.reason.endswith("\nOther retries: 5.")
 
 
 def _edit_missing(path: str = "src/other.py") -> ModelResponse:
@@ -1488,8 +1517,7 @@ def test_a_file_tool_that_runs_out_of_retries_fails_its_call_and_the_run_goes_on
     ]
     assert (failed, outcome.reason) == (
         ["File not found: src/other5.py"],
-        "UnexpectedModelBehavior: The reply broke the rules.\n"
-        "Refused commands: 0. Other retries: 5.",
+        "UnexpectedModelBehavior: The reply broke the rules.\nOther retries: 5.",
     )
 
 
@@ -1549,7 +1577,7 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
 ) -> None:
     long = "x" * (3 * constants.CONST_ROADMAP_RUN_ERROR_CHARS)
     script = ModelScript(
-        tool_call("run_command", command="pytest tests/test_sample.py"),
+        tool_call("read_file", path="/etc/passwd"),
         UnexpectedModelBehavior(long),
     )
 
@@ -1557,7 +1585,7 @@ def test_a_long_message_of_the_error_is_cut_and_the_counts_stay_in_the_reason(
 
     assert outcome.reason == (
         f"UnexpectedModelBehavior: {'x' * constants.CONST_ROADMAP_RUN_ERROR_CHARS}\n"
-        "Refused commands: pytest 1. Other retries: 0."
+        "Other retries: 1."
     )
 
 
@@ -1565,15 +1593,18 @@ def test_the_counts_cover_the_repair_turn(
     store: InMemoryRoadmapStore, checkout: Path, programs: ProcessFake
 ) -> None:
     _ruff_fails(programs)
-    refused = tool_call("run_command", command="pytest tests/test_sample.py")
-    script = ModelScript(refused, tool_calls(*WORK), say(FORGOT), refused)
+    script = ModelScript(
+        tool_call("read_file", path="/etc/passwd"),
+        tool_calls(*WORK),
+        say(FORGOT),
+        say(FORGOT),
+        tool_call("read_file", path="/etc/shadow"),
+        BROKE,
+    )
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.reason.endswith(
-        f"\nRefused commands: pytest {DEFAULT_ROADMAP_IMPLEMENT_MAX_CONSECUTIVE_REFUSALS + 1}. "
-        "Other retries: 0."
-    )
+    assert outcome.reason.endswith("\nOther retries: 2.")
 
 
 # ── A model call that fails (#2731) ───────────────────────────────────────────────────────
@@ -1907,6 +1938,7 @@ def test_the_spend_of_a_failed_repair_turn_is_in_the_ledger(
     script = ModelScript(
         tool_calls(*WORK),
         say(FORGOT),
+        say(FORGOT),
         tool_call("read_file", path="docs/SAMPLE.md"),
         ModelAPIError("example-model", "The provider broke."),
     )
@@ -1915,7 +1947,7 @@ def test_the_spend_of_a_failed_repair_turn_is_in_the_ledger(
 
     assert (_spend_rows(spend_ledger), outcome.requests) == (
         [("agent_run", "implement", 1, 1), ("agent_run", "implement", 1, 1)],
-        4,
+        5,
     )
 
 
@@ -1988,7 +2020,7 @@ def test_a_400_inside_a_stream_at_the_first_request_is_sent_again(
 
     outcome = _step(store, checkout, script)
 
-    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 3)
+    assert (outcome.status, len(script.seen)) == (StepStatus.DONE, 4)
     assert _asks_for_a_smaller_edit(script.seen[1], script.seen[0])
 
 
@@ -2145,7 +2177,7 @@ def test_the_spend_of_a_failed_send_is_in_the_outcome_and_the_ledger(
 
     outcome = _step(store, checkout, script)
 
-    assert outcome.requests == 3
+    assert outcome.requests == 4
     assert [row[:2] for row in _spend_rows(spend_ledger)] == [("agent_run", "implement")] * 2
 
 
