@@ -2308,6 +2308,7 @@ class CIMessages:
     )
     docs_validation: str = "docs validation"
     devcontainer_validation: str = "devcontainer validation"
+    hadolint: str = "hadolint (dockerfile lint)"
     openspec_validation: str = "openspec validation"
     git_transcripts: str = "git transcripts (recorded again with the real git)"
     kube_linter: str = "kube-linter (the checks of .kube-linter.yaml on the Argo CD Applications)"

@@ -143,6 +143,7 @@ CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "deps",
     "constructs",
     "devcontainer",
+    "hadolint",
     "openspec",
     "git",
     "test-settings",
@@ -1035,6 +1036,13 @@ def get_check_specs() -> list[CheckSpec]:
             cmd=["uv", "run", "devops", "devcontainer", "validate", "--workspace", "."],
             span_name="ci.step.devcontainer",
             metric_step="devcontainer",
+        ),
+        CheckSpec(
+            name="hadolint",
+            display_title=MESSAGES.ci.hadolint,
+            cmd=["uv", "run", "pre-commit", "run", "hadolint", "--all-files"],
+            span_name="ci.step.hadolint",
+            metric_step="hadolint",
         ),
         CheckSpec(
             name="openspec",
