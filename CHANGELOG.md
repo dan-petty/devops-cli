@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.210.2](https://github.com/dan-petty/devops-cli/compare/v0.210.1...v0.210.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** update python:3.14-slim-trixie Docker digest to 22eafb3 ([#7011](https://github.com/dan-petty/devops-cli/issues/7011)) ([50c4533](https://github.com/dan-petty/devops-cli/commit/50c45338843f04695779b344551bff55def3c307))
+
 ## [0.210.1](https://github.com/dan-petty/devops-cli/compare/v0.210.0...v0.210.1) (2026-11-24)
 
 
