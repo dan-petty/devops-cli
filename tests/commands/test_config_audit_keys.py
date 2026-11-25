@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 33)
+    ) == (True, True, True, 34)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -104,7 +104,8 @@ def test_config_audit_keys_json_output() -> None:
         "crawl4ai.api_token" in keys,
         "mcp.stage_token" in keys,
         "mcp.implement_token" in keys,
-    ) == (True,) * 26
+        "tf.github_reader.private_key" in keys,
+    ) == (True,) * 27
 
 
 def test_config_audit_keys_table_rendering() -> None:

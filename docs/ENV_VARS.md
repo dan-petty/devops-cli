@@ -338,6 +338,9 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics go to; unset, `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318` |
 | `DEVOPS_CLI_TELEMETRY_USAGE_LEDGER` | `telemetry.usage_ledger` | No | Add each usage error of the CLI, by kind and names and with no argument value, as one line to `usage-errors.jsonl` under the user data root |
+| `DEVOPS_CLI_TF_GITHUB_READER_APP_ID` | `tf.github_reader.app_id` | No | ID of the `devops-settings-reader` GitHub App used for agent `tf plan` runs in `tf/github` |
+| `DEVOPS_CLI_TF_GITHUB_READER_INSTALLATION_ID` | `tf.github_reader.installation_id` | No | Installation ID of `devops-settings-reader` on the target owner for agent `tf plan` runs in `tf/github` |
+| `DEVOPS_CLI_TF_GITHUB_READER_PRIVATE_KEY` | `tf.github_reader.private_key` | 🔒 Yes | PEM private key of the `devops-settings-reader` GitHub App used for agent `devops tf` plans on `tf/github` stacks (stored in OS keyring) |
 | `DEVOPS_CLI_VALKEY_PASSWORD` | `valkey.password` | 🔒 Yes | Valkey authentication password (stored in OS keyring) |
 | `DEVOPS_CLI_VALKEY_TIMEOUT` | `valkey.timeout` | No | Valkey network socket connection/read timeout in seconds; the shared cache of embeddings, threat intel and library symbols waits at most 0.25 s for a connection (default: 2.0) |
 | `DEVOPS_CLI_VALKEY_URL` | `valkey.url` | No | The Valkey endpoint, such as `valkeys://example.com:6380/0`: the scheme, the host, the port and the database. The scheme `valkeys` connects over TLS and checks the certificate against the host. The scheme `valkey` connects in plaintext. The URL holds no password: `valkey.password` is in the OS keyring |

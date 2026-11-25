@@ -393,6 +393,15 @@ S3-compatible content store endpoint, public web base URL, and signing region.
 | `web_base_url` | `Union` | - | `DEVOPS_CLI_STORE_WEB_BASE_URL` | Public web base URL serving web-visible store prefixes |
 | `region` | `str` | `us-east-1` | `DEVOPS_CLI_STORE_REGION` | AWS SigV4 region for content store signing (default: us-east-1) |
 
+## Tf Configuration (`tf`)
+
+tf configuration settings.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `stacks` | `list` | `[]` | - | OpenTofu stacks and their agent access level (`plan` or `apply`) |
+| `github_reader` | `TFGitHubReaderConfig` | `app_id=None installation_id=None` | - | - |
+
 ## Top-Level Settings
 
 Top-level workstation and environment settings.

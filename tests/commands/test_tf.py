@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 import typer
@@ -687,3 +688,128 @@ def test_tf_mirror_verbs_dry_run_prints_full_argv_and_directory(
     expected_cmd = " ".join(["tofu", subcommand, *trailing])
     assert expected_cmd in result.output
     assert str(temp_tf_dir.resolve()) in result.output
+
+
+def test_tf_github_stack_agent_and_person_access_controls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+    keyring_store: Any,
+    github_api: Any,
+    config: Any,
+    cli: Any,
+    agent_caller: None,
+) -> None:
+    """Verify agent plan uses reader App, agent apply/destroy refuse at plan level, person apply
+    passes, agent apply passes when configured, budget below 250 refuses, missing reader
+    credentials refuse, and dry-run runs zero tofu calls (#5320)."""
+    import time
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+    from tests.support.fakes.github import github_json
+
+    stack = tmp_path / "tf" / "github" / "dan-petty"
+    stack.mkdir(parents=True)
+    (stack / "main.tf").write_text('terraform { required_version = ">= 1.13.0" }\n')
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("utf-8")
+    keyring_store.values["tf_github_reader_private_key"] = pem
+    keyring_store.values["service_github_app_private_key"] = "unused-writer-key"
+    config(
+        tf={
+            "stacks": [{"path": "tf/github/dan-petty"}],
+            "github_reader": {"app_id": 2001, "installation_id": 77},
+        }
+    )
+    get_github_rate_limiter().update_quota(
+        "core", remaining=500, limit=5000, reset_epoch=time.time() + 1800.0
+    )
+    github_api.route(
+        "POST",
+        "/app/installations/77/access_tokens",
+        github_json(
+            {
+                "token": "ghs_reader_tok",
+                "expires_at": "2026-11-25T12:35:00Z",
+                "permissions": {"metadata": "read"},
+            }
+        ),
+    )
+
+    # 1. Agent plan succeeds with reader token and no writer key read.
+    res_plan = cli("tf", "plan", str(stack))
+    assert res_plan.exit_code == 0, res_plan.output
+    assert len(process_fake.calls) == 1
+    assert process_fake.calls[0].argv == ("tofu", "plan")
+    assert process_fake.calls[0].env == {"GITHUB_TOKEN": "ghs_reader_tok"}
+    assert "service_github_app_private_key" not in keyring_store.secret_reads()
+
+    # 2. Agent apply and destroy are refused at plan level before invoking tofu.
+    calls_before = len(process_fake.calls)
+    for verb in ("apply", "destroy"):
+        res_refused = cli("tf", verb, str(stack))
+        assert res_refused.exit_code == 1
+        assert "tf.stacks[].agent_access" in res_refused.output
+        assert len(process_fake.calls) == calls_before
+
+    # 3. Core budget below floor (249 < 250) refuses plan before invoking tofu.
+    get_github_rate_limiter().update_quota(
+        "core", remaining=249, limit=5000, reset_epoch=time.time() + 1800.0
+    )
+    res_budget = cli("tf", "plan", str(stack))
+    assert res_budget.exit_code == 1
+    assert "249" in res_budget.output
+    assert "250" in res_budget.output
+    assert len(process_fake.calls) == calls_before
+
+    # 4. Missing reader App settings/key refuse plan naming all three settings with no tofu call.
+    get_github_rate_limiter().update_quota(
+        "core", remaining=500, limit=5000, reset_epoch=time.time() + 1800.0
+    )
+    keyring_store.values.pop("tf_github_reader_private_key")
+    res_no_reader = cli("tf", "plan", str(stack))
+    assert res_no_reader.exit_code == 1
+    assert "tf.github_reader.app_id" in res_no_reader.output
+    assert "tf.github_reader.installation_id" in res_no_reader.output
+    assert "tf.github_reader.private_key" in res_no_reader.output
+    assert len(process_fake.calls) == calls_before
+
+    # 5. Agent apply allowed when stack configured with agent_access=apply.
+    config(tf={"stacks": [{"path": "tf/github/dan-petty", "agent_access": "apply"}]})
+    res_agent_apply = cli("tf", "apply", str(stack))
+    assert res_agent_apply.exit_code == 0, res_agent_apply.output
+    assert process_fake.calls[-1].argv == ("tofu", "apply")
+
+
+def test_tf_github_stack_person_apply_and_dry_run_work_at_plan_level(
+    tmp_path: Path,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+    config: Any,
+    cli: Any,
+    person_caller: None,
+) -> None:
+    """Person apply passes on a plan-level tf/github stack, and --dry-run starts no tofu (#5320)."""
+    stack = tmp_path / "tf" / "github" / "dan-petty"
+    stack.mkdir(parents=True)
+    (stack / "main.tf").write_text('terraform { required_version = ">= 1.13.0" }\n')
+    config(tf={"stacks": [{"path": "tf/github/dan-petty", "agent_access": "plan"}]})
+
+    res_dry = cli("tf", "apply", "--dry-run", str(stack))
+    assert res_dry.exit_code == 0, res_dry.output
+    assert "tofu apply" in res_dry.output
+    assert process_fake.calls == []
+
+    res_person_apply = cli("tf", "apply", str(stack))
+    assert res_person_apply.exit_code == 0, res_person_apply.output
+    assert len(process_fake.calls) == 1
+    assert process_fake.calls[0].argv == ("tofu", "apply")

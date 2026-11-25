@@ -125,6 +125,13 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
     return candidate if candidate.exists() else None
 
 
+def _prepare_tf_stack_run(target: Path, *, action: str, dry_run: bool) -> dict[str, str] | None:
+    """Enforce agent access, core budget floor, and reader App credentials for a stack run."""
+    from devops_cli.tf.access import prepare_tf_stack_run
+
+    return prepare_tf_stack_run(target, action=action, dry_run=dry_run)
+
+
 # =============================================================================
 # Command: devops tf init
 # =============================================================================
@@ -183,12 +190,14 @@ def tf_plan(
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
     target = validate_dir(directory)
-    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    dry = dry_run or is_dry_run()
+    child_env = _prepare_tf_stack_run(target, action="plan", dry_run=dry)
+    binary = "tofu" if dry else _resolve_tf_binary(dry_run)
     cmd = build_tf_plan_cmd(
         binary=binary, var_file=var_file, out=out, destroy=destroy, extra_args=ctx.args
     )
 
-    if dry_run or is_dry_run():
+    if dry:
         render_request_plan(
             f"Plan for OpenTofu execution plan in {target}",
             plan_tf_plan(
@@ -206,6 +215,7 @@ def tf_plan(
     result = run_subprocess(
         cmd,
         cwd=target,
+        env=child_env,
         check=True,
         timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
     )
@@ -232,7 +242,9 @@ def tf_apply(
 ) -> None:
     """Create or update OpenTofu infrastructure."""
     target = validate_dir(directory)
-    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    dry = dry_run or is_dry_run()
+    _prepare_tf_stack_run(target, action="apply", dry_run=dry)
+    binary = "tofu" if dry else _resolve_tf_binary(dry_run)
     cmd = build_tf_apply_cmd(
         binary=binary,
         var_file=var_file,
@@ -284,7 +296,9 @@ def tf_destroy(
 ) -> None:
     """Destroy OpenTofu-managed infrastructure."""
     target = validate_dir(directory)
-    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    dry = dry_run or is_dry_run()
+    _prepare_tf_stack_run(target, action="destroy", dry_run=dry)
+    binary = "tofu" if dry else _resolve_tf_binary(dry_run)
     cmd = build_tf_destroy_cmd(
         binary=binary, var_file=var_file, auto_approve=auto_approve, extra_args=ctx.args
     )
