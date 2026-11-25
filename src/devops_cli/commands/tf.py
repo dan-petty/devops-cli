@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 import typer
 
@@ -54,6 +55,7 @@ from devops_cli.tf.tf_plans import (
     build_tf_destroy_cmd,
     build_tf_init_cmd,
     build_tf_output_cmd,
+    build_tf_passthrough_cmd,
     build_tf_plan_cmd,
     plan_tf_apply,
     plan_tf_cost_breakdown,
@@ -63,8 +65,16 @@ from devops_cli.tf.tf_plans import (
     plan_tf_init,
     plan_tf_lint,
     plan_tf_output,
+    plan_tf_passthrough,
     plan_tf_plan,
 )
+
+# Allow wrapper options before <directory> and forward every token after it to OpenTofu (#5318).
+_TF_PASSTHROUGH_SETTINGS: Final[dict[str, Any]] = {
+    "allow_interspersed_args": False,
+    "allow_extra_args": True,
+    "ignore_unknown_options": False,
+}
 
 app = new_typer(
     help=HELP.tf.app,
@@ -120,23 +130,28 @@ def _get_default_var_file(cloud_provider: str, repo_root: Path) -> Path | None:
 # =============================================================================
 
 
-@app.command("init")
+@app.command("init", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("request-plan")
 def tf_init(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
-    upgrade: Annotated[bool, typer.Option("--upgrade", "-u", help=HELP.tf.upgrade_modules)] = False,
+    upgrade: Annotated[bool, typer.Option("--upgrade", help=HELP.tf.upgrade_modules)] = False,
     reconfigure: Annotated[bool, typer.Option("--reconfigure", help=HELP.tf.reconfigure)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Initialize an OpenTofu working directory."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
-    cmd = build_tf_init_cmd(binary=binary, upgrade=upgrade, reconfigure=reconfigure)
+    cmd = build_tf_init_cmd(
+        binary=binary, upgrade=upgrade, reconfigure=reconfigure, extra_args=ctx.args
+    )
 
     if dry_run or is_dry_run():
         render_request_plan(
             f"Plan for initializing OpenTofu in {target}",
-            plan_tf_init(target, upgrade=upgrade, reconfigure=reconfigure, binary=binary),
+            plan_tf_init(
+                target, upgrade=upgrade, reconfigure=reconfigure, binary=binary, extra_args=ctx.args
+            ),
         )
         return
 
@@ -156,26 +171,34 @@ def tf_init(
 # =============================================================================
 
 
-@app.command("plan")
+@app.command("plan", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("request-plan")
 def tf_plan(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
-    var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
-    ] = None,
-    out: Annotated[Path | None, typer.Option("--out", "-o", help=HELP.tf.out_plan)] = None,
+    var_file: Annotated[Path | None, typer.Option("--var-file", help=HELP.tf.var_file)] = None,
+    out: Annotated[Path | None, typer.Option("--out", help=HELP.tf.out_plan)] = None,
     destroy: Annotated[bool, typer.Option("--destroy", help=HELP.tf.destroy_plan)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Generate and show an OpenTofu execution plan."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
-    cmd = build_tf_plan_cmd(binary=binary, var_file=var_file, out=out, destroy=destroy)
+    cmd = build_tf_plan_cmd(
+        binary=binary, var_file=var_file, out=out, destroy=destroy, extra_args=ctx.args
+    )
 
     if dry_run or is_dry_run():
         render_request_plan(
             f"Plan for OpenTofu execution plan in {target}",
-            plan_tf_plan(target, var_file=var_file, out=out, destroy=destroy, binary=binary),
+            plan_tf_plan(
+                target,
+                var_file=var_file,
+                out=out,
+                destroy=destroy,
+                binary=binary,
+                extra_args=ctx.args,
+            ),
         )
         return
 
@@ -195,16 +218,13 @@ def tf_plan(
 # =============================================================================
 
 
-@app.command("apply")
+@app.command("apply", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("request-plan")
 def tf_apply(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
-    var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
-    ] = None,
-    plan_file: Annotated[
-        Path | None, typer.Option("--plan-file", "-p", help=HELP.tf.plan_file)
-    ] = None,
+    var_file: Annotated[Path | None, typer.Option("--var-file", help=HELP.tf.var_file)] = None,
+    plan_file: Annotated[Path | None, typer.Option("--plan-file", help=HELP.tf.plan_file)] = None,
     auto_approve: Annotated[
         bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
@@ -218,6 +238,7 @@ def tf_apply(
         var_file=var_file,
         plan_file=plan_file,
         auto_approve=auto_approve,
+        extra_args=ctx.args,
     )
 
     if dry_run or is_dry_run():
@@ -229,6 +250,7 @@ def tf_apply(
                 plan_file=plan_file,
                 auto_approve=auto_approve,
                 binary=binary,
+                extra_args=ctx.args,
             ),
         )
         return
@@ -249,13 +271,12 @@ def tf_apply(
 # =============================================================================
 
 
-@app.command("destroy")
+@app.command("destroy", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("request-plan")
 def tf_destroy(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
-    var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
-    ] = None,
+    var_file: Annotated[Path | None, typer.Option("--var-file", help=HELP.tf.var_file)] = None,
     auto_approve: Annotated[
         bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
@@ -264,12 +285,20 @@ def tf_destroy(
     """Destroy OpenTofu-managed infrastructure."""
     target = validate_dir(directory)
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
-    cmd = build_tf_destroy_cmd(binary=binary, var_file=var_file, auto_approve=auto_approve)
+    cmd = build_tf_destroy_cmd(
+        binary=binary, var_file=var_file, auto_approve=auto_approve, extra_args=ctx.args
+    )
 
     if dry_run or is_dry_run():
         render_request_plan(
             f"Plan for destroying OpenTofu infrastructure in {target}",
-            plan_tf_destroy(target, var_file=var_file, auto_approve=auto_approve, binary=binary),
+            plan_tf_destroy(
+                target,
+                var_file=var_file,
+                auto_approve=auto_approve,
+                binary=binary,
+                extra_args=ctx.args,
+            ),
         )
         return
 
@@ -289,9 +318,10 @@ def tf_destroy(
 # =============================================================================
 
 
-@app.command("output")
+@app.command("output", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("request-plan")
 def tf_output(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     json_output: Annotated[
         bool, typer.Option("--json", "-j", help=HELP.options.json_output)
@@ -308,10 +338,12 @@ def tf_output(
     binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
     resolved_format = resolve_format(output_format, json_output=json_output)
     is_json = resolved_format != CONST_OUTPUT_FORMAT_TABLE
-    cmd = build_tf_output_cmd(binary=binary, json_mode=is_json, raw=raw)
+    cmd = build_tf_output_cmd(binary=binary, json_mode=is_json, raw=raw, extra_args=ctx.args)
 
     if dry_run or is_dry_run():
-        requests = plan_tf_output(target, json_mode=is_json, raw=raw, binary=binary)
+        requests = plan_tf_output(
+            target, json_mode=is_json, raw=raw, binary=binary, extra_args=ctx.args
+        )
         if is_json:
             res = TFOutputResult(
                 directory=str(target),
@@ -348,9 +380,10 @@ def tf_output(
 # =============================================================================
 
 
-@app.command("validate")
+@app.command("validate", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("no-external-request")
 def tf_validate(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     no_color: Annotated[bool, typer.Option("--no-color", help=HELP.tf.no_color)] = False,
 ) -> None:
@@ -358,9 +391,8 @@ def tf_validate(
     target = validate_dir(directory)
     binary = _resolve_tf_binary()
 
-    cmd = [binary, "validate"]
-    if no_color:
-        cmd.append("-no-color")
+    flags = ["-no-color", *ctx.args] if no_color else ctx.args
+    cmd = build_tf_passthrough_cmd("validate", extra_args=flags, binary=binary)
 
     print_info(MESSAGES.tf.validate_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
@@ -378,9 +410,10 @@ def tf_validate(
 # =============================================================================
 
 
-@app.command("fmt")
+@app.command("fmt", context_settings=_TF_PASSTHROUGH_SETTINGS)
 @dry_run_class("no-external-request")
 def tf_fmt(
+    ctx: typer.Context,
     directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
     check: Annotated[bool, typer.Option("--check", "-c", help=HELP.tf.check_fmt)] = False,
     recursive: Annotated[
@@ -396,6 +429,7 @@ def tf_fmt(
         cmd.append("-check")
     if recursive:
         cmd.append("-recursive")
+    cmd.extend(ctx.args)
 
     print_info(MESSAGES.tf.fmt_header.format(path=str(target)), prefix=False)
     result = run_subprocess(
@@ -406,6 +440,80 @@ def tf_fmt(
     )
     if result.returncode == 0:
         print_success(MESSAGES.tf.fmt_success)
+
+
+# =============================================================================
+# Pass-through mirror verbs: import, state, show, force-unlock
+# =============================================================================
+
+
+def _run_tf_mirror_verb(
+    verb: str,
+    directory: Path,
+    *,
+    dry_run: bool,
+    extra_args: Sequence[str],
+) -> None:
+    """Execute or plan a thin OpenTofu mirror verb with trailing pass-through args."""
+    target = validate_dir(directory)
+    binary = "tofu" if (dry_run or is_dry_run()) else _resolve_tf_binary(dry_run)
+    if dry_run or is_dry_run():
+        render_request_plan(
+            f"Plan for OpenTofu {verb} in {target}",
+            plan_tf_passthrough(verb, target, extra_args=extra_args, binary=binary),
+        )
+        return
+    cmd = build_tf_passthrough_cmd(verb, extra_args=extra_args, binary=binary)
+    run_subprocess(
+        cmd,
+        cwd=target,
+        check=True,
+        timeout=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+    )
+
+
+@app.command("import", help=HELP.tf.import_cmd, context_settings=_TF_PASSTHROUGH_SETTINGS)
+@dry_run_class("request-plan")
+def tf_import(
+    ctx: typer.Context,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Import existing infrastructure resources into OpenTofu state."""
+    _run_tf_mirror_verb("import", directory, dry_run=dry_run, extra_args=ctx.args)
+
+
+@app.command("state", help=HELP.tf.state, context_settings=_TF_PASSTHROUGH_SETTINGS)
+@dry_run_class("request-plan")
+def tf_state(
+    ctx: typer.Context,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Inspect and manage resources in OpenTofu state."""
+    _run_tf_mirror_verb("state", directory, dry_run=dry_run, extra_args=ctx.args)
+
+
+@app.command("show", help=HELP.tf.show, context_settings=_TF_PASSTHROUGH_SETTINGS)
+@dry_run_class("request-plan")
+def tf_show(
+    ctx: typer.Context,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Show OpenTofu state or saved plan output."""
+    _run_tf_mirror_verb("show", directory, dry_run=dry_run, extra_args=ctx.args)
+
+
+@app.command("force-unlock", help=HELP.tf.force_unlock, context_settings=_TF_PASSTHROUGH_SETTINGS)
+@dry_run_class("request-plan")
+def tf_force_unlock(
+    ctx: typer.Context,
+    directory: Annotated[Path, typer.Argument(help=HELP.tf.target_dir)] = DEFAULT_CURRENT_PATH,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
+) -> None:
+    """Release a stuck OpenTofu state lock by lock ID."""
+    _run_tf_mirror_verb("force-unlock", directory, dry_run=dry_run, extra_args=ctx.args)
 
 
 # =============================================================================
@@ -680,13 +788,11 @@ def _confirm_deploy_without_checkout_state(
 @app.command(name="deploy-cloud")
 @dry_run_class("request-plan")
 def deploy_cloud(
-    provider: Annotated[str, typer.Option("--provider", "-p", help=HELP.options.provider)],
+    provider: Annotated[str, typer.Option("--provider", help=HELP.options.provider)],
     auto_approve: Annotated[
         bool, typer.Option("--auto-approve", help=HELP.options.auto_approve)
     ] = False,
-    var_file: Annotated[
-        Path | None, typer.Option("--var-file", "-v", help=HELP.tf.var_file)
-    ] = None,
+    var_file: Annotated[Path | None, typer.Option("--var-file", help=HELP.tf.var_file)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.options.dry_run)] = False,
 ) -> None:
     """Deploy cloud Kubernetes infrastructure for AWS, Azure, or GCP from an infra checkout.
@@ -842,7 +948,6 @@ def tf_notify_plan(
         Path,
         typer.Option(
             "--plan-file",
-            "-p",
             help=HELP.tf.plan_input_file,
             exists=True,
             file_okay=True,

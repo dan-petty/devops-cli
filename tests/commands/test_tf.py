@@ -128,7 +128,7 @@ def test_get_default_var_file(tmp_path: Path) -> None:
 def test_tf_init_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["init", str(temp_tf_dir), "--upgrade", "--reconfigure"])
+    result = runner.invoke(app, ["init", "--upgrade", "--reconfigure", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "init", "-upgrade", "-reconfigure") for c in process_fake.calls)
 
@@ -136,7 +136,7 @@ def test_tf_init_command(
 def test_tf_init_dry_run(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["init", str(temp_tf_dir), "--dry-run"])
+    result = runner.invoke(app, ["init", "--dry-run", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert len(process_fake.calls) == 0
 
@@ -149,7 +149,16 @@ def test_tf_plan_command(
     out_file = temp_tf_dir / "tfplan"
 
     result = runner.invoke(
-        app, ["plan", str(temp_tf_dir), "-v", str(var_file), "-o", str(out_file), "--destroy"]
+        app,
+        [
+            "plan",
+            "--var-file",
+            str(var_file),
+            "--out",
+            str(out_file),
+            "--destroy",
+            str(temp_tf_dir),
+        ],
     )
     assert result.exit_code == 0
     assert any("plan" in c.argv and "-destroy" in c.argv for c in process_fake.calls)
@@ -158,7 +167,7 @@ def test_tf_plan_command(
 def test_tf_apply_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["apply", str(temp_tf_dir), "--auto-approve"])
+    result = runner.invoke(app, ["apply", "--auto-approve", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "apply", "-auto-approve") for c in process_fake.calls)
 
@@ -169,7 +178,7 @@ def test_tf_apply_with_plan_file(
     plan_file = temp_tf_dir / "tfplan"
     plan_file.write_text("plan")
 
-    result = runner.invoke(app, ["apply", str(temp_tf_dir), "-p", str(plan_file)])
+    result = runner.invoke(app, ["apply", "--plan-file", str(plan_file), str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(str(plan_file.resolve()) in c.argv for c in process_fake.calls)
 
@@ -177,7 +186,7 @@ def test_tf_apply_with_plan_file(
 def test_tf_destroy_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["destroy", str(temp_tf_dir), "--auto-approve"])
+    result = runner.invoke(app, ["destroy", "--auto-approve", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "destroy", "-auto-approve") for c in process_fake.calls)
 
@@ -186,7 +195,7 @@ def test_tf_output_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
     process_fake.answer("tofu", ProcessAnswer(stdout='{"cluster_name": "eks"}\n'))
-    result = runner.invoke(app, ["output", str(temp_tf_dir), "--json"])
+    result = runner.invoke(app, ["output", "--json", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "output", "-json") for c in process_fake.calls)
 
@@ -195,7 +204,7 @@ def test_tf_output_raw_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
     process_fake.answer("tofu", ProcessAnswer(stdout="eks\n"))
-    result = runner.invoke(app, ["output", str(temp_tf_dir), "--raw"])
+    result = runner.invoke(app, ["output", "--raw", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "output", "-raw") for c in process_fake.calls)
 
@@ -203,7 +212,7 @@ def test_tf_output_raw_command(
 def test_tf_validate_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["validate", str(temp_tf_dir), "--no-color"])
+    result = runner.invoke(app, ["validate", "--no-color", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "validate", "-no-color") for c in process_fake.calls)
 
@@ -211,7 +220,7 @@ def test_tf_validate_command(
 def test_tf_fmt_command(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
-    result = runner.invoke(app, ["fmt", str(temp_tf_dir), "--check"])
+    result = runner.invoke(app, ["fmt", "--check", str(temp_tf_dir)])
     assert result.exit_code == 0
     assert any(c.argv == ("tofu", "fmt", "-check", "-recursive") for c in process_fake.calls)
 
@@ -307,10 +316,10 @@ def test_tf_subcommands_dry_run(
     temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
 ) -> None:
     """Verify plan, apply, destroy, and output in dry-run mode."""
-    assert runner.invoke(app, ["plan", str(temp_tf_dir), "--dry-run"]).exit_code == 0
-    assert runner.invoke(app, ["apply", str(temp_tf_dir), "--dry-run"]).exit_code == 0
-    assert runner.invoke(app, ["destroy", str(temp_tf_dir), "--dry-run"]).exit_code == 0
-    assert runner.invoke(app, ["output", str(temp_tf_dir), "--dry-run"]).exit_code == 0
+    assert runner.invoke(app, ["plan", "--dry-run", str(temp_tf_dir)]).exit_code == 0
+    assert runner.invoke(app, ["apply", "--dry-run", str(temp_tf_dir)]).exit_code == 0
+    assert runner.invoke(app, ["destroy", "--dry-run", str(temp_tf_dir)]).exit_code == 0
+    assert runner.invoke(app, ["output", "--dry-run", str(temp_tf_dir)]).exit_code == 0
     assert len(process_fake.calls) == 0
 
 
@@ -534,3 +543,147 @@ def test_deploy_cloud_guards_only_local_resource_state_in_the_checkout(
     )
 
     assert (exit_code, cwds) == (expected_exit, [(nested / CONST_TF_AWS_DIR).resolve()] * runs)
+
+
+def test_tf_plan_forwards_trailing_args_to_tofu(
+    temp_tf_dir: Path, fake_tf_binaries: None, process_fake: ProcessFake
+) -> None:
+    """Every token after `<directory>` passes unchanged to `tofu plan` in that directory (#5318)."""
+    result = runner.invoke(app, ["plan", str(temp_tf_dir), "-out=x.plan", "-lock=false"])
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        c.argv == ("tofu", "plan", "-out=x.plan", "-lock=false")
+        and Path(c.cwd) == temp_tf_dir.resolve()
+        for c in process_fake.calls
+        if c.cwd
+    )
+
+
+@pytest.mark.parametrize(
+    ("subcommand", "trailing"),
+    [
+        ("init", ["-upgrade=false"]),
+        ("apply", ["-lock=false", "x.plan"]),
+        ("destroy", ["-target=null_resource.x"]),
+        ("output", ["-json", "cluster_name"]),
+        ("validate", ["-json"]),
+        ("fmt", ["-diff"]),
+    ],
+)
+def test_tf_mirror_verbs_forward_trailing_args(
+    subcommand: str,
+    trailing: list[str],
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+) -> None:
+    """All mirror verbs pass every token after `<directory>` unchanged to `tofu` (#5318)."""
+    if subcommand == "fmt":
+        # fmt defaults recursive=True via -recursive when wrapper --recursive is not disabled.
+        expected_tail = ("-recursive", *trailing)
+    else:
+        expected_tail = tuple(trailing)
+
+    result = runner.invoke(app, [subcommand, str(temp_tf_dir), *trailing])
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        c.argv == ("tofu", subcommand, *expected_tail) and Path(c.cwd) == temp_tf_dir.resolve()
+        for c in process_fake.calls
+        if c.cwd
+    )
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["plan", "-o", "x.plan"],
+        ["plan", "-v", "vars.tfvars"],
+        ["apply", "-p", "x.plan"],
+        ["apply", "-v", "vars.tfvars"],
+        ["destroy", "-v", "vars.tfvars"],
+        ["init", "-u"],
+        ["deploy-cloud", "-p", "aws"],
+        ["deploy-cloud", "--provider", "aws", "-v", "vars.tfvars"],
+        ["notify-plan", "-p", "plan.txt"],
+    ],
+)
+def test_tf_removed_short_aliases_are_rejected(
+    argv: list[str],
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+) -> None:
+    """Short options `-o`, `-v`, `-p`, and `-u` are rejected before `<directory>` (#5318)."""
+    if argv[0] == "notify-plan":
+        plan_file = temp_tf_dir / "plan.txt"
+        plan_file.write_text("No changes.\n", encoding="utf-8")
+        cmd = ["notify-plan", "-p", str(plan_file)]
+    elif argv[0] == "deploy-cloud":
+        cmd = argv
+    else:
+        cmd = [*argv, str(temp_tf_dir)]
+    result = runner.invoke(app, cmd)
+
+    assert result.exit_code == 2
+    assert "No such option:" in result.output
+    assert process_fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("subcommand", "trailing"),
+    [
+        ("import", ["aws_instance.web", "i-123"]),
+        ("state", ["list"]),
+        ("show", ["-json"]),
+        ("force-unlock", ["-force", "123456"]),
+    ],
+)
+def test_tf_passthrough_subcommands_forward_to_tofu(
+    subcommand: str,
+    trailing: list[str],
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+) -> None:
+    """`import`, `state`, `show`, and `force-unlock` pass trailing tokens to `tofu` (#5318)."""
+    result = runner.invoke(app, [subcommand, str(temp_tf_dir), *trailing])
+
+    assert result.exit_code == 0, result.output
+    assert any(
+        c.argv == ("tofu", subcommand, *trailing) and Path(c.cwd) == temp_tf_dir.resolve()
+        for c in process_fake.calls
+        if c.cwd
+    )
+
+
+@pytest.mark.parametrize(
+    ("subcommand", "trailing"),
+    [
+        ("init", ["-upgrade=false"]),
+        ("plan", ["-out=x.plan"]),
+        ("apply", ["-auto-approve", "x.plan"]),
+        ("destroy", ["-target=null_resource.x"]),
+        ("output", ["-raw", "cluster_name"]),
+        ("import", ["aws_instance.web", "i-123"]),
+        ("state", ["list"]),
+        ("show", ["-json"]),
+        ("force-unlock", ["-force", "123456"]),
+    ],
+)
+def test_tf_mirror_verbs_dry_run_prints_full_argv_and_directory(
+    subcommand: str,
+    trailing: list[str],
+    temp_tf_dir: Path,
+    fake_tf_binaries: None,
+    process_fake: ProcessFake,
+) -> None:
+    """Dry run prints the full `tofu` command with trailing args and target directory (#5318)."""
+    result = runner.invoke(app, [subcommand, "--dry-run", str(temp_tf_dir), *trailing])
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    expected_cmd = " ".join(["tofu", subcommand, *trailing])
+    assert expected_cmd in result.output
+    assert str(temp_tf_dir.resolve()) in result.output

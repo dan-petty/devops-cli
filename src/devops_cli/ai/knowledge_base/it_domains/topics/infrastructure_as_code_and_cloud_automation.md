@@ -56,13 +56,13 @@ tf/
 devops tf init tf/examples/aws
 
 # Compute execution plan with variable file (a copy of tf/examples/aws/aws.tfvars.example)
-devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
+devops tf plan --var-file dev.tfvars --out dev.tfplan tf/examples/aws
 
 # Apply the pre-computed plan file
-devops tf apply tf/examples/aws --plan-file dev.tfplan
+devops tf apply --plan-file dev.tfplan tf/examples/aws
 
 # Read structured JSON outputs
-devops tf output tf/examples/aws --json
+devops tf output --json tf/examples/aws
 
 # Inspect state status and provider health
 devops tf status tf/examples/aws

@@ -379,6 +379,10 @@ and draft readiness. |
 |  | `devops tf output [OPTIONS] <directory>` | Read an output variable from the OpenTofu state. |
 |  | `devops tf validate [OPTIONS] <directory>` | Validate the OpenTofu configuration files in a directory. |
 |  | `devops tf fmt [OPTIONS] <directory>` | Rewrites OpenTofu configuration files to canonical format. |
+|  | `devops tf import [OPTIONS] <directory>` | Import existing infrastructure resources into OpenTofu state. |
+|  | `devops tf state [OPTIONS] <directory>` | Inspect and manage resources in OpenTofu state. |
+|  | `devops tf show [OPTIONS] <directory>` | Show OpenTofu state or saved plan output. |
+|  | `devops tf force-unlock [OPTIONS] <directory>` | Release a stuck OpenTofu state lock by lock ID. |
 |  | `devops tf status <directory>` | Show OpenTofu directory state, initialization status, and provider plugins. |
 |  | `devops tf graph [OPTIONS] <directory>` | Inspect the in-memory resource dependency graph and blast radius. |
 |  | `devops tf drift [OPTIONS] <directory>` | Compare declared configuration against recorded state. |

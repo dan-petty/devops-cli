@@ -22,12 +22,16 @@ from devops_cli.commands.tf import (
     tf_destroy,
     tf_drift,
     tf_fmt,
+    tf_force_unlock,
     tf_graph,
+    tf_import,
     tf_init,
     tf_lint,
     tf_notify_plan,
     tf_output,
     tf_plan,
+    tf_show,
+    tf_state,
     tf_validate,
 )
 from devops_cli.main import app
@@ -41,7 +45,11 @@ REQUEST_PLAN_COMMANDS = [
     ("tf apply", tf_apply, ["tf", "apply", "--dry-run"]),
     ("tf destroy", tf_destroy, ["tf", "destroy", "--dry-run"]),
     ("tf output", tf_output, ["tf", "output", "--dry-run"]),
-    ("tf deploy-cloud", deploy_cloud, ["tf", "deploy-cloud", "-p", "aws", "--dry-run"]),
+    ("tf import", tf_import, ["tf", "import", "--dry-run"]),
+    ("tf state", tf_state, ["tf", "state", "--dry-run"]),
+    ("tf show", tf_show, ["tf", "show", "--dry-run"]),
+    ("tf force-unlock", tf_force_unlock, ["tf", "force-unlock", "--dry-run"]),
+    ("tf deploy-cloud", deploy_cloud, ["tf", "deploy-cloud", "--provider", "aws", "--dry-run"]),
     ("tf lint", tf_lint, ["tf", "lint", "--dry-run"]),
     ("tf cost breakdown", tf_cost_breakdown, ["tf", "cost", "breakdown", "--dry-run"]),
     ("tf cost diff", tf_cost_diff, ["tf", "cost", "diff", "--dry-run"]),
@@ -76,7 +84,19 @@ def test_request_plan_commands_make_no_external_request(
     cmd_args = list(argv)
     if name in {"tf cost breakdown", "tf cost diff"}:
         cmd_args.insert(3, str(tmp_path))
-    elif name in {"tf init", "tf plan", "tf apply", "tf destroy", "tf output", "tf lint"}:
+    elif name in {
+        "tf init",
+        "tf plan",
+        "tf apply",
+        "tf destroy",
+        "tf output",
+        "tf import",
+        "tf state",
+        "tf show",
+        "tf force-unlock",
+    }:
+        cmd_args.append(str(tmp_path))
+    elif name == "tf lint":
         cmd_args.insert(2, str(tmp_path))
     elif name == "tf deploy-cloud":
         # deploy-cloud runs in an infra checkout, which holds tf/examples/<provider> (#6679).
@@ -97,7 +117,7 @@ def test_request_plan_json_output(
 ) -> None:
     """Criterion 6: request-plan commands with json format return result type with dry_run true."""
     # 1. tf output
-    res_out = runner.invoke(app, ["tf", "output", str(tmp_path), "--format", "json", "--dry-run"])
+    res_out = runner.invoke(app, ["tf", "output", "--format", "json", "--dry-run", str(tmp_path)])
     assert res_out.exit_code == 0, res_out.output
     data_out = json.loads(res_out.output)
     assert data_out.get("dry_run") is True
@@ -166,6 +186,7 @@ def test_dry_run_plans_match_dispatched_arguments(tmp_path: Path) -> None:
         plan_tf_cost_breakdown,
         plan_tf_cost_diff,
         plan_tf_init,
+        plan_tf_passthrough,
         plan_tf_plan,
     )
 
@@ -217,3 +238,9 @@ def test_dry_run_plans_match_dispatched_arguments(tmp_path: Path) -> None:
     ]
     p_diff = plan_tf_cost_diff(tmp_path, compare_to="base.json")
     assert p_diff[0].argv == tuple(diff_cmd)
+
+    # 8. tf mirror passthrough verbs
+    p_import = plan_tf_passthrough(
+        "import", tmp_path, extra_args=["aws_instance.web", "i-123"], binary="tofu"
+    )
+    assert p_import[0].argv == ("tofu", "import", "aws_instance.web", "i-123")
