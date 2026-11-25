@@ -871,6 +871,23 @@ def test_a_refused_repeat_gives_the_page_of_the_earlier_comment(world: World) ->
     assert (again.posted, again.url, earlier.url is not None) == (False, earlier.url, True)
 
 
+def test_a_job_comment_with_allow_repeat_posts_when_repeating(world: World) -> None:
+    """When `allow_repeat` is true, a job comment whose text matches the job's last one still
+    posts a new comment (#6378)."""
+    number = world.seed("deferred")
+    first = f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nDeferred parts filed."
+
+    earlier = world.store.comment(number, first)
+    again = world.store.comment(number, first, allow_repeat=True)
+
+    assert (
+        bool(earlier),
+        bool(again),
+        [c.body for c in world.store.comments_on(number)],
+        world.writes(),
+    ) == (True, True, [first, first], 2)
+
+
 def test_a_close_with_no_comment_only_closes(world: World) -> None:
     number = world.seed("done")
     world.store.close(number, CloseReason.COMPLETED)

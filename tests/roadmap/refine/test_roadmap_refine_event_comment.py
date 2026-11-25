@@ -15,6 +15,7 @@ the base commit and each test fails on its own case.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,9 +27,11 @@ import pytest
 import time_machine
 
 from devops_cli.roadmap.body_hash import extract_section_and_outside
+from devops_cli.roadmap.intake.intake_model import ModelProposal, ProposalRequest
 from devops_cli.roadmap.owner_question import frame_hash
 from devops_cli.roadmap.refine import refine
 from devops_cli.roadmap.refine.refine import (
+    DeferredPart,
     NextStep,
     RefinementProposal,
     apply_refine,
@@ -54,6 +57,7 @@ from tests.support.roadmap_refine import (
     SPLIT,
     block_in_code,
     comment_bodies,
+    record_alternatives_check,
     refine_round,
     replies_sent,
     require_item,
@@ -568,3 +572,111 @@ def test_an_item_holding_only_repeated_at_falls_back_to_refine_comment_and_write
         (_START + timedelta(minutes=15)).isoformat(),
         None,
     )
+
+
+class _DeferredIntake:
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        return [
+            [1.0 if i == idx else 0.0 for idx in range(len(texts) + 2)] for i, _ in enumerate(texts)
+        ]
+
+    def propose(self, _request: ProposalRequest) -> ModelProposal:
+        return ModelProposal(
+            shared_change="",
+            duplicate_of=None,
+            duplicate_reason="distinct work",
+            related_to=None,
+            related_reason="no overlap",
+            type="type/feature",
+            type_reason="adds behavior",
+            priority="P2-Medium",
+            priority_reason="standard priority",
+            value="Medium",
+            value_reason="helpful",
+            effort="Low",
+            effort_reason="bounded change",
+            evidence=None,
+            evidence_reason="no reference needed",
+        )
+
+
+def test_second_deferred_change_with_no_intervening_comment_posts_event_without_issue_number(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """When a later round files an additional deferred issue and its visible event text equals
+    the prior event comment with no reply between, it still posts one more event comment (#6378)."""
+    labels_yml = '- name: scope/cli\n  color: "0e8a16"\n  description: CLI scope\n'
+    (git_repo / ".github").mkdir(exist_ok=True)
+    (git_repo / ".github" / "labels.yml").write_text(labels_yml, encoding="utf-8")
+    store.seed_file(".github/labels.yml", labels_yml)
+    number = seed_item(store, "New", "P1-High", title="feat(cli): add storage and export")
+    record_alternatives_check(store, number, "none")
+    seed_item(store, "Ready", "P3-Low", title="fix(cli): unrelated finished issue")
+
+    first = READY.model_copy(
+        update={
+            "deferred": [
+                DeferredPart(
+                    title="feat(cli): add deferred storage format",
+                    body="Add the new storage format in `src/sample.py`.",
+                )
+            ]
+        }
+    )
+    second = READY.model_copy(
+        update={
+            "deferred": [
+                DeferredPart(
+                    title="feat(cli): add deferred export option",
+                    body="Add the export flag in `src/sample.py`.",
+                )
+            ]
+        }
+    )
+    intake = _DeferredIntake()
+    model_fake.answer(first)
+    apply_refine(
+        store,
+        plan_refine(
+            store,
+            repo=REPO,
+            source=git_repo,
+            item_number=number,
+            model=model_fake,
+            intake_model=intake,
+        ),
+    )
+    comments_after_first = [c.body for c in store.comments_on(number)]
+    filed_before = {issue.number for issue in store.issues()}
+
+    model_fake.answer(second)
+    apply_refine(
+        store,
+        plan_refine(
+            store,
+            repo=REPO,
+            source=git_repo,
+            item_number=number,
+            model=model_fake,
+            intake_model=intake,
+        ),
+    )
+    comments_after_second = [c.body for c in store.comments_on(number)]
+    (second_filed,) = [issue for issue in store.issues() if issue.number not in filed_before]
+
+    assert len(comments_after_first) == 1
+
+    assert len(comments_after_second) == 2
+    assert comments_after_second[1] == comments_after_first[0]
+    assert f"#{second_filed.number}" not in comments_after_second[1]
+
+
+def test_refine_module_docstring_lines_at_most_100_chars() -> None:
+    """Every line in `devops_cli.roadmap.refine.refine.__doc__` is <= 100 chars (#6378)."""
+    assert refine.__doc__ is not None
+    long_lines = [
+        (idx, len(line), line)
+        for idx, line in enumerate(refine.__doc__.splitlines(), start=1)
+        if len(line) > 100
+    ]
+    assert long_lines == []

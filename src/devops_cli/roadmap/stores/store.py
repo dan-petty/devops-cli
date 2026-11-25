@@ -1452,10 +1452,11 @@ class RoadmapStore(Protocol):
     def repository_is_private(self) -> bool:
         """Whether the repository is private."""
 
-    def comment(self, number: int, body: str) -> PostedComment:
+    def comment(self, number: int, body: str, *, allow_repeat: bool = False) -> PostedComment:
         """Comment `body` on issue `number`, and give the page of the comment and whether it
-        posted: it does not post `body` that repeats a recent comment of the same roadmap job
-        there (#4793), and gives the page of that comment (#6194)."""
+        posted: unless `allow_repeat` is true (#6378), it does not post `body` that repeats a
+        recent comment of the same roadmap job there (#4793), and gives the page of that comment
+        (#6194)."""
 
     def edit_comment(self, number: int, comment_id: int, body: str) -> None:
         """Write `body` as the text of the comment `comment_id` on issue `number`: the upsert of

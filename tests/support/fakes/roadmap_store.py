@@ -634,11 +634,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         """Whether the evidence was seeded as one GitHub confirms."""
         return evidence in self._roadmap.evidence
 
-    def comment(self, number: int, body: str) -> _Posted:
+    def comment(self, number: int, body: str, *, allow_repeat: bool = False) -> _Posted:
         """Comment `body` on issue `number`, and give the page of the comment, as the GitHub
-        adapter does (#6194). A repeat of a recent comment of the same roadmap job there is no
-        write, and gives the page of that comment (#4793)."""
-        if self._refused_repeat(number, body):
+        adapter does (#6194). Unless `allow_repeat` is true (#6378), a repeat of a recent
+        comment of the same roadmap job there is no write, and gives the page of that comment
+        (#4793)."""
+        if not allow_repeat and self._refused_repeat(number, body):
             return _Posted(self._repeated_page(number, body), posted=False)
         self._attempt("comment", number, lambda: self._comment(number, body))
         return _Posted(self._roadmap.comments[number][-1].url, posted=True)

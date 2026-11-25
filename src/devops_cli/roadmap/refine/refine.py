@@ -1,4 +1,5 @@
-"""`devops roadmap refine`: item refinement to Ready with proposed design, tasks and acceptance criteria.
+"""`devops roadmap refine`: item refinement to Ready with proposed design, tasks and
+acceptance criteria.
 
 Without `--item`, refine picks up to `--limit` (default 7) items, nearest place first (#1515):
 each open milestone's New items, in milestone order (due date, then number); the backlog's P0 and
@@ -86,11 +87,11 @@ The proposal is one `chat_structured` call with `ai.for_task("refine")`: its pro
 questions, numbered, reach the model as a JSON document, and `chat_structured` adds the schema each
 reply must match. Deterministic validation checks sources, key questions and owner decisions. When
 a fact or a decision has no verified source, or a body question no answer names, the investigation
-(`refine_investigation`, #2398) runs one pydantic-ai agent with read-only tools on the pinned commit,
-and with web search when the repository is public and a search provider is configured; its revised proposal is
-validated the same way. A decision names the options it compared, a question only a person can
-decide waits on a person, and the Ready check sets Status New → Ready only when complete. The plan
-says when web search is off, and why.
+(`refine_investigation`, #2398) runs one pydantic-ai agent with read-only tools on the pinned
+commit, and with web search when the repository is public and a search provider is configured; its
+revised proposal is validated the same way. A decision names the options it compared, a question
+only a person can decide waits on a person, and the Ready check sets Status New → Ready only when
+complete. The plan says when web search is off, and why.
 A person waits only for a decision: a question marked `(a person decides)`. Every other failure of
 the round is a job failure (`JobFailure`, #3632): the proposal fails a form check (`form_checks`),
 a question stays open after the investigation with no verified source or no answer, or the
@@ -4827,11 +4828,13 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
 
     # The deferred parts are filed first: an item whose parts are not all filed is not set
     # Ready, and the next round files the rest (#2423)
+    recorded_deferred = tuple(_recorded_numbers(r.item))
     deferred = _file_deferrals(store, r, repo=repo) if r.deferred else ()
     if deferred is None:
         return RefineApplied()
+    deferred_changed = bool(deferred) and deferred != recorded_deferred
     # The section names the new items, the last part of it, and the record holds its hash (#6196)
-    body = _with_moved(r.new_body, _recorded_numbers(r.item), deferred) if deferred else r.new_body
+    body = _with_moved(r.new_body, recorded_deferred, deferred) if deferred else r.new_body
     marks = _refine_marks(r, deferred, body_hashes(body)[1])
 
     # Status change & marks: a Ready item refine finds not ready goes back to New (#1515), unless
@@ -4848,7 +4851,11 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     # Comment: a round whose result changed posts it (#6196); `read_at` is already recorded above.
     comments = 0
     comment = r.reason_comment
-    if comment and store.comment(r.item.number, comment):
+    if comment and (
+        store.comment(r.item.number, comment, allow_repeat=True)
+        if deferred_changed
+        else store.comment(r.item.number, comment)
+    ):
         comments = 1
     return RefineApplied(
         refined_count=1,

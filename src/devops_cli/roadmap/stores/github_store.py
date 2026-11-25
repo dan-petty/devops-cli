@@ -1218,14 +1218,17 @@ class GitHubRoadmapStore(RoadmapStore):
             self._path_changes[path] = commits[0].committed_at if commits else None
         return self._path_changes[path]
 
-    def comment(self, number: int, body: str) -> PostedComment:
+    def comment(self, number: int, body: str, *, allow_repeat: bool = False) -> PostedComment:
         """Comment `body` on issue `number`, and give the page of the comment that GitHub
-        answers (#6194). A repeat of a recent comment of the same roadmap job there writes
-        nothing: the store reads the comments of the issue and gives the page of that comment
-        (#4793)."""
-        earlier = refused_repeat(number, body, lambda: self.comments_on(number), now=self._clock())
-        if earlier is not None:
-            return _Posted(earlier.url, posted=False)
+        answers (#6194). Unless `allow_repeat` is true (#6378), a repeat of a recent comment of
+        the same roadmap job there writes nothing: the store reads the comments of the issue and
+        gives the page of that comment (#4793)."""
+        if not allow_repeat:
+            earlier = refused_repeat(
+                number, body, lambda: self.comments_on(number), now=self._clock()
+            )
+            if earlier is not None:
+                return _Posted(earlier.url, posted=False)
         action = f"comment on #{number}"
         written = self._write(comment_args(self._repo, number, body), action)
         return _Posted(self._validate(written, _POSTED_COMMENT, action).html_url or None, True)
