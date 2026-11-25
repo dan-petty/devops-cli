@@ -18,7 +18,12 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.models.webhooks import WebhookIssue
-from devops_cli.roadmap.stores.store import GitHubState, IssueRecord, split_record
+from devops_cli.roadmap.stores.store import (
+    GitHubState,
+    IssueRecord,
+    decode_job_record,
+    split_record,
+)
 
 if TYPE_CHECKING:
     from devops_cli.valkey.tiered import TieredMapping
@@ -76,7 +81,8 @@ def remember_issue(repo: str | RepoRef, entry: CachedIssue) -> None:
 def issue_from_event(repo: str | RepoRef, issue: WebhookIssue) -> CachedIssue:
     """Build a `CachedIssue` from the `WebhookIssue` of an issue event."""
     ref = repo if isinstance(repo, RepoRef) else RepoRef(repo)
-    clean_body, job_record = split_record(issue.body, issue=f"#{issue.number}")
+    clean_body, held = split_record(issue.body, issue=f"#{issue.number}")
+    job_record = decode_job_record(held, issue=f"#{issue.number}")
     state = GitHubState.CLOSED if issue.state.lower() == "closed" else GitHubState.OPEN
     labels = tuple(lbl.name for lbl in issue.labels if lbl.name)
     record = IssueRecord(
