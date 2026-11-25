@@ -497,9 +497,7 @@ def test_the_decision_instruments_add_at_most_three_and_seven_series_to_a_point(
 def test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it(
     tmp_path: Path,
 ) -> None:
-    """ADR 0020 section 7 allows 92 series: 60 for the first catalogue, 24 for the three `brain.*`
-    points and 8 for `resolve.question_class` (#5272). A point writes 8 label sets with one
-    resolver and 14 with a rule and a model, so the test reads the bound for both catalogues."""
+    """Catalogue bound is 110 series: 92 from ADR 0020 section 7 plus 18 for implement.extension."""
 
     def rule(digest: Mapping[str, Any]) -> Band:
         return Band.CONTINUE
@@ -508,10 +506,27 @@ def test_the_registry_accepts_a_catalogue_at_the_bound_and_refuses_one_above_it(
     at_bound = [
         *(_point(cuts, name=f"demo.model_{index}") for index in range(8)),
         *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(2)),
+        DecisionPoint(
+            name="demo.soft_cap",
+            questions={"a": NoulQuestion(instructions="a?")},
+            evidence=dict,
+            bands=BANDS,
+            cuts=cuts,
+            rule=rule,
+            supports_rule_mode=True,
+        ),
     ]
     above_bound = [
-        *(_point(cuts, name=f"demo.model_{index}") for index in range(10)),
-        *(_point(cuts, name=f"demo.rule_{index}", rule=rule) for index in range(1)),
+        *(_point(cuts, name=f"demo.model_{index}") for index in range(12)),
+        DecisionPoint(
+            name="demo.soft_cap",
+            questions={"a": NoulQuestion(instructions="a?")},
+            evidence=dict,
+            bands=BANDS,
+            cuts=cuts,
+            rule=rule,
+            supports_rule_mode=True,
+        ),
     ]
     count = sum(len(point.series()) for point in at_bound)
     above = sum(len(point.series()) for point in above_bound)
@@ -577,5 +592,214 @@ def test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue(
         & names
     )
     assert f"{CONST_ROADMAP_DECISION_POINT_MAX_SERIES} series" in DECISION_POINT_TOTAL.description
-    assert CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 92
+    assert CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 110
     assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES
+
+
+def test_guards_run_before_rule_and_model_in_fixed_order(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """Guards run in order before rule and model, stop at first failure, and send no request."""
+    from devops_cli.roadmap.decision_point import Guard
+
+    calls: list[str] = []
+
+    def make_guard(name: str, *, fails: bool) -> Guard:
+        def allows(state: Mapping[str, Any]) -> bool:
+            calls.append(name)
+            return not fails
+
+        return Guard(name=name, allows=allows)
+
+    def broken_rule(digest: Mapping[str, Any]) -> Band:
+        raise AssertionError("rule must not run when a guard fails")
+
+    point = DecisionPoint(
+        name="demo.guarded",
+        questions={"a": NoulQuestion(instructions="a?")},
+        evidence=dict,
+        bands=BANDS,
+        cuts=_cuts(tmp_path),
+        guards=(
+            make_guard("service_draining", fails=False),
+            make_guard("hard_ceiling", fails=True),
+            make_guard("outer_limits", fails=True),
+            make_guard("loop_guard", fails=True),
+        ),
+        rule=broken_rule,
+    )
+
+    decision = _chain(point, jev, Mode.ON).decide({"text": "ok"}, subject=9)
+
+    assert calls == ["service_draining", "hard_ceiling"]
+    assert (
+        decision.resolver,
+        decision.band,
+        decision.acts,
+        decision.guard,
+        decision.rule_band,
+        decision.model_band,
+    ) == (Resolver.FALLBACK, None, False, "hard_ceiling", None, None)
+    assert jev.requests == []
+    assert otlp.points(COUNTER) == [
+        ({"point": "demo.guarded", "resolver": "fallback", "band": "none", "mode": "on"}, 1)
+    ]
+
+
+def test_mode_rule_runs_without_cuts_records_model_answers_and_falls_back_on_error_or_timeout(
+    tmp_path: Path, jev: JevFake, otlp: FakeCollector
+) -> None:
+    """Mode.RULE needs no cuts file, keeps standing rule decisions, records model probabilities
+    with model_band=None when rule defers, and falls back on error or 5s timeout."""
+    from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS
+
+    assert CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS == 5.0
+    missing_cuts = tmp_path / "does_not_exist.json"
+
+    rule_decides = DecisionPoint(
+        name="demo.rule",
+        questions={"a": NoulQuestion(instructions="a?")},
+        evidence=dict,
+        bands=BANDS,
+        cuts=missing_cuts,
+        rule=lambda digest: Band.CONTINUE if digest.get("extend") else None,
+        timeout=0.01,
+    )
+
+    extended = _chain(rule_decides, jev, Mode.RULE).decide({"extend": True}, subject=1)
+    assert (extended.resolver, extended.band, extended.rule_band, extended.model_band) == (
+        Resolver.RULE,
+        Band.CONTINUE,
+        Band.CONTINUE,
+        None,
+    )
+    assert jev.requests == []
+
+    jev.picks = {"a": 0.4}
+    deferred = _chain(rule_decides, jev, Mode.RULE).decide({"extend": False}, subject=2)
+    assert (deferred.resolver, deferred.band, deferred.rule_band, deferred.model_band) == (
+        Resolver.FALLBACK,
+        None,
+        None,
+        None,
+    )
+    assert deferred.answers == {"a": 0.4}
+
+    jev.hold()
+    timed_out = _chain(rule_decides, jev, Mode.RULE).decide({"extend": False}, subject=3)
+    jev.release()
+    assert (timed_out.resolver, timed_out.band, timed_out.model_band) == (
+        Resolver.FALLBACK,
+        None,
+        None,
+    )
+    assert otlp.points(FAILED_COUNTER) == [({"point": "demo.rule", "error": "timeout"}, 1)]
+
+
+def test_fit_bar_requires_min_cases_min_per_label_and_passing_halves_to_enable_on(
+    tmp_path: Path, jev: JevFake
+) -> None:
+    """Fit bar needs >= 30 cases, >= 10 per label, and passing halves report; blocks Mode.ON."""
+    from devops_cli.roadmap.decision_step import Thresholds
+    from devops_cli.roadmap.decision_table import FIT_BAR_POINTS, check_modes
+
+    assert "implement.extension" in FIT_BAR_POINTS
+
+    def write_cuts(name: str, report: dict[str, Any], *, cases: int) -> Path:
+        path = tmp_path / f"{name}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "step": "implement.extension",
+                    "model": CONST_AI_JEV_MODEL,
+                    "fitted": "2026-11-25",
+                    "cases": cases,
+                    "cuts": {"a": {"continue_below": 0.2, "flag_at": 0.8}},
+                    "report": report,
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    too_few = write_cuts(
+        "too_few",
+        {"label_counts": {"0": 15, "1": 14}, "halves_passed": True},
+        cases=29,
+    )
+    skewed = write_cuts(
+        "skewed",
+        {"label_counts": {"0": 25, "1": 9}, "halves_passed": True},
+        cases=34,
+    )
+    failed_halves = write_cuts(
+        "failed_halves",
+        {"label_counts": {"0": 20, "1": 15}, "halves_passed": False},
+        cases=35,
+    )
+    passing = write_cuts(
+        "passing",
+        {
+            "label_counts": {"0": 20, "1": 15},
+            "other_half": {"A": {"bar_met": True}, "B": {"bar_met": True}},
+        },
+        cases=35,
+    )
+
+    for bad_path in (too_few, skewed, failed_halves):
+        assert Thresholds.load(bad_path).fit_bar_problems() != []
+        with pytest.raises(ValueError, match=r"implement\.extension"):
+            check_modes({"implement.extension": "on"}, {"implement.extension": bad_path})
+        gated = DecisionPoint(
+            name="implement.extension",
+            questions={"a": NoulQuestion(instructions="a?")},
+            evidence=dict,
+            bands=BANDS,
+            cuts=bad_path,
+            rule=lambda digest: None,
+            requires_fit_bar=True,
+        )
+        blocked = _chain(gated, jev, Mode.ON).decide({"text": "ok"}, subject=4)
+        assert (blocked.resolver, blocked.band, blocked.acts) == (Resolver.FALLBACK, None, False)
+        assert jev.requests == []
+
+    assert Thresholds.load(passing).fit_bar_problems() == []
+    check_modes({"implement.extension": "on"}, {"implement.extension": passing})
+
+
+def test_implement_extension_point_guards_and_async_portal_safety(
+    tmp_path: Path, jev: JevFake
+) -> None:
+    """implement.extension runs guards including service_draining safely inside an active loop."""
+    from devops_cli.roadmap.implement.implement_limits import IMPLEMENT_EXTENSION
+    from devops_cli.roadmap.service_stop import begin_service_stop, reset_service_stop
+
+    assert IMPLEMENT_EXTENSION.name == "implement.extension"
+    assert len(IMPLEMENT_EXTENSION.series()) == 18
+
+    async def call_inside_loop() -> tuple[DecisionRecord, DecisionRecord]:
+        begin_service_stop()
+        try:
+            draining = ResolverChain(
+                IMPLEMENT_EXTENSION, Mode.RULE, model_name=CONST_AI_JEV_MODEL, model=jev.model
+            ).decide({"edits": 2, "calls": 20}, subject=4847)
+        finally:
+            reset_service_stop()
+        healthy = ResolverChain(
+            IMPLEMENT_EXTENSION, Mode.RULE, model_name=CONST_AI_JEV_MODEL, model=jev.model
+        ).decide({"edits": 2, "calls": 20}, subject=4848)
+        return draining, healthy
+
+    draining, healthy = asyncio.run(call_inside_loop())
+
+    assert (draining.resolver, draining.band, draining.guard) == (
+        Resolver.FALLBACK,
+        None,
+        "service_draining",
+    )
+    assert (healthy.resolver, healthy.band, healthy.guard) == (
+        Resolver.RULE,
+        Band.CONTINUE,
+        None,
+    )
+    assert jev.requests == []

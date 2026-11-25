@@ -247,3 +247,4 @@ The pull request of #4792 amends the catalogue on 2026-11-12. It adds the point 
 
 2026-11-14: Living detail moved to `docs/TELEMETRY.md` and to `openspec/specs/decision-workflows/spec.md`: the two decision-point instruments and their series bounds (#5272).
 2026-11-15: Fact out of date: the cookbook functions but `route_with_jev` and the auto mode left (#5276).
+2026-11-25: Living detail moved to `openspec/specs/decision-workflows/spec.md`: `rule` mode, ordered guards, fit bar, and `implement.extension` 110-series bound (#4847).

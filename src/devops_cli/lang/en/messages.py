@@ -6570,7 +6570,10 @@ class RoadmapMessages:
     )
     decision_point_unfitted: str = (
         "The decision point {point} has no fitted cuts at {path}. Its mode cannot be shadow or on. "
-        "Use off to run the point with no cuts file."
+        "Use off or rule to run the point with no cuts file."
+    )
+    decision_point_fit_bar: str = (
+        "The cuts of the decision point {point} do not satisfy the fit bar for mode on: {problems}."
     )
     decision_point_cuts_model: str = (
         "The cuts of the decision point {point} were fitted for the model {cuts}, but the model in "

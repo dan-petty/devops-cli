@@ -13,8 +13,9 @@ from typing import Final
 
 from devops_cli.roadmap.alternatives_reply_fixable import REPLY_FIXABLE
 from devops_cli.roadmap.decision_point import Registry
+from devops_cli.roadmap.implement.implement_limits import IMPLEMENT_EXTENSION
 from devops_cli.roadmap.stage.stage_jev_screen import VERIFY_SCREEN
 
-REGISTRY: Final[Registry] = Registry((VERIFY_SCREEN, REPLY_FIXABLE))
+REGISTRY: Final[Registry] = Registry((VERIFY_SCREEN, REPLY_FIXABLE, IMPLEMENT_EXTENSION))
 
 __all__ = ["REGISTRY"]
