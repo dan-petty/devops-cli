@@ -33,7 +33,15 @@ def _comments_path(page: int) -> str:
 
 def _comments(numbers: range) -> Any:
     return github_json(
-        [{"body": f"comment {n}", "created_at": "2026-11-02T10:00:00Z"} for n in numbers]
+        [
+            {
+                "body": f"comment {n}",
+                "created_at": "2026-11-02T10:00:00Z",
+                "author_association": "COLLABORATOR",
+                "user": {"login": "a-colleague"},
+            }
+            for n in numbers
+        ]
     )
 
 
@@ -116,8 +124,8 @@ def test_the_last_comments_come_from_the_last_page(github_api: GitHubApiFake) ->
 
     found = _client().get_last_comments(_REPO, 7, total=250, count=3)
 
-    assert (found, github_api.requested) == (
-        ["comment 248", "comment 249", "comment 250"],
+    assert ([comment.body for comment in found], github_api.requested) == (
+        [f"comment {n}" for n in range(201, 251)],
         [f"GET https://api.github.com{_comments_path(3)}"],
     )
 
@@ -128,7 +136,33 @@ def test_a_short_last_page_is_completed_from_the_page_before(github_api: GitHubA
 
     found = _client().get_last_comments(_REPO, 7, total=101, count=3)
 
-    assert found == ["comment 99", "comment 100", "comment 101"]
+    assert [comment.body for comment in found] == [f"comment {n}" for n in range(1, 102)]
+
+
+def test_a_comment_is_read_with_the_relation_and_the_login_of_its_author(
+    github_api: GitHubApiFake,
+) -> None:
+    github_api.route(
+        "GET",
+        _comments_path(1),
+        github_json(
+            [
+                {
+                    "body": "first",
+                    "author_association": "COLLABORATOR",
+                    "user": {"login": "a-colleague"},
+                },
+                {"body": "second", "author_association": "NONE", "user": None},
+            ]
+        ),
+    )
+
+    found = _client().get_last_comments(_REPO, 7, total=2, count=3)
+
+    assert [(c.body, c.author_association, c.author_login) for c in found] == [
+        ("first", "COLLABORATOR", "a-colleague"),
+        ("second", "NONE", None),
+    ]
 
 
 def test_an_issue_with_no_comment_makes_no_request(github_api: GitHubApiFake) -> None:

@@ -276,7 +276,11 @@ class _IssueSearchPage(BaseModel):
 class IssueView(BaseModel):
     """One issue or pull request as the issues endpoint reads it (#3238): its state and title, its
     labels, its body (null when empty), how many comments it holds, and the `pull_request` object
-    that only a pull request has, which carries the time it merged."""
+    that only a pull request has, which carries the time it merged. `author_association` is the
+    relation of the author to the repository as GitHub gives it, such as `OWNER` or `NONE`, and
+    `author_login` is the login of the author. Each is None when GitHub gives none."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     number: int
     title: str
@@ -286,6 +290,8 @@ class IssueView(BaseModel):
     comments: int = 0
     labels: list[_LabelName] = Field(default_factory=list)
     pull_request: dict[str, Any] | None = None
+    author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
 
     @property
     def label_names(self) -> list[str]:
@@ -308,8 +314,17 @@ class _LabelName(BaseModel):
     name: str
 
 
-class _CommentText(BaseModel):
+class CommentView(BaseModel):
+    """One comment as the comment listing of an issue reads it: its text, the relation of its
+    author to the repository as GitHub gives it, such as `COLLABORATOR` or `NONE`, and the login
+    of its author. The relation and the login are None when GitHub gives none, as for a deleted
+    account."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+
     body: str = ""
+    author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
 
 
 class IssueComment(BaseModel):
@@ -329,12 +344,17 @@ class _IssueEvent(BaseModel):
 
 
 class OpenItem(BaseModel):
-    """One open issue or pull request that a search found (#3238)."""
+    """One open issue or pull request that a search found (#3238), with the relation of its author
+    to the repository and the login of its author, as on `IssueView`."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     number: int
     title: str
     state: str
     pull_request: dict[str, Any] | None = None
+    author_association: str | None = None
+    author_login: str | None = Field(default=None, validation_alias=AliasPath("user", "login"))
 
     @property
     def is_pull_request(self) -> bool:
@@ -886,22 +906,26 @@ class GitHubClient:
                 break
         return issues
 
-    def get_last_comments(self, repo: str, number: int, *, total: int, count: int) -> list[str]:
-        """The bodies of the last `count` comments of the issue, oldest first. `total` is the
+    def get_last_comments(
+        self, repo: str, number: int, *, total: int, count: int
+    ) -> list[CommentView]:
+        """The last comments of the issue, oldest first, each with its author. `total` is the
         number of comments the issue holds. The last page is read, and the page before it when
-        the last one holds fewer than `count`."""
+        the last one holds fewer than `count`. The answer holds each comment of the pages read,
+        so it holds the last `count` comments and a caller can filter the comments by author
+        before it cuts them."""
         if total <= 0 or count <= 0:
             return []
         per_page = DEFAULT_GH_REST_PER_PAGE
         last_page = -(-total // per_page)
-        bodies: list[str] = []
+        comments: list[CommentView] = []
         for page in range(last_page, max(0, last_page - 2), -1):
             path = _repo_path(repo, f"issues/{number}/comments?per_page={per_page}&page={page}")
             listing = self._session.rest("GET", path)
-            bodies = [_read_as(_CommentText, item, path=path).body for item in listing] + bodies
-            if len(bodies) >= count:
+            comments = [_read_as(CommentView, item, path=path) for item in listing] + comments
+            if len(comments) >= count:
                 break
-        return bodies[-count:]
+        return comments
 
     def get_closing_pull(self, repo: str, number: int) -> int | None:
         """The number of the merged pull request that closed the issue, or None when the issue was

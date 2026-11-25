@@ -10,6 +10,11 @@ metric name, from `git grep -w` at the staged commit. The stage context carries 
 
 The reads are data: a title is masked with the secret masker, and a failed read adds no entry and
 never stops the item.
+
+The repository is public, so a pull request gives its title only when an author that the jobs
+trust opened it (`trust.is_trusted`). A pull request of another account, and a pull request whose
+author GitHub does not give, keeps its number, its state, its plan mark and its files, and the
+fixed text `trust.TITLE_LEFT_OUT` stands for its title. The same GraphQL request reads the author.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from devops_cli.exceptions.git import GitOperationError
 from devops_cli.github.client import PullRequest
 from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.commit_title import commit_scope, commit_type
+from devops_cli.roadmap.trust import TITLE_LEFT_OUT, is_trusted
 from devops_cli.security.sanitizer import mask_secrets
 from devops_cli.telemetry.instruments import INSTRUMENTS
 
@@ -32,6 +38,10 @@ PULL_PAGE_SIZE: Final[int] = 100
 # The type and scope of a pull request that only plans an item.
 _PLAN_TYPE: Final[str] = "docs"
 _PLAN_SCOPES: Final[frozenset[str]] = frozenset({"spec", "openspec"})
+# The GraphQL type of the author of a pull request that a bot opened, and how the REST API ends
+# the login of that bot. GraphQL gives the login with no such end.
+_BOT_TYPE: Final[str] = "Bot"
+_BOT_SUFFIX: Final[str] = "[bot]"
 # A metric name of devops-cli, as `INSTRUMENTS` writes it.
 _METRIC: Final[re.Pattern[str]] = re.compile(r"\bdevops_cli_[a-z0-9_]+\b")
 
@@ -43,6 +53,8 @@ query OpenPullRequests($owner: String!, $name: String!, $cursor: String) {{
         number
         title
         state
+        authorAssociation
+        author {{ __typename login }}
         files(first: {PULL_PAGE_SIZE}) {{
           nodes {{ path }}
         }}
@@ -70,7 +82,8 @@ class PullReads(Protocol):
 
 @dataclass(frozen=True)
 class OpenPull:
-    """One open pull request, with the files it changes and whether it is a plan."""
+    """One open pull request, with the files it changes and whether it is a plan. `title` is the
+    title of a pull request of a trusted author, and `trust.TITLE_LEFT_OUT` for each other."""
 
     number: int
     title: str
@@ -137,14 +150,42 @@ def _file_paths(files: Any) -> tuple[str, ...]:
     )
 
 
+@dataclass(frozen=True)
+class _PullAuthor:
+    """Who opened a pull request, in the form that `trust.is_trusted` reads."""
+
+    author_association: str | None
+    author_login: str | None
+
+
+def _author(fields: Mapping[str, Any]) -> _PullAuthor:
+    """The author of one pull request node. The settings and the REST API write the login of a
+    bot with the end `[bot]`, and GraphQL gives it with no such end and with the type `Bot`. So
+    the login of a `Bot` gets that end here. Only an author of the type `Bot` has a login with
+    that end: a user whose login is equal to the name of a trusted bot is no bot."""
+    association = fields.get("authorAssociation")
+    author = _mapping(fields.get("author"))
+    login = author.get("login")
+    is_bot = author.get("__typename") == _BOT_TYPE
+    if not isinstance(login, str) or not login or (login.endswith(_BOT_SUFFIX) and not is_bot):
+        login = None
+    elif is_bot and not login.endswith(_BOT_SUFFIX):
+        login = f"{login}{_BOT_SUFFIX}"
+    return _PullAuthor(association if isinstance(association, str) else None, login)
+
+
 def _open_pull(node: Any) -> OpenPull | None:
-    """One pull request of a GraphQL page, or None when the node has no number."""
+    """One pull request of a GraphQL page, or None when the node has no number. The plan mark
+    comes from the title of each pull request. The title itself stays only for a pull request of
+    a trusted author."""
     fields = _mapping(node)
     number = fields.get("number")
     if not isinstance(number, int):
         return None
     title = mask_secrets(str(fields.get("title") or ""))
     plan = commit_type(title) == _PLAN_TYPE and commit_scope(title) in _PLAN_SCOPES
+    if not is_trusted(_author(fields)):
+        title = TITLE_LEFT_OUT
     return OpenPull(
         number=number,
         title=title,

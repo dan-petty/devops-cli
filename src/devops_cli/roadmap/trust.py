@@ -14,11 +14,17 @@ is the control, and refine's model reads only the replies of trusted authors (`t
 
 A comment is new input for a job that failed its rounds only when a person with write access made
 it (`is_person_comment`, #2754): no bot and no outside account can start a job with a comment.
+
+The stage job reads other issues and pull requests for its model. The same rule decides those
+reads: `is_trusted` decides whose title, body and patch text the model gets, and `trusted_replies`
+decides whose comments it gets. So each rule takes any record that holds the relation and the login
+of an author (`Authored`), not only an item of the store.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Final, Protocol
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ACTIONS_BOT_LOGIN,
@@ -31,6 +37,26 @@ from devops_cli.roadmap.stores.store import IssueComment, Item, JudgeVerdict, Re
 _BOT_LOGIN_SUFFIX = "[bot]"
 """How GitHub ends the login of every bot account."""
 
+TITLE_LEFT_OUT: Final[str] = "(title left out: an account with no write access opened the item)"
+"""The text that a job gives its model in place of the title of an issue or a pull request that
+`is_trusted` refuses. Each job uses this one wording."""
+
+
+class Authored(Protocol):
+    """A record of GitHub that holds who wrote it: an item, an issue, a pull request or a
+    comment. `author_association` is the relation of the author to the repository as GitHub gives
+    it, and `author_login` is the login of the author. Each is None when it is not known."""
+
+    @property
+    def author_association(self) -> str | None:
+        """The relation of the author to the repository, such as `OWNER` or `NONE`."""
+        ...
+
+    @property
+    def author_login(self) -> str | None:
+        """The login of the author."""
+        ...
+
 
 def bot_logins() -> frozenset[str]:
     """The logins of the bots whose items the jobs take: the Service App's bot, when
@@ -39,15 +65,15 @@ def bot_logins() -> frozenset[str]:
     return frozenset({CONST_ROADMAP_ACTIONS_BOT_LOGIN} | ({app} if app else set()))
 
 
-def is_bot_filed(item: Item) -> bool:
+def is_bot_filed(item: Authored) -> bool:
     """Whether the author of `item` is a bot that the jobs trust. The login must be equal to one
     of `bot_logins()`, so a login that only resembles it is not trusted."""
     return item.author_login in bot_logins()
 
 
-def is_trusted(item: Item) -> bool:
+def is_trusted(item: Authored) -> bool:
     """Whether the jobs take the text of `item`: a person with write access or a trusted bot
-    opened it."""
+    opened it. An item with no association and no login is not trusted."""
     return item.author_association in CONST_ROADMAP_TRUSTED_AUTHORS or is_bot_filed(item)
 
 
@@ -78,10 +104,10 @@ def is_person_comment(comment: IssueComment, actor: str | None) -> bool:
     )
 
 
-def trusted_replies(comments: Sequence[IssueComment]) -> list[IssueComment]:
+def trusted_replies[CommentT: Authored](comments: Sequence[CommentT]) -> list[CommentT]:
     """The comments whose author a person with write access or the Service App's bot is: the only
-    comments that reach the model of refine. A comment of any other account, a bot included, does
-    not."""
+    comments that reach the model of a roadmap job. A comment of any other account, a bot
+    included, does not."""
     app = load_settings().service.github_app.bot_login
     return [
         comment

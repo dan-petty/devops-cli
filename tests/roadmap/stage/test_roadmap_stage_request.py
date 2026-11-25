@@ -183,6 +183,8 @@ def pulls_api(github_api: GitHubApiFake) -> GitHubApiFake:
         "title": PULL.title,
         "state": "OPEN",
         "files": {"nodes": [{"path": SAMPLE}]},
+        "authorAssociation": "OWNER",
+        "author": {"__typename": "User", "login": "a-person"},
     }
     page = {
         "data": {

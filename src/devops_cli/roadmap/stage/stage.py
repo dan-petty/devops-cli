@@ -389,7 +389,7 @@ from devops_cli.roadmap.stores.store import (
     StageRecordKey,
 )
 from devops_cli.roadmap.time_budget import TimeBudget
-from devops_cli.roadmap.trust import is_approved, is_trusted
+from devops_cli.roadmap.trust import TITLE_LEFT_OUT, is_approved, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.telemetry.instruments import (
     ROADMAP_STAGE_GATE_EXTENSION_ENDS_TOTAL,
@@ -3527,9 +3527,7 @@ def plan_stage(
                 **reasons_of(store, (target.item for target in read.selected)),
             },
             time_budget=time_budget,
-            dependency_title=lambda number: (
-                None if (held := store.item(number)) is None else held.title
-            ),
+            dependency_title=lambda number: _dependency_title(store, number),
             comments_on=store.comments_on,
         )
         ready, stopped, failed, blocked, premise = _plan_each(
@@ -3544,6 +3542,16 @@ def plan_stage(
         premise=tuple(premise),
         attempts=tuple(planner.attempts),
     )
+
+
+def _dependency_title(store: RoadmapStore, number: int) -> str | None:
+    """The title of issue `number` for the request of the planner, or None when the store holds
+    no such issue. An issue that an account with no write access opened gives the fixed text
+    `trust.TITLE_LEFT_OUT` in place of its title (`trust.is_trusted`)."""
+    held = store.item(number)
+    if held is None:
+        return None
+    return held.title if is_trusted(held) else TITLE_LEFT_OUT
 
 
 def _planner_of(
