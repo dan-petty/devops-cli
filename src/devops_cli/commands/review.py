@@ -162,7 +162,7 @@ from devops_cli.output import (
     print_table,
     print_warning,
 )
-from devops_cli.review.session import ReviewSessionStore, load_session_payload
+from devops_cli.review.session import ReviewSessionStore, load_session_payload, new_session_name
 
 app = new_typer(help=HELP.review.app, no_args_is_help=True)
 
@@ -658,7 +658,7 @@ def branch(
     pages, title, target_ref, base_revision = prepare_branch_content(
         branch_name, base, repo_path, working_directory=working_directory
     )
-    session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    session_id = new_session_name()
     if base_revision is None or getattr(base_revision, "read_head", None) is None:
         print_info("Scanning in place (uncommitted work)...", prefix=False)
         execute_review_workflow(
@@ -915,7 +915,7 @@ def pr(
         print_error(f"Configuration error: {exc.message} ({exc.key})", prefix=False)
         raise typer.Exit(1) from exc
     # The review reads the PR head's files, not the local checkout's version of them.
-    session_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+    session_id = new_session_name()
     # The one read of the working directory: the root of the local checkout of the PR's
     # repository (#2098, #2127).
     checkout = find_repo_root(Path.cwd())

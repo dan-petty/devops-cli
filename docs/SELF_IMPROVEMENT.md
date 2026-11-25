@@ -53,7 +53,7 @@ through four stages:
    review findings, grouping findings by enclosing symbol or rule, Kubernetes `(namespace, kind, name)`,
    or package `purl`, grounding each group's single model call in installed-version rule documentation
    and secret-masked code excerpts.
-4. **Report**. The session's directory, `<data dir>/reviews/<UTC timestamp>/`, receives:
+4. **Report**. The session's directory, `<data dir>/reviews/<session id>/`, receives:
    - `findings.json`, the reported findings: VERIFIED, MITIGATED and UNVERIFIED, never INVALIDATED;
    - `candidates.json`, every finding the review raised with its verdict;
    - `review.md` and `profile.json`.

@@ -16,11 +16,13 @@ import os
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
+from ulid import ULID
 
 from devops_cli.config.constants import (
     CONST_REVIEW_ANALYSIS_FILENAME,
@@ -46,6 +48,23 @@ if TYPE_CHECKING:
     from devops_cli.ai.review.profile import ReviewProfile
     from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload
     from devops_cli.review.analysis import AnalysisReport
+
+
+def new_session_name() -> str:
+    """Return a unique, lexicographically millisecond-ordered ULID session identifier."""
+    return str(ULID())
+
+
+def session_sort_key(name: str) -> tuple[int, datetime, str]:
+    """Order key for a session directory name: decoded UTC start time, non-timestamps last."""
+    try:
+        return (1, ULID.from_str(name).datetime, name)
+    except ValueError:
+        pass
+    try:
+        return (1, datetime.strptime(name, "%Y%m%d-%H%M%S").replace(tzinfo=UTC), name)
+    except ValueError:
+        return (0, datetime.min.replace(tzinfo=UTC), name)
 
 
 def load_session_payload(path: Path) -> ReviewSessionPayload:
@@ -80,7 +99,7 @@ class ReviewSession:
 
     @property
     def name(self) -> str:
-        """The session's id, a timestamp unless the review was given one."""
+        """The session's id, a ULID unless the review was given one."""
         return self.directory.name
 
     @property
@@ -215,9 +234,10 @@ class ReviewSessionStore:
         """Every published session, newest first.
 
         A directory of the sessions directory is a session when it holds `findings.json`, which
-        every published session does: benchmarks and corpora are kept there too. Names are
-        timestamps, so a reverse sort of them is a reverse chronological one, which the
-        directories' modification times are not: a verdict written into an old session moves its.
+        every published session does: benchmarks and corpora are kept there too. Sessions sort
+        newest first by their decoded start time (ULID millisecond timestamp or legacy
+        `YYYYMMDD-HHMMSS`), which the directories' modification times cannot preserve after a
+        later verdict write.
         """
         root = ReviewSessionStore.root()
         return [s for s in ReviewSessionStore._named_in(root, root) if s.findings_path.is_file()]
@@ -244,4 +264,6 @@ class ReviewSessionStore:
             for entry in directory.iterdir()
             if entry.is_dir() and not entry.name.startswith(".")
         )
-        return [ReviewSession(root / name) for name in sorted(names, reverse=True)]
+        return [
+            ReviewSession(root / name) for name in sorted(names, key=session_sort_key, reverse=True)
+        ]

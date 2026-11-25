@@ -19,7 +19,7 @@ from devops_cli.config.defaults import (
 from devops_cli.config.settings import get_valkey_password, load_settings
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.k8s.service_http import describe_endpoint
-from devops_cli.review.session import ReviewSessionStore
+from devops_cli.review.session import ReviewSessionStore, session_sort_key
 from devops_cli.telemetry.metrics import GLOBAL_METRICS
 
 logger = logging.getLogger(__name__)
@@ -432,7 +432,9 @@ def _listed_sessions() -> list[tuple[ReviewSessionInfo, Path]]:
     except (DevOpsCLIError, OSError, ValueError) as exc:
         logger.warning("Invalid review data directory: %s", exc)
         return []
-    return sorted(published + running, key=lambda listed: listed[0].name, reverse=True)
+    return sorted(
+        published + running, key=lambda listed: session_sort_key(listed[0].name), reverse=True
+    )
 
 
 def _get_latest_review_session_dir() -> Path | None:
