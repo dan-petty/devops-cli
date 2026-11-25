@@ -18,7 +18,6 @@ import pytest
 import yaml
 
 from devops_cli.config.settings import load_settings
-from devops_cli.models.prometheus import PrometheusQueryResult
 from devops_cli.roadmap.project_review.catalog import (
     Catalog,
     Shape,
@@ -28,7 +27,6 @@ from devops_cli.roadmap.project_review.catalog import (
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
 from devops_cli.roadmap.project_review.dispatch import (
     ReadContext,
-    _foreign_workload,
     plan_catalog,
     read_catalog,
 )
@@ -725,28 +723,48 @@ def test_a_row_of_a_project_namespace_or_safe_labels_passes(
     assert read.status == FactStatus.OK
 
 
-def test_shipped_rows_facts_keep_only_safe_or_namespaced_labels() -> None:
-    """Every shipped `rows` fact in `catalog.yaml` passes `_foreign_workload` (#6632)."""
+def _shipped_outer_labels(query: str) -> dict[str, str]:
     by_clause = re.compile(r"\bby\s*\(([^)]*)\)")
-    catalog = load_catalog()
-    rows_facts = [fact for fact in catalog.facts if fact.shape is Shape.ROWS]
+    matches = [
+        (query[: match.start()].count("(") - query[: match.start()].count(")"), match.group(1))
+        for match in by_clause.finditer(query)
+    ]
+    min_depth = min((depth for depth, _ in matches), default=0)
+    labels = [
+        raw.strip()
+        for depth, clause in matches
+        if depth == min_depth
+        for raw in clause.split(",")
+        if raw.strip()
+    ]
+    return {
+        "__name__": "metric",
+        **{label: ("devops" if "namespace" in label else "val") for label in labels},
+    }
+
+
+def test_shipped_rows_facts_keep_only_safe_or_namespaced_labels(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """Every shipped `rows` fact in `catalog.yaml` passes the row guard through `read_catalog`
+    (#6632)."""
+    config(prometheus={"url": PROMETHEUS}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    rows_facts = [fact for fact in load_catalog().facts if fact.shape is Shape.ROWS]
     assert rows_facts
-    for fact in rows_facts:
-        metric: dict[str, str] = {"__name__": "metric"}
-        for clause in by_clause.findall(fact.query):
-            for raw in clause.split(","):
-                label = raw.strip()
-                if label:
-                    metric[label] = "devops" if label == "namespace" else "val"
-        result = PrometheusQueryResult.model_validate(
-            {
-                "status": "success",
-                "data": {"resultType": "vector", "result": [{"metric": metric, "value": [1, "1"]}]},
-            }
-        )
-        assert _foreign_workload(result, ["devops"]) is None, (
-            f"{fact.id} kept unsafe labels: {metric}"
-        )
+    labels_by_query = {
+        f"shipped_row_metric_{index}": _shipped_outer_labels(fact.query)
+        for index, fact in enumerate(rows_facts)
+    }
+    facts = [
+        _prometheus_fact(fact.id, f"shipped_row_metric_{index}", "rows")
+        for index, fact in enumerate(rows_facts)
+    ]
+
+    web.serve(_by_query(lambda query: _vector((labels_by_query[query], 1.0))))
+    catalog = _catalog(tmp_path, facts)
+    read = read_catalog(catalog, _context(tmp_path))
+
+    assert [(f.id, f.status) for f in read.facts] == [(f.id, FactStatus.OK) for f in read.facts]
 
 
 def test_safe_list_rule_is_documented_in_dispatch_catalog_and_workflow_doc() -> None:
