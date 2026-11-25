@@ -61,6 +61,7 @@ class StageScore:
     cases: int
     left_out: tuple[str, ...]
     toolset: StageToolset
+    case_runs: tuple[CaseRun, ...] = ()
 
     @property
     def scored(self) -> tuple[int, int]:
@@ -115,7 +116,7 @@ def score_runs(
     ended = {outcome: sum(run.outcome is outcome for run in runs) for outcome in Outcome}
     rows = tuple(_row(t, cases, by_name) for t in types)
     chosen = toolset or load_settings().roadmap.stage.toolset
-    return StageScore(model, rows, ended, len(cases), left_out, chosen)
+    return StageScore(model, rows, ended, len(cases), left_out, chosen, case_runs=tuple(runs))
 
 
 def pending_reference(defect_type: DefectType) -> str:

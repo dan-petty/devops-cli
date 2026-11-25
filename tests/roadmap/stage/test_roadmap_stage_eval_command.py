@@ -338,6 +338,13 @@ def test_a_live_run_with_a_failed_case_exits_1(
 
     assert result.exit_code == 1
     assert "1 case(s) could not run" in result.output
+    report = json.loads(result.output[: result.output.index("\n}") + 2])
+    stored = _stored_report(result)
+    assert (
+        report["case_runs"]
+        == stored["case_runs"]
+        == [{"name": "live-case", "outcome": "failed", "reason": "provider: the model is down"}]
+    )
 
 
 def _copy_of_the_live_case(folder: Path, name: str, **changes: str) -> None:

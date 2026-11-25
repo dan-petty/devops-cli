@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from pydantic import BaseModel
 from devops_cli.ai.client.models import (
     AIClientError,
     AICredentialsError,
+    StructuredOutputValidationError,
 )
 from devops_cli.config.defaults import StageToolset
 from devops_cli.exceptions import (
@@ -147,16 +149,33 @@ def _planned_as(planned: StagedChange | OverBudget) -> tuple[Outcome, str]:
     return Outcome.STAGED, ""
 
 
+_TIMEOUT_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.GATEWAY_TIMEOUT})
+
+
+def _failed_reason(exc: Exception) -> str:
+    """Classify a failed case exception while keeping its masked message (#6324)."""
+    masked = mask_secrets(str(exc))
+    if isinstance(exc, StructuredOutputValidationError):
+        return f"schema_refusal: {masked}" if masked else "schema_refusal"
+    if isinstance(exc, AIClientError):
+        if exc.status == HTTPStatus.TOO_MANY_REQUESTS:
+            kind = "gateway_429"
+        elif exc.timed_out or exc.status in _TIMEOUT_STATUSES:
+            kind = "timeout"
+        else:
+            kind = "provider"
+        return f"{kind}: {masked}" if masked else kind
+    name = type(exc).__name__
+    return f"{name}: {masked}" if masked else name
+
+
 def _ended(exc: Exception) -> tuple[Outcome, str]:
     """How a case that raised ended, and the reason, never the model's text."""
     if isinstance(exc, RoadmapStageDegenerateError):
         return Outcome.DEGENERATE, mask_secrets(str(exc))
     if isinstance(exc, RoadmapStageError):
         return Outcome.REFUSED, mask_secrets(str(exc))
-    reason = type(exc).__name__
-    if isinstance(exc, ToolExecutionError):
-        reason = f"{reason}: {mask_secrets(str(exc))}"
-    return Outcome.FAILED, reason
+    return Outcome.FAILED, _failed_reason(exc)
 
 
 def run_case(

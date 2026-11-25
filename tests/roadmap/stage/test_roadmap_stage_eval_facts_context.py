@@ -114,7 +114,11 @@ def test_a_case_whose_commit_lacks_fact_files_reaches_the_model(
 
     run = run_case(case, _client(model_fake), stage_repo.clone)
 
-    assert (run.outcome, run.reason, model_fake.call_count) == (Outcome.FAILED, "AIClientError", 1)
+    assert (run.outcome, run.reason, model_fake.call_count) == (
+        Outcome.FAILED,
+        "provider: the model is down",
+        1,
+    )
 
 
 def test_a_case_whose_checkout_lacks_the_module_files_too_reaches_the_model(
@@ -129,7 +133,11 @@ def test_a_case_whose_checkout_lacks_the_module_files_too_reaches_the_model(
 
     run = run_case(case, _client(model_fake), stage_repo.clone)
 
-    assert (run.outcome, run.reason, model_fake.call_count) == (Outcome.FAILED, "AIClientError", 1)
+    assert (run.outcome, run.reason, model_fake.call_count) == (
+        Outcome.FAILED,
+        "provider: the model is down",
+        1,
+    )
 
 
 def test_the_job_reaches_the_model_when_the_staged_commit_lacks_the_module_files(
@@ -193,6 +201,6 @@ def test_a_golden_case_of_each_missing_shape_reaches_the_model_and_none_ends_ref
     runs = run_cases(chosen, _client(model_fake), REPO_ROOT)
 
     assert [(run.name, run.outcome, run.reason) for run in runs] == [
-        (case.name, Outcome.FAILED, "AIClientError") for case in chosen
+        (case.name, Outcome.FAILED, "provider: the model is down") for case in chosen
     ]
     assert model_fake.call_count == len(chosen)
