@@ -1568,6 +1568,7 @@ Edit pull request base branch, title, body, or milestone.
 | `base` | `string` | No | - | Change the base branch for this pull request. |
 | `title` | `string` | No | - | Set the new title. |
 | `body` | `string` | No | - | Set the new body. |
+| `body_file` | `string` | No | - | Read the body text from file (or - for stdin). |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `milestone` | `string` | No | - | Set the milestone for this pull request. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |

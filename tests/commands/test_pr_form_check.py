@@ -252,3 +252,97 @@ def test_a_plan_body_that_breaks_the_plan_form_opens_nothing(
 def test_a_delivery_title_still_needs_a_closes_line(runner: CliRunner) -> None:
     result, gh = _create(runner, TITLE, PLAN_BODY)
     assert (result.exit_code, len(gh), "no line `Closes" in result.stderr) == (1, 0, True)
+
+
+def test_pr_create_reads_body_file_and_short_flag(
+    runner: CliRunner, gh: ProcessFake, tmp_path: Path
+) -> None:
+    """`pr create --body-file` and `-F` read UTF-8 file text and pass it via `--body`."""
+    set_dry_run(True)
+    body_path = tmp_path / "body.md"
+    body_path.write_text(BODY, encoding="utf-8")
+
+    res_long = runner.invoke(
+        app, ["create", "--title", TITLE, "--body-file", str(body_path), "--repo", REPO]
+    )
+    res_short = runner.invoke(
+        app, ["create", "--title", TITLE, "-F", str(body_path), "--repo", REPO]
+    )
+
+    assert res_long.exit_code == 0
+    assert res_short.exit_code == 0
+    assert gh.calls == []
+    assert "--body" in res_long.stdout
+    assert "A title or a body" in res_long.stdout
+
+
+def test_pr_create_reads_body_file_from_stdin(runner: CliRunner, gh: ProcessFake) -> None:
+    """`pr create --body-file -` reads the PR body from standard input."""
+    set_dry_run(True)
+    res = runner.invoke(
+        app,
+        ["create", "--title", TITLE, "--body-file", "-", "--repo", REPO],
+        input=BODY,
+    )
+
+    assert res.exit_code == 0
+    assert gh.calls == []
+    assert "Closes #3198" in res.stdout
+
+
+def test_pr_create_rejects_body_and_body_file_together(
+    runner: CliRunner, gh: ProcessFake, tmp_path: Path
+) -> None:
+    """`pr create` exits 2 and names both options when `--body` and `--body-file` are given."""
+    body_path = tmp_path / "body.md"
+    body_path.write_text(BODY, encoding="utf-8")
+
+    res = runner.invoke(
+        app,
+        ["create", "--title", TITLE, "--body", "text", "--body-file", str(body_path), "--dry-run"],
+    )
+
+    assert res.exit_code == 2
+    assert "--body" in res.output
+    assert "--body-file" in res.output
+    assert gh.calls == []
+
+
+def test_pr_create_missing_body_file_exits_2(
+    runner: CliRunner, gh: ProcessFake, tmp_path: Path
+) -> None:
+    """`pr create --body-file missing` exits 2 and names `--body-file`."""
+    missing = tmp_path / "missing.md"
+    res = runner.invoke(app, ["create", "--title", TITLE, "--body-file", str(missing), "--dry-run"])
+
+    assert res.exit_code == 2
+    assert "--body-file" in res.output
+    assert gh.calls == []
+
+
+def test_pr_create_applies_length_and_template_checks_to_body_file(
+    runner: CliRunner, gh: ProcessFake, tmp_path: Path
+) -> None:
+    """`pr create` refuses oversized and template-placeholder bodies read from `--body-file`."""
+    oversized = tmp_path / "long.md"
+    oversized.write_text(
+        "a" * 1001
+        + "\n\nCloses #3198\n\nChange: `openspec/changes/archive/2026-11-02-3198-pull-request-form/`",
+        encoding="utf-8",
+    )
+    res_long = runner.invoke(
+        app, ["create", "--title", TITLE, "--body-file", str(oversized), "--repo", REPO]
+    )
+    assert res_long.exit_code == 1
+    assert "1,000" in res_long.stderr or "1000" in res_long.stderr
+
+    placeholder = tmp_path / "placeholder.md"
+    placeholder.write_text(
+        "Summary of the pull request.\n\n<!-- placeholder comment -->\n\nCloses #3198\n\nChange: `openspec/changes/archive/2026-11-02-3198-pull-request-form/`",
+        encoding="utf-8",
+    )
+    res_tpl = runner.invoke(
+        app, ["create", "--title", TITLE, "--body-file", str(placeholder), "--repo", REPO]
+    )
+    assert res_tpl.exit_code == 1
+    assert gh.calls == []

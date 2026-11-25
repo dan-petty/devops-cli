@@ -476,6 +476,47 @@ class TestPrCommands:
         assert "--milestone" in gh_argv(gh_edge)[0]
         assert "2026-11" in gh_argv(gh_edge)[0]
 
+    def test_pr_edit_with_body_file_and_stdin(
+        self, runner: CliRunner, gh_edge: ProcessFake, tmp_path: Any
+    ) -> None:
+        """devops pr edit reads `--body-file`/`-F` and stdin `-` and forwards `--body`."""
+        answer_origin(gh_edge, "owner/repo")
+        body_path = tmp_path / "body.md"
+        body_path.write_text("Edited body from file", encoding="utf-8")
+
+        res = runner.invoke(app, ["edit", "184", "--body-file", str(body_path)])
+        assert res.exit_code == 0
+        assert "--body" in gh_argv(gh_edge)[0]
+        assert "Edited body from file" in gh_argv(gh_edge)[0]
+
+        res_stdin = runner.invoke(
+            app, ["edit", "184", "-F", "-", "--dry-run"], input="Edited from stdin"
+        )
+        assert res_stdin.exit_code == 0
+        assert "Edited from stdin" in res_stdin.stdout
+
+    def test_pr_edit_rejects_body_and_body_file_or_missing(
+        self, runner: CliRunner, gh_edge: ProcessFake, tmp_path: Any
+    ) -> None:
+        """devops pr edit exits 2 on `--body` + `--body-file` or a missing `--body-file`."""
+        body_path = tmp_path / "body.md"
+        body_path.write_text("text", encoding="utf-8")
+
+        res_both = runner.invoke(
+            app, ["edit", "184", "--body", "inline", "--body-file", str(body_path), "--dry-run"]
+        )
+        assert res_both.exit_code == 2
+        assert "--body" in res_both.output
+        assert "--body-file" in res_both.output
+        assert gh_edge.calls == []
+
+        res_missing = runner.invoke(
+            app, ["edit", "184", "--body-file", str(tmp_path / "missing.md"), "--dry-run"]
+        )
+        assert res_missing.exit_code == 2
+        assert "--body-file" in res_missing.output
+        assert gh_edge.calls == []
+
     def test_list_prs_rest_fallback(self, runner: CliRunner, gh_edge: ProcessFake) -> None:
         """devops pr list falls back to REST when GraphQL fails."""
         mock_rest_prs = json.dumps(

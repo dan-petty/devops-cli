@@ -970,6 +970,7 @@ devops gh pr edit [OPTIONS] <number>
 | `--base`, `-B` | `string` | - | Change the base branch for this pull request. |
 | `--title`, `-t` | `string` | - | Set the new title. |
 | `--body`, `-b` | `string` | - | Set the new body. |
+| `--body-file`, `-F` | `filename` | - | Read the body text from file (or - for stdin). |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--milestone`, `-m` | `string` | - | Set the milestone for this pull request. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
@@ -1027,7 +1028,8 @@ devops gh pr create [OPTIONS]
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--title`, `-t` | `string` | - | Title for the item or entity. |
-| `--body`, `-b` | `string` | `` | Body or description text. |
+| `--body`, `-b` | `string` | - | Body or description text. |
+| `--body-file`, `-F` | `filename` | - | Read the body text from file (or - for stdin). |
 | `--base`, `-B` | `string` | - | Base branch of the pull request; the repository's default branch when omitted. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--head`, `-H` | `string` | - | Branch that holds the commits of the pull request; the branch of the checkout when omitted. Give it with --repo to open a pull request in another repository. |
