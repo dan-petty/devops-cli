@@ -251,11 +251,11 @@ def _blocked_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbo
 
 
 def refine_wait_on_person(item: Item) -> InboxKind | None:
-    """`InboxKind.REFINE` when the job record of the open New item `item` says that refine waits
-    on a person, else None: the last round left a question or a suspected block for a person, or
-    the stage job returned the item twice on the same body (#3483). The record is the whole
-    read, so a reply since the round shows only after the next round."""
-    if item.state is not GitHubState.OPEN or item.status != CONST_ROADMAP_STATUS_NEW:
+    """`InboxKind.REFINE` when the job record of the open New non-tracker `item` says that refine
+    waits on a person, else None: the last round left a question or a suspected block for a person,
+    or the stage job returned the item twice on the same body (#3483, #6446). The record is the
+    whole read, so a reply since the round shows only after the next round."""
+    if not _open_new_refine_item(item):
         return None
     record = item.job_record
     if record.get(RefineRecordKey.NEXT_STEP) == NextStep.PERSON.value:
@@ -291,13 +291,18 @@ def _refine_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     return lines
 
 
-def _open_new(item: Item) -> bool:
-    return item.state is GitHubState.OPEN and item.status == CONST_ROADMAP_STATUS_NEW
+def _open_new_refine_item(item: Item) -> bool:
+    """Whether `item` is an open New non-tracker item handled by refine (#6446)."""
+    return (
+        item.state is GitHubState.OPEN
+        and item.status == CONST_ROADMAP_STATUS_NEW
+        and not item.is_tracker
+    )
 
 
 def _split_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
-    """One line for each open New item whose refine next step is a split, which no person has
-    applied yet (#3494)."""
+    """One line for each open New non-tracker item whose refine next step is a split, which no
+    person has applied yet (#3494, #6446)."""
     texts = MESSAGES.roadmap
     return [
         InboxLine(
@@ -309,19 +314,19 @@ def _split_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
             item=item.number,
         )
         for item in items
-        if _open_new(item)
+        if _open_new_refine_item(item)
         and item.job_record.get(RefineRecordKey.NEXT_STEP) == NextStep.SPLIT.value
     ]
 
 
 def _alternatives_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
-    """One line for each open New item whose refine round put a covering tool to a person
-    (#3494). The line names the tool that the round recorded."""
+    """One line for each open New non-tracker item whose refine round put a covering tool to a
+    person (#3494, #6446). The line names the tool that the round recorded."""
     texts = MESSAGES.roadmap
     lines: list[InboxLine] = []
     for item in items:
         tool = item.job_record.get(RefineRecordKey.ALTERNATIVES_ASKED)
-        if not _open_new(item) or not tool:
+        if not _open_new_refine_item(item) or not tool:
             continue
         subject = texts.inbox_subjects["alternatives"].format(title=item.title, tool=tool)
         clear = texts.inbox_clears["alternatives"].format(number=item.number)
@@ -345,7 +350,9 @@ def _failed_lines(items: Iterable[Item], repo: str, now: datetime) -> list[Inbox
     lines: list[InboxLine] = []
     for item in items:
         record = item.job_record
-        if not _open_new(item) or record.get(RefineRecordKey.NEXT_STEP) != NextStep.FAILED.value:
+        if not _open_new_refine_item(item) or (
+            record.get(RefineRecordKey.NEXT_STEP) != NextStep.FAILED.value
+        ):
             continue
         subject = texts.inbox_subjects["failed"].format(
             title=item.title,
@@ -391,14 +398,18 @@ def _stage_retry_lines(items: Iterable[Item], repo: str, now: datetime) -> list[
 
 
 def _owner_lines(items: Iterable[Item], now: datetime) -> list[InboxLine]:
-    """One line for each open item whose job record holds an owner question that no trusted
-    reply answered (#3077). The open frame is the marker of the wait, so no status label is
-    added, and the comment that answers it clears the line."""
+    """One line for each open non-tracker item whose job record holds an owner question that no
+    trusted reply answered (#3077, #6446). The open frame is the marker of the wait, so no status
+    label is added, and the comment that answers it clears the line."""
     texts = MESSAGES.roadmap
     lines: list[InboxLine] = []
     for item in items:
         record = item.job_record
-        if not record.get(OwnerQuestionRecordKey.HASH) or record.get(OwnerQuestionRecordKey.ANSWER):
+        if (
+            item.is_tracker
+            or not record.get(OwnerQuestionRecordKey.HASH)
+            or record.get(OwnerQuestionRecordKey.ANSWER)
+        ):
             continue
         subject = texts.inbox_subjects["owner"].format(
             title=item.title, question=record.get(OwnerQuestionRecordKey.TEXT) or ""

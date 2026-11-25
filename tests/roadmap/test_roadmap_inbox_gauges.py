@@ -178,3 +178,46 @@ def test_each_counted_kind_carries_its_repository(kind: InboxKind, otlp: FakeCol
     emit_inbox_counts(_read(store), repo="Example/Roadmap")
 
     assert _points(otlp)[kind.value] == ("example/roadmap", 0.0)
+
+
+def test_trackers_do_not_increment_inbox_gauges(otlp: FakeCollector) -> None:
+    """Tracker items with stale refine waits add nothing to inbox item gauges (#6446)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_EPIC_LABEL,
+        CONST_ROADMAP_P3_PRIORITY,
+        CONST_ROADMAP_STATUS_NEW,
+    )
+    from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey, encode_job_record
+
+    repo = "example/repo"
+    store = _repository(repo)
+    fields = {
+        ItemField.STATUS: CONST_ROADMAP_STATUS_NEW,
+        ItemField.PRIORITY: CONST_ROADMAP_P3_PRIORITY,
+    }
+    store.seed_issue(
+        "Epic refine wait",
+        body=encode_job_record({}, {RefineRecordKey.NEXT_STEP: "person"}),
+        fields=fields,
+        labels=(CONST_ROADMAP_EPIC_LABEL,),
+        updated_at=_ago(hours=2),
+    )
+    store.seed_issue(
+        "Parent split wait",
+        body=encode_job_record({}, {RefineRecordKey.NEXT_STEP: "split"}),
+        fields=fields,
+        sub_issues=2,
+        updated_at=_ago(hours=2),
+    )
+    store.seed_issue(
+        "Real alternatives wait",
+        body=encode_job_record({}, {RefineRecordKey.ALTERNATIVES_ASKED: "ruff"}),
+        fields=fields,
+        updated_at=_ago(hours=2),
+    )
+
+    emit_inbox_counts(_read(store, repo), repo=repo)
+    counts = {attrs["kind"]: value for attrs, value in otlp.points(ROADMAP_INBOX_ITEMS.name)}
+    assert counts["refine"] == 0.0
+    assert counts["split"] == 0.0
+    assert counts["alternatives"] == 1.0
