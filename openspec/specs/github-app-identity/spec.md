@@ -104,17 +104,6 @@ Unless `read_only` or a phase scope overrides it, `POST /app/installations/<inst
 - **WHEN** the process acts as App 1001 on installation 42, `service.github_app.token_repository` holds `example-org/app`, and the process mints a token outside a phase scope
 - **THEN** the body of `POST /app/installations/42/access_tokens` is `{"permissions": {"issues": "write", "pull_requests": "write", "contents": "write", "checks": "read", "actions": "read", "metadata": "read", "workflows": "write"}, "repositories": ["app"]}`, with no `repository_hooks` and no `administration`
 
-### Requirement: A read-only process asks for read permissions only
-When `service.github_app.read_only` is true, each token request of the App SHALL ask for `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only: `actions`, `administration`, `checks`, `contents`, `environments`, `issues`, `metadata`, `pull_requests` and `secrets` with the level `read`. The setting SHALL have the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY`, and ConfigMap `devops-cli-config` SHALL NOT carry it.
-
-#### Scenario: The token request of a read-only process
-- **WHEN** the process acts as App 1001 on installation 42, the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY` is `true`, and the process mints a token
-- **THEN** the body of `POST /app/installations/42/access_tokens` is `{"permissions": {"actions": "read", "administration": "read", "checks": "read", "contents": "read", "environments": "read", "issues": "read", "metadata": "read", "pull_requests": "read", "secrets": "read"}}`, with no level `write`
-
-#### Scenario: The ConfigMap leaves out the read-only setting
-- **WHEN** the active config sets `service.repos`, the IDs and the slug of the App and `service.github_app.read_only`, and the ConfigMap is rendered
-- **THEN** its `service.github_app` holds no `read_only`
-
 ### Requirement: The log names the minted token's permissions only
 After GitHub gives a token, the process SHALL log the names of the permissions in GitHub's reply, sorted, without their levels and without the token. It SHALL use the token when the reply grants more permissions than the request asks for.
 
@@ -226,3 +215,18 @@ ADR 0030 SHALL hold no `Until #3700` sentence about the token.
 #### Scenario: ADR 0030 text
 - **WHEN** `rg -n 'Until #3700.*token|token keeps.*workflows: write' docs/adr/0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md` runs
 - **THEN** it prints no match
+
+### Requirement: The drift check asks for its own permissions
+When `service.github_app.drift_check` is true, each token request of the App SHALL ask for `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` only: `administration` and `contents` with the level `write`, and each other permission of the set with `read`. The setting SHALL have the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK`, and ConfigMap `devops-cli-config` SHALL NOT carry it. A plan with this token SHALL send GET requests only.
+
+#### Scenario: The token request of the drift check
+- **WHEN** the process acts as App 1001 on installation 42, the variable `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` is `true`, and the process mints a token
+- **THEN** the body of `POST /app/installations/42/access_tokens` is `{"permissions": {"actions": "read", "administration": "write", "checks": "read", "contents": "write", "environments": "read", "issues": "read", "metadata": "read", "pull_requests": "read", "secrets": "read"}}`
+
+#### Scenario: The drift check with a write token sends only GET requests
+- **WHEN** `devops repos onboard --all --plan` runs as the App with `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` set to `true` over a repository off its baseline
+- **THEN** the command exits 1, the token request asks for `administration: write` and `contents: write`, and each other request is a GET
+
+#### Scenario: The ConfigMap leaves out the drift setting
+- **WHEN** the active config sets `service.repos`, the IDs and the slug of the App and `service.github_app.drift_check`, and the ConfigMap is rendered
+- **THEN** its `service.github_app` holds no `drift_check`

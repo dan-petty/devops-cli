@@ -5,8 +5,8 @@ The nightly Job that runs the drift check of the repository settings, `devops re
 
 ## Requirements
 
-### Requirement: A nightly Job runs the drift check with a read-only identity
-CronJob `repos-drift` in `k8s/devops/` SHALL run `devops repos onboard --all --plan` once each day in the runner image, one Job at a time and with no retry. Its pod SHALL take only the key `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` of Secret `devops-cli`, SHALL set `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY` to `true` and `OTEL_SERVICE_NAME` to `repos-drift`, SHALL mount no ServiceAccount token, and SHALL meet Pod Security `restricted`. It SHALL run only the rows that a read token can read.
+### Requirement: A nightly Job runs the drift check as the App
+CronJob `repos-drift` in `k8s/devops/` SHALL run `devops repos onboard --all --plan` once each day in the runner image, one Job at a time and with no retry. It SHALL run only the rows that the token of the drift check can read: rows 0 to 11.
 
 #### Scenario: The manifest
 - **WHEN** `uv run devops ci --check --only k8s` renders and lints `k8s/devops/`
@@ -15,6 +15,13 @@ CronJob `repos-drift` in `k8s/devops/` SHALL run `devops repos onboard --all --p
 #### Scenario: A run in the cluster
 - **WHEN** a person starts a Job from CronJob `repos-drift` after the deploy
 - **THEN** its log holds one report and one state line for each repository of `service.repos`, and Prometheus holds the series of `devops_cli_repos_drift_rows{job="repos-drift"}` of each repository
+
+### Requirement: The pod of the drift check holds only the App key
+The pod of CronJob `repos-drift` SHALL take only the key `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY` of Secret `devops-cli`, SHALL set `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` to `true` and `OTEL_SERVICE_NAME` to `repos-drift`, SHALL mount no ServiceAccount token, and SHALL meet Pod Security `restricted`.
+
+#### Scenario: The pod spec
+- **WHEN** `uv run devops ci --check --only k8s` renders `k8s/devops/`
+- **THEN** the pod of CronJob `repos-drift` reads one key of Secret `devops-cli`, sets the two variables, has `automountServiceAccountToken: false`, and passes the Pod Security check
 
 ### Requirement: The drift alerts have their own rule group
 The rule group `repos-drift` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alerts `RepositorySettingsDrift`, `RepositorySettingsUnreadable` and `RepositoryDriftCheckStopped`. Each selector SHALL name `job="repos-drift"`. promtool SHALL accept them, and the alert table of `k8s/README.md` SHALL have a row for each, with its action.
