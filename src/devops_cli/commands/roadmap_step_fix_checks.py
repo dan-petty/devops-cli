@@ -112,6 +112,9 @@ def _run(
         # unreadable to its children before anything else, as the implement Job is (#2667,
         # #6601).
         process_hardening.deny_environment_reads()
+        from devops_cli.telemetry import set_root_span_attribute
+
+        set_root_span_attribute("service.row", "fix_checks")
     target = _repository(repo)
     if confirm:
         from devops_cli.roadmap.implement.implement_run import (

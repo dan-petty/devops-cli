@@ -71,6 +71,7 @@ if TYPE_CHECKING:
         inject_trace_context,
         record_completed_span,
         reset_tracer,
+        set_root_span_attribute,
         trace_span,
         traced,
     )
@@ -157,6 +158,7 @@ _ATTR_MAP: dict[str, tuple[str, str]] = {
     "inject_trace_context": ("devops_cli.telemetry.tracer", "inject_trace_context"),
     "record_completed_span": ("devops_cli.telemetry.tracer", "record_completed_span"),
     "reset_tracer": ("devops_cli.telemetry.tracer", "reset_tracer"),
+    "set_root_span_attribute": ("devops_cli.telemetry.tracer", "set_root_span_attribute"),
     "trace_span": ("devops_cli.telemetry.tracer", "trace_span"),
     "traced": ("devops_cli.telemetry.tracer", "traced"),
     "flatten_waterfall_tree": ("devops_cli.telemetry.waterfall", "flatten_waterfall_tree"),
@@ -232,6 +234,7 @@ __all__ = [
     "reset_tracer",
     "resolve_trace_spans",
     "run_memory_profiler",
+    "set_root_span_attribute",
     "trace_span",
     "traced",
 ]

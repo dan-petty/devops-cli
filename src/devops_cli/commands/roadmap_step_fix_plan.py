@@ -81,6 +81,7 @@ def fix_plan_cmd(
     from devops_cli.roadmap.run import model_clone
     from devops_cli.roadmap.stage.stage_toolbox import ToolboxModel
     from devops_cli.roadmap.stores.store import get_roadmap_store
+    from devops_cli.telemetry import set_root_span_attribute
 
     try:
         with (
@@ -88,6 +89,7 @@ def fix_plan_cmd(
             sigterm_raises(),
             request_scope(repo=target, row="fix_plan"),
         ):
+            set_root_span_attribute("service.row", "fix_plan")
             run = run_fix_plan(
                 get_roadmap_store(target),
                 repo=target,

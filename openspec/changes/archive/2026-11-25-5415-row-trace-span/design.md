@@ -1,0 +1,13 @@
+# Design
+
+## Decisions
+
+1. **Per-row child span inside `_execute_due_rows`**: In `src/devops_cli/roadmap/run.py`, wrap `with request_scope(row=row.name): outcome = row.runner(...)` inside `with get_tracer().span(f"service.row {row.name}", attributes=attrs) as row_span:` right after `started = clock.monotonic()` (after optional `ensure_checkout`). Set initial attributes `{"service.repo": repo, "service.row": row.name}`, plus `"service.mode": load_settings().roadmap.fix_plan.mode` when `row.name == "fix_plan"`. Use `try` / `except Exception as exc` / `finally` inside the span context to capture `row_result = _failed_result(exc)` and stamp `row_span.set_attribute("service.result", row_result)` before re-raising so `OTelTelemetryClient.span` records `STATUS_CODE_ERROR` and existing error ledger handling in `_execute_due_rows` runs unchanged.
+2. **Root span `service.row` via active `SpanHandle` stack**: Add `_SPAN_HANDLES: ContextVar[tuple[SpanHandle, ...]]` in `src/devops_cli/telemetry/tracer.py`, pushing/popping `handle` inside `OTelTelemetryClient.span()` before serialization/export, and expose `set_root_span_attribute(key: str, value: Any) -> None` (exported from `src/devops_cli/telemetry/__init__.py`). Runner Job entry points (`_implement_job`, `_implement_phase`, `_stage_job`, `_stage_phase` in `src/devops_cli/commands/roadmap.py`; `fix_plan_cmd` in `src/devops_cli/commands/roadmap_step_fix_plan.py`; `fix_checks_cmd` `_run` in `src/devops_cli/commands/roadmap_step_fix_checks.py`) set `service.row` onto `_SPAN_HANDLES.get()[0]` (`cli.roadmap` when invoked via CLI, or the outer span when invoked directly).
+3. **Telemetry privacy defaults**: Attach only `service.repo`, `service.row`, `service.result`, and (for `fix_plan`) `service.mode`; no prompt, issue, or tool arguments/content are recorded.
+
+## Rejected alternatives
+
+- **Start row spans without entering the OpenTelemetry context**: Rejected because `src/devops_cli/ai/client/unified.py:887` (`trace_span("ai.llm.chat", ...)`) resolves parentage from `_active_span_ids()` (`src/devops_cli/telemetry/tracer.py:1324`), so model spans would detach from `service.row <name>`.
+- **Use `fix_plan.mode` or `roadmap.mode` attribute names**: Rejected because `src/devops_cli/server/service.py:744-773` standardizes Service span attributes under the `service.*` namespace (`service.repo`, `service.result`).
+- **Set `service.row` on the Service's `RunnerUnit` launcher span**: Rejected because `src/devops_cli/roadmap/implement/implement_submit.py:540` executes in the Service pod, not in the runner Job pod spawned via `src/devops_cli/main.py:158`.
