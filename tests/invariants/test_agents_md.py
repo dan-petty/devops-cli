@@ -812,3 +812,17 @@ def test_the_policy_keeps_the_limits_of_a_finding_with_no_fix() -> None:
 
     assert "A Finding with No Fix" in rule
     assert "3 days" in rule
+
+
+def test_rule_2_directs_agents_to_work_tracker_sub_issues_instead_of_returning() -> None:
+    """Rule 2 of AGENTS.md and generated AGENTS.md forbid returning trackers/epics and route agents
+    to their open sub-issues or related issues instead."""
+    rule_text = _rule(2).lower()
+    generated = generate_agents_md(parse_project_metadata(REPO_ROOT)).lower()
+
+    assert "never return a tracker" in rule_text
+    assert "sub-issues" in rule_text
+    assert "related issues" in rule_text
+    assert "tracker" in generated
+    assert "sub-issues" in generated
+    assert "related issues" in generated

@@ -2194,9 +2194,10 @@ class RoadmapCommandHelp:
     )
     stage_work: str = "The run folder of a phase other than all: state/, work/ and out/."
     return_item: str = (
-        "Return an item to New with an evidence comment, handing it back to refinement when it "
-        "cannot be built as specified or needs a refactor beyond its scope. The item gets the "
-        "label status/new in place of its other status/* label."
+        "Return a leaf item to New with an evidence comment, handing it back to refinement when it "
+        "cannot be built as specified or needs a refactor beyond its scope. Refuses trackers "
+        "(type/epic or items with sub-issues), whose open sub-issues or related issues should be "
+        "worked instead. The item gets the label status/new in place of its other status/* label."
     )
     return_item_arg: str = "The issue or item number to return to New."
     return_comment: str = "Evidence comment explaining why the item cannot be built as specified."

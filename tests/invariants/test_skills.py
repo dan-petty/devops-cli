@@ -64,3 +64,17 @@ def test_every_project_skill_names_its_commands_and_matches_across_roots(skill: 
     assert len(texts) == 1
     text = next(iter(texts))
     assert [command in text for command in commands] == [True] * len(commands)
+
+
+def test_roadmap_skill_forbids_returning_trackers_and_routes_to_sub_issues() -> None:
+    """All copies of `devops-roadmap/SKILL.md` tell agents never to return a tracker and to inspect
+    and work sub-issues or related issues instead."""
+    texts = {
+        (REPO_ROOT / root / "devops-roadmap/SKILL.md").read_text(encoding="utf-8")
+        for root in SKILL_ROOTS
+    }
+    assert len(texts) == 1
+    text = next(iter(texts)).lower()
+    assert "never return a tracker" in text
+    assert "sub-issues" in text
+    assert "related issues" in text

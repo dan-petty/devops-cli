@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.dependencies import open_dependency
+from devops_cli.roadmap.dependencies import TrackerEntry, TrackerWork, open_dependency, tracker_work
 from devops_cli.roadmap.refine.refine import DependencyGraph
 from devops_cli.roadmap.stores.store import (
     GitHubState,
@@ -272,3 +272,59 @@ def test_an_open_hold_issue_that_is_no_tracker_still_holds_the_item() -> None:
     _under(store, plan, part)
 
     assert _reason(store, held) == _dependency_reason(hold)
+
+
+def test_tracker_work_lists_open_sub_issues_with_blockers_and_open_related_issues() -> None:
+    """`tracker_work` lists open deliverable sub-issues with open blockers and open related issues
+    referenced in person-written body prose, ignoring closed items, code fences, and job blocks."""
+    store = InMemoryRoadmapStore()
+    ready_sub = _seed(store, "fix(roadmap): ready child")
+    waiting_sub = _seed(
+        store,
+        "fix(roadmap): blocked child",
+        body=f"### Dependencies\n\n- #{ready_sub}\n",
+    )
+    done_sub = _seed(store, "fix(roadmap): closed child", state=GitHubState.CLOSED)
+    related_open = _seed(store, "feat(roadmap): related open item")
+    related_closed = _seed(store, "feat(roadmap): related closed item", state=GitHubState.CLOSED)
+    code_only = _seed(store, "docs(roadmap): mentioned only in fence")
+    refine_only = _seed(store, "chore(roadmap): mentioned only in refine block")
+    tracker = _seed(
+        store,
+        "feat(roadmap): parent tracker",
+        body=(
+            f"Tracks sub-issues and related work #{related_open} and #{related_closed}.\n\n"
+            f"```text\nExample #{code_only}\n```\n\n"
+            f"<!-- devops-roadmap-refine:start -->\nSee #{refine_only}\n<!-- devops-roadmap-refine:end -->\n"
+        ),
+    )
+    _under(store, tracker, ready_sub, waiting_sub, done_sub)
+    tracker_item = store.item(tracker)
+    assert tracker_item is not None
+
+    work = tracker_work(tracker_item, store.open_items())
+
+    assert work == TrackerWork(
+        sub_issues=(
+            TrackerEntry(
+                number=ready_sub,
+                title="fix(roadmap): ready child",
+                status=None,
+                blockers=(),
+            ),
+            TrackerEntry(
+                number=waiting_sub,
+                title="fix(roadmap): blocked child",
+                status=None,
+                blockers=(ready_sub,),
+            ),
+        ),
+        related=(
+            TrackerEntry(
+                number=related_open,
+                title="feat(roadmap): related open item",
+                status=None,
+                blockers=(),
+            ),
+        ),
+    )

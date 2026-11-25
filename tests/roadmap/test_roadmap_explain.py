@@ -820,3 +820,54 @@ def test_a_new_tracker_gets_the_refine_tracker_text(job_world: JobWorld) -> None
     assert job_world.store.comments_on(number) == before_comments
     assert job_world.store.read_issue_body(number) == before_body
     assert job_world.store.item(number) == before_item
+
+
+def test_explain_lists_open_sub_issues_blockers_and_related_issues_of_a_tracker(
+    job_world: JobWorld,
+) -> None:
+    """Explaining a tracker keeps refine/stage tracker verdicts while listing open sub-issues with
+    blocker state and open related links."""
+    ready_sub = _seed(job_world, status="Ready", title="fix(roadmap): ready child")
+    blocked_sub = job_world.store.seed_issue(
+        "fix(roadmap): blocked child",
+        body=f"### Dependencies\n\n#{ready_sub}\n",
+        labels=LOW,
+        fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"},
+        author_association="OWNER",
+    )
+    done_sub = _seed(job_world, state=GitHubState.CLOSED, title="fix(roadmap): closed child")
+    related_open = _seed(job_world, status="Ready", title="feat(roadmap): related item")
+    tracker = job_world.store.seed_issue(
+        "feat(roadmap): overarching tracker",
+        body=f"Umbrella issue.\n\nRelated: #{related_open}\n",
+        labels=("type/epic",),
+        fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"},
+        author_association="OWNER",
+    )
+    job_world.store.add_sub_issue(tracker, ready_sub)
+    job_world.store.add_sub_issue(tracker, blocked_sub)
+    job_world.store.add_sub_issue(tracker, done_sub)
+
+    explained = _explain(job_world, tracker)
+    rendered = render_explanation(explained)
+
+    assert explained.refine == JobVerdict(False, TEXTS.refine_left_tracker)
+    assert f"#{ready_sub}" in rendered
+    assert "unblocked" in rendered
+    assert f"#{blocked_sub}" in rendered
+    assert f"blocked by #{ready_sub}" in rendered
+    assert f"#{related_open}" in rendered
+    assert f"#{done_sub}" not in rendered
+
+
+def test_explain_states_when_an_epic_tracker_has_no_open_sub_issues(job_world: JobWorld) -> None:
+    epic = _seed(
+        job_world, labels=("type/epic",), status="Ready", title="feat(roadmap): empty epic"
+    )
+
+    explained = _explain(job_world, epic)
+    rendered = render_explanation(explained)
+
+    assert explained.stage == JobVerdict(False, TEXTS.stage_left_tracker)
+    assert "no open sub-issue" in rendered.lower()
+    assert "file sub-issues" in rendered.lower()

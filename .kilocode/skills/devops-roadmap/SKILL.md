@@ -7,10 +7,11 @@ description: File, inspect, claim, or return roadmap items on GitHub. Use when y
 
 Use `devops roadmap` to file candidates, inspect item readiness, claim work, or return an item with evidence.
 
-## File or Return an Item
+## File, Pivot from Trackers, or Return a Leaf Item
 
 1. Run `uv run devops roadmap intake --title "fix(<scope>): <summary>" --body-file <file> --confirm` to file a new candidate.
-2. Run `uv run devops roadmap return <item> --comment "<evidence>" --confirm` to return an unbuildable item to `New`.
+2. Never return a tracker or epic (`type/epic` or an issue with sub-issues). Run `uv run devops roadmap explain <item>` (or inspect its sub-issues and related issues) and claim/work an unblocked open sub-issue or related issue instead; if it is an unsplit tracker, file and link its sub-issues.
+3. Run `uv run devops roadmap return <item> --comment "<evidence>" --confirm` only when a leaf item cannot be built as specified.
 
 ## Inspect and Claim Items
 
