@@ -793,8 +793,13 @@ class _Judge:
         of `item` (#3418). A closed blocker holds nothing back, so it is no reason to leave out.
         The rule of the jobs decides the blockers (#6450): a parent tracker is none, and another
         tracker gives its open sub-issues."""
+        open_numbers = {it.number for it in self._items if it.state is GitHubState.OPEN}
+        tree = ItemTree.of(self._items)
         blockers = open_blockers(
-            item, recorded_blockers(item), self._store.item, ItemTree.of(self._items)
+            item,
+            recorded_blockers(item),
+            lambda n: tree.item(n) if n in open_numbers else None,
+            tree,
         )
         if not blockers:
             return None
