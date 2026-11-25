@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from tests.support.fakes.model import ModelFake
 import pytest
+import time_machine
 
 from devops_cli.config import constants
 from devops_cli.roadmap.body_hash import hash_text
@@ -393,7 +394,8 @@ def _blocked_wait_set_at(
     else:
         number = seed_with_body(store, body.format(blocker=blocker))
     model_fake.answer(blocked_by_issue(blocker))
-    refine_round(store, source)
+    with time_machine.travel(current + commented, tick=False):
+        refine_round(store, source)
     store.set_marks(
         require_item(store, number),
         {RefineRecordKey.RULES: None if rules is None else (current + rules).isoformat()},
