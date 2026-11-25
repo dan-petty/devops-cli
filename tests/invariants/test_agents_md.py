@@ -335,6 +335,55 @@ def test_agents_md_keeps_the_safety_rules_inline() -> None:
     ] == []
 
 
+_REMOVED_PERSON_STEP_PHRASES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
+    ("AGENTS.md", ("records verdicts", "plans milestones")),
+    ("CONTRIBUTING.md", ("a verdict or a release", "Do not add these labels by hand.")),
+    (
+        "docs/ROUTINE_TASKS.md",
+        (
+            "nobody sets a milestone or priority on the new issue by hand",
+            "set no milestone or priority on it yourself",
+        ),
+    ),
+    (
+        "docs/SDLC.md",
+        (
+            "An agent records no verdict",
+            "milestones are planning buckets that a person sets",
+        ),
+    ),
+    (
+        "docs/SELF_IMPROVEMENT.md",
+        ("Leave the Verdict to a Person", "An agent records no verdict."),
+    ),
+    (
+        "src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md",
+        (
+            "A person closes and edits milestones.",
+            "Set no milestone or priority by hand.",
+            "nobody sets a milestone or priority on a new issue by hand.",
+        ),
+    ),
+    (
+        "src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md",
+        ("agents record none.", "Verdicts Come From People"),
+    ),
+)
+
+
+def test_agent_instructions_omit_removed_person_only_restrictions() -> None:
+    """Agent instructions and routed guides keep only safety, merge, threshold, and release gates
+    as person-only, without restricting label, milestone, or evaluation-verdict work (#7040)."""
+    violations = [
+        f"{rel}: {phrase}"
+        for rel, phrases in _REMOVED_PERSON_STEP_PHRASES
+        for text in [(REPO_ROOT / rel).read_text(encoding="utf-8")]
+        for phrase in phrases
+        if phrase in text
+    ]
+    assert violations == []
+
+
 def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:
     """`devops ai agents` writes a table row only for a routed document that exists in the
     target, and every link of the document resolves, with all routed documents present and with

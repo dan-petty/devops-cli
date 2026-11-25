@@ -506,8 +506,8 @@ sequenceDiagram
     Agent->>Code: Fix the cited code
     Agent->>Code: Run the targeted tests, then uv run devops ci
     Agent->>GH: Pull request that closes the issue
-    Person->>Session: devops review verify (a person's verdict)
-    Person->>Dataset: devops review export-feedback --status ALL
+    Agent->>Session: devops review verify (evaluation verdict)
+    Agent->>Dataset: devops review export-feedback --status ALL
 ```
 
 ### Step 1: Read the Findings
@@ -558,9 +558,9 @@ Before altering implementation code in `src/`:
 - Run the targeted tests: `uv run devops ci test <test-file>`.
 - Push through the pre-push hook, which runs the fast static checks. The required checks of CI run the full suite before the merge. A plan-only pull request runs `tests/invariants` only (see [The Plan-Only Test Run](SDLC.md#the-plan-only-test-run-ciyml-test-shard-and-test)). Run `uv run devops ci` by hand if you want every check before the push.
 
-### Step 6: Leave the Verdict to a Person and Prevent a Recurrence
+### Step 6: Record the Verdict and Prevent a Recurrence
 
-- An agent records no verdict. A person records one on each finding the work settled:
+- The automated review pipeline records no verdict on its own findings. When evaluating findings, an agent or a person records one on each finding the work settled:
   `devops review verify <session> --index <n> --status <STATUS> --reason "..."`, where `<n>` is
   the number `devops review findings` shows, or `--candidate <n>` for a candidate. The status is
   VERIFIED for a real defect, MITIGATED when a guard now limits it, or INVALIDATED for a false

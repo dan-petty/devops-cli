@@ -312,6 +312,18 @@ def test_the_reply_prompt_asks_a_config_criterion_for_a_command_proof_as_the_sta
     ] == [True, True]
 
 
+def test_the_reply_prompt_limits_person_questions_to_owner_only_decisions() -> None:
+    """The refine reply prompt reserves person questions for owner-only acts (`a merge, a secret,
+    a repository setting or a host`), not review verdicts or milestones (#7040)."""
+    reply = load_task_prompt("roadmap_refine_reply.md")
+
+    assert (
+        "a merge, a secret, a repository setting or a host" in reply,
+        "a review verdict" in reply,
+        "a milestone" in reply,
+    ) == (True, False, False)
+
+
 def test_refine_proposal_caps_context_at_job_constant(
     git_repo: Path, store: InMemoryRoadmapStore, config: Any
 ) -> None:

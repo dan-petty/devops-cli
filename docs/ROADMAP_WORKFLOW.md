@@ -54,7 +54,7 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | From state | Event | To state | Actor |
 | :--- | :--- | :--- | :--- |
 | No state | A candidate is placed by intake | `status/new` | Service job, agentic coder or person |
-| `status/new` | Refine finds the Item whole | `status/ready` | Service job or person |
+| `status/new` | Refine finds the Item whole | `status/ready` | Service job, agentic coder or person |
 | `status/ready` | Refine finds the proposal not ready: a gap, an open question, a split or a block | `status/new` | Service job |
 | `status/ready` or `status/planned` | A person returns the Item with evidence | `status/new` | Person or agentic coder |
 | `status/ready` or `status/new` | The stage job finds a plan pull request that a person closed with no merge | `status/new`, with `stage.rejected` | Service job |
@@ -65,15 +65,15 @@ Each row is one change of the Status label of an Item. A job never reverts a lab
 | No state, `status/new`, `status/ready` or `status/planned` | `devops pr create` opens a pull request that closes the Item | `status/in-progress` | Agentic coder or person |
 | `status/in-progress` | The runner Job opens or updates the draft with the final title and body, and ends (#6559) | `status/in-review` | Runner Job, or `devops pr ready` |
 | No state, `status/new`, `status/ready` or `status/planned` | `devops pr ready` marks a pull request that closes the Item | `status/in-review` | Agentic coder or person |
-| `status/blocked`, with `implement.stopped` | `devops pr create` opens a pull request that closes the Item. The Item keeps the stop on record. A `status/blocked` label that a person set by hand stays | `status/in-progress` | Agentic coder or person |
-| `status/blocked`, with `implement.stopped` | `devops pr ready` marks a pull request that closes the Item. A `status/blocked` label that a person set by hand stays | `status/in-review` | Agentic coder or person |
+| `status/blocked`, with `implement.stopped` | `devops pr create` opens a pull request that closes the Item. The Item keeps the stop on record. A `status/blocked` label set manually stays | `status/in-progress` | Agentic coder or person |
+| `status/blocked`, with `implement.stopped` | `devops pr ready` marks a pull request that closes the Item. A `status/blocked` label set manually stays | `status/in-review` | Agentic coder or person |
 | `status/in-progress` | A step stops, or the Job ends with the Item not finished | `status/blocked`, with `implement.stopped` | Runner Job or Service job |
 | `status/blocked`, with `implement.stopped` | A trusted person (the owner, a member or a collaborator) comments `implement: retry` after the stop comment | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item, then it is `status/in-progress` | Person, then Service job |
 | `status/blocked`, with `implement.stopped` as `job` | The class in `implement.failure` has the action `retry`, and `implement.continuations` is less than `roadmap.implement.continuations_per_item` | `status/ready`, or `status/planned` when the plan is on the default branch, and `implement.continuations` goes up by 1. The same round of row `implement` takes the Item | Service job |
 | `status/blocked`, with `implement.stopped` | The digest in the template of CronJob `devops-cli-runner` is not the digest in `implement.job_digest`, the digest of the Job that stopped, and the class in `implement.failure` has the action `retry`. The class and item limits in `implement.digest_clears` allow a clear | `status/ready`, or `status/planned` when the plan is on the default branch. The same round of row `implement` takes the Item | Service job |
 | `status/in-review` | A person merges the pull request (G2) and the issue closes | Closed, with no `status/*` label | Person, then the row `implement` of the Service |
 | Closed | The release pull request merges (G3) | Released | Scheduled merge or person, then release-please |
-| Any state | A person sets a `status/*` label by hand | That label | Person |
+| Any state | An agent or a person sets a `status/*` label manually | That label | Agentic coder or person |
 
 Claims are a second family of labels. An Item has at most one `owner/*` label.
 
@@ -111,7 +111,7 @@ The labels on the issue hold the state. The job record holds the facts behind it
 | Planned | `status/planned` | The status sync of the Service | The change folder on the default branch, or a merged `stage.pr` |
 | In progress | `status/in-progress` | The Service, `devops repos worktrees add`, `devops pr create`, or the runner Job | `implement.job` with no `implement.job_state` |
 | In review | `status/in-review` | The runner Job, or `devops pr ready` | `implement.pr` |
-| Blocked | `status/blocked` | A stop of the runner Job or of the Service, or a person | `implement.stopped`, `implement.job_digest` (stopped). A person who sets it by hand records nothing |
+| Blocked | `status/blocked` | A stop of the runner Job or of the Service, or a manual label | `implement.stopped`, `implement.job_digest` (stopped). Setting it manually records nothing |
 | Done | The issue is closed | The close of the issue | None |
 | Owned by the Service | `owner/service` | Row `implement` | `implement.job` |
 | Owned by an agent | `owner/agent` | `devops repos worktrees add`, or a claim | None |

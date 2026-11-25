@@ -112,7 +112,7 @@ Refine reads the title in each round, so the first round after a title with a li
 
 ## Items that are trackers
 
-An item with sub-issues or the label `type/epic` is a tracker. Its sub-issues deliver it, so refine leaves it alone. The item waits with the text of `refine_left_tracker`, also under `--item`. The round makes no model call and writes nothing for it. A person closes the parent. A tracker holds back no item of its own: a dependency on a tracker waits on its open sub-issues (see the dependency rule above).
+An item with sub-issues or the label `type/epic` is a tracker. Its sub-issues deliver it, so refine leaves it alone. The item waits with the text of `refine_left_tracker`, also under `--item`. The round makes no model call and writes nothing for it. An agent or a person closes the parent. A tracker holds back no item of its own: a dependency on a tracker waits on its open sub-issues (see the dependency rule above).
 
 ## Parts that cannot be built now
 
