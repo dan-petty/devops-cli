@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.0](https://github.com/dan-petty/devops-cli/compare/v0.220.0...v0.221.0) (2026-11-25)
+
+
+### Features
+
+* **repos:** the drift Job reads merge settings and bypass actors ([#7201](https://github.com/dan-petty/devops-cli/issues/7201)) ([4c14220](https://github.com/dan-petty/devops-cli/commit/4c14220ff71ade1c1f2a1a7f212d903801b16d3e))
+
+
+### Bug Fixes
+
+* **roadmap:** post the refine event comment on changed deferrals ([#6378](https://github.com/dan-petty/devops-cli/issues/6378)) ([#7200](https://github.com/dan-petty/devops-cli/issues/7200)) ([c869ffc](https://github.com/dan-petty/devops-cli/commit/c869ffc726542bdb815cb5901b72b63ca0d5b9a9))
+
 ## [0.220.0](https://github.com/dan-petty/devops-cli/compare/v0.219.0...v0.220.0) (2026-11-25)
 
 
