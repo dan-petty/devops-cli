@@ -1207,6 +1207,28 @@ CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
 CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP: Final[str] = "devops-cli-config-sandbox"
 """The credential-free copy of the devops ConfigMap that the planner run Job mounts (#4147)."""
+CONST_K8S_DEVOPS_CONFIGMAP_HISTORY: Final[str] = "devops-cli-config-changes"
+"""The ConfigMap in namespace `devops` that holds a 30-day history of live `devops-cli-config` changes (#5221)."""
+CONST_K8S_DEVOPS_NAMESPACE: Final[str] = "devops"
+"""The Kubernetes namespace that holds `devops-cli-config`, its sandbox copy, and its history object."""
+CONST_K8S_CONFIGMAP_HISTORY_RETENTION_SECONDS: Final[int] = 30 * 24 * 60 * 60
+"""Maximum age in seconds for keys kept in ConfigMap `devops-cli-config-changes` (30 days, #5221)."""
+CONST_K8S_ANNOTATION_CONFIG_TEMPLATE_COMMIT: Final[str] = (
+    "roadmap.devops-cli/config-template-commit"
+)
+"""Annotation recording the git commit hash of `configmap.example.yaml` on changed applies."""
+CONST_K8S_ANNOTATION_DATA_SHA256: Final[str] = "roadmap.devops-cli/data-sha256"
+"""Annotation recording the SHA-256 hex digest of the applied `devops-cli-config` data."""
+CONST_K8S_ANNOTATION_CHANGED_SETTINGS: Final[str] = "roadmap.devops-cli/changed-settings"
+"""Annotation listing the dotted names (without values) of settings changed since the live object."""
+CONST_K8S_ANNOTATION_CHANGED_AT: Final[str] = "roadmap.devops-cli/changed-at"
+"""Annotation recording the UTC ISO-8601 timestamp (`...Z`) of the changed apply."""
+CONST_K8S_ANNOTATION_CHANGE_REASON: Final[str] = "roadmap.devops-cli/change-reason"
+"""Optional annotation recording the caller-supplied reason (for example `#5221`) for the apply."""
+CONST_K8S_CONFIGMAP_CHANGED_EVENT: Final[str] = "configmap_changed"
+"""WARNING log message emitted when `devops k8s deploy-stack` applies changed `devops-cli-config` data."""
+CONST_K8S_CONFIGMAP_CHANGED_LOGGER: Final[str] = "devops_cli.k8s.configmap"
+"""Logger name used for `configmap_changed` WARNING records exported by `OTelLoggingHandler`."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = (
     "devops",
     "ingress",

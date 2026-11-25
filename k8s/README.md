@@ -1359,6 +1359,17 @@ A change of a live value follows these rules:
 - deploy-stack also pushes the Secrets of its stack ([Cluster Secrets](#cluster-secrets)). An agent runs it only when `devops k8s push-secrets --stack <stack> --plan` shows each key `unchanged`. If not, a person runs it.
 - Write a comment on the issue of the change. Give the key, the reason and the time in UTC, and no secret value.
 
+When `deploy-stack` changes the `data` of `devops-cli-config`, it records the change with no setting values (#5221):
+
+- **Annotations on `devops-cli-config`:** `roadmap.devops-cli/data-sha256`, `roadmap.devops-cli/changed-settings` (comma-joined dotted paths), `roadmap.devops-cli/changed-at` (UTC ISO-8601 ending in `Z`), `roadmap.devops-cli/config-template-commit` (the last git commit touching `k8s/devops/configmap.example.yaml`, omitted outside git), and `roadmap.devops-cli/change-reason` (when `--reason` is passed). When the live `data` digest matches the rendered digest, deploy-stack adds none of these annotations, sends no history patch, and emits no change log.
+- **History ConfigMap `devops-cli-config-changes`:** deploy-stack creates ConfigMap `devops-cli-config-changes` in namespace `devops` when absent, then sends a merge patch adding `<epoch>-<sha256[:8]>` holding a single JSON line (`time`, `changed_settings`, `data_sha256`, optional commit and reason) and deletes entries older than 30 days.
+- **Telemetry log record:** after `kubectl apply` and the history patch succeed, deploy-stack logs `configmap_changed` at `WARNING` on logger `devops_cli.k8s.configmap` so `OTelLoggingHandler` exports the change attributes to Loki.
+- **Seven-day query:** run this command to list the changes of the last 7 days with setting names only:
+
+```bash
+kubectl -n devops get configmap devops-cli-config-changes -o json | jq -r '.data[] | fromjson | select((.time | fromdateiso8601) >= (now - 604800)) | [.time, (.changed_settings | join(","))] | @tsv'
+```
+
 The budget counts what GitHub counts against the rate limit of the installation: a conditional request that GitHub answers with 304 (#3497) leaves the budget when its answer comes. A request with no answer stays in it, because GitHub may have counted it, and a gh command has no status to read. `devops_cli_github_requests_total` still counts every request with its `status`, so `sum(increase(devops_cli_github_requests_total{job="roadmap-service", status!="304"}[1h]))` is the budget's measure (#3939).
 
 The cluster Jobs act as the same App as the Service, and they do not count in `service.github_requests_per_hour`. Only the Service keeps this budget, in a record on its volume. A Job pod has no budget and an `emptyDir` home, so the Service does not see the requests of a Job. GitHub counts the requests of both against the one rate limit of the App installation. To read the requests of the Jobs, set the variable `Job` of the `devops-cli Telemetry` dashboard to `devops-cli-job` or `roadmap-implement`, and read the row GitHub API. The list of the variable follows the time range of the dashboard. If the list does not show this value, no Job ended or sent a request in that range: make the range wider.

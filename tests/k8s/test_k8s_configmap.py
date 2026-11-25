@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +17,19 @@ from ruamel.yaml import YAML
 from devops_cli.config.settings import GitHubAppConfig, ServiceConfig, Settings
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.k8s.configmap import (
+    build_devops_configmap_change,
+    build_devops_configmap_history_manifest,
+    build_devops_configmap_history_patch,
+    changed_configmap_settings,
+    configmap_data_sha256,
+    emit_devops_configmap_changed_log,
+    read_devops_configmap_template_commit,
     render_active_devops_configmap,
     render_devops_configmap_content,
 )
+from devops_cli.telemetry.logging_bridge import OTelLoggingHandler
 from tests.support.credential_keys import credential_key_paths
+from tests.support.fakes.process import ProcessAnswer, ProcessFake
 
 SAMPLE_TEMPLATE = """apiVersion: v1
 kind: ConfigMap
@@ -396,3 +409,259 @@ def test_the_configmap_leaves_out_the_read_only_setting() -> None:
 
     inner = yaml.safe_load(yaml.safe_load(rendered)["data"]["devops-cli.yaml"])
     assert sorted(inner["service"]["github_app"]) == ["app_id", "installation_id", "slug"]
+
+
+def _data_from_rendered(rendered: str) -> dict[str, str]:
+    """The `data` mapping of a rendered ConfigMap YAML document."""
+    return dict(yaml.safe_load(rendered)["data"])
+
+
+def test_changed_configmap_settings_names_only_ai_model_without_value() -> None:
+    """When only `ai.model` differs between two rendered ConfigMaps, only that dotted path appears
+    with no setting value."""
+    live = _data_from_rendered(
+        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP)
+    )
+    updated_template = SAMPLE_TEMPLATE.replace("model: devops-background", "model: canary-model", 1)
+    rendered = _data_from_rendered(
+        render_devops_configmap_content(updated_template, repos=["owner/repo"], github_app=APP)
+    )
+
+    changed = changed_configmap_settings(live, rendered)
+
+    assert changed == ("ai.model",)
+
+
+def test_build_devops_configmap_change_sets_all_five_annotations_and_keeps_private_sentinel_out() -> (
+    None
+):
+    """Changed ConfigMap data writes all five `roadmap.devops-cli/` annotations, and neither the
+    annotations, history line, nor log record exposes a sentinel value (#5221)."""
+    live_data = _data_from_rendered(
+        render_devops_configmap_content(SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP)
+    )
+    sentinel_repo = "private-org/sentinel-secret-repo"
+    updated_template = SAMPLE_TEMPLATE.replace(
+        "model: devops-background", "model: next-sentinel-model", 1
+    )
+    rendered = render_devops_configmap_content(
+        updated_template, repos=[sentinel_repo], github_app=APP
+    )
+    fixed_now = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
+
+    annotated_yaml, record = build_devops_configmap_change(
+        rendered,
+        live_data,
+        config_template_commit="deadbeef1234",
+        reason="#5221",
+        now=fixed_now,
+    )
+
+    assert record is not None
+    doc = yaml.safe_load(annotated_yaml)
+    annotations = doc["metadata"]["annotations"]
+    assert annotations == {
+        "roadmap.devops-cli/config-template-commit": "deadbeef1234",
+        "roadmap.devops-cli/data-sha256": configmap_data_sha256(doc["data"]),
+        "roadmap.devops-cli/changed-settings": "ai.model,service.repos",
+        "roadmap.devops-cli/changed-at": "2026-11-25T12:00:00Z",
+        "roadmap.devops-cli/change-reason": "#5221",
+    }
+
+    patch_json = build_devops_configmap_history_patch(record, {}, now=fixed_now)
+    sent: list[dict[str, Any]] = []
+    handler = OTelLoggingHandler(exporter=sent.append)
+    logger = logging.getLogger("devops_cli.k8s.configmap")
+    logger.addHandler(handler)
+    try:
+        emit_devops_configmap_changed_log(record)
+    finally:
+        logger.removeHandler(handler)
+
+    rendered_records = json.dumps(
+        {
+            "annotations": annotations,
+            "history": patch_json,
+            "log": sent,
+        }
+    )
+    assert sentinel_repo not in rendered_records
+    assert "next-sentinel-model" not in rendered_records
+
+
+def test_build_devops_configmap_change_omits_template_commit_and_reason_when_empty() -> None:
+    """Outside a git checkout or without `--reason`, those optional annotations are omitted."""
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP
+    )
+    fixed_now = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
+
+    annotated_yaml, record = build_devops_configmap_change(
+        rendered, None, config_template_commit="", reason=None, now=fixed_now
+    )
+
+    assert record is not None
+    annotations = yaml.safe_load(annotated_yaml)["metadata"]["annotations"]
+    assert sorted(annotations) == [
+        "roadmap.devops-cli/changed-at",
+        "roadmap.devops-cli/changed-settings",
+        "roadmap.devops-cli/data-sha256",
+    ]
+
+
+def test_build_devops_configmap_change_returns_none_when_data_sha256_matches() -> None:
+    """Identical rendered and live `data` writes no annotation and produces no change record."""
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP
+    )
+    live_data = _data_from_rendered(rendered)
+
+    unchanged_yaml, record = build_devops_configmap_change(
+        rendered, live_data, config_template_commit="deadbeef1234", reason="#5221"
+    )
+
+    assert record is None
+    assert "annotations" not in yaml.safe_load(unchanged_yaml)["metadata"]
+
+
+def test_build_devops_configmap_history_patch_adds_key_and_prunes_older_than_30_days() -> None:
+    """Merge patch adds `<epoch>-<sha8>` with UTC `Z` JSON and deletes entries older than 30d."""
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP
+    )
+    fixed_now = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
+    now_epoch = int(fixed_now.timestamp())
+    _, record = build_devops_configmap_change(
+        rendered, None, config_template_commit="abc123", reason="#5221", now=fixed_now
+    )
+    assert record is not None
+
+    stale_key = f"{now_epoch - 31 * 86400}-11111111"
+    recent_key = f"{now_epoch - 5 * 86400}-22222222"
+    existing = {stale_key: '{"time":"2026-10-20T00:00:00Z"}', recent_key: '{"time":"recent"}'}
+
+    patch = json.loads(build_devops_configmap_history_patch(record, existing, now=fixed_now))
+    expected_key = f"{now_epoch}-{record.data_sha256[:8]}"
+    assert re.fullmatch(r"[-._a-zA-Z0-9]+", expected_key) is not None
+    assert patch["data"][stale_key] is None
+    assert recent_key not in patch["data"]
+
+    entry = json.loads(patch["data"][expected_key])
+    assert entry == {
+        "time": "2026-11-25T12:00:00Z",
+        "changed_settings": list(record.changed_settings),
+        "data_sha256": record.data_sha256,
+        "config_template_commit": "abc123",
+        "change_reason": "#5221",
+    }
+
+    empty_doc = yaml.safe_load(build_devops_configmap_history_manifest())
+    assert (empty_doc["kind"], empty_doc["metadata"], empty_doc["data"]) == (
+        "ConfigMap",
+        {"name": "devops-cli-config-changes", "namespace": "devops"},
+        {},
+    )
+
+
+def test_emit_devops_configmap_changed_log_reaches_otel_handler_at_warning() -> None:
+    """`emit_devops_configmap_changed_log` emits `configmap_changed` at WARNING with attributes."""
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP
+    )
+    live_data = _data_from_rendered(rendered)
+    updated = render_devops_configmap_content(
+        SAMPLE_TEMPLATE.replace("model: devops-background", "model: other", 1),
+        repos=["owner/repo"],
+        github_app=APP,
+    )
+    fixed_now = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
+    _, record = build_devops_configmap_change(
+        updated, live_data, config_template_commit="deadbeef", now=fixed_now
+    )
+    assert record is not None
+
+    sent: list[dict[str, Any]] = []
+    handler = OTelLoggingHandler(exporter=sent.append)
+    logger = logging.getLogger("devops_cli.k8s.configmap")
+    logger.addHandler(handler)
+    try:
+        emit_devops_configmap_changed_log(record)
+    finally:
+        logger.removeHandler(handler)
+
+    assert len(sent) == 1
+    log_rec = sent[0]
+    attrs = {a["key"]: a["value"] for a in log_rec["attributes"]}
+    assert (
+        log_rec["severityText"],
+        log_rec["body"],
+        attrs["log.logger"],
+        attrs["changed_settings"],
+        attrs["config_template_commit"],
+        attrs["time"],
+        attrs["data_sha256"],
+    ) == (
+        "WARN",
+        {"stringValue": "configmap_changed"},
+        {"stringValue": "devops_cli.k8s.configmap"},
+        {"stringValue": "ai.model"},
+        {"stringValue": "deadbeef"},
+        {"stringValue": "2026-11-25T12:00:00Z"},
+        {"stringValue": record.data_sha256},
+    )
+
+
+def test_read_devops_configmap_template_commit_reads_git_checkout_and_handles_non_git_dir(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """Template commit lookup queries git with `local_read=True` and returns empty outside git."""
+    template = tmp_path / "configmap.example.yaml"
+    template.write_text(SAMPLE_TEMPLATE, encoding="utf-8")
+
+    process_fake.answer(
+        lambda call: call.local_read and call.argv[:3] == ("git", "log", "-1"),
+        ProcessAnswer(stdout="cafebabe123456\n"),
+    )
+    assert read_devops_configmap_template_commit(tmp_path) == "cafebabe123456"
+
+    process_fake.answer(
+        lambda call: call.local_read and call.argv[:3] == ("git", "log", "-1"),
+        ProcessAnswer(returncode=128, stderr="fatal: not a git repository"),
+    )
+    assert read_devops_configmap_template_commit(tmp_path) == ""
+    assert read_devops_configmap_template_commit(tmp_path / "missing-dir") == ""
+
+
+def test_changed_configmap_settings_and_history_patch_cover_extra_keys_and_json_time_fallback() -> (
+    None
+):
+    """Extra non-YAML data keys, empty nested maps, same-key replacement, and JSON time fallback
+    for non-epoch history keys behave deterministically."""
+    changed = changed_configmap_settings(
+        {"devops-cli.yaml": "ai: {}\n", "extra.txt": "old"},
+        {"devops-cli.yaml": "ai: {}\n", "extra.txt": "new"},
+    )
+    assert changed == ("extra.txt",)
+
+    rendered = render_devops_configmap_content(
+        SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=APP
+    )
+    fixed_now = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
+    _, record = build_devops_configmap_change(rendered, None, now=fixed_now)
+    assert record is not None
+    same_key = f"{record.epoch_seconds}-{record.data_sha256[:8]}"
+    existing = {
+        same_key: '{"time":"2026-11-25T12:00:00Z"}',
+        "legacy-old": '{"time":"2026-10-01T00:00:00Z"}',
+        "legacy-bad-json": "{not-json",
+        "legacy-bad-time": '{"time":"not-a-timestamp"}',
+        "legacy-nonstr": 123,
+    }
+
+    patch = json.loads(build_devops_configmap_history_patch(record, existing, now=fixed_now))
+
+    assert patch["data"]["legacy-old"] is None
+    assert "legacy-bad-json" not in patch["data"]
+    assert "legacy-bad-time" not in patch["data"]
+    assert "legacy-nonstr" not in patch["data"]
+    assert same_key in patch["data"]
