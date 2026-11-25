@@ -185,7 +185,7 @@ The scope `Repo` applies to each repository, `Service` to each workload in the c
 | EVD-2 | The owner approves the launch with the merge. An exception has an owner comment, an issue and an end date. | Both | Required | `merged_by`; the owner comment | [Table 12](#production-readiness-review) | SSDF PO.2 |
 | EVD-3 | The review runs again at each trigger of this guideline, and the project review reports the SLOs and the incidents. | Service | Recommended | `devops roadmap review run` | This guideline | SRE-32 Continuous Improvement |
 
-For a running service, the readiness report of the project review is the readiness record. The report runs the check of the column "Measured by" for each row. Until a project has the report, a person or an agent runs the same checks and posts the same table as a comment. No document holds a copy of the state of each row. The gap tracker of the environment holds the issue of each required row that is not met.
+The readiness report of `devops roadmap review run` is the readiness record of a running service, and with `--ref` is the readiness record of a launch. The report runs the check of the column "Measured by" for each row. For a row whose check is `manual` or not yet readable by a command, a person or an agent reads the evidence and adds it to the comment. No document holds a copy of the state of each row. The gap tracker of the environment holds the issue of each required row that is not met.
 
 ## Production readiness review
 

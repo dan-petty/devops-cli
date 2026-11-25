@@ -689,6 +689,7 @@ devops roadmap review run [OPTIONS]
 | `--week` | `string` | - | One ISO week as YYYY-Www, from Monday 00:00 UTC to the next Monday. |
 | `--last` | `string` | - | The days up to now as Nd, such as 7d, from the start of this minute. |
 | `--repo`, `-R` | `string` | - | The repository as owner/name (default: the origin of the checkout). It must be the origin of the checkout. |
+| `--ref` | `string` | - | Branch or ref for the readiness report (reads file checks at that ref instead of the default branch). |
 | `--out` | `path` | - | The folder of data.json (default: project-review/\<owner\>/\<name\>/<window id> under the data directory). |
 | `--json` | `boolean` | - | Print data.json to standard output. |
 | `--dry-run` | `boolean` | - | Start no program and send no request: print the git commands that a run starts, then the shared reads, then each fact of the catalog with its reader kind and its query, with placeholders, or list each repository of service.repos with sections and conditions when no window is given. |
