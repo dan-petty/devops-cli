@@ -2682,7 +2682,7 @@ def test_report_reads_live_issue_when_brain_cache_holds_stale_in_progress(
 
 
 def test_report_skips_stop_write_when_service_release_sees_non_stop_status(
-    built: FakeCluster,
+    built: FakeCluster, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """If the runner updates the issue to `In Review` after the initial read and before
     `write_status`, `_report` re-checks `_settles_as_stop` and keeps `In Review` (#7063)."""
@@ -2706,7 +2706,7 @@ def test_report_skips_stop_write_when_service_release_sees_non_stop_status(
             store.set_marks(_held(store, number), {ImplementRecordKey.RESULT: "drafted"})
         return result
 
-    store.set_field = race_on_release  # type: ignore[method-assign]
+    monkeypatch.setattr(store, "set_field", race_on_release)
 
     implement_submit._report(
         store,
