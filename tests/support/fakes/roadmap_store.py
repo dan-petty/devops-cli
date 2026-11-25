@@ -824,15 +824,17 @@ class InMemoryRoadmapStore(RoadmapStore):
 
     # ── Items ──
 
-    def item(self, number: int) -> Item | None:
+    def item(self, number: int, *, fresh: bool = False) -> Item | None:
         """The Item numbered `number`, or None when that issue is no Item."""
+        del fresh
         self.reads.append("item")
         issue = self._roadmap.issues.get(number)
         return next(iter(select_items([self._read(issue)])), None) if issue else None
 
-    def issue(self, number: int) -> IssueRecord | None:
+    def issue(self, number: int, *, fresh: bool = False) -> IssueRecord | None:
         """The issue numbered `number`, Item or not, or None when it is a pull request or there is
         none."""
+        del fresh
         self.reads.append("issue")
         issue = self._roadmap.issues.get(number)
         return self._read(issue) if issue and not issue.pull_request else None

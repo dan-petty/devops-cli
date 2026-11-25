@@ -81,11 +81,15 @@ The implement job SHALL itemize the spend of every step under the tier that serv
 - **THEN** the record of the spend holds the token count for each tier and the aggregate total
 
 ### Requirement: The report reads the item again
-`_report` of the Service SHALL read the item again after it reads the log of the Job and before it decides whether the Job left a stop. A stop that the runner wrote in that time SHALL keep its class, and the Service SHALL write no second class.
+`_report` SHALL read the live item (`fresh=True`) after it reads the Job log and before it decides whether the Job left a stop, and SHALL check `_settles_as_stop` on the refreshed item before `write_status` writes a stop. Any runner result or stop written in that window SHALL keep its Status and failure class.
 
 #### Scenario: The runner stops while the report reads the log
 - **WHEN** the item is In Progress in the listing of the round, and the runner writes its stop with the class `timeout` while the report reads the log of the Job
 - **THEN** the record keeps the class `timeout`, the report names `timeout`, and the counter for `timeout` grows by 1
+
+#### Scenario: A runner Job that drafted without Valkey keeps In Review even with stale brain cache
+- **WHEN** `valkey-devops` holds a fresh `brain-issue` cache entry with `Status: In Progress` and no `implement.result`, while GitHub holds `Status: In Review` and `implement.result="drafted"` written by a runner Job without Valkey credentials, and `_report` runs
+- **THEN** `_report` reads the live issue from GitHub, posts no stop comment, leaves `Status: In Review` and `implement.stopped` unset, records `implement.job_state="succeeded"`, and releases `owner/service`
 
 ### Requirement: The metric labels are classes of the taxonomy
 Each panel and alert rule of `k8s/` that reads `devops_cli_service_implement_failures_total` SHALL match the label `class` only with values of the taxonomy.

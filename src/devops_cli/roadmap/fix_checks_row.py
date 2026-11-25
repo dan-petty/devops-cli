@@ -373,7 +373,7 @@ def _record_unit(store: RoadmapStore, job: ClusterJob, outcome: str) -> None:
     item_text = job.labels.get(ITEM_LABEL, "")
     if not key or not item_text.isdecimal():
         return
-    item = store.item(int(item_text))
+    item = store.item(int(item_text), fresh=True)
     if item is None:
         return
     attempt = _attempt(job)

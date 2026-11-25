@@ -315,3 +315,85 @@ def test_unlabel_issue_updates_cached_entry(
     assert cached is not None
     assert cached.record.labels == ("type/feature",)
     assert store._all[6013].labels == ("type/feature",)
+
+
+def test_fresh_issue_read_revalidates_cached_entry_with_etag(
+    shared_valkey: ValkeyCacheTier, valkey_server: FakeServer, otlp: FakeCollector
+) -> None:
+    """`fresh=True` bypasses the 1-hour cache hit window and revalidates stored ETags (#7063)."""
+    now = datetime.now(UTC)
+    record = IssueRecord(
+        number=6013,
+        title="Stale title",
+        url=f"https://github.com/{REPO}/issues/6013",
+        labels=("priority/p1-high", "status/in-progress"),
+        updated_at=now,
+    )
+    remember_issue(REPO, CachedIssue(record=record, etag="etag-old", checked_at=now))
+
+    live_body = json.dumps(
+        issue_payload(
+            6013,
+            title="Live title",
+            labels=[{"name": "priority/p1-high"}, {"name": "status/in-review"}],
+        )
+    )
+    response = f'HTTP/2 200 OK\r\nETag: W/"etag-live"\r\n\r\n{live_body}'
+
+    def reply_live(args: list[str]) -> tuple[int, str]:
+        assert any("If-None-Match: etag-old" in a for a in args)
+        return (0, response)
+
+    runner = RecordedGh({"issues/6013": reply_live})
+    store = _store(runner)
+    store._all = {6013: record}
+
+    with request_scope(row="implement"):
+        found = store.issue(6013, fresh=True)
+
+    assert found is not None
+    assert found.title == "Live title"
+    assert found.labels == ("priority/p1-high", "status/in-review")
+    assert len(runner.calls) == 1
+    assert _summed_cache(otlp).get(("implement", "miss")) == 1.0
+    assert store._all[6013].title == "Live title"
+
+    cached = cached_issue(REPO, 6013)
+    assert cached is not None
+    assert cached.record.title == "Live title"
+    assert cached.etag == 'W/"etag-live"'
+
+
+def test_fresh_item_read_bypasses_fresh_cache_without_etag(
+    shared_valkey: ValkeyCacheTier, valkey_server: FakeServer
+) -> None:
+    """`item(n, fresh=True)` reads live GitHub even when a webhook wrote an entry with no ETag (#7063)."""
+    now = datetime.now(UTC)
+    stale = IssueRecord(
+        number=6013,
+        title="Queued item",
+        url=f"https://github.com/{REPO}/issues/6013",
+        labels=("priority/p1-high", "status/in-progress", "owner/service"),
+        updated_at=now,
+    )
+    remember_issue(REPO, CachedIssue(record=stale, etag=None, checked_at=now))
+
+    payload = issue_payload(
+        6013,
+        title="Queued item",
+        labels=[{"name": "priority/p1-high"}, {"name": "status/in-review"}],
+    )
+    runner = RecordedGh({"issues/6013": payload})
+    store = _store(runner)
+    store._all = {6013: stale}
+
+    item = store.item(6013, fresh=True)
+
+    assert item is not None
+    assert item.status == "In Review"
+    assert len(runner.calls) == 1
+    assert store._all[6013].labels == ("priority/p1-high", "status/in-review")
+
+    cached = cached_issue(REPO, 6013)
+    assert cached is not None
+    assert cached.record.labels == ("priority/p1-high", "status/in-review")

@@ -349,7 +349,7 @@ def _clear_one(
     retry = retry_asked_on(store, item)
     if _rule(item, retry, template_digest, limits, now) is None:
         return
-    current = store.item(item.number)
+    current = store.item(item.number, fresh=True)
     if current is None or not is_service_stop(current):
         return
     if (decided := _rule(current, retry, template_digest, limits, now)) is None:
