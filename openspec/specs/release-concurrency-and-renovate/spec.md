@@ -124,4 +124,4 @@ Until step 17 of `docs/HOMELAB_REPO_SWITCH.md` deletes the environment files, `.
 
 #### Scenario: Release workflow and Renovate config pass validation
 - **WHEN** a person or CI runs `uv run devops ci --check --only actionlint,zizmor` and `renovate-config-validator --strict --no-global .github/renovate.json`
-- **THEN** both commands exit 0 and `test_release_please_makes_every_release_on_a_push_to_main` passes against `.github/workflows/release.yml`
+- **THEN** both commands exit 0
