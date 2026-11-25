@@ -753,7 +753,9 @@ def test_the_collection_warning_shows_the_brackets_of_a_keyword_as_text(
     run (#5606)."""
     _answer_collection(process_fake, 0, returncode=3)
 
-    result = runner.invoke(ci_app, ["test", "-k", "noop[/x]", "tests/test_secrets.py"])
+    result = runner.invoke(
+        ci_app, ["test", "-k", "noop[/x]", "tests/test_secrets.py", "tests/test_unrelated.py"]
+    )
 
     assert (result.exit_code, "noop[/x]" in " ".join(result.output.split())) == (0, True)
 
@@ -817,7 +819,7 @@ def test_the_collection_runs_under_its_own_short_timeout(
     imports on a base that does not have it."""
     _answer_collection(process_fake, 5)
 
-    result = runner.invoke(ci_app, ["test", "tests/test_secrets.py"])
+    result = runner.invoke(ci_app, ["test", "tests/test_secrets.py", "tests/test_unrelated.py"])
 
     timeouts = [call.timeout for call in process_fake.calls if _COLLECTION_MARK in call.argv]
     assert (result.exit_code, timeouts) == (
@@ -834,7 +836,10 @@ def test_a_collection_that_matches_no_test_runs_serially_without_a_warning(
     gives; that is a count of zero, so the run is serial and no warning names a failure (#4472)."""
     _answer_collection(process_fake, 0, returncode=5)
 
-    result = runner.invoke(ci_app, ["test", "-k", "no-such-test", "tests/test_secrets.py"])
+    result = runner.invoke(
+        ci_app,
+        ["test", "-k", "no-such-test", "tests/test_secrets.py", "tests/test_unrelated.py"],
+    )
 
     assert (result.exit_code, [_worker_options(argv) for argv in _pytest_runs(process_fake)]) == (
         0,
@@ -936,6 +941,7 @@ def test_a_dry_run_plans_the_workers_without_collecting(
     "args",
     [
         pytest.param((), id="full-suite"),
+        pytest.param(("tests/test_secrets.py",), id="single-module"),
         pytest.param(("-n", "2", "tests/test_secrets.py"), id="workers-given"),
         pytest.param(
             ("--repeat", "2", "--seed", "1", "-n", "2", "tests/test_secrets.py"),
@@ -946,11 +952,68 @@ def test_a_dry_run_plans_the_workers_without_collecting(
 def test_a_run_that_chooses_its_workers_by_other_means_makes_no_collection(
     process_fake: ProcessFake, project: Path, args: tuple[str, ...]
 ) -> None:
-    """A run with no paths keeps addopts' `-n logical`, and a given `-n` is kept as it is, also
-    for the runs of `--repeat`, so none of them starts a collection (#4472, #5606, #6564)."""
+    """A run with no paths keeps addopts' `-n logical`, a narrowed run to one target module runs
+    serially, and a given `-n` is kept as it is, also for `--repeat`, so none of them starts a
+    collection (#4472, #5606, #5612, #6564)."""
     result = runner.invoke(ci_app, ["test", *args])
 
     assert (result.exit_code, _collection_calls(process_fake)) == (0, [])
+
+
+def test_a_single_target_module_runs_serially_with_no_collection(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """A narrowed run given no `-n` and one target test module runs with `-n 0` and starts no
+    collection session even when that module holds more than 50 tests (#5612)."""
+    _answer_collection(process_fake, defaults.DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 2)
+
+    result = runner.invoke(ci_app, ["test", "tests/test_secrets.py"])
+
+    assert (
+        result.exit_code,
+        _collection_calls(process_fake),
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (0, [], [[["-n", "0"]]])
+
+
+def test_two_target_modules_over_the_serial_limit_collect_and_use_workers(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """Two target modules keep the collected-test count rule: when collection reports 51 tests,
+    collection runs once and pytest runs on DEFAULT_CI_TEST_NARROWED_WORKERS (#5612)."""
+    modules = _test_modules(project, 2)
+    _answer_collection(process_fake, defaults.DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1)
+
+    result = runner.invoke(ci_app, ["test", *modules])
+
+    assert (
+        result.exit_code,
+        len(_collection_calls(process_fake)),
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (0, 1, [[["-n", str(DEFAULT_CI_TEST_NARROWED_WORKERS)]]])
+
+
+def test_explicit_workers_on_a_single_module_override_serial_rule(
+    process_fake: ProcessFake, project: Path
+) -> None:
+    """Explicit `-n 2` on one target module uses `-n 2` with no collection session (#5612)."""
+    result = runner.invoke(ci_app, ["test", "-n", "2", "tests/test_secrets.py"])
+
+    assert (
+        result.exit_code,
+        _collection_calls(process_fake),
+        [_worker_options(argv) for argv in _pytest_runs(process_fake)],
+    ) == (0, [], [[["-n", "2"]]])
+
+
+def test_workers_help_text_states_single_module_serial_rule() -> None:
+    """The `-n` help text of `devops ci test` states that a narrowed run to one target module runs
+    serially with no collection session (#5612)."""
+    result = runner.invoke(ci_app, ["test", "--help"])
+    normalized = " ".join(result.output.split())
+
+    assert result.exit_code == 0
+    assert "one target module runs serially with no collection session" in normalized
 
 
 def test_the_test_run_starts_pytest_in_a_session_of_its_own(
