@@ -946,7 +946,6 @@ VALKEY_TOOL_PARAMETERS: dict[str, list[str]] = {
     "valkey_stats": [],
     "valkey_info": ["section"],
     "valkey_get": ["key"],
-    "valkey_set": ["key", "value", "ex", "dry_run"],
     "valkey_flush": ["all_databases", "dry_run"],
 }
 """Each Valkey tool and the parameters that it publishes. None of them is a URL."""
@@ -956,7 +955,6 @@ VALKEY_TOOL_CALLS: dict[str, tuple[dict[str, object], list[list[str]]]] = {
     "valkey_stats": ({}, [["INFO"], ["DBSIZE"]]),
     "valkey_info": ({"section": "memory"}, [["INFO", "memory"]]),
     "valkey_get": ({"key": "k"}, [["GET", "k"]]),
-    "valkey_set": ({"key": "k", "value": "v"}, [["SET", "k", "v"]]),
     "valkey_flush": ({}, [["FLUSHDB"]]),
 }
 """Each Valkey tool, arguments that it accepts, and the commands that it sends to the server."""
@@ -1010,7 +1008,7 @@ class TestValkeyToolsTakeNoUrlFromTheModel:
         """A call that gives a URL fails, and the server at that URL gets no connection.
 
         On `origin/main` the server at the URL received `AUTH <password>` and then the command of
-        the tool, so `valkey_set` and `valkey_flush` also wrote to it.
+        the tool, so `valkey_flush` also wrote to it.
         """
         monkeypatch.setenv("DEVOPS_CLI_VALKEY_PASSWORD", _PASSWORD)
         arguments, _commands = VALKEY_TOOL_CALLS[tool]
