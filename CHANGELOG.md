@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.214.0](https://github.com/dan-petty/devops-cli/compare/v0.213.0...v0.214.0) (2026-11-25)
+
+
+### Features
+
+* **monitoring:** Define the four product SLOs in Sloth specs ([#7032](https://github.com/dan-petty/devops-cli/issues/7032)) ([a117e6c](https://github.com/dan-petty/devops-cli/commit/a117e6c3addb94fd4ac6e9d4f4f389587daf09f9))
+* **pr:** add --body-file option to pr create and pr edit ([#7051](https://github.com/dan-petty/devops-cli/issues/7051)) ([b6688c7](https://github.com/dan-petty/devops-cli/commit/b6688c7d1fa4444dbfdb646215db74f8ff9150c5)), closes [#4852](https://github.com/dan-petty/devops-cli/issues/4852)
+
 ## [0.213.0](https://github.com/dan-petty/devops-cli/compare/v0.212.0...v0.213.0) (2026-11-25)
 
 
