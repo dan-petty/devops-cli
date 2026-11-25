@@ -44,6 +44,9 @@ outputs:
 runs:
   using: composite
   steps:
+    # The cache directory has the name of the category, so scans that run at the same time in one
+    # job do not share it: the file cache of Trivy serves one process (#7236).
+    #
     # The runner starts the image with the workspace as its working directory and the Docker
     # socket mounted, so Trivy reads an image that the job loaded. dockerd retries each layer
     # pull. Renovate moves the tag and the digest of both steps.
@@ -51,7 +54,8 @@ runs:
       uses: docker://ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
       with:
         args: >-
-          image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --timeout 3m
+          image --cache-dir /github/home/.cache/trivy-${{ inputs.category }}
+          --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --timeout 3m
           --ignorefile ${{ inputs.ignore-file }} --exit-code ${{ inputs.exit-code }}
           --format sarif --output ${{ inputs.category }}.sarif ${{ inputs.image-ref }}
 
@@ -64,7 +68,8 @@ runs:
       uses: docker://ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
       with:
         args: >-
-          image --quiet --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
+          image --cache-dir /github/home/.cache/trivy-${{ inputs.category }}
+          --quiet --skip-db-update --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
           --timeout 30s --ignorefile ${{ inputs.ignore-file }} --format table --table-mode detailed
           ${{ inputs.image-ref }}
 
