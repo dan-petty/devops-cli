@@ -15,6 +15,8 @@ import pytest
 
 from devops_cli.ai.mcp.server import mcp
 from devops_cli.config.constants import (
+    CONST_MCP_FREE_TEXT_SINK_ALLOWLIST,
+    CONST_MCP_FREE_TEXT_SINK_PARAMETER_NAMES,
     CONST_MCP_SECRET_PARAMETER_ALLOWLIST,
     CONST_MCP_SECRET_PARAMETER_WORDS,
 )
@@ -56,6 +58,19 @@ def _secret_suggesting() -> list[tuple[str, str]]:
         for tool, properties in _published_parameters().items()
         for name, schema in properties.items()
         if is_secret_parameter_name(name) and _takes_text(schema)
+    )
+
+
+def _free_text_sinks(
+    published: dict[str, dict[str, dict[str, Any]]] | None = None,
+) -> list[tuple[str, str]]:
+    """Every (tool, parameter) with a sink name that can hold text."""
+    tools = _published_parameters() if published is None else published
+    return sorted(
+        (tool, name)
+        for tool, properties in tools.items()
+        for name, schema in properties.items()
+        if name in CONST_MCP_FREE_TEXT_SINK_PARAMETER_NAMES and _takes_text(schema)
     )
 
 
@@ -162,3 +177,44 @@ def test_docker_sign_passes_a_keyring_reference_in_argv() -> None:
         argv[argv.index("--oidc-token") + 1],
         "env" in run.call_args.kwargs,
     ) == ("keyring:cosign_oidc", False)
+
+
+def test_a_free_text_sink_parameter_needs_an_allow_list_entry() -> None:
+    """A tool that publishes `value` as text, with no entry, is a sink that the guard names."""
+    published = {"example_store": {"value": {"type": "string"}, "ttl": {"type": "integer"}}}
+    unlisted = [
+        pair
+        for pair in _free_text_sinks(published)
+        if pair not in CONST_MCP_FREE_TEXT_SINK_ALLOWLIST
+    ]
+
+    assert unlisted == [("example_store", "value")]
+
+
+def test_no_published_free_text_sink_lacks_an_allow_list_entry() -> None:
+    """`sandbox_deploy.env` and `valkey_set.value` are gone; each sink that stays has a reason."""
+    unlisted = [
+        pair for pair in _free_text_sinks() if pair not in CONST_MCP_FREE_TEXT_SINK_ALLOWLIST
+    ]
+
+    assert unlisted == []
+
+
+def test_the_free_text_allow_list_holds_only_live_entries_with_a_reason() -> None:
+    """An entry names a published sink parameter, and says why it holds no secret."""
+    live = set(_free_text_sinks())
+    stale = sorted(pair for pair in CONST_MCP_FREE_TEXT_SINK_ALLOWLIST if pair not in live)
+    short = sorted(
+        pair
+        for pair, reason in CONST_MCP_FREE_TEXT_SINK_ALLOWLIST.items()
+        if len(reason.strip()) < _MIN_REASON_CHARS
+    )
+
+    assert (stale, short) == ([], [])
+
+
+def test_the_free_text_allow_list_refuses_a_stale_entry() -> None:
+    """An entry for a parameter that no tool publishes is stale."""
+    live = set(_free_text_sinks({"example_store": {"ttl": {"type": "integer"}}}))
+
+    assert ("example_store", "value") not in live

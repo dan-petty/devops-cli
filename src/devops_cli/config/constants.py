@@ -447,7 +447,6 @@ CONST_MCP_EXPOSURE_TABLE: Final[tuple[tuple[tuple[str, ...], float, bool, bool],
     (("valkey", "get"), 30.0, True, False),
     (("valkey", "info"), 30.0, True, False),
     (("valkey", "ping"), 30.0, True, False),
-    (("valkey", "set"), 30.0, False, False),
     (("valkey", "stats"), 30.0, True, False),
     (("vault", "get"), 60.0, True, False),
     (("vault", "status"), 30.0, True, False),
@@ -624,6 +623,19 @@ CONST_MCP_SECRET_PARAMETER_ALLOWLIST: Final[dict[tuple[str, str], str]] = {
     ),
     ("k8s_enable_tls", "secret_name"): (
         "Names the Kubernetes Secret object to write. It holds no secret value."
+    ),
+}
+# A text parameter with one of these names is copied into an environment, a file or a store, so a
+# model could fill it with a secret that no name word finds (SECURITY.md rule 12, #3230).
+CONST_MCP_FREE_TEXT_SINK_PARAMETER_NAMES: Final[frozenset[str]] = frozenset(
+    {"env", "values", "value", "data"}
+)
+# The published free-text sink parameters that hold no secret, as (tool, parameter): the reason. A
+# new entry needs a reason.
+CONST_MCP_FREE_TEXT_SINK_ALLOWLIST: Final[dict[tuple[str, str], str]] = {
+    ("k8s_diff_helm", "values"): (
+        "Names the Helm values files of the chart to render and compare. The command reads each "
+        "file and writes no value to a store."
     ),
 }
 # Root commands whose module app takes the command's own name as its first argument:

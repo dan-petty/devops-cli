@@ -5141,21 +5141,6 @@
           "description": "Preview execution plan without mutating external state.",
           "type": "boolean"
         },
-        "env": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Environment variable in KEY=VALUE format."
-        },
         "image": {
           "default": "python:3.14-slim",
           "description": "Container image for the sandbox workload.",
@@ -6152,44 +6137,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
-      "type": "object"
-    }
-  },
-  "valkey_set": {
-    "description": "Set string value of key with optional expiration TTL.",
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "dry_run": {
-          "default": false,
-          "description": "Preview execution plan without mutating external state.",
-          "type": "boolean"
-        },
-        "ex": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Expiration timeout in seconds"
-        },
-        "key": {
-          "description": "Key name to set",
-          "type": "string"
-        },
-        "value": {
-          "description": "Value to associate with key",
-          "type": "string"
-        }
-      },
-      "required": [
-        "key",
-        "value"
-      ],
       "type": "object"
     }
   },

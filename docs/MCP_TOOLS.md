@@ -150,7 +150,6 @@ The `devops-cli` FastMCP server exposes DevOps automation and AI review capabili
 | [`valkey_get`](#valkey_get) | `true` | Retrieve string value stored at key. |
 | [`valkey_info`](#valkey_info) | `true` | Inspect server configuration, memory allocation, and operational metrics. |
 | [`valkey_ping`](#valkey_ping) | `true` | Test connection and measure round-trip latency to the Valkey server. |
-| [`valkey_set`](#valkey_set) | `false` | Set string value of key with optional expiration TTL. |
 | [`valkey_stats`](#valkey_stats) | `true` | Display quick diagnostic summary of server health, memory, and keys. |
 | [`vault_get`](#vault_get) | `true` | Fetch a secret from Vault, or from the OS keyring when Vault cannot answer.  The keyring answers only with no usable token, when Vault has no value at the path, or when Vault is unreachable; never after Vault rejects the token. The output names the source. |
 | [`vault_status`](#vault_status) | `true` | Inspect HashiCorp Vault cluster health and initialization status.  The health endpoint needs no token, and none is sent. The Token row names where the token other commands would use comes from, and why a stored token is not used for this address. |
@@ -2005,7 +2004,6 @@ Deploy an isolated background container sandbox with security containment.
 | `network_mode` | `string` | No | - | Multi-tier network mode: isolated | sandbox_namespace | public_whitelist | local_whitelist | bridge |
 | `public_whitelist` | `string` | No | - | Comma-separated public domains/IPs allowed for egress |
 | `local_whitelist` | `string` | No | - | Comma-separated local URLs/IPs allowed for egress |
-| `env` | `array[string]` | No | - | Environment variable in KEY=VALUE format. |
 | `seccomp_profile` | `string` | No | - | Seccomp profile file for the container, in the JSON format of `docker --security-opt seccomp=<file>`, in place of the engine's default profile. Its defaultAction must refuse the system calls that it does not name. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
@@ -2443,21 +2441,6 @@ Test connection and measure round-trip latency to the Valkey server.
 **Annotations:** `readOnlyHint: true`
 
 *No parameters required.*
-
-### `valkey_set`
-
-Set string value of key with optional expiration TTL.
-
-**Annotations:** `readOnlyHint: false`
-
-**Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `key` | `string` | Yes | - | Key name to set |
-| `value` | `string` | Yes | - | Value to associate with key |
-| `ex` | `integer` | No | - | Expiration timeout in seconds |
-| `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 
 ### `valkey_stats`
 

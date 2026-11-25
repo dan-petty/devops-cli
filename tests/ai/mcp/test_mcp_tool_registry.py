@@ -289,7 +289,6 @@ def test_fastmcp_tool_annotations_and_mutating_floor() -> None:
         "review_pr",
         "tf_apply",
         "valkey_flush",
-        "valkey_set",
     }
     wrong_floor = sorted(
         name for name in floor_expected_false if hints_by_name.get(name) is not False

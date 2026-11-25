@@ -151,8 +151,8 @@ async def test_a_strict_refusal_is_rendered_like_a_schema_refusal(
 
 async def test_a_refused_secret_never_reaches_the_reply(handler_runner) -> None:
     """An invalid call returned the secret it was given in its error text."""
-    _, reply = await call_tool("valkey_set", {"key": ["bad"], "value": _SECRET_SENTINEL})
-    assert ("Parameter: `key`" in reply, "sentinel-4b1d" in reply) == (True, False)
+    _, reply = await call_tool("tf_apply", {"directory": ["bad"], "var_file": _SECRET_SENTINEL})
+    assert ("Parameter: `directory`" in reply, "sentinel-4b1d" in reply) == (True, False)
 
 
 async def test_an_undeclared_parameter_name_is_masked_and_bounded(handler_runner) -> None:
@@ -170,7 +170,7 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
     """FastMCP logs a refused call's pydantic error count and types, never the input.
 
     This holds FastMCP to that. It calls past the middleware, as FastMCP itself does once
-    middleware has run, so pydantic refuses a malformed `valkey_set` and FastMCP logs.
+    middleware has run, so pydantic refuses a malformed `tf_apply` and FastMCP logs.
     """
     import asyncio
 
@@ -178,9 +178,9 @@ def test_no_rejected_input_reaches_a_log_record(fastmcp_log, handler_runner) -> 
 
     from devops_cli.ai.mcp.server import mcp
 
-    arguments = {"key": ["bad"], "value": _SECRET_SENTINEL}
+    arguments = {"directory": ["bad"], "var_file": _SECRET_SENTINEL}
     with pytest.raises(FastMCPValidationError) as raised:
-        asyncio.run(mcp.call_tool("valkey_set", arguments, run_middleware=False))
+        asyncio.run(mcp.call_tool("tf_apply", arguments, run_middleware=False))
     assert raised.value is not None
     assert (
         "Invalid arguments for tool" in fastmcp_log.text,
@@ -193,11 +193,11 @@ async def test_no_tool_argument_reaches_a_debug_record(
 ) -> None:
     """FastMCP logs every tool call's arguments at DEBUG.
 
-    With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote the value of a `valkey_set` call to the log.
+    With `FASTMCP_LOG_LEVEL=DEBUG`, that wrote the `var_file` of a `tf_apply` call to the log.
     """
-    await call_tool("valkey_set", {"key": "session", "value": _SECRET_SENTINEL})
+    await call_tool("tf_apply", {"directory": "infra", "var_file": _SECRET_SENTINEL})
     assert (
-        "Handler called: call_tool valkey_set" in fastmcp_log.text,
+        "Handler called: call_tool tf_apply" in fastmcp_log.text,
         "sentinel-4b1d" in fastmcp_log.text,
         mcp_dispatcher.call_count,
     ) == (True, False, 1)

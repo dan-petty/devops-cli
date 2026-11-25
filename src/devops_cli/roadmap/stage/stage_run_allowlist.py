@@ -155,11 +155,14 @@ def _permitted_parameters(
     it as a path or `PATH_CONFINEMENTS` names it.
     """
     restrictions = _PATH_PARAM_RESTRICTIONS.get(path)
-    allowed: frozenset[str] | None = None if restrictions is None else restrictions["allowed"]
+    allowed: frozenset[str] | None = None if restrictions is None else restrictions.get("allowed")
+    denied: frozenset[str] = (
+        frozenset() if restrictions is None else restrictions.get("denied", frozenset())
+    )
     confined = PATH_CONFINEMENTS.get(_tool_name(path), frozenset())
     names: list[str] = []
     for parameter in command.params:
-        if not _keeps_parameter(parameter, format_json, allowed):
+        if not _keeps_parameter(parameter, format_json, allowed, denied):
             continue
         if is_path_or_file_param(parameter) or parameter.name in confined:
             return REASON_PATH_OPTION
@@ -167,11 +170,15 @@ def _permitted_parameters(
     return frozenset(names)
 
 
-def _keeps_parameter(parameter: Any, format_json: bool, allowed: frozenset[str] | None) -> bool:
+def _keeps_parameter(
+    parameter: Any, format_json: bool, allowed: frozenset[str] | None, denied: frozenset[str]
+) -> bool:
     """Whether a tool publishes `parameter`, as `_introspect_command_parameters` publishes it."""
     if parameter.name in _IGNORED_PARAM_NAMES:
         return False
     if format_json and parameter.name in _JSON_PARAM_NAMES:
+        return False
+    if parameter.name in denied:
         return False
     return allowed is None or parameter.name in allowed
 
