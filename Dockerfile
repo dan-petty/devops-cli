@@ -140,6 +140,29 @@ USER 1000:1000
 
 ENTRYPOINT ["devops"]
 
+# The uv cache seed for runner Job checkouts (#4814). Built FROM `devtools` so it carries the
+# exact uv and Python 3.14 of `runner`, populates `/cache` with `uv sync --locked --group dev`
+# matching `bootstrap_checkout` in `src/devops_cli/roadmap/runner_tools.py`, and records
+# `/seed.json` for `_seed_fits`. Placed before `service` so a default build still builds Service.
+FROM devtools AS uv-seed-build
+
+WORKDIR /app
+# hadolint ignore=DL3064
+ENV UV_CACHE_DIR=/cache \
+    UV_PYTHON=/usr/bin/python3.14 \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_COMPILE_BYTECODE=0
+
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+RUN uv sync --locked --group dev && \
+    /usr/bin/python3.14 -c 'import hashlib, json, pathlib, subprocess, sys; pathlib.Path("/seed.json").write_text(json.dumps({"uv": subprocess.check_output(["uv", "--version"], text=True).split()[1], "python": f"{sys.version_info.major}.{sys.version_info.minor}", "uv_lock_sha256": hashlib.sha256(pathlib.Path("uv.lock").read_bytes()).hexdigest()}) + "\n", encoding="utf-8")' && \
+    find /cache /seed.json ! -type l -exec chmod a+rX {} +
+
+FROM scratch AS uv-seed
+COPY --from=uv-seed-build /cache /cache
+COPY --from=uv-seed-build /seed.json /seed.json
+
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
 # runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
 # image, and OpenSpec from the `openspec` stage. The image holds no uv, curl or pip.

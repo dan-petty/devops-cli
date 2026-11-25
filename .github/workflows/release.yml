@@ -318,6 +318,14 @@ jobs:
             no-cache-filters: mcp-server
             category: trivy-image-mcp-server
             scan-exit-code: "1"
+          # Pre-populated uv cache seed for runner Job checkouts (#4814); FROM scratch holds no
+          # devtools binaries.
+          - image: uv-seed
+            title: UV Seed
+            description: Pre-populated uv cache seed for runner Job checkouts
+            no-cache-filters: ""
+            category: trivy-image-uv-seed
+            scan-exit-code: "1"
     # A called workflow can only keep or lower these permissions; each of its jobs asks for less.
     permissions:
       contents: read

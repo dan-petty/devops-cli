@@ -60,15 +60,20 @@ def test_the_pull_request_check_builds_the_runner_image_and_pushes_nothing() -> 
         None,
     )
 
-    assert build["with"]["targets"].split() == ["runner", "mcp-server"]
+    assert build["with"]["targets"].split() == ["runner", "mcp-server", "uv-seed"]
     assert 'target "runner"' in bake
     assert 'cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/runner:buildcache"]' in bake
+    assert 'target "uv-seed"' in bake
+    assert 'cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/uv-seed:buildcache"]' in bake
 
     names = [step.get("name") for step in job["steps"]]
     for name in (
         "Run Runner Image Smoke Test",
         "Scan Runner Image for Vulnerabilities",
+        "Run UV Seed Image Smoke Test",
+        "Scan UV Seed Image for Vulnerabilities",
         "Run MCP Server Image Smoke Test",
         "Scan MCP Server Image for Vulnerabilities",
     ):
         assert name in names
+        assert _step(job, name)["if"] == "steps.image_changes.outputs.changed == 'true'"

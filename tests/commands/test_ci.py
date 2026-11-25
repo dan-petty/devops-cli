@@ -1786,12 +1786,16 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
         (
             "mcp-server-image",
             "Write Docker Bake Definition",
-        ): "Writes the bake file of the runner and mcp-server targets, which one bake step builds (#4649)",
+        ): "Writes the bake file of the runner, mcp-server, and uv-seed targets, which one bake step builds (#4649, #4814)",
         (
             "mcp-server-image",
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
         ("mcp-server-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
+        (
+            "mcp-server-image",
+            "Run UV Seed Image Smoke Test",
+        ): "Docker container uv-seed smoke tests",
         (
             "test",
             "Changed-Line Coverage",

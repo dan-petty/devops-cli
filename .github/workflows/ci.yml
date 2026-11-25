@@ -623,6 +623,14 @@ jobs:
             no-cache-filter = ["mcp-server"]
             cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/mcp-server:buildcache"]
           }
+
+          target "uv-seed" {
+            context = "."
+            dockerfile = "Dockerfile"
+            target = "uv-seed"
+            tags = ["devops-cli-uv-seed:local"]
+            cache-from = ["type=registry,ref=ghcr.io/${REPOSITORY}/uv-seed:buildcache"]
+          }
           EOF
 
       - name: Build and Load Runner and MCP Server Images
@@ -635,6 +643,7 @@ jobs:
           targets: |
             runner
             mcp-server
+            uv-seed
           load: true
           push: false
 
@@ -685,6 +694,42 @@ jobs:
           # binaries go to code scanning and stop no build (SECURITY.md, Dedicated Development
           # Resources and Sandboxes). The Service and MCP server scans keep the gate.
           exit-code: "0"
+
+      - name: Run UV Seed Image Smoke Test
+        if: steps.image_changes.outputs.changed == 'true'
+        env:
+          SEED_IMAGE: devops-cli-uv-seed:local
+          RUNNER_IMAGE: devops-cli-runner:local
+        run: |
+          SEED_DIR="$RUNNER_TEMP/uv-seed-smoke"
+          rm -rf "$SEED_DIR"
+          mkdir -p "$SEED_DIR"
+          ID=$(docker create "$SEED_IMAGE" true)
+          docker cp "$ID:/seed.json" "$SEED_DIR/seed.json"
+          docker cp "$ID:/cache" "$SEED_DIR/cache"
+          docker rm "$ID" > /dev/null
+          test -f "$SEED_DIR/seed.json"
+          test -d "$SEED_DIR/cache"
+          jq -e '.uv and .python and .uv_lock_sha256' "$SEED_DIR/seed.json" > /dev/null
+          find "$SEED_DIR" ! -type l -exec chmod a+rX {} +
+          timeout 60 docker run --rm --network none --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" -v "$SEED_DIR:/opt/uv-seed:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$RUNNER_IMAGE" -ec '
+            mkdir /home/devops/project &&
+            tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules --exclude=./package-lock.json -cf - . | tar -C /home/devops/project -xf - &&
+            cd /home/devops/project &&
+            python -c "from pathlib import Path; from devops_cli.roadmap.runner_tools import _seed_fits, UV_SEED_DIR; assert _seed_fits(Path.cwd(), UV_SEED_DIR)" &&
+            python -m devops_cli.roadmap.runner_tools /home/devops/project &&
+            uv run --offline ruff --version &&
+            uv run --offline pytest --version &&
+            uv run --offline mypy --version
+          '
+
+      - name: Scan UV Seed Image for Vulnerabilities
+        if: steps.image_changes.outputs.changed == 'true'
+        timeout-minutes: 4
+        uses: ./.github/actions/image-scan
+        with:
+          image-ref: devops-cli-uv-seed:local
+          category: trivy-image-uv-seed
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
   # the PyPI round-trip never sits on the pull request critical path.
