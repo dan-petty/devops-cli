@@ -134,4 +134,4 @@ def test_each_github_mcp_tool_outlasts_the_github_read_bound() -> None:
         )
     ]
 
-    assert (CONST_MCP_GITHUB_TOOL_TIMEOUT_SECONDS, short) == (300.0, [])
+    assert short == []

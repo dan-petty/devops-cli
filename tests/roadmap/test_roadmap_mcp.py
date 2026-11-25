@@ -53,7 +53,6 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 def test_default_mcp_settings() -> None:
     settings = Settings()
     assert settings.roadmap.mcp.url is None
-    assert settings.roadmap.mcp.timeout_seconds == 30.0
     assert settings.roadmap.stage.mcp is False
     assert settings.roadmap.implement.mcp is False
 

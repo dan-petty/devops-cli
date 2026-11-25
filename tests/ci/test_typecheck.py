@@ -16,15 +16,9 @@ from devops_cli.commands.ci import get_check_spec
 
 
 def test_the_row_typecheck_runs_strict_mypy_on_the_paths_of_the_definition() -> None:
-    assert get_check_spec("typecheck").cmd == [
-        "uv",
-        "run",
-        "mypy",
-        "--python-version",
-        "3.14",
-        "--strict",
-        "src",
-    ]
+    cmd = get_check_spec("typecheck").cmd
+    # The version slot follows the project, so the test holds no number for it.
+    assert (cmd[:4], cmd[5:]) == (["uv", "run", "mypy", "--python-version"], ["--strict", "src"])
     assert get_check_spec("typecheck").cmd == typecheck_argv(TYPECHECK_PATHS)
 
 

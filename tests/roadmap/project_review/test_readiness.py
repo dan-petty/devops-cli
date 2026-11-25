@@ -112,7 +112,7 @@ def test_map_covers_every_guideline_row_level_and_scope() -> None:
     expected = _guideline_rows()
     by_id = {entry.id: entry for entry in READINESS_ROWS}
 
-    assert len(READINESS_ROWS) == len(expected) == 91
+    assert len(READINESS_ROWS) == len(expected)
     assert [entry.id for entry in READINESS_ROWS] == [row["id"] for row in expected]
     for row in expected:
         entry = by_id[row["id"]]
@@ -539,7 +539,7 @@ def test_cli_review_run_with_ref_prints_readiness_json(
     payload = json.loads(result.stdout)
     assert payload["repo"] == "example/project"
     assert payload["ref"] == "feat/launch"
-    assert len(payload["facts"]) == 91
+    assert len(payload["facts"]) == len(READINESS_ROWS)
     assert any(
         fact["id"] == "OWN-7" and fact["value"]["state"] == "met" for fact in payload["facts"]
     )

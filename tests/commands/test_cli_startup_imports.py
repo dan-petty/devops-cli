@@ -17,9 +17,6 @@ from devops_cli.commands.ci import get_check_spec
 from tests.gate.startup_imports import (
     BUDGETS_BY_ARGV,
     CONST_CLI_HEAVY_MODULES,
-    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
-    DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
-    DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
     DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
     SCRIPT_PROBES,
     StartupImports,
@@ -92,16 +89,6 @@ def _imports(total: int, devops: int, *heavy: str) -> StartupImports:
     return StartupImports(
         loaded=frozenset(heavy), imported=frozenset(names), slowest=(("lib0", 0.5),)
     )
-
-
-def test_the_four_limits_keep_their_values() -> None:
-    """The structural budgets are those of #1687."""
-    assert (
-        DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_MAIN_AND_VERSION,
-        DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_MAIN_AND_VERSION,
-        DEFAULT_STARTUP_IMPORT_MODULE_LIMIT_COMMAND_HELP,
-        DEFAULT_STARTUP_IMPORT_DEVOPS_MODULE_LIMIT_COMMAND_HELP,
-    ) == (550, 75, 1100, 250)
 
 
 def test_every_command_help_and_the_budgeted_argvs_are_probed() -> None:

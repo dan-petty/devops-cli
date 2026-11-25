@@ -18,7 +18,6 @@ from devops_cli.ai.research.models import (
     SocraticInquiryResult,
 )
 from devops_cli.ai.research.socratic import SocraticFormulator, render_socratic_markdown
-from devops_cli.config.defaults import DEFAULT_AI_SOCRATIC_MAX_PROBES
 from tests.support.fakes.model import ModelFake
 
 CONST_SOCRATIC_GAP_TYPES: tuple[str, ...] = ("GAP", "AMBIGUITY", "UNDERSPECIFIED_CONTRACT")
@@ -68,7 +67,7 @@ def test_socratic_constants_and_types() -> None:
         expected_gaps,
         expected_lookups,
     )
-    assert (gap_values, DEFAULT_AI_SOCRATIC_MAX_PROBES) == (expected_gaps, 5)
+    assert gap_values == expected_gaps
 
 
 def test_knowledge_gap_model_validation() -> None:

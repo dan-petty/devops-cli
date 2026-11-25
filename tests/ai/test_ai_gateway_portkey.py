@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import httpx2
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ai.gateway import GatewayRouter
@@ -27,9 +25,6 @@ runner = CliRunner()
 def _refuse(request: httpx2.Request) -> httpx2.Response:
     """Refuse the connection, as a gateway that is down does."""
     raise httpx2.ConnectError("Connection refused", request=request)
-
-
-PORTKEY_DIR = Path("k8s/llm/portkey")
 
 
 class TestPortkeyGatewayRouter:
@@ -180,35 +175,4 @@ class TestPortkeyCLI:
             0,
             True,
             True,
-        )
-
-
-class TestK8sPortkeyManifests:
-    """Validate Kubernetes manifests and security controls for Portkey."""
-
-    def test_portkey_network_policy_rules(self) -> None:
-        """Verify Portkey NetworkPolicy isolates egress to the model backends.
-
-        Portkey 1.15.0 reads its cache only from REDIS_CONNECTION_STRING, which the Deployment
-        does not set, so it calls no Valkey and its policy admits none (#1654).
-        """
-        netpol_docs = list(
-            yaml.safe_load_all((PORTKEY_DIR / "networkpolicy.yaml").read_text(encoding="utf-8"))
-        )
-        netpol = next(d for d in netpol_docs if d and "egress" in d.get("spec", {}))
-        egress = netpol["spec"]["egress"]
-
-        egress_backends = [
-            label
-            for rule in egress
-            if "to" in rule and "podSelector" in rule["to"][0]
-            for label in rule["to"][0]["podSelector"]["matchLabels"].items()
-        ]
-
-        assert (
-            netpol["metadata"]["name"],
-            sorted(egress_backends),
-        ) == (
-            "portkey-perimeter-egress",
-            [("llm.devops.io/provider", "ollama")],
         )

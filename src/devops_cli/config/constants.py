@@ -764,8 +764,8 @@ CONST_CI_TEST_JOB_NAME: Final[str] = "Tests & Coverage"
 CONST_CI_GATE_SLOTS_DIRNAME: Final[str] = "ci-gate-slots"
 CONST_CI_GATE_SLOT_FILENAME: Final[str] = "slot-{index}.lock"
 # The branch form `<type>/<issue>-<slug>` (CONTRIBUTING.md, Naming). The types are those of
-# `release-please-config.json`, and the form is the one the `branch-name` pre-commit hook accepts;
-# `tests/test_branch_form.py` fails when either disagrees with these (#2337).
+# `release-please-config.json`, and the form is the one the `branch-name` pre-commit hook accepts
+# (#2337).
 CONST_BRANCH_TYPES: Final[tuple[str, ...]] = (
     "feat",
     "fix",

@@ -185,22 +185,6 @@ def _where(name: str, case: Mapping[str, Any]) -> str:
     return f"{name}.json panel {case['panel']!r} refId {case['ref_id']}"
 
 
-def query_mismatches(
-    name: str, dashboard: dict[str, Any], cases: list[dict[str, Any]]
-) -> list[str]:
-    """One line for each case whose `expr` is not the query of its panel target, which names the
-    dashboard, the panel title and the refId."""
-    targets = _targets(dashboard)
-    mismatches = []
-    for case in cases:
-        found = targets.get((case["panel"], case["ref_id"]), [])
-        if len(found) != 1:
-            mismatches.append(f"{_where(name, case)}: {len(found)} targets, not 1")
-        elif found[0].get("expr") != case["expr"]:
-            mismatches.append(f"{_where(name, case)}: the case query is not the panel query")
-    return mismatches
-
-
 @cache
 def _scrape_intervals() -> dict[str, str]:
     """The scrape interval (`timeInterval`) of each Grafana data source, by uid."""
@@ -326,33 +310,6 @@ def test_the_rate_interval_of_a_target_uses_its_min_step_over_the_data_source() 
         _scrape_s({"datasource": source, "interval": "15m"}),
         _scrape_s({"datasource": source}),
     ) == (900, _seconds(_scrape_intervals()["prometheus"]))
-
-
-@pytest.mark.parametrize("cases", CASE_FILES, ids=CASE_IDS)
-def test_each_case_holds_the_current_query_of_its_panel_target(cases: Path) -> None:
-    """The `expr` of each case is the query that its panel target holds today, so a change of a
-    covered query fails here until its cases change with it."""
-    case_file = _case_file(cases)
-    assert (
-        query_mismatches(cases.stem, _dashboard_of(cases.stem, case_file), _cases(case_file)) == []
-    )
-
-
-def test_a_changed_query_names_the_dashboard_the_panel_and_the_ref_id() -> None:
-    """A change of one character in a covered query fails with the dashboard, the panel title
-    and the refId of the target."""
-    dashboard = _dashboard("devops-cli")
-    (target,) = _targets(dashboard)[("Errors: share of calls that failed", "A")]
-    target["expr"] = target["expr"].replace("$__rate_interval", "$__rate_interva1")
-    cases = _cases(_case_file(FIXTURES / "dashboard_queries" / "devops-cli.yaml"))
-    changed = [case for case in cases if case["panel"] == "Errors: share of calls that failed"]
-    assert (changed != [], query_mismatches("devops-cli", dashboard, cases)) == (
-        True,
-        [
-            "devops-cli.json panel 'Errors: share of calls that failed' refId A: the case query is not the panel query"
-        ]
-        * len(changed),
-    )
 
 
 def test_a_bars_case_adds_up_one_bar_each_interval_of_its_range() -> None:

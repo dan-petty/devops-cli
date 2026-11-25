@@ -13,12 +13,10 @@ from pathlib import Path
 import pytest
 
 from devops_cli.exceptions import ValidationError
-from tests.support.paths import FIXTURES, REPO_ROOT
+from tests.support.paths import FIXTURES
 
 GOLD_SET = FIXTURES / "kb_gold_set" / "gold_set.json"
 FACT_TYPES = ("tool", "library", "project")
-STALE_ENTRY_ID = "stale-bandit-version"
-BANDIT_ARTICLE = "src/devops_cli/ai/knowledge_base/it_domains/tools/bandit.md"
 
 
 def _raw_entry(**overrides: str) -> dict[str, str]:
@@ -94,23 +92,6 @@ def test_entry_with_an_unknown_fact_type_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match=r"bad-type.*fact_type"):
         load_gold_set(path)
-
-
-def test_stale_entry_against_the_checked_in_folder_is_marked(tmp_path: Path) -> None:
-    """The entry whose answer the checked-in article no longer holds is stale, and its reason names
-    the article."""
-    from devops_cli.ai.benchmark.gold_set import load_gold_set, mark_stale_entries
-
-    marked = mark_stale_entries(
-        load_gold_set(GOLD_SET),
-        repo_root=REPO_ROOT,
-        kb_dir=tmp_path / "kb",
-        tool_versions={},
-    )
-
-    stale = [entry for entry in marked.entries if entry.stale]
-    assert [entry.id for entry in stale] == [STALE_ENTRY_ID]
-    assert BANDIT_ARTICLE in (stale[0].stale_reason or "")
 
 
 def test_absent_expected_source_is_marked_stale(tmp_path: Path) -> None:

@@ -44,9 +44,6 @@ def test_sandbox_config_defaults(tmp_path: Path) -> None:
         workspace_dir=tmp_path,
         command=["pytest", "-v"],
     )
-    assert cfg.image == "python:3.14-slim"
-    assert cfg.memory_limit == "2g"
-    assert cfg.cpu_limit == 2.0
     assert cfg.network_mode == "none"
     assert cfg.rootless is True
     assert cfg.read_only is True

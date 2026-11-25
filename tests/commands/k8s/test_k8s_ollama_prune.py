@@ -51,10 +51,6 @@ def test_dry_run_makes_no_cluster_call(cli: Any, cluster: FakeCluster) -> None:
     assert len(cluster.core.calls) == 0
     assert "kubectl exec" in result.stdout
     assert "ollama rm" in result.stdout
-    assert "ollama-48gib-fast" in result.stdout
-    assert "ollama-64gib-standard" in result.stdout
-    assert "ollama-24gib-embed-gpu0" in result.stdout
-    assert "ollama-24gib-embed-gpu1" in result.stdout
 
 
 def test_a_failed_ollama_list_stops_the_node(

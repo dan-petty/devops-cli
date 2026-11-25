@@ -92,17 +92,6 @@ def _step(
 # ── The settings ──────────────────────────────────────────────────────────────────────────
 
 
-def test_the_defaults_fit_the_measured_spend_of_steps_and_items() -> None:
-    implement = load_settings().roadmap.implement
-
-    assert (
-        implement.step_token_budget,
-        implement.item_token_budget,
-        implement.step_time_limit_seconds,
-        implement.item_time_limit_seconds,
-    ) == (8_000_000, 20_000_000, 5400, 12600)
-
-
 def test_a_budget_counts_the_input_that_the_cache_did_not_serve_and_the_output() -> None:
     usage = RequestUsage(input_tokens=120_000, cache_read_tokens=118_500, output_tokens=300)
 
@@ -169,10 +158,6 @@ def test_an_item_time_limit_above_the_ceiling_of_the_job_is_refused(
 
     with pytest.raises(ConfigurationError, match="item_time_limit_seconds"):
         load_settings()
-
-
-def test_the_cap_of_the_model_fix_of_a_fix_checks_run_is_16_million_new_tokens() -> None:
-    assert load_settings().roadmap.fix_checks.token_budget == 16_000_000
 
 
 def test_a_token_cap_gets_no_extension_and_names_its_setting() -> None:

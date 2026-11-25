@@ -14,7 +14,6 @@ from typing import Any
 import httpx2
 import pytest
 from pydantic import BaseModel
-from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.ai.client import LLMClient
 from devops_cli.ai.client.style_request import with_style_request
@@ -75,7 +74,6 @@ _ENTRY_POINTS: dict[str, Callable[[LLMClient], object]] = {
 def test_every_free_text_call_sends_the_callers_prompt_then_the_style_request(
     entry_point: str,
     web: WebFake,
-    snapshot: SnapshotAssertion,
 ) -> None:
     """Verify each way to ask for free text appends the request to the system prompt, once,
     and leaves the user message as the caller wrote it."""
@@ -84,7 +82,10 @@ def test_every_free_text_call_sends_the_callers_prompt_then_the_style_request(
 
     _ENTRY_POINTS[entry_point](client)
 
-    assert _sent_messages(sent[0]) == snapshot
+    assert _sent_messages(sent[0]) == [
+        {"role": "system", "content": f"{_SYSTEM}\n\n{load_task_prompt('style_ste100.md')}"},
+        {"role": "user", "content": _PROMPT},
+    ]
 
 
 _FIRST_LINE_RULE = {

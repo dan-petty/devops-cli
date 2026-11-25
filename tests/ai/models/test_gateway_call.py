@@ -364,8 +364,9 @@ def test_gateway_first_token_timeout_setting_default_bridge_and_nesting() -> Non
     settings = _settings()
     model = pydantic_ai_bridge.resolve_pydantic_ai_model("devops-coder", settings=settings)
 
-    assert settings.ai.first_token_timeout_seconds == 60
-    assert (model.settings or {}).get("first_event_timeout") == 60
+    assert (model.settings or {}).get("first_event_timeout") == (
+        settings.ai.first_token_timeout_seconds
+    )
 
     with pytest.raises(ValidationError, match=r"ai\.first_token_timeout_seconds") as exc_info:
         AIConfig(first_token_timeout_seconds=120, request_timeout_seconds=90)

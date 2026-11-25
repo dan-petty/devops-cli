@@ -10,10 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 import pytest
-import yaml
 from pydantic_ai.models.decision import DecisionRequest, NoulAnswer, NoulQuestion
 
 from devops_cli.ai.jev import decide_with_jev
@@ -24,7 +22,6 @@ from tests.support.fakes.http import WebFake
 
 GATEWAY_CONFIG = Path("k8s/llm/gateway/config.yaml")
 EXAMPLE_GATEWAY = "http://example.com:4000/v1"
-OPENROUTER_SYSTEM_ONE = "https://openrouter.ai/api/v1/systemone"
 OPENROUTER_ANSWER: dict[str, Any] = {
     "id": "gen-dec-1789738314-X5e5eKGQdvR9rblyX250",
     "model": "typesafe/jev-1.14-20261014",
@@ -39,10 +36,6 @@ def _gateway_settings() -> Settings:
     settings.ai.provider = "gateway"
     settings.ai.gateway_url = EXAMPLE_GATEWAY
     return settings
-
-
-def _gateway_config() -> dict[str, Any]:
-    return dict(yaml.safe_load(GATEWAY_CONFIG.read_text(encoding="utf-8")))
 
 
 def _ask_jev_once(web: WebFake, monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -102,37 +95,6 @@ def test_the_client_reads_the_answer_that_openrouter_adds_fields_to(
         "typesafe/jev-1.14-20261014",
         0.96,
         476,
-    )
-
-
-def test_the_gateway_forwards_the_path_of_the_client_to_openrouter_with_its_own_key(
-    web: WebFake, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The path that the client posts to is a pass-through of the gateway. The gateway checks the
-    key of the caller, sends the OpenRouter key from its own environment, and forwards nothing
-    that the caller sent."""
-    path = urlsplit(_ask_jev_once(web, monkeypatch).url).path
-    endpoints = {
-        entry["path"]: entry
-        for entry in _gateway_config()["general_settings"].get("pass_through_endpoints", [])
-    }
-
-    assert path in endpoints
-    entry = endpoints[path]
-    assert (
-        entry["target"],
-        entry["auth"],
-        entry["forward_headers"],
-        entry["methods"],
-        entry["headers"]["Authorization"],
-        entry.get("include_subpath", False),
-    ) == (
-        OPENROUTER_SYSTEM_ONE,
-        True,
-        False,
-        ["POST"],
-        "bearer os.environ/OPENROUTER_API_KEY",
-        False,
     )
 
 

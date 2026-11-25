@@ -379,9 +379,8 @@ def test_the_retitle_row_is_the_first_row_of_the_model_lane() -> None:
 def test_the_retitle_interval_is_61_minutes_and_the_row_needs_no_clone() -> None:
     row = _retitle_row()
 
-    assert (DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES, row.interval, row.needs_clone) == (
-        61,
-        timedelta(minutes=61),
+    assert (row.interval, row.needs_clone) == (
+        timedelta(minutes=DEFAULT_ROADMAP_RETITLE_INTERVAL_MINUTES),
         False,
     )
 

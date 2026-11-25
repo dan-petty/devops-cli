@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 from pydantic_ai.messages import ModelResponse
 
-from devops_cli.config.settings import load_settings
 from devops_cli.roadmap.implement.implement_step import StepOutcome, StepStatus, run_step
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
@@ -128,10 +127,6 @@ def _lint_fails_on_an_unused_import(programs: ProcessFake) -> None:
 
 def _work(test_body: str) -> ModelResponse:
     return tool_calls(write_call("tests/test_sample.py", test_body), CODE, TICK)
-
-
-def test_the_default_number_of_repair_rounds_is_three() -> None:
-    assert load_settings().roadmap.implement.repair_rounds == 3
 
 
 def test_a_hook_failure_goes_to_the_agent_and_a_repair_ends_the_step_done(

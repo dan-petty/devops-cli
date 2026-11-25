@@ -262,7 +262,7 @@ def test_a_refused_revision_gets_three_returns_by_default(
     _plan(store, stage_repo, model_fake, verifier)
 
     # The first ask, then the revision and its returns.
-    assert (RoadmapStageConfig().gate_returns, model_fake.call_count) == (3, 1 + 1 + 3)
+    assert model_fake.call_count == 1 + 1 + RoadmapStageConfig().gate_returns
 
 
 def test_the_returns_of_one_round_follow_the_setting_and_no_more(

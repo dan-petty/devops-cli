@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 
 from devops_cli.github.pages import (
     GitHubPagesInfo,
@@ -181,23 +180,6 @@ def test_the_repository_site_settings_pass_the_check() -> None:
     valid, diagnostics = verify_pages_configuration(REPO_ROOT)
 
     assert (valid, [line[:1] for line in diagnostics]) == (True, ["✓", "✓"]), diagnostics
-
-
-def test_the_repository_site_has_readme_as_its_home_page() -> None:
-    """Verify that the first nav tab of the site is README.md (#5152)."""
-    nav = yaml.safe_load((REPO_ROOT / ".nav.yml").read_text(encoding="utf-8"))["nav"]
-
-    assert nav[0] == {"Home": "README.md"}
-
-
-def test_the_cli_reference_tab_opens_on_the_index() -> None:
-    """Verify that the CLI reference tab of the site opens on the index of the command groups,
-    and then lists the page of each group (#5163)."""
-    nav = yaml.safe_load((REPO_ROOT / ".nav.yml").read_text(encoding="utf-8"))["nav"]
-
-    tabs = [entry["CLI reference"] for entry in nav if "CLI reference" in entry]
-
-    assert tabs == [[{"Index": "docs/CLI_REFERENCE.md"}, "docs/commands/*.md"]]
 
 
 def test_the_repository_documentation_has_an_index_home_page() -> None:

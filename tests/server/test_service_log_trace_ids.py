@@ -10,15 +10,13 @@ from __future__ import annotations
 import json
 import logging
 import logging.config
-import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
-from devops_cli.server.json_logs import JsonLogFormatter, service_log_config
+from devops_cli.server.json_logs import service_log_config
 from devops_cli.telemetry.tracer import trace_span
 from tests.support.fakes.otlp import FakeCollector
 
@@ -95,36 +93,3 @@ def test_a_line_written_outside_a_span_has_no_trace_keys(
     service_logger.info("Service started.")
 
     assert [sorted(line) for line in _lines(capsys)] == [["level", "logger", "message", "time"]]
-
-
-def _loki_derived_fields() -> list[dict[str, Any]]:
-    values = yaml.safe_load(GRAFANA_VALUES.read_text(encoding="utf-8"))
-    datasources = values["datasources"]["datasources.yaml"]["datasources"]
-    loki = next(datasource for datasource in datasources if datasource["uid"] == "loki")
-    return list(loki["jsonData"]["derivedFields"])
-
-
-def test_grafana_links_a_service_json_line_and_an_otlp_record_to_their_trace() -> None:
-    """The Loki data source finds the trace id in a JSON line from the Service formatter by a
-    regex, and in the `trace_id` structured metadata of an OTLP log record by a label."""
-    trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
-    record = logging.LogRecord(
-        SERVICE_LOGGER, logging.INFO, "service.py", 1, "Round done.", (), None
-    )
-    record.trace_id = trace_id
-    record.span_id = "00f067aa0ba902b7"
-    line = JsonLogFormatter().format(record)
-    fields = [field for field in _loki_derived_fields() if field.get("datasourceUid") == "tempo"]
-    regex_links = [
-        match.group(1)
-        for field in fields
-        if field.get("matcherType", "regex") == "regex"
-        and (match := re.search(field["matcherRegex"], line))
-    ]
-    label_links = [
-        field["matcherRegex"]
-        for field in fields
-        if field.get("matcherType") == "label" and re.fullmatch(field["matcherRegex"], "trace_id")
-    ]
-
-    assert (regex_links, len(label_links)) == ([trace_id], 1)

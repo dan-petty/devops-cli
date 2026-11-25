@@ -30,7 +30,6 @@ from devops_cli.ai.response_cache import reset_llm_response_cache
 from devops_cli.ai.spend.ledger import SpendLedger
 from devops_cli.config.defaults import (
     DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-    DEFAULT_GATEWAY_REVIEW_SLOTS,
 )
 from devops_cli.config.settings import AIConfig, load_settings, reset_settings_cache
 from devops_cli.http.egress import EgressLevel
@@ -43,23 +42,6 @@ from tests.support.fakes.process import ProcessAnswer, ProcessFake
 from tests.support.llm_stream_fakes import serve_llm
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
-
-
-class TestGatewaySlotsConfig:
-    """Verify review in-flight requests are capped at the sum of slots in the config table."""
-
-    def test_gateway_review_slots_table_and_concurrency(self) -> None:
-        """Verify DEFAULT_GATEWAY_REVIEW_SLOTS defines 2 one-slot tiers totaling 2 concurrency."""
-        assert (
-            DEFAULT_GATEWAY_REVIEW_SLOTS,
-            DEFAULT_GATEWAY_REVIEW_CONCURRENCY,
-        ) == (
-            {
-                "http://ollama-48gib-fast.llm.svc.cluster.local:11434": 1,
-                "http://ollama-64gib-standard.llm.svc.cluster.local:11434": 1,
-            },
-            2,
-        )
 
 
 class TestAiGatewayConnectCommand:

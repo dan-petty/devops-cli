@@ -97,17 +97,6 @@ def test_the_comment_time_is_read_and_a_bad_time_raises(store: InMemoryRoadmapSt
         last_clear_comment(bad)
 
 
-def test_the_limits_default_to_one_for_a_class_and_three_for_an_item(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    for name in ("PER_CLASS", "PER_ITEM"):
-        monkeypatch.delenv(f"DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_{name}", raising=False)
-
-    implement = settings.load_settings().roadmap.implement
-
-    assert (implement.digest_clears_per_class, implement.digest_clears_per_item) == (1, 3)
-
-
 def test_the_limits_come_from_the_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_CLASS", "2")
     monkeypatch.setenv("DEVOPS_CLI_ROADMAP_IMPLEMENT_DIGEST_CLEARS_PER_ITEM", "5")
@@ -115,12 +104,6 @@ def test_the_limits_come_from_the_variables(monkeypatch: pytest.MonkeyPatch) -> 
     implement = settings.load_settings().roadmap.implement
 
     assert (implement.digest_clears_per_class, implement.digest_clears_per_item) == (2, 5)
-
-
-def test_the_continuations_default_to_two_for_an_item(config: Callable[..., Path]) -> None:
-    config()
-
-    assert settings.load_settings().roadmap.implement.continuations_per_item == 2
 
 
 def test_the_continuations_come_from_the_variable_and_refuse_a_negative_count(

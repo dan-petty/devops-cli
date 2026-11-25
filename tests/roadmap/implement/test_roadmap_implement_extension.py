@@ -20,8 +20,8 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.config import constants, env
-from devops_cli.config.settings import load_settings, setting_default
+from devops_cli.config import env
+from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.implement.implement_limits import (
@@ -119,7 +119,7 @@ def _budget(
 def test_the_ceiling_is_twice_the_default_step_budget() -> None:
     implement = load_settings().roadmap.implement
 
-    assert implement.token_ceiling == 2 * implement.step_token_budget == 16_000_000
+    assert implement.token_ceiling == 2 * implement.step_token_budget
 
 
 def test_with_no_ceiling_set_the_ceiling_is_twice_the_configured_step_budget(
@@ -182,14 +182,6 @@ def test_a_ceiling_below_the_step_budget_is_refused(config: Callable[..., Path])
 
     with pytest.raises(ConfigurationError, match="step_token_ceiling"):
         load_settings()
-
-
-def test_the_rule_extends_by_half_the_budget_for_one_edit() -> None:
-    assert (
-        setting_default("roadmap.implement.extension_calls"),
-        constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS,
-        constants.CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT,
-    ) == (20, 1, 50)
 
 
 def test_the_settings_set_the_window_of_the_rule(

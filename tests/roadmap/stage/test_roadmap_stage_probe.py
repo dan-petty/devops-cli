@@ -202,10 +202,10 @@ def test_the_probe_stops_at_the_bound_and_lists_the_items_it_skipped(repo: Stage
 
     probe = _probe(repo, body)
 
-    assert CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS == 10
-    assert probe.commands == 10
-    assert probe.skipped == tuple(list(names)[10:])
-    assert "Not probed, the bound of 10 commands is reached:" in probe.text
+    bound = CONST_ROADMAP_STAGE_PROBE_MAX_COMMANDS
+    assert (bound < len(names), probe.commands) == (True, bound)
+    assert probe.skipped == tuple(list(names)[bound:])
+    assert f"Not probed, the bound of {bound} commands is reached:" in probe.text
 
 
 def test_a_missing_item_that_the_bound_cuts_off_from_its_removal_probe_is_listed(

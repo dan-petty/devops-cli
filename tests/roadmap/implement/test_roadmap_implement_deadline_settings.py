@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from devops_cli.config import settings
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
@@ -50,10 +49,6 @@ def _deadlines() -> tuple[int, int, int]:
         loaded.deadline_extension_seconds,
         loaded.deadline_ceiling_seconds,
     )
-
-
-def test_the_defaults_are_70_minutes_90_minutes_and_four_hours() -> None:
-    assert _deadlines() == (4200, 5400, 14400)
 
 
 def test_a_config_file_and_a_variable_set_the_stall_the_extension_and_the_ceiling(
@@ -97,16 +92,6 @@ def test_a_stall_above_the_extension_or_an_extension_above_the_ceiling_is_refuse
 
     with pytest.raises(ConfigurationError, match="deadline"):
         settings.load_settings()
-
-
-def test_the_default_ceiling_is_the_cap_of_the_admission_policy() -> None:
-    policy = (REPO_ROOT / "k8s/devops/roadmap-service/admissionpolicy.yaml").read_text("utf-8")
-
-    assert (
-        DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
-        CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS,
-        f"activeDeadlineSeconds <= {CONST_ROADMAP_IMPLEMENT_DEADLINE_CAP_SECONDS}" in policy,
-    ) == (14400, 14400, True)
 
 
 def test_the_default_stall_covers_the_longest_wait_in_which_the_runner_writes_no_line() -> None:

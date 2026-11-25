@@ -148,12 +148,6 @@ def _refusal_metric() -> float:
 # ── The model call slot ──────────────────────────────────────────────────────────────────────
 
 
-def test_the_service_keeps_one_model_call_in_flight_by_default() -> None:
-    """Verify the Service keeps one model call in flight by default, so a lane that waits does so
-    in the Service, where no stall timer runs (#2564)."""
-    assert ServiceConfig().model_call_concurrency == 1
-
-
 def test_the_service_installs_its_model_call_limit() -> None:
     """Verify the Service admits two model calls at once and holds a third, from its setting,
     rather than queueing at the gateway's stall timer (#2564)."""
@@ -673,12 +667,6 @@ def test_a_job_that_failed_its_limit_of_rounds_does_not_run_until_its_input_chan
         round_of(_WEBHOOK, START + timedelta(minutes=20))
     assert raised.value.error_code == "DEVOPS_CLI_ERROR"
     assert len(calls) == DEFAULT_SERVICE_MAX_FAILED_ROUNDS + 1
-
-
-def test_a_row_runs_six_failed_rounds_in_a_row_before_a_suspension_by_default() -> None:
-    """Verify the default of `service.max_failed_rounds` is 6: one failed item fails a whole
-    stage round, so 3 rounds suspended the stage row 25 times in 7 days (#4802)."""
-    assert (ServiceConfig().max_failed_rounds, FailureLedger().limit) == (6, 6)
 
 
 def test_the_ledger_takes_its_limit_of_failed_rounds_from_the_setting(

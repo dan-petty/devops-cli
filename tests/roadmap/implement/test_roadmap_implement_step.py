@@ -168,6 +168,9 @@ def test_a_section_without_a_number_is_no_group() -> None:
 def test_the_inputs_hold_the_item_the_change_the_group_and_the_files_it_names(
     store: InMemoryRoadmapStore, checkout: Path, snapshot: object
 ) -> None:
+    # The checkout holds its own rules, so the snapshot does not follow the template of the kit.
+    (checkout / "AGENTS.md").write_text("# Rules\n\nShout in capitals.\n", encoding="utf-8")
+
     inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
 
     assert inputs.message == snapshot

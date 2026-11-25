@@ -29,6 +29,7 @@ from devops_cli.ai.gateway_tune import (
 from devops_cli.ai.run_store import Mechanism, load_runs, new_run
 from devops_cli.ai.spend.models import BackendSpendSummary
 from devops_cli.commands.ai_gateway import app as gateway_cli_app
+from devops_cli.config.defaults import DEFAULT_GATEWAY_TUNE_IMAGE
 from devops_cli.config.settings import AIConfig
 
 runner = CliRunner()
@@ -419,7 +420,7 @@ class TestTune:
                 "-n",
                 "llm",
                 "--profile=restricted",
-                "--image=python:3.14-slim",
+                f"--image={DEFAULT_GATEWAY_TUNE_IMAGE}",
                 "--container=gateway-tune-0a1b2c",
                 "--",
             ],

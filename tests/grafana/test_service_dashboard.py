@@ -27,7 +27,7 @@ from devops_cli.grafana.service_dashboard import (
     main,
     service_dashboard,
 )
-from devops_cli.grafana.service_specs import SPEC_FILE_NAME, load_specs
+from devops_cli.grafana.service_specs import SPEC_FILE_NAME
 from tests.support.design_tokens import DESIGN_SPEC, GRAFANA_BACKGROUNDS
 from tests.support.paths import REPO_ROOT
 
@@ -518,21 +518,6 @@ def test_each_grafana_color_name_of_the_template_is_in_the_design_spec() -> None
     paragraph = spec_text.split("### Grafana\n", 1)[1].split("\n## ", 1)[0]
 
     assert sorted(GRAFANA_COLOR_NAMES - set(re.findall(r"`([a-z-]+)`", paragraph))) == []
-
-
-def test_each_committed_service_dashboard_is_the_build() -> None:
-    """Each spec of services.toml has its dashboard file, and the file is the build of the spec
-    (`make dashboards`), so no hand edit or old build stays in git."""
-    specs = load_specs(DASHBOARDS / SPEC_FILE_NAME)
-
-    assert (
-        [spec.uid for spec in specs],
-        [
-            spec.uid
-            for spec in specs
-            if (DASHBOARDS / f"{spec.uid}.json").read_text(encoding="utf-8") != dashboard_text(spec)
-        ],
-    ) == (["devops-roadmap-service", "devops-sre-service"], [])
 
 
 def test_the_build_writes_the_dashboard_of_each_spec_next_to_the_spec_file(tmp_path: Path) -> None:

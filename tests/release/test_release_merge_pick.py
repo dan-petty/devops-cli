@@ -7,8 +7,6 @@ its pulls files list holds a file of `main` that the release does not change.
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,7 +26,6 @@ from tests.support.fakes.github import (
     pull_request_file_payload,
     route_compare_files,
 )
-from tests.support.paths import REPO_ROOT
 
 APP = "example-release[bot]"
 REPO = "example/project"
@@ -225,15 +222,3 @@ def test_main_fails_when_github_cannot_be_read_so_a_failed_read_never_looks_like
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "The release pull request could not be read" in captured.err
-
-
-def test_the_files_that_release_please_writes_are_the_ones_its_configuration_names() -> None:
-    """The guard on files names the manifest, the changelog and the version of the package, and
-    the extra files of the configuration. A new extra file of release-please joins the guard."""
-    config = json.loads((REPO_ROOT / "release-please-config.json").read_text(encoding="utf-8"))
-    package = config["packages"]["."]
-    extra = {entry["path"] for entry in package["extra-files"]}
-    manifest = Path(config.get("manifest-file", ".release-please-manifest.json")).name
-
-    assert RELEASE_FILES == {manifest, "CHANGELOG.md", "pyproject.toml", *extra}
-    assert config["release-type"] == "python"

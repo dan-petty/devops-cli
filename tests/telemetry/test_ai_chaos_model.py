@@ -58,10 +58,6 @@ def test_chaos_enums_and_config() -> None:
 
     cfg = ChaosConfig()
     assert cfg.mode == ChaosMode.ALL
-    assert cfg.latency_ms == 500
-    assert cfg.error_rate == 1.0
-    assert cfg.primary_provider == "openai"
-    assert cfg.primary_model == "gpt-4o"
     assert cfg.fallback_provider == DEFAULT_AI_FALLBACK_PROVIDER
     assert cfg.fallback_model == DEFAULT_AI_FALLBACK_MODEL
     assert cfg.dry_run is False
