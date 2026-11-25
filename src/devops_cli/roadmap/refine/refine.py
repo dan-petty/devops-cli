@@ -3449,7 +3449,8 @@ def _job_failure(
         if stopped is not None:
             checks.append(JobCheck.INVESTIGATION_STOPPED)
             parts.append(
-                texts.run_stop_reason.format(error=stopped.reason, message=stopped.message)
+                stopped.stop_reason
+                or texts.run_stop_reason.format(error=stopped.reason, message=stopped.message)
             )
         if any(question.endswith(_MISSING_SOURCE) for question in job_open):
             checks.append(JobCheck.MISSING_SOURCE)
@@ -4027,8 +4028,11 @@ def _investigate(
             MESSAGES.roadmap.refine_investigation_stopped.format(
                 number=item.number,
                 repo=repo,
-                reason=MESSAGES.roadmap.run_stop_reason.format(
-                    error=revised.reason, message=revised.message
+                reason=(
+                    revised.stop_reason
+                    or MESSAGES.roadmap.run_stop_reason.format(
+                        error=revised.reason, message=revised.message
+                    )
                 ),
             )
         )
