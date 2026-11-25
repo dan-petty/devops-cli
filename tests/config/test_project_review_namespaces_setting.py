@@ -30,3 +30,8 @@ def test_an_empty_list_or_a_name_that_is_not_a_label_is_refused(namespaces: list
         RoadmapProjectReviewConfig.model_validate({"namespaces": namespaces})
 
     assert {error["loc"][0] for error in caught.value.errors()} == {"namespaces"}
+
+
+def test_default_project_review_namespaces_includes_gpu_feature_discovery() -> None:
+    """Default project review namespaces include `gpu-feature-discovery` (#6628)."""
+    assert "gpu-feature-discovery" in RoadmapProjectReviewConfig().namespaces

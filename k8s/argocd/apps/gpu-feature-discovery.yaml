@@ -15,7 +15,7 @@ spec:
     path: k8s/gpu-feature-discovery
   destination:
     server: https://kubernetes.default.svc
-    namespace: default
+    namespace: gpu-feature-discovery
   syncPolicy:
     automated:
       enabled: true

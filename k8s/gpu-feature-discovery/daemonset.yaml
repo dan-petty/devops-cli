@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: gpu-feature-discovery
-  namespace: default
+  namespace: gpu-feature-discovery
   labels:
     app.kubernetes.io/name: gpu-feature-discovery
     app.kubernetes.io/part-of: nvidia-gpu
@@ -13,7 +13,7 @@ metadata:
     ignore-check.kube-linter.io/no-readiness-probe: >-
       The container serves no traffic: it writes the GPU features to a file of the node (#6068).
     ignore-check.kube-linter.io/non-isolated-pod: >-
-      No NetworkPolicy of namespace default selects the pod yet (#6109).
+      No NetworkPolicy of namespace gpu-feature-discovery selects the pod yet (#6109).
     ignore-check.kube-linter.io/privileged-container: >-
       The NVIDIA manifest runs privileged to read the GPUs through NVML, until #5646.
     ignore-check.kube-linter.io/privilege-escalation-container: >-

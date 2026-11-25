@@ -213,6 +213,8 @@ spec:
       namespace: mattermost-operator
     - server: https://kubernetes.default.svc
       namespace: cert-manager
+    - server: https://kubernetes.default.svc
+      namespace: gpu-feature-discovery
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject

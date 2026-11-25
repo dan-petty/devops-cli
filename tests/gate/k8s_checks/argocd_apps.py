@@ -280,3 +280,50 @@ def check_argocd_networkpolicy_gitea_egress() -> None:
             break
 
     assert has_gitea_egress, "argocd-default-perimeter-egress missing egress rule to gitea:3000"
+
+
+def check_gpu_feature_discovery_namespace_and_project() -> None:
+    """gpu-feature-discovery runs in its own privileged namespace admitted by homelab-system (#6628)."""
+    from devops_cli.config.defaults import DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES
+
+    namespace_docs = [
+        doc
+        for doc in yaml.safe_load_all((K8S_DIR / "namespaces.yaml").read_text(encoding="utf-8"))
+        if isinstance(doc, dict) and doc.get("kind") == "Namespace"
+    ]
+    declared = {doc["metadata"]["name"]: doc for doc in namespace_docs}
+    assert "gpu-feature-discovery" in declared
+    assert declared["gpu-feature-discovery"]["metadata"] == {
+        "name": "gpu-feature-discovery",
+        "labels": {
+            "app.kubernetes.io/part-of": "devops-cli-stack",
+            "pod-security.kubernetes.io/enforce": "privileged",
+            "pod-security.kubernetes.io/warn": "privileged",
+            "pod-security.kubernetes.io/audit": "privileged",
+        },
+        "annotations": {"argocd.argoproj.io/sync-options": "Prune=false,Delete=false"},
+    }
+    assert set(DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES) == set(declared)
+
+    (daemonset,) = [
+        doc
+        for doc in yaml.safe_load_all(kustomize(K8S_DIR / "gpu-feature-discovery").stdout)
+        if isinstance(doc, dict) and doc.get("kind") == "DaemonSet"
+    ]
+    meta = daemonset["metadata"]
+    assert meta["namespace"] == "gpu-feature-discovery"
+    non_isolated = meta["annotations"]["ignore-check.kube-linter.io/non-isolated-pod"]
+    assert "gpu-feature-discovery" in non_isolated
+    assert "default" not in non_isolated
+
+    app = _all_applications()["gpu-feature-discovery"]
+    assert app["spec"]["destination"]["namespace"] == "gpu-feature-discovery"
+
+    projects = [
+        doc
+        for doc in yaml.safe_load_all((APPS_DIR / "projects.yaml").read_text(encoding="utf-8"))
+        if isinstance(doc, dict)
+    ]
+    homelab_sys = next(p for p in projects if p["metadata"]["name"] == "homelab-system")
+    destinations = {dest["namespace"] for dest in homelab_sys["spec"]["destinations"]}
+    assert {"gpu-feature-discovery", "default"} <= destinations

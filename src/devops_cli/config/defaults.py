@@ -940,7 +940,7 @@ DEFAULT_ROADMAP_INTAKE_SNAPSHOT_OVERLAP_SECONDS: int = 60
 # The project review catalog (#4692). The OpenSpec reader runs `openspec show` in these workers: a
 # 7-day window archived 406 changes at about 0.2 s each.
 DEFAULT_ROADMAP_REVIEW_OPENSPEC_WORKERS: int = 4
-# The project namespaces whose workloads the project review can name (#6615): the 15 objects of
+# The project namespaces whose workloads the project review can name (#6615): the 16 objects of
 # `kind: Namespace` in k8s/namespaces.yaml. The `namespace:` of each kustomization of k8s/ is one
 # of them, except `object-store-build-test`: the build test of k8s/object-store/build-test makes
 # that namespace for its run and deletes it after (#4750). A `rows` fact that groups or joins by
@@ -954,6 +954,7 @@ DEFAULT_ROADMAP_PROJECT_REVIEW_NAMESPACES: Final[tuple[str, ...]] = (
     "cnpg-system",
     "devops",
     "gitea",
+    "gpu-feature-discovery",
     "llm",
     "logging",
     "mattermost",
