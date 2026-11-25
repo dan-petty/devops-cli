@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.8](https://github.com/dan-petty/devops-cli/compare/v0.221.7...v0.221.8) (2026-11-25)
+
+
+### Bug Fixes
+
+* **k8s:** stop deploying gpu-feature-discovery, which labels nothing ([#7253](https://github.com/dan-petty/devops-cli/issues/7253)) ([ac9b0da](https://github.com/dan-petty/devops-cli/commit/ac9b0da18570ffedc26e2e313aeb353e59b66b59))
+
 ## [0.221.7](https://github.com/dan-petty/devops-cli/compare/v0.221.6...v0.221.7) (2026-11-25)
 
 
