@@ -214,6 +214,7 @@ from devops_cli.config.defaults import (
     DEFAULT_SSH_KEY_DIR,
     DEFAULT_SSH_KEY_PREFIX,
     DEFAULT_SSH_ROTATION_DAYS,
+    DEFAULT_STORE_REGION,
     DEFAULT_THREAT_INTEL_CACHE_TTL_SECONDS,
     DEFAULT_TLS_DATA_DIR,
     DEFAULT_VALKEY_CACHE_CONNECT_TIMEOUT_SECONDS,
@@ -2507,6 +2508,32 @@ class ResearchConfig(BaseModel):
     judge: ResearchJudgeConfig = ResearchJudgeConfig()
 
 
+class StoreConfig(BaseModel):
+    """S3-compatible content store configuration (#4761)."""
+
+    model_config = ConfigDict(frozen=False, validate_assignment=True, hide_input_in_errors=True)
+    s3_endpoint: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="S3-compatible gateway endpoint URL for the content store",
+    )
+    web_base_url: Annotated[HttpUrlStr | None, Variable()] = Field(
+        default=None,
+        description="Public web base URL serving web-visible store prefixes",
+    )
+    region: Annotated[str, Variable()] = Field(
+        default=DEFAULT_STORE_REGION,
+        min_length=1,
+        description=f"AWS SigV4 region for content store signing (default: {DEFAULT_STORE_REGION})",
+    )
+
+    @field_validator("s3_endpoint", "web_base_url", mode="before")
+    @classmethod
+    def _blank_url_to_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -2563,6 +2590,7 @@ class Settings(BaseSettings):
     crawl4ai: Crawl4AIConfig = Crawl4AIConfig()
     search: SearchConfig = SearchConfig()
     infra: InfraConfig = InfraConfig()
+    store: StoreConfig = StoreConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
@@ -3234,6 +3262,16 @@ def get_service_webhook_secrets(settings: Settings) -> str | None:
 def get_mcp_token(settings: Settings) -> str | None:
     """Resolve the bearer token of the streamable HTTP transport of `devops mcp serve`."""
     return _resolve("mcp.token", settings)
+
+
+def get_store_access_key_id(settings: Settings | None = None) -> str | None:
+    """Resolve the content store S3 access key ID through keyring, Vault, or env."""
+    return _resolve("store.access_key_id", settings or load_settings())
+
+
+def get_store_secret_access_key(settings: Settings | None = None) -> str | None:
+    """Resolve the content store S3 secret access key through keyring, Vault, or env."""
+    return _resolve("store.secret_access_key", settings or load_settings())
 
 
 def get_mcp_stage_token(settings: Settings | None = None) -> str | None:

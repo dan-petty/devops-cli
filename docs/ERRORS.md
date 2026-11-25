@@ -156,6 +156,8 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `ServiceStatusError` | `SERVICE_STATUS_ERROR` | `1` | Telemetry | Raised when querying upstream published service status fails. |
 | `ServiceStoppingError` | `SERVICE_STOPPING` | `1` | Roadmap | Raised when a request ends because the Service is stopping (#2753). |
 | `StackCredentialError` | `K8S_STACK_CREDENTIAL_ERROR` | `1` | K8s | Raised when a stack credential cannot be read, checked, minted, revoked or stored (#2156). |
+| `StoreError` | `STORE_ERROR` | `1` | Store | Raised when an S3 content store operation fails or a store request is refused. |
+| `StoreImmutablePathError` | `STORE_IMMUTABLE_PATH` | `1` | Store | Raised when publishing to an existing immutable store path without `--replace`. |
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
 | `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |

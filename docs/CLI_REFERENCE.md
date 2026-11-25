@@ -46,6 +46,7 @@ The command groups of `devops` and their commands. The page of each group in `co
 | [`devops status`](commands/status.md) | Inspect published operational status of upstream platforms (GitHub, Cloudflare) |
 | [`devops survey`](commands/survey.md) | Outward-facing capability and upstream maturity survey. |
 | [`devops research`](commands/research.md) | Read what the project pins and watch the upstream of each pin. |
+| [`devops store`](commands/store.md) | Publish, sync, list, fetch, and verify content-store objects. |
 | [`devops format`](commands/format.md) | Automatically apply code formatting in-place (ruff format). |
 | [`devops lint`](commands/lint.md) | Run static analysis checks and automatically apply fixes (ruff check --fix). |
 
@@ -454,5 +455,12 @@ and draft readiness. |
 | [**research**](commands/research.md) | `devops research inventory [OPTIONS]` | List every pin of the project as a typed component: Python packages, tools, container images, GitHub Actions, Helm charts and Terraform providers. It reads files only unless render is set. |
 |  | `devops research advisories [OPTIONS]` | List the advisories that affect the pins of the project. It asks OSV about the Python and Node packages, and GitHub about the Actions and about the components that .devops/research-watch.toml maps to a repository. It flags a CVE of the CISA KEV list as exploited, and counts the components that no source matches. |
 |  | `devops research sweep [OPTIONS]` | Run inventory and advisories, leave out the findings that an issue carries, and hand each actionable finding (severity critical or high) to roadmap intake as one candidate. Without --confirm, intake decides each candidate and writes nothing. It prints a digest and sets the gauge devops_cli_research_open_findings. |
+| [**store**](commands/store.md) | `devops store publish [OPTIONS] <kind> <path>` | Publish a local file to the content store or queue it while unreachable. |
+|  | `devops store sync [OPTIONS]` | Upload queued artifacts from `store/pending.jsonl` to the content store. |
+|  | `devops store ls [OPTIONS] <kind>` | List objects stored under a content kind prefix. |
+|  | `devops store get [OPTIONS] <kind> <key> <dest>` | Download a stored object to a local file path. |
+|  | `devops store url [OPTIONS] <kind> <key>` | Print the public web URL for a web-visible content-kind object. |
+|  | `devops store presign [OPTIONS] <kind> <key>` | Generate a temporary SigV4 presigned GET URL (at most 7 days). |
+|  | `devops store doctor [OPTIONS]` | Run put, list, get, presign, and delete canary checks on configured endpoints. |
 | [**format**](commands/format.md) | `devops format [OPTIONS]` | Format codebase with ruff format (or verify in check-only mode with --check). |
 | [**lint**](commands/lint.md) | `devops lint [OPTIONS]` | Run ruff linter across the project, automatically applying fixes by default. |

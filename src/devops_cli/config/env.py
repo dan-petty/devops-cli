@@ -191,6 +191,14 @@ CREDENTIALS: tuple[Credential, ...] = (
         "mattermost.command_token",
         "Mattermost slash command token for the /roadmap command (stored in OS keyring)",
     ),
+    Credential(
+        "store.access_key_id",
+        "Content store S3 access key ID (stored in OS keyring)",
+    ),
+    Credential(
+        "store.secret_access_key",
+        "Content store S3 secret access key (stored in OS keyring)",
+    ),
 )
 
 _CREDENTIALS_BY_KEY: dict[str, Credential] = {c.key: c for c in CREDENTIALS}

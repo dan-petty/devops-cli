@@ -1445,3 +1445,6 @@ DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"
 DEFAULT_CLOUDFLARE_MAX_RETRIES: Final[int] = 3
 DEFAULT_CLOUDFLARE_RETRY_MIN_WAIT: Final[float] = 1.0
 DEFAULT_CLOUDFLARE_RETRY_MAX_WAIT: Final[float] = 30.0
+
+# ── Content Store Defaults (#4761) ───────────────────────────────────────────
+DEFAULT_STORE_REGION: Final[str] = "us-east-1"

@@ -93,6 +93,10 @@ from devops_cli.exceptions.security import (
     SecurityError,
     SSRFBlockedError,
 )
+from devops_cli.exceptions.store import (
+    StoreError,
+    StoreImmutablePathError,
+)
 from devops_cli.exceptions.telemetry import (
     LogfireConfigurationError,
     ServiceStatusError,
@@ -226,6 +230,8 @@ __all__ = [
     "ServiceRequestError",
     "ServiceStatusError",
     "ServiceStoppingError",
+    "StoreError",
+    "StoreImmutablePathError",
     "SubprocessError",
     "TelemetryError",
     "ToolDownloadError",
