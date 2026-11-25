@@ -24,6 +24,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.defaults import DEFAULT_HTTP_TIMEOUT_SECONDS
 from devops_cli.docker.registry import tag_digest
 from devops_cli.exceptions.docker import RegistryTagNotFoundError
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.release_feed import ReleaseInfo
@@ -88,4 +89,11 @@ def _digest(image: str, tag: str, client: httpx2.Client) -> str:
     return tag_digest(reference, client, timeout=DEFAULT_HTTP_TIMEOUT_SECONDS)
 
 
-__all__ = ["RolledDigests", "cluster_digests", "live_release"]
+def publishes_release_images(repo: str) -> bool:
+    """Whether `repo` publishes the Service and runner images named by
+    `CONST_ROADMAP_RELEASE_IMAGE_PREFIX` (#7062)."""
+    _, _, image_repo = CONST_ROADMAP_RELEASE_IMAGE_PREFIX.partition("/")
+    return RepoRef(repo).key == RepoRef(image_repo).key
+
+
+__all__ = ["RolledDigests", "cluster_digests", "live_release", "publishes_release_images"]
