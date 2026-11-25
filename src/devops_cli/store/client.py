@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from devops_cli.config.constants import CONST_STORE_MULTIPART_BYTES
-from devops_cli.config.defaults import DEFAULT_STORE_REGION
+from devops_cli.config.settings import setting_default
 from devops_cli.exceptions.store import StoreError
 
 
@@ -124,23 +124,24 @@ def reset_store_client() -> None:
 def resolve_store_client(
     *,
     endpoint_url: str,
-    region: str = DEFAULT_STORE_REGION,
+    region: str | None = None,
     access_key_id: str | None = None,
     secret_access_key: str | None = None,
 ) -> StoreClient:
     """Return an override client if installed, or construct a path-style SigV4 `BotoStoreClient`."""
+    resolved_region = region or str(setting_default("store.region"))
     if _STORE_CLIENT_FACTORY is not None:
         if isinstance(_STORE_CLIENT_FACTORY, StoreClient):
             return _STORE_CLIENT_FACTORY
         return _STORE_CLIENT_FACTORY(
             endpoint_url=endpoint_url,
-            region=region,
+            region=resolved_region,
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )
     return BotoStoreClient(
         endpoint_url=endpoint_url,
-        region=region,
+        region=resolved_region,
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
     )
@@ -208,13 +209,13 @@ class BotoStoreClient:
         self,
         *,
         endpoint_url: str,
-        region: str = DEFAULT_STORE_REGION,
+        region: str | None = None,
         access_key_id: str | None = None,
         secret_access_key: str | None = None,
         boto_client: _BotoS3Protocol | None = None,
     ) -> None:
         self._endpoint_url = endpoint_url.rstrip("/")
-        self._region = region or DEFAULT_STORE_REGION
+        self._region = region or str(setting_default("store.region"))
         self._access_key_id = access_key_id
         self._secret_access_key = secret_access_key
         self._use_threads = boto_client is None

@@ -73,7 +73,7 @@ def test_config_audit_keys_json_output() -> None:
         "keys" in data,
         "is_compliant" in data,
         len(data["keys"]),
-    ) == (True, True, True, 31)
+    ) == (True, True, True, 33)
 
     keys = {k["key"] for k in data["keys"]}
     assert (
@@ -98,36 +98,13 @@ def test_config_audit_keys_json_output() -> None:
         "firecrawl.api_key" in keys,
         "mattermost.alerts_hook" in keys,
         "mattermost.deploys_hook" in keys,
+        "store.access_key_id" in keys,
+        "store.secret_access_key" in keys,
         "mattermost.command_token" in keys,
         "crawl4ai.api_token" in keys,
         "mcp.stage_token" in keys,
         "mcp.implement_token" in keys,
-    ) == (
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-        True,
-    )
+    ) == (True,) * 26
 
 
 def test_config_audit_keys_table_rendering() -> None:
