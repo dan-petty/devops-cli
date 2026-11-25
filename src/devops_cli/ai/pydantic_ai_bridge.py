@@ -223,6 +223,7 @@ def _gateway_call_model(model_obj: Any, ai_cfg: AIConfig) -> Any:
         model_obj,
         max_retries=ai_cfg.max_retries,
         request_timeout=ai_cfg.request_timeout_seconds,
+        first_token_timeout=ai_cfg.first_token_timeout_seconds,
     )
 
 

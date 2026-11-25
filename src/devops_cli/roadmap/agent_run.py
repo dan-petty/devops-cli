@@ -18,6 +18,7 @@ from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelConnectionError,
     ModelHTTPError,
+    ModelRequestTimeout,
     ModelTimeoutError,
     UsageLimitExceeded,
 )
@@ -77,7 +78,7 @@ def model_call_error(exc: ModelAPIError, subject: str) -> AIClientError:
     return AIClientError(
         f"{subject} model call failed ({type(exc).__name__}{_transport_cause(exc)}).",
         status=exc.status_code if isinstance(exc, ModelHTTPError) else None,
-        timed_out=isinstance(exc, ModelTimeoutError),
+        timed_out=isinstance(exc, (ModelTimeoutError, ModelRequestTimeout)),
     )
 
 

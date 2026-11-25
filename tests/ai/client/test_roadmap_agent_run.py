@@ -15,6 +15,7 @@ import pytest
 from pydantic_ai.exceptions import (
     ModelAPIError,
     ModelHTTPError,
+    ModelRequestTimeout,
     ModelTimeoutError,
     UnexpectedModelBehavior,
 )
@@ -110,6 +111,12 @@ def test_a_run_with_no_reply_makes_no_record(spend_ledger: SpendLedger) -> None:
             True,
         ),
         (
+            ModelRequestTimeout("model", 60, setting="first_event_timeout"),
+            AIClientError,
+            None,
+            True,
+        ),
+        (
             ModelAPIError("model", "failed", body="MODEL-TEXT"),
             AIClientError,
             None,
@@ -117,7 +124,7 @@ def test_a_run_with_no_reply_makes_no_record(spend_ledger: SpendLedger) -> None:
         ),
         (ModelHTTPError(401, "model", "MODEL-TEXT"), AICredentialsError, None, False),
     ],
-    ids=["status", "timeout", "neither", "refused-key"],
+    ids=["status", "timeout", "first-token-timeout", "neither", "refused-key"],
 )
 def test_a_failed_model_call_keeps_its_status_or_timeout_and_none_of_its_text(
     raised: ModelAPIError,

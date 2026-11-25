@@ -15,6 +15,7 @@ from typing import Any
 import anyio
 import httpx2
 import pytest
+from pydantic import ValidationError
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.exceptions import (
     ModelConnectionError,
@@ -24,7 +25,8 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.models.test import TestModel
 
 from devops_cli.ai import pydantic_ai_bridge
-from devops_cli.config.settings import Settings
+from devops_cli.config.settings import AIConfig, Settings
+from devops_cli.roadmap.agent_run import model_call_error
 from tests.support.fakes.http import WebFake
 from tests.support.llm_stream_fakes import OPENAI_DONE, SSE, openai_chunk, sse_data
 
@@ -231,3 +233,140 @@ def test_one_deadline_covers_every_send_of_a_call() -> None:
         Agent(model).run_sync("go", event_stream_handler=_drain)
 
     assert (raised.value.timeout, len(sends)) == (0.5, 2)
+
+
+def test_stalled_keepalive_stream_ends_at_first_token_timeout_and_reports_timed_out(
+    web: WebFake,
+) -> None:
+    """Keep-alive comments do not extend the wait for the first content event (#6000)."""
+    from devops_cli.ai.models.gateway import GatewayCallModel
+
+    pings: list[int] = []
+
+    def stalled(_request: httpx2.Request) -> httpx2.Response:
+        async def body() -> AsyncIterator[bytes]:
+            for _ in range(5):
+                pings.append(1)
+                yield KEEPALIVE
+                await anyio.sleep(0.4)
+
+        return httpx2.Response(200, headers={"content-type": SSE}, content=body())
+
+    _gateway(web, stalled)
+    settings = _settings(max_retries=0)
+    base_model = pydantic_ai_bridge._resolve_string_model("devops-coder", settings).wrapped
+    model = GatewayCallModel(
+        base_model, max_retries=0, request_timeout=5.0, first_token_timeout=0.2
+    )
+
+    with pytest.raises(ModelRequestTimeout) as raised:
+        Agent(model).run_sync("go", event_stream_handler=_drain)
+
+    client_error = model_call_error(raised.value, "The call's")
+    assert (raised.value.setting, raised.value.timeout, len(pings), client_error.timed_out) == (
+        "first_event_timeout",
+        0.2,
+        1,
+        True,
+    )
+
+
+def test_stalled_first_send_closes_stream_and_resends_once(web: WebFake) -> None:
+    """When `max_retries` is 1, a stalled first send closes its stream and resends once."""
+    from devops_cli.ai.models.gateway import GatewayCallModel
+
+    closed: list[bool] = []
+
+    def stalled(_request: httpx2.Request) -> httpx2.Response:
+        async def body() -> AsyncIterator[bytes]:
+            try:
+                for _ in range(10):
+                    yield KEEPALIVE
+                    await anyio.sleep(0.05)
+            finally:
+                closed.append(True)
+
+        return httpx2.Response(200, headers={"content-type": SSE}, content=body())
+
+    calls = _gateway(web, stalled, lambda _r: _reply())
+    settings = _settings(max_retries=1)
+    base_model = pydantic_ai_bridge._resolve_string_model("devops-coder", settings).wrapped
+    model = GatewayCallModel(
+        base_model, max_retries=1, request_timeout=5.0, first_token_timeout=0.15
+    )
+
+    output = Agent(model).run_sync("go", event_stream_handler=_drain).output
+
+    assert (output, len(calls), closed) == (REPLY, 2, [True])
+
+
+def test_role_only_chunk_then_keepalive_stall_resends_on_first_token_timeout(
+    web: WebFake,
+) -> None:
+    """A role-only chunk does not emit content, so keep-alives after it still trigger resend."""
+    from devops_cli.ai.models.gateway import GatewayCallModel
+
+    role_chunk = sse_data(
+        {"choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}}]}
+    )
+
+    def role_stall(_request: httpx2.Request) -> httpx2.Response:
+        async def body() -> AsyncIterator[bytes]:
+            yield role_chunk
+            for _ in range(10):
+                yield KEEPALIVE
+                await anyio.sleep(0.05)
+
+        return httpx2.Response(200, headers={"content-type": SSE}, content=body())
+
+    calls = _gateway(web, role_stall, lambda _r: _reply())
+    settings = _settings(max_retries=1)
+    base_model = pydantic_ai_bridge._resolve_string_model("devops-coder", settings).wrapped
+    model = GatewayCallModel(
+        base_model, max_retries=1, request_timeout=5.0, first_token_timeout=0.15
+    )
+
+    output = Agent(model).run_sync("go", event_stream_handler=_drain).output
+
+    assert (output, len(calls)) == (REPLY, 2)
+
+
+def test_slow_stream_after_first_content_event_does_not_hit_first_token_timeout(
+    web: WebFake,
+) -> None:
+    """Once the first content event arrives, pauses longer than the deadline still finish."""
+    from devops_cli.ai.models.gateway import GatewayCallModel
+
+    def slow_tail(_request: httpx2.Request) -> httpx2.Response:
+        async def body() -> AsyncIterator[bytes]:
+            yield openai_chunk("first ")
+            await anyio.sleep(0.3)
+            yield openai_chunk("second")
+            yield openai_chunk(finish_reason="stop")
+            yield OPENAI_DONE
+
+        return httpx2.Response(200, headers={"content-type": SSE}, content=body())
+
+    calls = _gateway(web, slow_tail)
+    settings = _settings(max_retries=1)
+    base_model = pydantic_ai_bridge._resolve_string_model("devops-coder", settings).wrapped
+    model = GatewayCallModel(
+        base_model, max_retries=1, request_timeout=5.0, first_token_timeout=0.15
+    )
+
+    output = Agent(model).run_sync("go", event_stream_handler=_drain).output
+
+    assert (output, len(calls)) == ("first second", 1)
+
+
+def test_gateway_first_token_timeout_setting_default_bridge_and_nesting() -> None:
+    """Default `ai.first_token_timeout_seconds` is 60, wired to model settings, and nested."""
+    settings = _settings()
+    model = pydantic_ai_bridge.resolve_pydantic_ai_model("devops-coder", settings=settings)
+
+    assert settings.ai.first_token_timeout_seconds == 60
+    assert (model.settings or {}).get("first_event_timeout") == 60
+
+    with pytest.raises(ValidationError, match=r"ai\.first_token_timeout_seconds") as exc_info:
+        AIConfig(first_token_timeout_seconds=120, request_timeout_seconds=90)
+    assert "ai.request_timeout_seconds" in str(exc_info.value)

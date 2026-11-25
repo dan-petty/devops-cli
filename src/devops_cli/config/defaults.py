@@ -139,6 +139,10 @@ DEFAULT_AI_STREAM_MAX_EVENT_BYTES: int = 1024 * 1024
 DEFAULT_AI_PREWARM_KEEP_ALIVE: str = "1h"
 DEFAULT_AI_EVICT_KEEP_ALIVE: int = 0
 DEFAULT_AI_MAX_RETRIES: int = 4
+# Maximum seconds a streamed gateway call waits for its first content event before ending and
+# retrying via `FallbackModel` (#6000). Sits below the gateway router timeout (900 s) and
+# `ai.request_timeout_seconds` (1200 s).
+DEFAULT_AI_FIRST_TOKEN_TIMEOUT_SECONDS: int = 60
 # The one deadline of a pydantic-ai call to a gateway chat group: every send of the call and the
 # read of its stream (#5965). It is above the router timeout of k8s/llm/gateway/config.yaml (900 s)
 # and each deployment timeout there, so the gateway ends a stuck attempt first and can retry it or

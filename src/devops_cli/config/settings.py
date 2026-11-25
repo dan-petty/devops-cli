@@ -63,6 +63,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.config.defaults import (
     DEFAULT_AI_CONTEXT_WINDOW,
+    DEFAULT_AI_FIRST_TOKEN_TIMEOUT_SECONDS,
     DEFAULT_AI_GATEWAY_ENABLED,
     DEFAULT_AI_GATEWAY_PROVIDER,
     DEFAULT_AI_HARDWARE_COST_USD,
@@ -1095,6 +1096,11 @@ class AIConfig(BaseModel):
         default=DEFAULT_AI_REQUEST_TIMEOUT_SECONDS,
         ge=1,
     )
+    first_token_timeout_seconds: Annotated[int, Variable()] = Field(
+        description="Maximum seconds a streamed gateway call waits for its first content event before closing the attempt and retrying (`ai.max_retries`). Must be smaller than `ai.request_timeout_seconds`",
+        default=DEFAULT_AI_FIRST_TOKEN_TIMEOUT_SECONDS,
+        ge=1,
+    )
     timeout: float | None = Field(
         default=None,
         gt=0,
@@ -1123,6 +1129,15 @@ class AIConfig(BaseModel):
                 f"{CONST_AI_JEV_MODEL!r}, or leave it empty for no decision model"
             )
         return name
+
+    @model_validator(mode="after")
+    def _check_timeout_nesting(self) -> Self:
+        """Keep the first-token deadline below the whole-call gateway deadline (#6000)."""
+        if self.first_token_timeout_seconds >= self.request_timeout_seconds:
+            raise ValueError(
+                "ai.first_token_timeout_seconds must be smaller than ai.request_timeout_seconds"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
