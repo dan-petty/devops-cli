@@ -60,3 +60,10 @@ The `mcp-server` target SHALL copy `kubectl` and `helm` from the devtools image 
 #### Scenario: The cluster tools run
 - **WHEN** the stage `mcp-server-smoke` of `smoke.Dockerfile` runs `kubectl version --client` and `helm version` on the image
 - **THEN** each command exits 0 and prints the version of the devtools image
+
+### Requirement: The commands import with no dev-only package
+Each module of `devops_cli.commands` SHALL import in an install with no `dev` dependency group, such as the `mcp-server` image.
+
+#### Scenario: Dev-only packages are blocked
+- **WHEN** a Python process blocks `grafana_foundation_sdk` and imports each module of `devops_cli.commands`
+- **THEN** no import fails

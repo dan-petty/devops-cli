@@ -22,13 +22,12 @@ from pydantic import ValidationError
 from devops_cli.design import THEME_MODES, tokens
 from devops_cli.grafana.service_dashboard import (
     GRAFANA_COLOR_NAMES,
-    SPEC_FILE_NAME,
     ServiceSpec,
     dashboard_text,
-    load_specs,
     main,
     service_dashboard,
 )
+from devops_cli.grafana.service_specs import SPEC_FILE_NAME, load_specs
 from tests.support.design_tokens import DESIGN_SPEC, GRAFANA_BACKGROUNDS
 from tests.support.paths import REPO_ROOT
 
