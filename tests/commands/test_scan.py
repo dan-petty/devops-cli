@@ -80,6 +80,18 @@ def test_scan_individual_tools(
     ) == ([0, 0, 0], 0, ["trivy", "gitleaks", "semgrep"])
 
 
+@pytest.mark.usefixtures("cached_default_ruleset")
+def test_a_scan_without_a_scanner_fake_fails_at_the_floor(
+    tmp_path: Path, runner: CliRunner, unexpected_loopback_connects: list[str]
+) -> None:
+    """A scan command without `scanner_fake` finds the stand-in on PATH and fails at the floor (#4439)."""
+    try:
+        with pytest.raises(pytest.fail.Exception, match="without a fake"):
+            runner.invoke(scan_app, ["trivy", str(tmp_path), "--json"])
+    finally:
+        unexpected_loopback_connects.clear()
+
+
 def test_scan_clean_and_dry_run(tmp_path: Path, runner: CliRunner) -> None:
     """Verify scan tool dispatching when no findings are detected."""
     res_trivy_clean = runner.invoke(scan_app, ["trivy", str(tmp_path), "--dry-run"])

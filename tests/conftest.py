@@ -619,6 +619,25 @@ def refuse_real_programs() -> None:
     setattr(subprocess.Popen, "__init__", refusing_init)
 
 
+@pytest.fixture(autouse=True, scope="session")
+def refused_program_stand_ins(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Put a stand-in for each refused program first on PATH so every host finds it (#4439)."""
+    from tests.support.refused_programs import REFUSED_STAND_IN_DIRNAME, stand_in_directory
+
+    stand_in_dir = stand_in_directory(tmp_path_factory.getbasetemp() / REFUSED_STAND_IN_DIRNAME)
+    previous_path = os.environ.get("PATH")
+    os.environ["PATH"] = (
+        f"{stand_in_dir}{os.pathsep}{previous_path}" if previous_path else str(stand_in_dir)
+    )
+    try:
+        yield
+    finally:
+        if previous_path is None:
+            os.environ.pop("PATH", None)
+        else:
+            os.environ["PATH"] = previous_path
+
+
 _HOST_PATH_GUARD_INSTALLED = False
 
 
