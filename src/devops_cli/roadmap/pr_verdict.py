@@ -45,6 +45,7 @@ from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.git.branch_form import parse_branch
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.job_result import RoadmapJob
+from devops_cli.roadmap.workflow_labels import FIX_PLAN_LABEL
 
 if TYPE_CHECKING:
     from devops_cli.github.repo_ref import RepoRef
@@ -110,7 +111,7 @@ logger = logging.getLogger(__name__)
 VERDICT_LABELS: Final[Mapping[PullKind, Mapping[str, Verdict]]] = {
     PullKind.PLAN: {
         "verdict/mergeable": Verdict.MERGEABLE,
-        "verdict/fix-plan": Verdict.NEEDS_FIX,
+        FIX_PLAN_LABEL: Verdict.NEEDS_FIX,
         "verdict/discard-plan": Verdict.DISCARD_PLAN,
         "verdict/issue-changed": Verdict.ISSUE_CHANGED,
     },
@@ -152,8 +153,12 @@ query($search: String!, $cursor: String) {{
         isDraft
         createdAt
         repository {{ nameWithOwner }}
-        timelineItems(itemTypes: [LABELED_EVENT], first: {_PAGE_SIZE}) {{
-          nodes {{ ... on LabeledEvent {{ label {{ name }} }} }}
+        timelineItems(itemTypes: [LABELED_EVENT, RENAMED_TITLE_EVENT], first: {_PAGE_SIZE}) {{
+          pageInfo {{ hasNextPage }}
+          nodes {{
+            ... on LabeledEvent {{ label {{ name }} }}
+            ... on RenamedTitleEvent {{ previousTitle }}
+          }}
         }}
       }}
     }}
@@ -301,12 +306,18 @@ class _Name(_Answered):
     name: str
 
 
-class _LabelEvent(_Answered):
+class _TimelineItem(_Answered):
     label: _Name | None = None
+    previous_title: str | None = None
+
+
+class _TimelinePageInfo(_Answered):
+    has_next_page: bool = False
 
 
 class _Events(_Answered):
-    nodes: list[_LabelEvent] = Field(default_factory=list)
+    page_info: _TimelinePageInfo = Field(default_factory=_TimelinePageInfo)
+    nodes: list[_TimelineItem] = Field(default_factory=list)
 
 
 class _Repository(_Answered):
@@ -376,14 +387,36 @@ def _search_page(reads: GraphQLReads, search: str, cursor: str | None) -> _Searc
     return found
 
 
+def _kind_and_label(node: _Pull, repo: str) -> tuple[PullKind, str | None]:
+    """The pull request kind at its first verdict label event and that verdict label name, raising
+    `GitHubUnreadError` when the timeline has more than one page."""
+    if node.timeline_items.page_info.has_next_page:
+        raise GitHubUnreadError(
+            f"Pull request {repo}#{node.number} has more than one timeline page of label or "
+            "rename events",
+            details={"repo": repo, "pull": node.number},
+        )
+    nodes = node.timeline_items.nodes
+    for index, event in enumerate(nodes):
+        if event.label is not None and event.label.name in VERDICT_LABEL_NAMES:
+            later_rename = next(
+                (
+                    item.previous_title
+                    for item in nodes[index + 1 :]
+                    if item.previous_title is not None
+                ),
+                None,
+            )
+            title = later_rename if later_rename is not None else node.title
+            return pull_kind(title), event.label.name
+    return pull_kind(node.title), None
+
+
 def _bot_pull(node: _Pull) -> BotPull:
     """The kind and the first verdict of one pull request of the search. A first verdict label of
     the other kind leaves it unscored, and the read logs why."""
-    kind = pull_kind(node.title)
     repo = node.repository.name_with_owner
-    label = first_verdict_label(
-        event.label.name for event in node.timeline_items.nodes if event.label
-    )
+    kind, label = _kind_and_label(node, repo)
     verdict = verdict_of(kind, label) if label is not None else None
     unscored = label if label is not None and verdict is None else None
     if unscored is not None:

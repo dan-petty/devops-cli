@@ -37,6 +37,7 @@ from devops_cli.roadmap.stores.store import (
     RefineRecordKey,
     StageRecordKey,
 )
+from devops_cli.roadmap.workflow_labels import FIX_PLAN_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +279,7 @@ def has_person_cause(item: Item) -> bool:
         )
     ):
         return True
-    return "verdict/fix-plan" in item.labels
+    return FIX_PLAN_LABEL in item.labels
 
 
 def is_stalled(

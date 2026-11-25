@@ -44,6 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions import ServiceRequestError
+from devops_cli.exceptions.git import GitHubUnreadError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.logql import query_loki_metrics
 from devops_cli.lang import MESSAGES
@@ -282,6 +283,11 @@ class GradeReport(BaseModel):
     )
     verdict_partial_score: float | None = Field(
         default=None, description="The score of needs fix, `roadmap.verdict_partial_score`"
+    )
+    verdict_error: str | None = Field(
+        default=None,
+        description="Reason the GitHub verdict read failed, or None when verdicts were read or "
+        "no bot is set",
     )
 
 
@@ -763,6 +769,8 @@ def build_grade_report(
     loki_url: str,
     answers: Mapping[str, PrometheusQueryResult],
     verdicts: VerdictRead | None = None,
+    *,
+    verdict_error: str | None = None,
 ) -> GradeReport:
     """The report from the answer of each planned query, by the key of the query, and the
     verdicts of the bot pull requests when the report read them."""
@@ -774,6 +782,7 @@ def build_grade_report(
         workflows=[_workflow(key, parsed, verdicts) for key in _row_keys(parsed, repo, verdicts)],
         verdict_bot=verdicts.bot if verdicts is not None else None,
         verdict_partial_score=verdicts.partial_score if verdicts is not None else None,
+        verdict_error=verdict_error,
     )
 
 
@@ -905,12 +914,20 @@ def grade_report(
     queries = plan_grade_queries(window, repo)
     answers = _query_all(queries, repo, loki_url, end=at)
     search = plan_verdict_search(window, repo, at)
+    verdicts: VerdictRead | None = None
+    verdict_error: str | None = None
+    if search is not None:
+        try:
+            verdicts = _read_verdicts(search, at - window.span)
+        except GitHubUnreadError as exc:
+            verdict_error = str(exc)
     return build_grade_report(
         window,
         repo,
         loki_url,
         answers,
-        _read_verdicts(search, at - window.span) if search is not None else None,
+        verdicts,
+        verdict_error=verdict_error,
     )
 
 
@@ -1069,6 +1086,8 @@ def _verdict_lines(report: GradeReport) -> list[str]:
     """The verdicts of the bot pull requests: one table line for each stage and implement row,
     with the attempt ratio `p` of the row beside the verdict score."""
     texts = MESSAGES.roadmap
+    if report.verdict_error is not None:
+        return ["", texts.grades_verdicts_error.format(reason=report.verdict_error)]
     if report.verdict_bot is None:
         return ["", texts.grades_verdicts_unread]
     header = [

@@ -258,3 +258,25 @@ def test_with_no_slug_the_report_reads_no_verdict_and_names_the_setting(
     assert result.exit_code == 0, result.output
     assert {request.url.path for request in web.sent} == {QUERY_PATH}
     assert "service.github_app.slug" in result.output
+
+
+def test_verdict_read_failure_prints_reason_and_keeps_loki_rows(
+    cli: Cli, config: Callable[..., Path], github_api: GitHubApiFake, clock: ClockFake
+) -> None:
+    """When the GitHub verdict read fails with `GitHubUnreadError`, the report prints
+    `verdicts not read: <reason>` and keeps its Loki rows (#5984)."""
+    config(loki={"url": LOKI_URL}, service={"github_app": {"slug": "example-bot"}})
+    clock.move_to(VERDICT_NOW)
+    route_grade_replies(github_api, repo=RepoRef(GRADES_REPO))
+    hold_graphql_quota()
+    github_api.route(
+        "POST", "/graphql", github_json({"errors": [{"message": "GraphQL backend unavailable"}]})
+    )
+
+    result = cli("roadmap", "eval", "grades", "--repo", GRADES_REPO)
+
+    assert result.exit_code == 0, result.output
+    assert "verdicts not read:" in result.output
+    assert "GraphQL backend unavailable" in result.output
+    assert "stage" in result.output
+    assert "implement" in result.output

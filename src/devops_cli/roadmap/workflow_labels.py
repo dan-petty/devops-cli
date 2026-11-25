@@ -53,6 +53,10 @@ def _label(name: str, color: LabelColor, description: str) -> LabelSpec:
     return LabelSpec(name=name, color=color.value, description=description)
 
 
+# The label of a plan pull request with an open finding (#3264, #5984).
+FIX_PLAN_LABEL: Final[str] = "verdict/fix-plan"
+
+
 WORKFLOW_LABELS: Final[tuple[LabelSpec, ...]] = (
     _label("type/feature", LabelColor.ADDS_BEHAVIOR, "Type feature: a new function"),
     _label("type/bug", LabelColor.FIXES_DEFECT, "Type bug: the code does not do what it must"),
@@ -127,7 +131,7 @@ WORKFLOW_LABELS: Final[tuple[LabelSpec, ...]] = (
         "Verdict Mergeable: the bot pull request can merge as it is",
     ),
     _label(
-        "verdict/fix-plan",
+        FIX_PLAN_LABEL,
         LabelColor.STOPS_WORK,
         "Verdict Needs fix of a plan: an open finding keeps the plan in draft until a fix",
     ),
@@ -171,4 +175,10 @@ def with_workflow_labels(specs: Iterable[LabelSpec]) -> list[LabelSpec]:
     return [*WORKFLOW_LABELS, *(spec for spec in specs if spec.name not in names)]
 
 
-__all__ = ["WORKFLOW_LABELS", "WORKFLOW_TYPE_LABELS", "LabelColor", "with_workflow_labels"]
+__all__ = [
+    "FIX_PLAN_LABEL",
+    "WORKFLOW_LABELS",
+    "WORKFLOW_TYPE_LABELS",
+    "LabelColor",
+    "with_workflow_labels",
+]
