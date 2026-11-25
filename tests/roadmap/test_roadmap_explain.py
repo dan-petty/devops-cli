@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import time_machine
 
 from devops_cli.config import settings
 from devops_cli.config.constants import (
@@ -551,7 +552,11 @@ def test_a_new_item_with_no_round_is_taken_and_a_ready_item_is_not(job_world: Jo
     refined = job_world.store.item(ready)
     assert refined is not None
     job_world.store.set_marks(
-        refined, {RefineRecordKey.SECTION_HASH: "section", RefineRecordKey.BODY_HASH: "body"}
+        refined,
+        {
+            RefineRecordKey.SECTION_HASH: "section",
+            RefineRecordKey.BODY_HASH: body_hashes(refined.body)[0],
+        },
     )
 
     assert (_explain(job_world, new).refine, _explain(job_world, ready).refine) == (
@@ -871,3 +876,63 @@ def test_explain_states_when_an_epic_tracker_has_no_open_sub_issues(job_world: J
     assert explained.stage == JobVerdict(False, TEXTS.stage_left_tracker)
     assert "no open sub-issue" in rendered.lower()
     assert "file sub-issues" in rendered.lower()
+
+
+def test_explain_names_the_edited_body_of_a_ready_item(job_world: JobWorld) -> None:
+    number = _seed(job_world, status="Ready")
+    ready = job_world.store.item(number)
+    assert ready is not None
+    job_world.store.set_marks(
+        ready,
+        {
+            RefineRecordKey.SECTION_HASH: "section",
+            RefineRecordKey.BODY_HASH: body_hashes(ready.body)[0],
+        },
+    )
+    job_world.store.as_actor("alice").write_issue_body(
+        number, f"{ready.body}\n\nNew requirement outside section."
+    )
+
+    explained = _explain(job_world, number)
+    refine_line = next(
+        line
+        for line in render_explanation(explained).splitlines()
+        if line.startswith("Refine job:")
+    )
+
+    assert explained.refine.takes is True
+    assert "edit" in refine_line.lower()
+    assert "body" in refine_line.lower()
+
+
+def test_explain_names_the_new_comment_of_a_ready_item(job_world: JobWorld) -> None:
+    number = _seed(job_world, status="Ready")
+    ready = job_world.store.item(number)
+    assert ready is not None
+    job_world.store.set_marks(
+        ready,
+        {
+            RefineRecordKey.SECTION_HASH: "section",
+            RefineRecordKey.BODY_HASH: body_hashes(ready.body)[0],
+        },
+    )
+    t0 = datetime(2026, 11, 20, 10, 0, tzinfo=UTC)
+    with time_machine.travel(t0, tick=False) as clock:
+        job_world.store.seed_comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nReady.")
+        clock.shift(timedelta(minutes=5))
+        job_world.store.seed_comment(
+            number,
+            "Depends on another open issue.",
+            author_association="OWNER",
+            author_login="alice",
+        )
+
+    explained = _explain(job_world, number)
+    refine_line = next(
+        line
+        for line in render_explanation(explained).splitlines()
+        if line.startswith("Refine job:")
+    )
+
+    assert explained.refine.takes is True
+    assert "comment" in refine_line.lower()

@@ -3218,6 +3218,7 @@ class _Selection:
     open_numbers: Collection[int] | None = None
     """The issue numbers of the open items of the round (#6553); None when read on demand."""
     _open_items: Sequence[Item] | None = None
+    all_comments: dict[int, list[IssueComment]] = field(default_factory=dict)
 
     def _get_open_items(self) -> Sequence[Item]:
         """The open items of the store, read at most once for the selection."""
@@ -3225,11 +3226,17 @@ class _Selection:
             self._open_items = self.store.open_items()
         return self._open_items
 
+    def raw_comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, read at most once for the selection."""
+        if number not in self.all_comments:
+            self.all_comments[number] = self.store.comments_on(number)
+        return self.all_comments[number]
+
     def comments_on(self, number: int) -> list[IssueComment]:
         """The comments of trusted authors on issue `number` (`trust.trusted_replies`), read
         once for the selection."""
         if number not in self.comments:
-            self.comments[number] = trusted_replies(self.store.comments_on(number))
+            self.comments[number] = trusted_replies(self.raw_comments_on(number))
         return self.comments[number]
 
     def questions(self) -> _Questions:
@@ -3272,7 +3279,11 @@ class _Selection:
         if failed_lately is not None:
             self.waiting.append(failed_lately)
             return
-        if is_unchanged(item, item.body) and not _needs_second_look(item):
+        if (
+            item.status != CONST_ROADMAP_STATUS_READY
+            and is_unchanged(item, item.body)
+            and not _needs_second_look(item)
+        ):
             waits = _still_waiting(
                 self.store,
                 item,
@@ -3304,11 +3315,16 @@ def refine_left_out(
     cannot differ (#3483). The limit of a round is no rule of the item. `tracked_paths` is the set
     of files of the default branch, which `devops roadmap explain` reads (#6444)."""
     texts = MESSAGES.roadmap
-    if not _refinable([item], unrefined_ready=True):
+    selection = _Selection(store, tracked_paths=tracked_paths)
+    if not _refinable(
+        [item],
+        unrefined_ready=True,
+        comments_on=lambda n: () if item.comments == 0 else selection.raw_comments_on(n),
+        trusted=lambda comment: is_person_comment(comment, None),
+    ):
         if item.status == CONST_ROADMAP_STATUS_READY:
             return texts.refine_left_ready
         return texts.refine_held_status.format(status=item.status)
-    selection = _Selection(store, tracked_paths=tracked_paths)
     selection.consider(item)
     if not selection.waiting:
         return None
@@ -3317,6 +3333,60 @@ def refine_left_out(
     if waits.step is NextStep.PERSON and not shown:
         shown = texts.refine_left_person_hint
     return texts.refine_left_waits[waits.step.value].format(details=shown).strip()
+
+
+def refine_due_reason(store: RoadmapStore, item: Item) -> str:
+    """Why a round of the Service takes `item` when `refine_left_out` returned None (#6452):
+    non-empty for a Ready item whose body outside the refine section changed or that holds a new
+    trusted comment after its last round."""
+    if item.state is not GitHubState.OPEN or item.status != CONST_ROADMAP_STATUS_READY:
+        return ""
+    texts = MESSAGES.roadmap
+    if _ready_body_edited(item):
+        return texts.refine_due_ready_edited
+    comments: Sequence[IssueComment] = () if item.comments == 0 else store.comments_on(item.number)
+    if _has_trusted_comment_since_last_round(
+        item, comments, lambda comment: is_person_comment(comment, None)
+    ):
+        return texts.refine_due_ready_comment
+    return ""
+
+
+def _ready_body_edited(item: Item) -> bool:
+    """Whether the text outside the refine section of `item` changed since `refine.body_hash`
+    was recorded (#6452). False when the record holds no `refine.body_hash`."""
+    recorded = item.job_record.get(RefineRecordKey.BODY_HASH)
+    return recorded is not None and body_hashes(item.body)[0] != recorded
+
+
+def _has_trusted_comment_since_last_round(
+    item: Item,
+    comments: Sequence[IssueComment],
+    trusted: Callable[[IssueComment], bool],
+) -> bool:
+    """Whether `comments` holds a trusted person comment after the last refine round on `item`
+    (#6452): after `refine.repeated_at` when set and newer than any refine marker comment, else
+    after the newest comment carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`. Roadmap job comments
+    are ignored."""
+    repeated = _repeated_at(item)
+    marked = [
+        i
+        for i, comment in enumerate(comments)
+        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body
+    ]
+    if not marked:
+        if repeated is None:
+            return False
+        candidates = comments_without_jobs(comments)
+        return any(
+            trusted(comment) and as_utc(comment.created_at) > repeated for comment in candidates
+        )
+    marker_idx = marked[-1]
+    since = as_utc(comments[marker_idx].created_at)
+    after = comments_without_jobs(comments[marker_idx + 1 :])
+    if repeated is not None and repeated > since:
+        return any(trusted(comment) and as_utc(comment.created_at) > repeated for comment in after)
+    return any(trusted(comment) and as_utc(comment.created_at) >= since for comment in after)
 
 
 def _is_unrefined_ready(item: Item) -> bool:
@@ -3329,19 +3399,41 @@ def _is_unrefined_ready(item: Item) -> bool:
     )
 
 
-def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
+def _refinable(
+    items: Sequence[Item],
+    *,
+    unrefined_ready: bool,
+    comments_on: Callable[[int], Sequence[IssueComment]] | None = None,
+    trusted: Callable[[IssueComment], bool] | None = None,
+) -> list[Item]:
     """`items`' open New items, their unrefined Ready ones when `unrefined_ready`, the Ready ones
-    that hold a covering tool no round asked about (#2652), and the Ready ones that a bot opened
+    that hold a covering tool no round asked about (#2652), the Ready ones whose outside body or
+    trusted comments changed since their last round (#6452), and the Ready ones that a bot opened
     and whose approval no longer holds (#3502), highest priority first."""
+    trusted_check = (
+        trusted if trusted is not None else (lambda comment: is_person_comment(comment, None))
+    )
     picked = [
         it
         for it in items
         if it.state is GitHubState.OPEN
         and (
             it.status == CONST_ROADMAP_STATUS_NEW
-            or (unrefined_ready and _is_unrefined_ready(it))
-            or (it.status == CONST_ROADMAP_STATUS_READY and _needs_second_look(it))
-            or (it.status == CONST_ROADMAP_STATUS_READY and not is_approved(it))
+            or (
+                it.status == CONST_ROADMAP_STATUS_READY
+                and (
+                    (unrefined_ready and _is_unrefined_ready(it))
+                    or _needs_second_look(it)
+                    or not is_approved(it)
+                    or _ready_body_edited(it)
+                    or (
+                        comments_on is not None
+                        and _has_trusted_comment_since_last_round(
+                            it, comments_on(it.number), trusted_check
+                        )
+                    )
+                )
+            )
         )
     ]
     return sorted(picked, key=lambda it: _priority_rank(it.priority))
@@ -3399,22 +3491,6 @@ def _select_round(
     milestone_items = [store.items(milestone=m.number) for m in open_milestones]
     backlog_items = store.backlog()
 
-    ordered = [
-        # The open milestones' items, nearest first, then the backlog's P0 and P1 items
-        *(it for items in milestone_items for it in _refinable(items, unrefined_ready=True)),
-        *(
-            it
-            for it in _refinable(backlog_items, unrefined_ready=True)
-            if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
-        ),
-        # The backlog's other New items
-        *(
-            it
-            for it in _refinable(backlog_items, unrefined_ready=False)
-            if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
-        ),
-    ]
-
     selection = _Selection(
         store,
         frames=frames,
@@ -3425,6 +3501,48 @@ def _select_round(
         if open_numbers is not None
         else (graph.open_numbers if graph is not None else None),
     )
+    comment_counts = {
+        it.number: it.comments for group in (*milestone_items, backlog_items) for it in group
+    }
+
+    def read_comments(number: int) -> Sequence[IssueComment]:
+        return () if comment_counts.get(number, 0) == 0 else selection.raw_comments_on(number)
+
+    def trusted_comment(comment: IssueComment) -> bool:
+        return is_person_comment(comment, actor)
+
+    first_backlog = [
+        it for it in backlog_items if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
+    ]
+    later_backlog = [
+        it for it in backlog_items if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
+    ]
+    ordered = [
+        # The open milestones' items, nearest first, then the backlog's P0 and P1 items
+        *(
+            it
+            for items in milestone_items
+            for it in _refinable(
+                items,
+                unrefined_ready=True,
+                comments_on=read_comments,
+                trusted=trusted_comment,
+            )
+        ),
+        *_refinable(
+            first_backlog,
+            unrefined_ready=True,
+            comments_on=read_comments,
+            trusted=trusted_comment,
+        ),
+        # The backlog's other New items and edited or commented Ready items
+        *_refinable(
+            later_backlog,
+            unrefined_ready=False,
+            comments_on=read_comments,
+            trusted=trusted_comment,
+        ),
+    ]
     for it in ordered:
         if len(selection.selected) >= limit:
             break
@@ -4874,6 +4992,7 @@ __all__ = [
     "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
+    "refine_due_reason",
     "refine_left_out",
     "render_proposal_section",
     "render_refine_plan",

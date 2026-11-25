@@ -84,7 +84,7 @@ Without `--item`, refine takes items in this order, nearest place first:
 
 Inside each place, the order is by priority. Only `--limit` stops a run. The number of Ready items does not stop it.
 
-In each open milestone, and among the P0 and P1 items of the backlog, refine also takes Ready items that it has no record of. It sets one of them back to New when it finds the item not ready.
+In each open milestone, and among the P0 and P1 items of the backlog, refine also takes Ready items that it has no record of. Across all open milestones and the backlog, refine also looks again at any Ready item whose body outside the refine section changed since `refine.body_hash`, or that holds a trusted person comment posted after its last refine round. It sets one of them back to New when it finds an open blocker or finds the item not ready.
 
 ## Items that wait for a person
 
