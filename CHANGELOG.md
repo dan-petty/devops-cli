@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.4](https://github.com/dan-petty/devops-cli/compare/v0.221.3...v0.221.4) (2026-11-25)
+
+
+### Code Refactoring
+
+* **agents:** mark draft PR ready when its checks pass ([#7218](https://github.com/dan-petty/devops-cli/issues/7218)) ([089e577](https://github.com/dan-petty/devops-cli/commit/089e577792635b461febe7d19e6779df3a1891c6))
+
 ## [0.221.3](https://github.com/dan-petty/devops-cli/compare/v0.221.2...v0.221.3) (2026-11-25)
 
 
