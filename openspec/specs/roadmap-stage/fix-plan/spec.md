@@ -371,3 +371,10 @@ An attempt that posts a comment SHALL first write the state comment: an edit of 
 #### Scenario: No line of the comment of an attempt is in the state comment
 - **WHEN** an attempt pushes a revision whose review holds a minor finding, or dismisses a head whose review holds one
 - **THEN** the state comment lists the minor finding as advice, no line of text of the comment of the attempt is in the state comment, and the comment of the attempt says that the state comment lists the advice
+
+### Requirement: Fix-plan reads only a live implement Job
+`fix_plan` SHALL use `job_holds` to decide whether an active implement runner Job holds an item, so an ended Job whose `implement.job_state` is recorded does not hide a plan draft labeled `verdict/fix-plan`.
+
+#### Scenario: Finished Job does not hide a fix plan
+- **WHEN** an item holds `implement.job` with a finished `implement.job_state` and a plan draft carrying `verdict/fix-plan`
+- **THEN** `fix_plan` does not skip the draft for a runner Job

@@ -15,6 +15,7 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.dependencies import TrackerEntry, tracker_work
+from devops_cli.roadmap.implement.record_clear import run_clear_marks
 from devops_cli.roadmap.request_plan import StoreRequests
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
 
@@ -85,14 +86,18 @@ def plan_return(
     )
 
 
-def apply_return(store: RoadmapStore, plan: ReturnPlan) -> PostedComment:
-    """Comment on the issue, then set its Status to New through the one Status writer. It gives
-    what the store says of the comment, so a job can link it (#6194)."""
+def apply_return(
+    store: RoadmapStore, plan: ReturnPlan, *, clear_implement: bool = True
+) -> PostedComment:
+    """Comment on the issue, then set its Status to New through the one Status writer. Clears the
+    implement run keys unless `clear_implement` is False (used by in-pod runner returns). It gives
+    what the store says of the comment, so a job can link it (#6194, #5251)."""
     item = store.item(plan.item_number)
     if item is None:
         raise DevOpsCLIError(f"#{plan.item_number} is not an item of the roadmap.")
     posted = store.comment(plan.item_number, plan.comment)
-    write_status(store, item, _RETURNED, marks=plan.marks)
+    marks = {**run_clear_marks(item), **(plan.marks or {})} if clear_implement else plan.marks
+    write_status(store, item, _RETURNED, marks=marks)
     return posted
 
 

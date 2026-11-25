@@ -16,3 +16,10 @@ Returning an unbuildable leaf roadmap item to New with evidence while rejecting 
 #### Scenario: Return refuses an epic tracker with no open sub-issues
 - **WHEN** `plan_return` or `devops roadmap return` is invoked on a `type/epic` item that has zero open sub-issues and no open related issues
 - **THEN** the call fails with `DevOpsCLIError`, writes nothing, and tells the caller to close the tracker if delivered or file sub-issues instead
+
+### Requirement: Return clears implement run keys
+`apply_return` (used by `devops roadmap return`) SHALL clear implement run keys (`implement.job`, `implement.job_state`, `implement.stopped`, `implement.failure`, `implement.left_action`, `implement.check`, `implement.branch`, `implement.pr`, and related run delivery keys) by default when returning an item to `New`, while runner-pod premise returns keep `implement.job` via `clear_implement=False` until Job reporting finishes.
+
+#### Scenario: Manual return clears the implement record
+- **WHEN** an item holds `implement.job`, `implement.stopped`, `implement.failure`, `implement.branch`, and `implement.pr` and `apply_return` runs from `plan_return`
+- **THEN** those implement keys are cleared from the returned item's job record

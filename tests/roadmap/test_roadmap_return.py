@@ -225,3 +225,38 @@ def test_return_command_refuses_empty_epic_tracker_without_writes(
     assert (result.exit_code, stored.status, roadmap_store.job_writes()) == (1, "Ready", [])
     assert "tracker" in result.output.lower()
     assert "sub-issue" in result.output.lower()
+
+
+def test_manual_return_clears_implement_run_keys() -> None:
+    """apply_return clears implement run keys when returning an item to New (#5251)."""
+    from devops_cli.roadmap.stores.store import ImplementRecordKey
+
+    store = InMemoryRoadmapStore(repo=REPO)
+    number = _item(store, "Stuck item", "Blocked")
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            ImplementRecordKey.JOB: "devops-cli-runner-1",
+            ImplementRecordKey.STOPPED: "push",
+            ImplementRecordKey.FAILURE: "types",
+            ImplementRecordKey.BRANCH: "feat/1-old-branch",
+            ImplementRecordKey.PR: "5105",
+            ImplementRecordKey.CONTINUATIONS: "1",
+        },
+    )
+
+    apply_return(store, plan_return(store, number, "Close plan and replan.", REPO))
+
+    returned = store.item(number)
+    assert returned is not None
+    for cleared in (
+        ImplementRecordKey.JOB,
+        ImplementRecordKey.STOPPED,
+        ImplementRecordKey.FAILURE,
+        ImplementRecordKey.BRANCH,
+        ImplementRecordKey.PR,
+    ):
+        assert returned.job_record.get(cleared) is None
+    assert returned.job_record.get(ImplementRecordKey.CONTINUATIONS) == "1"

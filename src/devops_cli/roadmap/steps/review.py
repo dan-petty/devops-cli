@@ -86,6 +86,7 @@ from devops_cli.github.session import get_github_session
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.claim import claim_labels
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
+from devops_cli.roadmap.implement.record_clear import DELIVERY_CLEAR_KEYS
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.pr_verdict import PullKind, Verdict, verdict_label
 from devops_cli.roadmap.pull_labels import add_pull_labels, remove_pull_labels
@@ -171,18 +172,6 @@ _DISCARDS: Final[frozenset[Verdict]] = frozenset(
 # take it and no person merges it.
 _BACK_TO_DRAFT: Final[frozenset[Verdict]] = frozenset({Verdict.NEEDS_FIX, Verdict.ISSUE_CHANGED})
 _DRAFT_AGAIN: Final[str] = "make the pull request a draft again; "
-# The keys of a delivery that a discard clears, as the return of the implement job clears them.
-_DELIVERY_KEYS: Final[tuple[ImplementRecordKey, ...]] = (
-    ImplementRecordKey.GROUP,
-    ImplementRecordKey.SHA,
-    ImplementRecordKey.BRANCH,
-    ImplementRecordKey.PR,
-    ImplementRecordKey.BASE,
-    ImplementRecordKey.PLAN_SUMMARY,
-    ImplementRecordKey.CHECKED_SHA,
-    ImplementRecordKey.PUBLISHED_SHA,
-    ImplementRecordKey.RESULT,
-)
 
 
 @dataclass(frozen=True)
@@ -565,7 +554,7 @@ def _return_item(
     step cleared, so the stage job plans it again or the implement job builds its plan again. The
     return comment holds `verdict`, the text of the verdict, when the call has it (#6194)."""
     plan = kind is PullKind.PLAN
-    cleared: tuple[Any, ...] = STAGE_REMOVAL_KEYS if plan else _DELIVERY_KEYS
+    cleared: tuple[Any, ...] = STAGE_REMOVAL_KEYS if plan else DELIVERY_CLEAR_KEYS
     marks: dict[Any, str | int | None] = dict.fromkeys((*cleared, *ReviewRecordKey))
     work = "a new plan" if plan else "a new implementation of its plan"
     comment = (
@@ -574,7 +563,9 @@ def _return_item(
     )
     if verdict:
         comment += f"\n\n{verdict}"
-    return apply_return(store, plan_return(store, number, comment, repo, marks=marks))
+    return apply_return(
+        store, plan_return(store, number, comment, repo, marks=marks), clear_implement=plan
+    )
 
 
 def _discard(call: ReviewCall, withdraw: Withdraw, verdict: str) -> None:

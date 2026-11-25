@@ -467,3 +467,23 @@ def test_a_round_of_the_row_marks_the_green_draft_ready(
         JobOutcome(),
         [("pr", "ready", str(PULL), "--repo", STAGE_REPO)],
     )
+
+
+def test_a_finished_runner_job_does_not_hold_back_a_green_draft(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready
+) -> None:
+    """stage_ready ignores a finished implement.job when implement.job_state is set (#5251)."""
+    number = seed_staged(store)
+    store.set_marks(
+        _item(store, number),
+        {
+            ImplementRecordKey.JOB: "devops-cli-runner-1",
+            ImplementRecordKey.JOB_STATE: "failed",
+        },
+    )
+    _pull(api)
+    _checks(api, PASS)
+
+    applied = mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert applied.marked == (number,)

@@ -66,12 +66,11 @@ from devops_cli.roadmap.jev_completeness import (
 from devops_cli.roadmap.stage.stage import StageFailure, raise_for_failed, write_each
 from devops_cli.roadmap.stage.stage_criteria import acceptance_criteria
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
-from devops_cli.roadmap.status_sync import facts_of, sync_status
+from devops_cli.roadmap.status_sync import facts_of, job_holds, sync_status
 from devops_cli.roadmap.steps.comment import Target, post
 from devops_cli.roadmap.steps.ready import mark_ready
 from devops_cli.roadmap.stores.store import (
     GitHubState,
-    ImplementRecordKey,
     Item,
     RoadmapStore,
     StageRecordKey,
@@ -99,7 +98,7 @@ class StageReadyApplied:
 def _recorded_pull(item: Item) -> int | None:
     """The number of the draft that the round reads for `item`, or None when it reads none: the
     item is closed, holds no `stage.pr`, has `stage.ready` for it, or has a runner Job."""
-    if item.state is not GitHubState.OPEN or item.job_record.get(ImplementRecordKey.JOB):
+    if item.state is not GitHubState.OPEN or job_holds(item):
         return None
     recorded = item.job_record.get(StageRecordKey.PR) or ""
     if not recorded.isdigit() or item.job_record.get(StageRecordKey.READY) == recorded:
