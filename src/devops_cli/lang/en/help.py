@@ -1958,6 +1958,26 @@ class RoadmapCommandHelp:
         "The Loki to query. Without it, the loki.url setting, else http://localhost:3100."
     )
     eval_grades_dry_run: str = "Send no request: print the LogQL queries that a run sends."
+    eval_funnel: str = (
+        "Report roadmap item conversion by ISO-week cohort and path (G1 or continue) from GitHub "
+        "timeline events and Loki result lines (docs/roadmap/job-success.md). Groups items by "
+        "latest active status/ready event at or after --since, gives n, share, Wilson 95% "
+        "bounds, smallest change, median and p90 duration, young in-progress count, tokens and "
+        "cost_usd_micros per success, New-to-staged tokens per item, and missing result-line "
+        "counts."
+    )
+    eval_funnel_since: str = (
+        "Start date or ISO timestamp (UTC) for cohort status/ready label events."
+    )
+    eval_funnel_repo: str = (
+        "Report only this repository (owner/name). Default: repositories in service.repos."
+    )
+    eval_funnel_loki_url: str = (
+        "The Loki to query. Without it, the loki.url setting, else http://localhost:3100."
+    )
+    eval_funnel_dry_run: str = (
+        "Send no request: print the planned GitHub REST and Loki LogQL queries."
+    )
     run: str = (
         "Run the roadmap jobs that are due, in order: metrics, then intake, refine and "
         "the alternatives check, and record each one's last success. Intake is due on an issue reopened or a new issue, and decides at "

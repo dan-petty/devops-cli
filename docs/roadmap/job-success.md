@@ -135,3 +135,9 @@ The result line of `stage` and `implement` tells only how the attempt ended. The
 
 - `openspec/specs/roadmap-service-logs/spec.md`, requirement "Each roadmap job logs one result line for each attempt".
 - `openspec/specs/roadmap-job-grades/spec.md`, the job grade of each workflow and the report of `devops roadmap eval grades`.
+
+## The item cohort funnel
+
+`devops roadmap eval funnel --since <date> [--repo <owner/name>] [--loki-url <url>] [--json]` follows each roadmap item cohort by the ISO week (`YYYY-Www`) of its latest active `status/ready` label event (`unlabeled` `status/ready` cancels an earlier event when the item leaves `Ready` without moving forward to `status/planned`, `status/in-progress`, `status/in-review`, or `status/blocked`). Each item takes path `continue` when its delivery pull request shares the head branch of its plan pull request, and path `G1` when the branches differ or a merged plan pull request precedes delivery.
+
+For each cohort step (`New (placed) to Ready`, `Ready to plan PR open`, `plan PR merged to ready delivery PR` or `plan PR open to ready delivery PR`, and `ready delivery PR to merge`), the report prints `n`, pass share, Wilson 95% bounds, smallest detectable change (half-width of the Wilson interval), median and `p90` pass duration, `in progress` count for open items younger than that step's window `p90` pass duration (excluded from `n`), and cohort `tokens` and `cost_usd_micros` per success alongside per-item New-to-staged tokens and missing result-line counts. With `--dry-run`, the command prints the paced GitHub REST queries and Loki metric instant queries (`RESULT_LINES`) and sends no requests.

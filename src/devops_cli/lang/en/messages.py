@@ -6951,6 +6951,42 @@ class RoadmapMessages:
     grades_column_discard_implementation: str = "Discard implementation"
     grades_column_issue_changed: str = "Issue changed"
     grades_column_score: str = "Score"
+    # `devops roadmap eval funnel` (#5494).
+    funnel_dry_run_github: str = (
+        "Dry run: no request was made. For each repository, a run sends these paced GitHub REST "
+        "requests, in order:"
+    )
+    funnel_dry_run_loki: str = (
+        "Then the run sends these {count} LogQL instant queries to Loki at {url}, in order:"
+    )
+    funnel_bad_since: str = "--since must be an ISO date or timestamp: {text}"
+    funnel_no_repos: str = "Set service.repos or pass --repo owner/name to read the funnel."
+    funnel_title: str = (
+        "Roadmap item funnel since {since} (until {until}) for {repos} (Loki: {url})."
+    )
+    funnel_empty: str = "No cohort items reached status/ready at or after {since}."
+    funnel_cohort_header: str = (
+        "Cohort {cohort}: {items} item(s), tokens {tokens}, cost_usd_micros {cost}, "
+        "items with no result line: {missing}."
+    )
+    funnel_item_line: str = (
+        "  {repo}#{item} path={path} ready={ready} new_to_staged_tokens={new_tokens} "
+        "tokens={tokens} cost_usd_micros={cost} result_line={has_line}"
+    )
+    funnel_summary_missing: str = "Total items with no result line: {missing}."
+    funnel_none: str = "-"
+    funnel_column_step: str = "Step"
+    funnel_column_path: str = "Path"
+    funnel_column_n: str = "n"
+    funnel_column_passed: str = "OK"
+    funnel_column_in_progress: str = "In progress"
+    funnel_column_share: str = "Share"
+    funnel_column_interval: str = "95% interval"
+    funnel_column_min_change: str = "Min change"
+    funnel_column_median_s: str = "Median (s)"
+    funnel_column_p90_s: str = "p90 (s)"
+    funnel_column_tokens_ok: str = "Tokens/OK"
+    funnel_column_cost_ok: str = "MicroUSD/OK"
     intake_spend: str = (
         "Spent: {github} GitHub request(s) (REST {rest}, REST search {search}, GraphQL "
         "{graphql}; GraphQL points not known), {embeddings} embedding call(s) for {texts} "
