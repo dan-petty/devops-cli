@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
 
+from devops_cli.config.constants import CONST_ROADMAP_REVIEW_TAG_PATTERN
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.git.operations import git_argv
@@ -21,7 +22,7 @@ from devops_cli.lang import MESSAGES
 # The bound of one git read. The 7-day log of this repository takes 5 s to 15 s, and the review
 # runs under the deadline of its Job.
 _GIT_TIMEOUT_SECONDS: Final = 300.0
-_RELEASE_TAGS: Final = "refs/tags/v*"
+_TAG_REF_PREFIX: Final = "refs/tags/"
 _COMMIT_FORMAT: Final = "--format=%H%x09%ct"
 _LOG_FORMAT: Final = "--format=%x1e%H%x1f%ct%x1f%s"
 _GENERATED: Final = "linguist-generated"
@@ -49,9 +50,13 @@ class Commit:
     changes: tuple[FileChange, ...]
 
 
-def tag_args() -> tuple[str, ...]:
-    """The release tags, with the creation time of each in Unix seconds."""
-    return ("for-each-ref", "--format=%(refname:short)%09%(creatordate:unix)", _RELEASE_TAGS)
+def tag_args(pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN) -> tuple[str, ...]:
+    """The release tags matching `pattern`, with the creation time of each in Unix seconds."""
+    return (
+        "for-each-ref",
+        "--format=%(refname:short)%09%(creatordate:unix)",
+        f"{_TAG_REF_PREFIX}{pattern}",
+    )
 
 
 def default_ref_args() -> tuple[str, ...]:

@@ -19,6 +19,7 @@ from typing import Final, assert_never
 
 from packaging.version import InvalidVersion, Version
 
+from devops_cli.config.constants import CONST_ROADMAP_REVIEW_TAG_PATTERN
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.project_review.data import ReviewWindow, WindowKind
@@ -152,10 +153,10 @@ def parse_window(
     return _period(WindowKind.PERIOD, _utc(since or "", "--since"), _utc(until or "", "--until"))
 
 
-def read_tags(checkout: Path) -> list[Tag]:
-    """The release tags of the checkout, with their creation times in UTC, oldest first."""
+def read_tags(checkout: Path, pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN) -> list[Tag]:
+    """The release tags of the checkout matching `pattern`, with UTC creation times, oldest first."""
     tags = []
-    for line in run_git(checkout, tag_args()).splitlines():
+    for line in run_git(checkout, tag_args(pattern)).splitlines():
         name, _, seconds = line.rpartition("\t")
         if name and seconds:
             tags.append(Tag(name, datetime.fromtimestamp(int(seconds), UTC)))
@@ -206,10 +207,17 @@ def default_ref(checkout: Path) -> str:
     return found.strip() if found and found.strip() else _LOCAL_HEAD
 
 
-def resolve_window(checkout: Path, request: WindowRequest, tags: Sequence[Tag]) -> ReviewWindow:
+def resolve_window(
+    checkout: Path,
+    request: WindowRequest,
+    tags: Sequence[Tag],
+    pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN,
+) -> ReviewWindow:
     """The commits and the UTC times of the window that `request` names."""
     match request:
         case VersionRequest():
+            if not tags:
+                raise _refuse(MESSAGES.roadmap.review_no_matching_tags.format(pattern=pattern))
             base, start = _tag_commit(checkout, request.base_tag)
             head, end = _tag_commit(checkout, request.head_tag)
             if end <= start:

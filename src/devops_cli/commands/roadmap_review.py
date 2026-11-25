@@ -15,13 +15,16 @@ from typing import Annotated
 
 import typer
 
+from devops_cli.config.settings import load_settings
 from devops_cli.core.cli import new_typer
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import dry_run_class, is_dry_run, render_request_plan
 from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.output import write_stdout
+from devops_cli.roadmap.project_review.catalog import load_catalog
 from devops_cli.roadmap.project_review.data import write_review
+from devops_cli.roadmap.project_review.dispatch import planned_sections
 from devops_cli.roadmap.project_review.review import (
     planned_review,
     render_review,
@@ -62,6 +65,9 @@ def run_cmd(
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.review_dry_run)] = False,
 ) -> None:
     """Read the git facts and the catalog facts of one window and write data.json."""
+    if (dry_run or is_dry_run()) and not any((version, since, until, week, last)):
+        write_stdout(planned_sections(load_catalog(), load_settings()) + "\n")
+        return
     now = datetime.now(UTC)
     request = parse_window(version=version, since=since, until=until, week=week, last=last, now=now)
     checkout = find_repo_root(Path.cwd())

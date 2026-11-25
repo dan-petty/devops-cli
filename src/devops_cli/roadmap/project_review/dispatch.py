@@ -666,3 +666,35 @@ def plan_catalog(
                 )
             )
     return [*shared, *each]
+
+
+def _planned_fact_note(catalog: Catalog, settings: Settings, fact: CatalogFact) -> str:
+    """Unset setting reason, condition text, or no-condition note for one catalog fact."""
+    texts = MESSAGES.roadmap
+    requires = catalog.rules(fact).requires
+    for condition in requires:
+        if condition.startswith(_SETTING):
+            name = condition.removeprefix(_SETTING)
+            if not _setting(settings, name):
+                return texts.review_unset_setting.format(setting=name)
+    return _condition(requires) if requires else texts.review_plan_no_condition
+
+
+def planned_sections(catalog: Catalog, settings: Settings) -> str:
+    """List each `service.repos` entry with catalog sections, fact IDs, and conditions."""
+    texts = MESSAGES.roadmap
+    if not settings.service.repos:
+        return texts.review_plan_no_repos
+    by_section: dict[str, list[CatalogFact]] = {}
+    for fact in catalog.facts:
+        by_section.setdefault(fact.section, []).append(fact)
+    blocks: list[str] = []
+    for repo in settings.service.repos:
+        lines = [texts.review_plan_repo_heading.format(repo=repo)]
+        for section in catalog.sections:
+            lines.append(f"  {section.title}")
+            for fact in by_section.get(section.id, ()):
+                note = _planned_fact_note(catalog, settings, fact)
+                lines.append(f"    {fact.id}: {note}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)

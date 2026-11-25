@@ -18,9 +18,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
-from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_STEPS_FILE
+from devops_cli.config.constants import (
+    CONST_ROADMAP_IMPLEMENT_STEPS_FILE,
+    CONST_ROADMAP_REVIEW_TAG_PATTERN,
+)
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
@@ -46,10 +49,24 @@ class _Project(BaseModel):
     toolchain: str = "neutral"
 
 
+class _Review(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    tag_pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN
+
+    @field_validator("tag_pattern")
+    @classmethod
+    def _valid_tag_pattern(cls, value: str) -> str:
+        if not value or value.startswith("-") or any(ch.isspace() for ch in value):
+            raise ValueError("tag_pattern must be non-empty, without '-' prefix or whitespace")
+        return value
+
+
 class _Declaration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     project: _Project = _Project()
+    review: _Review = _Review()
 
 
 class ProjectProfile(BaseModel):
@@ -101,8 +118,29 @@ def resolve_profile(source: Path, ref: str) -> ProjectProfile:
     return ProjectProfile(preset=preset)
 
 
+def review_tag_pattern(checkout: Path) -> str:
+    """Return `[review] tag_pattern` from `.devops/roadmap.toml` in `checkout`, or default `v*`.
+
+    Raises `ConfigurationError` naming the file when the TOML or table schema is invalid.
+    """
+    name = CONST_ROADMAP_IMPLEMENT_STEPS_FILE
+    path = checkout / name
+    if not path.is_file():
+        return CONST_ROADMAP_REVIEW_TAG_PATTERN
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        declaration = _Declaration.model_validate(raw)
+    except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
+        raise ConfigurationError(
+            MESSAGES.roadmap.roadmap_toml_invalid.format(file=name, reason=exc),
+            key=name,
+        ) from exc
+    return declaration.review.tag_pattern
+
+
 __all__ = [
     "ProjectProfile",
     "ProjectStep",
     "resolve_profile",
+    "review_tag_pattern",
 ]

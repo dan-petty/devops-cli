@@ -149,9 +149,105 @@ def test_a_run_writes_data_json_under_the_data_directory_and_prints_it(
         "git.release_tags",
         "git.hotspots",
         "lizard.complexity",
+        "functional.change",
         *(fact.id for fact in load_catalog().facts),
     ]
     assert all(fact["reason"] for fact in written["facts"] if fact["status"] != "ok")
+
+
+@pytest.mark.usefixtures("refuse_requests")
+def test_a_dry_run_with_no_window_lists_each_repository_of_service_repos(
+    cli: Callable[..., Any],
+    process_fake: ProcessFake,
+    config: Callable[..., Path],
+) -> None:
+    """A dry run with no window lists every repository of `service.repos` with its sections and
+    conditions, without starting git or sending requests (#4730)."""
+    repos = [
+        "dan-petty/devops-cli",
+        "dan-petty/homelab",
+        "dan-petty/infra",
+        "dan-petty/devtools",
+        "dan-petty/docs",
+        "dan-petty/charts",
+        "dan-petty/scripts",
+    ]
+    config(service={"repos": repos})
+
+    result = cli("roadmap", "review", "run", "--dry-run")
+
+    assert result.exit_code == 0, result.output
+    assert (process_fake.calls) == []
+    catalog = load_catalog()
+    sections_blocks = [
+        part for part in result.stdout.split("\n\n") if part.strip().startswith("Repository ")
+    ]
+    assert len(sections_blocks) == 7
+    for repo_name, block in zip(repos, sections_blocks, strict=True):
+        assert repo_name in block
+        for section in catalog.sections:
+            assert section.title in block
+        for fact in catalog.facts:
+            lines = [line for line in block.splitlines() if f"{fact.id}:" in line]
+            assert len(lines) == 1
+            if fact.reader == "prometheus":
+                assert "The setting prometheus.url has no value." in lines[0]
+            if fact.reader == "openspec":
+                assert "the base and the head commits hold openspec/specs" in lines[0]
+
+    config(service={"repos": repos[:3]})
+    short = cli("roadmap", "review", "run", "--dry-run")
+    assert short.exit_code == 0, short.output
+    short_blocks = [
+        part for part in short.stdout.split("\n\n") if part.strip().startswith("Repository ")
+    ]
+    assert len(short_blocks) == 3
+
+    config(service={"repos": []})
+    empty = cli("roadmap", "review", "run", "--dry-run")
+    assert empty.exit_code == 0, empty.output
+    assert "no repository" in empty.stdout.lower()
+
+
+def test_a_run_records_the_functional_change_of_a_checkout_without_openspec(
+    cli: Callable[..., Any], checkout: Path, github_api: GitHubApiFake
+) -> None:
+    """When no openspec fact is ok, `functional.change` follows `lizard.complexity` (#4730)."""
+    (checkout / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## [1.1.1](https://example.com/compare/v1.1.0...v1.1.1) (2026-10-05)\n\n"
+        "### Features\n\n"
+        "* **pkg:** grow the helper ([#1](https://example.com/issues/1))\n\n"
+        "### Bug Fixes\n\n"
+        "* fix startup check\n",
+        encoding="utf-8",
+    )
+
+    result = cli("roadmap", "review", "run", "--version", VERSION, "--json")
+
+    assert result.exit_code == 0, result.output
+    written = json.loads(result.stdout)
+    fact_ids = [fact["id"] for fact in written["facts"]]
+    assert fact_ids == [
+        "git.commits",
+        "git.commit_types",
+        "git.net_change",
+        "git.churn",
+        "git.releases",
+        "git.release_tags",
+        "git.hotspots",
+        "lizard.complexity",
+        "functional.change",
+        *(fact.id for fact in load_catalog().facts),
+    ]
+    [change] = [fact for fact in written["facts"] if fact["id"] == "functional.change"]
+    assert (change["section"], change["source"], change["status"], change["n"]) == (
+        "changes",
+        "changelog",
+        "ok",
+        2,
+    )
+    assert change["value"] == ["pkg: grow the helper (#1)", "fix startup check"]
 
 
 def test_a_run_prints_the_window_and_one_line_for_each_fact(

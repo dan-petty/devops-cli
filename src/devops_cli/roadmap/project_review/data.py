@@ -62,15 +62,21 @@ class Fact(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str = Field(description="The id of the fact, as `<source>.<name>`.")
+    id: str = Field(
+        description=(
+            "The id of the fact, as `<source>.<name>`; `functional.change` names its kind "
+            "there and its fallback source in `source`."
+        )
+    )
     section: str = Field(description="The section of the review: `changes` for a git fact.")
     value: JsonValue = Field(description="The value: a number, a mapping or a list of rows.")
     unit: str = Field(description="The unit of the value.")
     n: int | None = Field(description="The number of items that give the value, or null.")
     source: str = Field(
         description=(
-            "The reader: `git`, `lizard`, `listing`, `github`, `github_runs`, `prometheus`, "
-            "`loki` or `openspec`."
+            "The reader: `git`, `lizard`, `functional`, `changelog`, `subjects`, "
+            "`pull_requests`, `listing`, `github`, `github_runs`, `prometheus`, `loki` or "
+            "`openspec`."
         )
     )
     query: str = Field(description="The exact command or query that the reader ran.")
@@ -123,7 +129,10 @@ class ReviewData(BaseModel):
     repo: str = Field(description="The repository, as owner/name.")
     window: ReviewWindow = Field(description="The window of the review.")
     facts: list[Fact] = Field(
-        description="The git facts, then the facts of the catalog in the catalog order."
+        description=(
+            "The git facts, `functional.change` when no OpenSpec fact is ok, then the facts of "
+            "the catalog in the catalog order."
+        )
     )
     disagreements: list[Disagreement] = Field(
         default_factory=list, description="The pairs of facts of the catalog that disagree."
