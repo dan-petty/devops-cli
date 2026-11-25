@@ -183,11 +183,11 @@ For each item, the round SHALL write `stage.job`, `stage.job_at` and `stage.job_
 - **THEN** the round fails, and the item holds no check-out and no claim
 
 ### Requirement: The cleanup of a stage round comes before any create
-Before any create, the round SHALL remove the orphans and the staged branches of closed items, and write the rejections of the items that it does not submit. The selection SHALL read the heads without the branches of the orphans that the round removes.
+Before any create, the round SHALL clean the orphans and the staged branches of closed items, keeping an App-only branch and `stage.pending` mark of a `Ready` orphan and deleting other orphans, and write the rejections of the items that it does not submit. The selection SHALL read the heads without the branches of the orphans that the round cleans.
 
 #### Scenario: An old orphan
 - **WHEN** a Ready item holds an intent mark of 2 hours and a pushed branch with no pull request
-- **THEN** the round removes the branch and creates the Job of the item in the same round
+- **THEN** the round keeps the App-only branch and `stage.pending` mark and creates the Job of the item in the same round
 
 ### Requirement: The stage row checks in for a Job that ended with no check-in
 Each round SHALL compare each check-out with the Job list and check in for its Job: `evicted` when the Job is gone, `deadline` when it failed with `DeadlineExceeded` or runs 600 s after the deadline of the check-out, `failed` when it failed otherwise, and `succeeded` when it completed or the item holds its draft. A `deadline` or `failed` end SHALL record the failure marks.

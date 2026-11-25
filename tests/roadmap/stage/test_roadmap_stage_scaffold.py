@@ -11,9 +11,13 @@ from unittest.mock import patch
 
 import pytest
 
-from devops_cli.config.constants import CONST_ROADMAP_STATUS_READY
+from devops_cli.config.constants import (
+    CONST_ROADMAP_STATUS_NEW,
+    CONST_ROADMAP_STATUS_READY,
+)
 from devops_cli.roadmap.stage import stage as stage_module
 from devops_cli.roadmap.stage.stage import parse_filters, plan_stage
+from devops_cli.roadmap.stage.stage_change import StageSplit
 from devops_cli.roadmap.stores.store import ItemField, StageRecordKey
 from tests.support.builders import make_stage_proposal
 from tests.support.fakes.github import API, github_json
@@ -25,6 +29,7 @@ from tests.support.roadmap_stage import (
     VALID_REPORT,
     StageRepo,
     apply_stage,
+    heavy_group,
     seed_stageable,
     validate_args,
 )
@@ -85,20 +90,167 @@ def test_stage_orphan_cleanup_keeps_app_only_branch_of_ready_item(
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     number = store.seed_issue(
         "fix(roadmap): the job drops a comment",
+        labels=("type/bug",),
         fields={ItemField.STATUS: CONST_ROADMAP_STATUS_READY, ItemField.PRIORITY: "P1-High"},
     )
     item = store.item(number)
     assert item is not None
     mark = json.dumps({"branch": BRANCH, "time": (NOW - timedelta(hours=3)).isoformat()})
-    store.set_marks(item, {StageRecordKey.PENDING: mark})
+    store.set_marks(
+        item,
+        {
+            StageRecordKey.PENDING: mark,
+            StageRecordKey.BRANCH: BRANCH,
+            StageRecordKey.TEXT_HASH: "old-hash",
+        },
+    )
     stage_repo.push_branch(BRANCH, author=STAGE_NAME)
 
-    _plan, _, _, _ = _stage_round(store, stage_repo, now=NOW)
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(("type=feature",)),
+        now=NOW,
+    )
+    applied = apply_stage(store, plan, source=stage_repo.clone, now=NOW)
 
+    assert applied.removed == (number,)
     assert BRANCH in _pushed(stage_repo)
     found = store.item(number)
     assert found is not None
-    assert not found.job_record.get(StageRecordKey.PENDING)
+    assert found.job_record.get(StageRecordKey.PENDING) == mark
+    assert found.job_record.get(StageRecordKey.BRANCH) is None
+    assert found.job_record.get(StageRecordKey.TEXT_HASH) is None
+
+
+def test_next_stage_round_resumes_and_stages_after_orphan_cleanup_kept_branch(
+    staging: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    github_api: GitHubApiFake,
+    openspec_fake: OpenSpecFake,
+) -> None:
+    item = staging.item(1)
+    assert item is not None
+    mark = json.dumps({"branch": BRANCH, "time": (NOW - timedelta(hours=3)).isoformat()})
+    staging.set_marks(item, {StageRecordKey.PENDING: mark})
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+
+    cleanup_plan = plan_stage(
+        staging,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(("type=feature",)),
+        now=NOW,
+    )
+    cleanup_applied = apply_stage(staging, cleanup_plan, source=stage_repo.clone, now=NOW)
+    assert (cleanup_applied.removed, cleanup_applied.staged, BRANCH in _pushed(stage_repo)) == (
+        (1,),
+        (),
+        True,
+    )
+    held = staging.item(1)
+    assert held is not None
+    assert held.job_record.get(StageRecordKey.PENDING) == mark
+
+    model_fake.answer(make_stage_proposal())
+    _plan2, staged, removed, failed = _stage_round(staging, stage_repo, now=NOW)
+
+    record = staging.item(1)
+    assert record is not None
+    assert (failed, staged, removed, _pushed(stage_repo)) == (
+        (),
+        (1,),
+        (1,),
+        [BRANCH, "main"],
+    )
+    assert record.job_record.get(StageRecordKey.PR) == "5"
+    assert record.job_record.get(StageRecordKey.PENDING) is None
+    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+
+
+def test_orphan_cleanup_clears_pending_when_branch_is_deleted_or_gone(
+    stage_repo: StageRepo,
+    github_api: GitHubApiFake,
+) -> None:
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    non_ready = store.seed_issue(
+        "fix(roadmap): the job drops a comment",
+        fields={ItemField.STATUS: CONST_ROADMAP_STATUS_NEW, ItemField.PRIORITY: "P1-High"},
+    )
+    gone_ready = store.seed_issue(
+        "fix(roadmap): keep the last comment",
+        fields={ItemField.STATUS: CONST_ROADMAP_STATUS_READY, ItemField.PRIORITY: "P1-High"},
+    )
+    mark = json.dumps({"branch": BRANCH, "time": (NOW - timedelta(hours=3)).isoformat()})
+    missing_mark = json.dumps(
+        {
+            "branch": "fix/2-keep-the-last-comment",
+            "time": (NOW - timedelta(hours=3)).isoformat(),
+        }
+    )
+    for num, item_mark in ((non_ready, mark), (gone_ready, missing_mark)):
+        held = store.item(num)
+        assert held is not None
+        store.set_marks(held, {StageRecordKey.PENDING: item_mark})
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+
+    plan = plan_stage(
+        store,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(("type=feature",)),
+        now=NOW,
+    )
+    applied = apply_stage(store, plan, source=stage_repo.clone, now=NOW)
+
+    assert sorted(applied.removed) == sorted([non_ready, gone_ready])
+    assert BRANCH not in _pushed(stage_repo)
+    for num in (non_ready, gone_ready):
+        updated = store.item(num)
+        assert updated is not None
+        assert updated.job_record.get(StageRecordKey.PENDING) is None
+
+
+def test_budget_stop_on_kept_branch_clears_stage_pending(
+    staging: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+) -> None:
+    item = staging.item(1)
+    assert item is not None
+    mark = json.dumps({"branch": BRANCH, "time": (NOW - timedelta(hours=3)).isoformat()})
+    staging.set_marks(item, {StageRecordKey.PENDING: mark})
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    heavy = heavy_group(stage_repo)
+    model_fake.answer(make_stage_proposal(groups=[heavy]), StageSplit(groups=[heavy]))
+
+    plan = plan_stage(
+        staging,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        step_tokens=6000,
+        now=NOW,
+    )
+    applied = apply_stage(staging, plan, source=stage_repo.clone, now=NOW)
+
+    stopped_item = staging.item(1)
+    assert stopped_item is not None
+    assert applied.stopped == (1,)
+    assert stopped_item.job_record.get(StageRecordKey.NEEDS_SPLIT)
+    assert stopped_item.job_record.get(StageRecordKey.FILE_CAP)
+    assert stopped_item.job_record.get(StageRecordKey.PENDING) is None
+
+    next_plan = plan_stage(
+        staging,
+        repo=STAGE_REPO,
+        source=stage_repo.clone,
+        filters=parse_filters(()),
+        now=NOW + timedelta(hours=3),
+    )
+    assert next_plan.removals == ()
 
 
 def test_a_push_url_in_the_clone_of_the_job_changes_nothing(
