@@ -342,3 +342,5 @@ The naming record of #4533 owns the object names, the labels, the Valkey key for
 2026-11-21: Fact out of date: section 8, row `fix-conflict`, tiers. The step has no tier 2 model fix, and tier 1 drops an archive commit with `git rebase --skip` (#6618).
 
 2026-11-21: Fact out of date: section 8, row `fix-conflict`, Before the push. Only `openspec validate --specs --strict` runs; the step runs no scoped checks (#6618).
+
+2026-11-25: Fact out of date: section 2 and section 8 (`fix-plan`) now use `verdict/fix-plan`, with `verdict/mergeable`, `verdict/discard-plan`, `verdict/issue-changed`, `verdict/fix-implementation` and `verdict/discard-implementation`, replacing `plan/needs-fix` (#5984).

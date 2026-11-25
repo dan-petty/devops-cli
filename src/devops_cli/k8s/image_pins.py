@@ -242,7 +242,7 @@ def _render_chart(command: list[str], workdir: Path) -> str:
     return build_manifest_path(workdir)
 
 
-def _application_renders(
+def application_renders(
     trees: SourceTrees, name: str, doc: dict[str, Any], workdir: Path
 ) -> Iterator[tuple[str, list[str] | None]]:
     """Each rendered source of an Application, with the chart command that rendered it. A dry run
@@ -277,7 +277,7 @@ def _render_application(
     images: list[str] = []
     managed: list[str] = []
     planned: list[tuple[str, ...]] = []
-    for rendered, command in _application_renders(trees, name, doc, workdir):
+    for rendered, command in application_renders(trees, name, doc, workdir):
         if command is not None and not rendered:
             planned.append(tuple(command))
         images.extend(image_values(rendered))

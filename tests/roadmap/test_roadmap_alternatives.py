@@ -1174,6 +1174,84 @@ def test_a_tool_that_the_deployed_paths_of_the_source_name_gives_the_verdict_in_
     ) == ([Verdict.IN_USE], "in-use", "github.com/example/scanner")
 
 
+def test_standard_library_of_a_used_language_gives_in_use_without_deps_dev(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    """A used language's standard library becomes `in-use` from the SBOM without hitting deps.dev
+    (#6347)."""
+    url = "https://github.com/python/cpython"
+    store.seed_dependencies("pkg:pypi/httpx@0.28.1")
+    store.seed_repository(_facts("python/cpython"))
+    number = _item(store)
+
+    plan = _plan(
+        store,
+        _search_then_read("python/cpython", _covers(tool_url=url, sources=[url, SEARCH_URL])),
+    )
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL_ID),
+        [request for request in web.requested if "deps.dev" in request],
+    ) == ([Verdict.IN_USE], "in-use", "github.com/python/cpython", [])
+
+
+def test_third_party_tool_in_a_used_language_keeps_covers_end_to_end(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake
+) -> None:
+    """A third-party PyPI library stays `covers` when only another PyPI package is in use (#6347)."""
+    url = "https://github.com/sqlalchemy/sqlalchemy"
+    store.seed_dependencies("pkg:pypi/httpx@0.28.1")
+    store.seed_repository(_facts("sqlalchemy/sqlalchemy"))
+    web.content(
+        DEFAULT_DEPS_DEV_PROJECT_URL.format(project="github.com%2Fsqlalchemy%2Fsqlalchemy"),
+        json.dumps({"versions": []}).encode(),
+    )
+    number = _item(store)
+
+    plan = _plan(
+        store,
+        _search_then_read(
+            "sqlalchemy/sqlalchemy", _covers(tool_url=url, sources=[url, SEARCH_URL])
+        ),
+    )
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL_ID),
+    ) == ([Verdict.COVERS], "covers", "github.com/sqlalchemy/sqlalchemy")
+
+
+def test_standard_library_without_a_language_signal_keeps_covers_end_to_end(
+    store: InMemoryRoadmapStore, web_key: None, web: WebFake, tmp_path: Path
+) -> None:
+    """With no SBOM signal and no matching file suffix, the standard library stays `covers`
+    (#6347)."""
+    url = "https://github.com/python/cpython"
+    (tmp_path / "k8s").mkdir()
+    (tmp_path / "k8s" / "deploy.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
+    store.seed_repository(_facts("python/cpython"))
+    number = _item(store)
+
+    plan = _plan(
+        store,
+        _search_then_read("python/cpython", _covers(tool_url=url, sources=[url, SEARCH_URL])),
+        source=tmp_path,
+    )
+    apply_alternatives(store, plan)
+
+    assert (
+        [check.verdict for check in plan.checks],
+        _recorded(store, number, AlternativesRecordKey.VERDICT),
+        _recorded(store, number, AlternativesRecordKey.TOOL_ID),
+        [request for request in web.requested if "deps.dev" in request],
+    ) == ([Verdict.COVERS], "covers", "github.com/python/cpython", [])
+
+
 def test_a_failed_read_of_deps_dev_skips_the_item_and_records_the_failure(
     store: InMemoryRoadmapStore, web_key: None, web: WebFake
 ) -> None:

@@ -102,6 +102,11 @@ from devops_cli.exceptions.telemetry import (
     ServiceStatusError,
     TelemetryError,
 )
+from devops_cli.exceptions.tf import (
+    TFAccessRefusedError,
+    TFBudgetError,
+    TFError,
+)
 from devops_cli.exceptions.tools import (
     DependencyError,
     SubprocessError,
@@ -233,6 +238,9 @@ __all__ = [
     "StoreError",
     "StoreImmutablePathError",
     "SubprocessError",
+    "TFAccessRefusedError",
+    "TFBudgetError",
+    "TFError",
     "TelemetryError",
     "ToolDownloadError",
     "ToolExecutionError",

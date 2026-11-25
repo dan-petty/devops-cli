@@ -53,7 +53,7 @@ from devops_cli.roadmap.phase import phase as derive_phase
 from devops_cli.roadmap.phase import phase_age as derive_phase_age
 from devops_cli.roadmap.plan_read import tree_files
 from devops_cli.roadmap.planned import PlannedChanges, read_planned_changes
-from devops_cli.roadmap.refine.refine import refine_left_out
+from devops_cli.roadmap.refine.refine import refine_due_reason, refine_left_out
 from devops_cli.roadmap.stage.stage import LeftOut, StageFilter, read_stage_selection
 from devops_cli.roadmap.stop_state import StopState, stop_state_of
 from devops_cli.roadmap.stores.store import (
@@ -169,7 +169,9 @@ def _refine_verdict(
     `refine_left_out`, which the round uses (#3483). `tracked_paths` is the set of files of the
     default branch, which keeps a value that is no path out of the references of a wait (#6444)."""
     why = refine_left_out(store, item, tracked_paths=tracked_paths)
-    return JobVerdict(True) if why is None else JobVerdict(False, why)
+    if why is not None:
+        return JobVerdict(False, why)
+    return JobVerdict(True, refine_due_reason(store, item))
 
 
 def _stage_verdict(
@@ -475,7 +477,11 @@ def render_explanation(explained: Explanation) -> str:
         (texts.explain_job_stage, explained.stage),
         (texts.explain_job_implement, explained.implement),
     ):
-        line = texts.explain_line_yes if verdict.takes else texts.explain_line_no
+        line = (
+            (texts.explain_line_yes_reason if verdict.reason else texts.explain_line_yes)
+            if verdict.takes
+            else texts.explain_line_no
+        )
         lines.append(line.format(job=job, reason=verdict.reason))
     lines.extend(_stop_lines(explained))
     lines.extend(_tracker_lines(explained))

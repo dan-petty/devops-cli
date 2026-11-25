@@ -2,16 +2,34 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import hashlib
+import json
+import logging
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from devops_cli.config.constants import CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP
+from devops_cli.config.constants import (
+    CONST_K8S_ANNOTATION_CHANGE_REASON,
+    CONST_K8S_ANNOTATION_CHANGED_AT,
+    CONST_K8S_ANNOTATION_CHANGED_SETTINGS,
+    CONST_K8S_ANNOTATION_CONFIG_TEMPLATE_COMMIT,
+    CONST_K8S_ANNOTATION_DATA_SHA256,
+    CONST_K8S_CONFIGMAP_CHANGED_EVENT,
+    CONST_K8S_CONFIGMAP_CHANGED_LOGGER,
+    CONST_K8S_CONFIGMAP_HISTORY_RETENTION_SECONDS,
+    CONST_K8S_DEVOPS_CONFIGMAP_HISTORY,
+    CONST_K8S_DEVOPS_NAMESPACE,
+    CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP,
+)
 from devops_cli.config.setting_keys import unknown_setting_keys
 from devops_cli.config.settings import GitHubAppConfig, Settings, load_settings
 from devops_cli.config.yaml_errors import parse_config_yaml
+from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.k8s import KubernetesContextError
 from devops_cli.security.sanitizer import drop_credential_keys
 
@@ -204,3 +222,212 @@ def render_active_devops_sandbox_configmap(
     data: dict[str, Any] = manifest["data"]
     manifest["data"] = {_CONFIG_KEY: data[_CONFIG_KEY]}
     return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)
+
+
+_MISSING = object()
+_TEMPLATE_FILENAME = "configmap.example.yaml"
+
+
+@dataclass(frozen=True)
+class DevopsConfigMapChangeRecord:
+    """Metadata describing a change applied to ConfigMap `devops-cli-config` (#5221)."""
+
+    changed_settings: tuple[str, ...]
+    data_sha256: str
+    config_template_commit: str
+    changed_at: str
+    epoch_seconds: int
+    change_reason: str | None = None
+
+
+def configmap_data_sha256(data: Mapping[str, Any]) -> str:
+    """Canonical SHA-256 hex digest of a ConfigMap `data` mapping."""
+    canonical = json.dumps(dict(data), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _flatten_settings(value: Any, prefix: str, out: dict[str, Any]) -> None:
+    """Flatten nested mappings into dotted paths without altering leaf values."""
+    if isinstance(value, Mapping):
+        if not value and prefix:
+            out[prefix] = {}
+            return
+        for key, item in value.items():
+            dotted = f"{prefix}.{key}" if prefix else str(key)
+            _flatten_settings(item, dotted, out)
+        return
+    if prefix:
+        out[prefix] = value
+
+
+def _parsed_config_data(data: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Flatten `devops-cli.yaml` settings and any extra data keys for value-free key comparison."""
+    if not data:
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in data.items():
+        if key != _CONFIG_KEY:
+            out[key] = value
+            continue
+        if isinstance(value, str) and value.strip():
+            parsed = parse_config_yaml(value)
+            if isinstance(parsed, Mapping):
+                _flatten_settings(parsed, "", out)
+    return out
+
+
+def changed_configmap_settings(
+    live_data: Mapping[str, Any] | None, rendered_data: Mapping[str, Any]
+) -> tuple[str, ...]:
+    """Sorted dotted setting names whose values differ between `live_data` and `rendered_data`."""
+    live_flat = _parsed_config_data(live_data)
+    rendered_flat = _parsed_config_data(rendered_data)
+    return tuple(
+        sorted(
+            key
+            for key in set(live_flat) | set(rendered_flat)
+            if live_flat.get(key, _MISSING) != rendered_flat.get(key, _MISSING)
+        )
+    )
+
+
+def read_devops_configmap_template_commit(product_dir: Path) -> str:
+    """Last commit hash touching `configmap.example.yaml` in `product_dir`, or `""` outside git."""
+    if not product_dir.is_dir():
+        return ""
+    res = run_subprocess(
+        ["git", "log", "-1", "--format=%H", "--", _TEMPLATE_FILENAME],
+        cwd=product_dir,
+        local_read=True,
+        quiet=True,
+        check=False,
+    )
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def build_devops_configmap_change(
+    rendered_manifest: str,
+    live_data: Mapping[str, Any] | None,
+    *,
+    config_template_commit: str = "",
+    reason: str | None = None,
+    now: datetime | None = None,
+) -> tuple[str, DevopsConfigMapChangeRecord | None]:
+    """Annotate `rendered_manifest` when its `data` digest differs from `live_data`."""
+    manifest: dict[str, Any] = yaml.safe_load(rendered_manifest)
+    rendered_data: Mapping[str, Any] = manifest.get("data") or {}
+    data_sha256 = configmap_data_sha256(rendered_data)
+    if live_data is not None and configmap_data_sha256(live_data) == data_sha256:
+        return rendered_manifest, None
+
+    now_utc = (now or datetime.now(UTC)).astimezone(UTC)
+    epoch_seconds = int(now_utc.timestamp())
+    changed_at = now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    changed = changed_configmap_settings(live_data, rendered_data)
+    commit = config_template_commit.strip()
+    clean_reason = reason.strip() if reason and reason.strip() else None
+
+    record = DevopsConfigMapChangeRecord(
+        changed_settings=changed,
+        data_sha256=data_sha256,
+        config_template_commit=commit,
+        changed_at=changed_at,
+        epoch_seconds=epoch_seconds,
+        change_reason=clean_reason,
+    )
+
+    metadata: dict[str, Any] = manifest.setdefault("metadata", {})
+    annotations: dict[str, str] = dict(metadata.get("annotations") or {})
+    if commit:
+        annotations[CONST_K8S_ANNOTATION_CONFIG_TEMPLATE_COMMIT] = commit
+    annotations[CONST_K8S_ANNOTATION_DATA_SHA256] = data_sha256
+    annotations[CONST_K8S_ANNOTATION_CHANGED_SETTINGS] = ",".join(changed)
+    annotations[CONST_K8S_ANNOTATION_CHANGED_AT] = changed_at
+    if clean_reason:
+        annotations[CONST_K8S_ANNOTATION_CHANGE_REASON] = clean_reason
+    metadata["annotations"] = annotations
+
+    return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False), record
+
+
+def build_devops_configmap_history_manifest() -> str:
+    """Empty `devops-cli-config-changes` ConfigMap YAML applied when absent on the cluster."""
+    manifest = {
+        "apiVersion": "v1",
+        "kind": "ConfigMap",
+        "metadata": {
+            "name": CONST_K8S_DEVOPS_CONFIGMAP_HISTORY,
+            "namespace": CONST_K8S_DEVOPS_NAMESPACE,
+        },
+        "data": {},
+    }
+    return yaml.dump(manifest, Dumper=_BlockDumper, sort_keys=False)
+
+
+def _history_entry_epoch(key: str, raw_value: Any) -> int | None:
+    """Extract Unix epoch seconds from a history ConfigMap key `<epoch>-<hash>` or its JSON time."""
+    head, sep, _ = key.partition("-")
+    if sep and head.isdigit():
+        return int(head)
+    if not isinstance(raw_value, str):
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return None
+    ts = parsed.get("time") if isinstance(parsed, Mapping) else None
+    if not isinstance(ts, str):
+        return None
+    try:
+        return int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
+
+
+def build_devops_configmap_history_patch(
+    record: DevopsConfigMapChangeRecord,
+    existing_data: Mapping[str, Any] | None = None,
+    *,
+    now: datetime | None = None,
+) -> str:
+    """JSON merge patch adding `record` to `devops-cli-config-changes` and pruning >30d entries."""
+    now_epoch = int(now.astimezone(UTC).timestamp()) if now is not None else record.epoch_seconds
+    cutoff = now_epoch - CONST_K8S_CONFIGMAP_HISTORY_RETENTION_SECONDS
+    entry_key = f"{record.epoch_seconds}-{record.data_sha256[:8]}"
+
+    patch_data: dict[str, Any] = {}
+    for key, raw_value in (existing_data or {}).items():
+        if key == entry_key:
+            continue
+        entry_epoch = _history_entry_epoch(key, raw_value)
+        if entry_epoch is not None and entry_epoch < cutoff:
+            patch_data[key] = None
+
+    entry_payload: dict[str, Any] = {
+        "time": record.changed_at,
+        "changed_settings": list(record.changed_settings),
+        "data_sha256": record.data_sha256,
+    }
+    if record.config_template_commit:
+        entry_payload["config_template_commit"] = record.config_template_commit
+    if record.change_reason:
+        entry_payload["change_reason"] = record.change_reason
+    patch_data[entry_key] = json.dumps(entry_payload, separators=(",", ":"))
+
+    return json.dumps({"data": patch_data}, separators=(",", ":"))
+
+
+def emit_devops_configmap_changed_log(record: DevopsConfigMapChangeRecord) -> None:
+    """Emit one `configmap_changed` WARNING record on `devops_cli.k8s.configmap` for OTel/Loki."""
+    extra: dict[str, str] = {
+        "changed_settings": ",".join(record.changed_settings),
+        "data_sha256": record.data_sha256,
+        "time": record.changed_at,
+    }
+    if record.config_template_commit:
+        extra["config_template_commit"] = record.config_template_commit
+    if record.change_reason:
+        extra["change_reason"] = record.change_reason
+    logging.getLogger(CONST_K8S_CONFIGMAP_CHANGED_LOGGER).warning(
+        CONST_K8S_CONFIGMAP_CHANGED_EVENT, extra=extra
+    )

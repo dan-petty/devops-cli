@@ -1207,6 +1207,28 @@ CONST_K8S_DEVOPS_CONFIGMAP: Final[str] = "devops-cli-config"
 """The ConfigMap `devops k8s deploy-stack` renders from config.yaml; no Argo CD Application owns it."""
 CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP: Final[str] = "devops-cli-config-sandbox"
 """The credential-free copy of the devops ConfigMap that the planner run Job mounts (#4147)."""
+CONST_K8S_DEVOPS_CONFIGMAP_HISTORY: Final[str] = "devops-cli-config-changes"
+"""The ConfigMap in namespace `devops` that holds a 30-day history of live `devops-cli-config` changes (#5221)."""
+CONST_K8S_DEVOPS_NAMESPACE: Final[str] = "devops"
+"""The Kubernetes namespace that holds `devops-cli-config`, its sandbox copy, and its history object."""
+CONST_K8S_CONFIGMAP_HISTORY_RETENTION_SECONDS: Final[int] = 30 * 24 * 60 * 60
+"""Maximum age in seconds for keys kept in ConfigMap `devops-cli-config-changes` (30 days, #5221)."""
+CONST_K8S_ANNOTATION_CONFIG_TEMPLATE_COMMIT: Final[str] = (
+    "roadmap.devops-cli/config-template-commit"
+)
+"""Annotation recording the git commit hash of `configmap.example.yaml` on changed applies."""
+CONST_K8S_ANNOTATION_DATA_SHA256: Final[str] = "roadmap.devops-cli/data-sha256"
+"""Annotation recording the SHA-256 hex digest of the applied `devops-cli-config` data."""
+CONST_K8S_ANNOTATION_CHANGED_SETTINGS: Final[str] = "roadmap.devops-cli/changed-settings"
+"""Annotation listing the dotted names (without values) of settings changed since the live object."""
+CONST_K8S_ANNOTATION_CHANGED_AT: Final[str] = "roadmap.devops-cli/changed-at"
+"""Annotation recording the UTC ISO-8601 timestamp (`...Z`) of the changed apply."""
+CONST_K8S_ANNOTATION_CHANGE_REASON: Final[str] = "roadmap.devops-cli/change-reason"
+"""Optional annotation recording the caller-supplied reason (for example `#5221`) for the apply."""
+CONST_K8S_CONFIGMAP_CHANGED_EVENT: Final[str] = "configmap_changed"
+"""WARNING log message emitted when `devops k8s deploy-stack` applies changed `devops-cli-config` data."""
+CONST_K8S_CONFIGMAP_CHANGED_LOGGER: Final[str] = "devops_cli.k8s.configmap"
+"""Logger name used for `configmap_changed` WARNING records exported by `OTelLoggingHandler`."""
 CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = (
     "devops",
     "ingress",
@@ -1697,6 +1719,8 @@ def publish_token_permissions(*, workflows: bool = False) -> dict[str, str]:
 # The GitHub App that self-hosted Renovate acts as (#4893). The owner named it on 2026-11-16, so
 # its bot is `dan-petty-renovate[bot]`, which the Fail-to-Pass Check skips.
 CONST_RENOVATE_GITHUB_APP_SLUG: Final[str] = "dan-petty-renovate"
+# Read-only GitHub App for agent OpenTofu plans on `tf/github` stacks (ADR 0026, #5320).
+CONST_TF_GITHUB_READER_SLUG: Final[str] = "devops-settings-reader"
 # What an installation token of the Renovate App asks for: the repository permissions that the
 # Renovate documentation names for a GitHub App, and no other one (#4897).
 CONST_RENOVATE_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
@@ -3681,11 +3705,11 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # The version of the rules that set the next step of refine: the time from which they hold. A round
 # records it as `refine.rules`. A wait on a person that older rules set gets one new round: the
 # record holds an older version, or, when it holds none, refine's last comment is older (#4795). A
-# change to a rule that sets a next step sets a later time in its pull request. This one is the
-# end of the Dependencies section at the marker of a job block (#6613): it removes false
-# dependencies, so a wait on a person that a false dependency set, such as a dependency cycle, gets
-# one new round.
-CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 21, 13, 2, 6, tzinfo=UTC)
+# change to a rule that sets a next step sets a later time in its pull request. This one converts
+# post-merge merge and post-release live-proof questions into a Pending a person after the merge
+# criterion (#6445), so existing person waits set before this rule (including #6515) get one new
+# round.
+CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 25, 9, 5, 0, tzinfo=UTC)
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two
@@ -4701,6 +4725,7 @@ CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
 CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
 CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
 CONST_K8S_DOCTOR_RULE_VERSION_SKEW: Final[str] = "version-skew"
+CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD: Final[str] = "orphaned-workload"
 
 # ── Kubernetes Doctor: the Gitea stack (#2187) ───────────────────────────────
 CONST_K8S_DOCTOR_STACK_GITEA: Final[str] = "gitea"

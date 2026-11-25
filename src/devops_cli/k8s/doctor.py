@@ -9,12 +9,14 @@ from typing import Any, Final
 
 from packaging.version import InvalidVersion, Version
 
-from devops_cli.config.commands import BIN_KUBECTL
+from devops_cli.config.commands import BIN_KONMON, BIN_KUBECTL
 from devops_cli.config.constants import (
+    CONST_EXIT_COMMAND_NOT_FOUND,
     CONST_K8S_CONDITION_READY,
     CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR,
     CONST_K8S_DOCTOR_RULE_NODE_CORDONED,
     CONST_K8S_DOCTOR_RULE_NODE_NOT_READY,
+    CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD,
     CONST_K8S_DOCTOR_RULE_POD_CRASHLOOP,
     CONST_K8S_DOCTOR_RULE_POD_IMAGE_PULL,
     CONST_K8S_DOCTOR_RULE_POD_NOT_READY,
@@ -48,6 +50,19 @@ from devops_cli.security.sanitizer import mask_secrets
 
 # The local read of the version of the kubectl on PATH; it reaches no cluster.
 KUBECTL_CLIENT_VERSION: Final[tuple[str, ...]] = (BIN_KUBECTL, "version", "--client", "-o", "json")
+_ORPHAN_WORKLOAD_KINDS: Final[frozenset[str]] = frozenset(
+    {"Deployment", "StatefulSet", "DaemonSet", "CronJob"}
+)
+
+
+@dataclass(frozen=True)
+class OrphanedWorkload:
+    """One unmanaged workload finding reported by `konmon check orphaned -o json` (#5480)."""
+
+    kind: str
+    namespace: str
+    name: str
+    message: str = ""
 
 
 @dataclass
@@ -62,12 +77,28 @@ class Snapshot:
     pods: list[Any] = field(default_factory=list)
     events: list[Any] = field(default_factory=list)
     logs: dict[tuple[str, str], list[str]] = field(default_factory=dict)
+    orphaned_workloads: list[OrphanedWorkload] = field(default_factory=list)
+    konmon_error: str | None = None
     errors: list[str] = field(default_factory=list)
+
+
+def build_konmon_orphaned_cmd(
+    namespace: str | None = None,
+    context: str | None = None,
+) -> list[str]:
+    """Build the read-only `konmon check orphaned -o json` invocation (#5480)."""
+    cmd = [BIN_KONMON, "check", "orphaned", "-o", "json"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    if context:
+        cmd.extend(["--context", context])
+    return cmd
 
 
 def plan_doctor_requests(
     namespace: str | None = None,
     tail: int = DEFAULT_K8S_DOCTOR_LOG_TAIL_LINES,
+    context: str | None = None,
 ) -> list[PlannedRequest]:
     """Build the ordered list of planned external requests for dry-run simulation."""
     pod_method = "list_namespaced_pod" if namespace else "list_pod_for_all_namespaces"
@@ -78,6 +109,7 @@ def plan_doctor_requests(
         if namespace
         else f"all namespaces, field_selector={CONST_K8S_DOCTOR_EVENT_FIELD_SELECTOR}"
     )
+    konmon_cmd = build_konmon_orphaned_cmd(namespace=namespace, context=context)
     return [
         PlannedRequest(method="get_code", target="cluster"),
         PlannedRequest(method="list_node", target="cluster"),
@@ -89,6 +121,7 @@ def plan_doctor_requests(
             condition="a rule flags the pod",
             repeat="per flagged container",
         ),
+        PlannedRequest(method=BIN_KONMON, target=" ".join(konmon_cmd[1:])),
     ]
 
 
@@ -721,6 +754,9 @@ def diagnose(
     skew_findings = diagnose_version_skew(effective_server_ver, s.nodes, s.kubectl_version or None)
     findings.extend(skew_findings)
 
+    # 6. Workload rules: unmanaged workloads from konmon
+    findings.extend(diagnose_orphaned_workloads(s.orphaned_workloads, s.konmon_error))
+
     # Restarts map for ranking
     pod_restarts: dict[str, int] = {}
     for p in s.pods:
@@ -776,6 +812,109 @@ def _fetch_server_version(core: Any, version_api: Any = None, context: str = "")
 
         return str(KubernetesService.get_instance().server_version(context=context) or "")
     return ""
+
+
+def _parse_konmon_payload(raw_stdout: str) -> tuple[list[OrphanedWorkload], list[Any]] | None:
+    """Parse `konmon check orphaned -o json` stdout into filtered workloads and `notChecked`."""
+    try:
+        payload = json.loads(raw_stdout)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+        return None
+    workloads = [
+        OrphanedWorkload(
+            kind=str(item.get("kind") or ""),
+            namespace=str(item.get("namespace") or ""),
+            name=str(item.get("name") or ""),
+            message=str(item.get("message") or ""),
+        )
+        for item in payload["findings"]
+        if isinstance(item, dict)
+        and str(item.get("kind") or "") in _ORPHAN_WORKLOAD_KINDS
+        and str(item.get("name") or "")
+    ]
+    not_checked = payload.get("notChecked")
+    return workloads, not_checked if isinstance(not_checked, list) else []
+
+
+def collect_konmon_orphans(
+    namespace: str | None = None,
+    context: str | None = None,
+) -> tuple[list[OrphanedWorkload], str | None]:
+    """Run `konmon check orphaned -o json` and filter findings to Kubernetes workload kinds (#5480)."""
+    cmd = build_konmon_orphaned_cmd(namespace=namespace, context=context)
+    try:
+        result = run_subprocess(cmd, check=False, intent="read")
+    except FileNotFoundError:
+        return [], "konmon executable is missing from PATH; unmanaged workloads were not checked."
+
+    if result.returncode == CONST_EXIT_COMMAND_NOT_FOUND:
+        return [], "konmon executable is missing from PATH; unmanaged workloads were not checked."
+
+    raw_stdout = (result.stdout or "").strip()
+    if result.returncode in (0, 1, 2) and raw_stdout:
+        parsed = _parse_konmon_payload(raw_stdout)
+        if parsed is not None:
+            workloads, not_checked = parsed
+            if result.returncode == 2 and not_checked:
+                detail = mask_secrets(", ".join(str(entry) for entry in not_checked))
+                return workloads, f"konmon could not check some resource types: {detail}"
+            return workloads, None
+
+    detail = mask_secrets((result.stderr or raw_stdout).strip())
+    if result.returncode != 0:
+        msg = (
+            f"konmon orphaned check failed (exit {result.returncode}): {detail}"
+            if detail
+            else f"konmon orphaned check failed (exit {result.returncode})."
+        )
+    else:
+        msg = "konmon orphaned check returned invalid JSON output."
+    return [], msg
+
+
+def diagnose_orphaned_workloads(
+    orphaned_workloads: list[OrphanedWorkload],
+    konmon_error: str | None = None,
+) -> list[Finding]:
+    """Convert collected konmon orphan findings and runner errors into Doctor `Finding` objects."""
+    out: list[Finding] = []
+    if konmon_error:
+        out.append(
+            Finding(
+                rule=CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD,
+                severity="warning",
+                class_="cluster",
+                resource="konmon",
+                cause=konmon_error,
+                evidence=[konmon_error],
+                remediation="Ensure `konmon` is installed on PATH and can reach the Kubernetes API.",
+            )
+        )
+    for item in orphaned_workloads:
+        resource = (
+            f"{item.kind}/{item.namespace}/{item.name}"
+            if item.namespace
+            else f"{item.kind}/{item.name}"
+        )
+        cause = (
+            item.message or "Workload has no Argo CD tracking label/annotation or controller owner."
+        )
+        out.append(
+            Finding(
+                rule=CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD,
+                severity="warning",
+                class_="workload",
+                resource=resource,
+                cause=cause,
+                evidence=[f"konmon orphaned check flagged {resource}"],
+                remediation=(
+                    "Add the workload to an Argo CD Application in git or remove it from the cluster."
+                ),
+            )
+        )
+    return out
 
 
 def collect(
@@ -845,6 +984,10 @@ def collect(
         except Exception:
             pass
 
+    orphaned_workloads, konmon_error = collect_konmon_orphans(
+        namespace=namespace, context=context or None
+    )
+
     return Snapshot(
         context=context,
         server_version=server_version,
@@ -853,6 +996,8 @@ def collect(
         pods=pods,
         events=events,
         logs=logs,
+        orphaned_workloads=orphaned_workloads,
+        konmon_error=konmon_error,
         errors=[],
     )
 
@@ -865,10 +1010,14 @@ def get_k8s_client(context: str | None = None) -> Any:
 
 
 __all__ = [
+    "OrphanedWorkload",
     "Snapshot",
+    "build_konmon_orphaned_cmd",
     "check_kubectl_version_skew",
     "collect",
+    "collect_konmon_orphans",
     "diagnose",
+    "diagnose_orphaned_workloads",
     "diagnose_version_skew",
     "get_k8s_client",
     "kubectl_client_version",

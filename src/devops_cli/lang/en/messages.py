@@ -2954,6 +2954,7 @@ class RoadmapMessages:
     explain_job_stage: str = "Stage"
     explain_job_implement: str = "Implement"
     explain_line_yes: str = "{job} job: yes."
+    explain_line_yes_reason: str = "{job} job: yes. {reason}"
     explain_line_no: str = "{job} job: no. {reason}"
     explain_effort_line: str = "Effort set: {efforts}. The fallback pass {state} to this item."
     explain_effort_applies: str = "applies"
@@ -3110,11 +3111,17 @@ class RoadmapMessages:
         "makes refine look at it again."
     )
     refine_held_status: str = "Status {status}: refine changes only open New and Ready items."
-    # `devops roadmap explain`: why a round leaves an item alone (#3483).
+    # `devops roadmap explain`: why a round leaves an item alone (#3483), or takes a Ready item
+    # again (#6452).
     refine_left_ready: str = (
-        "The item is Ready. A round takes a Ready item only when no round refined it, or when it "
-        "holds a covering tool that no round asked about."
+        "The item is Ready. A round takes a Ready item only when no round refined it, when its "
+        "body changed, when a trusted comment followed its last round, or when it holds a "
+        "covering tool that no round asked about."
     )
+    refine_due_ready_edited: str = (
+        "A person edited the body outside the refine section after the last refine round."
+    )
+    refine_due_ready_comment: str = "A trusted comment followed the last refine round."
     refine_left_person_hint: str = (
         "A reply, a body edit, a closed issue that the last refine comment names, or a changed "
         "file that it names makes refine look at it again."
@@ -6981,6 +6988,7 @@ class RoadmapMessages:
         "Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull "
         "requests of the bot."
     )
+    grades_verdicts_error: str = "verdicts not read: {reason}"
     grades_verdicts_title: str = (
         "Verdicts of the pull requests that {bot} opened in the {window} window. The first "
         "verdict of each pull request counts, and needs fix scores {partial}. A share counts the "

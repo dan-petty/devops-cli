@@ -248,6 +248,7 @@ devops k8s deploy-stack [OPTIONS]
 | `--configure-urls` / `--no-configure-urls` | `boolean` | - | Auto-configure devops-cli settings with detected Kubernetes service URLs. |
 | `--push-secrets` / `--no-push-secrets` | `boolean` | `True` | Push the stacks' Secrets from the OS keyring before applying anything (--no-push-secrets for a cluster without a keyring). |
 | `--argocd-revision` | `string` | - | Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only). |
+| `--reason` | `string` | - | Record a reason, such as an issue number, in the change metadata when deploy-stack changes ConfigMap devops-cli-config. |
 | `--dry-run` | `boolean` | - | Print the releases, manifests, builds and Secrets (key names only) a deploy would apply. Only local reads of the checkout run, with one exception: kubectl kustomize builds its folders with no route to a remote host, but it downloads an http or https URL of a loopback address, which can be a port-forward to a cluster. |
 
 ---
@@ -563,6 +564,25 @@ devops k8s image-pins [OPTIONS] <target>
 |---|---|---|---|
 | `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
 | `--managed` | `string` | - | A repository whose tag the deploy sets, as Image Updater does, such as ghcr.io/example/service. The check does not refuse or resolve its images. Repeat the option for each repository. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops k8s catalog`
+
+**Generate or check the Kubernetes service catalog from rendered Argo CD Applications, catalog.toml, Sloth SLO specs, service dashboards, and UI annotations.**
+
+```bash
+devops k8s catalog [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `--check` | `boolean` | - | Compare the generated Markdown catalog against CATALOG.md without writing it, and exit 1 when missing or out of date. |
+| `--format` | `string` | `markdown` | Output format for `devops k8s catalog`: markdown or json. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---

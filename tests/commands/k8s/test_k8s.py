@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import subprocess
 import threading
@@ -22,6 +23,7 @@ from devops_cli.config.constants import (
     CONST_GIT_NONINTERACTIVE_SSH_CONFIG,
 )
 from devops_cli.dry_run import set_dry_run
+from devops_cli.telemetry.logging_bridge import OTelLoggingHandler
 from tests.support.config_writes import written_keys
 from tests.support.credential_keys import credential_key_paths
 from tests.support.fakes.clock import ClockFake
@@ -2123,6 +2125,7 @@ class _Cluster:
         fail: str | None = None,
         paths: dict[str, str] | None = None,
         missing_crds: tuple[str, ...] = (),
+        configmaps: dict[str, dict[str, str]] | None = None,
     ) -> None:
         self.calls: list[tuple[list[str], str | None]] = []
         self.repo = repo
@@ -2130,6 +2133,7 @@ class _Cluster:
         self.fail = fail
         self.paths = paths or {}
         self.missing_crds = missing_crds
+        self.configmaps = configmaps
         self.namespaces = {"llm", "cloudflared", "devops"}
         self.revision = "main"
         process_fake.answer(lambda _call: True, ProcessAnswer(side_effect=self))
@@ -2161,8 +2165,25 @@ class _Cluster:
         if cmd[1:3] == ["get", "namespace"]:
             found = f"namespace/{cmd[3]}\n" if cmd[3] in self.namespaces else ""
             return subprocess.CompletedProcess(cmd, 0, found, "")
+        if self.configmaps is not None and cmd[1:3] == ["get", "configmap"]:
+            return self._get_configmap(cmd)
         failed = self.fail is not None and self.fail in cmd
         return subprocess.CompletedProcess(cmd, int(failed), "", "denied" if failed else "")
+
+    def _get_configmap(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        """Answer `kubectl get configmap` from `self.configmaps` with NotFound when absent."""
+        cm_name = cmd[3]
+        assert self.configmaps is not None
+        if cm_name in self.configmaps:
+            return subprocess.CompletedProcess(
+                cmd, 0, json.dumps({"data": self.configmaps[cm_name]}), ""
+            )
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            "",
+            f'Error from server (NotFound): configmaps "{cm_name}" not found',
+        )
 
     def _kustomize(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         target = cmd[2] if len(cmd) > 2 else ""
@@ -2286,6 +2307,11 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
     config_map, sandbox = (yaml.safe_load(payload) for payload in _stdin_payloads(cluster)[:2])
     service = yaml.safe_load(config_map["data"]["devops-cli.yaml"])["service"]
+    history_patch = next(
+        cmd
+        for cmd in cluster.writes()
+        if cmd[1:4] == ["patch", "configmap", "devops-cli-config-changes"]
+    )
     assert (
         res.exit_code,
         cluster.writes(),
@@ -2294,7 +2320,7 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
         (service["repos"], service["github_app"]["slug"]),
     ) == (
         0,
-        [_APPLY_STDIN, _APPLY_STDIN, _DEVOPS_HOSTS, _INGRESS_HOSTS],
+        [_APPLY_STDIN, _APPLY_STDIN, _APPLY_STDIN, history_patch, _DEVOPS_HOSTS, _INGRESS_HOSTS],
         "devops-cli-config",
         "devops-cli-config-sandbox",
         (["owner/repo"], "devops-roadmap"),
@@ -2540,7 +2566,7 @@ def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_bef
     ) == (
         0,
         True,
-        ["<push>", "apply", "apply", "patch", "patch"],
+        ["<push>", "apply", "apply", "apply", "patch", "patch", "patch"],
     )
 
 
@@ -3102,3 +3128,148 @@ def test_watching_pods_prints_the_reason_a_container_gives(cluster: FakeCluster)
     result = runner.invoke(k8s_app, ["pods", "--watch", "-A"])
 
     assert (result.exit_code, "default/exporter-0 (CrashLoopBackOff)" in result.output) == (0, True)
+
+
+def test_deploy_stack_creates_empty_history_configmap_before_patching_when_absent(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """When `devops-cli-config-changes` returns NotFound, `deploy-stack` applies the empty
+    history ConfigMap before patching the new change key (#5221)."""
+    _configure_service(isolate_devops_cli_config)
+    cluster = make_cluster(
+        argo=False,
+        configmaps={
+            "devops-cli-config": {
+                "devops-cli.yaml": "service:\n  repos:\n    - other/repo\n",
+            }
+        },
+    )
+
+    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN, "--reason", "#5221")
+
+    assert res.exit_code == 0
+    payloads = [yaml.safe_load(p) for p in _stdin_payloads(cluster)]
+    applied_cm, _sandbox, empty_history = payloads[:3]
+    assert applied_cm["metadata"]["annotations"]["roadmap.devops-cli/change-reason"] == "#5221"
+    assert (
+        "service.repos"
+        in applied_cm["metadata"]["annotations"]["roadmap.devops-cli/changed-settings"]
+    )
+    assert empty_history["metadata"] == {
+        "name": "devops-cli-config-changes",
+        "namespace": "devops",
+    }
+    assert empty_history["data"] == {}
+
+    writes = cluster.writes()
+    stdin_apply_indices = [i for i, cmd in enumerate(writes) if cmd == _APPLY_STDIN]
+    history_apply_idx = stdin_apply_indices[2]
+    history_patch_idx = next(
+        i
+        for i, cmd in enumerate(writes)
+        if cmd[1:4] == ["patch", "configmap", "devops-cli-config-changes"]
+    )
+    assert history_apply_idx < history_patch_idx
+
+
+def test_deploy_stack_writes_no_annotation_history_or_log_when_configmap_data_matches(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """Unchanged ConfigMap data writes no annotation, no history patch, and no WARNING log."""
+    _configure_service(isolate_devops_cli_config)
+    first_cluster = make_cluster(argo=False)
+    first_res = _deploy(first_cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert first_res.exit_code == 0
+    live_data = yaml.safe_load(_stdin_payloads(first_cluster)[0])["data"]
+
+    second_cluster = make_cluster(argo=False, configmaps={"devops-cli-config": live_data})
+    sent: list[dict[str, Any]] = []
+    handler = OTelLoggingHandler(exporter=sent.append)
+    logger = logging.getLogger("devops_cli.k8s.configmap")
+    logger.addHandler(handler)
+    try:
+        second_res = _deploy(second_cluster, "--stack", "devops", "--domain", _DOMAIN)
+    finally:
+        logger.removeHandler(handler)
+
+    assert second_res.exit_code == 0
+    applied_cm = yaml.safe_load(_stdin_payloads(second_cluster)[0])
+    assert "annotations" not in applied_cm["metadata"]
+    assert not any(
+        len(cmd) > 3 and cmd[3] == "devops-cli-config-changes" for cmd in second_cluster.writes()
+    )
+    assert sent == []
+
+
+def test_deploy_stack_skips_history_patch_and_log_when_kubectl_apply_fails(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """A failed `kubectl apply` emits no `configmap_changed` log and sends no history patch."""
+    _configure_service(isolate_devops_cli_config)
+    cluster = make_cluster(argo=False, fail="apply")
+    sent: list[dict[str, Any]] = []
+    handler = OTelLoggingHandler(exporter=sent.append)
+    logger = logging.getLogger("devops_cli.k8s.configmap")
+    logger.addHandler(handler)
+    try:
+        res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    finally:
+        logger.removeHandler(handler)
+
+    assert res.exit_code == 1
+    assert not any(cmd[1] == "patch" for cmd in cluster.writes())
+    assert sent == []
+
+
+def test_deploy_stack_argo_cd_emits_configmap_changed_and_patches_history(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """Argo CD deployments also patch `devops-cli-config-changes` and emit `configmap_changed`."""
+    _configure_service(isolate_devops_cli_config)
+    cluster = make_cluster(
+        argo=True,
+        configmaps={
+            "devops-cli-config": {"devops-cli.yaml": "service:\n  repos:\n    - old/repo\n"},
+            "devops-cli-config-changes": {},
+        },
+    )
+    sent: list[dict[str, Any]] = []
+    handler = OTelLoggingHandler(exporter=sent.append)
+    logger = logging.getLogger("devops_cli.k8s.configmap")
+    logger.addHandler(handler)
+    try:
+        res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
+    finally:
+        logger.removeHandler(handler)
+
+    assert res.exit_code == 0
+    assert any(
+        cmd[1:4] == ["patch", "configmap", "devops-cli-config-changes"] for cmd in cluster.writes()
+    )
+    assert len(sent) == 1
+    assert sent[0]["body"] == {"stringValue": "configmap_changed"}
+    assert sent[0]["severityText"] == "WARN"
+
+
+def test_deploy_stack_exits_nonzero_when_configmap_read_or_history_patch_fails(
+    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
+) -> None:
+    """Unexpected `kubectl get` or history `kubectl patch` failures propagate instead of succeeding."""
+    _configure_service(isolate_devops_cli_config)
+
+    read_fail_cluster = make_cluster(argo=False, fail="get")
+    read_res = _deploy(read_fail_cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert (
+        read_res.exit_code,
+        "Failed to read ConfigMap devops-cli-config" in read_res.output,
+    ) == (
+        1,
+        True,
+    )
+
+    patch_fail_cluster = make_cluster(argo=False, fail="patch")
+    patch_res = _deploy(patch_fail_cluster, "--stack", "devops", "--domain", _DOMAIN)
+    assert (
+        patch_res.exit_code,
+        "Failed to patch ConfigMap devops-cli-config-changes" in patch_res.output,
+    ) == (1, True)

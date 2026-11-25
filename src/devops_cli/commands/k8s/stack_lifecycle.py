@@ -31,6 +31,8 @@ from devops_cli.config.constants import (
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
     CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
+    CONST_K8S_DEVOPS_CONFIGMAP_HISTORY,
+    CONST_K8S_DEVOPS_NAMESPACE,
     CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP,
     CONST_KUBECTL_ERROR_PREFIX,
 )
@@ -64,6 +66,12 @@ from devops_cli.k8s.cluster_secrets import (
     secrets_for_stacks,
 )
 from devops_cli.k8s.configmap import (
+    DevopsConfigMapChangeRecord,
+    build_devops_configmap_change,
+    build_devops_configmap_history_manifest,
+    build_devops_configmap_history_patch,
+    emit_devops_configmap_changed_log,
+    read_devops_configmap_template_commit,
     render_active_devops_configmap,
     render_active_devops_sandbox_configmap,
 )
@@ -1054,6 +1062,104 @@ def _apply_rendered(manifest: str, what: str, kubectl_ctx: list[str]) -> None:
     print_success(f"{what} applied from the active config")
 
 
+def _read_live_configmap_data(name: str, kubectl_ctx: list[str]) -> dict[str, Any] | None:
+    """Return the live ConfigMap's `data` mapping, or `None` when absent on the cluster."""
+    res = runtime._run_cmd(
+        [
+            "kubectl",
+            "get",
+            "configmap",
+            name,
+            "-n",
+            CONST_K8S_DEVOPS_NAMESPACE,
+            "-o",
+            "json",
+            *kubectl_ctx,
+        ],
+        check=False,
+        capture=True,
+    )
+    if res.returncode != 0:
+        combined = f"{res.stderr or ''}\n{res.stdout or ''}".lower()
+        if "notfound" in combined or "not found" in combined:
+            return None
+        print_error(
+            f"Failed to read ConfigMap {name}: {(res.stderr or res.stdout).strip()}",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    if not res.stdout.strip():
+        return None
+    payload = json.loads(res.stdout)
+    data = payload.get("data")
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def _patch_devops_configmap_history(
+    record: DevopsConfigMapChangeRecord, kubectl_ctx: list[str]
+) -> None:
+    """Create `devops-cli-config-changes` if absent and merge-patch the change entry (#5221)."""
+    live_history = _read_live_configmap_data(CONST_K8S_DEVOPS_CONFIGMAP_HISTORY, kubectl_ctx)
+    if live_history is None:
+        _apply_rendered(
+            build_devops_configmap_history_manifest(),
+            f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP_HISTORY}",
+            kubectl_ctx,
+        )
+        live_history = {}
+    patch_json = build_devops_configmap_history_patch(record, live_history)
+    res = runtime._run_cmd(
+        [
+            "kubectl",
+            "patch",
+            "configmap",
+            CONST_K8S_DEVOPS_CONFIGMAP_HISTORY,
+            "-n",
+            CONST_K8S_DEVOPS_NAMESPACE,
+            "--type",
+            "merge",
+            "-p",
+            patch_json,
+            *kubectl_ctx,
+        ],
+        check=False,
+        capture=True,
+    )
+    if res.returncode != 0:
+        print_error(
+            f"Failed to patch ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP_HISTORY}: "
+            f"{(res.stderr or res.stdout).strip()}",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+
+
+def _apply_devops_configmap(
+    config_map: str | None,
+    sandbox_config_map: str | None,
+    product: Path | None,
+    kubectl_ctx: list[str],
+    *,
+    reason: str | None = None,
+) -> None:
+    """Apply `devops-cli-config`, its sandbox copy, and record any change (#5221)."""
+    record = None
+    if config_map is not None:
+        live_data = _read_live_configmap_data(CONST_K8S_DEVOPS_CONFIGMAP, kubectl_ctx)
+        commit = read_devops_configmap_template_commit(product) if product is not None else ""
+        manifest, record = build_devops_configmap_change(
+            config_map, live_data, config_template_commit=commit, reason=reason
+        )
+        _apply_rendered(manifest, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
+    if sandbox_config_map is not None:
+        _apply_rendered(
+            sandbox_config_map, f"ConfigMap {CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}", kubectl_ctx
+        )
+    if record is not None:
+        _patch_devops_configmap_history(record, kubectl_ctx)
+        emit_devops_configmap_changed_log(record)
+
+
 def _dry_run_domain(domain: str | None) -> str:
     """The domain the host overrides would use, or why an Argo CD-managed cluster would refuse."""
     from devops_cli.k8s.template import resolve_template_domain
@@ -1488,15 +1594,13 @@ def _deploy_native_manifests(
     sandbox_config_map: str | None,
     kubectl_ctx: list[str],
     domain: str | None,
+    *,
+    product: Path | None = None,
+    reason: str | None = None,
 ) -> None:
     """Apply the devops ConfigMaps rendered from the active config, then the native manifests,
     then the builds of the path sources of the Applications."""
-    if config_map is not None:
-        _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
-    if sandbox_config_map is not None:
-        _apply_rendered(
-            sandbox_config_map, f"ConfigMap {CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}", kubectl_ctx
-        )
+    _apply_devops_configmap(config_map, sandbox_config_map, product, kubectl_ctx, reason=reason)
     _apply_manifest_files(all_manifests, kubectl_ctx, domain=domain, builds=all_builds)
 
 
@@ -1509,6 +1613,9 @@ def _handle_argo_managed_deployment(
     domain: str | None = None,
     revision: str | None = None,
     env: EnvironmentTree | None = None,
+    *,
+    product: Path | None = None,
+    reason: str | None = None,
 ) -> None:
     """Supply the values git never holds, and leave every manifest to Argo CD.
 
@@ -1523,12 +1630,7 @@ def _handle_argo_managed_deployment(
         push_for_stacks(
             _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
         )
-    if config_map is not None:
-        _apply_rendered(config_map, f"ConfigMap {CONST_K8S_DEVOPS_CONFIGMAP}", kubectl_ctx)
-    if sandbox_config_map is not None:
-        _apply_rendered(
-            sandbox_config_map, f"ConfigMap {CONST_K8S_DEVOPS_SANDBOX_CONFIGMAP}", kubectl_ctx
-        )
+    _apply_devops_configmap(config_map, sandbox_config_map, product, kubectl_ctx, reason=reason)
     _set_homelab_hosts(overrides, kubectl_ctx)
 
     print_info(
@@ -1714,6 +1816,7 @@ def deploy_stack(
     argocd_revision: Annotated[
         str | None, typer.Option("--argocd-revision", help=HELP.k8s.argocd_revision)
     ] = None,
+    reason: Annotated[str | None, typer.Option("--reason", help=HELP.k8s.change_reason)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.deploy_dry_run)] = False,
 ) -> None:
     """Deploy the selected stacks to Kubernetes; `HELP.k8s.deploy_stack` is its help."""
@@ -1792,6 +1895,8 @@ def deploy_stack(
                 domain=domain,
                 revision=argocd_revision,
                 env=env,
+                product=product,
+                reason=reason,
             )
             return
 
@@ -1816,7 +1921,14 @@ def deploy_stack(
 
         # 7. Install native manifests
         _deploy_native_manifests(
-            all_manifests, all_builds, config_map, sandbox_config_map, kubectl_ctx, domain
+            all_manifests,
+            all_builds,
+            config_map,
+            sandbox_config_map,
+            kubectl_ctx,
+            domain,
+            product=product,
+            reason=reason,
         )
 
         # 8. Check for unready cluster nodes to avoid DaemonSet wait timeouts

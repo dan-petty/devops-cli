@@ -49,11 +49,11 @@ The labels hold the Status and `checked-at` the commit. The comment that carries
 `CONST_ROADMAP_REFINE_COMMENT_MARKER` is one event line that names the next step and the parts of
 the section that hold it, and it posts only when the next step, the section without its `checked-at`
 line or the item that holds the frame differs from the round before, or when the round files a
-deferred part (#6196). A round that posts none records the time at which it read the comments
-(`RefineRecordKey.REPEATED_AT`), and the wait starts at the later of that time and refine's last
-comment. A later round looks at an unchanged item again when a comment follows the start of the
-wait, or when every item that blocks it is closed. The comments since refine's last one reach the
-model as `replies`, also those that a round with no comment read. A round that reads the comments of
+deferred part (#6196). Every round that writes a non-failed result records the time at which it
+read the comments (`RefineRecordKey.READ_AT`), and the wait starts at that time (#6371). A later
+round looks at an unchanged item again when a trusted comment follows that time, or when every
+item that blocks it is closed. Comments after refine's last one or after `READ_AT` reach the model
+as `replies`, also those that a round with no comment read. A round that reads the comments of
 a waiting item records what they gave (`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and
 `WAIT_REFS`: the count of comments the issue listing carried, the time of refine's last comment, and
 the issues and paths that the parts of the section that name a cause and the replies name). So an
@@ -71,8 +71,8 @@ causes the block (`block_paths`). Refine records those that the checkout holds, 
 commit on the default branch changed one of them at or after the start of the wait (#2005). That
 costs one commit read for each recorded path of an item that still waits, once a round. When such a
 look finds the result of the round before, or the store refuses its comment as a repeat, the round
-records the time of its read (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so
-one change gives one look (#4793, #6196).
+records `RefineRecordKey.READ_AT` as its read time, so one change gives one look (#4793, #6196,
+#6371).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
 verdict, tool, block and latest comment whole). The block holds the result, and the comment the
 evidence of the run (#6195). A `covers` verdict is a question that only a person
@@ -1569,6 +1569,10 @@ class DependencyGraph:
         dependency of it leads back."""
         return _path_back(self.edges, number)
 
+    def with_edges(self, number: int, blockers: tuple[int, ...]) -> DependencyGraph:
+        """A graph whose declared edges for `number` are replaced by `blockers` (#6515)."""
+        return replace(self, edges={**self.edges, number: blockers})
+
 
 def _edges_of(
     item: Item, items: Sequence[Item], open_items: Mapping[int, Item], tree: ItemTree
@@ -1703,6 +1707,43 @@ def _marked(qa: QuestionAnswer, owner_decisions: Sequence[str]) -> QuestionAnswe
     return qa.model_copy(update={"answer": f"{answer} {marker}".strip()})
 
 
+_POST_MERGE_CRITERION_NAME: Final[str] = "Pending a person after the merge"
+_POST_MERGE_QUESTION_PREFIX: Final[re.Pattern[str]] = re.compile(r"\b(?:who|when)\b", re.IGNORECASE)
+_POST_MERGE_PREBUILD_WORDS: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:secret|repository setting|host)\b", re.IGNORECASE
+)
+_POST_MERGE_MERGE_VERB: Final[re.Pattern[str]] = re.compile(r"\bmerg(?:e|es)\b", re.IGNORECASE)
+_POST_MERGE_TARGET: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:pull request|pr|record|adr|change|draft)\b", re.IGNORECASE
+)
+_POST_RELEASE_CHECK: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:confirms?|proves?|runs?|verifies?|checks?)\b", re.IGNORECASE
+)
+_POST_RELEASE_SUBJECT: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:live\s+(?:proof|keys?|check)|proof|check)\b", re.IGNORECASE
+)
+_POST_RELEASE_TIMING: Final[re.Pattern[str]] = re.compile(
+    r"\bafter\s+(?:the\s+)?(?:merge\s+and\s+(?:the\s+)?)?(?:merge|release)\b", re.IGNORECASE
+)
+
+
+def _is_post_merge_person_question(question: str) -> bool:
+    """Whether a `person` question asks about post-merge delivery or post-release live proof
+    rather than a pre-build plan decision (#6445)."""
+    if _POST_MERGE_PREBUILD_WORDS.search(question):
+        return False
+    if not _POST_MERGE_QUESTION_PREFIX.search(question):
+        return False
+    if _POST_MERGE_MERGE_VERB.search(question) and _POST_MERGE_TARGET.search(question):
+        return True
+    return bool(
+        re.search(r"\bwho\b", question, re.IGNORECASE)
+        and _POST_RELEASE_CHECK.search(question)
+        and _POST_RELEASE_SUBJECT.search(question)
+        and _POST_RELEASE_TIMING.search(question)
+    )
+
+
 def validate_proposal(
     proposal: RefinementProposal,
     body: str,
@@ -1715,16 +1756,19 @@ def validate_proposal(
     """Deterministically validates proposal sources, key questions, decisions and block paths.
     Returns (validated_proposal, open_questions).
 
-    A fact with no verified source and a question only a person decides are open questions, and
-    so is each of the body's unanswered key questions whose number no answer names (#2398). The
-    key questions and owner decisions are the person's, read from the body outside refine's
-    own section, so a refined item's section never asks its own questions again (#1758). Only
-    the block paths that the checkout holds are kept (#2005). A `covers` question (#2652) is open
-    with the mark of a question for a person until a person replies; after that it is numbered
-    after the body's questions, and open until an answer names it.
+    A fact with no verified source and a pre-build question only a person decides are open
+    questions, and so is each of the body's unanswered key questions whose number no answer names
+    (#2398). Post-merge merge and post-release live-proof `person` questions convert into a
+    `Pending a person after the merge` criterion with no open question (#6445). The key questions
+    and owner decisions are the person's, read from the body outside refine's own section, so a
+    refined item's section never asks its own questions again (#1758). Only the block paths that
+    the checkout holds are kept (#2005). A `covers` question (#2652) is open with the mark of a
+    question for a person until a person replies; after that it is numbered after the body's
+    questions, and open until an answer names it.
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
+    has_post_merge_step = False
     persons_text, _ = extract_section_and_outside(body)
     owner_decisions = [
         line.strip().lower()
@@ -1737,6 +1781,9 @@ def validate_proposal(
             open_questions.append(f"{qa.question} {_MISSING_SOURCE}")
             continue
         if qa.kind == "person":
+            if _is_post_merge_person_question(qa.question):
+                has_post_merge_step = True
+                continue
             open_questions.append(f"{qa.question} {_A_PERSON_DECIDES}")
         validated_qa.append(_marked(qa.model_copy(update={"sources": valid_srcs}), owner_decisions))
 
@@ -1757,9 +1804,25 @@ def validate_proposal(
     valid_deps = list(
         dict.fromkeys([*(dep for dep in proposal.dependencies if dep in all_known_issues), *titled])
     )
+    validated_criteria = list(proposal.acceptance_criteria)
+    if has_post_merge_step and not any(
+        criterion.name.strip() == _POST_MERGE_CRITERION_NAME for criterion in validated_criteria
+    ):
+        validated_criteria.append(
+            AcceptanceCriterion(
+                name=_POST_MERGE_CRITERION_NAME,
+                requirement=(
+                    "After the pull request merges, a person MUST complete the post-merge step."
+                ),
+                scenario="Post-merge person step",
+                when="the pull request is merged and released",
+                then="a person completes or confirms the post-merge check",
+            )
+        )
 
     validated_proposal = proposal.model_copy(
         update={
+            "acceptance_criteria": validated_criteria,
             "key_questions": validated_qa,
             "dependencies": valid_deps,
             "block_paths": _block_paths(proposal.block_paths, source, sha),
@@ -2827,40 +2890,46 @@ def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
     return version < CONST_ROADMAP_REFINE_RULES_SINCE
 
 
-def _repeated_at(item: Item) -> datetime | None:
-    """The time of the last round on `item` that posted no comment (`RefineRecordKey.REPEATED_AT`):
-    its result was the one of the round before (#6196), or the store refused its comment as a
-    repeat (#4793). None when the record holds none, or a value that is no time."""
-    recorded = item.job_record.get(RefineRecordKey.REPEATED_AT)
+def _read_at(item: Item) -> datetime | None:
+    """The time at which the last written round on `item` read its comments (`RefineRecordKey.READ_AT`),
+    or None when the record holds none or a value that is not a time (#6371)."""
+    recorded = item.job_record.get(RefineRecordKey.READ_AT)
     if not recorded:
         return None
     try:
         return as_utc(datetime.fromisoformat(recorded))
     except ValueError:
-        logger.warning(
-            "The time of the round with no comment recorded on #%d is not a time.", item.number
-        )
+        logger.warning("The read time recorded on #%d is not a time.", item.number)
         return None
 
 
 def _wait_start(item: Item, commented_at: datetime) -> datetime:
-    """The start of the wait of `item`: `commented_at`, the time of refine's last comment, or the
-    later time of a round that posted no comment (`_repeated_at`). That round read the replies
-    before it and looked at the item after the change that ended the wait before, so neither ends
-    a later wait (#4793, #6196)."""
-    repeated_at = _repeated_at(item)
-    return commented_at if repeated_at is None else max(commented_at, repeated_at)
+    """The start of the wait of `item`: `RefineRecordKey.READ_AT` when recorded (#6371), else
+    `commented_at`, the time of refine's last comment."""
+    read_at = _read_at(item)
+    return commented_at if read_at is None else read_at
 
 
 def _since_wait_start(item: Item, comments: Sequence[IssueComment]) -> list[IssueComment]:
-    """The comments after refine's last comment on `item` made at or after the start of its wait
-    (`_wait_start`), oldest first: those that no round read yet (#6196). Empty when refine left no
-    comment."""
+    """The trusted comments of persons after the wait of `item` started, oldest first (#6196,
+    #6371): comments made after `RefineRecordKey.READ_AT`, excluding refine's own comments and
+    other job comments, or comments after refine's last comment when no read time is recorded."""
     marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
     if not marked:
         return []
-    since = _wait_start(item, comments[marked[-1]].created_at)
-    return [comment for comment in comments[marked[-1] + 1 :] if comment.created_at >= since]
+    last_refine = marked[-1]
+    read_at = _read_at(item)
+    if read_at is None:
+        return comments_without_jobs(comments[last_refine + 1 :])
+    commented_at = comments[last_refine].created_at
+    same_tick_post = read_at == commented_at
+    after = [
+        comment
+        for index, comment in enumerate(comments)
+        if comment.created_at > read_at
+        or (same_tick_post and index > last_refine and comment.created_at >= commented_at)
+    ]
+    return comments_without_jobs(after)
 
 
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
@@ -2984,8 +3053,71 @@ def _question_ends_wait(
     if holder.number == item.number:
         return False
     answer = questions.answer(item, comments_on)
-    repeated_at = _repeated_at(item)
-    return answer is not None and (repeated_at is None or answer.at >= repeated_at)
+    read_at = _read_at(item)
+    return answer is not None and (read_at is None or answer.at > read_at)
+
+
+_CYCLE_PREFIX, _, _CYCLE_SUFFIX = MESSAGES.roadmap.dependency_cycle.partition("{cycle}")
+_RECORDED_CYCLE_RE: Final[re.Pattern[str]] = re.compile(
+    re.escape(_CYCLE_PREFIX) + r"(#\d+(?:\s*→\s*#\d+)+)" + re.escape(_CYCLE_SUFFIX)
+)
+
+
+def _recorded_cycle(body: str) -> tuple[int, ...] | None:
+    """The cycle path recorded under `Suspected block` in refine's section of `body`, or None
+    when none appears (#6515)."""
+    _, section = extract_section_and_outside(body)
+    if section is None:
+        return None
+    suspected = section_text(section, frozenset({_PART_SUSPECTED_BLOCK.casefold()}))
+    match = _RECORDED_CYCLE_RE.search(" ".join(suspected.split()))
+    if match is None:
+        return None
+    return tuple(int(number) for number in re.findall(r"#(\d+)", match.group(1)))
+
+
+def _cycle_still_holds(recorded_cycle: Sequence[int], graph: DependencyGraph) -> bool:
+    """Whether every edge of `recorded_cycle` still exists among the open items of `graph`
+    (#6515)."""
+    if len(recorded_cycle) < 2 or recorded_cycle[0] != recorded_cycle[-1]:
+        return False
+    return all(dst in graph.edges.get(src, ()) for src, dst in itertools.pairwise(recorded_cycle))
+
+
+def _person_cycle_ended(store: RoadmapStore, item: Item, graph: DependencyGraph | None) -> bool:
+    """Whether `item`'s recorded dependency cycle under `Suspected block` no longer exists in the
+    current bodies and records of open items (#6515)."""
+    recorded = _recorded_cycle(item.body)
+    if recorded is None:
+        return False
+    held = (
+        graph
+        if graph is not None
+        else DependencyGraph.of(store.open_items(), tree=ItemTree(store.items))
+    )
+    return not _cycle_still_holds(recorded, held)
+
+
+def _blocked_wait_details(
+    store: RoadmapStore,
+    item: Item,
+    graph: DependencyGraph | None,
+    open_numbers: Collection[int] | None,
+) -> tuple[str, ...] | None:
+    """Open blocker labels for a recorded `BLOCKED` wait, or None when no blocker holds (#6450)."""
+    tree = graph.tree if graph is not None else ItemTree(store.items)
+    open_nums = (
+        open_numbers
+        if open_numbers is not None
+        else (graph.open_numbers if graph is not None else {it.number for it in store.open_items()})
+    )
+    blockers = _open_blockers(open_nums, item, tree)
+    if not blockers:
+        return None
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
+    if held.cycle_of(item.number) is not None:
+        return None
+    return tuple(f"#{number}" for number in blockers)
 
 
 def _still_waiting(
@@ -3033,23 +3165,13 @@ def _still_waiting(
         case NextStep.EDIT | NextStep.FAILED:
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
-            tree = graph.tree if graph is not None else ItemTree(store.items)
-            open_nums = (
-                open_numbers
-                if open_numbers is not None
-                else (
-                    graph.open_numbers
-                    if graph is not None
-                    else {it.number for it in store.open_items()}
-                )
-            )
-            blockers = _open_blockers(open_nums, item, tree)
-            if not blockers:
+            blocked = _blocked_wait_details(store, item, graph, open_numbers)
+            if blocked is None:
                 return None
-            held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
-            if held.cycle_of(item.number) is not None:
+            details = blocked
+        case NextStep.PERSON:
+            if _person_cycle_ended(store, item, graph):
                 return None
-            details = tuple(f"#{number}" for number in blockers)
         case NextStep.ALTERNATIVES:
             # A recorded verdict ends the wait (#2951): the check writes its block and its record,
             # and the next round sets the item Ready.
@@ -3218,6 +3340,7 @@ class _Selection:
     open_numbers: Collection[int] | None = None
     """The issue numbers of the open items of the round (#6553); None when read on demand."""
     _open_items: Sequence[Item] | None = None
+    all_comments: dict[int, list[IssueComment]] = field(default_factory=dict)
 
     def _get_open_items(self) -> Sequence[Item]:
         """The open items of the store, read at most once for the selection."""
@@ -3225,11 +3348,17 @@ class _Selection:
             self._open_items = self.store.open_items()
         return self._open_items
 
+    def raw_comments_on(self, number: int) -> list[IssueComment]:
+        """Every comment on issue `number`, read at most once for the selection."""
+        if number not in self.all_comments:
+            self.all_comments[number] = self.store.comments_on(number)
+        return self.all_comments[number]
+
     def comments_on(self, number: int) -> list[IssueComment]:
         """The comments of trusted authors on issue `number` (`trust.trusted_replies`), read
         once for the selection."""
         if number not in self.comments:
-            self.comments[number] = trusted_replies(self.store.comments_on(number))
+            self.comments[number] = trusted_replies(self.raw_comments_on(number))
         return self.comments[number]
 
     def questions(self) -> _Questions:
@@ -3272,7 +3401,11 @@ class _Selection:
         if failed_lately is not None:
             self.waiting.append(failed_lately)
             return
-        if is_unchanged(item, item.body) and not _needs_second_look(item):
+        if (
+            item.status != CONST_ROADMAP_STATUS_READY
+            and is_unchanged(item, item.body)
+            and not _needs_second_look(item)
+        ):
             waits = _still_waiting(
                 self.store,
                 item,
@@ -3304,11 +3437,16 @@ def refine_left_out(
     cannot differ (#3483). The limit of a round is no rule of the item. `tracked_paths` is the set
     of files of the default branch, which `devops roadmap explain` reads (#6444)."""
     texts = MESSAGES.roadmap
-    if not _refinable([item], unrefined_ready=True):
+    selection = _Selection(store, tracked_paths=tracked_paths)
+    if not _refinable(
+        [item],
+        unrefined_ready=True,
+        comments_on=lambda n: () if item.comments == 0 else selection.raw_comments_on(n),
+        trusted=lambda comment: is_person_comment(comment, None),
+    ):
         if item.status == CONST_ROADMAP_STATUS_READY:
             return texts.refine_left_ready
         return texts.refine_held_status.format(status=item.status)
-    selection = _Selection(store, tracked_paths=tracked_paths)
     selection.consider(item)
     if not selection.waiting:
         return None
@@ -3317,6 +3455,60 @@ def refine_left_out(
     if waits.step is NextStep.PERSON and not shown:
         shown = texts.refine_left_person_hint
     return texts.refine_left_waits[waits.step.value].format(details=shown).strip()
+
+
+def refine_due_reason(store: RoadmapStore, item: Item) -> str:
+    """Why a round of the Service takes `item` when `refine_left_out` returned None (#6452):
+    non-empty for a Ready item whose body outside the refine section changed or that holds a new
+    trusted comment after its last round."""
+    if item.state is not GitHubState.OPEN or item.status != CONST_ROADMAP_STATUS_READY:
+        return ""
+    texts = MESSAGES.roadmap
+    if _ready_body_edited(item):
+        return texts.refine_due_ready_edited
+    comments: Sequence[IssueComment] = () if item.comments == 0 else store.comments_on(item.number)
+    if _has_trusted_comment_since_last_round(
+        item, comments, lambda comment: is_person_comment(comment, None)
+    ):
+        return texts.refine_due_ready_comment
+    return ""
+
+
+def _ready_body_edited(item: Item) -> bool:
+    """Whether the text outside the refine section of `item` changed since `refine.body_hash`
+    was recorded (#6452). False when the record holds no `refine.body_hash`."""
+    recorded = item.job_record.get(RefineRecordKey.BODY_HASH)
+    return recorded is not None and body_hashes(item.body)[0] != recorded
+
+
+def _has_trusted_comment_since_last_round(
+    item: Item,
+    comments: Sequence[IssueComment],
+    trusted: Callable[[IssueComment], bool],
+) -> bool:
+    """Whether `comments` holds a trusted person comment after the last refine round on `item`
+    (#6452): after `refine.repeated_at` when set and newer than any refine marker comment, else
+    after the newest comment carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`. Roadmap job comments
+    are ignored."""
+    repeated = _repeated_at(item)
+    marked = [
+        i
+        for i, comment in enumerate(comments)
+        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body
+    ]
+    if not marked:
+        if repeated is None:
+            return False
+        candidates = comments_without_jobs(comments)
+        return any(
+            trusted(comment) and as_utc(comment.created_at) > repeated for comment in candidates
+        )
+    marker_idx = marked[-1]
+    since = as_utc(comments[marker_idx].created_at)
+    after = comments_without_jobs(comments[marker_idx + 1 :])
+    if repeated is not None and repeated > since:
+        return any(trusted(comment) and as_utc(comment.created_at) > repeated for comment in after)
+    return any(trusted(comment) and as_utc(comment.created_at) >= since for comment in after)
 
 
 def _is_unrefined_ready(item: Item) -> bool:
@@ -3329,19 +3521,41 @@ def _is_unrefined_ready(item: Item) -> bool:
     )
 
 
-def _refinable(items: Sequence[Item], *, unrefined_ready: bool) -> list[Item]:
+def _refinable(
+    items: Sequence[Item],
+    *,
+    unrefined_ready: bool,
+    comments_on: Callable[[int], Sequence[IssueComment]] | None = None,
+    trusted: Callable[[IssueComment], bool] | None = None,
+) -> list[Item]:
     """`items`' open New items, their unrefined Ready ones when `unrefined_ready`, the Ready ones
-    that hold a covering tool no round asked about (#2652), and the Ready ones that a bot opened
+    that hold a covering tool no round asked about (#2652), the Ready ones whose outside body or
+    trusted comments changed since their last round (#6452), and the Ready ones that a bot opened
     and whose approval no longer holds (#3502), highest priority first."""
+    trusted_check = (
+        trusted if trusted is not None else (lambda comment: is_person_comment(comment, None))
+    )
     picked = [
         it
         for it in items
         if it.state is GitHubState.OPEN
         and (
             it.status == CONST_ROADMAP_STATUS_NEW
-            or (unrefined_ready and _is_unrefined_ready(it))
-            or (it.status == CONST_ROADMAP_STATUS_READY and _needs_second_look(it))
-            or (it.status == CONST_ROADMAP_STATUS_READY and not is_approved(it))
+            or (
+                it.status == CONST_ROADMAP_STATUS_READY
+                and (
+                    (unrefined_ready and _is_unrefined_ready(it))
+                    or _needs_second_look(it)
+                    or not is_approved(it)
+                    or _ready_body_edited(it)
+                    or (
+                        comments_on is not None
+                        and _has_trusted_comment_since_last_round(
+                            it, comments_on(it.number), trusted_check
+                        )
+                    )
+                )
+            )
         )
     ]
     return sorted(picked, key=lambda it: _priority_rank(it.priority))
@@ -3399,22 +3613,6 @@ def _select_round(
     milestone_items = [store.items(milestone=m.number) for m in open_milestones]
     backlog_items = store.backlog()
 
-    ordered = [
-        # The open milestones' items, nearest first, then the backlog's P0 and P1 items
-        *(it for items in milestone_items for it in _refinable(items, unrefined_ready=True)),
-        *(
-            it
-            for it in _refinable(backlog_items, unrefined_ready=True)
-            if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
-        ),
-        # The backlog's other New items
-        *(
-            it
-            for it in _refinable(backlog_items, unrefined_ready=False)
-            if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
-        ),
-    ]
-
     selection = _Selection(
         store,
         frames=frames,
@@ -3425,6 +3623,48 @@ def _select_round(
         if open_numbers is not None
         else (graph.open_numbers if graph is not None else None),
     )
+    comment_counts = {
+        it.number: it.comments for group in (*milestone_items, backlog_items) for it in group
+    }
+
+    def read_comments(number: int) -> Sequence[IssueComment]:
+        return () if comment_counts.get(number, 0) == 0 else selection.raw_comments_on(number)
+
+    def trusted_comment(comment: IssueComment) -> bool:
+        return is_person_comment(comment, actor)
+
+    first_backlog = [
+        it for it in backlog_items if _priority_rank(it.priority) <= _BACKLOG_FIRST_RANK
+    ]
+    later_backlog = [
+        it for it in backlog_items if _priority_rank(it.priority) > _BACKLOG_FIRST_RANK
+    ]
+    ordered = [
+        # The open milestones' items, nearest first, then the backlog's P0 and P1 items
+        *(
+            it
+            for items in milestone_items
+            for it in _refinable(
+                items,
+                unrefined_ready=True,
+                comments_on=read_comments,
+                trusted=trusted_comment,
+            )
+        ),
+        *_refinable(
+            first_backlog,
+            unrefined_ready=True,
+            comments_on=read_comments,
+            trusted=trusted_comment,
+        ),
+        # The backlog's other New items and edited or commented Ready items
+        *_refinable(
+            later_backlog,
+            unrefined_ready=False,
+            comments_on=read_comments,
+            trusted=trusted_comment,
+        ),
+    ]
     for it in ordered:
         if len(selection.selected) >= limit:
             break
@@ -3625,7 +3865,7 @@ def _proposal_request(
         "number": item.number,
         "title": item.title,
         "body": current_body,
-        "replies": _replies_for_model(comments),
+        "replies": _replies_for_model(comments, read_at=_read_at(item)),
         "stage_return": _stage_evidence(returned),
         "alternatives": _alternatives_request(check, comments, covers),
         "context": _proposal_context(ctx, alert),
@@ -3677,6 +3917,21 @@ def _ensure_alert_key_question(
         sources=[url],
     )
     return proposal.model_copy(update={"key_questions": [*proposal.key_questions, alert_qa]})
+
+
+def _proposal_cycle(
+    store: RoadmapStore,
+    item: Item,
+    blockers: tuple[int, ...],
+    tree: ItemTree,
+    graph: DependencyGraph | None,
+) -> tuple[int, ...] | None:
+    """The dependency cycle of `item` from `blockers` (its new proposal's open blockers) and the
+    open blockers of the round, or None when `blockers` is empty or leads no path back (#6515)."""
+    if not blockers:
+        return None
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
+    return held.with_edges(item.number, blockers).cycle_of(item.number)
 
 
 def refine_one_item(
@@ -3809,8 +4064,7 @@ def refine_one_item(
         else (graph.open_numbers if graph is not None else {it.number for it in store.open_items()})
     )
     blockers = _open_dependencies(open_nums, proposal, item, tree)
-    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
-    cycle = held.cycle_of(item.number)
+    cycle = _proposal_cycle(store, item, blockers, tree, graph)
     proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
     # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
     # New and waits for the row, unless the check is off for the repository.
@@ -4102,12 +4356,26 @@ def _stage_evidence(returned: IssueComment | None) -> str | None:
     return None if returned is None else stage_comment_text(returned.body)
 
 
-def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
-    """The replies the model reads: the comments after refine's last comment, or every comment
-    when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
-    cap (#1758)."""
-    replies = replies_since_refine(comments)
-    persons = _without_other_jobs_comments(comments) if replies is None else replies
+def _replies_for_model(
+    comments: Sequence[IssueComment], *, read_at: datetime | None = None
+) -> list[str]:
+    """The replies the model reads: person comments after refine's last comment or after
+    `read_at` when recorded (#6371), or every comment when refine left none, the newest
+    `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token cap (#1758)."""
+    marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
+    if not marked:
+        persons = comments_without_jobs(comments)
+    elif read_at is None:
+        persons = comments_without_jobs(comments[marked[-1] + 1 :])
+    else:
+        last_refine = marked[-1]
+        persons = comments_without_jobs(
+            [
+                comment
+                for index, comment in enumerate(comments)
+                if index > last_refine or comment.created_at > read_at
+            ]
+        )
     kept = persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
@@ -4224,6 +4492,10 @@ def plan_refine(
                 writer.settle(failure)
             continue
         refined.append(res)
+        if res.skip_reason is None:
+            graph = graph.with_edges(
+                cand.number, _open_dependencies(open_numbers, res.proposal, cand, graph.tree)
+            )
         if res.owner_question is not None:
             frames.setdefault(res.owner_question.hash, cand)
         if writer is not None:
@@ -4539,9 +4811,12 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int], section_hash: str | N
         else None,
         OwnerQuestionRecordKey.ANSWER: _recorded_answer(r),
         RefineRecordKey.FRAME: None if r.frame is None else str(r.frame),
-        RefineRecordKey.REPEATED_AT: r.read_at.isoformat() if r.repeated else None,
         **_failure_marks(r.item, r.failure, r.tries),
     }
+    if r.failure is None:
+        marks[RefineRecordKey.READ_AT] = r.read_at.isoformat()
+    if RefineRecordKey.REPEATED_AT in r.item.job_record:
+        marks[RefineRecordKey.REPEATED_AT] = None
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
         marks[RefineRecordKey.JUDGE] = r.judge.value if r.judge is not None else None
     if deferred:
@@ -4581,14 +4856,11 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     else:
         store.set_marks(r.item, marks, body=body)
 
-    # Comment: a round whose result changed posts it (#6196), and a repeat that the store refuses
-    # starts the wait at the read of this round (#4793)
+    # Comment: a round whose result changed posts it (#6196); `read_at` is already recorded above.
     comments = 0
     comment = r.reason_comment
     if comment and store.comment(r.item.number, comment):
         comments = 1
-    elif comment:
-        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: r.read_at.isoformat()})
     return RefineApplied(
         refined_count=1,
         readied_count=readied,
@@ -4874,6 +5146,7 @@ __all__ = [
     "next_step_of",
     "plan_refine",
     "raise_for_failed_items",
+    "refine_due_reason",
     "refine_left_out",
     "render_proposal_section",
     "render_refine_plan",

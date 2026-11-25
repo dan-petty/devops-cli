@@ -38,6 +38,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `BranchAlreadyExistsError` | `BRANCH_ALREADY_EXISTS` | `1` | Git | Raised when attempting to create a branch that already exists. |
 | `CallDeferred` | `CALL_DEFERRED` | `18` | Ai | Raised by a tool when execution is deferred to an external worker or async system. |
 | `CapabilityDegradationError` | `CAPABILITY_DEGRADATION` | `1` | Ai | Raised when a fallback or failover model breaches minimum capability tier requirements. |
+| `CatalogError` | `K8S_CATALOG_ERROR` | `1` | K8s | Raised when `devops k8s catalog` finds catalog, SLO, dashboard, or workload mismatches (#5535). |
 | `ChaosExecutionError` | `CHAOS_EXECUTION_ERROR` | `1` | K8s | Raised when chaos engineering injection or validation fails. |
 | `CloudflareAPIError` | `CLOUDFLARE_API_ERROR` | `1` | Cloudflare | Raised when a Cloudflare API call returns an error response. |
 | `CloudflareAuthError` | `CLOUDFLARE_AUTH_ERROR` | `1` | Cloudflare | Raised when Cloudflare authentication or token verification fails. |
@@ -161,6 +162,9 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `StructuredOutputSchemaError` | `STRUCTURED_OUTPUT_SCHEMA_INVALID` | `1` | Ai | Raised when a schema class is missing or invalid for structured LLM output generation. |
 | `StructuredOutputValidationError` | `LLM_INFERENCE_ERROR` | `10` | Ai | Raised when the model answered, but no answer validated against the schema after retries. |
 | `SubprocessError` | `SUBPROCESS_FAILED` | `1` | Tools | Raised when an external subprocess command exits with a non-zero code or fails execution. |
+| `TFAccessRefusedError` | `TF_ACCESS_REFUSED` | `1` | Tf | An agent attempted apply, destroy, or state mutation without explicit `apply` access. |
+| `TFBudgetError` | `TF_BUDGET_BELOW_FLOOR` | `1` | Tf | Remaining GitHub REST core quota is below the pre-plan safety floor. |
+| `TFError` | `TF_ERROR` | `1` | Tf | Base exception for OpenTofu wrapper guard failures. |
 | `TaskPromptNotFoundError` | `TASK_PROMPT_NOT_FOUND` | `1` | Ai | Raised when a prompt name is not a file of the `ai/tasks/` folder of the package. |
 | `TelemetryError` | `TELEMETRY_ERROR` | `1` | Telemetry | Base exception for telemetry, tracing, and metric collection errors. |
 | `TemplateRenderError` | `VALIDATION_ERROR` | `1` | Core | Raised when a template cannot be rendered into valid output. |

@@ -492,6 +492,25 @@ class TfErrorMessages:
     unsupported_cloud_provider: str = (
         "Unsupported cloud provider '{provider}'. Supported providers: aws, azure, gcp"
     )
+    agent_access_refused: str = (
+        "An agent cannot run {action} on the tf/github stack {stack}: its agent access level is "
+        "{level}, and {action} needs {needed}. Only a person configures {key}."
+    )
+    agent_access_invalid: str = "Invalid {key} value {value!r}: expected plan or apply."
+    core_budget_below_floor: str = (
+        "Cannot run tf/github stack plan: GitHub core budget has {remaining} remaining, below the "
+        "floor of {floor} (resets {reset})."
+    )
+    reader_credentials_missing: str = (
+        "Cannot run agent plan on tf/github stack: reader App credentials are incomplete. Set "
+        "{app_id_key}, {installation_id_key}, and {private_key_key}; devops-cli never falls "
+        "back to writer App credentials."
+    )
+    reader_token_failed: str = (
+        "Cannot mint installation token for tf.github_reader ({reason}). Check "
+        "tf.github_reader.app_id, tf.github_reader.installation_id, and "
+        "tf.github_reader.private_key."
+    )
 
 
 @dataclass(frozen=True)

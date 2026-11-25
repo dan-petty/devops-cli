@@ -101,6 +101,12 @@ _DELETED = CONST_GIT_NAME_STATUS_CHANGE_TYPES["D"]
 # The statuses of a test that does not pass on base: a failure in the call phase, or an error at
 # collection, setup or teardown (#6372).
 _NOT_PASSED = frozenset({"failed", "errored"})
+# The JUnit message prefix for each pytest error phase (#6372, #6400).
+_ERROR_PHASES: dict[str, str] = {
+    **dict(zip(CONST_FAIL_TO_PASS_PROOF_ERROR_MESSAGES, ("collection", "setup"), strict=True)),
+    "failed on teardown with": "teardown",
+}
+_PROOF_ERROR_PHASES = frozenset({"collection", "setup"})
 # The last line that `tests/gate/runner.py` prints for a row: `<row>: <N> cases, <M> failed`.
 _GATE_ROW_SUMMARY = re.compile(
     r"^(?P<row>\S+): (?P<cases>\d+) cases, (?P<failed>\d+) failed$", re.MULTILINE
@@ -126,15 +132,23 @@ class TestCaseOutcome(BaseModel):
         return f"{self.classname}::{self.name}" if self.classname else self.name
 
     @property
+    def error_phase(self) -> str | None:
+        """The pytest phase of an errored outcome (`collection`, `setup`, or `teardown`), or
+        None (#6400)."""
+        if self.status != "errored":
+            return None
+        return next(
+            (phase for prefix, phase in _ERROR_PHASES.items() if self.message.startswith(prefix)),
+            None,
+        )
+
+    @property
     def proves_fix(self) -> bool:
         """Whether this outcome of a changed test on base proves the fix: a failure in the call
         phase, or an error at collection or setup, where the test cannot import or set up the code
         that the fix adds. An error at teardown comes after the call phase ran, so it proves nothing
         (#6372)."""
-        return self.status == "failed" or (
-            self.status == "errored"
-            and self.message.startswith(CONST_FAIL_TO_PASS_PROOF_ERROR_MESSAGES)
-        )
+        return self.status == "failed" or self.error_phase in _PROOF_ERROR_PHASES
 
 
 class ReplayCouldNotRun(BaseModel):
@@ -1004,6 +1018,18 @@ def _files_holding(
     return tuple(holding)
 
 
+def _file_outcomes(outcomes: Sequence[TestCaseOutcome], module: str) -> list[TestCaseOutcome]:
+    """Every outcome in `outcomes` that belongs to the module `module` (#6400)."""
+    prefix = f"{module}."
+    return [
+        outcome
+        for outcome in outcomes
+        if outcome.classname == module
+        or outcome.classname.startswith(prefix)
+        or (not outcome.classname and outcome.name == module)
+    ]
+
+
 def _repaired_and_refused(
     unchanged: Sequence[str],
     plain_base_outcomes: Sequence[TestCaseOutcome],
@@ -1013,8 +1039,9 @@ def _repaired_and_refused(
     test IDs.
 
     A test is repaired only when it fails or errors on the plain merge base and passes on the head.
-    An unchanged test that passes on the plain merge base or that does not pass on the head
-    is refused.
+    A file-level collection error on the plain merge base is repaired when the head report holds at
+    least one case for that module and every head case of that module passes (#6400). An unchanged
+    test that passes on the plain merge base or that does not pass on the head is refused.
     """
     plain_map = {o.test_id: o for o in plain_base_outcomes}
     head_map = {o.test_id: o for o in head_outcomes}
@@ -1022,8 +1049,18 @@ def _repaired_and_refused(
     refused: list[str] = []
     for test_id in unchanged:
         pb = plain_map.get(test_id)
+        if pb is None or pb.status not in _NOT_PASSED:
+            refused.append(test_id)
+            continue
+        if "::" not in test_id and not pb.classname:
+            file_head = _file_outcomes(head_outcomes, test_id)
+            if file_head and all(outcome.status == "passed" for outcome in file_head):
+                repaired.append(pb.model_copy(update={"status": "passed", "message": ""}))
+            else:
+                refused.append(test_id)
+            continue
         h = head_map.get(test_id)
-        if pb is not None and pb.status in _NOT_PASSED and h is not None and h.status == "passed":
+        if h is not None and h.status == "passed":
             repaired.append(h)
         else:
             refused.append(test_id)

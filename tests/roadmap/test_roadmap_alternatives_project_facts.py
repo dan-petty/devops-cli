@@ -25,7 +25,7 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_DEPS_DEV_PROJECT_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.roadmap import alternatives
-from devops_cli.roadmap.adr import Adr
+from devops_cli.roadmap.adr import Adr, adr_of
 from devops_cli.roadmap.alternatives import (
     AlternativesPlan,
     AlternativesReply,
@@ -39,7 +39,7 @@ from devops_cli.roadmap.inventory import Inventory, canonical_id, project_of, re
 from devops_cli.roadmap.stores.store import AlternativesRecordKey, ItemField
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import FIXTURES
+from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.roadmap_alternatives import apply_alternatives
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -354,6 +354,107 @@ def test_an_adr_that_chose_the_tool_gives_no_rejected_verdict(
     assert (check.verdict, check.adr) == (Verdict.COVERS, None)
 
 
+def _repo_adr(number: int) -> Adr:
+    path = next((REPO_ROOT / "docs" / "adr").glob(f"{number:04d}-*.md"))
+    loaded = adr_of(f"docs/adr/{path.name}", path.read_text(encoding="utf-8"))
+    assert loaded is not None
+    return loaded
+
+
+def test_genuine_adr_rejection_stays_ahead_of_inventory(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """ADR 0018 rejects bubblewrap even when the deployed inventory holds bubblewrap (#6441)."""
+    number = _item(store, "Run commands safely")
+    inventory = Inventory(frozenset(), "RUN apt-get install -y bubblewrap\n")
+
+    check = _check(
+        store,
+        number,
+        _facts(
+            "https://github.com/containers/bubblewrap",
+            project="github.com/containers/bubblewrap",
+        ),
+        inventory=inventory,
+        adrs=(_repo_adr(18),),
+        adr=18,
+        tool_name="bubblewrap",
+    )
+
+    assert (check.verdict, check.adr) == (Verdict.REJECTED, 18)
+
+
+def test_own_repository_returns_in_use_before_adr_rejection() -> None:
+    """The item's own repository is always `in-use`, even if an ADR is cited (#6441)."""
+    store = InMemoryRoadmapStore(repo="dan-petty/devops-cli", is_private=False)
+    number = _item(store, "Add CLI check")
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/dan-petty/devops-cli"),
+        adrs=(_repo_adr(14),),
+        adr=14,
+        tool_name="dan-petty/devops-cli",
+    )
+
+    assert (check.verdict, check.adr, check.in_repository) == (Verdict.IN_USE, None, True)
+
+
+@pytest.mark.parametrize(
+    ("repo", "adr_number", "tool_url", "tool_name", "expected_verdict"),
+    [
+        pytest.param(
+            "example/roadmap",
+            21,
+            "https://github.com/kubernetes/kubernetes",
+            "kubernetes",
+            Verdict.IN_USE,
+            id="5524-kubernetes",
+        ),
+        pytest.param(
+            "example/roadmap",
+            6,
+            "https://github.com/cli/cli",
+            "gh",
+            Verdict.COVERS,
+            id="5323-gh-cli",
+        ),
+        pytest.param(
+            "dan-petty/devops-cli",
+            14,
+            "https://github.com/dan-petty/devops-cli",
+            "devops-cli",
+            Verdict.IN_USE,
+            id="4719-own-repo",
+        ),
+    ],
+)
+def test_replay_of_known_false_rejections_gives_no_rejected(
+    repo: str,
+    adr_number: int,
+    tool_url: str,
+    tool_name: str,
+    expected_verdict: Verdict,
+) -> None:
+    """Replays of #5524, #5323 and #4719 with repo ADRs give no `rejected` verdict (#6441)."""
+    store = InMemoryRoadmapStore(repo=repo, is_private=False)
+    number = _item(store, "Check item")
+    inventory = Inventory(frozenset(), "image: registry.k8s.io/kubernetes/pause:3.9\n")
+
+    check = _check(
+        store,
+        number,
+        _facts(tool_url),
+        inventory=inventory,
+        adrs=(_repo_adr(adr_number),),
+        adr=adr_number,
+        tool_name=tool_name,
+    )
+
+    assert (check.verdict, check.adr) == (expected_verdict, None)
+
+
 def _checked(
     store: InMemoryRoadmapStore, title: str, *, adr_hash: str | None, days: int = 2
 ) -> int:
@@ -450,3 +551,149 @@ def test_the_census_tools_in_use_give_in_use_with_no_model_call(
         [number for number in used if not found[number]],
         [number for number in new if found[number]],
     ) == (58, True, [1387, 2003], [3612])
+
+
+@pytest.mark.parametrize(
+    ("url", "purl", "verdict"),
+    [
+        pytest.param(
+            "https://github.com/python/cpython",
+            "pkg:pypi/httpx@0.28.1",
+            Verdict.COVERS,
+            id="python-covers",
+        ),
+        pytest.param(
+            "https://github.com/python/cpython",
+            "pkg:pypi/httpx@0.28.1",
+            Verdict.PARTLY,
+            id="python-partly",
+        ),
+        pytest.param(
+            "https://github.com/golang/go",
+            "pkg:golang/github.com/spf13/cobra@1.8.0",
+            Verdict.COVERS,
+            id="go",
+        ),
+        pytest.param(
+            "https://github.com/rust-lang/rust",
+            "pkg:cargo/serde@1.0.210",
+            Verdict.COVERS,
+            id="rust",
+        ),
+        pytest.param(
+            "https://github.com/ruby/ruby",
+            "pkg:gem/rails@7.2.0",
+            Verdict.COVERS,
+            id="ruby",
+        ),
+        pytest.param(
+            "https://github.com/dotnet/runtime",
+            "pkg:nuget/Newtonsoft.Json@13.0.3",
+            Verdict.COVERS,
+            id="dotnet",
+        ),
+        pytest.param(
+            "https://github.com/nodejs/node",
+            "pkg:npm/zod@3.23.0",
+            Verdict.COVERS,
+            id="node",
+        ),
+    ],
+)
+def test_standard_library_of_a_used_language_gets_in_use(
+    store: InMemoryRoadmapStore, web: WebFake, url: str, purl: str, verdict: Verdict
+) -> None:
+    store.seed_dependencies(purl)
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts(url),
+        inventory=read_inventory(store, None, PATHS),
+        verdict=verdict,
+    )
+
+    assert (
+        check.verdict,
+        IN_REPOSITORY in check.new_body.splitlines(),
+        web.requested,
+    ) == (Verdict.IN_USE, True, [])
+
+
+@pytest.mark.parametrize(
+    ("url", "rel_path", "content"),
+    [
+        pytest.param(
+            "https://github.com/python/cpython",
+            "k8s/helper.py",
+            "x = 1\n",
+            id="python-suffix",
+        ),
+        pytest.param(
+            "https://github.com/golang/go",
+            "k8s/init.go",
+            "package main\n",
+            id="go-suffix",
+        ),
+        pytest.param(
+            "https://github.com/nodejs/node",
+            "k8s/check.mjs",
+            "export const ok = true;\n",
+            id="node-mjs-suffix",
+        ),
+    ],
+)
+def test_standard_library_gets_in_use_from_deployed_file_suffix_without_sbom(
+    store: InMemoryRoadmapStore,
+    web: WebFake,
+    tmp_path: Path,
+    url: str,
+    rel_path: str,
+    content: str,
+) -> None:
+    file = tmp_path / rel_path
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(content, encoding="utf-8")
+    number = _item(store)
+
+    check = _check(store, number, _facts(url), inventory=read_inventory(store, tmp_path, PATHS))
+
+    assert (check.verdict, web.requested) == (Verdict.IN_USE, [])
+
+
+def test_third_party_tool_in_a_used_language_keeps_covers(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    store.seed_dependencies("pkg:pypi/httpx@0.28.1")
+    web.content(
+        DEFAULT_DEPS_DEV_PROJECT_URL.format(project="github.com%2Fsqlalchemy%2Fsqlalchemy"),
+        json.dumps({"versions": []}).encode(),
+    )
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/sqlalchemy/sqlalchemy"),
+        inventory=read_inventory(store, None, PATHS),
+    )
+
+    assert check.verdict is Verdict.COVERS
+
+
+def test_standard_library_without_a_language_signal_keeps_covers(
+    store: InMemoryRoadmapStore, web: WebFake, tmp_path: Path
+) -> None:
+    (tmp_path / "k8s").mkdir()
+    (tmp_path / "k8s" / "deploy.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/python/cpython"),
+        inventory=read_inventory(store, tmp_path, PATHS),
+    )
+
+    assert (check.verdict, web.requested) == (Verdict.COVERS, [])

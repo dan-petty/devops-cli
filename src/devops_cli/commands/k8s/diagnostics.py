@@ -478,7 +478,7 @@ def _handle_doctor_dry_run(
     from devops_cli.models.k8s import DoctorReport
     from devops_cli.output.serialization import emit_serialized
 
-    requests = plan_doctor_requests(namespace=namespace, tail=tail)
+    requests = plan_doctor_requests(namespace=namespace, tail=tail, context=context)
     report = DoctorReport(
         context=context or "",
         counts={},
