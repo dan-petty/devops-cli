@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.215.0](https://github.com/dan-petty/devops-cli/compare/v0.214.0...v0.215.0) (2026-11-25)
+
+
+### Features
+
+* **cli:** pass flags to tofu; add tf import, state, show, force-unlock ([#7056](https://github.com/dan-petty/devops-cli/issues/7056)) ([5b603cc](https://github.com/dan-petty/devops-cli/commit/5b603cca0af56a4d5e7dc365f2515752b8992fb2)), closes [#5318](https://github.com/dan-petty/devops-cli/issues/5318)
+
+
+### Bug Fixes
+
+* **k8s:** Drop throttled Stack Exchange engines from SearXNG ([#7053](https://github.com/dan-petty/devops-cli/issues/7053)) ([0217da6](https://github.com/dan-petty/devops-cli/commit/0217da6c3efbcab907bb0b53d94ed65b19ab0b4d))
+* **roadmap:** avoid tool concurrency race in step trace digest test ([#7060](https://github.com/dan-petty/devops-cli/issues/7060)) ([c2c797f](https://github.com/dan-petty/devops-cli/commit/c2c797fb431f3a45f57545d48ab4b875582c54fa))
+
+
+### Performance Improvements
+
+* **roadmap:** read blocker state from the open listing ([#7055](https://github.com/dan-petty/devops-cli/issues/7055)) ([599abc7](https://github.com/dan-petty/devops-cli/commit/599abc750ec69b79db96ca1b8c1172e35aa8a0cf)), closes [#6553](https://github.com/dan-petty/devops-cli/issues/6553)
+
 ## [0.214.0](https://github.com/dan-petty/devops-cli/compare/v0.213.0...v0.214.0) (2026-11-25)
 
 
