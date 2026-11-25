@@ -197,6 +197,12 @@ class PullRequestFile(BaseModel):
     changes: int = 0
 
 
+class PullRequestFilePatch(PullRequestFile):
+    """One file returned by `pulls/{number}/files`, including its unified diff `patch`."""
+
+    patch: str | None = None
+
+
 class CommitPull(BaseModel):
     """A pull request that GitHub associates with a commit: whether it merged, and the commit it
     ended on. `merged_at` is None for a pull request that is open or was closed unmerged."""
@@ -515,6 +521,13 @@ class GitHubClient:
         path = _repo_path(repo, f"pulls/{number}")
         return _read_as(PullRequest, self._session.rest("GET", path), path=path)
 
+    def get_pull_files(self, repo: str, number: int) -> list[PullRequestFilePatch]:
+        """The changed files and diff patches of pull request `number` (#6831)."""
+        path = _repo_path(repo, f"pulls/{number}/files?per_page={DEFAULT_GH_REST_PER_PAGE}")
+        return [
+            _read_as(PullRequestFilePatch, item, path=path) for item in self._session.paginate(path)
+        ]
+
     def find_open_pull(
         self, repo: str, *, head: str, base: str | None = None
     ) -> OpenPullRequest | None:
@@ -825,6 +838,21 @@ class GitHubClient:
         """The issue or pull request `number`, raising `GitHubNotFoundError` when `repo` has none."""
         path = _repo_path(repo, f"issues/{number}")
         return _read_as(IssueView, self._session.rest("GET", path), path=path)
+
+    def list_open_issues(self, repo: str, *, limit: int) -> list[IssueView]:
+        """At most `limit` open issues of `repo` from the issues listing, skipping pull requests."""
+        if limit <= 0:
+            return []
+        path = _repo_path(repo, f"issues?state=open&per_page={DEFAULT_GH_REST_PER_PAGE}")
+        issues: list[IssueView] = []
+        for raw in self._session.paginate(path):
+            entry = _read_as(IssueView, raw, path=path)
+            if entry.is_pull_request:
+                continue
+            issues.append(entry)
+            if len(issues) >= limit:
+                break
+        return issues
 
     def get_last_comments(self, repo: str, number: int, *, total: int, count: int) -> list[str]:
         """The bodies of the last `count` comments of the issue, oldest first. `total` is the

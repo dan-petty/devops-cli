@@ -14,6 +14,7 @@ import ast
 import inspect
 import json
 import logging
+import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,6 +33,7 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import RoadmapConfig
 from devops_cli.core import clock as clock_seam
 from devops_cli.exceptions import GitHubOperationError, GitOperationError, RoadmapStageError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.body_hash import body_hashes
 from devops_cli.roadmap.failure import FailureClass, FailureEvidence, classify_failure
@@ -1074,6 +1076,9 @@ def test_the_three_phases_run_in_turn_on_one_run_folder(
     from devops_cli.ai.client import factory
     from devops_cli.core import process_hardening
 
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
     stage_repo.track(gate_files(openspec_fake.version))
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     github_api.route("POST", PULLS, OPENED)

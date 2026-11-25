@@ -10,6 +10,7 @@ writes the state file, the issue listing and the inputs of the agent.
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +27,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_ISSUES_FILE,
 )
 from devops_cli.exceptions import GitHubOperationError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.failure import FailureClass, StepName
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.stage.stage_change import render_change
@@ -45,6 +47,15 @@ if TYPE_CHECKING:
     from tests.support.fakes.github import GitHubApiFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+
+@pytest.fixture(autouse=True)
+def _fake_github(github_api: GitHubApiFake) -> None:
+    """Provide the fake GitHub API and GraphQL quota for `prepare` snapshot reads (#6831)."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
 CHANGE = "1-the-job-drops-a-comment"

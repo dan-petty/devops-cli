@@ -4037,6 +4037,12 @@ CONST_ROADMAP_STAGE_CANDIDATE_FILE: Final[str] = "PLAN_PULL_REQUEST.md"
 CONST_ROADMAP_STAGE_PLAN_PATCH_FILE: Final[str] = "plan.patch"
 CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE: Final[str] = "candidate.md"
 CONST_ROADMAP_STAGE_ISSUES_FILE: Final[str] = "issues.json"
+# The folder under `work/` that holds the GitHub read snapshot of `--phase prepare` (#6831),
+# the limits on its open-issue JSONL index, and the character cap per pull-request file patch.
+CONST_ROADMAP_STAGE_GITHUB_DIR: Final[str] = "github"
+CONST_ROADMAP_STAGE_GITHUB_INDEX_MAX_ISSUES: Final[int] = 1000
+CONST_ROADMAP_STAGE_GITHUB_INDEX_BODY_CHARS: Final[int] = 500
+CONST_ROADMAP_STAGE_PULL_FILE_PATCH_CHARS: Final[int] = 20000
 # The most characters that GitHub takes in the body of a comment: `publish` of the stage Job fits
 # the plan-state comment to it (#6705).
 CONST_GITHUB_COMMENT_MAX_CHARS: Final[int] = 65536
