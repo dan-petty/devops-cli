@@ -7126,6 +7126,9 @@ class RoadmapMessages:
     review_bad_last: str = "--last takes a number of days as Nd, such as 7d, not {text!r}."
     review_empty_window: str = "The window ends at {end}, which is not after its start {start}."
     review_unknown_tag: str = "The checkout has no commit for the tag {tag!r}."
+    review_no_matching_tags: str = (
+        "The checkout has no tag matching [review] tag_pattern {pattern!r}."
+    )
     review_no_commit: str = "{ref} has no first-parent commit at or before {time}."
     review_git_failed: str = "`{command}` failed: {error}"
     review_no_repo: str = "The checkout has no origin on GitHub: pass --repo owner/name."
@@ -7138,6 +7141,10 @@ class RoadmapMessages:
         "lizard is not installed: install the extra review, for example with "
         "`uv sync --extra review`."
     )
+    review_lizard_unreadable: str = (
+        "No hot file is in a language that lizard reads, so hotspots keep the churn rank."
+    )
+    review_no_functional_change: str = "No CHANGELOG section, commit subject, or merged pull request title gives a functional change."
     review_window_line: str = (
         "Window {id} ({kind}): {base}..{head}, from {start} (out) to {end} (in)."
     )
@@ -7201,6 +7208,10 @@ class RoadmapMessages:
                 "hottest files that lizard reads, at the base and at the head. null is a file "
                 "that the commit does not hold."
             ),
+            "functional.change": (
+                "The functional change of the window, from OpenSpec, CHANGELOG sections, feat "
+                "and fix commit subjects, or merged pull request titles."
+            ),
         }
     )
     review_unset_setting: str = "The setting {setting} has no value."
@@ -7246,6 +7257,9 @@ class RoadmapMessages:
         "then one count for each status"
     )
     review_plan_probe: str = "the answer of {fact} has no series"
+    review_plan_repo_heading: str = "Repository {repo}:"
+    review_plan_no_repos: str = "service.repos has no repository."
+    review_plan_no_condition: str = "no condition"
     review_catalog_refused: str = "The fact catalog {path} is not valid: {reason}"
     review_catalog_unscoped_metric: str = (
         '{subject}: the Service metric {metric} in `{field}` has no matcher repo="{{repo}}" in its '

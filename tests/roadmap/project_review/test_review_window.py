@@ -23,6 +23,7 @@ from devops_cli.roadmap.project_review.window import (
     tags_in,
 )
 from tests.support.fakes.git import GitFake
+from tests.support.fakes.process import ProcessAnswer
 
 NOW = datetime(2026, 10, 6, 12, 34, 56, tzinfo=UTC)
 START = datetime(2026, 9, 25, 10, tzinfo=UTC)
@@ -154,3 +155,29 @@ def test_an_unknown_tag_and_a_time_before_the_history_are_refused(checkout: Path
         _resolve(checkout, version="v1.0.0..v9.9.9")
     with pytest.raises(RoadmapReviewError, match="HEAD has no first-parent commit at or before"):
         _resolve(checkout, week="2026-W38")
+
+
+def test_a_version_window_needs_a_tag_that_matches_the_tag_pattern(
+    checkout: Path, git_fake: GitFake, tmp_path: Path
+) -> None:
+    """An empty matching tag list refuses a version window before any git read (#4730)."""
+    calls_before = len(git_fake.calls)
+    with pytest.raises(RoadmapReviewError, match=r"tag_pattern.*'release-\*'"):
+        resolve_window(
+            tmp_path / "other",
+            parse_window(version="release-1.0..release-2.0", now=NOW),
+            [],
+            "release-*",
+        )
+    assert len(git_fake.calls) == calls_before
+
+    assert _resolve(checkout, version="v1.0.0..v1.1.1").id == "v1.0.0..v1.1.1"
+
+    other = tmp_path / "custom"
+    (other / ".git").mkdir(parents=True)
+    git_fake.answer(
+        lambda call: "refs/tags/release-*" in call.argv,
+        ProcessAnswer(stdout="release-1.0\t1790330400\nrelease-1.1\t1791181800\n"),
+    )
+    tags = read_tags(other, "release-*")
+    assert [tag.name for tag in tags] == ["release-1.0", "release-1.1"]

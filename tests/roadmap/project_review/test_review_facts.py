@@ -15,6 +15,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from devops_cli.exceptions.roadmap import RoadmapReviewError
 from devops_cli.roadmap.project_review.catalog import load_catalog
 from devops_cli.roadmap.project_review.data import (
     Disagreement,
@@ -25,12 +26,18 @@ from devops_cli.roadmap.project_review.data import (
     WindowKind,
     write_review,
 )
-from devops_cli.roadmap.project_review.facts import Hotspot, hotspots, review_facts
+from devops_cli.roadmap.project_review.facts import (
+    Hotspot,
+    complexity_fact,
+    hotspots,
+    review_facts,
+)
 from devops_cli.roadmap.project_review.git_read import Commit, FileChange, commits, numstat
-from devops_cli.roadmap.project_review.review import render_review, run_review
+from devops_cli.roadmap.project_review.review import planned_review, render_review, run_review
 from devops_cli.roadmap.project_review.window import parse_window, read_tags, resolve_window
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.http import WebFake
+from tests.support.fakes.process import ProcessAnswer
 
 NOW = datetime(2026, 10, 6, tzinfo=UTC)
 OK = FactStatus.OK
@@ -265,8 +272,9 @@ def test_the_facts_of_a_catalog_follow_the_git_facts_with_their_section(
         now=NOW,
     )
 
-    assert [(fact.id, fact.section) for fact in data.facts][-3:] == [
+    assert [(fact.id, fact.section) for fact in data.facts][-4:] == [
         ("lizard.complexity", "changes"),
+        ("functional.change", "changes"),
         ("prometheus.one", "service"),
         ("prometheus.two", "service"),
     ]
@@ -316,3 +324,133 @@ def test_the_summary_shows_each_fact_that_is_not_ok_and_each_disagreement(tmp_pa
         "Disagreement spend: prometheus.cli_spend 77.22 and prometheus.gateway_spend 118.74 "
         "differ by 35%, more than 10%."
     ) in text
+
+
+def test_the_run_reads_the_tag_pattern_of_the_roadmap_file(
+    checkout: Path, git_fake: GitFake, tmp_path: Path
+) -> None:
+    """`[review] tag_pattern` flows to `review_facts`, `planned_review`, and `run_review` (#4730)."""
+    tags = read_tags(checkout)
+    window = resolve_window(checkout, parse_window(version="v1.0.0..v1.1.1", now=NOW), tags)
+    custom_facts = {
+        fact.id: fact for fact in review_facts(checkout, window, tags, tag_pattern="release-*")
+    }
+    assert "refs/tags/release-*" in custom_facts["git.releases"].query
+
+    custom_checkout = tmp_path / "custom"
+    (custom_checkout / ".devops").mkdir(parents=True)
+    (custom_checkout / ".devops" / "roadmap.toml").write_text(
+        '[review]\ntag_pattern = "release-*"\n', encoding="utf-8"
+    )
+    calls_before = len(git_fake.calls)
+    plan = planned_review(
+        custom_checkout, parse_window(version="release-1.0..release-1.1", now=NOW)
+    )
+    assert len(git_fake.calls) == calls_before
+    assert any("refs/tags/release-*" in " ".join(req.argv) for req in plan)
+
+    git_fake.answer(lambda call: "refs/tags/release-*" in call.argv, ProcessAnswer(stdout=""))
+    with pytest.raises(RoadmapReviewError, match=r"tag_pattern.*'release-\*'"):
+        run_review(
+            custom_checkout,
+            "example/project",
+            parse_window(version="release-1.0..release-1.1", now=NOW),
+            now=NOW,
+        )
+
+
+def test_run_review_omits_functional_change_when_an_openspec_fact_is_ok(
+    checkout: Path, tmp_path: Path, git_fake: GitFake
+) -> None:
+    """When any `openspec.*` catalog fact has status `ok`, `functional.change` is omitted (#4730)."""
+    path = tmp_path / "catalog.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "sections": [{"id": "openspec", "title": "OpenSpec"}],
+                "readers": {"openspec": {"requires": ["path:openspec/specs"]}},
+                "facts": [
+                    {
+                        "id": "openspec.requirements",
+                        "reader": "openspec",
+                        "section": "openspec",
+                        "query": "openspec show --json --deltas-only",
+                        "value": ".requirements",
+                        "unit": "requirements",
+                        "definition": "Total requirements.",
+                    }
+                ],
+                "disagreements": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    git_fake.answer(lambda call: "ls-tree" in call.argv, ProcessAnswer(stdout="openspec/specs\n"))
+    git_fake.answer(lambda call: "--diff-filter=A" in call.argv, ProcessAnswer(stdout=""))
+    git_fake.answer(
+        lambda call: "grep" in call.argv and "-c" in call.argv,
+        ProcessAnswer(stdout="openspec/specs/a/spec.md:2\n"),
+    )
+
+    data = run_review(
+        checkout,
+        "example/project",
+        parse_window(version="v1.0.0..v1.1.1", now=NOW),
+        catalog=load_catalog(path),
+        now=NOW,
+    )
+
+    assert [fact.id for fact in data.facts] == [
+        "git.commits",
+        "git.commit_types",
+        "git.net_change",
+        "git.churn",
+        "git.releases",
+        "git.release_tags",
+        "git.hotspots",
+        "lizard.complexity",
+        "openspec.requirements",
+    ]
+
+
+def test_a_shell_only_window_keeps_the_churn_rank_and_skips_the_complexity_rank(
+    tmp_path: Path,
+) -> None:
+    """When hot files exist and lizard reads none of them, `lizard.complexity` is `skipped` (#4730)."""
+    window = ReviewWindow(
+        kind=WindowKind.PERIOD,
+        id="w",
+        base_sha="a" * 40,
+        head_sha="b" * 40,
+        start=datetime(2026, 11, 2, tzinfo=UTC),
+        end=datetime(2026, 11, 9, tzinfo=UTC),
+        previous_id=None,
+    )
+    shell_rows = [Hotspot("scripts/deploy.sh", commits=3, added=10, deleted=2)]
+    skipped = complexity_fact(tmp_path, window, shell_rows)
+
+    assert (skipped.value, skipped.n, skipped.status) == (None, None, FactStatus.SKIPPED)
+    assert "lizard" in skipped.reason
+
+    empty = complexity_fact(tmp_path, window, [])
+    assert (empty.value, empty.n, empty.status) == ([], 0, FactStatus.OK)
+
+    hotspot_fact = Fact(
+        id="git.hotspots",
+        section="changes",
+        value=[row.row() for row in shell_rows],
+        unit="commits",
+        n=1,
+        source="git",
+        query="git log",
+        definition="d",
+        read_at=NOW,
+        status=FactStatus.OK,
+    )
+    rendered = render_review(
+        ReviewData(repo="example/project", window=window, facts=[hotspot_fact, skipped]),
+        tmp_path / "data.json",
+    )
+    assert "git.hotspots:" in rendered
+    assert f"lizard.complexity: skipped: {skipped.reason}" in rendered

@@ -18,6 +18,7 @@ from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.git.operations import git_argv
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.project_profile import review_tag_pattern
 from devops_cli.roadmap.project_review.catalog import (
     Catalog,
     load_catalog,
@@ -27,6 +28,7 @@ from devops_cli.roadmap.project_review.catalog import (
 from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewData
 from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from devops_cli.roadmap.project_review.facts import review_facts
+from devops_cli.roadmap.project_review.functional import functional_change
 from devops_cli.roadmap.project_review.git_read import (
     blob_args,
     commit_before_args,
@@ -60,9 +62,10 @@ def run_review(
 ) -> ReviewData:
     """The data of the window that `request` names: the git facts read from `checkout`, then the
     facts of `catalog`, the shipped catalog by default, read at `now`."""
-    tags = read_tags(checkout)
-    window = resolve_window(checkout, request, tags)
-    facts = review_facts(checkout, window, tags)
+    pattern = review_tag_pattern(checkout)
+    tags = read_tags(checkout, pattern)
+    window = resolve_window(checkout, request, tags, pattern)
+    facts = review_facts(checkout, window, tags, pattern)
     context = ReadContext(
         checkout=checkout,
         repo=repo,
@@ -71,6 +74,20 @@ def run_review(
         now=now or datetime.now(UTC),
     )
     result = read_catalog(catalog or load_catalog(), context)
+    if not any(
+        fact.id.startswith("openspec.") and fact.status is FactStatus.OK for fact in result.facts
+    ):
+        titles_fact = next(
+            (fact for fact in result.facts if fact.id == "listing.merged_titles"), None
+        )
+        titles = (
+            [str(item) for item in titles_fact.value]
+            if titles_fact is not None
+            and titles_fact.status is FactStatus.OK
+            and isinstance(titles_fact.value, list)
+            else []
+        )
+        facts = [*facts, functional_change(checkout, window, titles)]
     return ReviewData(
         repo=repo,
         window=window,
@@ -127,9 +144,10 @@ def planned_review(
                 commit_before_args(ref, f"@{int(request.start.timestamp())}"),
                 commit_before_args(ref, f"@{int(request.end.timestamp())}"),
             ]
+    pattern = review_tag_pattern(checkout)
     each = MESSAGES.roadmap.review_plan_each_file
     steps = [
-        (tag_args(), ""),
+        (tag_args(pattern), ""),
         *((args, "") for args in window),
         (log_args(base, head), ""),
         (diff_args(base, head), ""),

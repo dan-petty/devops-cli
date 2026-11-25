@@ -72,6 +72,18 @@ facts:
       [.[] | select(.pull_request and (.merged_at | inwin))] | length
     unit: pull requests
     definition: The pull requests merged after the start up to the end, from pull_request.merged_at.
+  - id: listing.merged_titles
+    reader: listing
+    section: activity
+    query: repos/{repo}/issues?state=all
+    value: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and (.merged_at | inwin)) | .title]
+    n: >-
+      def inwin: . != null and ((fromdateiso8601) as $t | $t > $start and $t <= $end);
+      [.[] | select(.pull_request and (.merged_at | inwin))] | length
+    unit: pull requests
+    definition: The titles of the pull requests merged after the start up to the end.
   - id: listing.lead_time_median
     reader: listing
     section: activity

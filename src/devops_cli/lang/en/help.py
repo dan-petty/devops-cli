@@ -2500,7 +2500,8 @@ class RoadmapCommandHelp:
     review_dry_run: str = (
         "Start no program and send no request: print the git commands that a run starts, then "
         "the shared reads, then each fact of the catalog with its reader kind and its query, "
-        "with placeholders."
+        "with placeholders, or list each repository of service.repos with sections and conditions "
+        "when no window is given."
     )
 
 

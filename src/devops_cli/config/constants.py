@@ -3787,6 +3787,8 @@ CONST_ROADMAP_IMPLEMENT_CHECK_LOG_CHARS: Final[int] = 2000
 # The file of a target repository that declares the project steps of the implement job: `docs` and
 # `archive` (#3484). The job reads it from the default branch, never from the checkout.
 CONST_ROADMAP_IMPLEMENT_STEPS_FILE: Final[str] = ".devops/roadmap.toml"
+# The default tag glob of `[review] tag_pattern` in CONST_ROADMAP_IMPLEMENT_STEPS_FILE (#4730).
+CONST_ROADMAP_REVIEW_TAG_PATTERN: Final[str] = "v*"
 # The most characters of the output of a hook stage that a step keeps (#3043). The stop comment and
 # the message of a repair turn cut a reason to the limit above, so the output leaves room for the
 # line that names the stage. The output keeps its end, where pre-commit prints the failed hooks.

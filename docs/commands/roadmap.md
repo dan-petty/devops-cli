@@ -673,7 +673,7 @@ devops roadmap review run [OPTIONS]
 | `--repo`, `-R` | `string` | - | The repository as owner/name (default: the origin of the checkout). It must be the origin of the checkout. |
 | `--out` | `path` | - | The folder of data.json (default: project-review/\<owner\>/\<name\>/<window id> under the data directory). |
 | `--json` | `boolean` | - | Print data.json to standard output. |
-| `--dry-run` | `boolean` | - | Start no program and send no request: print the git commands that a run starts, then the shared reads, then each fact of the catalog with its reader kind and its query, with placeholders. |
+| `--dry-run` | `boolean` | - | Start no program and send no request: print the git commands that a run starts, then the shared reads, then each fact of the catalog with its reader kind and its query, with placeholders, or list each repository of service.repos with sections and conditions when no window is given. |
 
 ---
 

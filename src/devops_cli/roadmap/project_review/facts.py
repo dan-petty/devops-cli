@@ -21,6 +21,7 @@ from typing import Any, Final
 from packaging.version import InvalidVersion, Version
 from pydantic import JsonValue
 
+from devops_cli.config.constants import CONST_ROADMAP_REVIEW_TAG_PATTERN
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.commit_title import commit_type
 from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewWindow
@@ -160,7 +161,10 @@ class _Facts:
 
 
 def git_facts(
-    checkout: Path, window: ReviewWindow, tags: Sequence[Tag]
+    checkout: Path,
+    window: ReviewWindow,
+    tags: Sequence[Tag],
+    tag_pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN,
 ) -> tuple[list[Fact], list[Hotspot]]:
     """The git facts of the window, and its hot files for the complexity reader."""
     facts = _Facts()
@@ -174,7 +178,7 @@ def git_facts(
     rows = [row for row in hotspots(found) if row.path not in generated]
     released = tags_in(tags, window.start, window.end)
     kinds = Counter(_release_kind(tag.name) for tag in released)
-    log_query, tag_query = query_text(log), query_text(tag_args())
+    log_query, tag_query = query_text(log), query_text(tag_args(tag_pattern))
     result = [
         facts.ok("git.commits", len(found), "commits", len(found), log_query),
         facts.ok("git.commit_types", dict(types.most_common()), "commits", len(found), log_query),
@@ -221,6 +225,14 @@ def complexity_fact(checkout: Path, window: ReviewWindow, rows: Sequence[Hotspot
     lizard = importlib.import_module(_LIZARD)
     lizard_languages = importlib.import_module(_LIZARD_LANGUAGES)
     read = [row for row in rows if lizard_languages.get_reader_for(row.path) is not None]
+    if rows and not read:
+        return facts.not_ok(
+            "lizard.complexity",
+            "ccn",
+            query,
+            FactStatus.SKIPPED,
+            MESSAGES.roadmap.review_lizard_unreadable,
+        )
     measured: list[JsonValue] = []
     for row in read[:_COMPLEXITY_FILES]:
         base_path = row.renamed_from[-1] if row.renamed_from else row.path
@@ -236,7 +248,12 @@ def complexity_fact(checkout: Path, window: ReviewWindow, rows: Sequence[Hotspot
     return facts.ok("lizard.complexity", measured, "ccn", len(measured), query)
 
 
-def review_facts(checkout: Path, window: ReviewWindow, tags: Sequence[Tag]) -> list[Fact]:
+def review_facts(
+    checkout: Path,
+    window: ReviewWindow,
+    tags: Sequence[Tag],
+    tag_pattern: str = CONST_ROADMAP_REVIEW_TAG_PATTERN,
+) -> list[Fact]:
     """Every fact of the window: the git facts, then the complexity of the hot files."""
-    found, rows = git_facts(checkout, window, tags)
+    found, rows = git_facts(checkout, window, tags, tag_pattern)
     return [*found, complexity_fact(checkout, window, rows)]

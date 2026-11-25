@@ -13,7 +13,7 @@ import pytest
 from devops_cli.config.commands import BIN_DEVOPS, BIN_UV
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.implement.implement_scoped_ci import scoped_checks
-from devops_cli.roadmap.project_profile import resolve_profile
+from devops_cli.roadmap.project_profile import resolve_profile, review_tag_pattern
 from devops_cli.roadmap.toolchains import DEVOPS_CLI_PRESET, NEUTRAL_PRESET
 from tests.support.roadmap_stage import StageRepo
 
@@ -98,3 +98,33 @@ def test_profile_is_read_from_commit_and_not_from_working_tree(
     profile = resolve_profile(stage_repo.clone, "origin/main")
 
     assert profile == DEVOPS_CLI_PRESET
+
+
+def test_the_review_table_gives_the_tag_pattern_and_the_default_is_v_star(
+    stage_repo: StageRepo,
+) -> None:
+    """`[review] tag_pattern` configures the project review tag glob with default `v*` (#4730)."""
+    assert review_tag_pattern(stage_repo.clone) == "v*"
+
+    stage_repo.track({STEPS_FILE: '[project]\ntoolchain = "neutral"\n'})
+    assert review_tag_pattern(stage_repo.clone) == "v*"
+
+    stage_repo.track(
+        {STEPS_FILE: '[project]\ntoolchain = "devops-cli"\n\n[review]\ntag_pattern = "release-*"\n'}
+    )
+    assert review_tag_pattern(stage_repo.clone) == "release-*"
+    assert resolve_profile(stage_repo.clone, "origin/main") == DEVOPS_CLI_PRESET
+
+    (stage_repo.clone / STEPS_FILE).write_text("[review]\nunknown = 'x'\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match=r"\.devops/roadmap\.toml"):
+        review_tag_pattern(stage_repo.clone)
+
+    (stage_repo.clone / STEPS_FILE).write_text(
+        "[review]\ntag_pattern = '--exec'\n", encoding="utf-8"
+    )
+    with pytest.raises(ConfigurationError, match=r"\.devops/roadmap\.toml"):
+        review_tag_pattern(stage_repo.clone)
+
+    (stage_repo.clone / STEPS_FILE).write_text("invalid = [toml\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match=r"\.devops/roadmap\.toml"):
+        review_tag_pattern(stage_repo.clone)
