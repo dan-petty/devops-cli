@@ -16,15 +16,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.core.serialization import YAML_SAFE_LOADER
 from devops_cli.exceptions.k8s import CatalogError
-from devops_cli.grafana.service_dashboard import (
-    SPEC_FILE_NAME as DASHBOARD_SPEC_FILE,
-)
-from devops_cli.grafana.service_dashboard import (
-    ServiceSpec,
-)
-from devops_cli.grafana.service_dashboard import (
-    load_specs as load_dashboard_specs,
-)
+from devops_cli.grafana.service_specs import SPEC_FILE_NAME as DASHBOARD_SPEC_FILE
+from devops_cli.grafana.service_specs import ServiceSpec
+from devops_cli.grafana.service_specs import load_specs as load_dashboard_specs
 from devops_cli.k8s.app_sources import (
     SourceTrees,
     application_sources,
