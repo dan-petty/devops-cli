@@ -27,7 +27,7 @@ For each candidate, intake sets these fields on GitHub:
 4. A reason comment, only when the labels do not show a fact: a scope that `.github/labels.yml` does not declare, the reason of a Priority other than P2-Medium or of a P0 decision on evidence, the possible original and the related item. The comment does not state the labels again.
 5. The `priority/*` label, last. The item then goes to the backlog.
 
-A label that a person set stays. Intake sets no milestone, because a person plans the milestones. A milestone that an issue has stays.
+Existing labels stay. Intake sets no milestone, and an existing milestone on an issue stays. Assign milestones with `devops gh issue edit`.
 
 A new candidate has a source, which is the link that its caller gives. Intake writes the line `Source: <source>` under a `## Source` heading after the body (#6451). The heading ends a Dependencies section of level 2 or lower, and the line opens with a word, so the source names no dependency, also when it names an issue as `#N` under a level-1 Dependencies heading. A retry of a run that stopped after it filed the issue also finds an issue of the form from before #6451, which ends with the `Source:` line and no heading.
 

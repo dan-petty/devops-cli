@@ -2,7 +2,7 @@
 
 ## 1. Overview & Purpose
 
-The AI code review in `devops-cli` reviews file paths, branch diffs and pull requests with static scanners and explanation stages, and a person gives the verdicts. Scanners judge the code against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) and the target's own conventions. The review builds a model client only for explanation stages (`group_analysis`). `docs/SELF_IMPROVEMENT.md` section 1 describes the loop as it runs, with the file and line of each step.
+The AI code review in `devops-cli` reviews file paths, branch diffs and pull requests with static scanners and explanation stages, while evaluation verdicts are recorded separately through `devops review verify`. Scanners judge the code against universal software engineering principles (SOLID, DRY, OWASP Top 10, CIS benchmarks) and the target's own conventions. The review builds a model client only for explanation stages (`group_analysis`). `docs/SELF_IMPROVEMENT.md` section 1 describes the loop as it runs, with the file and line of each step.
 
 ---
 
@@ -14,7 +14,7 @@ graph TD
     S1 --> S2[Static Security Scan, Admission & Dependency Analysis]
     S2 --> S3[Group Analysis: explanation and cross-group correlation]
     S3 --> S4[Report: findings.json, candidates.json, review.md, profile.json]
-    S4 --> F1[Verdicts: devops review verify, by a person]
+    S4 --> F1[Verdicts: devops review verify]
     F1 --> F2[Session labels and review history]
     F1 --> F3[Feedback dataset: devops review export-feedback]
     F3 --> F4[devops ai prompt-eval]
@@ -30,7 +30,7 @@ graph TD
   Specialized personas available for interactive discussions via `devops ai chat --persona <name>`: `devsecops`, `architect`, `auditor`, `qa`, `pm`, and `challenger`.
 
 - **Closed-Loop Feedback & Self-Improvement**:
-  - **Verdicts Come From People**: No model and no criterion gives a finding its verdict. A finding is reported UNVERIFIED until a person judges it; `--no-group-analysis` disables model explanation.
+  - **Review Runs Record No Verdicts**: The review pipeline model and criteria do not grade their own findings. A finding is reported UNVERIFIED until an agent evaluating findings or a person judges it with `devops review verify`; `--no-group-analysis` disables model explanation.
   - **Strict Canonical Location Enforcement**: Normalizes all finding locations to standard `path/to/file.ext:start-end` or `path/to/file.ext:line` format, rejecting conversational text, markdown noise (`**`, `###`), approval remarks ("Good.", "Looks solid."), prompt leakage, and malformed non-path tokens.
   - **Zero Scratchpad Leakage Defense**: Cleans model titles, descriptions, and locations to isolate internal reasoning and chain-of-thought scratchpad text from structured review artifacts.
   - **Criteria Stay Out of Reports**: Verification and invalidation criteria fields are excluded from user-facing reports (`review.md`, terminal tables, console panels).
@@ -49,7 +49,7 @@ graph TD
     - `Key Good Patterns Observed`: Reports verified tool observations (external dependencies queried against vulnerability databases with zero critical/high CVEs, network reference counts); omitted when no positive tool outputs exist.
     - `Key Bad Patterns Observed`: The defect classes that recur among verified findings, or confirmation that none recurs.
   - **Prompt Sanitization Markers**: Review prompts treat pre-prompt secret redaction markers (`<masked-*>`) as the sanitizer's, never an undefined name or a missing variable.
-  - **Verdicts & Export**: A person records a verdict through `devops review verify <session> --index <n> --status <STATUS> --reason "..."`, where `<n>` is the number `devops review findings` shows whatever filter it applies. `--candidate <n>` judges a finding from `devops review findings --candidates`, and a VERIFIED or MITIGATED verdict moves it into findings.json; when findings.json already reports its defect under another title, the command names that finding to judge instead. A verdict on a finding is recorded on the candidate it reports as well, and a verdict on a candidate on its copy in findings.json, so both lists agree; a candidate that its copy cannot tell apart from another of the same producer, title, location and description is judged through the copy with `--index`. Verdicts given on one session at once take turns under a lock on the session. Every verdict records `verified_by="human"` and ranks review history; it labels the session's files and nothing else, and when they cannot be written the verdict is not recorded. Verdicts are exported with `devops review export-feedback`, which labels a record `human` only when a person gave it.
+  - **Verdicts & Export**: An agent evaluating findings or a person records a verdict through `devops review verify <session> --index <n> --status <STATUS> --reason "..."`, where `<n>` is the number `devops review findings` shows whatever filter it applies. `--candidate <n>` judges a finding from `devops review findings --candidates`, and a VERIFIED or MITIGATED verdict moves it into findings.json; when findings.json already reports its defect under another title, the command names that finding to judge instead. A verdict on a finding is recorded on the candidate it reports as well, and a verdict on a candidate on its copy in findings.json, so both lists agree; a candidate that its copy cannot tell apart from another of the same producer, title, location and description is judged through the copy with `--index`. Verdicts given on one session at once take turns under a lock on the session. Every verdict records `verified_by="human"` and ranks review history; it labels the session's files and nothing else, and when they cannot be written the verdict is not recorded. Verdicts are exported with `devops review export-feedback`, which keeps the `verified_by="human"` label written by `devops review verify`.
 
 ---
 
@@ -120,11 +120,11 @@ devops review export-feedback --status INVALIDATED
 2. **Target Path Isolation**: When reviewing child workspaces (under `repos/`), always ensure file paths resolve relative to `target_dir` to prevent host file collisions.
 3. **Declare Project Conventions**: Maintain an accurate conventions file (e.g. `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursorrules`) and review suppressions in `.devops/review.toml` in target repositories.
 4. **Use Response Repair**: The review pipeline automatically normalizes LLM outputs using `repair_json_string` and `fix_llm_response` to ensure valid structured schemas.
-5. **Ground-Truth Symbol & Export Verification**: Analysis stages must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. A person invalidates a false missing-symbol claim, and one that recurs from a tool becomes a `.devops/review.toml` suppression.
+5. **Ground-Truth Symbol & Export Verification**: Analysis stages must inspect actual source module ASTs or exports before asserting that imported variables, constants, or classes are missing or cause `ImportError`. Invalidate a false missing-symbol claim with `devops review verify`, and add a recurring tool false positive as a `.devops/review.toml` suppression.
 6. **Closed-Loop Finding Remediation Workflow**: When remediating reported review findings:
    - **Step 1 (Test-First Specification)**: Author unit/regression tests asserting the defect and desired behavior before modifying source files.
    - **Step 2 (Clean Implementation & Architectural Invariants)**: Implement fixes adhering strictly to cyclomatic complexity $\le 10$ (Ruff `C901`) and at most 4 nested blocks (Ruff `PLR1702`) project-wide. Ruthlessly prune zombie code.
-   - **Step 3 (Record the Verdict)**: A person records the verdict, `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale, via `devops review verify <session> --index <n> --status <STATUS> --reason "..."`; agents record none. A recurring false positive becomes a `.devops/review.toml` suppression with a reason and an expiry.
+   - **Step 3 (Record the Verdict)**: An agent evaluating findings or a person records the verdict, `MITIGATED` or `INVALIDATED` with explicit step-by-step causal rationale, via `devops review verify <session> --index <n> --status <STATUS> --reason "..."`. A recurring false positive becomes a `.devops/review.toml` suppression with a reason and an expiry.
    - **Step 4 (Export the Verdicts)**: Run `devops review export-feedback --status ALL` to append the verdicts to the feedback dataset (`.data/feedback_dataset.jsonl`), which `devops ai prompt-eval` counts per labeller.
 
 ---

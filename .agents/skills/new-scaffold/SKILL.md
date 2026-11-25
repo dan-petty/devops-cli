@@ -13,7 +13,7 @@ Do not write these files by hand. The scaffold knows where each rule puts them.
 2. Run `uv run devops new command <group> <command>`.
 3. Do the steps that the command prints. They stay manual.
 
-The command adds the function to `src/devops_cli/commands/<group>.py`, the help and message entries to `src/devops_cli/lang/en/`, and a failing test to `tests/commands/`. It writes over no file. A new group is a decision for a person: add the group module and its language classes by hand.
+The command adds the function to `src/devops_cli/commands/<group>.py`, the help and message entries to `src/devops_cli/lang/en/`, and a failing test to `tests/commands/`. It writes over no file. Adding a new command group is a design decision: add the group module and its language classes manually.
 
 ## Add a test for a module
 

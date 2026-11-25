@@ -18,4 +18,5 @@ Use `devops review` to audit source files, branch diffs, or pull requests, and t
 1. Run `uv run devops review findings --details` to inspect the findings of the latest session.
 2. Run `uv run devops review findings --candidates --details` to inspect all candidates, including invalidated ones.
 3. Run `uv run devops review stats` to display accuracy statistics across saved review sessions.
-4. Run `uv run devops review export-feedback` to append verdicts to the feedback dataset.
+4. Run `uv run devops review verify <session> --index <n> --status <STATUS> --reason "<reason>"` to record evaluation verdicts.
+5. Run `uv run devops review export-feedback` to append verdicts to the feedback dataset.

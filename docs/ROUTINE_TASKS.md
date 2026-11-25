@@ -12,7 +12,7 @@ All routine operations in `devops-cli` adhere to six core engineering tenets:
 3. **Strict Quality Assurance**: Changes must pass every check that `devops ci` runs before merging ([`SDLC.md`](SDLC.md), Phase 4, lists them).
 4. **Target Branch & Non-Merge Policy**: Every topic PR targets `main`, and nobody pushes to `main`. Only a person merges a pull request ([`AGENTS.md`](../AGENTS.md)).
 5. **Dynamic Documentation Freshness**: Command matrices, CLI reference guides, and FastMCP schemas are generated dynamically through code introspection (`devops docs generate`) and verified in CI (`devops docs check`).
-6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must first search the open issues (`devops gh api "search/issues?q=repo:<owner>/<repo>+is:issue+is:open+<check or error text>"`) and, when one covers the defect, comment there with the new evidence and file nothing. Else they must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, Status, Value, Effort and Priority, and puts it in the backlog; nobody sets a milestone or priority on the new issue by hand. [`SDLC.md`](SDLC.md), Phase 1, Roadmap & Backlog Synchronization, gives the rules of a filed candidate.
+6. **Mandatory Defect Incident Tracking (Zero Unrecorded CLI Errors/Warnings)**: Whenever a CLI command produces an unhandled error, subcommand failure, crash, diagnostic warning, or unexpected behavior, agents and maintainers must first search the open issues (`devops gh api "search/issues?q=repo:<owner>/<repo>+is:issue+is:open+<check or error text>"`) and, when one covers the defect, comment there with the new evidence and file nothing. Else they must promptly file it as a candidate (`devops roadmap intake --title "fix(<scope>): …" --body-file <file> --confirm`), in the shape of the standardized bug report template. Intake checks it for a duplicate, labels its type, Status, Value, Effort and Priority, and puts it in the backlog; adjust labels or set a milestone with `devops gh issue edit` afterward if needed. [`SDLC.md`](SDLC.md), Phase 1, Roadmap & Backlog Synchronization, gives the rules of a filed candidate.
 
 
 ---
@@ -83,7 +83,7 @@ flowchart TD
    - **Inspect the Triage Queue**: Read the triage queue with `devops gh issue triage` (or FastMCP `gh_issue_triage`). The labels of each issue hold its state, so this step does not read the project board.
    - **Ground Requirement in a GitHub Issue**: Every feature, bug fix, or refactor must map to an open issue that is a roadmap item: it holds a `priority/*` label.
      - If a matching issue exists: link the task to it and verify its taxonomy labels.
-     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (a possible duplicate too, which its reason comment names for a person to close), labels its type, Status, Priority, Value and Effort, and puts it in the backlog; set no milestone or priority on it yourself.
+     - Without a matching issue: **FILE THE TASK AS A CANDIDATE** (`devops roadmap intake --title "<conventional title>" --body-file <file> --confirm` or FastMCP `roadmap_intake` with `mode="confirm"`). Intake files it (including possible duplicates for an agent or a person to close with `devops gh issue close`), labels its type, Status, Priority, Value and Effort, and puts it in the backlog; update labels or assign a milestone with `devops gh issue edit` afterward if needed.
    - Plan the item as an OpenSpec change, `openspec/changes/<issue>-<slug>/` ([`openspec/config.yaml`](../openspec/config.yaml)). The labels of the issue hold the Status of the item, and the change folder holds none.
 2. **Sync Dependencies (`uv sync`)**: Always ensure `.venv` is aligned with `uv.lock` before starting work.
 3. **Place Constants, Config & Defaults**:
@@ -217,8 +217,8 @@ Executed weekly, or when dependencies are updated.
      ```bash
      devops ai review findings --session <session-id>
      ```
-  2. Record a person's verdict:
-     - No model verifies a finding; a person verifies or invalidates each with specific rationale:
+  2. Record evaluation verdicts:
+     - An automated review pipeline verifies no finding of its own; an agent evaluating findings or a person verifies or invalidates each finding with specific rationale:
      ```bash
      devops ai review verify <session-id> --index 1 --status INVALIDATED --reason "False positive on valid exception tuple"
      ```
