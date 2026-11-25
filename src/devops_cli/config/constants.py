@@ -5855,3 +5855,35 @@ CONST_OPENSPEC_NON_OBSERVABLE_PREFIXES: Final[tuple[str, ...]] = (
 # only presence or compares a presence call with a boolean literal in a tuple certifies
 # an object exists without verifying its values or behavior (#851).
 CONST_PRESENCE_CHECK_NAMES: Final[frozenset[str]] = frozenset({"callable", "hasattr", "isinstance"})
+# The names of every row in the CI check registry, in registry order (#5451).
+CONST_CI_CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
+    "test",
+    "lint",
+    "format",
+    "typecheck",
+    "audit",
+    "security",
+    "actionlint",
+    "zizmor",
+    "docs",
+    "uv-check",
+    "lockfile",
+    "build",
+    "outdated",
+    "deps",
+    "constructs",
+    "devcontainer",
+    "hadolint",
+    "openspec",
+    "git",
+    "test-settings",
+    "bwrap",
+    "kube-linter",
+    "k8s",
+    "charts",
+    "test-tree",
+    "startup-imports",
+    "swallowed-failures",
+    "domain",
+    "roadmap-eval-commits",
+)

@@ -27,6 +27,7 @@ from devops_cli.config.commands import (
 from devops_cli.config.constants import (
     CONST_AST_GREP_SCAN_ARGS,
     CONST_BANDIT_INI_NAME,
+    CONST_CI_CHECK_ROW_NAMES,
     CONST_CI_RUN_STOP_SIGNAL_NAMES,
     CONST_CI_SHARD_JUNIT_PATH,
     CONST_CI_SHARD_SUMMARY_CHARS,
@@ -126,37 +127,7 @@ _SNAPSHOT_WARN_UNUSED: Final[str] = "--snapshot-warn-unused"
 _REPEAT_SCHEDULING: Final[tuple[str, ...]] = ("--dist", "loadfile")
 
 # The names of every row in the check registry, in registry order (#5451).
-CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
-    "test",
-    "lint",
-    "format",
-    "typecheck",
-    "audit",
-    "security",
-    "actionlint",
-    "zizmor",
-    "docs",
-    "uv-check",
-    "lockfile",
-    "build",
-    "outdated",
-    "deps",
-    "constructs",
-    "devcontainer",
-    "hadolint",
-    "openspec",
-    "git",
-    "test-settings",
-    "bwrap",
-    "kube-linter",
-    "k8s",
-    "charts",
-    "test-tree",
-    "startup-imports",
-    "swallowed-failures",
-    "domain",
-    "roadmap-eval-commits",
-)
+CHECK_ROW_NAMES: Final[tuple[str, ...]] = CONST_CI_CHECK_ROW_NAMES
 
 
 def _get_project_root() -> Path:

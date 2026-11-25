@@ -111,6 +111,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.core.repo": ("reset_repo_caches", "reset_own_source_dir"),
     "devops_cli.core.templating": ("reset_template_environment_cache",),
     "devops_cli.core.untrusted_trees": ("reset_untrusted_trees",),
+    "devops_cli.core.usage_hints": ("reset_usage_hint_caches",),
     "devops_cli.core.validation": ("reset_network_caches",),
     "devops_cli.docker.engine": ("DockerEngineService.reset_instance",),
     "devops_cli.dry_run.state": ("reset_dry_run_state",),

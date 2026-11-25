@@ -5,8 +5,9 @@ from __future__ import annotations
 import functools
 import os
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -198,10 +199,41 @@ class UsageTaggedGroup(TyperGroup):
             raise
 
 
+_LAST_USAGE_HINT: ContextVar[str | None] = ContextVar("devops_usage_hint", default=None)
+
+
 class UsageRecordingGroup(UsageTaggedGroup):
     """The root group of the CLI. It records each usage error of the command line, also of a
     help query, a dry run and an MCP tool, and raises it again, so Typer shows the same error box
     with exit code 2 (#4839). A request for help with no arguments is not an error."""
+
+    def main(
+        self,
+        args: Sequence[str] | None = None,
+        prog_name: str | None = None,
+        complete_var: str | None = None,
+        standalone_mode: bool = True,
+        windows_expand_args: bool = True,
+        **extra: Any,
+    ) -> Any:
+        token = _LAST_USAGE_HINT.set(None)
+        try:
+            return super().main(
+                args=args,
+                prog_name=prog_name,
+                complete_var=complete_var,
+                standalone_mode=standalone_mode,
+                windows_expand_args=windows_expand_args,
+                **extra,
+            )
+        except SystemExit:
+            if standalone_mode and (hint := _LAST_USAGE_HINT.get()) is not None:
+                from typer._click import echo
+
+                echo(hint, err=True)
+            raise
+        finally:
+            _LAST_USAGE_HINT.reset(token)
 
     def make_context(
         self, info_name: str | None, args: list[str], parent: Context | None = None, **extra: Any
@@ -220,9 +252,16 @@ def _recorded_usage_errors() -> Iterator[None]:
         yield
     except UsageError as error:
         if not isinstance(error, NoArgsIsHelpError):
+            from devops_cli.core.usage_hints import (
+                enrich_error_for_display,
+                prepare_usage_error,
+            )
             from devops_cli.telemetry.usage_errors import record_usage_error
 
-            record_usage_error(error)
+            hint = prepare_usage_error(error)
+            _LAST_USAGE_HINT.set(hint)
+            record_usage_error(error, hinted=hint is not None)
+            enrich_error_for_display(error)
         raise
 
 
