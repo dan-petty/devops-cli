@@ -72,6 +72,7 @@ from devops_cli.config.constants import (
     CONST_FAIL_TO_PASS_PYTEST_FLAGS,
     CONST_GATE_CHECKS_PACKAGE_SUFFIX,
     CONST_GATE_DIR,
+    CONST_GATE_MODULE_ROWS,
     CONST_GIT_NAME_STATUS_CHANGE_TYPES,
     CONST_KNOWLEDGE_BASE_DIR,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -224,6 +225,62 @@ class GateRowReplay(BaseModel):
         return not self.same_cases or bool(self.unchanged_failed)
 
 
+class GateModuleRun(BaseModel):
+    """The problem lines that one run of a changed gate module wrote to stderr (#4596)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    problems: tuple[str, ...] = ()
+
+
+class GateModuleReplay(BaseModel):
+    """The runs of one changed module directly under `tests/gate/` on the base and head trees
+    (#4596). `row` is None when no `devops ci` row runs the module."""
+
+    model_config = ConfigDict(frozen=True)
+
+    module: str
+    row: str | None = None
+    base: GateModuleRun | ReplayCouldNotRun | None = None
+    head: GateModuleRun | ReplayCouldNotRun | None = None
+
+    @property
+    def runs(self) -> tuple[GateModuleRun, GateModuleRun] | None:
+        """The base and head runs, or None when a run could not run."""
+        if isinstance(self.base, GateModuleRun) and isinstance(self.head, GateModuleRun):
+            return self.base, self.head
+        return None
+
+    @property
+    def proved(self) -> tuple[str, ...]:
+        """The problem lines on base that appear on no line of head."""
+        if (runs := self.runs) is None:
+            return ()
+        base, head = runs
+        head_set = set(head.problems)
+        return tuple(line for line in base.problems if line not in head_set)
+
+    @property
+    def head_only(self) -> tuple[str, ...]:
+        """The problem lines on head that appear on no line of base."""
+        if (runs := self.runs) is None:
+            return ()
+        base, head = runs
+        base_set = set(base.problems)
+        return tuple(line for line in head.problems if line not in base_set)
+
+    @property
+    def no_base_problem(self) -> bool:
+        """Whether the base run wrote no problem line."""
+        return isinstance(self.base, GateModuleRun) and not self.base.problems
+
+    @property
+    def refused(self) -> bool:
+        """Whether the module proves nothing: no CI row runs it, a run could not run, the base
+        run had no problem line, or head wrote a problem line that base did not."""
+        return self.row is None or self.runs is None or self.no_base_problem or bool(self.head_only)
+
+
 class FailToPassReport(BaseModel):
     """Outcome of replaying changed tests against the merge-base tree, and of the gate rows of
     the changed gate checks on the base and head trees (#4554)."""
@@ -237,7 +294,9 @@ class FailToPassReport(BaseModel):
     could_not_run: ReplayCouldNotRun | None = None
     unchanged_failed: tuple[str, ...] = ()
     changed_gate_checks: tuple[str, ...] = ()
+    changed_gate_modules: tuple[str, ...] = ()
     gate_rows: tuple[GateRowReplay, ...] = ()
+    gate_modules: tuple[GateModuleReplay, ...] = ()
     repaired: tuple[TestCaseOutcome, ...] = ()
     head_could_not_run: ReplayCouldNotRun | None = None
     # False when the fix changes no source code and no gate check, so no test needs to fail on base
@@ -307,9 +366,17 @@ class FailToPassReport(BaseModel):
         checks is no changed gate check (#6456)."""
         if not self.needs_proof:
             return True
-        if self.tests_refused or any(row.refused for row in self.gate_rows):
+        if (
+            self.tests_refused
+            or any(row.refused for row in self.gate_rows)
+            or any(module.refused for module in self.gate_modules)
+        ):
             return False
-        return bool(self.proof) or any(row.proved for row in self.gate_rows)
+        return (
+            bool(self.proof)
+            or any(row.proved for row in self.gate_rows)
+            or any(module.proved for module in self.gate_modules)
+        )
 
 
 class _JUnitHTMLParser(HTMLParser):
@@ -392,6 +459,15 @@ def is_gate_check(path: PurePosixPath) -> bool:
     )
 
 
+def is_gate_module(path: PurePosixPath) -> bool:
+    """Whether `path` is a module directly under `tests/gate/` (#4596)."""
+    return (
+        path.parent == PurePosixPath(CONST_GATE_DIR)
+        and path.suffix == CONST_PYTHON_FILE_SUFFIX
+        and path.name != CONST_PYTHON_PACKAGE_INIT_FILE
+    )
+
+
 def gate_row_of(path: str) -> str:
     """The gate row that runs the check module at `path`: the name of its package without
     `_checks`, so a module of `tests/gate/k8s_checks/` belongs to the row `k8s`."""
@@ -406,6 +482,7 @@ class ChangedTests(BaseModel):
     merge_base: str
     test_files: tuple[str, ...]
     gate_checks: tuple[str, ...] = ()
+    gate_modules: tuple[str, ...] = ()
     source_files: tuple[str, ...] = ()
     # The checks that the fix deletes, as `<module>.<check>`: from each changed gate check module
     # that only loses checks, and from each deleted gate check module. Neither module is in
@@ -511,6 +588,7 @@ def changed_tests(root: Path, base: str, head: str = "HEAD") -> ChangedTests:
         merge_base=merge_base,
         test_files=tuple(path for path in paths if is_test_file(PurePosixPath(path))),
         gate_checks=tuple(path for path in gate_checks if path not in deleted),
+        gate_modules=tuple(path for path in paths if is_gate_module(PurePosixPath(path))),
         source_files=tuple(path for path in paths if is_source_code(PurePosixPath(path))),
         deleted_checks=tuple(check for path in sorted(deleted) for check in deleted[path]),
     )
@@ -603,12 +681,24 @@ def gate_row_argv(row: str) -> list[str]:
     return [sys.executable, "-c", CONST_FAIL_TO_PASS_GATE_ROW_SCRIPT.format(module=row)]
 
 
+def gate_module_argv(module: str) -> list[str]:
+    """The command that runs the changed gate module `module` inside a tree (#4596)."""
+    return gate_row_argv(PurePosixPath(module).stem)
+
+
+def gate_row_of_module(path: str) -> str | None:
+    """The `devops ci` row whose command runs the gate module at `path`, or None when none does
+    (#4596)."""
+    return CONST_GATE_MODULE_ROWS.get(PurePosixPath(path).stem)
+
+
 MERGE_BASE_PLACEHOLDER = "<merge-base>"
 TEMP_DIR_PLACEHOLDER = "<temp-dir>"
 CHANGED_TESTS_PLACEHOLDER = "<changed test files>"
 BLOB_PLACEHOLDER = "<blob of the changed test file>"
 GATE_ROW_PLACEHOLDER = "<gate row>"
 GATE_MODULE_PLACEHOLDER = "<changed gate check module>"
+CHANGED_GATE_MODULE_PLACEHOLDER = "<changed gate module>"
 GATE_BLOB_PLACEHOLDER = "<blob of the changed gate check module>"
 GATE_MODULE_READ = "a module of tests/gate/*_checks/ changes"
 EACH_GATE_MODULE = "for each changed module of tests/gate/*_checks/"
@@ -618,6 +708,8 @@ UNCHANGED_CHECK = "a test that failed or errored on base is in a changed test fi
 TEST_REPLAY = "a changed test file exists and the fix changes source code or a gate check"
 GATE_REPLAY = "a changed gate check exists"
 EACH_GATE_ROW = "for each row of a changed gate check"
+GATE_MODULE_REPLAY = "a module of tests/gate/ changes and a devops ci row runs it"
+EACH_GATE_MODULE_ROW = "for each changed module of tests/gate/ that a devops ci row runs"
 UNCHANGED_REPLAY = "a test that failed or errored on base is unchanged"
 HEAD_RUN = "a changed gate check exists or a test that failed or errored on base is unchanged"
 UNCHANGED_TESTS_PLACEHOLDER = "<unchanged test files>"
@@ -648,6 +740,15 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
             argv=tuple(gate_row_argv(GATE_ROW_PLACEHOLDER)),
             condition=GATE_REPLAY,
             repeat=EACH_GATE_ROW,
+        )
+
+    def gate_module_run(target: str) -> PlannedRequest:
+        return PlannedRequest(
+            method="gate module",
+            target=target,
+            argv=tuple(gate_module_argv(CHANGED_GATE_MODULE_PLACEHOLDER)),
+            condition=GATE_MODULE_REPLAY,
+            repeat=EACH_GATE_MODULE_ROW,
         )
 
     def module_read(
@@ -698,6 +799,23 @@ def plan_fail_to_pass(base: str, head: str = "HEAD") -> list[PlannedRequest]:
     )
     if diff_head is not None:
         requests += module_read(diff_head, "the head", GATE_MODULE_READ, EACH_GATE_MODULE)
+    gate_base = tmp / "gate_base"
+    requests += [
+        git(worktree_add_argv(gate_base, MERGE_BASE_PLACEHOLDER), GATE_MODULE_REPLAY),
+        gate_module_run(str(gate_base)),
+        git(worktree_remove_argv(gate_base), GATE_MODULE_REPLAY),
+        git(worktree_prune_argv(), GATE_MODULE_REPLAY),
+    ]
+    if diff_head is None:
+        requests.append(gate_module_run("the working tree"))
+    else:
+        gate_head = tmp / "gate_head"
+        requests += [
+            git(worktree_add_argv(gate_head, diff_head), GATE_MODULE_REPLAY),
+            gate_module_run(str(gate_head)),
+            git(worktree_remove_argv(gate_head), GATE_MODULE_REPLAY),
+            git(worktree_prune_argv(), GATE_MODULE_REPLAY),
+        ]
     requests += [
         git(worktree_add_argv(tree, MERGE_BASE_PLACEHOLDER), replay),
         git(archive_argv(tmp / "tests.tar", tests_archive_args(head)), replay),
@@ -944,6 +1062,52 @@ def _run_gate_row(tree: Path, row: str) -> GateRowRun | ReplayCouldNotRun:
     )
 
 
+def _run_gate_module(tree: Path, module: str) -> GateModuleRun | ReplayCouldNotRun:
+    """Run the changed gate module `module` in `tree` and collect its stderr lines (#4596)."""
+    try:
+        result = run_subprocess(gate_module_argv(module), cwd=tree, capture_output=True)
+    except subprocess.TimeoutExpired:
+        return ReplayCouldNotRun(exit_status=1, timeout_seconds=DEFAULT_SUBPROCESS_TIMEOUT_SECONDS)
+    stdout, stderr = result.stdout or "", result.stderr or ""
+    if result.returncode in CONST_FAIL_TO_PASS_GATE_ROW_EXIT_STATUSES:
+        problems = tuple(dict.fromkeys(line for line in stderr.splitlines() if line))
+        return GateModuleRun(problems=problems)
+    return ReplayCouldNotRun(
+        exit_status=result.returncode, output_tail=_output_tail(f"{stdout}\n{stderr}")
+    )
+
+
+def _replay_gate_modules(
+    root: Path,
+    merge_base: str,
+    head: str,
+    tmp_path: Path,
+    modules: Sequence[str],
+) -> tuple[GateModuleReplay, ...]:
+    """Replay each changed module directly under `tests/gate/` on plain base and head trees
+    (#4596)."""
+    if not modules:
+        return ()
+    owned = [(path, gate_row_of_module(path)) for path in modules]
+    runnable = [(path, row) for path, row in owned if row is not None]
+    base_runs: dict[str, GateModuleRun | ReplayCouldNotRun] = {}
+    head_runs: dict[str, GateModuleRun | ReplayCouldNotRun] = {}
+    if runnable:
+        with _plain_base_tree(root, merge_base, tmp_path / "gate_base") as base_dir:
+            base_runs = {path: _run_gate_module(base_dir, path) for path, _ in runnable}
+        with _head_tree(root, head, tmp_path / "gate_head") as head_dir:
+            head_runs = {path: _run_gate_module(head_dir, path) for path, _ in runnable}
+    return tuple(
+        GateModuleReplay(
+            module=path,
+            row=row,
+            base=base_runs.get(path),
+            head=head_runs.get(path),
+        )
+        for path, row in owned
+    )
+
+
 def _run_gate_rows_on_head(
     root: Path, head: str, rows: Sequence[str], dest: Path
 ) -> dict[str, GateRowRun | ReplayCouldNotRun]:
@@ -1024,7 +1188,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
     """Replay the changed `tests/**/test_*.py` files against the merge-base tree, and run the
     gate row of each changed gate check on the base and head trees (#4554)."""
     changed = changed_tests(root, base, head)
-    if not changed.source_files and not changed.gate_checks:
+    if not changed.source_files and not changed.gate_checks and not changed.gate_modules:
         return FailToPassReport(
             merge_base=changed.merge_base,
             head=head,
@@ -1033,7 +1197,7 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
             needs_proof=False,
             deleted_gate_checks=changed.deleted_checks,
         )
-    if not changed.test_files and not changed.gate_checks:
+    if not changed.test_files and not changed.gate_checks and not changed.gate_modules:
         return FailToPassReport(
             merge_base=changed.merge_base,
             head=head,
@@ -1044,15 +1208,21 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
     rows = _check_modules_by_row(changed.gate_checks)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
+        gate_modules = _replay_gate_modules(
+            root, changed.merge_base, head, tmp_path, changed.gate_modules
+        )
         tree_dir = tmp_path / "tree"
-        try:
-            materialise_base_with_head_tests(root, changed.merge_base, head, tree_dir)
-            run, unchanged_failed = _replay_tests(
-                root, changed.merge_base, tree_dir, changed.test_files
-            )
-            base_runs = {row: _run_gate_row(tree_dir, row) for row in rows}
-        finally:
-            remove_materialised_base(root, tree_dir)
+        if changed.test_files or rows:
+            try:
+                materialise_base_with_head_tests(root, changed.merge_base, head, tree_dir)
+                run, unchanged_failed = _replay_tests(
+                    root, changed.merge_base, tree_dir, changed.test_files
+                )
+                base_runs = {row: _run_gate_row(tree_dir, row) for row in rows}
+            finally:
+                remove_materialised_base(root, tree_dir)
+        else:
+            run, unchanged_failed, base_runs = None, (), {}
 
         repaired: tuple[TestCaseOutcome, ...] = ()
         head_could_not_run: ReplayCouldNotRun | None = None
@@ -1093,10 +1263,12 @@ def run_fail_to_pass(root: Path, *, base: str, head: str = "HEAD") -> FailToPass
         could_not_run=base_could_not_run,
         unchanged_failed=unchanged_failed,
         changed_gate_checks=changed.gate_checks,
+        changed_gate_modules=changed.gate_modules,
         gate_rows=tuple(
             GateRowReplay(row=row, check_modules=modules, base=base_runs[row], head=head_runs[row])
             for row, modules in rows.items()
         ),
+        gate_modules=gate_modules,
         repaired=repaired,
         head_could_not_run=head_could_not_run,
         deleted_gate_checks=changed.deleted_checks,
@@ -1118,29 +1290,36 @@ def _could_not_run_lines(could_not_run: ReplayCouldNotRun, files: str) -> list[s
     return [reason, MESSAGES.ci.fail_to_pass_replay_output.format(output=could_not_run.output_tail)]
 
 
+def _gate_error_lines(
+    runs: tuple[tuple[str, object], ...],
+    timeout_template: str,
+    status_template: str,
+    **target: str,
+) -> list[str]:
+    """Format timeout, exit status and tail output for gate runs that could not run."""
+    lines: list[str] = []
+    for tree, run in runs:
+        if not isinstance(run, ReplayCouldNotRun):
+            continue
+        if run.timeout_seconds is not None:
+            lines.append(timeout_template.format(tree=tree, seconds=run.timeout_seconds, **target))
+            continue
+        lines.append(status_template.format(tree=tree, status=run.exit_status, **target))
+        if run.output_tail:
+            lines.append(MESSAGES.ci.fail_to_pass_gate_output.format(output=run.output_tail))
+    return lines
+
+
 def _gate_row_lines(row: GateRowReplay) -> list[str]:
     """The report's lines for the runs of one gate row: the cases that prove the fix and the
     counts of the two runs, or why a run could not run (#4554)."""
     if (runs := row.runs) is None:
-        lines: list[str] = []
-        for tree, run in (("base", row.base), ("head", row.head)):
-            if not isinstance(run, ReplayCouldNotRun):
-                continue
-            if run.timeout_seconds is not None:
-                lines.append(
-                    MESSAGES.ci.fail_to_pass_gate_timeout.format(
-                        row=row.row, tree=tree, seconds=run.timeout_seconds
-                    )
-                )
-                continue
-            lines.append(
-                MESSAGES.ci.fail_to_pass_gate_could_not_run.format(
-                    row=row.row, tree=tree, status=run.exit_status
-                )
-            )
-            if run.output_tail:
-                lines.append(MESSAGES.ci.fail_to_pass_gate_output.format(output=run.output_tail))
-        return lines
+        return _gate_error_lines(
+            (("base", row.base), ("head", row.head)),
+            MESSAGES.ci.fail_to_pass_gate_timeout,
+            MESSAGES.ci.fail_to_pass_gate_could_not_run,
+            row=row.row,
+        )
     base, head = runs
     return [
         *(
@@ -1154,6 +1333,32 @@ def _gate_row_lines(row: GateRowReplay) -> list[str]:
             head_failed=len(head.failed),
             head_cases=head.cases,
             modules=", ".join(row.check_modules),
+        ),
+    ]
+
+
+def _gate_module_lines(module: GateModuleReplay) -> list[str]:
+    """The report's lines for one changed gate module directly under `tests/gate/` (#4596)."""
+    if module.row is None:
+        return [MESSAGES.ci.fail_to_pass_gate_module_no_row.format(module=module.module)]
+    if (runs := module.runs) is None:
+        return _gate_error_lines(
+            (("base", module.base), ("head", module.head)),
+            MESSAGES.ci.fail_to_pass_gate_module_timeout,
+            MESSAGES.ci.fail_to_pass_gate_module_could_not_run,
+            module=module.module,
+        )
+    base, head = runs
+    return [
+        *(
+            MESSAGES.ci.fail_to_pass_gate_module_proved.format(module=module.module, line=line)
+            for line in module.proved
+        ),
+        MESSAGES.ci.fail_to_pass_gate_module_summary.format(
+            module=module.module,
+            row=module.row,
+            base_problems=len(base.problems),
+            head_problems=len(head.problems),
         ),
     ]
 
@@ -1175,12 +1380,37 @@ def _gate_refusals(report: FailToPassReport) -> list[str]:
     return reasons
 
 
+def _gate_module_refusals(report: FailToPassReport) -> list[str]:
+    """The sentences that tell the author why changed gate modules refuse the fix (#4596)."""
+    reasons: list[str] = []
+    for module in report.gate_modules:
+        if module.no_base_problem:
+            reasons.append(
+                MESSAGES.ci.fail_to_pass_gate_module_no_base_problem.format(module=module.module)
+            )
+        if module.head_only:
+            reasons.append(
+                MESSAGES.ci.fail_to_pass_gate_module_head_only.format(
+                    module=module.module, lines=", ".join(module.head_only)
+                )
+            )
+    return reasons
+
+
 def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str]:
     """The sentences that tell the author why a replay that ran does not satisfy the gate. A
     replay that could not run has its own lines, and adds no sentence."""
-    if not report.changed_test_files and not report.changed_gate_checks:
+    if (
+        not report.changed_test_files
+        and not report.changed_gate_checks
+        and not report.changed_gate_modules
+    ):
         return [MESSAGES.ci.fail_to_pass_no_tests]
-    if report.could_not_run is not None or any(row.runs is None for row in report.gate_rows):
+    if (
+        report.could_not_run is not None
+        or any(row.runs is None for row in report.gate_rows)
+        or any(module.runs is None for module in report.gate_modules)
+    ):
         return []
     if report.host_path_guard_failures:
         guarded = dict.fromkeys(outcome.test_id for outcome in report.host_path_guard_failures)
@@ -1203,8 +1433,13 @@ def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str
                 tests=", ".join(report.unchanged_failed)
             )
         ]
-    if refusals := _gate_refusals(report):
+    if refusals := _gate_refusals(report) + _gate_module_refusals(report):
         return refusals
+    return _none_proved_reasons(report, files_label)
+
+
+def _none_proved_reasons(report: FailToPassReport, files_label: str) -> list[str]:
+    """Explain when changed tests, gate checks or gate modules all ran without proving the fix."""
     reasons = []
     if report.changed_test_files:
         tests_str = ", ".join(outcome.test_id for outcome in report.outcomes) or files_label
@@ -1213,6 +1448,12 @@ def _unsatisfied_reasons(report: FailToPassReport, files_label: str) -> list[str
         reasons.append(
             MESSAGES.ci.fail_to_pass_gate_none_proved.format(
                 modules=", ".join(report.changed_gate_checks)
+            )
+        )
+    if report.changed_gate_modules:
+        reasons.append(
+            MESSAGES.ci.fail_to_pass_gate_module_none_proved.format(
+                modules=", ".join(report.changed_gate_modules)
             )
         )
     return reasons
@@ -1248,7 +1489,9 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
     )
     if report.could_not_run is not None:
         lines += _could_not_run_lines(report.could_not_run, files_label)
-    elif report.changed_test_files or not report.changed_gate_checks:
+    elif report.changed_test_files or (
+        not report.changed_gate_checks and not report.changed_gate_modules
+    ):
         lines.append(
             MESSAGES.ci.fail_to_pass_summary.format(
                 failed=report.failed_count,
@@ -1259,6 +1502,8 @@ def format_fail_to_pass_report(report: FailToPassReport) -> str:
         )
     for row in report.gate_rows:
         lines += _gate_row_lines(row)
+    for module in report.gate_modules:
+        lines += _gate_module_lines(module)
     if not report.satisfied:
         lines += _unsatisfied_reasons(report, files_label)
     elif report.proof:

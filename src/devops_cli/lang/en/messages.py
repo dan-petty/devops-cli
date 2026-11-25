@@ -2488,19 +2488,18 @@ class CIMessages:
     )
     fail_to_pass_no_source: str = (
         "The fix changes no source code (a .py file under src/ outside the knowledge base) and "
-        "adds or changes no case of tests/gate/*_checks/, so it needs no test that fails on its "
-        "base. A validator or a check command proves a change of a prompt, a pin, a manifest or "
-        "other data."
+        "no gate module of tests/gate/, so it needs no test that fails on its base. A validator "
+        "or a check command proves a change of a prompt, a pin, a manifest or other data."
     )
     fail_to_pass_deleted_checks: str = (
         "The fix changes no source code (a .py file under src/ outside the knowledge base), and "
-        "it only deletes checks of tests/gate/*_checks/: {checks}. A deleted check runs on "
-        "neither tree, so the fix needs no test that fails on its base."
+        "it only deletes checks of tests/gate/: {checks}. A deleted check runs on neither tree, so "
+        "the fix needs no test that fails on its base."
     )
     fail_to_pass_no_tests: str = (
-        "The fix changes no tests/**/test_*.py file and adds or changes no case of "
-        "tests/gate/*_checks/. A deleted check runs on neither tree. A fix adds or changes a test "
-        "or a gate check that fails on its base."
+        "The fix changes no tests/**/test_*.py file and adds or changes no module of tests/gate/. "
+        "A deleted check runs on neither tree. A fix adds or changes a test or a gate check that "
+        "fails on its base."
     )
     fail_to_pass_none_failed: str = (
         "A fix needs at least one changed test that fails on base, or that errors there at "
@@ -2568,6 +2567,28 @@ class CIMessages:
         "a pull request that is not a fix. Then replay this fix against the new base."
     )
     fail_to_pass_gate_output: str = "Its last output: {output}"
+    fail_to_pass_gate_module_proved: str = "  failed on base, passed on head: {module} {line}"
+    fail_to_pass_gate_module_summary: str = (
+        "{module} ({row} gate row): {base_problems} problems on base, {head_problems} on head."
+    )
+    fail_to_pass_gate_module_no_row: str = "No devops ci row runs {module}."
+    fail_to_pass_gate_module_timeout: str = (
+        "The gate module {module} could not run on {tree}: python stopped after {seconds} seconds."
+    )
+    fail_to_pass_gate_module_could_not_run: str = (
+        "The gate module {module} could not run on the {tree} tree: it exited with status "
+        "{status}. Each changed gate module must exit with status 0 or 1."
+    )
+    fail_to_pass_gate_module_no_base_problem: str = (
+        "The base run of {module} had no problem line. A changed gate module proves a fix only "
+        "when its base run writes at least one problem line."
+    )
+    fail_to_pass_gate_module_head_only: str = (
+        "The head run of {module} writes a problem line that the base run does not ({lines})."
+    )
+    fail_to_pass_gate_module_none_proved: str = (
+        "No problem line of a changed gate module appears only on base ({modules})."
+    )
 
 
 @dataclass(frozen=True)

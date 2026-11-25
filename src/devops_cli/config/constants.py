@@ -2646,6 +2646,18 @@ CONST_PYTHON_PACKAGE_INIT_FILE: Final[str] = "__init__.py"
 CONST_GATE_ROW_SCRIPT: Final[str] = (
     "import sys; from tests.gate.{module} import main; sys.exit(main())"
 )
+# Mapping from each runnable `tests/gate/<module>.py` stem to its owning `devops ci` row (#4596).
+CONST_GATE_MODULE_ROWS: Final[dict[str, str]] = {
+    "ruff_config": "lint",
+    "construct_gate": "constructs",
+    "k8s": "k8s",
+    "charts": "charts",
+    "tree": "test-tree",
+    "startup_imports": "startup-imports",
+    "swallowed_failures": "swallowed-failures",
+    "configured_domain": "domain",
+    "roadmap_eval_commits": "roadmap-eval-commits",
+}
 # The replay starts a gate row with the interpreter of the running checkout, and the editable
 # install of that interpreter finds `devops_cli` in the `src/` of the checkout. So the script
 # first puts the `src/` of the tree that the row runs in at the start of the import path, as

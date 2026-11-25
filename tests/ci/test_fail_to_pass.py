@@ -175,9 +175,9 @@ def _handle_worktree_add(replay_state: _FailToPassState, argv: list[str]) -> Pro
     dest = Path(argv[argv.index("add") + 3])
     dest.mkdir(parents=True, exist_ok=True)
     replay_state.active_worktrees.add(dest.resolve())
-    # The base replay tree is the worktree named `tree`; a head or plain-base worktree is not it
-    # (#5361).
-    if dest.name == "tree":
+    # The base replay tree is the worktree named `tree` or `gate_base`; a head or plain-base
+    # worktree is not it (#5361, #4596).
+    if dest.name in ("tree", "gate_base"):
         replay_state.base_worktrees.add(dest.resolve())
     for rel, text in {**replay_state.base_files, **replay_state.base_tests}.items():
         target = dest / rel
@@ -374,7 +374,9 @@ def _replay_report(
         "could_not_run": could_not_run,
         "unchanged_failed": (),
         "changed_gate_checks": (),
+        "changed_gate_modules": (),
         "gate_rows": (),
+        "gate_modules": (),
         "repaired": repaired,
         "head_could_not_run": head_could_not_run,
         "needs_proof": True,
@@ -759,8 +761,8 @@ def test_fail_to_pass_dry_run_and_no_changed_tests(replay_state: _FailToPassStat
     assert (
         dry_res.exit_code,
         empty_defect.exit_code,
-        "The fix changes no tests/**/test_*.py file and adds or changes no case of "
-        "tests/gate/*_checks/." in empty_defect.output.replace("\n", " "),
+        "The fix changes no tests/**/test_*.py file and adds or changes no module of tests/gate/."
+        in empty_defect.output.replace("\n", " "),
     ) == (0, 1, True)
 
 
@@ -1496,31 +1498,51 @@ def test_fail_to_pass_dry_run_lists_the_replay_and_starts_nothing(
         "'<changed gate check module>'",
         "git cat-file blob '<blob of the changed gate check module>'",
     ]
-    assert lines[7] == "git worktree add --quiet --detach '<temp-dir>/tree' '<merge-base>'"
-    assert lines[8] == "git archive --format=tar '--output=<temp-dir>/tests.tar' HEAD -- tests"
-    assert " -m pytest " in lines[9]
-    assert lines[9].endswith("'<changed test files>'")
+    gate_module = shlex.join(fail_to_pass.gate_module_argv("<changed gate module>"))
+    assert lines[7:12] == [
+        "git worktree add --quiet --detach '<temp-dir>/gate_base' '<merge-base>'",
+        gate_module,
+        "git worktree remove --force '<temp-dir>/gate_base'",
+        "git worktree prune",
+        gate_module,
+    ]
+    assert lines[12] == "git worktree add --quiet --detach '<temp-dir>/tree' '<merge-base>'"
+    assert lines[13] == "git archive --format=tar '--output=<temp-dir>/tests.tar' HEAD -- tests"
+    assert " -m pytest " in lines[14]
+    assert lines[14].endswith("'<changed test files>'")
     gate_row = shlex.join(fail_to_pass.gate_row_argv("<gate row>"))
-    assert lines[10:] == [
+    assert lines[15:] == [
         "git --literal-pathspecs ls-tree -z --full-tree '<merge-base>' -- '<changed test files>'",
         "git cat-file blob '<blob of the changed test file>'",
         gate_row,
         "git worktree remove --force '<temp-dir>/tree'",
         "git worktree prune",
-        lines[15],
+        lines[20],
         gate_row,
     ]
-    assert " -m pytest " in lines[15]
-    assert lines[15].endswith("'<unchanged test files>'")
-    reads, conditions = (
+    assert " -m pytest " in lines[20]
+    assert lines[20].endswith("'<unchanged test files>'")
+    reads, mod_conditions, conditions = (
         (line.split("  [", 1)[1] for line in _plan_lines(result.output)[start:end])
-        for start, end in ((5, 7), (7, None))
+        for start, end in ((5, 7), (7, 12), (12, None))
     )
     module_read = "only if a module of tests/gate/*_checks/ changes or is deleted"
     each_module = "  [repeated for each changed or deleted module of tests/gate/*_checks/]"
     assert list(reads) == [
         f"{module_read}]{each_module}",
         f"{module_read} and the merge base holds it]{each_module}",
+    ]
+    gate_mod_cond = (
+        "only if a module of tests/gate/ changes and a devops ci row runs it]"
+        "  [repeated for each changed module of tests/gate/ that a devops ci row runs]"
+    )
+    gate_mod_tree_cond = "only if a module of tests/gate/ changes and a devops ci row runs it]"
+    assert list(mod_conditions) == [
+        gate_mod_tree_cond,
+        gate_mod_cond,
+        gate_mod_tree_cond,
+        gate_mod_tree_cond,
+        gate_mod_cond,
     ]
     conditions = list(conditions)
     replay = (
@@ -1585,7 +1607,10 @@ def test_fail_to_pass_dry_run_of_a_head_lists_the_fallback_diff(
     ("changed", "skipped"),
     [
         ("tests/test_x.py", ("a changed gate check exists", "a module of tests/gate/")),
-        ("tests/gate/k8s_checks/x.py", ("a changed test file exists",)),
+        (
+            "tests/gate/k8s_checks/x.py",
+            ("a changed test file exists", "a module of tests/gate/ changes"),
+        ),
     ],
     ids=["test-file", "gate-check"],
 )
@@ -1873,7 +1898,7 @@ def test_the_check_directory_names_the_row_of_a_changed_module(
             "tests/gate/k8s_checks/__init__.py",
             "tests/gate/runner.py",
             "tests/gate/k8s_checks/data/values.py",
-            "tests/gate/ruff_config.py",
+            "tests/gate/__init__.py",
         ),
     )
 
@@ -2078,7 +2103,7 @@ def test_the_report_of_a_fix_that_only_deletes_gate_checks_names_each_check(
         ("gateway.check_old_rule",),
         (),
         "The fix changes no source code (a .py file under src/ outside the knowledge base), and "
-        "it only deletes checks of tests/gate/*_checks/: gateway.check_old_rule. A deleted check "
+        "it only deletes checks of tests/gate/: gateway.check_old_rule. A deleted check "
         "runs on neither tree, so the fix needs no test that fails on its base.",
     )
 
@@ -2157,8 +2182,8 @@ def test_a_deleted_gate_check_in_a_fix_of_source_code_still_needs_proof(
     ) == (
         False,
         [],
-        "The fix changes no tests/**/test_*.py file and adds or changes no case of "
-        "tests/gate/*_checks/. A deleted check runs on neither tree. A fix adds or changes a test "
+        "The fix changes no tests/**/test_*.py file and adds or changes no module of "
+        "tests/gate/. A deleted check runs on neither tree. A fix adds or changes a test "
         "or a gate check that fails on its base.",
     )
 
@@ -2346,3 +2371,129 @@ def test_the_replay_reads_the_output_of_the_gate_runner(
     assert fail_to_pass.parse_gate_row_output(
         status, printed.out, printed.err
     ) == fail_to_pass.GateRowRun(cases=3, failed=("otel_collector.check_fixed[deploy-stack]",))
+
+
+def test_a_change_of_only_a_module_under_tests_gate_needs_a_proof(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A fix that changes only a module under `tests/gate/` needs a proof and records that module."""
+    (tmp_path / ".git").mkdir(parents=True, exist_ok=True)
+    replay_state.changed_source_files = ()
+    replay_state.changed_test_files = ("tests/gate/ruff_config.py",)
+
+    report = run_fail_to_pass(tmp_path, base="main")
+
+    assert (report.needs_proof, report.changed_gate_modules) == (
+        True,
+        ("tests/gate/ruff_config.py",),
+    )
+
+
+def test_a_base_only_problem_line_of_a_changed_gate_module_proves_the_fix(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """A stderr problem line on the base run of a changed `tests/gate/` module that does not
+    appear on head proves the fix; a module that no CI row runs is refused."""
+    repo_proved = tmp_path / "proved"
+    (repo_proved / ".git").mkdir(parents=True)
+    replay_state.changed_source_files = ()
+    replay_state.changed_test_files = ("tests/gate/ruff_config.py",)
+    replay_state.gate_base = ProcessAnswer(
+        returncode=1,
+        stderr="ruff configuration: linter.mccabe.max_complexity: 5, not 10\n",
+    )
+    replay_state.gate_head = ProcessAnswer(returncode=0)
+
+    proved_report = run_fail_to_pass(repo_proved, base="main")
+
+    repo_unowned = tmp_path / "unowned"
+    (repo_unowned / ".git").mkdir(parents=True)
+    replay_state.changed_test_files = ("tests/gate/runner.py",)
+
+    unowned_report = run_fail_to_pass(repo_unowned, base="main")
+
+    assert (
+        proved_report.satisfied,
+        proved_report.gate_modules[0].proved,
+        unowned_report.satisfied,
+        unowned_report.gate_modules[0].refused,
+    ) == (
+        True,
+        ("ruff configuration: linter.mccabe.max_complexity: 5, not 10",),
+        False,
+        True,
+    )
+
+
+def test_the_report_of_a_proved_gate_module_names_the_module_and_its_problem_line(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """The report names each proved gate module and problem line, names why a gate module replay
+    is refused or could not run, and the dry-run plan lists the module runs."""
+    (tmp_path / ".git").mkdir(parents=True)
+    line = "ruff configuration: linter.mccabe.max_complexity: 5, not 10"
+    replay_state.changed_source_files = ()
+    replay_state.changed_test_files = ("tests/gate/ruff_config.py",)
+    replay_state.gate_base = ProcessAnswer(returncode=1, stderr=f"{line}\n")
+    replay_state.gate_head = ProcessAnswer(returncode=0)
+    proved_text = format_fail_to_pass_report(run_fail_to_pass(tmp_path, base="main"))
+
+    replay_state.changed_test_files = ("tests/gate/runner.py",)
+    unowned_text = format_fail_to_pass_report(run_fail_to_pass(tmp_path, base="main"))
+
+    replay_state.changed_test_files = ("tests/gate/swallowed_failures.py",)
+    replay_state.gate_base = ProcessAnswer(returncode=0)
+    no_base_report = run_fail_to_pass(tmp_path, base="main")
+    no_base_text = format_fail_to_pass_report(no_base_report)
+
+    replay_state.changed_test_files = ("tests/gate/startup_imports.py",)
+    replay_state.gate_base = ProcessAnswer(returncode=1, stderr="startup imports: base\n")
+    replay_state.gate_head = ProcessAnswer(returncode=1, stderr="startup imports: head_only\n")
+    head_only_report = run_fail_to_pass(tmp_path, base="main")
+    head_only_text = format_fail_to_pass_report(head_only_report)
+
+    replay_state.changed_test_files = ("tests/gate/construct_gate.py",)
+    replay_state.gate_base = ProcessAnswer(returncode=2, stderr="boom\n")
+    replay_state.gate_head = ProcessAnswer(returncode=0)
+    bad_exit_report = run_fail_to_pass(tmp_path, base="main")
+    bad_exit_text = format_fail_to_pass_report(bad_exit_report)
+
+    plan_argvs = [request.argv for request in plan_fail_to_pass("main")]
+    expected_argv = tuple(fail_to_pass.gate_module_argv("<changed gate module>"))
+
+    assert (
+        "tests/gate/ruff_config.py" in proved_text,
+        line in proved_text,
+        "no changed test files" in proved_text,
+        "tests/gate/runner.py" in unowned_text,
+        no_base_report.satisfied,
+        "tests/gate/swallowed_failures.py" in no_base_text and "no problem line" in no_base_text,
+        head_only_report.satisfied,
+        "tests/gate/startup_imports.py" in head_only_text
+        and "startup imports: head_only" in head_only_text,
+        bad_exit_report.satisfied,
+        "tests/gate/construct_gate.py" in bad_exit_text
+        and "base" in bad_exit_text
+        and "2" in bad_exit_text,
+        plan_argvs.count(expected_argv),
+    ) == (True, True, False, True, False, True, False, True, False, True, 2)
+
+
+def test_gate_row_of_module_matches_get_check_specs() -> None:
+    """The gate module-to-row table matches every `tests.gate.<module>` check spec in CI."""
+    marker = "from tests.gate."
+    expected = {
+        f"tests/gate/{cmd[cmd.index(marker) + len(marker) :].split()[0]}.py": spec.name
+        for spec in get_check_specs()
+        for argv in spec.commands
+        for cmd in argv
+        if marker in cmd
+    }
+    actual = {
+        path: row
+        for p in sorted((REPO_ROOT / "tests/gate").glob("*.py"))
+        if p.name != "__init__.py"
+        and (row := fail_to_pass.gate_row_of_module(path := p.relative_to(REPO_ROOT).as_posix()))
+        is not None
+    }
+    assert actual == expected
