@@ -20,7 +20,12 @@ from devops_cli.http.entry import http_client
 from devops_cli.k8s.cluster_job import RUNNER_TEMPLATE
 from devops_cli.k8s.cluster_job_api import ClusterJobs
 from devops_cli.roadmap.release_feed import ReleaseInfo
-from devops_cli.roadmap.release_roll import RolledDigests, cluster_digests, live_release
+from devops_cli.roadmap.release_roll import (
+    RolledDigests,
+    cluster_digests,
+    live_release,
+    publishes_release_images,
+)
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.kubernetes import FakeCluster
 from tests.support.fakes.oci_registry import RegistryFake
@@ -209,3 +214,13 @@ def test_a_registry_status_other_than_404_raises_also_for_a_new_release(
         live_release((NEWER,), rolled, client, now=NEWER.published_at + timedelta(minutes=5))
 
     assert not isinstance(caught.value, RegistryTagNotFoundError)
+
+
+def test_publishes_release_images_matches_only_image_repository() -> None:
+    assert (
+        publishes_release_images("dan-petty/devops-cli"),
+        publishes_release_images("Dan-Petty/DevOps-CLI"),
+        publishes_release_images("dan-petty/devtools"),
+        publishes_release_images("dan-petty/infra"),
+        publishes_release_images("example/roadmap"),
+    ) == (True, True, False, False, False)

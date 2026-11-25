@@ -163,7 +163,7 @@ from devops_cli.roadmap.open_row import run_open_round
 from devops_cli.roadmap.refine.refine import RefineWriter, plan_refine
 from devops_cli.roadmap.release_comments import comment_one_release, comment_releases
 from devops_cli.roadmap.release_feed import GitHubReleaseFeed, ReleaseInfo
-from devops_cli.roadmap.release_roll import cluster_digests
+from devops_cli.roadmap.release_roll import cluster_digests, publishes_release_images
 from devops_cli.roadmap.retitle import apply_retitle, build_retitle_model, plan_retitle
 from devops_cli.roadmap.service_stop import service_stopping, stop_before
 from devops_cli.roadmap.stage.plan_drift import run_plan_drift
@@ -1061,19 +1061,26 @@ def _run_release_comments_adapter(
     **_: Any,
 ) -> JobOutcome:
     """Comment the version on each closed issue of a recent release, and the time its images run
-    in the cluster (#2917). The row calls no model and needs no clone; its ledger
-    `release_comments.json` lies beside `schedule.json`. It fails, once both comments are
-    posted, when the cluster or the registry could not be read."""
+    in the cluster for the repository that publishes them (#2917, #7062). The row calls no model
+    and needs no clone; its ledger `release_comments.json` lies beside `schedule.json`. For the
+    repository of `CONST_ROADMAP_RELEASE_IMAGE_PREFIX`, it fails once both comments are posted
+    when the cluster or the registry could not be read."""
     from devops_cli.config.constants import CONST_ROADMAP_RELEASE_LEDGER_FILENAME
     from devops_cli.http.egress import EgressLevel
     from devops_cli.http.entry import http_client
     from devops_cli.k8s.cluster_job_api import ClusterJobs
 
+    ledger_path = repo_dir / CONST_ROADMAP_RELEASE_LEDGER_FILENAME
+    feed = GitHubReleaseFeed(repo)
+    if not publishes_release_images(repo):
+        comment_releases(store, feed, ledger_path=ledger_path, now=now)
+        return JobOutcome()
+
     with http_client(EgressLevel.PUBLIC) as client:
         comment_releases(
             store,
-            GitHubReleaseFeed(repo),
-            ledger_path=repo_dir / CONST_ROADMAP_RELEASE_LEDGER_FILENAME,
+            feed,
+            ledger_path=ledger_path,
             now=now,
             roll=lambda: cluster_digests(ClusterJobs()),
             client=client,

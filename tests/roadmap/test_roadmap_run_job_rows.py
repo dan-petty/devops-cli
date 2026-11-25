@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -143,7 +144,8 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
     """Over the edge fakes of GitHub, the cluster and the registry, a round posts the `Released
     in` comment of a seeded release and writes `release_comments.json` in the directory of the
     repository (#2917)."""
-    github = GitHubFake(REPO)
+    image_repo = "dan-petty/devops-cli"
+    github = GitHubFake(image_repo)
     github.seed_issue(11, "pull", state="closed", body="Closes #101", pull_request=True)
     github.seed_issue(101, "done", state="closed")
     github.seed_release("v1.0.0", "* x ([#11](https://example.com/11))\n", NOW - timedelta(hours=1))
@@ -171,9 +173,9 @@ def test_the_release_comments_adapter_comments_a_release_and_keeps_its_ledger(
             },
         }
     ]
-    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+    store = GitHubRoadmapStore(image_repo, runner=github, session=RunnerSession(github))
 
-    run_release_comments_adapter(store, repo=REPO, repo_dir=tmp_path, now=NOW)
+    run_release_comments_adapter(store, repo=image_repo, repo_dir=tmp_path, now=NOW)
 
     assert github.comments[101][0].startswith("<!-- devops roadmap release v1.0.0 released -->")
     assert (tmp_path / "release_comments.json").is_file()
@@ -190,7 +192,8 @@ def test_rounds_with_a_404_on_a_new_release_up_to_the_limit_suspend_no_row(
     """A release of 5 minutes ago has no image yet, so the registry answers HTTP 404. The row
     `release_comments` fails no round, and its record in the ledger of failed rounds stays empty
     (#3507)."""
-    github = GitHubFake(REPO)
+    image_repo = "dan-petty/devops-cli"
+    github = GitHubFake(image_repo)
     github.seed_release("v1.0.0", "* x\n", NOW - timedelta(minutes=5))
     github.install(process_fake)
     prefix = "ghcr.io/dan-petty/devops-cli"
@@ -215,14 +218,14 @@ def test_rounds_with_a_404_on_a_new_release_up_to_the_limit_suspend_no_row(
         }
     ]
     failures = FailureLedger()
-    store = GitHubRoadmapStore(REPO, runner=github, session=RunnerSession(github))
+    store = GitHubRoadmapStore(image_repo, runner=github, session=RunnerSession(github))
     ran: list[tuple[str, ...]] = []
 
     # A data directory per round has no schedule, so the row is due in each round.
     for step in range(failures.limit):
         ran.append(
             run_due_jobs(
-                REPO,
+                image_repo,
                 store,
                 batch={POLL_KEY: 1},
                 table=lane_table(STATUS_LANE_ROWS, release_comments=run_release_comments_adapter),
@@ -233,6 +236,34 @@ def test_rounds_with_a_404_on_a_new_release_up_to_the_limit_suspend_no_row(
         )
 
     assert (
-        failures.holds_failure(REPO, "release_comments"),
+        failures.holds_failure(image_repo, "release_comments"),
         [names.count("release_comments") for names in ran],
     ) == (False, [1] * failures.limit)
+
+
+def test_an_unrelated_repository_posts_released_comments_without_checking_images(
+    process_fake: ProcessFake,
+    tmp_path: Path,
+    cluster: FakeCluster,
+    web: WebFake,
+) -> None:
+    """An unrelated repository skips cluster and GHCR digest checks even when its release is older
+    than the grace limit and cluster or registry targets are absent (#7062)."""
+    unrelated_repo = "dan-petty/devtools"
+    github = GitHubFake(unrelated_repo)
+    github.seed_issue(11, "pull", state="closed", body="Closes #101", pull_request=True)
+    github.seed_issue(101, "done", state="closed")
+    github.seed_release("v1.1.0", "* x ([#11](https://example.com/11))\n", NOW - timedelta(hours=2))
+    github.install(process_fake)
+    web.serve(RegistryFake({}))
+    store = GitHubRoadmapStore(unrelated_repo, runner=github, session=RunnerSession(github))
+
+    run_release_comments_adapter(store, repo=unrelated_repo, repo_dir=tmp_path, now=NOW)
+
+    comments = github.comments[101]
+    assert len(comments) == 1
+    assert comments[0].startswith("<!-- devops roadmap release v1.1.0 released -->")
+    assert web.sent == []
+    assert json.loads((tmp_path / "release_comments.json").read_text("utf-8"))["releases"][
+        "v1.1.0"
+    ] == {"released": True, "live": False}
