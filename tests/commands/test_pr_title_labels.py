@@ -337,3 +337,49 @@ def test_a_dry_run_lists_the_label_requests_of_the_title(
         ),
         any("placeholder" in line for line in lines),
     ] == [True, True, True, True]
+
+
+@pytest.mark.usefixtures("status")
+def test_create_with_repo_and_head_applies_head_only_scope_label(
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore, pull: int
+) -> None:
+    """With `--repo` and `--head`, a scope declared only on `--head` opens the PR and applies its label (#6469)."""
+    roadmap_store.seed_file(
+        LABELS_PATH,
+        LABELS_FILE + '- name: "scope/tools"\n  color: "ededed"\n',
+        ref="feat/tools",
+    )
+    result, _ = _create(runner, "fix(tools): add tools", "--head", "feat/tools")
+    assert (result.exit_code, _labeled(roadmap_store)) == (
+        0,
+        {(pull, "type/bug"), (pull, "scope/tools")},
+    )
+
+
+def test_a_dry_run_with_repo_and_head_lists_both_labels_reads(
+    runner: CliRunner, roadmap_store_repos: list[str]
+) -> None:
+    """Dry run with `--repo` and `--head` lists reading `.github/labels.yml` on both refs (#6469)."""
+    set_dry_run(True)
+    result = runner.invoke(
+        app,
+        [
+            "create",
+            "--title",
+            "fix(ai): a title",
+            "--body",
+            BODY,
+            "--repo",
+            REPO,
+            "--base",
+            "main",
+            "--head",
+            "feat/ai",
+        ],
+    )
+    lines = result.stdout.splitlines()
+    assert (result.exit_code, roadmap_store_repos) == (0, [])
+    assert [
+        any(f"repos/{REPO}/contents/.github/labels.yml?ref=main" in line for line in lines),
+        any(f"repos/{REPO}/contents/.github/labels.yml?ref=feat%2Fai" in line for line in lines),
+    ] == [True, True]

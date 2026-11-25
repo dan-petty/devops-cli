@@ -249,12 +249,50 @@ def pr_create_args(
     return cmd
 
 
+def plan_pr_title_labels(
+    target_repo: str,
+    title: str,
+    *,
+    base: str | None = None,
+    head: str | None = None,
+) -> list[PlannedRequest]:
+    """Generate planned `.github/labels.yml` reads and label writes for a pull request title (#6469)."""
+    asked = [label for label in requested_labels(title) if label]
+    if not asked:
+        return []
+    refs = (base, head) if head and head != base else (base,)
+    requests = [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/contents/{CONST_ROADMAP_LABELS_PATH}",
+            argv=(
+                CONST_GH_CLI,
+                *repository_file_args(target_repo, CONST_ROADMAP_LABELS_PATH, ref=ref),
+            ),
+            condition="the pull request opens",
+        )
+        for ref in refs
+    ]
+    requests.extend(
+        PlannedRequest(
+            method="POST",
+            target=f"repos/{target_repo}/issues/<number>/labels",
+            argv=(CONST_GH_CLI, *label_args(target_repo, "<number>", label)),
+            condition=MESSAGES.pr.labels_dry_run_condition,
+        )
+        for label in asked
+    )
+    return requests
+
+
 def plan_pr_create(
     title: str,
     body: str = "",
     base: str | None = None,
     repo: str | None = None,
     head: str | None = None,
+    *,
+    read_head_labels: bool = True,
 ) -> list[PlannedRequest]:
     """Generate planned requests for devops pr create."""
     target_repo = repo or ":owner/:repo"
@@ -265,28 +303,8 @@ def plan_pr_create(
             argv=tuple(pr_create_args(title, body, base, repo, head)),
         )
     ]
-    asked = [label for label in requested_labels(title) if label]
-    if asked:
-        requests.append(
-            PlannedRequest(
-                method="GET",
-                target=f"repos/{target_repo}/contents/{CONST_ROADMAP_LABELS_PATH}",
-                argv=(
-                    CONST_GH_CLI,
-                    *repository_file_args(target_repo, CONST_ROADMAP_LABELS_PATH, ref=base),
-                ),
-                condition="the pull request opens",
-            )
-        )
-        for label in asked:
-            requests.append(
-                PlannedRequest(
-                    method="POST",
-                    target=f"repos/{target_repo}/issues/<number>/labels",
-                    argv=(CONST_GH_CLI, *label_args(target_repo, "<number>", label)),
-                    condition=MESSAGES.pr.labels_dry_run_condition,
-                )
-            )
+    label_head = head if read_head_labels else None
+    requests.extend(plan_pr_title_labels(target_repo, title, base=base, head=label_head))
     return requests
 
 

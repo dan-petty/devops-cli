@@ -83,6 +83,7 @@ from devops_cli.github.pr_plans import (
     plan_pr_threads_resolve,
     plan_pr_threads_resolve_all,
     plan_pr_threads_unresolve,
+    plan_pr_title_labels,
     plan_pr_view,
     pr_close_args,
     pr_create_args,
@@ -106,8 +107,7 @@ from devops_cli.output import (
 from devops_cli.roadmap import pull_labels
 from devops_cli.roadmap.implement.implement_pull import Answer, Draft, draft_readiness, read_draft
 from devops_cli.roadmap.pull_status import set_delivered_status
-from devops_cli.roadmap.stores.github_store import issue_args, label_args, repository_file_args
-from devops_cli.roadmap.title_labels import requested_labels
+from devops_cli.roadmap.stores.github_store import issue_args, repository_file_args
 
 logger = logging.getLogger(__name__)
 
@@ -1223,7 +1223,7 @@ def _fallback_create_pr(
     if res.returncode == 0:
         number = _print_created_pr_message(res.stdout, target_base)
         if number is not None:
-            _finish_created_pr(repo, number, title, base)
+            _finish_created_pr(repo, number, title, base, head=head)
         return True
     return False
 
@@ -1251,10 +1251,18 @@ def _record_status(repo: str | None, number: int, status: str, state: str) -> No
         raise typer.Exit(1)
 
 
-def _labels_recorded(repo: str | None, number: int, title: str, base: str | None) -> bool:
+def _labels_recorded(
+    repo: str | None,
+    number: int,
+    title: str,
+    base: str | None,
+    *,
+    head: str | None = None,
+) -> bool:
     """Add the labels that `title` gives to pull request `number` (#2748), as declared in the
-    labels file on `base`. A scope with no declared label gets a warning. A failure prints an
-    error that names the pull request, which stays open, and the labels, and returns False."""
+    labels file on `base` (and `head` when `--repo` and `--head` are both set, #6469). A failure
+    prints an error that names the pull request, which stays open, and the labels, and returns
+    False."""
     target = _target_repo(repo)
     if not target or "/" not in target:
         return True
@@ -1262,7 +1270,9 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
 
     store = get_roadmap_store(target)
     try:
-        given = pull_labels.read_title_labels(store, title, ref=base)
+        given = pull_labels.read_title_labels(
+            store, title, ref=base, head=head if repo is not None else None
+        )
         pull_labels.add_pull_labels(store, number, given.labels)
     except GitHubOperationError as exc:
         print_error(
@@ -1272,36 +1282,22 @@ def _labels_recorded(repo: str | None, number: int, title: str, base: str | None
     return True
 
 
-def _plan_title_labels(repo: str | None, title: str, base: str | None) -> None:
+def _plan_title_labels(
+    repo: str | None,
+    title: str,
+    base: str | None,
+    *,
+    head: str | None = None,
+) -> None:
     """Print the requests that a real `devops pr create` would send to label the new pull request:
     the read of the labels file, then one label request for each label the title asks for. The
     number of the pull request is a placeholder. Nothing is read or sent."""
     target = _target_repo(repo)
     if not target or "/" not in target:
         return
-    asked = [label for label in requested_labels(title) if label]
-    if not asked:
+    plan = plan_pr_title_labels(target, title, base=base, head=head if repo is not None else None)
+    if not plan:
         return
-    plan = [
-        PlannedRequest(
-            method="GET",
-            target=f"repos/{target}/contents/{CONST_ROADMAP_LABELS_PATH}",
-            argv=(
-                CONST_GH_CLI,
-                *repository_file_args(target, CONST_ROADMAP_LABELS_PATH, ref=base),
-            ),
-            condition="the pull request opens",
-        ),
-        *(
-            PlannedRequest(
-                method="POST",
-                target=f"repos/{target}/issues/<number>/labels",
-                argv=(CONST_GH_CLI, *label_args(target, "<number>", label)),
-                condition=MESSAGES.pr.labels_dry_run_condition,
-            )
-            for label in asked
-        ),
-    ]
     render_request_plan(
         MESSAGES.pr.labels_dry_run_heading, plan, (MESSAGES.dry_run.placeholders_note,)
     )
@@ -1334,12 +1330,19 @@ def _created_status_recorded(repo: str | None, number: int) -> bool:
     return True
 
 
-def _finish_created_pr(repo: str | None, number: int, title: str, base: str | None) -> None:
+def _finish_created_pr(
+    repo: str | None,
+    number: int,
+    title: str,
+    base: str | None,
+    *,
+    head: str | None = None,
+) -> None:
     """Set the Status of the item that the new pull request closes, and give the pull request the
     labels of its title. Each step runs when the other fails. The command exits 1 if either failed,
     and the pull request stays open."""
     status_set = _created_status_recorded(repo, number)
-    labels_set = _labels_recorded(repo, number, title, base)
+    labels_set = _labels_recorded(repo, number, title, base, head=head)
     if not (status_set and labels_set):
         raise typer.Exit(1)
 
@@ -1351,8 +1354,24 @@ def _offline_openspec(repo: str | None) -> bool:
     return repo is None and (_checkout() / CONST_OPENSPEC_CONFIG_PATH).is_file()
 
 
+def _labels_source(repo: str | None, base: str | None, head: str | None) -> str | None:
+    """Name which `.github/labels.yml` ref(s) were checked when `--repo` is set (#6469)."""
+    if repo is None:
+        return None
+    base_ref = f"`{base}`" if base else MESSAGES.pr.create_default_base
+    if head is not None:
+        return f"{CONST_ROADMAP_LABELS_PATH} on {base_ref} or `{head}`"
+    return f"{CONST_ROADMAP_LABELS_PATH} on {base_ref}"
+
+
 def _form_checked(
-    title: str, body: str, repo: str | None, base: str | None, *, offline: bool
+    title: str,
+    body: str,
+    repo: str | None,
+    base: str | None,
+    *,
+    head: str | None = None,
+    offline: bool,
 ) -> None:
     """Refuse a pull request whose title or body breaks the form of `pull_form` (#3198): print
     every problem to stderr and exit 1, before anything is opened. The body has the lines
@@ -1388,7 +1407,10 @@ def _form_checked(
         try:
             store = get_roadmap_store(target)
             declared = declared_label_set(
-                store, ref=base, checkout=_checkout() if repo is None else None
+                store,
+                ref=base,
+                checkout=_checkout() if repo is None else None,
+                head=head if repo is not None else None,
             )
             openspec = repository_uses_openspec(store, ref=base)
         except (GitHubOperationError, ValidationError) as exc:
@@ -1401,7 +1423,10 @@ def _form_checked(
         form = body_problems(body)
     else:
         form = plan_body_problems(body, planned)
-    problems = [*title_problems(title, declared), *form]
+    problems = [
+        *title_problems(title, declared, labels_source=_labels_source(repo, base, head)),
+        *form,
+    ]
     if problems:
         listed = "\n".join(f"- {problem}" for problem in problems)
         print_error(MESSAGES.pr.form_refused.format(problems=listed), safe=True, to_stderr=True)
@@ -1531,9 +1556,16 @@ def create_pr(
     resolved_body = _resolve_body_input(body, body_file)
     body_text = resolved_body if resolved_body is not None else ""
     if dry_run or is_dry_run():
-        _form_checked(title, body_text, repo, base, offline=True)
+        _form_checked(title, body_text, repo, base, head=head, offline=True)
         target = _target_repo(repo)
-        plan = plan_pr_create(title=title, body=body_text, base=base, repo=target, head=head)
+        plan = plan_pr_create(
+            title=title,
+            body=body_text,
+            base=base,
+            repo=target,
+            head=head,
+            read_head_labels=repo is not None,
+        )
         render_request_plan(
             MESSAGES.pr.draft_would_open_into.format(base=base or MESSAGES.pr.create_default_base),
             plan,
@@ -1541,7 +1573,7 @@ def create_pr(
         )
         return
     _require_gh_cli()
-    _form_checked(title, body_text, repo, base, offline=False)
+    _form_checked(title, body_text, repo, base, head=head, offline=False)
     cmd = pr_create_args(title, body_text, base, repo, head)
 
     res = run_gh(cmd, check=False)
@@ -1554,13 +1586,13 @@ def create_pr(
         print_success(MESSAGES.pr.draft_created.format(url=url))
         last = url.rstrip("/").rsplit("/", 1)[-1]
         if last.isdigit():
-            _finish_created_pr(repo, int(last), title, base)
+            _finish_created_pr(repo, int(last), title, base, head=head)
         return
     print_success(
         MESSAGES.pr.draft_created_into.format(base=base or MESSAGES.pr.create_default_base)
     )
     if is_dry_run():
-        _plan_title_labels(repo, title, base)
+        _plan_title_labels(repo, title, base, head=head)
 
 
 # =============================================================================

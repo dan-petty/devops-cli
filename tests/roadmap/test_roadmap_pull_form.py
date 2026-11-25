@@ -121,6 +121,18 @@ def test_a_title_with_two_faults_names_both() -> None:
     ]
 
 
+def test_title_problems_uses_custom_labels_source_when_given() -> None:
+    """`title_problems` names `labels_source` when provided and keeps `.github/labels.yml` otherwise (#6469)."""
+    default_problem = title_problems("feat(tools): build", DECLARED)[0]
+    scoped_problem = title_problems(
+        "feat(tools): build", DECLARED, labels_source=".github/labels.yml on `main` or `fix/1`"
+    )[0]
+    assert ".github/labels.yml does not declare `scope/tools`" in default_problem
+    assert (
+        ".github/labels.yml on `main` or `fix/1` does not declare `scope/tools`" in scoped_problem
+    )
+
+
 @pytest.mark.parametrize(
     ("title", "fragment"),
     [

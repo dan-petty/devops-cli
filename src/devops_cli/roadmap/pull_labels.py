@@ -14,7 +14,11 @@ import yaml
 from pydantic import ValidationError
 
 from devops_cli.config.constants import CONST_ROADMAP_LABELS_PATH
-from devops_cli.exceptions.git import GitHubOperationError, GitHubUnauthenticatedError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubUnauthenticatedError,
+)
 from devops_cli.github.labels import LabelSpec
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stores import store as roadmap_store
@@ -44,13 +48,46 @@ def declared_labels(store: roadmap_store.RoadmapStore, *, ref: str | None) -> tu
     return tuple(spec.name for spec in declared_specs(store, ref=ref))
 
 
+def declared_labels_for_refs(
+    store: roadmap_store.RoadmapStore,
+    *,
+    ref: str | None,
+    head: str | None = None,
+) -> tuple[str, ...]:
+    """Label names declared in `.github/labels.yml` across `ref` and, when given, `head` (#6469).
+
+    Missing `.github/labels.yml` on one ref is allowed when the other ref declares it; if both
+    refs lack the file, the base ref error is raised. Non-not-found errors always propagate.
+    """
+    if head is None or head == ref:
+        return declared_labels(store, ref=ref)
+    names: list[str] = []
+    base_missing: GitHubFileNotFoundError | None = None
+    head_missing: GitHubFileNotFoundError | None = None
+    try:
+        names.extend(declared_labels(store, ref=ref))
+    except GitHubFileNotFoundError as exc:
+        base_missing = exc
+    try:
+        names.extend(declared_labels(store, ref=head))
+    except GitHubFileNotFoundError as exc:
+        head_missing = exc
+    if base_missing is not None and head_missing is not None:
+        raise base_missing
+    return tuple(dict.fromkeys(names))
+
+
 def read_title_labels(
-    store: roadmap_store.RoadmapStore, title: str, *, ref: str | None
+    store: roadmap_store.RoadmapStore,
+    title: str,
+    *,
+    ref: str | None,
+    head: str | None = None,
 ) -> TitleLabels:
-    """The labels that `title` gives, checked against `.github/labels.yml` of `store` on `ref` (the
-    default branch when None). A file that is missing, or is no list of label specs, or a read that
-    fails, raises `GitHubOperationError` that names the file."""
-    declared = declared_labels(store, ref=ref)
+    """The labels that `title` gives, checked against `.github/labels.yml` of `store` on `ref`
+    (the default branch when None) and `head` when provided. Missing or unreadable files raise
+    `GitHubOperationError`."""
+    declared = declared_labels_for_refs(store, ref=ref, head=head)
     return title_labels(title, declared)
 
 
