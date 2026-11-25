@@ -1112,10 +1112,10 @@ def network_policy(
             local_whitelist=loc_list,
             sandbox_namespace=namespace,
         )
-        policy_dict = net_cfg.to_k8s_network_policy(
+        policies = net_cfg.to_k8s_network_policy(
             name=name, namespace=namespace, allow_collector=allow_collector
         )
-        yaml_str = yaml.dump(policy_dict, sort_keys=False)
+        yaml_str = yaml.safe_dump_all(policies, sort_keys=False)
         write_stdout(yaml_str)
     except (ValueError, SandboxValidationError) as exc:
         print_error(f"Invalid network policy configuration: {exc}")

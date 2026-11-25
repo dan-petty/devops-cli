@@ -20,6 +20,7 @@ from devops_cli.config.constants import (
     CONST_HOST_SANDBOX_DEFAULT_ENV,
     CONST_HOST_SANDBOX_SYSTEM_DIRS,
     CONST_HOST_SANDBOX_SYSTEM_SYMLINKS,
+    CONST_MAX_K8S_RESOURCE_NAME_LENGTH,
     CONST_OTEL_COLLECTOR_NAMESPACE,
     CONST_OTEL_COLLECTOR_POD_LABELS,
     CONST_OTEL_OTLP_GRPC_PORT,
@@ -360,6 +361,39 @@ def _resolve_local_host(host: str, port: int) -> list[str]:
     return [ip_net.with_prefixlen]
 
 
+def _policy_name(base: str, suffix: str) -> str:
+    """Append `suffix` (`-ingress` or `-egress`) within the Kubernetes DNS subdomain limit."""
+    if len(base) + len(suffix) <= CONST_MAX_K8S_RESOURCE_NAME_LENGTH:
+        return f"{base}{suffix}"
+    max_prefix = CONST_MAX_K8S_RESOURCE_NAME_LENGTH - len(suffix)
+    trimmed = base[:max_prefix].rstrip("-.")
+    return f"{trimmed or DEFAULT_SANDBOX_NAME}{suffix}"
+
+
+def _single_network_policy(
+    policy_name: str,
+    sandbox_name: str,
+    namespace: str,
+    policy_type: str,
+    rule_key: str,
+    rules: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """One single-type NetworkPolicy manifest with separate selector mapping."""
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "NetworkPolicy",
+        "metadata": {
+            "name": policy_name,
+            "namespace": namespace,
+        },
+        "spec": {
+            "podSelector": {"matchLabels": {"app.kubernetes.io/name": sandbox_name}},
+            "policyTypes": [policy_type],
+            rule_key: rules,
+        },
+    }
+
+
 def _build_whitelist_egress(
     entries: list[str], resolve_host: Callable[[str, int], list[str]]
 ) -> list[dict[str, Any]]:
@@ -463,8 +497,8 @@ class SandboxNetworkConfig(BaseModel):
         namespace: str | None = None,
         *,
         allow_collector: bool = False,
-    ) -> dict[str, Any]:
-        """Synthesize declarative Kubernetes NetworkPolicy manifest matching the network mode.
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Synthesize Ingress-only and Egress-only Kubernetes NetworkPolicy manifests (#6726).
 
         `allow_collector` adds the egress rule to the OTel collector, in the modes that have
         egress rules to add it to.
@@ -477,20 +511,21 @@ class SandboxNetworkConfig(BaseModel):
         ingress, egress = self._k8s_ingress_and_egress()
         if allow_collector:
             egress.append(_build_collector_egress_rule())
-        return {
-            "apiVersion": "networking.k8s.io/v1",
-            "kind": "NetworkPolicy",
-            "metadata": {
-                "name": f"{name}-network-policy",
-                "namespace": namespace or self.sandbox_namespace,
-            },
-            "spec": {
-                "podSelector": {"matchLabels": {"app.kubernetes.io/name": name}},
-                "policyTypes": ["Ingress", "Egress"],
-                "ingress": ingress,
-                "egress": egress,
-            },
-        }
+        base = f"{name}-network-policy"
+        target_namespace = namespace or self.sandbox_namespace
+        return (
+            _single_network_policy(
+                _policy_name(base, "-ingress"),
+                name,
+                target_namespace,
+                "Ingress",
+                "ingress",
+                ingress,
+            ),
+            _single_network_policy(
+                _policy_name(base, "-egress"), name, target_namespace, "Egress", "egress", egress
+            ),
+        )
 
 
 class SandboxPolicy(BaseModel):

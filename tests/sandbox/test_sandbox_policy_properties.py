@@ -57,7 +57,8 @@ def _whitelist_rules(mode: SandboxNetworkMode, entries: list[str]) -> list[dict[
     """The egress rules the NetworkPolicy of a whitelist holds after its kube-dns rule."""
     field = "public_whitelist" if mode == SandboxNetworkMode.PUBLIC_WHITELIST else "local_whitelist"
     config = SandboxNetworkConfig(mode=mode, **{field: entries})
-    return config.to_k8s_network_policy()["spec"]["egress"][1:]
+    _, egress_policy = config.to_k8s_network_policy()
+    return egress_policy["spec"]["egress"][1:]
 
 
 def _tcp_rule(cidr: str, port: int) -> dict[str, Any]:
