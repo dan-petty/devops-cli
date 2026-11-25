@@ -5,11 +5,13 @@ from __future__ import annotations
 import re
 import tomllib
 from collections import deque
+from datetime import date
 from itertools import pairwise, takewhile
 from pathlib import Path
 from typing import Final
 from urllib.parse import unquote, urlsplit
 
+import pytest
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.anchors import anchors_plugin
@@ -850,3 +852,124 @@ def test_sdlc_prioritizes_blockers_and_allows_explicit_pr_handoff() -> None:
     assert "Priority-First Pull Request Processing & Handoff" in sdlc
     assert "handoff" in sdlc.lower()
     assert "active session" in sdlc.lower()
+
+
+_CONTROL_TABLE_HEADER: Final[list[str]] = [
+    "Control",
+    "Scope",
+    "Compensating control",
+    "Evidence",
+    "Approved by",
+    "Reviewed",
+]
+_REVIEW_DATE_RE: Final = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _dedicated_resources_section() -> str:
+    """Text of `SECURITY.md` between the Dedicated Resources heading and the next `## ` heading."""
+    text = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"^## Dedicated Development Resources and Sandboxes\n(.*?)(?=\n## |\Z)",
+        text,
+        flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    )
+    assert match is not None, "SECURITY.md lacks Dedicated Development Resources and Sandboxes"
+    return match.group(1)
+
+
+def _control_table_errors(document: Path) -> list[str]:
+    """Return validation failures for the security control table in `document`."""
+    matching = [rows for header, *rows in tables(document) if header == _CONTROL_TABLE_HEADER]
+    if len(matching) != 1:
+        return ["missing control table with header " + " | ".join(_CONTROL_TABLE_HEADER)]
+    errors: list[str] = []
+    for index, row in enumerate(matching[0], start=1):
+        label = row[0].strip() if row else ""
+        row_name = f"row {index}" + (f" ({label})" if label else "")
+        for column, cell in zip(_CONTROL_TABLE_HEADER, row, strict=False):
+            if not cell.strip():
+                errors.append(f"{row_name}: empty {column}")
+        if len(row) != len(_CONTROL_TABLE_HEADER):
+            errors.append(
+                f"{row_name}: expected {len(_CONTROL_TABLE_HEADER)} cells, got {len(row)}"
+            )
+            continue
+        reviewed = row[-1].strip()
+        if reviewed:
+            try:
+                if not _REVIEW_DATE_RE.fullmatch(reviewed):
+                    raise ValueError
+                date.fromisoformat(reviewed)
+            except ValueError:
+                errors.append(f"{row_name}: invalid Reviewed date {reviewed!r}")
+    return errors
+
+
+def test_security_md_states_dedicated_resources_and_sandbox_controls_policy() -> None:
+    """`SECURITY.md` states the policy for dedicated development resources and sandboxes, lists
+    the resources by role, and holds a valid control table (#5447)."""
+    section = _dedicated_resources_section()
+    for token in (
+        "**Default.**",
+        "**Conditions.**",
+        "**Never changed.**",
+        "**Approval.**",
+        "owner",
+        "homelab",
+        "devcontainer",
+        "project-owned test namespaces and repositories",
+        "RuntimeClass `gvisor`",
+        "review sandbox",
+        "planner run Job",
+    ):
+        assert token in section, f"Missing required policy token {token!r}"
+    assert _control_table_errors(REPO_ROOT / "SECURITY.md") == []
+
+
+def test_control_table_accepts_empty_header_only_table(tmp_path: Path) -> None:
+    """A control table with only the header row and no exception entries is valid."""
+    doc = tmp_path / "SECURITY.md"
+    doc.write_text(
+        "| " + " | ".join(_CONTROL_TABLE_HEADER) + " |\n| --- | --- | --- | --- | --- | --- |\n",
+        encoding="utf-8",
+    )
+    assert _control_table_errors(doc) == []
+
+
+@pytest.mark.parametrize("missing_column", _CONTROL_TABLE_HEADER)
+def test_control_table_rejects_empty_cell_and_names_row_and_column(
+    tmp_path: Path, missing_column: str
+) -> None:
+    """Every data row in the control table must fill all six columns."""
+    values = [
+        "Allow git in sandbox",
+        "RuntimeClass gvisor",
+        "gVisor boundary",
+        "37 refusals",
+        "The owner",
+        "2026-11-25",
+    ]
+    values[_CONTROL_TABLE_HEADER.index(missing_column)] = ""
+    doc = tmp_path / "SECURITY.md"
+    doc.write_text(
+        "| " + " | ".join(_CONTROL_TABLE_HEADER) + " |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| " + " | ".join(values) + " |\n",
+        encoding="utf-8",
+    )
+    errors = _control_table_errors(doc)
+    assert any("row 1" in error and missing_column in error for error in errors), errors
+
+
+@pytest.mark.parametrize("bad_date", ["next month", "2026-13-01", "2026/11/25"])
+def test_control_table_rejects_non_iso_review_date(tmp_path: Path, bad_date: str) -> None:
+    """The `Reviewed` column must hold an ISO 8601 `YYYY-MM-DD` calendar date."""
+    doc = tmp_path / "SECURITY.md"
+    doc.write_text(
+        "| " + " | ".join(_CONTROL_TABLE_HEADER) + " |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        f"| Control | Scope | Boundary | Counts | The owner | {bad_date} |\n",
+        encoding="utf-8",
+    )
+    errors = _control_table_errors(doc)
+    assert any("row 1" in error and bad_date in error for error in errors), errors

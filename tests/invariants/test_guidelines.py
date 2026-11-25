@@ -18,6 +18,7 @@ from typing import Final
 import pytest
 from markdown_it import MarkdownIt
 
+from tests.support.markdown_tables import inline_hrefs
 from tests.support.paths import REPO_ROOT
 
 GUIDELINES: Final = REPO_ROOT / "docs" / "guidelines"
@@ -116,3 +117,11 @@ def test_the_index_lists_each_guideline() -> None:
     assert guidelines
     assert sorted(path.name for path in guidelines - targets) == []
     assert sorted(str(path) for path in targets if not path.is_file()) == []
+
+
+@pytest.mark.parametrize("name", ["agentic-jobs.md", "sre.md"])
+def test_guidelines_link_dedicated_resources_and_sandboxes_policy(name: str) -> None:
+    """Tuning-loop and SRE guidelines link to the SECURITY.md control change section (#5447)."""
+    target = "../../SECURITY.md#dedicated-development-resources-and-sandboxes"
+    hrefs = inline_hrefs((GUIDELINES / name).read_text(encoding="utf-8"))
+    assert target in hrefs

@@ -96,7 +96,20 @@ A scanner can name a finding that no update of the pinned package solves yet. Th
 
 ## Dedicated Development Resources and Sandboxes
 
-A control can change for a dedicated development resource or a sandbox only when the owner approves the change. This table records each such change: the control, its scope, the control that holds the risk in its place, the evidence, the approval and the review.
+Dedicated development resources and sandboxes let tests and agent runs work inside controlled boundaries. These resources include the homelab, the devcontainer, project-owned test namespaces and repositories, RuntimeClass `gvisor`, the review sandbox and the planner run Job. Each name refers to its role, with no internal host name or private address.
+
+**Default.** Every security control, configuration and guardrail applies by default. All automated checks enforce them.
+
+**Conditions.** A control can change for a dedicated development resource or a sandbox only when all four conditions hold:
+
+1. **Demonstrated need.** Evidence records the refusals, failures or blocked work with counts.
+2. **Boundary holds risk.** A compensating control holds the risk, such as RuntimeClass `gvisor`, a deny-egress NetworkPolicy, a secret-free namespace or a scoped token.
+3. **Narrow scope.** The change applies only to one named RuntimeClass, namespace, repository or Job template, and a test proves it applies nowhere else.
+4. **Recorded entry.** The table below records the control, scope, compensating control, evidence, approver and `YYYY-MM-DD` review date. An empty table with only its header row is valid.
+
+**Never changed.** This rule never changes the secrets rules or private-data rules of the public repository. It never changes `main` protection or the controls on production services that people use. Only a person merges pull requests or changes secrets, repository settings, organization settings and hardware.
+
+**Approval.** The owner approves each entry of the table. An entry can name a class of changes, such as the allow list of RuntimeClass `gvisor` pods. Later changes in that class need only the review and an updated row.
 
 | Control | Scope | Compensating control | Evidence | Approved by | Reviewed |
 | --- | --- | --- | --- | --- | --- |
