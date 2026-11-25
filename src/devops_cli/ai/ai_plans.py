@@ -10,7 +10,10 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from devops_cli.config.constants import CONST_RUNS_INDEX_AUTH_OBJECT
+from devops_cli.config.constants import (
+    CONST_AI_GATEWAY_PROVIDER,
+    CONST_RUNS_INDEX_AUTH_OBJECT,
+)
 from devops_cli.config.defaults import (
     DEFAULT_AI_GATEWAY_SERVICE,
     DEFAULT_AI_GATEWAY_URL,
@@ -49,17 +52,32 @@ def plan_ai_benchmark(
     models: Sequence[str] | None = None,
     servers: Sequence[str] | None = None,
     benchmark_type: str = "tasks",
+    provider: str | None = None,
 ) -> list[PlannedRequest]:
     """Plan AI model benchmark execution requests."""
     settings = load_settings()
+    resolved_provider = (provider or settings.ai.provider or "ollama").strip().lower()
     target_models = list(models) if models else [settings.ai.model]
+
+    is_embedding = benchmark_type.strip().lower() in ("embedding", "embed")
+    method = "POST"
+    if is_embedding and resolved_provider in (CONST_AI_GATEWAY_PROVIDER, "gateway"):
+        gateway_base = (settings.ai.gateway_url or DEFAULT_AI_GATEWAY_URL).rstrip("/")
+        target_servers = list(servers) if servers else [gateway_base]
+        return [
+            PlannedRequest(
+                method=method,
+                target=f"{srv.rstrip('/').removesuffix('/v1')}/v1/embeddings",
+                stdin=f'{{"model": "{m}", "input": "<benchmark-evaluation-input>"}}',
+            )
+            for srv in target_servers
+            for m in target_models
+        ]
+
     target_servers = (
         list(servers) if servers else (settings.ai.get_ollama_urls or ["http://localhost:11434"])
     )
     requests: list[PlannedRequest] = []
-
-    is_embedding = benchmark_type.strip().lower() in ("embedding", "embed")
-    method = "POST"
     path = "/api/embeddings" if is_embedding else "/api/chat"
 
     for server in target_servers:

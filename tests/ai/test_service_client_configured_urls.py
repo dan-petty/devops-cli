@@ -30,7 +30,7 @@ def test_resolve_ai_endpoint_gateway_success() -> None:
     assert resolved.provider == "gateway"
     assert resolved.urls == ("https://gateway.example.com/v1",)
     assert "devops-coder" in resolved.models
-    assert "devops-embedding" in resolved.models
+    assert "qwen3-embedding:0.6b" in resolved.models
 
 
 def test_resolve_ai_endpoint_gateway_unconfigured_raises() -> None:

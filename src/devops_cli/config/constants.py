@@ -3249,7 +3249,7 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-chat",
     "devops-coder",
     "devops-reasoning",
-    "devops-embedding",
+    "qwen3-embedding:0.6b",
 )
 # The gateway groups that a local deployment answers, from the `model_list` of
 # `k8s/llm/gateway/config.yaml`. A reply that names one of them is local, and a model with the

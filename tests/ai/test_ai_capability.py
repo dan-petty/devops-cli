@@ -24,7 +24,7 @@ def test_resolve_capability_tier() -> None:
         resolve_capability_tier("coder"),
         resolve_capability_tier("devops-chat"),
         resolve_capability_tier("general"),
-        resolve_capability_tier("devops-embedding"),
+        resolve_capability_tier("qwen3-embedding:0.6b"),
         resolve_capability_tier("unknown-alias"),
     ) == (
         ModelCapabilityTier.REASONING,

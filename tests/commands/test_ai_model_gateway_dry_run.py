@@ -190,3 +190,23 @@ def test_ai_prewarm_json_dry_run() -> None:
     assert data.get("dry_run") is True
     assert "requests" in data
     assert len(data["requests"]) > 0
+
+
+def test_embedding_benchmark_gateway_provider_plans_v1_embeddings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When provider is `gateway`, `ai benchmark --type embedding --dry-run` plans `qwen3-embedding:0.6b`
+    on the gateway `/v1/embeddings` endpoint and no `/api/embeddings` Ollama route (#5304)."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_PROVIDER", "gateway")
+    monkeypatch.setenv("DEVOPS_CLI_AI_GATEWAY_URL", "http://example.com:4000/v1")
+
+    result = runner.invoke(app, ["ai", "benchmark", "--type", "embedding", "--dry-run"])
+
+    dead_name = "devops" + "-embedding"
+    assert (
+        result.exit_code,
+        "http://example.com:4000/v1/embeddings" in result.output,
+        "qwen3-embedding:0.6b" in result.output,
+        "/api/embeddings" in result.output,
+        dead_name in result.output,
+    ) == (0, True, True, False, False)

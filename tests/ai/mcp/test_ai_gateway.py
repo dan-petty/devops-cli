@@ -309,7 +309,7 @@ class TestGatewayRouter:
                 ("devops-chat", "qwen3.8:27b", "failover:ollama"),
                 ("devops-coder", "qwen3.8:27b", "ollama"),
                 ("devops-reasoning", "qwen3.8:27b", "ollama"),
-                ("devops-embedding", "qwen3-embedding:0.6b", "ollama"),
+                ("qwen3-embedding:0.6b", "qwen3-embedding:0.6b", "ollama"),
             ],
         )
 
@@ -1125,3 +1125,168 @@ class TestTheKeyGoesOnlyToTheConfiguredGateway:
             "The AI API key goes only to the configured gateway, so this gateway got none. "
             "To use the key with this gateway, make it the configured gateway.",
         )
+
+
+def test_status_renders_live_model_info_deployments_and_keeps_failover(
+    isolate_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+    cli: Any,
+    web: WebFake,
+) -> None:
+    """`devops ai gateway status` sends the AI API key to GET /model/info, renders every live
+    group and deployment, preserves the failover record, and omits the dead embedding alias."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-status")
+    config(ai={"gateway_url": GATEWAY_URL, "allow_private_network": True})
+    failover_res = cli("ai", "gateway", "failover", "devops-chat", "--no-simulate")
+    assert failover_res.exit_code == 0, failover_res.output
+
+    model_info_payload = {
+        "data": [
+            {
+                "model_name": "devops-chat",
+                "litellm_params": {
+                    "model": "ollama_chat/qwen3.8:27b",
+                    "api_base": "http://ollama-64gib.example.com:11434",
+                },
+                "model_info": {"id": "chat-64"},
+            },
+            {
+                "model_name": "devops-chat",
+                "litellm_params": {
+                    "model": "ollama_chat/qwen3.8:27b",
+                    "api_base": "http://ollama-48gib.example.com:11434",
+                },
+                "model_info": {"id": "chat-48"},
+            },
+            {
+                "model_name": "qwen3-embedding:0.6b",
+                "litellm_params": {
+                    "model": "ollama/qwen3-embedding:0.6b",
+                    "api_base": "http://ollama-embed.example.com:11434",
+                },
+                "model_info": {"id": "embed-0"},
+            },
+        ]
+    }
+    captured_headers: list[tuple[str, str | None]] = []
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        captured_headers.append((request.url.path, request.headers.get("authorization")))
+        if request.url.path == "/v1/model/info":
+            return httpx2.Response(200, json=model_info_payload)
+        return httpx2.Response(200, json={"status": "healthy"})
+
+    web.serve(answer)
+
+    res_table = cli("ai", "gateway", "status")
+    res_json = cli("ai", "gateway", "status", "--format", "json")
+    parsed = json.loads(res_json.output)
+
+    dead_name = "devops" + "-embedding"
+    assert (
+        res_table.exit_code,
+        res_json.exit_code,
+        any(
+            path == "/v1/model/info" and auth == "Bearer sk-status"
+            for path, auth in captured_headers
+        ),
+        "Failover routes: devops-chat" in res_table.output,
+        "ollama-64gib.example.com" in res_table.output,
+        "ollama-48gib.example.com" in res_table.output,
+        "qwen3-embedding:0.6b" in res_table.output,
+        dead_name in res_table.output,
+        parsed["failover_routes"],
+        parsed["circuit_breaker_tripped"],
+        [(r["virtual_model"], r["backend_url"], r["checked"]) for r in parsed["active_routes"]],
+    ) == (
+        0,
+        0,
+        True,
+        True,
+        True,
+        True,
+        True,
+        False,
+        ["devops-chat"],
+        True,
+        [
+            ("devops-chat", "http://ollama-64gib.example.com:11434", True),
+            ("devops-chat", "http://ollama-48gib.example.com:11434", True),
+            ("qwen3-embedding:0.6b", "http://ollama-embed.example.com:11434", True),
+        ],
+    )
+
+
+def test_status_marks_default_routes_not_checked_when_model_info_unavailable(
+    config: Any,
+    cli: Any,
+    web: WebFake,
+) -> None:
+    """When GET /model/info fails or times out, `status` renders DEFAULT_GATEWAY_ROUTES and marks
+    each fallback row as not checked."""
+    config(ai={"gateway_url": GATEWAY_URL, "allow_private_network": True})
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/v1/model/info":
+            raise httpx2.ReadTimeout("timed out", request=request)
+        return httpx2.Response(200)
+
+    web.serve(answer)
+
+    res_table = cli("ai", "gateway", "status")
+    res_json = cli("ai", "gateway", "status", "--format", "json")
+    parsed = json.loads(res_json.output)
+
+    assert (
+        res_table.exit_code,
+        res_json.exit_code,
+        "not checked" in res_table.output,
+        "✓ healthy" in res_table.output,
+        [(r["virtual_model"], r["checked"]) for r in parsed["active_routes"]],
+    ) == (
+        0,
+        0,
+        True,
+        False,
+        [
+            ("devops-chat", False),
+            ("devops-coder", False),
+            ("devops-reasoning", False),
+            ("qwen3-embedding:0.6b", False),
+        ],
+    )
+
+
+def test_gateway_constants_and_comment_reference_served_embedding_and_real_test_path() -> None:
+    """Routes, failover pairs, capability tiers, and gateway.py comments replace the dead
+    embedding alias with `qwen3-embedding:0.6b` and cite `tests/ai/benchmark/test_k8s_llm_gateway.py`."""
+    from devops_cli.ai.capability import ModelCapabilityTier, resolve_capability_tier
+    from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, MODEL_FAILOVER_PAIRS
+    from tests.support.paths import REPO_ROOT
+
+    dead_name = "devops" + "-embedding"
+    gateway_src = (REPO_ROOT / "src" / "devops_cli" / "ai" / "gateway.py").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        "qwen3-embedding:0.6b" in CONST_AI_GATEWAY_VIRTUAL_MODELS,
+        dead_name in CONST_AI_GATEWAY_VIRTUAL_MODELS,
+        "qwen3-embedding:0.6b" in {r["virtual_model"] for r in DEFAULT_GATEWAY_ROUTES},
+        dead_name in {r["virtual_model"] for r in DEFAULT_GATEWAY_ROUTES},
+        "qwen3-embedding:0.6b" in MODEL_FAILOVER_PAIRS,
+        dead_name in MODEL_FAILOVER_PAIRS,
+        resolve_capability_tier("qwen3-embedding:0.6b"),
+        "tests/ai/benchmark/test_k8s_llm_gateway.py" in gateway_src,
+        "tests/test_k8s_llm_gateway.py" in gateway_src,
+    ) == (
+        True,
+        False,
+        True,
+        False,
+        True,
+        False,
+        ModelCapabilityTier.EMBEDDING,
+        True,
+        False,
+    )
