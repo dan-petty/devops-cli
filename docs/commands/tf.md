@@ -304,6 +304,13 @@ devops tf graph [OPTIONS] <directory>
 
 **Compare declared configuration against recorded state.**
 
+Compare declared configuration against recorded state.
+
+Exit codes:
+    0: No drift detected and all checks passed.
+    1: Plan error, failed check, or unknown check result.
+    2: Drift detected.
+
 ```bash
 devops tf drift [OPTIONS] <directory>
 ```

@@ -694,6 +694,78 @@ def _emit_state_unavailable(config: Any, resolved_format: str) -> None:
     print_warning(MESSAGES.tf.state_unavailable)
 
 
+def _drift_exit_code(plan_result: Any, report: Any) -> int:
+    """Resolve `devops tf drift` exit code: 1 (check error/unknown) wins over 2 (drift) over 0."""
+    if plan_result.failed_checks or plan_result.unknown_checks:
+        return 1
+    if plan_result.plan_returncode == 2 or report.drift_detected:
+        return 2
+    return 0
+
+
+def _emit_drift_checks(plan_result: Any) -> None:
+    """Surface failed/error and unknown check addresses returned by the saved plan."""
+    if plan_result.failed_checks:
+        print_error(
+            MESSAGES.tf.drift_failed_checks.format(
+                count=len(plan_result.failed_checks),
+                checks=", ".join(plan_result.failed_checks),
+            ),
+            prefix=False,
+        )
+    if plan_result.unknown_checks:
+        print_error(
+            MESSAGES.tf.drift_unknown_checks.format(
+                count=len(plan_result.unknown_checks),
+                checks=", ".join(plan_result.unknown_checks),
+            ),
+            prefix=False,
+        )
+
+
+def _emit_plan_error(config: Any, resolved_format: str, plan_error: str) -> None:
+    """Emit plan execution failure in serialized or table mode."""
+    from devops_cli.models.tf import IaCDriftReport
+
+    if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
+        error_report = IaCDriftReport(
+            directory=config.directory,
+            state_present=True,
+            plan_error=plan_error,
+        )
+        emit_serialized(error_report.model_dump(), resolved_format)
+        return
+    _report_parse_failures(config)
+    print_error(plan_error, prefix=False)
+
+
+def _emit_table_drift_report(
+    target: Path, config: Any, report: Any, plan_result: Any, exit_code: int
+) -> None:
+    """Print drift table/status and saved-plan check errors for table format."""
+    _report_parse_failures(config)
+    if report.drift_detected:
+        print_table(
+            title=MESSAGES.tf.table_title_drift.format(directory=target.name),
+            columns=[("Address", "cyan"), "Divergence"],
+            rows=_drift_rows(report),
+        )
+        print_info(
+            MESSAGES.tf.drift_summary.format(
+                missing=len(report.missing_from_state),
+                orphaned=len(report.orphaned_in_state),
+                drifted=len(report.drifted),
+                synced=len(report.in_sync),
+            )
+        )
+    elif exit_code == 2:
+        print_warning(MESSAGES.tf.drift_plan_changes, prefix=False)
+    elif exit_code == 0:
+        print_success(MESSAGES.tf.drift_in_sync.format(count=len(report.in_sync)))
+
+    _emit_drift_checks(plan_result)
+
+
 @app.command("drift")
 @dry_run_class("no-external-request")
 def tf_drift(
@@ -704,7 +776,13 @@ def tf_drift(
         typer.Option("--format", "-f", help="Output format (table, json, yaml, csv)"),
     ] = DEFAULT_TABLE_FORMAT,
 ) -> None:
-    """Compare declared configuration against recorded state."""
+    """Compare declared configuration against recorded state.
+
+    Exit codes:
+        0: No drift detected and all checks passed.
+        1: Plan error, failed check, or unknown check result.
+        2: Drift detected.
+    """
     from devops_cli.tf.analysis import (
         detect_drift,
         is_directory_initialized,
@@ -727,32 +805,27 @@ def tf_drift(
         _emit_state_unavailable(config, resolved_format)
         return
 
-    drifted_addresses = read_plan_drift(target, binary=binary)
-    report = detect_drift(config, state, drifted_addresses=drifted_addresses)
+    plan_result = read_plan_drift(target, binary=binary)
+    if plan_result.plan_returncode not in (0, 2):
+        _emit_plan_error(config, resolved_format, plan_result.plan_error)
+        raise typer.Exit(1)
+
+    report = detect_drift(
+        config,
+        state,
+        drifted_addresses=plan_result.drifted,
+        failed_checks=plan_result.failed_checks,
+        unknown_checks=plan_result.unknown_checks,
+    )
+    exit_code = _drift_exit_code(plan_result, report)
 
     if resolved_format != CONST_OUTPUT_FORMAT_TABLE:
         emit_serialized(report.model_dump(), resolved_format)
-        return
+    else:
+        _emit_table_drift_report(target, config, report, plan_result, exit_code)
 
-    _report_parse_failures(config)
-
-    if not report.drift_detected:
-        print_success(MESSAGES.tf.drift_in_sync.format(count=len(report.in_sync)))
-        return
-
-    print_table(
-        title=MESSAGES.tf.table_title_drift.format(directory=target.name),
-        columns=[("Address", "cyan"), "Divergence"],
-        rows=_drift_rows(report),
-    )
-    print_info(
-        MESSAGES.tf.drift_summary.format(
-            missing=len(report.missing_from_state),
-            orphaned=len(report.orphaned_in_state),
-            drifted=len(report.drifted),
-            synced=len(report.in_sync),
-        )
-    )
+    if exit_code:
+        raise typer.Exit(exit_code)
 
 
 # =============================================================================

@@ -1645,6 +1645,9 @@ class TfMessages:
         "{missing} declared but not in state, {orphaned} in state but not declared, "
         "{drifted} drifted, {synced} in sync."
     )
+    drift_plan_changes: str = "OpenTofu refresh-only plan reported changes."
+    drift_failed_checks: str = "Failed checks ({count}): {checks}"
+    drift_unknown_checks: str = "Unknown checks ({count}): {checks}"
     parse_failures: str = "{count} file(s) could not be parsed: {files}"
     init_success: str = "✓ OpenTofu initialization successful."
     plan_header: str = "Running OpenTofu plan for [cyan]{path}[/cyan]..."

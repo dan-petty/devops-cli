@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from devops_cli.models import tf as tf_models
 from devops_cli.tf import analysis as tf_analysis
 from devops_cli.tf.analysis import (
     analyze_directory,
@@ -20,7 +21,9 @@ from devops_cli.tf.analysis import (
     parse_hcl_directory,
 )
 
+PlanDriftResult: Any = getattr(tf_models, "PlanDriftResult", None)
 is_directory_initialized: Any = getattr(tf_analysis, "is_directory_initialized", None)
+parse_plan_checks: Any = getattr(tf_analysis, "parse_plan_checks", None)
 parse_plan_drift: Any = getattr(tf_analysis, "parse_plan_drift", None)
 parse_show_state: Any = getattr(tf_analysis, "parse_show_state", None)
 read_plan_drift: Any = getattr(tf_analysis, "read_plan_drift", None)
@@ -105,8 +108,12 @@ def _stub_tf_show_for_state(process_fake: Any) -> None:
     from tests.support.fakes.process import ProcessAnswer
 
     process_fake.answer(
-        lambda call: "show" in call.argv and "-json" in call.argv,
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
         ProcessAnswer(stdout=json.dumps(_SHOW_STATE)),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout="{}"),
     )
     process_fake.answer(
         lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
@@ -522,20 +529,20 @@ def test_cli_graph_reports_parse_failures(tf_dir: Path, cli: Callable[..., Any])
 
 
 def test_cli_drift_reports_divergence(tf_dir_with_state: Path, cli: Callable[..., Any]) -> None:
-    """`devops tf drift` lists both divergence directions."""
+    """`devops tf drift` lists both divergence directions and exits 2 on drift."""
     result = cli("tf", "drift", str(tf_dir_with_state))
 
-    assert result.exit_code == 0
+    assert result.exit_code == 2
     assert "aws_s3_bucket.legacy" in result.output
     assert "in state, not declared" in result.output
 
 
 def test_cli_drift_json_output(tf_dir_with_state: Path, cli: Callable[..., Any]) -> None:
-    """The JSON form emits the typed drift report."""
+    """The JSON form emits the typed drift report and exits 2 on drift."""
     result = cli("tf", "drift", str(tf_dir_with_state), "--json")
     payload = json.loads(result.output)
 
-    assert result.exit_code == 0
+    assert result.exit_code == 2
     assert payload["orphaned_in_state"] == ["aws_s3_bucket.legacy"]
 
 
@@ -653,9 +660,14 @@ def test_parse_plan_drift_extracts_drifted_addresses() -> None:
     assert parse_plan_drift(plan_obj) == ["module.db.aws_db_instance.primary"]
 
 
-def test_read_plan_drift_returns_empty_when_uninitialized(tmp_path: Path) -> None:
-    """`read_plan_drift` returns an empty list when .terraform/ does not exist."""
-    assert read_plan_drift(tmp_path) == []
+def test_read_plan_drift_returns_empty_when_uninitialized(
+    tmp_path: Path, process_fake: Any
+) -> None:
+    """`read_plan_drift` returns an empty `PlanDriftResult` without running `tofu`."""
+    assert PlanDriftResult is not None
+    calls_before = process_fake.call_count
+    assert read_plan_drift(tmp_path) == PlanDriftResult()
+    assert process_fake.call_count == calls_before
 
 
 def test_detect_drift_with_module_reports_in_sync_not_orphaned(tmp_path: Path) -> None:
@@ -798,22 +810,376 @@ def test_cli_drift_replays_recorded_show_and_plan_with_process_fake(
             },
         }
     )
-    plan_json = (
-        '{"@level":"info","type":"resource_drift",'
-        '"change":{"resource":{"addr":"module.db.aws_db_instance.primary"},"action":"update"}}\n'
+    saved_plan_json = json.dumps(
+        {
+            "resource_drift": [
+                {
+                    "address": "module.db.aws_db_instance.primary",
+                    "change": {"actions": ["update"]},
+                }
+            ],
+            "checks": [],
+        }
     )
 
     process_fake.answer(
-        lambda call: "show" in call.argv and "-json" in call.argv,
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
         ProcessAnswer(stdout=show_json),
     )
     process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=saved_plan_json),
+    )
+    process_fake.answer(
         lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
-        ProcessAnswer(stdout=plan_json),
+        ProcessAnswer(returncode=2),
+    )
+
+    result = cli("tf", "drift", str(tmp_path))
+    assert result.exit_code == 2
+    assert "module.db.aws_db_instance.primary" in result.output
+    assert "attribute changed" in result.output
+    assert "1 drifted, 1 in sync" in result.output
+
+
+def _setup_single_vpc_stack(tmp_path: Path) -> str:
+    """Create an initialized single-resource stack and return its `tofu show -json` state."""
+    (tmp_path / "main.tf").write_text(
+        'resource "aws_vpc" "main" { cidr_block = "10.0.0.0/16" }\n',
+        encoding="utf-8",
+    )
+    (tmp_path / ".terraform").mkdir(parents=True, exist_ok=True)
+    return json.dumps(
+        {
+            "format_version": "1.0",
+            "values": {
+                "root_module": {
+                    "resources": [
+                        {
+                            "address": "aws_vpc.main",
+                            "mode": "managed",
+                            "type": "aws_vpc",
+                            "name": "main",
+                        }
+                    ]
+                }
+            },
+        }
+    )
+
+
+def test_read_plan_drift_flags_and_saved_plan_checks(tmp_path: Path, process_fake: Any) -> None:
+    """`read_plan_drift` runs unlocked saved refresh plan and reads `checks` from `tofu show -json`."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    assert PlanDriftResult is not None
+    (tmp_path / ".terraform").mkdir(parents=True, exist_ok=True)
+    saved_plan = {
+        "resource_drift": [],
+        "checks": [
+            {"address": {"to_display": "check.healthy"}, "status": "pass"},
+            {"address": {"to_display": "check.endpoint"}, "status": "fail"},
+            {"address": {"to_display": "check.latency"}, "status": "error"},
+            {"address": {"to_display": "check.pending"}, "status": "unknown"},
+        ],
+    }
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=0),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps(saved_plan)),
+    )
+
+    result = read_plan_drift(tmp_path)
+
+    plan_call = next(c for c in process_fake.calls if "plan" in c.argv)
+    assert "-refresh-only" in plan_call.argv
+    assert "-detailed-exitcode" in plan_call.argv
+    assert "-lock=false" in plan_call.argv
+    assert "-json" not in plan_call.argv
+    out_args = [a for a in plan_call.argv if a.startswith("-out=")]
+    assert len(out_args) == 1
+    plan_file = out_args[0].removeprefix("-out=")
+
+    show_call = next(c for c in process_fake.calls if "show" in c.argv)
+    assert show_call.argv == ("tofu", "show", "-json", plan_file)
+    assert result == PlanDriftResult(
+        drifted=[],
+        failed_checks=["check.endpoint", "check.latency"],
+        unknown_checks=["check.pending"],
+        plan_returncode=0,
+        plan_error="",
+    )
+
+
+def test_read_plan_drift_plan_error_skips_show(tmp_path: Path, process_fake: Any) -> None:
+    """A plan exit code outside 0/2 captures stderr and skips `tofu show`."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    assert PlanDriftResult is not None
+    (tmp_path / ".terraform").mkdir(parents=True, exist_ok=True)
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=1, stderr="Error: backend unavailable\n"),
+    )
+
+    result = read_plan_drift(tmp_path)
+
+    assert result.plan_returncode == 1
+    assert result.plan_error == "Error: backend unavailable"
+    assert not any("show" in c.argv for c in process_fake.calls)
+
+
+def test_cli_drift_clean_stack_exits_zero(
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
+) -> None:
+    """Clean state, exit 0 plan, and passing checks return exit code 0."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    saved_plan = {
+        "resource_drift": [],
+        "checks": [{"address": {"to_display": "check.ok"}, "status": "pass"}],
+    }
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps(saved_plan)),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=0),
     )
 
     result = cli("tf", "drift", str(tmp_path))
     assert result.exit_code == 0
-    assert "module.db.aws_db_instance.primary" in result.output
-    assert "attribute changed" in result.output
-    assert "1 drifted, 1 in sync" in result.output
+    assert "agree on all 1 resource(s)" in result.output
+
+
+@pytest.mark.parametrize(
+    ("checks", "expected_names"),
+    [
+        (
+            [
+                {"address": {"to_display": "check.endpoint"}, "status": "fail"},
+                {"address": {"to_display": "check.bucket"}, "status": "error"},
+            ],
+            ("check.endpoint", "check.bucket"),
+        ),
+        (
+            [{"address": {"to_display": "check.tls_cert"}, "status": "unknown"}],
+            ("check.tls_cert",),
+        ),
+    ],
+    ids=["fail-and-error", "unknown"],
+)
+def test_cli_drift_check_failure_or_unknown_exits_one(
+    tmp_path: Path,
+    process_fake: Any,
+    cli: Callable[..., Any],
+    checks: list[dict[str, Any]],
+    expected_names: tuple[str, ...],
+) -> None:
+    """Failed, error, or unknown saved-plan checks print addresses and exit 1."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    saved_plan = {"resource_drift": [], "checks": checks}
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps(saved_plan)),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=0),
+    )
+
+    result = cli("tf", "drift", str(tmp_path))
+    assert result.exit_code == 1
+    for name in expected_names:
+        assert name in result.output
+
+
+def test_cli_drift_plan_error_exits_one(
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
+) -> None:
+    """Plan exit code 1 skips saved-plan show, surfaces stderr, and exits 1."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=1, stderr="Error: backend unavailable\n"),
+    )
+
+    result = cli("tf", "drift", str(tmp_path))
+    assert result.exit_code == 1
+    assert "Error: backend unavailable" in result.output
+    assert not any("show" in c.argv and len(c.argv) > 3 for c in process_fake.calls)
+
+
+def test_cli_drift_failed_check_wins_over_drift(
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
+) -> None:
+    """Exit code 1 wins over drift exit code 2 while still surfacing check and drift output."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    saved_plan = {
+        "resource_drift": [{"address": "aws_vpc.main", "change": {"actions": ["update"]}}],
+        "checks": [{"address": {"to_display": "check.health"}, "status": "fail"}],
+    }
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps(saved_plan)),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=2),
+    )
+
+    result = cli("tf", "drift", str(tmp_path))
+    assert result.exit_code == 1
+    assert "check.health" in result.output
+    assert "aws_vpc.main" in result.output
+
+
+def test_parse_plan_checks_handles_edge_shapes() -> None:
+    """`parse_plan_checks` extracts `fail`, `error`, and `unknown` across shapes safely."""
+    assert parse_plan_checks("") == ([], [])
+    assert parse_plan_checks("{bad json") == ([], [])
+    assert parse_plan_checks([]) == ([], [])
+    assert parse_plan_checks({"checks": "invalid"}) == ([], [])
+    payload = {
+        "checks": [
+            "skip",
+            {"address": {}, "status": "fail"},
+            {"address": "check.str_addr", "status": "fail"},
+            {"address": {"name": "fallback_name"}, "status": "error"},
+            {"address": {"to_display": "check.u"}, "status": "unknown"},
+            {"address": {"to_display": "check.ok"}, "status": "pass"},
+        ]
+    }
+    assert parse_plan_checks(payload) == (["check.str_addr", "fallback_name"], ["check.u"])
+
+
+def test_read_plan_drift_show_error_captures_stderr(tmp_path: Path, process_fake: Any) -> None:
+    """A non-zero `tofu show -json <plan>` exit surfaces `plan_returncode` and `plan_error`."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    (tmp_path / ".terraform").mkdir(parents=True, exist_ok=True)
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=2),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(returncode=1, stderr="corrupt plan file\n"),
+    )
+
+    result = read_plan_drift(tmp_path)
+    assert result.plan_returncode == 1
+    assert result.plan_error == "corrupt plan file"
+
+
+def test_cli_drift_plan_returncode_two_without_resource_drift_exits_two(
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
+) -> None:
+    """Exit 2 from `tofu plan` still exits 2 with a warning even when `resource_drift` is empty."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps({"resource_drift": [], "checks": []})),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=2),
+    )
+
+    result = cli("tf", "drift", str(tmp_path))
+    assert result.exit_code == 2
+    assert "reported changes" in result.output
+
+
+def test_cli_drift_json_preserves_exit_codes(
+    tmp_path: Path, process_fake: Any, cli: Callable[..., Any]
+) -> None:
+    """`--format json` emits the report payload and preserves clean, drift, and error exit codes."""
+    from tests.support.fakes.process import ProcessAnswer
+
+    state_json = _setup_single_vpc_stack(tmp_path)
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) == 3,
+        ProcessAnswer(stdout=state_json),
+    )
+
+    # Clean -> exit 0
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps({"resource_drift": [], "checks": []})),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=0),
+    )
+    clean_res = cli("tf", "drift", str(tmp_path), "--format", "json")
+    assert clean_res.exit_code == 0
+    assert json.loads(clean_res.output)["drift_detected"] is False
+
+    # Drift -> exit 2
+    saved_drift = {
+        "resource_drift": [{"address": "aws_vpc.main", "change": {"actions": ["update"]}}],
+        "checks": [],
+    }
+    process_fake.answer(
+        lambda call: "show" in call.argv and "-json" in call.argv and len(call.argv) > 3,
+        ProcessAnswer(stdout=json.dumps(saved_drift)),
+    )
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=2),
+    )
+    drift_res = cli("tf", "drift", str(tmp_path), "--format", "json")
+    assert drift_res.exit_code == 2
+    assert json.loads(drift_res.output)["drifted"] == ["aws_vpc.main"]
+
+    # Plan error -> exit 1
+    process_fake.answer(
+        lambda call: "plan" in call.argv and "-refresh-only" in call.argv,
+        ProcessAnswer(returncode=1, stderr="Error: backend unavailable\n"),
+    )
+    err_res = cli("tf", "drift", str(tmp_path), "--format", "json")
+    assert err_res.exit_code == 1
+    assert json.loads(err_res.output)["plan_error"] == "Error: backend unavailable"
+
+
+def test_cli_drift_help_documents_exit_codes(cli: Callable[..., Any]) -> None:
+    """`devops tf drift --help` states the meanings of exit codes 0, 1, and 2."""
+    result = cli("tf", "drift", "--help")
+    normalized = " ".join(result.output.split())
+    assert result.exit_code == 0
+    for token in ("0", "1", "2", "drift", "check"):
+        assert token in normalized.lower()
