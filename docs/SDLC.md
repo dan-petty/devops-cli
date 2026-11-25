@@ -349,10 +349,10 @@ gitGraph
   - **Never run**: An agent never starts `tuicr` or `gh-dash`. An agent never runs `tuicr review clear`, `clearc`, `delete` or `add`, `tuicr update` or `tuicr pr`. The first four commands change or delete the comments of the person. `tuicr update` changes the tuicr of the devtools image. `tuicr pr` runs the bare `gh` command outside `run_gh`.
   - **No verdicts**: A tuicr comment type carries no verdict. Record evaluation verdicts with `devops review verify` (Phase 5).
   - **Errors and hidden files**: If `tuicr review comments` fails, the agent shows the message to the person and does not look for the session file. `.tuicrignore` hides `docs/commands/*.md` and `docs/CLI_REFERENCE.md` from the person, so no comment is on them.
-- **Sequential Pull Request Processing Queue (Strict Oldest-to-Newest / FIFO Execution)**:
-  - When multiple open PRs exist across the repository, AI agents and contributors **MUST ALWAYS process and advance pull requests in strict chronological order from oldest to newest** (FIFO queue: lowest PR number / earliest creation date first).
-  - Remediating review comments, fixing CI failures, resolving merge conflicts, and verifying merge readiness on older PRs **strictly takes precedence** over authoring, advancing, or reviewing newer PRs to eliminate cascading merge conflicts, branch divergence, and PR starvation.
-  - Process only your own pull requests.
+- **Priority-First Pull Request Processing & Handoff**:
+  - Process open pull requests by priority: fix broken `main` or release checks (`Required Checks Gate the Merge`), explicitly assigned pull requests, and `priority/p0-critical` or `priority/p1-high` blockers before lower-priority pull requests.
+  - Within one priority tier, advance actionable open pull requests that do not wait on a person from oldest to newest so older ready work does not starve.
+  - Work on your own pull requests, pull requests assigned or handed off to you, and stalled unclaimed pull requests whose branch no active session holds (`Branch Push Policy`). Never push to a branch that another active session holds without an explicit handoff.
 - **Two-Stage PR Review Lifecycle & Post-Ready Copilot Monitoring**:
   - **Stage 1 (Draft)**: Every pull request opens as a draft: `devops pr create` always opens one. CI checks are monitored on every push.
   - **Stage 2 (Transition to Ready for Review)**: Once all work is completed, CI checks pass, and comments are addressed, agents convert the draft pull request to ready for review (`devops pr ready <pr_number>`), the only path to ready.
