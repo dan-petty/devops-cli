@@ -353,6 +353,25 @@ def lower_ceilings(fixture_path: Path, repo_root: Path) -> dict[str, int]:
 # ── Invariant Test ─────────────────────────────────────────────────────────────
 
 
+def _one_line(text: str) -> str:
+    """Collapse embedded newlines and extra whitespace into a single physical line."""
+    return " ".join(text.split())
+
+
+def problem_lines(repo_root: Path = REPO_ROOT, fixture: Path = CONST_CEILINGS_FIXTURE) -> list[str]:
+    """One physical problem line per violated site, file count, or improved ceiling (#4596)."""
+    measured = collect_all_swallowed_failures(repo_root / "src", repo_root)
+    over, under = evaluate_ratchet(measured, load_ceilings(fixture))
+    lines: list[str] = []
+    for path, sites in sorted(over.items()):
+        for site in sites:
+            lines.append(_one_line(f"{site.path}:{site.line}: {site.rule} ({site.message})"))
+        lines.append(f"{path}: {len(sites)} site(s) found (ceiling exceeded)")
+    for path, (actual, ceiling) in sorted(under.items()):
+        lines.append(f"{path}: count fell from {ceiling} to {actual}")
+    return lines
+
+
 def problems(repo_root: Path = REPO_ROOT, fixture: Path = CONST_CEILINGS_FIXTURE) -> list[str]:
     """Name the files over their ceiling and the files under it, for the sources in `src`."""
     measured = collect_all_swallowed_failures(repo_root / "src", repo_root)
@@ -374,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Successfully updated ceilings fixture ({len(lowered)} files remaining).")
         return 0
-    found = problems()
+    found = problem_lines()
     for line in found:
-        print(line, file=sys.stderr)
+        print(f"swallowed failures: {line}", file=sys.stderr)
     return 1 if found else 0

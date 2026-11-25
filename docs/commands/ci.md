@@ -395,7 +395,7 @@ devops ci durations [OPTIONS]
 
 ## `devops ci fail-to-pass`
 
-**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. A module that only loses checks, and a deleted module, run no gate row. A fix that changes no source code and only deletes checks needs no proof.**
+**Replay added or modified tests against the merge-base tree to prove a defect fix's tests fail unpatched. A changed module under tests/gate/*_checks/ runs its gate row on the base and head trees: a case of that module that fails on base and passes on head proves the fix. A module that only loses checks, and a deleted module, run no gate row. A changed module directly under tests/gate/ runs on the plain base and head trees: a stderr problem line on base that disappears on head proves the fix. A fix that changes no source code and no module under tests/gate/, or only deletes checks, needs no proof.**
 
 ```bash
 devops ci fail-to-pass [OPTIONS]

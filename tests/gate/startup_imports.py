@@ -566,5 +566,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"startup imports: {outcome.name}: {outcome.cpu_seconds:.2f} s")
     found = [line for outcome in outcomes for line in outcome.problems]
     for line in found:
-        print(f"startup imports: {line}", file=sys.stderr)
+        single_line = " ".join(line.splitlines())
+        print(f"startup imports: {single_line}", file=sys.stderr)
     return 1 if found else 0
