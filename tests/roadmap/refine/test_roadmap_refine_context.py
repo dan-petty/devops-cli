@@ -75,12 +75,12 @@ def test_collect_context_and_truncation(git_repo: Path) -> None:
 
 def test_collect_context_handles_spaces_and_non_ascii_adrs(git_repo: Path) -> None:
     """collect_context reads ADR files whose names have spaces or non-ASCII characters without C-quoting failure."""
-    adr_file = git_repo / "docs" / "adr" / "0002-café decision with space.md"
-    adr_file.write_text("# ADR 0016\nSpecial ADR content.\n", encoding="utf-8")
+    adr_file = git_repo / "docs" / "adr" / "0092-café decision with space.md"
+    adr_file.write_text("# Special decision\nSpecial ADR content.\n", encoding="utf-8")
     new_sha = inspect_checkout(git_repo, REPO)
 
     ctx = collect_context(git_repo, new_sha, "body", max_tokens=4000)
-    assert ("ADR 0002: ADR 0016" in ctx, "Special ADR content." in ctx) == (True, False)
+    assert ("ADR 0092: Special decision" in ctx, "Special ADR content." in ctx) == (True, False)
 
 
 def test_the_context_holds_the_agents_md_of_the_sha(stage_repo: StageRepo) -> None:
@@ -376,19 +376,19 @@ def test_collect_context_lists_only_in_force_adr_index(stage_repo: StageRepo) ->
     """collect_context lists ADRs in force by number and leaves out superseded text (#5465)."""
     stage_repo.track(
         {
-            "docs/adr/0004-replacement.md": (
-                '---\nstatus: accepted\nsupersedes:\n  - "0002"\n---\n# Replacement rule\n'
+            "docs/adr/0094-replacement.md": (
+                '---\nstatus: accepted\nsupersedes:\n  - "0092"\n---\n# Replacement rule\n'
                 "\nFULL_TEXT_FOUR\n"
             ),
-            "docs/adr/0002-old.md": (
-                '---\nstatus: superseded\nsuperseded-by:\n  - "0004"\n---\n# Superseded rule\n'
+            "docs/adr/0092-old.md": (
+                '---\nstatus: superseded\nsuperseded-by:\n  - "0094"\n---\n# Superseded rule\n'
                 "\nFULL_TEXT_TWO\n"
             ),
-            "docs/adr/0001-first.md": (
-                '---\nstatus: accepted\namended-by:\n  - "0004"\n---\n# First rule\n'
+            "docs/adr/0091-first.md": (
+                '---\nstatus: accepted\namended-by:\n  - "0094"\n---\n# First rule\n'
                 "\nFULL_TEXT_ONE\n"
             ),
-            "docs/adr/0010-rejected.md": (
+            "docs/adr/0099-rejected.md": (
                 "---\nstatus: rejected\n---\n# Rejected rule\n\nFULL_TEXT_TEN\n"
             ),
             "docs/adr/README.md": "# Decision Records\n",
@@ -401,10 +401,12 @@ def test_collect_context_lists_only_in_force_adr_index(stage_repo: StageRepo) ->
     adr_headings = [line for line in ctx.splitlines() if line.startswith("### ") and "ADR" in line]
     assert len(adr_headings) == 1
     assert ("read_file" in adr_headings[0], "docs/adr" in adr_headings[0]) == (True, True)
-    assert "ADR 0001: First rule\nADR 0004: Replacement rule" in ctx
+    assert "ADR 0091: First rule\nADR 0094: Replacement rule" in ctx
     for forbidden in (
-        "ADR 0002",
-        "ADR 0010",
+        "Superseded rule",
+        "Rejected rule",
+        "0092",
+        "0099",
         "FULL_TEXT_ONE",
         "FULL_TEXT_TWO",
         "FULL_TEXT_FOUR",
@@ -417,8 +419,8 @@ def test_collect_context_omits_adr_index_when_none_in_force(stage_repo: StageRep
     """collect_context omits the ADR index heading when no ADR is in force (#5465)."""
     stage_repo.track(
         {
-            "docs/adr/0002-old.md": "---\nstatus: superseded\n---\n# ADR 0002 Old\n",
-            "docs/adr/0003-nope.md": "---\nstatus: rejected\n---\n# ADR 0003 Rejected\n",
+            "docs/adr/0092-old.md": "---\nstatus: superseded\n---\n# Old rule\n",
+            "docs/adr/0093-nope.md": "---\nstatus: rejected\n---\n# Rejected rule\n",
         }
     )
     sha = stage_repo.git("rev-parse", "HEAD")
