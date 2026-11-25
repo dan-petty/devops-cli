@@ -15,7 +15,7 @@ item, and an item waits on the open sub-issues of another tracker, not on the tr
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.refine.refine import (
@@ -81,12 +81,21 @@ def _open_work(
 
 
 def open_issue_dependencies(
-    item: Item, numbers: Iterable[int], store: RoadmapStore, items: Sequence[Item]
+    item: Item,
+    numbers: Iterable[int],
+    open_numbers: Collection[int],
+    items: Sequence[Item],
 ) -> str | None:
     """The reason that the open blockers among the dependencies `numbers` of `item` give
-    (`open_blockers`, #6450), or None when no dependency holds the item back. `items` is the read
-    whose sub-issue links the rule follows."""
-    blockers = open_blockers(item, numbers, store.item, ItemTree.of(items))
+    (`open_blockers`, #6450), or None when no dependency holds the item back. `open_numbers` is the
+    set of open item numbers, and `items` is the read whose sub-issue links the rule follows."""
+    tree = ItemTree.of(items)
+    blockers = open_blockers(
+        item,
+        numbers,
+        lambda n: tree.item(n) if n in open_numbers else None,
+        tree,
+    )
     if not blockers:
         return None
     return MESSAGES.roadmap.stage_left_dependency.format(
@@ -107,13 +116,14 @@ def open_dependency(
     and the call reads it only when a dependency is open, so a caller that builds the graph on its
     first call builds it at most once for each selection and builds none when no item has an open
     dependency (#6516)."""
+    open_numbers = {it.number for it in items if it.state is GitHubState.OPEN}
     open_reason = open_issue_dependencies(
         item,
         [
             *body_dependencies(item.body),
             *title_dependencies(item.body, items).numbers,
         ],
-        store,
+        open_numbers,
         items,
     )
     if open_reason is None:

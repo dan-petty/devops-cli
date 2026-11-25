@@ -477,9 +477,13 @@ class _Judge:
             return texts.plan_check_read.format(path=error.path, reason=error.reason)
         except GitOperationError as error:
             return texts.implement_left_plan_git.format(reason=error)
+        open_numbers = {it.number for it in self._items if it.state is GitHubState.OPEN}
         if (
             dependency := open_issue_dependencies(
-                item, issue_dependencies(proposal.dependencies), self._store, self._items
+                item,
+                issue_dependencies(proposal.dependencies),
+                open_numbers,
+                self._items,
             )
         ) is not None:
             return dependency

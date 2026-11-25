@@ -663,6 +663,15 @@ class ItemTree:
         return self._read()
 
     @cached_property
+    def _items_by_number(self) -> dict[int, Item]:
+        """The Items of the read by their issue number."""
+        return {item.number: item for item in self._items}
+
+    def item(self, number: int) -> Item | None:
+        """The Item with issue number `number` in the read, or None."""
+        return self._items_by_number.get(number)
+
+    @cached_property
     def _parents(self) -> dict[int, int]:
         """The parent of each Item of the read that has one."""
         return {item.number: item.parent for item in self._items if item.parent is not None}

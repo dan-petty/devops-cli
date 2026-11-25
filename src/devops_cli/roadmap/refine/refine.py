@@ -1472,6 +1472,7 @@ class DependencyGraph:
 
     edges: dict[int, tuple[int, ...]] = field(default_factory=dict)
     tree: ItemTree = field(default_factory=ItemTree, compare=False, repr=False)
+    open_numbers: frozenset[int] = field(default_factory=frozenset, compare=False, repr=False)
 
     @classmethod
     def of(cls, items: Sequence[Item], *, tree: ItemTree | None = None) -> DependencyGraph:
@@ -1486,6 +1487,7 @@ class DependencyGraph:
                 for number, item in open_items.items()
             },
             tree=tree,
+            open_numbers=frozenset(open_items),
         )
 
     def cycle_of(self, number: int) -> tuple[int, ...] | None:
@@ -1781,13 +1783,18 @@ def alternatives_gate(check: RecordedCheck | None, *, on: bool) -> bool:
 
 
 def _open_dependencies(
-    store: RoadmapStore, proposal: RefinementProposal, item: Item, tree: ItemTree
+    open_numbers: Collection[int], proposal: RefinementProposal, item: Item, tree: ItemTree
 ) -> tuple[int, ...]:
     """The open blockers among the dependencies that the validated proposal of `item` names, in
     its order. A closed issue holds nothing back (#3500), the parent tracker of the item is no
     blocker, and another tracker gives its open sub-issues (#6450). `tree` holds the sub-issue
     links of all Items."""
-    return _blockers(item, proposal.dependencies, store.item, tree)
+    return _blockers(
+        item,
+        proposal.dependencies,
+        lambda n: tree.item(n) if n in open_numbers else None,
+        tree,
+    )
 
 
 def next_step_of(
@@ -2885,11 +2892,16 @@ def _wait_state(
     return commented_at, refs, _read_marks(item, commented_at, refs)
 
 
-def _open_blockers(store: RoadmapStore, item: Item, tree: ItemTree) -> tuple[int, ...]:
+def _open_blockers(open_numbers: Collection[int], item: Item, tree: ItemTree) -> tuple[int, ...]:
     """The open blockers among the issues that the record of `item` names, by the rule of the
     jobs (#6450): a parent tracker that a round recorded holds the item no longer, and another
     tracker gives its open sub-issues. `tree` holds the sub-issue links of all Items."""
-    return _blockers(item, recorded_blockers(item), store.item, tree)
+    return _blockers(
+        item,
+        recorded_blockers(item),
+        lambda n: tree.item(n) if n in open_numbers else None,
+        tree,
+    )
 
 
 def _question_ends_wait(
@@ -2927,6 +2939,7 @@ def _still_waiting(
     *,
     graph: DependencyGraph | None = None,
     tracked_paths: Collection[str] | None = None,
+    open_numbers: Collection[int] | None = None,
 ) -> WaitingItem | None:
     """The next step an item nothing changed since its last round still waits on, or None when
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
@@ -2964,7 +2977,16 @@ def _still_waiting(
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
             tree = graph.tree if graph is not None else ItemTree(store.items)
-            blockers = _open_blockers(store, item, tree)
+            open_nums = (
+                open_numbers
+                if open_numbers is not None
+                else (
+                    graph.open_numbers
+                    if graph is not None
+                    else {it.number for it in store.open_items()}
+                )
+            )
+            blockers = _open_blockers(open_nums, item, tree)
             if not blockers:
                 return None
             held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
@@ -3133,6 +3155,15 @@ class _Selection:
     and every candidate of a wait text counts as a path."""
     actor: str | None = None
     """The account that the run acts as: its own comments answer no owner question (#3077)."""
+    open_numbers: Collection[int] | None = None
+    """The issue numbers of the open items of the round (#6553); None when read on demand."""
+    _open_items: Sequence[Item] | None = None
+
+    def _get_open_items(self) -> Sequence[Item]:
+        """The open items of the store, read at most once for the selection."""
+        if self._open_items is None:
+            self._open_items = self.store.open_items()
+        return self._open_items
 
     def comments_on(self, number: int) -> list[IssueComment]:
         """The comments of trusted authors on issue `number` (`trust.trusted_replies`), read
@@ -3144,8 +3175,16 @@ class _Selection:
     def questions(self) -> _Questions:
         """The open owner questions of the selection, with the frames read once (#3077)."""
         if self.frames is None:
-            self.frames = recorded_frames(self.store)
+            self.frames = frames_of(self._get_open_items())
         return _Questions(store=self.store, frames=self.frames, actor=self.actor)
+
+    def get_open_numbers(self) -> Collection[int]:
+        """The issue numbers of the open items of the round (#6553)."""
+        if self.open_numbers is not None:
+            return self.open_numbers
+        if self.graph is not None and self.graph.open_numbers:
+            return self.graph.open_numbers
+        return {it.number for it in self._get_open_items()}
 
     def consider(self, item: Item) -> None:
         """Take `item` unless it is a tracker (#3703), an account that the jobs do not trust opened
@@ -3181,6 +3220,7 @@ class _Selection:
                 self.questions(),
                 graph=self.graph,
                 tracked_paths=self.tracked_paths,
+                open_numbers=self.get_open_numbers(),
             )
             if waits is not None:
                 self.waiting.append(waits)
@@ -3254,15 +3294,21 @@ def select_candidates(
     limit: int = DEFAULT_ROADMAP_REFINE_LIMIT,
     actor: str | None = None,
     tracked_paths: Collection[str] | None = None,
+    open_numbers: Collection[int] | None = None,
 ) -> tuple[list[Item], list[WaitingItem]]:
     """Selects up to `limit` items to refine, nearest place first as the module's docstring
     orders them, returning (selected, waiting): each item it leaves out waits on its next step.
     The number of Ready items does not stop it (#2004). `actor` is the account that the run acts
     as, whose own comments answer no owner question (#3077). `tracked_paths` is the set of files
     that the commit of the round tracks, which keeps a value that is no path out of the references
-    of a wait (#6444)."""
+    of a wait (#6444). `open_numbers` is the issue numbers of the open items of the round (#6553)."""
     selected, waiting, _ = _select_round(
-        store, item_number=item_number, limit=limit, actor=actor, tracked_paths=tracked_paths
+        store,
+        item_number=item_number,
+        limit=limit,
+        actor=actor,
+        tracked_paths=tracked_paths,
+        open_numbers=open_numbers,
     )
     return selected, waiting
 
@@ -3276,6 +3322,7 @@ def _select_round(
     frames: dict[str, Item] | None = None,
     graph: DependencyGraph | None = None,
     tracked_paths: Collection[str] | None = None,
+    open_numbers: Collection[int] | None = None,
 ) -> tuple[list[Item], list[WaitingItem], int]:
     """The selection of `select_candidates`, and the count of the items that it ordered before
     the rules of each item and the limit: the queue of the refine row (#5470). The selection of a
@@ -3283,7 +3330,7 @@ def _select_round(
     which the selection reads itself when the caller gives none (#3077). `graph` is the declared
     dependencies of the open items of the round, which the selection reads itself when the caller
     gives none (#6449). `tracked_paths` is the set of files that the commit of the round tracks
-    (#6444)."""
+    (#6444). `open_numbers` is the issue numbers of the open items of the round (#6553)."""
     if item_number is not None:
         selected, waiting = _select_single_candidate(store, item_number)
         return selected, waiting, 0
@@ -3309,7 +3356,14 @@ def _select_round(
     ]
 
     selection = _Selection(
-        store, frames=frames, actor=actor, graph=graph, tracked_paths=tracked_paths
+        store,
+        frames=frames,
+        actor=actor,
+        graph=graph,
+        tracked_paths=tracked_paths,
+        open_numbers=open_numbers
+        if open_numbers is not None
+        else (graph.open_numbers if graph is not None else None),
     )
     for it in ordered:
         if len(selection.selected) >= limit:
@@ -3580,6 +3634,7 @@ def refine_one_item(
     frames: Mapping[str, Item] | None = None,
     graph: DependencyGraph | None = None,
     actor: str | None = None,
+    open_numbers: Collection[int] | None = None,
 ) -> RefinedItem:
     """Refines one item through context collection, proposal, validation and, when a question
     stays open, the investigation with `web`'s search and the `investigator` model (#2398). A
@@ -3677,7 +3732,12 @@ def refine_one_item(
     if failure is not None:
         return _failed_round(item, proposal, open_questions, current_body, failure)
     tree = graph.tree if graph is not None else ItemTree(store.items)
-    blockers = _open_dependencies(store, proposal, item, tree)
+    open_nums = (
+        open_numbers
+        if open_numbers is not None
+        else (graph.open_numbers if graph is not None else {it.number for it in store.open_items()})
+    )
+    blockers = _open_dependencies(open_nums, proposal, item, tree)
     held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
     cycle = held.cycle_of(item.number)
     proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
@@ -4023,6 +4083,7 @@ def plan_refine(
     frames = frames_of(open_items)
     # The tree reads every Item, closed parents too, and only when an item names an open tracker.
     graph = DependencyGraph.of(open_items, tree=ItemTree(store.items))
+    open_numbers = graph.open_numbers
 
     candidates, waiting, queue = _select_round(
         store,
@@ -4032,6 +4093,7 @@ def plan_refine(
         frames=frames,
         graph=graph,
         tracked_paths=tracked_paths,
+        open_numbers=open_numbers,
     )
     if writer is not None:
         writer.begin(len(candidates))
@@ -4073,6 +4135,7 @@ def plan_refine(
                 frames=frames,
                 graph=graph,
                 actor=actor,
+                open_numbers=open_numbers,
             )
         except AICredentialsError:
             raise
