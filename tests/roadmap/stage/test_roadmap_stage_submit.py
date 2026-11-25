@@ -506,8 +506,8 @@ def test_a_round_with_a_running_job_inside_its_deadline_deletes_nothing_and_keep
 def test_the_orphan_rule_runs_before_any_create(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:
-    """An old orphan of item A clears its pending mark in the same round, keeps its branch (#5499),
-    and A gets its Job."""
+    """An old orphan of item A keeps its branch (#5499) and its pending mark (#6668), and A gets
+    its Job."""
     seed_stageable(store)
     store.set_marks(
         _item(store),
@@ -525,7 +525,7 @@ def test_the_orphan_rule_runs_before_any_create(
         stage_repo.origin_git("branch", "--format=%(refname:short)").split(),
         "stage.pending" in _record(store),
         result.created,
-    ) == (sorted([BRANCH, "main"]), False, (_name(store),))
+    ) == (sorted([BRANCH, "main"]), True, (_name(store),))
 
 
 # ── The poll recovery ─────────────────────────────────────────────────────────
@@ -596,9 +596,9 @@ def test_a_check_in_after_the_round_read_its_items_is_no_recovery_and_keeps_the_
 def test_an_orphan_of_a_counted_end_keeps_the_failure_ledger_and_the_item_waits(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:
-    """The round cleans the pending mark of a recovered item at once and keeps the branch (#5499);
-    the removal keeps the failure marks and the count of the item: the item waits for its class,
-    and the count grows."""
+    """The round keeps the branch (#5499) and its pending mark (#6668) of a recovered Ready item,
+    and keeps the failure marks and the count of the item: the item waits for its class, and the
+    count grows."""
     seed_stageable(store)
     name = _name(store)
     _check_out(store, 1, name, marks={StageRecordKey.PENDING: _pending(10)})
@@ -618,7 +618,7 @@ def test_an_orphan_of_a_counted_end_keeps_the_failure_ledger_and_the_item_waits(
         result.created,
         again.created,
         _left_out(again, 1),
-    ) == (sorted([BRANCH, "main"]), False, "timeout", "1", (), (), LeftOutKind.FAILED_LATELY)
+    ) == (sorted([BRANCH, "main"]), True, "timeout", "1", (), (), LeftOutKind.FAILED_LATELY)
 
 
 def test_a_free_eviction_with_an_orphan_keeps_its_count(
