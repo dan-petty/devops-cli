@@ -65,7 +65,7 @@ def test_find_removed_names_handles_multiple_identifiers_and_verbs() -> None:
         "Finally, retires `old_entity`."
     )
     names = find_removed_names(text)
-    assert names == {"valkey_set", "valkey_get", "legacy_func", "tool_a", "tool_b", "old_entity"}
+    assert names == {"valkey_set", "valkey_get", "legacy_func", "tool_b", "old_entity"}
     assert "CONST_MCP_EXPOSURE_TABLE" not in names
     assert "registry" not in names
     assert "active_tools" not in names
@@ -82,6 +82,8 @@ def test_find_removed_names_returns_empty_when_no_removal() -> None:
     [
         pytest.param("The change drops `and` from the title.", id="hard-keyword"),
         pytest.param("The change drops `match` from the title.", id="soft-keyword"),
+        pytest.param("The change removes `and` from the title.", id="removes-hard-keyword"),
+        pytest.param("The change removes `match` from the title.", id="removes-soft-keyword"),
         pytest.param("`and` is removed from the title.", id="passive-keyword"),
     ],
 )
@@ -91,6 +93,62 @@ def test_find_removed_names_skips_a_python_keyword(text: str) -> None:
 
 def test_find_removed_names_keeps_an_ordinary_identifier() -> None:
     assert find_removed_names("The change removes `old_helper`.") == {"old_helper"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("The plan dropped the `rewrite` step.", id="dropped-step"),
+        pytest.param("Another item drops `tool_a` from `registry`.", id="drops-item"),
+        pytest.param("The change will drop `old_step`.", id="drop-base"),
+        pytest.param("The change is dropping `old_step`.", id="dropping-step"),
+        pytest.param("`old_step` is dropped from the pipeline.", id="passive-dropped"),
+    ],
+)
+def test_find_removed_names_ignores_drop_before_a_code_span(text: str) -> None:
+    assert find_removed_names(text) == set()
+
+
+def _scan_case(tmp_path: Path, *, test_body: str, proposal: str, tasks: str) -> Any:
+    """Create a minimal workspace + change folder and run `scan_removal_references`."""
+    tests_dir = tmp_path / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "example_test.py").write_text(test_body, encoding="utf-8")
+    change_dir = tmp_path / "openspec" / "changes" / "6884-sample"
+    change_dir.mkdir(parents=True)
+    (change_dir / "proposal.md").write_text(proposal, encoding="utf-8")
+    (change_dir / "design.md").write_text("Decisions:\n- None\n", encoding="utf-8")
+    (change_dir / "tasks.md").write_text(tasks, encoding="utf-8")
+    return scan_removal_references(tmp_path, change_dir)
+
+
+def test_a_plan_that_drops_a_step_gives_no_removal_reference_finding(tmp_path: Path) -> None:
+    """Dropping a step next to an identifier held in a test raises no finding (#6884)."""
+    result = _scan_case(
+        tmp_path,
+        test_body="def test_it():\n    rewrite()\n",
+        proposal="The plan dropped the `rewrite` step.\n",
+        tasks="# Tasks\n- [ ] 1.1 Keep the step\n",
+    )
+
+    assert not result.has_test_failures
+    assert result.unhandled_tests == {}
+
+
+def test_a_plan_that_drops_a_step_and_deletes_a_function_reports_only_the_deletion(
+    tmp_path: Path,
+) -> None:
+    """A plan that mentions a dropped step still catches deleted functions referenced in tests
+    (#6884)."""
+    result = _scan_case(
+        tmp_path,
+        test_body="def test_it():\n    rewrite()\n    valkey_set()\n",
+        proposal="The plan dropped the `rewrite` step.\nThe change deletes `valkey_set`.\n",
+        tasks="# Tasks\n- [ ] 1.1 Update other files\n",
+    )
+
+    assert result.has_test_failures
+    assert result.unhandled_tests == {"valkey_set": ["tests/example_test.py"]}
 
 
 def test_a_plan_that_drops_a_keyword_has_no_unhandled_test_reference(tmp_path: Path) -> None:
