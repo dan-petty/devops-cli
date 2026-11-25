@@ -20,6 +20,8 @@ class RunUsage:
 
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
     def add(self, call: dict[str, Any]) -> None:
         """Count one recorded model call. A call that the response cache answered ran no model."""
@@ -27,12 +29,18 @@ class RunUsage:
             return
         self.input_tokens += int(call.get("prompt_tokens") or 0)
         self.output_tokens += int(call.get("completion_tokens") or 0)
+        self.cache_read_tokens += int(call.get("cache_read_tokens") or 0)
+        self.cache_write_tokens += int(call.get("cache_write_tokens") or 0)
 
     def spend_usd(self, model: str) -> float | None:
         """The spend of the run at the hosted price of `model`, or None when no price is known."""
         from devops_cli.ai.spend.pricing import get_pricing_registry
 
         cost = get_pricing_registry().calculate_request_cost(
-            model, self.input_tokens, self.output_tokens
+            model,
+            self.input_tokens,
+            self.output_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens,
         )
         return None if cost.pricing_source == CONST_PRICING_SOURCE_UNKNOWN else cost.cost_usd
