@@ -21,7 +21,6 @@ from devops_cli.config.constants import (
     CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD,
     CONST_AI_JEV_DEFAULT_ROUTE_THRESHOLD,
     CONST_AI_JEV_MODEL,
-    CONST_AI_JEV_MODEL_TARGETS,
     CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
     CONST_AI_PYDANTIC_MODEL_PREFIXES,
     CONST_URL_GITHUB_COPILOT_API_BASE,
@@ -32,6 +31,7 @@ from devops_cli.config.settings import (
     Settings,
     get_ai_api_key,
     is_decision_model_name,
+    is_jev_model_target,
     load_settings,
 )
 from devops_cli.exceptions import ConfigurationError
@@ -65,7 +65,7 @@ def _model_prefix_and_target(model_str: str, ai_cfg: AIConfig) -> tuple[str, str
         return ai_cfg.gateway_provider, model_str
     if sep and is_pydantic_ai_provider(prefix):
         return prefix, target
-    if model_str.startswith(CONST_AI_JEV_MODEL_TARGETS) and ai_cfg.provider == "ollama":
+    if is_jev_model_target(model_str) and ai_cfg.provider == "ollama":
         return ai_cfg.gateway_provider, model_str
     return CONST_AI_PYDANTIC_MODEL_PREFIXES.get(ai_cfg.provider, ""), model_str
 

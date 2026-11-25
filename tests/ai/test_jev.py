@@ -128,6 +128,35 @@ class TestJevModelResolution:
         assert isinstance(auto_named.models[0], SystemOneModel)
         assert auto_named.models[1].model_name == "devops-coder"
 
+    def test_router_target_does_not_resolve_to_system_one_model(
+        self, monkeypatch: pytest.MonkeyPatch, web: WebFake
+    ) -> None:
+        """Verify `openai-chat:jev-router` and Ollama `typesafe/jev-router` are not SystemOne."""
+        from devops_cli.ai import pydantic_ai_bridge
+
+        monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _s: "sk-test")
+        assert pydantic_ai_bridge._is_jev_decision_name("openai-chat:jev-router") is False
+
+        chat_settings = Settings()
+        chat_settings.ai.provider = "openai"
+        chat_settings.ai.api_base_url = _EXAMPLE_GATEWAY
+        resolved = resolve_pydantic_ai_model("openai-chat:jev-router", settings=chat_settings)
+        assert not isinstance(resolved, SystemOneModel)
+
+        ollama_settings = _gateway_settings("ollama")
+        assert pydantic_ai_bridge._model_prefix_and_target(
+            "typesafe/jev-router", ollama_settings.ai
+        ) == (
+            "",
+            "typesafe/jev-router",
+        )
+        assert pydantic_ai_bridge._model_prefix_and_target(
+            "typesafe/jev-1.14", ollama_settings.ai
+        ) == (
+            "litellm",
+            "typesafe/jev-1.14",
+        )
+
 
 class TestJevRouting:
     """Verify `route_with_jev` probability and complexity routing."""

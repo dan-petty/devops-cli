@@ -8,7 +8,14 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from devops_cli.config.settings import RoadmapConfig, RoadmapStageConfig, Settings, load_settings
+from devops_cli.config.settings import (
+    RoadmapConfig,
+    RoadmapStageConfig,
+    Settings,
+    is_decision_model_name,
+    is_jev_model_target,
+    load_settings,
+)
 from devops_cli.exceptions import ConfigurationError
 from devops_cli.roadmap.decision_point import chain_of
 from devops_cli.roadmap.decision_registry import REGISTRY
@@ -42,6 +49,46 @@ def test_the_decision_model_takes_the_name_of_a_system_one_model(name: str) -> N
 
 def test_the_decision_model_refuses_a_model_that_writes_text(config: Callable[..., Path]) -> None:
     config(ai={"decision_model": "deepseek-v4.1-flash-1017"})
+
+    with pytest.raises(ConfigurationError, match=r"ai\.decision_model") as refused:
+        load_settings()
+
+    assert refused.value.key == "ai.decision_model"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("typesafe/jev-1.14", True),
+        ("jev-1.13", True),
+        ("typesafe/jev-router", False),
+        ("jev-router", False),
+    ],
+)
+def test_jev_model_target_requires_version_digit(name: str, expected: bool) -> None:
+    assert is_jev_model_target(name) is expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("typesafe/jev-1.14", True),
+        ("jev-1.13", True),
+        ("litellm:typesafe/jev-1.14", True),
+        ("typesafe/jev-router", False),
+        ("jev-router", False),
+        ("openai-chat:jev-router", False),
+        ("litellm:typesafe/jev-router", False),
+    ],
+)
+def test_decision_model_name_refuses_jev_router_and_keeps_versioned_targets(
+    name: str, expected: bool
+) -> None:
+    assert is_decision_model_name(name) is expected
+
+
+def test_the_decision_model_refuses_jev_router_on_load(config: Callable[..., Path]) -> None:
+    config(ai={"decision_model": "typesafe/jev-router"})
 
     with pytest.raises(ConfigurationError, match=r"ai\.decision_model") as refused:
         load_settings()
