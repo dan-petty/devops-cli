@@ -286,8 +286,12 @@ def seed_item(
     store.set_field(require_item(store, number), ItemField.STATUS, status)
     store.set_field(require_item(store, number), ItemField.PRIORITY, priority)
     if refined:
-        record = {RefineRecordKey.BODY_HASH: "body", RefineRecordKey.SECTION_HASH: "section"}
-        store.set_marks(require_item(store, number), record)
+        item = require_item(store, number)
+        record = {
+            RefineRecordKey.BODY_HASH: body_hashes(item.body)[0],
+            RefineRecordKey.SECTION_HASH: "section",
+        }
+        store.set_marks(item, record)
     return number
 
 
