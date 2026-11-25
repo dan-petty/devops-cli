@@ -1778,6 +1778,7 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "service-image",
             "Detect Image Content Changes",
         ): "Git diff to check changed service image sources",
+        ("service-image", "Run Service Image Smoke Stage"): "Docker build of the smoke stage",
         ("service-image", "Run Service Image Smoke Test"): "Docker container curl/smoke tests",
         (
             "mcp-server-image",
@@ -1792,6 +1793,10 @@ def _validate_ci_workflow_parity(workflow_data: dict[str, Any]) -> None:
             "Run MCP Server Image Smoke Test",
         ): "Docker container tool smoke tests",
         ("mcp-server-image", "Run Runner Image Smoke Test"): "Docker container tool smoke tests",
+        (
+            "mcp-server-image",
+            "Run Runner, MCP Server and UV Seed Smoke Stages",
+        ): "Docker builds of the smoke stages",
         (
             "mcp-server-image",
             "Run UV Seed Image Smoke Test",

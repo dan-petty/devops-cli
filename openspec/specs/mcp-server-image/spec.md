@@ -9,8 +9,8 @@ The container image target for the MCP server that serves role-scoped tool sets 
 The `mcp-server` target SHALL run as user `1000:1000` and SHALL keep the data directory under `HOME`.
 
 #### Scenario: Runtime user is non-root
-- **WHEN** the smoke test runs `docker run --rm --entrypoint id "$IMAGE" -u`
-- **THEN** the command prints `1000`
+- **WHEN** the stage `mcp-server-smoke` of `smoke.Dockerfile` runs `id -u` on the image
+- **THEN** the command prints `1000`, and the build of the stage fails when it prints another value
 
 ### Requirement: MCP server image gate
 The `mcp-server` image SHALL pass the HIGH and CRITICAL vulnerability scan and SHALL stay at or below 3,000,000,000 bytes.
@@ -58,5 +58,5 @@ The `Dockerfile` SHALL add an `mcp-server` target that builds on `mcp-server-dep
 The `mcp-server` target SHALL copy `kubectl` and `helm` from the devtools image that the `Dockerfile` pins by digest, and SHALL hold gh, git and OpenSpec as the Service image does. The `Dockerfile` SHALL name no version of these tools.
 
 #### Scenario: The cluster tools run
-- **WHEN** the smoke test of the MCP Server Image job runs `docker run --rm --entrypoint kubectl "$IMAGE" version --client` and `docker run --rm --entrypoint helm "$IMAGE" version`
+- **WHEN** the stage `mcp-server-smoke` of `smoke.Dockerfile` runs `kubectl version --client` and `helm version` on the image
 - **THEN** each command exits 0 and prints the version of the devtools image
