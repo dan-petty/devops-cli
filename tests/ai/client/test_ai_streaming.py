@@ -965,3 +965,99 @@ def test_stream_closed_after_partial_consumption_records_spent_tokens(
     assert len(recorded_spends) == 1
     spend = recorded_spends[0]
     assert spend["completion_tokens"] == len("One Two ")
+
+
+def _gateway_stream_client(monkeypatch: pytest.MonkeyPatch) -> LLMClient:
+    monkeypatch.setattr(context_budget, "count_tokens", lambda text, *args, **kwargs: len(text))
+    monkeypatch.setattr("devops_cli.ai.spend.track_request_spend", lambda **kwargs: None)
+    return LLMClient(
+        AIConfig(
+            provider="gateway",
+            gateway_url="http://gateway.example.com:4000/v1",
+            model="devops-coder",
+            max_retries=1,
+        ),
+        api_key="sk-test",
+        cache_enabled=False,
+    )
+
+
+def test_stream_error_frame_with_status_gives_that_status(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
+    """After a keepalive comment a gateway stream SSE error frame maps its HTTP status (#6828)."""
+    frame = sse_data({"error": {"message": "x", "type": "Timeout", "code": "408"}})
+    serve_llm(web, lambda request: reply([b": keepalive\n\n", frame]))
+    client = _gateway_stream_client(monkeypatch)
+
+    with pytest.raises(AIClientError) as caught:
+        list(client.chat_stream("s", "u"))
+
+    assert (caught.value.status, caught.value.reason) == (
+        408,
+        "LLM_INFERENCE_ERROR, timeout (HTTP 408 Request Timeout)",
+    )
+
+
+def test_stream_error_frame_403_plain_gives_credentials_error(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
+    """A 403 SSE error frame without a spend-limit body gives the credentials error of _status_error (#6828)."""
+    error_obj = {"message": "x", "type": "invalid_request_error", "code": "403"}
+    frame = sse_data({"error": error_obj})
+    serve_llm(web, lambda request: reply([b": keepalive\n\n", frame]))
+    client = _gateway_stream_client(monkeypatch)
+    expected = client._status_error(
+        403, json.dumps({"error": error_obj}, ensure_ascii=False, separators=(",", ":"))
+    )
+
+    with pytest.raises(AIClientError) as caught:
+        list(client.chat_stream("s", "u"))
+
+    assert (caught.value.status, str(caught.value)) == (403, str(expected))
+
+
+def test_stream_error_frame_403_spent_key_gives_spend_limit_error(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
+    """A 403 SSE error frame carrying a key-limit body raises AIKeySpendLimitError (#6828)."""
+    from devops_cli.ai.client.models import AIKeySpendLimitError
+
+    frame = sse_data(
+        {
+            "error": {
+                "message": "litellm.APIError: OpenrouterException - Key limit exceeded (total limit).",
+                "type": "invalid_request_error",
+                "code": "403",
+            }
+        }
+    )
+    serve_llm(web, lambda request: reply([b": keepalive\n\n", frame]))
+    client = _gateway_stream_client(monkeypatch)
+
+    with pytest.raises(AIKeySpendLimitError) as caught:
+        list(client.chat_stream("s", "u"))
+
+    assert caught.value.status == 403
+
+
+def test_stream_error_frame_non_numeric_code_gives_ai_client_error(
+    monkeypatch: pytest.MonkeyPatch, web: WebFake
+) -> None:
+    """An SSE error frame with a non-numeric code raises AIClientError and not raw openai.APIError (#6828)."""
+    frame = sse_data(
+        {
+            "error": {
+                "message": "x",
+                "type": "invalid_request_error",
+                "code": "invalid_request_error",
+            }
+        }
+    )
+    serve_llm(web, lambda request: reply([b": keepalive\n\n", frame]))
+    client = _gateway_stream_client(monkeypatch)
+
+    with pytest.raises(AIClientError) as caught:
+        list(client.chat_stream("s", "u"))
+
+    assert (caught.value.status, "Provider request failed" in str(caught.value)) == (None, True)

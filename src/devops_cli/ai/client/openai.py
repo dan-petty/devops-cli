@@ -402,7 +402,7 @@ class OpenAICompatProviderMixin(BaseLLMProviderMixin):
                     yield from _consume_stream(stream)
                 finally:
                     stream.close()
-        except (openai.APIStatusError, openai.APIConnectionError) as exc:
+        except openai.APIError as exc:
             raise self._map_openai_error(exc) from exc
         except (httpx2.ConnectError, httpx2.ConnectTimeout) as exc:
             raise self._connection_error(exc) from exc

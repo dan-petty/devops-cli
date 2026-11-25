@@ -207,7 +207,8 @@ def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredenti
         bounded_grant = grant_id[:256]
         return AICredentialsError(
             f"{subject} rejected agent grant '{bounded_grant}' (HTTP {status}): "
-            "the grant expired or was revoked; a person issues a new grant."
+            "the grant expired or was revoked; a person issues a new grant.",
+            status=status,
         )
     problem = (
         "rejected the configured API key"
@@ -216,7 +217,8 @@ def credentials_error(subject: str, *, has_key: bool, status: int) -> AICredenti
     )
     return AICredentialsError(
         f"{subject} {problem} (HTTP {status}). "
-        f"Set {env_var_for_option('ai.api_key')} or run `devops config set ai.api_key`."
+        f"Set {env_var_for_option('ai.api_key')} or run `devops config set ai.api_key`.",
+        status=status,
     )
 
 
