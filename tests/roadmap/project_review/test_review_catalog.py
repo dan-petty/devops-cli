@@ -574,3 +574,12 @@ def test_the_runner_jobs_started_are_the_implement_jobs_that_start_in_the_window
     result = promtool("test", "rules", unit_tests)
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_the_shipped_catalog_omits_the_spend_disagreement_pair_and_keeps_both_spend_facts() -> None:
+    """The shipped catalog removes `spend` and keeps both spend facts separate (#6660)."""
+    catalog = load_catalog()
+    assert "spend" not in {pair.id for pair in catalog.disagreements}
+    assert {"prometheus.cli_spend", "prometheus.gateway_spend"} <= {
+        fact.id for fact in catalog.facts
+    }

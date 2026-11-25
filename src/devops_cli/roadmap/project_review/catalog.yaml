@@ -931,8 +931,3 @@ disagreements:
       Job, and kube-state-metrics sees each implement Job of the repository start, by its name.
       The right fact is skipped for a window that starts before 2026-11-14T22:29:00Z (#5739), so
       the pair compares only later windows.
-  - id: spend
-    left: prometheus.cli_spend
-    right: prometheus.gateway_spend
-    tolerance: 0.1
-    definition: devops-cli and the gateway count the same model calls through the gateway.

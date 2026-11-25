@@ -281,3 +281,28 @@ def test_a_repository_that_is_not_the_origin_is_refused(
     assert result.exit_code == 1
     assert "The origin of the checkout is example/project" in result.output
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.usefixtures("refuse_requests")
+def test_a_dry_run_of_a_window_lists_both_spend_facts_with_no_spend_disagreement(
+    cli: Callable[..., Any], process_fake: ProcessFake
+) -> None:
+    """Both spend facts remain separate in `--dry-run` output (#6660)."""
+    result = cli(
+        "roadmap",
+        "review",
+        "run",
+        "--since",
+        "2026-11-16T12:00Z",
+        "--until",
+        "2026-11-17T12:00Z",
+        "--repo",
+        "example/project",
+        "--dry-run",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    assert "prometheus prometheus.cli_spend: " in result.stdout
+    assert "prometheus prometheus.gateway_spend: " in result.stdout
+    assert "spend" not in {pair.id for pair in load_catalog().disagreements}
