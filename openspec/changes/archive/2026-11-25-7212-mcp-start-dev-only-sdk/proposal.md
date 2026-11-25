@@ -6,7 +6,7 @@
 ## What Changes
 - New module `grafana/service_specs.py` holds `ServiceSpec`, `load_specs` and the spec file name, with no Grafana SDK.
 - `grafana/service_dashboard.py` and `k8s/catalog.py` import them from it.
-- A test imports each command module with the `DEP004` packages of `deptry` blocked.
+- A test imports each command module with `grafana_foundation_sdk` blocked.
 
 ## Capabilities
 ### Modified Capabilities
