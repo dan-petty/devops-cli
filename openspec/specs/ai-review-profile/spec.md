@@ -22,3 +22,12 @@ The review profile SHALL hold `tool_versions_digest`, the digest of the tool, th
 #### Scenario: Another installed Semgrep
 - **WHEN** a test builds a profile with a run of Semgrep `1.0.0`, again with the same run, and with a run of Semgrep `1.1.0`
 - **THEN** the first two digests are equal, the third differs, and a profile with no run has an empty digest
+
+### Requirement: Review profile records lens and rule id
+
+`ReviewProfile` SHALL include `lens` (default `"none"`) and `lens_rule` (default `""`) beside `prompt_digest`, and `record_lens_choice` / `ReviewProfiler` SHALL record the chosen lens, rule id, and `ai.lens` / `ai.lens.rule` span attributes.
+
+#### Scenario: Profile records selected lens or none
+
+- **WHEN** a review profile builds with a selected `devsecops` lens choice vs no lens choice
+- **THEN** the serialized `profile.json` holds `lens="devsecops"` with `lens_rule` in the first case, and `lens="none"`, `lens_rule=""` in the second, alongside `prompt_digest`

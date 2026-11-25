@@ -1,0 +1,232 @@
+# Ordered first-match persona lens selection rules (#4830).
+# Order of precedence: flag -> fixed step role -> finding producer/CWE -> path -> type/scope labels.
+
+[[rules]]
+id = "flag.explicit"
+matcher = "flag"
+pattern = "*"
+lens = "explicit"
+
+[[rules]]
+id = "step.refute"
+matcher = "step_role"
+pattern = "refute"
+lens = "challenger"
+
+[[rules]]
+id = "finding.gitleaks"
+matcher = "finding"
+pattern = "gitleaks"
+lens = "devsecops"
+
+[[rules]]
+id = "finding.trivy"
+matcher = "finding"
+pattern = "trivy"
+lens = "devsecops"
+
+[[rules]]
+id = "finding.kube-linter"
+matcher = "finding"
+pattern = "kube-linter"
+lens = "devsecops"
+
+[[rules]]
+id = "finding.bandit_cwe"
+matcher = "finding"
+pattern = "bandit"
+requires_cwe = true
+lens = "devsecops"
+
+[[rules]]
+id = "finding.semgrep_cwe"
+matcher = "finding"
+pattern = "semgrep"
+requires_cwe = true
+lens = "devsecops"
+
+[[rules]]
+id = "finding.mypy"
+matcher = "finding"
+pattern = "mypy"
+lens = "architect"
+
+[[rules]]
+id = "finding.c901"
+matcher = "finding"
+pattern = "c901"
+lens = "architect"
+
+[[rules]]
+id = "finding.pytest"
+matcher = "finding"
+pattern = "pytest"
+lens = "qa"
+
+[[rules]]
+id = "finding.coverage"
+matcher = "finding"
+pattern = "coverage"
+lens = "qa"
+
+[[rules]]
+id = "path.k8s"
+matcher = "path"
+pattern = "k8s/**"
+lens = "devsecops"
+
+[[rules]]
+id = "path.tf"
+matcher = "path"
+pattern = "tf/**"
+lens = "devsecops"
+
+[[rules]]
+id = "path.workflows"
+matcher = "path"
+pattern = ".github/workflows/**"
+lens = "devsecops"
+
+[[rules]]
+id = "path.dockerfile"
+matcher = "path"
+pattern = "Dockerfile*"
+lens = "devsecops"
+
+[[rules]]
+id = "path.tests"
+matcher = "path"
+pattern = "tests/**"
+lens = "qa"
+
+[[rules]]
+id = "path.adr"
+matcher = "path"
+pattern = "docs/adr/**"
+lens = "pm"
+
+[[rules]]
+id = "path.docs"
+matcher = "path"
+pattern = "docs/**"
+lens = "pm"
+
+[[rules]]
+id = "path.openspec"
+matcher = "path"
+pattern = "openspec/**"
+lens = "pm"
+
+[[rules]]
+id = "path.src"
+matcher = "path"
+pattern = "src/**"
+lens = "architect"
+
+[[rules]]
+id = "label.type_docs"
+matcher = "label"
+pattern = "type/docs"
+lens = "pm"
+
+[[rules]]
+id = "label.type_epic"
+matcher = "label"
+pattern = "type/epic"
+lens = "pm"
+
+[[rules]]
+id = "label.type_test"
+matcher = "label"
+pattern = "type/test"
+lens = "qa"
+
+[[rules]]
+id = "label.type_security"
+matcher = "label"
+pattern = "type/security"
+lens = "devsecops"
+
+[[rules]]
+id = "label.type_infra"
+matcher = "label"
+pattern = "type/infra"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_docs"
+matcher = "label"
+pattern = "scope/docs"
+lens = "pm"
+
+[[rules]]
+id = "label.scope_adr"
+matcher = "label"
+pattern = "scope/adr"
+lens = "pm"
+
+[[rules]]
+id = "label.scope_openspec"
+matcher = "label"
+pattern = "scope/openspec"
+lens = "pm"
+
+[[rules]]
+id = "label.scope_tests"
+matcher = "label"
+pattern = "scope/tests"
+lens = "qa"
+
+[[rules]]
+id = "label.scope_security"
+matcher = "label"
+pattern = "scope/security"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_k8s"
+matcher = "label"
+pattern = "scope/k8s"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_infra"
+matcher = "label"
+pattern = "scope/infra"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_terraform"
+matcher = "label"
+pattern = "scope/terraform"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_ci"
+matcher = "label"
+pattern = "scope/ci"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_monitoring"
+matcher = "label"
+pattern = "scope/monitoring"
+lens = "devsecops"
+
+[[rules]]
+id = "label.scope_deps"
+matcher = "label"
+pattern = "scope/deps"
+lens = "devsecops"
+
+[[rules]]
+id = "label.type_other"
+matcher = "label"
+pattern = "type/*"
+lens = "architect"
+
+[[rules]]
+id = "label.scope_other"
+matcher = "label"
+pattern = "scope/*"
+lens = "architect"

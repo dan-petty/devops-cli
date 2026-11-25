@@ -90,6 +90,7 @@ _PROCESS_STATE_RESETS: dict[str, tuple[str, ...]] = {
     "devops_cli.ai.mcp.generator": ("reset_click_command_cache",),
     "devops_cli.ai.mcp.server": ("reset_hydrated_domains",),
     "devops_cli.ai.personas": ("reset_persona_caches",),
+    "devops_cli.ai.personas.lens": ("reset_lens_caches",),
     "devops_cli.ai.rag.embeddings": ("reset_model_dimension_cache", "reset_embedder"),
     "devops_cli.ai.rag.investigator": ("clear_investigation_cache",),
     "devops_cli.ai.rag.kb_sync": ("reset_kb_sync_state",),

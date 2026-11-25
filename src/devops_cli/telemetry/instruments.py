@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from collections.abc import Container
@@ -203,6 +203,24 @@ AI_CAPABILITY_GATE_TOTAL = Instrument(
     "Failovers to a model below the capability tier of their role, by role, model and decision: "
     "rejection when the gate refused it, or override when --force let it through",
 )
+AI_LENS_TOTAL = Instrument(
+    "devops_cli_ai_lens_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Persona lens selections, by caller (chat), lens (one of the six Persona values or none) and "
+    "source: flag, rule or default",
+)
+LENS_COUNTER_CALLERS: Final[tuple[str, ...]] = ("chat",)
+LENS_COUNTER_LENSES: Final[tuple[str, ...]] = (
+    "devsecops",
+    "architect",
+    "pm",
+    "auditor",
+    "qa",
+    "challenger",
+    "none",
+)
+LENS_COUNTER_SOURCES: Final[tuple[str, ...]] = ("flag", "rule", "default")
 RAG_QUERY_DURATION = Instrument(
     "devops_cli_rag_query_duration_ms",
     InstrumentKind.HISTOGRAM,
@@ -982,6 +1000,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     AI_GATEWAY_HEALTHY,
     AI_GATEWAY_FAILOVERS_TOTAL,
     AI_CAPABILITY_GATE_TOTAL,
+    AI_LENS_TOTAL,
     RAG_QUERY_DURATION,
     QDRANT_RETRIES_TOTAL,
     RAG_POINTS,
@@ -1132,6 +1151,7 @@ __all__ = [
     "AI_GATEWAY_PROBE_DURATION",
     "AI_GATEWAY_SLOT_WAIT",
     "AI_JSON_REPAIRS_TOTAL",
+    "AI_LENS_TOTAL",
     "AI_MODEL_ANSWERS_TOTAL",
     "AI_OLLAMA_SLOT_WAIT",
     "AI_PREWARMS_TOTAL",

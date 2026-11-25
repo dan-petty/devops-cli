@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -727,3 +728,85 @@ def test_run_interactive_chat_turn_non_streaming_with_thoughts_and_tools() -> No
         stream=False,
     )
     agent.run_sync.assert_called_once_with("hello", message_history=[])
+
+
+def test_resolve_chat_lens_auto_default_and_explicit_flag(tmp_path: Path) -> None:
+    """`devops ai chat --persona` resolves omitted to architect (default), explicit to flag, and
+    `auto` from working-tree paths (#4830)."""
+    from devops_cli.ai.personas import Persona
+    from devops_cli.commands.ai import resolve_chat_lens
+
+    k8s_dir = tmp_path / "k8s" / "devops"
+    k8s_dir.mkdir(parents=True)
+    deployment = k8s_dir / "deployment.yaml"
+    deployment.write_text("kind: Deployment\n", encoding="utf-8")
+
+    default_persona, default_choice = resolve_chat_lens(None, changed_paths=())
+    explicit_persona, explicit_choice = resolve_chat_lens("architect", changed_paths=())
+    auto_persona, auto_choice = resolve_chat_lens(
+        "auto", changed_paths=("k8s/devops/deployment.yaml",)
+    )
+
+    assert (default_persona, default_choice.source) == (Persona.ARCHITECT, "default")
+    assert (explicit_persona, explicit_choice.source, explicit_choice.rule_id) == (
+        Persona.ARCHITECT,
+        "flag",
+        "flag.explicit",
+    )
+    assert (auto_persona, auto_choice.lens, auto_choice.source, auto_choice.rule_id) == (
+        Persona.DEVSECOPS,
+        Persona.DEVSECOPS,
+        "rule",
+        "path.k8s",
+    )
+
+
+def test_ai_chat_persona_auto_records_telemetry_and_selects_lens(
+    tmp_path: Path,
+    model_fake: ModelFake,
+    refusing_port: int,
+    unserved_side_channel_port: int,
+    config: Callable[..., Path],
+    cli: Callable[..., Any],
+    otlp: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`devops ai chat --persona auto` emits `ai.lens` span attr and `devops_cli_ai_lens_total`."""
+    from devops_cli.telemetry.instruments import AI_LENS_TOTAL
+
+    config(
+        telemetry={"endpoint": f"http://127.0.0.1:{unserved_side_channel_port}"},
+        qdrant={"url": f"http://127.0.0.1:{refusing_port}"},
+        ai={"ollama_urls": ["http://localhost:11434"]},
+    )
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    k8s_dir = tmp_path / "k8s" / "devops"
+    k8s_dir.mkdir(parents=True)
+    deployment = k8s_dir / "deployment.yaml"
+    deployment.write_text("kind: Deployment\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "k8s/devops/deployment.yaml"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    monkeypatch.chdir(tmp_path)
+    model_fake.answer("r1")
+
+    res = cli(
+        "ai",
+        "chat",
+        "--persona",
+        "auto",
+        "--no-stream",
+        "--no-rag",
+        "--no-prewarm",
+        input="exit\n",
+    )
+
+    points = otlp.points(AI_LENS_TOTAL.name)
+    assert res.exit_code == 0
+    assert any(
+        attrs == {"caller": "chat", "lens": "devsecops", "source": "rule"} and value == 1.0
+        for attrs, value in points
+    )

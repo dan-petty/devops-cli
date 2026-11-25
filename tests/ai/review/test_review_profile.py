@@ -687,3 +687,18 @@ def test_the_profile_records_the_digest_of_the_registry_ruleset_a_review_scanned
         profile = profiler.build(session_id="s", target="t")
 
     assert (none_read, profile.semgrep_registry_digest) == ("", "sha256:feedface")
+
+
+def test_the_profile_records_selected_lens_and_defaults_to_none() -> None:
+    """`profile.json` holds `lens` and `lens_rule`, defaulting to `none` and empty string (#4830)."""
+    with profiling() as profiler:
+        default_profile = profiler.build(session_id="s0", target="t0")
+        profiler.set_lens("devsecops", "path.k8s")
+        updated_profile = profiler.build(session_id="s1", target="t1")
+
+    assert (
+        default_profile.lens,
+        default_profile.lens_rule,
+        updated_profile.lens,
+        updated_profile.lens_rule,
+    ) == ("none", "", "devsecops", "path.k8s")
