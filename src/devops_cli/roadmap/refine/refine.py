@@ -166,6 +166,7 @@ from devops_cli.ai.web_search import first_configured_provider
 from devops_cli.config.commands import BIN_GIT
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
+    CONST_ROADMAP_ADR_DIRECTORY,
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -218,6 +219,7 @@ from devops_cli.exceptions.roadmap import (
 )
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.adr import Adr, adr_of
 from devops_cli.roadmap.ask_tools import research_ask
 from devops_cli.roadmap.body_hash import (
     block_marker_of,
@@ -1055,6 +1057,34 @@ class RefineContext(str):
         return instance
 
 
+_ADR_INDEX_HEADING: Final[str] = (
+    "### ADRs in force (call `read_file` on `docs/adr/` for the full text)"
+)
+
+
+def _collect_adr_index(source: Path, sha: str) -> str | None:
+    """One-line index (`ADR NNNN: <title>`) of ADRs in force at `sha`, sorted by number (#5465)."""
+    code_adr, adr_list = git_result(
+        source, "ls-tree", "-r", "-z", "--name-only", sha, CONST_ROADMAP_ADR_DIRECTORY
+    )
+    if code_adr != 0 or not adr_list:
+        return None
+    adr_items = adr_list.split("\0") if "\0" in adr_list else adr_list.splitlines()
+    adrs: list[Adr] = []
+    for adr_path in (path for path in adr_items if path):
+        adr_content = _read_git_file(source, sha, adr_path)
+        if not adr_content:
+            continue
+        parsed = adr_of(adr_path, adr_content)
+        if parsed is not None and parsed.in_force:
+            adrs.append(parsed)
+    if not adrs:
+        return None
+    adrs.sort(key=lambda adr: adr.number)
+    lines = [f"ADR {adr.number:04d}: {adr.title}" for adr in adrs]
+    return "\n".join((_ADR_INDEX_HEADING, *lines))
+
+
 def collect_context(
     source: Path,
     sha: str,
@@ -1078,14 +1108,9 @@ def collect_context(
     if ctx:
         sections.append(f"### CONTEXT.md\n{ctx}")
 
-    # docs/adr/*.md
-    code_adr, adr_list = git_result(source, "ls-tree", "-r", "-z", "--name-only", sha, "docs/adr")
-    if code_adr == 0 and adr_list:
-        adr_items = adr_list.split("\0") if "\0" in adr_list else adr_list.splitlines()
-        for adr_path in [p for p in adr_items if p][:5]:
-            adr_content = _read_git_file(source, sha, adr_path)
-            if adr_content:
-                sections.append(f"### {adr_path}\n{adr_content}")
+    adr_index = _collect_adr_index(source, sha)
+    if adr_index:
+        sections.append(adr_index)
 
     # Tests and callers of each cited symbol, and the requirements of the specs of the cited
     # files. They are short and bounded, so they come before the cited code, which the cut of the
