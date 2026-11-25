@@ -96,7 +96,16 @@ class Mode(StrEnum):
 
     OFF = "off"
     SHADOW = "shadow"
+    RULE = "rule"
     ON = "on"
+
+
+@dataclass(frozen=True)
+class Guard:
+    """Deterministic pre-check evaluated in order before rule and model (#4847)."""
+
+    name: str
+    allows: Callable[[dict[str, Any]], bool]
 
 
 class Resolver(StrEnum):
@@ -132,6 +141,9 @@ class DecisionPoint[T]:
     asks_model: bool = True
     counts_only: bool = False
     timeout: float = 30.0
+    guards: tuple[Guard, ...] = ()
+    requires_fit_bar: bool = False
+    supports_rule_mode: bool = False
 
     def __post_init__(self) -> None:
         texts = MESSAGES.roadmap
@@ -151,8 +163,7 @@ class DecisionPoint[T]:
         )
 
     def series(self) -> frozenset[tuple[str, str, str, str]]:
-        """The label sets (point, resolver, band, mode) that the point can count: each band for
-        each of its resolvers, and `none` for the fallback, in the modes `shadow` and `on`."""
+        """The label sets (point, resolver, band, mode) that the point can count across modes."""
         modes = (Mode.SHADOW.value, Mode.ON.value)
         answered = {
             (self.name, resolver.value, band.value, mode)
@@ -160,9 +171,12 @@ class DecisionPoint[T]:
             for band in Band
             for mode in modes
         }
-        return frozenset(
-            answered | {(self.name, Resolver.FALLBACK.value, NO_BAND, mode) for mode in modes}
-        )
+        fallbacks = {(self.name, Resolver.FALLBACK.value, NO_BAND, mode) for mode in modes}
+        if self.supports_rule_mode:
+            rule_mode = Mode.RULE.value
+            answered |= {(self.name, Resolver.RULE.value, band.value, rule_mode) for band in Band}
+            fallbacks.add((self.name, Resolver.FALLBACK.value, NO_BAND, rule_mode))
+        return frozenset(answered | fallbacks)
 
     def thresholds(self) -> Thresholds:
         """The fitted cuts of the point, from its data file."""
@@ -194,6 +208,9 @@ class DecisionRecord(BaseModel):
     mode: Mode
     resolver: Resolver
     band: Band | None
+    rule_band: Band | None = None
+    model_band: Band | None = None
+    guard: str | None = None
     model: str = ""
     cuts: str = ""
     answers: dict[str, float] = Field(default_factory=dict)
@@ -203,8 +220,12 @@ class DecisionRecord(BaseModel):
 
     @property
     def acts(self) -> bool:
-        """Whether the band acts: the mode is `on` and a resolver gave a band."""
-        return self.mode is Mode.ON and self.band is not None
+        """Whether the band acts: `on` with any band, or `rule` when resolver is `rule`."""
+        if self.band is None:
+            return False
+        if self.mode is Mode.ON:
+            return True
+        return self.mode is Mode.RULE and self.resolver is Resolver.RULE
 
     def line(self) -> str:
         """The log line of the record."""
@@ -230,14 +251,17 @@ class OutcomeRecord(BaseModel):
 
 @dataclass(frozen=True)
 class _Resolved:
-    """What a resolver gave: the resolver, the band, the day of the cuts, the flagged questions and
-    the model name of the answer, which is empty when no model answered."""
+    """What a resolver gave: the resolver, the band, the rule/model bands, failing guard name,
+    the day of the cuts, the flagged questions and the model name of the answer."""
 
     resolver: Resolver
     band: Band | None = None
     cuts: str = ""
     flagged: tuple[str, ...] = ()
     model: str = ""
+    rule_band: Band | None = None
+    model_band: Band | None = None
+    guard: str | None = None
 
 
 class ResolverChain[T]:
@@ -355,37 +379,58 @@ class ResolverChain[T]:
         )
         return record
 
+    def _failed_guard(self, state: dict[str, Any]) -> _Resolved | None:
+        """Evaluate ordered guards before rule and model; stop at the first failure (#4847)."""
+        for guard in self.point.guards:
+            if not guard.allows(state):
+                return _Resolved(Resolver.FALLBACK, guard=guard.name)
+        return None
+
+    def _prepare_model_call(self, state: dict[str, Any]) -> DecisionRequest:
+        """Validate cuts and fit bar when needed and return the decision request."""
+        if self.mode is not Mode.RULE:
+            self._check_cuts_model()
+            if self.mode is Mode.ON and self.point.requires_fit_bar:
+                problems = self._thresholds.fit_bar_problems()
+                if problems:
+                    raise FileNotFoundError(
+                        MESSAGES.roadmap.decision_point_fit_bar.format(
+                            point=self.point.name, problems="; ".join(problems)
+                        )
+                    )
+        return self.point.request(state)
+
     def _resolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
-        """The first resolver that answers, with the request sent on the blocking portal. The model
-        puts its answers in `answers` before the cuts give the band, so a record of a fallback keeps
-        them."""
+        """Evaluate guards, then rule, then decision model on the blocking portal."""
+        if (blocked := self._failed_guard(state)) is not None:
+            return blocked
         if (started := self._started(state)) is not None:
             return started
-        self._check_cuts_model()
+        req = self._prepare_model_call(state)
         (response,) = decide_all(
-            [self.point.request(state)],
+            [req],
             model=self._model,
             model_name=self._model_name,
             settings=self._settings,
             timeout=self.point.timeout,
         )
-        return self._banded(response, answers)
+        return self._after_response(response, answers)
 
     async def _aresolve(self, state: dict[str, Any], answers: dict[str, float]) -> _Resolved:
-        """The first resolver that answers, with the request awaited on the event loop of the
-        caller. The model puts its answers in `answers` before the cuts give the band, so a record
-        of a fallback keeps them."""
+        """Evaluate guards, then rule, then decision model on the caller's event loop."""
+        if (blocked := self._failed_guard(state)) is not None:
+            return blocked
         if (started := self._started(state)) is not None:
             return started
-        self._check_cuts_model()
+        req = self._prepare_model_call(state)
         (response,) = await adecide_all(
-            [self.point.request(state)],
+            [req],
             model=self._model,
             model_name=self._model_name,
             settings=self._settings,
             timeout=self.point.timeout,
         )
-        return self._banded(response, answers)
+        return self._after_response(response, answers)
 
     def _check_cuts_model(self) -> None:
         """Refuse the cuts of another model than the model in use, before any request goes to that
@@ -403,8 +448,20 @@ class ResolverChain[T]:
     def _started(self, state: dict[str, Any]) -> _Resolved | None:
         """The decision that the rule or the fallback gives, or None when the model answers."""
         if self.point.rule is not None and (band := self.point.rule(state)) is not None:
-            return _Resolved(Resolver.RULE, band)
+            return _Resolved(Resolver.RULE, band, rule_band=band)
         return None if self._model_name else _Resolved(Resolver.FALLBACK)
+
+    def _after_response(self, response: DecisionResponse, answers: dict[str, float]) -> _Resolved:
+        """Record model answers; in `rule` mode keep `model_band=None` without cuts (#4847)."""
+        if self.mode is Mode.RULE:
+            answers.update(probabilities_of(response))
+            return _Resolved(
+                Resolver.FALLBACK,
+                band=None,
+                model=response.model_name,
+                model_band=None,
+            )
+        return self._banded(response, answers)
 
     def _banded(self, response: DecisionResponse, answers: dict[str, float]) -> _Resolved:
         """The decision of the model: its answers go into `answers`, and the cuts of the point give
@@ -414,7 +471,14 @@ class ResolverChain[T]:
         fitted = self._thresholds
         band = band_of(answers, fitted.cuts)
         flagged = tuple(name for name, cut in fitted.cuts.items() if answers[name] >= cut.flag_at)
-        return _Resolved(Resolver.MODEL, band, fitted.fitted, flagged, model=response.model_name)
+        return _Resolved(
+            Resolver.MODEL,
+            band,
+            fitted.fitted,
+            flagged,
+            model=response.model_name,
+            model_band=band,
+        )
 
     def _record(
         self,
@@ -433,6 +497,9 @@ class ResolverChain[T]:
             mode=self.mode,
             resolver=resolved.resolver,
             band=resolved.band,
+            rule_band=resolved.rule_band,
+            model_band=resolved.model_band,
+            guard=resolved.guard,
             model=resolved.model or configured,
             cuts=resolved.cuts,
             answers=answers,
@@ -563,6 +630,7 @@ __all__ = [
     "OUTCOME_PREFIX",
     "DecisionPoint",
     "DecisionRecord",
+    "Guard",
     "Join",
     "LabelledCase",
     "Mode",

@@ -153,6 +153,12 @@ class Thresholds(BaseModel):
         """The cuts in the JSON file `path`."""
         return cls.model_validate(json.loads(path.read_text(encoding="utf-8")))
 
+    def fit_bar_problems(self) -> list[str]:
+        """Return fit-bar violations (`>= 30` cases, `>= 10` per label, passing halves) (#4847)."""
+        from devops_cli.roadmap.decision_table import fit_bar_problems_from_data
+
+        return fit_bar_problems_from_data({"cases": self.cases, "report": self.report})
+
 
 def band_of(probabilities: Mapping[str, float], cuts: Mapping[str, Cut]) -> Band:
     """The band for `probabilities`, one for each question of `cuts`. A question with no answer

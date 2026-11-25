@@ -1284,8 +1284,8 @@ DEFAULT_ROADMAP_REVIEW_TOKEN_BUDGET: int = 16_000_000
 # The hours that the step review waits on a head whose only failed checks are of CI
 # infrastructure before it leaves the pull request for a person (#6024).
 DEFAULT_ROADMAP_REVIEW_INFRA_WAIT_HOURS: int = 6
-# The mode of a decision point in `roadmap.decisions` (ADR 0020).
-DecisionMode = Literal["off", "shadow", "on"]
+# The mode of a decision point in `roadmap.decisions` (ADR 0020, #4847).
+DecisionMode = Literal["off", "shadow", "rule", "on"]
 DEFAULT_GH_MUTATION_MIN_INTERVAL_SECONDS: float = 1.0
 DEFAULT_GH_SECONDARY_RATE_WAIT: float = 60.0
 DEFAULT_GH_SECONDARY_MAX_CAP: float = 300.0

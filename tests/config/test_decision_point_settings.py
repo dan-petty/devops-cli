@@ -100,7 +100,7 @@ def test_a_config_that_still_holds_the_old_screen_key_loads_and_the_point_is_off
     assert chain_of(VERIFY_SCREEN, settings) is None
 
 
-@pytest.mark.parametrize("mode", ["off", "shadow", "on"])
+@pytest.mark.parametrize("mode", ["off", "shadow", "rule", "on"])
 def test_the_verify_screen_takes_each_mode_because_its_cuts_are_fitted(mode: str) -> None:
     settings = Settings(roadmap={"decisions": {"stage.verify_screen": mode}})
 
@@ -111,22 +111,46 @@ def test_the_decisions_description_names_the_shadow_rule() -> None:
     description = RoadmapConfig.model_fields["decisions"].description or ""
 
     assert "`shadow`" in description
+    assert "`rule`" in description
     assert "`on`" in description
     assert "needs a cuts file in the repository" in description
 
 
-def test_a_mode_that_is_not_off_shadow_or_on_is_refused() -> None:
+def test_a_mode_that_is_not_off_shadow_rule_or_on_is_refused() -> None:
     with pytest.raises(ValidationError, match="decisions"):
         Settings(roadmap={"decisions": {"stage.verify_screen": "always"}})
 
 
 def test_the_registry_holds_each_point_with_its_fitted_cuts() -> None:
+    fitted = {"alternatives.reply_fixable", "stage.verify_screen"}
     for name in REGISTRY.names:
         point = REGISTRY.point(name)
-        assert point.cuts.is_file()
-        assert point.thresholds().step == name
-    assert REGISTRY.names == ("alternatives.reply_fixable", "stage.verify_screen")
-    assert REGISTRY.series_count == 16
+        if name in fitted:
+            assert point.cuts.is_file()
+            assert point.thresholds().step == name
+        else:
+            assert not point.requires_fit_bar or not point.cuts.is_file()
+    assert REGISTRY.names == (
+        "alternatives.reply_fixable",
+        "implement.extension",
+        "stage.verify_screen",
+    )
+    assert REGISTRY.series_count == 34
+
+
+def test_mode_rule_loads_without_cuts_file_for_implement_extension(
+    config: Callable[..., Path],
+) -> None:
+    """A point in `rule` mode needs no cuts file, while `shadow` and `on` wait until fitted."""
+    config(roadmap={"decisions": {"implement.extension": "rule"}})
+    settings = load_settings()
+
+    assert settings.roadmap.decisions == {"implement.extension": "rule"}
+
+    for bad_mode in ("shadow", "on"):
+        config(roadmap={"decisions": {"implement.extension": bad_mode}})
+        with pytest.raises(ConfigurationError, match=r"implement\.extension"):
+            load_settings()
 
 
 def test_a_point_runs_only_in_shadow_or_on_and_with_a_decision_model(jev: JevFake) -> None:

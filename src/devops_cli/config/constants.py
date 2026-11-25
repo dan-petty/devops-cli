@@ -3728,6 +3728,11 @@ CONST_ROADMAP_IMPLEMENT_STEP_CLASSES: Final[tuple[str, ...]] = ("edit", "repair"
 # that is further from its end.
 CONST_ROADMAP_IMPLEMENT_EXTENSION_MIN_EDITS: Final[int] = 1
 CONST_ROADMAP_IMPLEMENT_EXTENSION_PERCENT: Final[int] = 50
+# Outer-limit and loop guard bounds for soft-cap `implement.extension` decisions (#4847).
+CONST_ROADMAP_IMPLEMENT_EXTENSION_WINDOW_MAX_SHARE: Final[float] = 0.75
+CONST_ROADMAP_IMPLEMENT_EXTENSION_TIME_MARGIN_SECONDS: Final[float] = 300.0
+CONST_ROADMAP_IMPLEMENT_EXTENSION_LOOP_IDENTICAL_CALLS: Final[int] = 4
+CONST_ROADMAP_IMPLEMENT_EXTENSION_LOOP_FAILED_CALLS: Final[int] = 3
 # When no config file and no variable sets `roadmap.implement.step_token_ceiling`, the ceiling is
 # this many times the loaded `step_token_budget` (#4505). Twice the budget leaves room for the whole
 # extension of half the budget, whatever budget a person sets.
@@ -4280,9 +4285,15 @@ CONST_ROADMAP_JEV_EVAL_MAX_CALLS: Final[int] = 160
 # The Jev requests of one decision step that run at the same time (ADR 0019).
 CONST_ROADMAP_DECISION_STEP_CONCURRENCY: Final[int] = 8
 # The most label sets of `devops_cli_decision_point_total` that the registry of decision points
-# may write: the bound of ADR 0020 section 7, which allows 60 series for the first catalogue, 24
-# for the three `brain.*` points and 8 for `resolve.question_class`.
-CONST_ROADMAP_DECISION_POINT_MAX_SERIES: Final[int] = 92
+# may write: the bound of ADR 0020 section 7 (60 series for the first catalogue, 24 for the three
+# `brain.*` points, and 8 for `resolve.question_class`), plus 18 for `implement.extension` (#4847:
+# 7 in `shadow`, 7 in `on`, and 4 in `rule`).
+CONST_ROADMAP_DECISION_POINT_MAX_SERIES: Final[int] = 110
+# The default timeout in seconds for a soft-cap decision point model call, and the fit-bar
+# thresholds required before enabling mode `on` with fitted cuts (#4847).
+CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS: Final[float] = 5.0
+CONST_ROADMAP_DECISION_POINT_FIT_MIN_CASES: Final[int] = 30
+CONST_ROADMAP_DECISION_POINT_FIT_MIN_PER_LABEL: Final[int] = 10
 # The timeout in seconds of the Jev request of the verify screen (#4282).
 CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS: Final[float] = 30.0
 # The price of Jev in USD for a million input tokens, from the owner on 2026-11-09, for the cost

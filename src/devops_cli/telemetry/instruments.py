@@ -414,14 +414,15 @@ DECISION_POINT_TOTAL = Instrument(
     "devops_cli_decision_point_total",
     InstrumentKind.COUNTER,
     "1",
-    "Decisions of a registered decision point (ADR 0020), by point, resolver (rule, model or "
-    "fallback), band (continue, review or flag, or none for a fallback) and mode (shadow or on). "
+    "Decisions of a registered decision point (ADR 0020, #4847), by point, resolver (rule, model or "
+    "fallback), band (continue, review or flag, or none for a fallback) and mode (shadow, rule or on). "
     "A point in the mode off, and a point with no rule while ai.decision_model is empty, count "
     "nothing. A point writes only the resolvers that it has: one resolver besides the fallback "
-    "gives 8 series, and a rule and a model give 14. The registry refuses a catalogue of more "
-    "than 92 series, the bound of ADR 0020 section 7: 60 for the first catalogue, 24 for the "
-    "three brain.* points and 8 for resolve.question_class. The registry holds "
-    "stage.verify_screen, a model and no rule: 8 series. The "
+    "gives 8 series, a rule and a model give 14 across shadow and on, and a point that supports "
+    "rule mode adds 4 series (18 total). The registry refuses a catalogue of more "
+    "than 110 series: 92 from ADR 0020 section 7 (60 for the first catalogue, 24 for the "
+    "three brain.* points and 8 for resolve.question_class) plus 18 for implement.extension. The registry holds "
+    "stage.verify_screen (8 series), alternatives.reply_fixable (8 series), and implement.extension (18 series). The "
     "decision record and the outcome record of each decision are log lines that share an "
     "identifier, and their join gives the false-clear rate of a point",
 )

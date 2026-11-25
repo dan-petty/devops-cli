@@ -345,3 +345,72 @@ def test_a_repair_turn_makes_no_request_when_the_step_has_spent_its_time(
     outcome = _step(implement_store, implement_checkout, script, ItemSpend(clock=clock))
 
     assert (len(script.seen), outcome.failure_class) == (2, FailureClass.LIMIT_REACHED)
+
+
+def test_tool_log_tracks_identical_call_answers_and_failing_calls_for_loop_guard() -> None:
+    """ToolCallLog counts identical call+answer pairs and failing call repeats (#4847)."""
+    from devops_cli.roadmap.implement.implement_tool_log import (
+        ToolCallLog,
+        ToolOutcome,
+        progress_digest,
+    )
+
+    log = ToolCallLog()
+    log.note_loop_event("digest-read", outcome=ToolOutcome.OK, answer="same-output")
+    for _ in range(3):
+        log.note_loop_event("digest-read", outcome=ToolOutcome.OK, answer="same-output")
+    for _ in range(3):
+        log.note_loop_event("digest-fail", outcome=ToolOutcome.FAILED, answer="err")
+    for idx in range(20):
+        log.recent.append(("write_file" if idx == 0 else "read_file", ToolOutcome.OK))
+
+    digest = progress_digest(
+        tuple(log.recent),
+        20,
+        identical_call_answers=log.max_identical_call_answers,
+        identical_failing_calls=log.max_identical_failing_calls,
+    )
+
+    assert digest == ProgressDigest(
+        calls=20,
+        edits=1,
+        identical_call_answers=4,
+        identical_failing_calls=3,
+    )
+
+
+def test_soft_cap_implement_extension_guards_stop_in_order_when_point_is_in_rule_mode(
+    config: Callable[..., Path],
+) -> None:
+    """In `rule` mode, ordered guards block extension on window share, time margin, and loop."""
+    config(
+        roadmap={
+            "decisions": {"implement.extension": "rule"},
+            "implement": {"step_token_budget": 50},
+        }
+    )
+
+    over_window = StepBudget(
+        progress=lambda: ProgressDigest(calls=20, edits=2),
+        window_share=lambda: 0.76,
+    )
+    over_window.add(50)
+    assert over_window.spent() is not None
+    assert over_window.extension is None
+
+    clock = Clock()
+    near_deadline = StepBudget(
+        ItemSpend(clock=clock),
+        progress=lambda: ProgressDigest(calls=20, edits=2),
+    )
+    clock.seconds = 5200.0
+    near_deadline.add(50)
+    assert near_deadline.spent() is not None
+    assert near_deadline.extension is None
+
+    looping = StepBudget(
+        progress=lambda: ProgressDigest(calls=20, edits=2, identical_call_answers=4),
+    )
+    looping.add(50)
+    assert looping.spent() is not None
+    assert looping.extension is None

@@ -107,16 +107,24 @@ class ToolOutcome(StrEnum):
     FAILED = "failed"
 
 
-def progress_digest(calls: Sequence[tuple[str, ToolOutcome]], size: int) -> ProgressDigest | None:
+def progress_digest(
+    calls: Sequence[tuple[str, ToolOutcome]],
+    size: int,
+    *,
+    identical_call_answers: int = 0,
+    identical_failing_calls: int = 0,
+) -> ProgressDigest | None:
     """The counts of the last `size` (`roadmap.implement.extension_calls`) of `calls`, each a tool
-    name and an outcome: the successful edits (#4394). None when there are fewer calls than that, as
-    the counts of a short window say little."""
+    name and an outcome: the successful edits (#4394) and loop repeat counts (#4847). None when
+    there are fewer calls than that, as the counts of a short window say little."""
     window = calls[-size:]
     if len(window) < size:
         return None
     return ProgressDigest(
         calls=len(window),
         edits=sum(tool in _EDIT_TOOLS and outcome is ToolOutcome.OK for tool, outcome in window),
+        identical_call_answers=identical_call_answers,
+        identical_failing_calls=identical_failing_calls,
     )
 
 
@@ -324,7 +332,10 @@ class ToolCallLog:
     failed: dict[str, str] = field(default_factory=dict[str, str])
     replied: set[int] = field(default_factory=set[int])
     asked: float = 0.0
+    last_input_tokens: int = 0
     recent: deque[tuple[str, ToolOutcome]] = field(default_factory=deque[tuple[str, ToolOutcome]])
+    _call_answer_counts: Counter[tuple[str, str]] = field(default_factory=Counter[tuple[str, str]])
+    _failed_call_counts: Counter[str] = field(default_factory=Counter[str])
     limits: RoadmapImplementConfig = field(
         default_factory=lambda: load_settings().roadmap.implement
     )
@@ -333,9 +344,41 @@ class ToolCallLog:
         """Keep only the last calls that the rule of the extension reads (#4394, #5440)."""
         self.recent = deque(self.recent, maxlen=self.limits.extension_calls)
 
+    def note_loop_event(
+        self,
+        digest: str,
+        *,
+        outcome: ToolOutcome,
+        answer: object = "",
+    ) -> None:
+        """Record identical call+answer pairs and failing call repeats for loop guard (#4847)."""
+        if not digest:
+            return
+        if outcome in (ToolOutcome.RETRY, ToolOutcome.FAILED, ToolOutcome.REFUSED):
+            self._failed_call_counts[digest] += 1
+        answer_digest = hashlib.sha256(repr(answer).encode("utf-8", "surrogateescape")).hexdigest()[
+            :_DIGEST_CHARS
+        ]
+        self._call_answer_counts[(digest, answer_digest)] += 1
+
+    @property
+    def max_identical_call_answers(self) -> int:
+        """Highest count of any identical tool call and answer pair seen in this step (#4847)."""
+        return max(self._call_answer_counts.values(), default=0)
+
+    @property
+    def max_identical_failing_calls(self) -> int:
+        """Highest count of repeats of any failing tool call seen in this step (#4847)."""
+        return max(self._failed_call_counts.values(), default=0)
+
     def progress(self) -> ProgressDigest | None:
         """The digest of the last calls of the step, or None when it made too few (#4394)."""
-        return progress_digest(tuple(self.recent), self.limits.extension_calls)
+        return progress_digest(
+            tuple(self.recent),
+            self.limits.extension_calls,
+            identical_call_answers=self.max_identical_call_answers,
+            identical_failing_calls=self.max_identical_failing_calls,
+        )
 
     def removed_strays(self, names: Sequence[str]) -> None:
         """Keep the names of the stray files that the step deleted (#3092), masked and cut as the
@@ -397,6 +440,7 @@ class ToolCallLog:
         *,
         digest: str = "",
         status: int | None = None,
+        answer: object = "",
     ) -> None:
         """Count a refusal or a retry, keep its reason, add the event of the call to the trace,
         and write the line of the call."""
@@ -404,6 +448,7 @@ class ToolCallLog:
             self.trace.tool_call(tool, program, digest, str(outcome), reason, status)
         self.calls[tool] += 1
         self.recent.append((tool, outcome))
+        self.note_loop_event(digest, outcome=outcome, answer=reason or answer)
         if digest and outcome in (ToolOutcome.RETRY, ToolOutcome.FAILED):
             self.failed.setdefault(digest, reason)
         self.retried += outcome is ToolOutcome.RETRY
@@ -491,7 +536,9 @@ class ToolCallLog:
             raise
         shell = call.tool_name == IMPLEMENT_SHELL_TOOL
         status = shell_exit_status(result) if shell else None
-        self._note(call.tool_name, program, ToolOutcome.OK, digest=digest, status=status)
+        self._note(
+            call.tool_name, program, ToolOutcome.OK, digest=digest, status=status, answer=result
+        )
         return result
 
     async def _request(
@@ -512,6 +559,7 @@ class ToolCallLog:
         """Add the `model` event of a reply to the trace when the reply comes (#4393), so that it
         stands before the tool calls that it asks for, and pass the reply on. `replied` holds the
         replies that have their event, so that the step adds no second one when its turn ends."""
+        self.last_input_tokens = response.usage.input_tokens
         if self.trace is not None:
             self.replied.add(id(response))
             self.trace.model_call(

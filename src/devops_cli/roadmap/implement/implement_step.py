@@ -2496,7 +2496,12 @@ def run_step(
     _require_clean(source)
     start = _git_output(source, "rev-parse", "HEAD").strip()
     log = ToolCallLog(source, trace=trace)
-    budget = StepBudget(spend, progress=log.progress, cap=token_cap)
+    budget = StepBudget(
+        spend,
+        progress=log.progress,
+        cap=token_cap,
+        window_share=lambda: log.last_input_tokens / window if window > 0 else 0.0,
+    )
     done = False
     broker: StepBroker | None = None
     try:

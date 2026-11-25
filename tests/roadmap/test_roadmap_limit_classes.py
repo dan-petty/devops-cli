@@ -465,6 +465,22 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "other",
         "the size of the one extension of a step budget (#4394); the ceiling bounds it, no run is cut by it",
     ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_WINDOW_MAX_SHARE": (
+        "guard",
+        "maximum prompt context window share before soft-cap extension stops at outer_limits (#4847)",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_TIME_MARGIN_SECONDS": (
+        "guard",
+        "minimum seconds before step or item time deadline required for soft-cap extension (#4847)",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_LOOP_IDENTICAL_CALLS": (
+        "guard",
+        "identical tool call and answer repeats that trip the implement.extension loop_guard (#4847)",
+    ),
+    "CONST_ROADMAP_IMPLEMENT_EXTENSION_LOOP_FAILED_CALLS": (
+        "guard",
+        "identical failing tool call repeats that trip the implement.extension loop_guard (#4847)",
+    ),
     "DEFAULT_ROADMAP_IMPLEMENT_MODEL_RESENDS": (
         "setting",
         "resends of a request that the provider failed with the status 400; a setting since #5440",
@@ -757,10 +773,21 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
     ),
     "CONST_ROADMAP_DECISION_POINT_MAX_SERIES": (
         "kept",
-        "the bound of ADR 0020 on the label sets of devops_cli_decision_point_total: 60 series "
-        "for the first catalogue, 24 for the three `brain.*` points and 8 for "
-        "`resolve.question_class`; protects the metrics store from a high count of series, and no "
-        "run is cut by it",
+        "the bound on devops_cli_decision_point_total series: 92 from ADR 0020 section 7 "
+        "(60 first catalogue, 24 three brain.* points, 8 resolve.question_class) plus 18 for "
+        "implement.extension (#4847); protects the metrics store without cutting runs",
+    ),
+    "CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS": (
+        "guard",
+        "timeout in seconds for a soft-cap decision point model call before fallback (#4847)",
+    ),
+    "CONST_ROADMAP_DECISION_POINT_FIT_MIN_CASES": (
+        "other",
+        "minimum labelled outcomes required before fitting a soft-cap point for mode on (#4847)",
+    ),
+    "CONST_ROADMAP_DECISION_POINT_FIT_MIN_PER_LABEL": (
+        "other",
+        "minimum labelled outcomes per label required before enabling mode on (#4847)",
     ),
     "CONST_ROADMAP_STAGE_JEV_TIMEOUT_SECONDS": (
         "kept",

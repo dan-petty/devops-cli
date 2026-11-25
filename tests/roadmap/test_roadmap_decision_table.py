@@ -37,6 +37,16 @@ def test_on_is_refused_for_a_point_with_no_cuts_file_and_shadow_is_not(
 
 
 def test_each_point_of_the_table_has_its_cuts_file_so_it_takes_on() -> None:
-    assert all(path.is_file() for path in POINT_CUTS.values())
+    """Fitted points take `on`; `implement.extension` stays unfitted and takes `rule` (#4847)."""
+    from devops_cli.roadmap.decision_table import FIT_BAR_POINTS
 
-    check_modes(dict.fromkeys(POINT_CUTS, "on"))
+    fitted = {name: path for name, path in POINT_CUTS.items() if name not in FIT_BAR_POINTS}
+    assert all(path.is_file() for path in fitted.values())
+
+    check_modes(dict.fromkeys(fitted, "on"))
+    check_modes(dict.fromkeys(FIT_BAR_POINTS & POINT_CUTS.keys(), "rule"))
+
+    for unfitted in FIT_BAR_POINTS & POINT_CUTS.keys():
+        assert not POINT_CUTS[unfitted].is_file()
+        with pytest.raises(ValueError, match="rule"):
+            check_modes({unfitted: "on"})
