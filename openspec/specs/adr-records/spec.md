@@ -19,3 +19,21 @@ A test SHALL read the status from the front matter of each `docs/adr/*.md` and S
 #### Scenario: A citation of a record in force
 - **WHEN** a file cites `ADR 0021`
 - **THEN** the test passes
+
+### Requirement: ADR records the five owner decisions with dates, limits, and stable anchors
+
+`docs/adr/0038-owner-decisions-on-what-agents-may-do.md` SHALL use MADR 4 format (`status: accepted`, `decision-makers: [owner]`, `issue: 4787`, matching `body-hash`), list Decisions 1 through 5 under `### Decision 1` through `### Decision 5` headings inside `## Decision Outcome` with each decision's date and limit, and reference the `'Only a person'` paragraph of `AGENTS.md` without copying its list.
+
+#### Scenario: ADR invariants and index validate
+
+- **WHEN** `uv run devops ci test tests/invariants/test_adr_records.py` and `uv run devops docs check` run
+- **THEN** both exit 0 and `docs/adr/README.md` indexes ADR `0038`
+
+### Requirement: k8s README states Decision 1
+
+The `Agent sessions` section of `k8s/README.md` SHALL state that agents apply manifests, restart workloads, and exercise workloads in the lab cluster, and SHALL describe `k8s/agents/` as one read-only identity rather than the limit of agent access.
+
+#### Scenario: Agent sessions section agrees with ADR 0038 Decision 1
+
+- **WHEN** a reader opens the `Agent sessions` section of `k8s/README.md`
+- **THEN** it states the three permitted lab-cluster actions and does not present read-only access as the overall limit

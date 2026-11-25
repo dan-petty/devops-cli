@@ -925,7 +925,7 @@ To rotate a generated value, store a new one at a hidden prompt with `uv run key
 
 ## Agent sessions
 
-`k8s/agents/` defines read-only identity and boundaries for autonomous AI agent sessions running against the cluster:
+Agents may apply manifests, restart workloads, and exercise workloads in the lab cluster (secrets and hardware stay with the owner; see [ADR 0038](../docs/adr/0038-owner-decisions-on-what-agents-may-do.md#decision-1)). `k8s/agents/` defines one read-only identity and boundaries for autonomous AI agent sessions that need read-only access, rather than the limit of agent access:
 
 - **Namespace `agents`**: Enforces `restricted` Pod Security Standards across `enforce`, `warn`, and `audit` levels.
 - **ServiceAccount `devops-agent`**: Created in namespace `agents` with `automountServiceAccountToken: false` to ensure agents do not automatically mount cluster credentials.

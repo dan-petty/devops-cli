@@ -182,5 +182,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0035](0035-the-onboard-command-owns-the-repository-settings.md) | The onboard command owns the repository settings | accepted | 2026-11-22 | amends 0026 |
 | [0036](0036-the-stage-agent-runs-stock-coder-and-publish-checks.md) | The stage agent runs stock Coder, and publish checks | proposed | 2026-11-23 | amends 0030 |
 | [0037](0037-tool-commands-mirror-and-pass-through-options.md) | Tool commands mirror and pass through options | accepted | 2026-11-12 |  |
+| [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
 
 <!-- ADR_INDEX_END -->
