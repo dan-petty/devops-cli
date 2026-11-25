@@ -96,11 +96,23 @@ The stage job SHALL scan `tests/` and `src/` for each name that the change folde
 - **THEN** the scan reports `tests/example_test.py` as an unhandled reference to `valkey_set`.
 
 ### Requirement: removed names come from a removal verb
-The scan SHALL take each backticked identifier that a removal verb governs in `proposal.md` or `design.md` as a removed name.
+The scan SHALL take each backticked identifier that a removal verb (`remove`, `delete`, `deprecate`, or `retire`, in active or passive form) governs in `proposal.md` or `design.md` as a removed name, and SHALL NOT treat `drop`, `drops`, `dropped`, or `dropping` as a removal verb.
 
 #### Scenario: a removal sentence names two identifiers
 - **WHEN** a fixture `proposal.md` holds the sentence `removes `valkey_set` from `CONST_MCP_EXPOSURE_TABLE``
 - **THEN** the scan searches for `valkey_set` and does not search for `CONST_MCP_EXPOSURE_TABLE`.
+
+#### Scenario: a plan drops a step before a code span
+- **WHEN** the plan text reads `The plan dropped the `rewrite` step.` or `Another item drops `tool_a` from `registry`.`
+- **THEN** `find_removed_names` returns an empty set.
+
+#### Scenario: a dropped step gives no removal-reference finding
+- **WHEN** the proposal reads `The plan dropped the `rewrite` step.` and `tests/example_test.py` holds `rewrite`
+- **THEN** `scan_removal_references` returns `unhandled_tests == {}` and `has_test_failures is False`.
+
+#### Scenario: a deleted function still gets a finding
+- **WHEN** the proposal reads `The change deletes `valkey_set`.` and `tests/example_test.py` calls `valkey_set`
+- **THEN** `scan_removal_references` returns `unhandled_tests == {"valkey_set": ["tests/example_test.py"]}`.
 
 ### Requirement: a task that names the file accounts for the reference
 The scan SHALL treat a reference as accounted for only when the change's `tasks.md` names the file that holds it.
@@ -156,6 +168,14 @@ The stage job SHALL accept a probed reference to a moved module with no task gro
 - **WHEN** `find_removed_names` receives the text "The change drops `match` from the title."
 - **THEN** it returns an empty set
 
+#### Scenario: A plan removes a hard keyword
+- **WHEN** `find_removed_names` receives the text "The change removes `and` from the title."
+- **THEN** it returns an empty set
+
+#### Scenario: A plan removes a soft keyword
+- **WHEN** `find_removed_names` receives the text "The change removes `match` from the title."
+- **THEN** it returns an empty set
+
 #### Scenario: A plan says that a keyword is removed
 - **WHEN** `find_removed_names` receives the text "`and` is removed from the title."
 - **THEN** it returns an empty set
@@ -166,4 +186,8 @@ The stage job SHALL accept a probed reference to a moved module with no task gro
 
 #### Scenario: A change folder drops a keyword
 - **WHEN** `scan_removal_references` runs on a change whose `proposal.md` says "drops `and` from the title" and on a repository whose test file contains `and`
+- **THEN** `has_test_failures` is false and `unhandled_tests` is empty
+
+#### Scenario: A change folder removes a keyword
+- **WHEN** `scan_removal_references` runs on a change whose `proposal.md` says "removes `and` from the title" and on a repository whose test file contains `and`
 - **THEN** `has_test_failures` is false and `unhandled_tests` is empty
