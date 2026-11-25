@@ -1,0 +1,164 @@
+# promtool rule unit tests of the SLO group slo-roadmap-service-rounds in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4709). The group is the render of
+# k8s/devops/monitoring/slos/roadmap-service-rounds.yaml, so each case shows what the Sloth spec
+# promises: the four burn-rate alerts of Table 2 of docs/guidelines/sre.md, and the 20-event guard
+# of the low-sample rule. The SLI counts the row runs that end with result error over the runs that
+# end with result success or error, for each repository and row.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts
+# each series at time 0, one sample each `interval`. A range selector reads the samples of its
+# window, and increase() extrapolates to the edges: a counter that grows by 1 each minute gives 60
+# over the 59 minutes of the 1 hour window that ends at minute 90.
+#
+# The file sets evaluation_interval: 5m and each case sets interval: 1m, so the 5 minute short
+# window of the page row holds five samples, and a case of 3 days makes 864 rounds, under
+# MAX_PROMTOOL_ROUNDS.
+rule_files:
+  - slo-roadmap-service-rounds.rules.yaml
+
+evaluation_interval: 5m
+
+tests:
+  - name: Half of the runs of a row fail, so every window breaches and all four alerts fire
+    interval: 1m
+    input_series:
+      # The row run of one repository: 60 failed runs and 60 runs that succeed in the last hour,
+      # which is an error ratio of 0.5 over the 0.01 error budget of the 99 % objective.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="error"}'
+        values: '0+1x90'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="success"}'
+        values: '0+1x90'
+    alert_rule_test:
+      # The 1 hour ratio and the 5 minute ratio are above 13.44 x 0.01, and the 1 hour window holds
+      # 120 runs of the row.
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsPage1h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds
+      # The 6 hour ratio and the 30 minute ratio are above 5.6 x 0.01, and the 6 hour window holds
+      # 120 runs of the row.
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsPage6h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.01, and the 1 day window holds 120
+      # runs of the row.
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.01, and the 3 day window holds 120
+      # runs of the row.
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds
+
+  - name: Every run of the row succeeds, so every window stays quiet
+    interval: 1m
+    input_series:
+      # The row run of one repository: 60 runs in the last hour, all of them with result success,
+      # so the error ratio of each window is 0.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="error"}'
+        values: '0x91'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="success"}'
+        values: '0+1x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RoadmapServiceRoundsTicket3d
+        exp_alerts: []
+
+  - name: Ten runs of the row in ten minutes fire no alert, though every ratio is 1
+    interval: 1m
+    input_series:
+      # Ten runs, all of them in the last ten minutes of the case and all of them failed, so the
+      # 1 hour, the 6 hour, the 1 day and the 3 day windows hold 10 runs of the row each. Every
+      # window is above its burn-rate line, and the 20-event guard is the only reason that no alert
+      # fires.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="error"}'
+        values: '0x71 1+1x9'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="success"}'
+        values: '0x81'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: RoadmapServiceRoundsPage1h
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: RoadmapServiceRoundsPage6h
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: RoadmapServiceRoundsTicket1d
+        exp_alerts: []
+      - eval_time: 80m
+        alertname: RoadmapServiceRoundsTicket3d
+        exp_alerts: []
+
+  - name: Five runs in the last hour fire the two ticket alerts and no page alert
+    interval: 1m
+    input_series:
+      # 20 runs of the row in the first 20 minutes, one of them failed, and 5 runs in the last 5
+      # minutes, all of them failed: 25 runs in the 1 day window and 5 in the last hour. The 1 hour
+      # and the 6 hour windows hold 5 runs, under the guard of the 20-event rule, while their error
+      # ratio of 1 is above every burn-rate line.
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="error"}'
+        values: '0 1x475 2+1x4'
+      - series: 'devops_cli_service_jobs_total{job="roadmap-service", repo="example/app", row="refine", result="success"}'
+        values: '0 1+1x18 19x461'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: RoadmapServiceRoundsPage1h
+        exp_alerts: []
+      - eval_time: 8h
+        alertname: RoadmapServiceRoundsPage6h
+        exp_alerts: []
+      # The 1 day ratio of 6 errors over 25 runs is above 2.8 x 0.01, and the 2 hour ratio of the 5
+      # failed runs is 1.
+      - eval_time: 8h
+        alertname: RoadmapServiceRoundsTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds
+      # The 3 day ratio is above 0.93 x 0.01, and the 6 hour ratio of the 5 failed runs is 1.
+      - eval_time: 8h
+        alertname: RoadmapServiceRoundsTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              repo: example/app
+              row: refine
+              service: roadmap-service
+              slo: rounds

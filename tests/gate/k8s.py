@@ -3,9 +3,10 @@
 Each module of `tests/gate/k8s_checks` holds functions named `check_*` that read what
 `kubectl kustomize` renders from the manifests of the repository, as Argo CD applies it.
 `tests/gate/k8s_render.py` renders a directory once and shares the render, so each application
-is rendered once for the whole row, and no pytest worker starts `kubectl`. One module reads git
-and no render: `environment_freeze` refuses a branch that changes an environment path, until step
-17 of `docs/HOMELAB_REPO_SWITCH.md` deletes it.
+is rendered once for the whole row, and no pytest worker starts `kubectl`. Two modules read files
+and start no render: `environment_freeze` refuses a branch that changes an environment path, until
+step 17 of `docs/HOMELAB_REPO_SWITCH.md` deletes it, and `slo_rules` refuses a Sloth spec whose
+`service` the catalog data does not hold.
 """
 
 from __future__ import annotations

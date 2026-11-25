@@ -1,0 +1,152 @@
+# promtool rule unit tests of the SLO group slo-llm-gateway-latency in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4709). The group is the render of
+# k8s/devops/monitoring/slos/llm-gateway-latency.yaml, so each case shows what the Sloth spec
+# promises: the four burn-rate alerts of Table 2 of docs/guidelines/sre.md, and the 20-event guard
+# of the low-sample rule. The SLI counts the requests of the le="+Inf" bucket that the le="60.0"
+# bucket does not hold, so a request of the second bucket ends in under 60 s.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts
+# each series at time 0, one sample each `interval`. A range selector reads the samples of its
+# window, and increase() extrapolates to the edges: a counter that grows by 1 each minute gives 60
+# over the 59 minutes of the 1 hour window that ends at minute 90.
+#
+# The file sets evaluation_interval: 5m and each case sets interval: 1m, so the 5 minute short
+# window of the page row holds five samples, and a case of 3 days makes 864 rounds, under
+# MAX_PROMTOOL_ROUNDS.
+rule_files:
+  - slo-llm-gateway-latency.rules.yaml
+
+evaluation_interval: 5m
+
+tests:
+  - name: 8 requests of 10 end at 60 s or later, so every window breaches and all four alerts fire
+    interval: 1m
+    input_series:
+      # 600 requests in the last hour, of which 120 end in under 60 s: an error ratio of 0.8 over
+      # the 0.05 error budget of the 95 % objective.
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="+Inf"}'
+        values: '0+10x90'
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="60.0"}'
+        values: '0+2x90'
+    alert_rule_test:
+      # The 1 hour ratio and the 5 minute ratio are above 13.44 x 0.05, and the 1 hour window holds
+      # 600 requests.
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyPage1h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: llm-gateway
+              slo: latency
+      # The 6 hour ratio and the 30 minute ratio are above 5.6 x 0.05, and the 6 hour window holds
+      # 600 requests.
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyPage6h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: llm-gateway
+              slo: latency
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.05, and the 1 day window holds 600
+      # requests.
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: latency
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.05, and the 3 day window holds 600
+      # requests.
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: latency
+
+  - name: Every request ends in under 60 s, so every window stays quiet
+    interval: 1m
+    input_series:
+      # The two buckets grow by the same 100 each minute, so the slow requests of each window are 0
+      # and its error ratio is 0.
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="+Inf"}'
+        values: '0+100x90'
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="60.0"}'
+        values: '0+100x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayLatencyTicket3d
+        exp_alerts: []
+
+  - name: Ten requests in ten minutes fire no alert, though every ratio is 1
+    interval: 1m
+    input_series:
+      # Ten requests, all of them in the last ten minutes of the case and all of them slow, so the
+      # 1 hour, the 6 hour, the 1 day and the 3 day windows hold 10 requests each. Every window is
+      # above its burn-rate line, and the 20-event guard is the only reason that no alert fires.
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="+Inf"}'
+        values: '0x51 1+1x9'
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="60.0"}'
+        values: '0x61'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: LlmGatewayLatencyPage1h
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayLatencyPage6h
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayLatencyTicket1d
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayLatencyTicket3d
+        exp_alerts: []
+
+  - name: Five requests in the last hour fire the two ticket alerts and no page alert
+    interval: 1m
+    input_series:
+      # 20 requests in the first 20 minutes, and 5 requests in the last 5 minutes, all of them
+      # slow: 25 requests in the 1 day window and 5 in the last hour. The 1 hour and the 6 hour
+      # windows hold 5 requests, under the guard of the 20-event rule, while their error ratio of 1
+      # is above every burn-rate line.
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="+Inf"}'
+        values: '0 1+1x19 20x455 21+1x4'
+      - series: 'litellm_request_total_latency_metric_bucket{job="llm-gateway", le="60.0"}'
+        values: '0x481'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: LlmGatewayLatencyPage1h
+        exp_alerts: []
+      - eval_time: 8h
+        alertname: LlmGatewayLatencyPage6h
+        exp_alerts: []
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.05, and the 1 day window holds 25
+      # requests.
+      - eval_time: 8h
+        alertname: LlmGatewayLatencyTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: latency
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.05, and the 3 day window holds 25
+      # requests.
+      - eval_time: 8h
+        alertname: LlmGatewayLatencyTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: latency

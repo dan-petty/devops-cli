@@ -1,0 +1,25 @@
+# SLO 4 of k8s/README.md (#4709): the requests of the LLM gateway that end in under 60 s, over the
+# 28-day window. `src/devops_cli/prometheus/slo_rules.py` renders the rule group
+# `slo-llm-gateway-latency` from this file, and the group sits under
+# `serverFiles.devops_cli_alerting_rules.yml` of
+# `k8s/devops/monitoring/prometheus-rules-values.yaml`, which the Prometheus server loads.
+#
+# The histogram of the gateway counts a request in each bucket that its latency reaches, so the
+# `le="+Inf"` bucket holds every request and the `le="60.0"` bucket holds the requests that end in
+# under 60 s. The requests that end at 60 s or later are the difference of the two.
+version: "prometheus/v1"
+service: llm-gateway
+slos:
+  - name: latency
+    objective: 95
+    description: >-
+      A request of the LLM gateway that ends in under 60 s, over the 28-day window. A request that
+      ends at 60 s or later is an error event, and each request is a valid event.
+    sli:
+      events:
+        error_query: >-
+          sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[{{.window}}]))
+          - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[{{.window}}]))
+        total_query: sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[{{.window}}]))
+    alerting:
+      name: LlmGatewayLatency

@@ -1,0 +1,19 @@
+# SLO 3 of k8s/README.md (#4709): the requests of the LLM gateway that fail, over the 28-day
+# window. `src/devops_cli/prometheus/slo_rules.py` renders the rule group
+# `slo-llm-gateway-requests` from this file, and the group sits under
+# `serverFiles.devops_cli_alerting_rules.yml` of
+# `k8s/devops/monitoring/prometheus-rules-values.yaml`, which the Prometheus server loads.
+version: "prometheus/v1"
+service: llm-gateway
+slos:
+  - name: requests
+    objective: 99.5
+    description: >-
+      A request of the LLM gateway that ends with no failure, over the 28-day window. A request that
+      fails is an error event, and each request is a valid event.
+    sli:
+      events:
+        error_query: sum(increase(litellm_proxy_failed_requests_metric_total[{{.window}}]))
+        total_query: sum(increase(litellm_proxy_total_requests_metric_total[{{.window}}]))
+    alerting:
+      name: LlmGatewayRequests

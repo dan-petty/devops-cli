@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from functools import cache
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
@@ -45,8 +45,10 @@ from devops_cli.config.constants import (
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERIES,
     CONST_SERVICE_METRIC_WEBHOOK_DELIVERY_FAILURES,
 )
+from devops_cli.exceptions import ConfigurationError
 from devops_cli.prometheus.client import parse_duration
 from devops_cli.prometheus.promql import selectors
+from devops_cli.prometheus.slo_rules import SLO_RECORD_NAMES
 from devops_cli.telemetry import instruments as _instruments
 from devops_cli.telemetry.instruments import (
     AI_REQUESTS_TOTAL,
@@ -65,6 +67,9 @@ from devops_cli.telemetry.instruments import (
 )
 from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.promtool import promtool
+
+if TYPE_CHECKING:
+    from devops_cli.prometheus.slo_rules import SloSpec
 
 K8S = REPO_ROOT / "k8s"
 K8S_README = K8S / "README.md"
@@ -98,6 +103,20 @@ REPOS_DRIFT_RULE_TESTS = FIXTURES / "prometheus_rules" / "repos_drift_tests.yaml
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
 METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
+# The SLO groups of #4709: the render of the Sloth specs of k8s/devops/monitoring/slos/, one case
+# file for each.
+SLO_ROADMAP_SERVICE_ROUNDS_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "slo_roadmap_service_rounds_tests.yaml"
+)
+SLO_RUNNER_JOBS_DURATION_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "slo_runner_jobs_duration_tests.yaml"
+)
+SLO_LLM_GATEWAY_REQUESTS_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "slo_llm_gateway_requests_tests.yaml"
+)
+SLO_LLM_GATEWAY_LATENCY_RULE_TESTS = (
+    FIXTURES / "prometheus_rules" / "slo_llm_gateway_latency_tests.yaml"
+)
 
 ROADMAP_SERVICE_GROUP = "roadmap-service"
 # The row work series that the group records for its alerts, the dashboards and the start page
@@ -138,6 +157,13 @@ AI_SPEND_GROUP = "ai-spend"
 METRIC_STREAMS_GROUP = "metric-streams"
 # The rules of the database of the LLM gateway, a CloudNativePG Cluster of one instance (#4994).
 GATEWAY_DATABASE_GROUP = "llm-gateway-db"
+# The four SLO groups of #4709, one for each Sloth spec of k8s/devops/monitoring/slos/: the row
+# runs of the roadmap Service, the duration of its runner Jobs and the requests and the latency of
+# the LLM gateway.
+SLO_ROADMAP_SERVICE_ROUNDS_GROUP = "slo-roadmap-service-rounds"
+SLO_RUNNER_JOBS_DURATION_GROUP = "slo-runner-jobs-duration"
+SLO_LLM_GATEWAY_REQUESTS_GROUP = "slo-llm-gateway-requests"
+SLO_LLM_GATEWAY_LATENCY_GROUP = "slo-llm-gateway-latency"
 # Each group whose rules have promtool unit tests, with a file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
@@ -149,6 +175,10 @@ RULE_GROUP_TESTS = (
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
     (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
     (METRIC_STREAMS_GROUP, METRIC_STREAMS_RULE_TESTS),
+    (SLO_ROADMAP_SERVICE_ROUNDS_GROUP, SLO_ROADMAP_SERVICE_ROUNDS_RULE_TESTS),
+    (SLO_RUNNER_JOBS_DURATION_GROUP, SLO_RUNNER_JOBS_DURATION_RULE_TESTS),
+    (SLO_LLM_GATEWAY_REQUESTS_GROUP, SLO_LLM_GATEWAY_REQUESTS_RULE_TESTS),
+    (SLO_LLM_GATEWAY_LATENCY_GROUP, SLO_LLM_GATEWAY_LATENCY_RULE_TESTS),
 )
 RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
 # promtool evaluates the rules of a group once each `evaluation_interval` of a file, from 0 to
@@ -337,6 +367,15 @@ SERVED_SERIES = frozenset(
         # The recorded row work series of the roadmap Service (#4562): the failed jobs of the
         # last hour, the budget used ratio and the suspended rows.
         *RECORDED_ROW_WORK_SERIES,
+        # The five series of the four SLO groups of #4709: the start and the end of each runner Job
+        # of the runner image, and the requests and the latency of the LLM gateway.
+        "kube_job_status_start_time",
+        "kube_job_status_completion_time",
+        "litellm_proxy_total_requests_metric_total",
+        "litellm_proxy_failed_requests_metric_total",
+        "litellm_request_total_latency_metric_bucket",
+        # The series that the four SLO groups record, one group for each Sloth spec (#4709).
+        *SLO_RECORD_NAMES,
         # The resource attributes of each stream that the OTLP receiver of Prometheus writes, one
         # series for each stream of a job and instance (#4697).
         "target_info",
@@ -651,3 +690,302 @@ def test_github_requests_high_action_does_not_lower_budget() -> None:
     )
 
     assert "lower the budget" not in row.lower()
+
+
+# A Sloth `prometheus/v1` spec of one SLO, in the shape that `k8s/devops/monitoring/slos/` holds
+# (#4709): the service of the catalog, one SLO with its objective, and the two event queries of its
+# SLI over the `{{.window}}` placeholder. The renderer of the SLO groups is new in #4709, so each
+# test below imports the function it calls when it runs.
+SLO_SPEC = """\
+version: "prometheus/v1"
+service: roadmap-service
+slos:
+  - name: rounds
+    objective: 99
+    description: The rounds of a row that end well.
+    sli:
+      events:
+        error_query: sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[{{.window}}]))
+        total_query: sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[{{.window}}]))
+    alerting:
+      name: RoadmapServiceRounds
+"""
+# The spec of a service whose SLI groups by no label, as the requests of the LLM gateway do: the
+# total query is a bare `sum`.
+SLO_SPEC_WITHOUT_GROUPING = """\
+version: "prometheus/v1"
+service: llm-gateway
+slos:
+  - name: requests
+    objective: 99.5
+    description: The requests of the LLM gateway that succeed.
+    sli:
+      events:
+        error_query: sum(increase(litellm_proxy_failed_requests_metric_total[{{.window}}]))
+        total_query: sum(increase(litellm_proxy_total_requests_metric_total[{{.window}}]))
+    alerting:
+      name: LlmGatewayRequests
+"""
+
+
+def _slo_specs(
+    tmp_path: Path, text: str = SLO_SPEC, stem: str = "roadmap-service-rounds"
+) -> list[SloSpec]:
+    """Write one spec of `text` as `<stem>.yaml` in `tmp_path` and load the folder."""
+    from devops_cli.prometheus.slo_rules import load_slo_specs
+
+    (tmp_path / f"{stem}.yaml").write_text(text, encoding="utf-8")
+    return load_slo_specs(tmp_path)
+
+
+def test_render_slo_groups_gives_each_alert_the_event_guard(tmp_path: Path) -> None:
+    """A spec renders one group: a recording rule for each name of `SLO_RECORD_NAMES`, then the
+    four burn-rate alerts of Table 2 of the SRE guideline, each with the severity of its row and
+    the guard of the low-sample rule (#4709)."""
+    from devops_cli.prometheus.slo_rules import (
+        SLO_BURN_RATE_ROWS,
+        SLO_MIN_EVENTS,
+        SLO_RECORD_NAMES,
+        SLO_WINDOW_DAYS,
+        render_slo_groups,
+    )
+
+    (spec,) = _slo_specs(tmp_path)
+    (group,) = render_slo_groups([spec])
+
+    assert (SLO_WINDOW_DAYS, SLO_MIN_EVENTS) == (28, 20)
+    assert group["name"] == "slo-roadmap-service-rounds"
+    recording = [rule for rule in group["rules"] if "record" in rule]
+    # The group records the seven error ratios, then the objective, its error budget and the
+    # window.
+    assert list(SLO_RECORD_NAMES) == [
+        "slo:sli_error:ratio_rate5m",
+        "slo:sli_error:ratio_rate30m",
+        "slo:sli_error:ratio_rate1h",
+        "slo:sli_error:ratio_rate2h",
+        "slo:sli_error:ratio_rate6h",
+        "slo:sli_error:ratio_rate1d",
+        "slo:sli_error:ratio_rate3d",
+        "slo:objective:ratio",
+        "slo:error_budget:ratio",
+        "slo:time_period:days",
+    ]
+    assert [rule["record"] for rule in recording] == list(SLO_RECORD_NAMES)
+    # Each recorded series names its service and its SLO, so the four groups stay apart.
+    assert {tuple(sorted(rule["labels"].items())) for rule in recording} == {
+        (("service", "roadmap-service"), ("slo", "rounds"))
+    }
+    # The ratio of a window divides the two event queries over that window.
+    assert {rule["record"]: rule["expr"] for rule in recording}["slo:sli_error:ratio_rate1h"] == (
+        '(sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[1h])))'
+        " / "
+        '(sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[1h])))'
+    )
+    # The objective, its error budget and the window are the constants of the spec.
+    assert [rule["expr"] for rule in recording if rule["record"] == "slo:objective:ratio"] == [
+        "vector(0.99)"
+    ]
+    assert [rule["expr"] for rule in recording if rule["record"] == "slo:error_budget:ratio"] == [
+        "vector(0.01)"
+    ]
+    assert [rule["expr"] for rule in recording if rule["record"] == "slo:time_period:days"] == [
+        "vector(28)"
+    ]
+    alerts = [rule for rule in group["rules"] if "alert" in rule]
+    assert [alert["alert"] for alert in alerts] == [
+        "RoadmapServiceRoundsPage1h",
+        "RoadmapServiceRoundsPage6h",
+        "RoadmapServiceRoundsTicket1d",
+        "RoadmapServiceRoundsTicket3d",
+    ]
+    assert [alert["labels"] for alert in alerts] == [
+        {"severity": "critical"},
+        {"severity": "critical"},
+        {"severity": "warning"},
+        {"severity": "warning"},
+    ]
+    # No alert waits: its expression already holds both of its windows.
+    assert [alert.get("for") for alert in alerts] == [None] * len(SLO_BURN_RATE_ROWS)
+    # The rows are the four rows of Table 2 of `docs/guidelines/sre.md`.
+    assert [
+        (row.long_window, row.short_window, str(row.burn_rate)) for row in SLO_BURN_RATE_ROWS
+    ] == [("1h", "5m", "13.44"), ("6h", "30m", "5.6"), ("1d", "2h", "2.8"), ("3d", "6h", "0.93")]
+    # Each alert needs both of its ratios above its burn rate, and its long window holds the
+    # events of the low-sample rule. The count guard matches on the grouping of the spec.
+    assert alerts[0]["expr"] == (
+        "(\n"
+        '  slo:sli_error:ratio_rate1h{service="roadmap-service", slo="rounds"} > (13.44 * 0.01)\n'
+        "  and\n"
+        '  slo:sli_error:ratio_rate5m{service="roadmap-service", slo="rounds"} > (13.44 * 0.01)\n'
+        ")\n"
+        "and on (repo, row) (sum by (repo, row) "
+        '(increase(devops_cli_service_jobs_total{result=~"success|error"}[1h])) >= 20)'
+    )
+    assert [
+        (
+            f"slo:sli_error:ratio_rate{row.long_window}" in alert["expr"],
+            f"slo:sli_error:ratio_rate{row.short_window}" in alert["expr"],
+            alert["expr"].rsplit("\n", 1)[-1],
+        )
+        for alert, row in zip(alerts, SLO_BURN_RATE_ROWS, strict=True)
+    ] == [
+        (
+            True,
+            True,
+            "and on (repo, row) (sum by (repo, row) "
+            '(increase(devops_cli_service_jobs_total{result=~"success|error"}'
+            f"[{row.long_window}])) >= 20)",
+        )
+        for row in SLO_BURN_RATE_ROWS
+    ]
+
+
+def test_a_spec_with_no_grouping_guards_each_alert_on_no_label(tmp_path: Path) -> None:
+    """A total query with no `by` groups by no label, so the count guard matches on no label
+    either: a plain `and` would compare two label sets that differ, and the alert would never
+    fire (#4709)."""
+    from devops_cli.prometheus.slo_rules import render_slo_groups
+
+    (spec,) = _slo_specs(tmp_path, SLO_SPEC_WITHOUT_GROUPING, "llm-gateway-requests")
+    (group,) = render_slo_groups([spec])
+
+    assert spec.grouping == frozenset()
+    assert [rule["expr"].rsplit("\n", 1)[-1] for rule in group["rules"] if "alert" in rule] == [
+        "and on () (sum(increase(litellm_proxy_total_requests_metric_total[1h])) >= 20)",
+        "and on () (sum(increase(litellm_proxy_total_requests_metric_total[6h])) >= 20)",
+        "and on () (sum(increase(litellm_proxy_total_requests_metric_total[1d])) >= 20)",
+        "and on () (sum(increase(litellm_proxy_total_requests_metric_total[3d])) >= 20)",
+    ]
+
+
+def test_write_slo_groups_replaces_only_the_text_between_the_markers(tmp_path: Path) -> None:
+    """The values file keeps its other groups and keys: `write_slo_groups` replaces the text
+    between the two marker comments, and nothing else (#4709)."""
+    from devops_cli.prometheus.slo_rules import (
+        SLO_GROUPS_END_MARKER,
+        SLO_GROUPS_START_MARKER,
+        write_slo_groups,
+    )
+
+    values = tmp_path / "prometheus-rules-values.yaml"
+    values.write_text(
+        "serverFiles:\n"
+        "  devops_cli_alerting_rules.yml:\n"
+        "    groups:\n"
+        "      - name: roadmap-service\n"
+        f"      {SLO_GROUPS_START_MARKER}\n"
+        "      - name: stale\n"
+        f"      {SLO_GROUPS_END_MARKER}\n"
+        "  other.yml:\n"
+        "    groups: []\n",
+        encoding="utf-8",
+    )
+
+    write_slo_groups(values, [{"name": "slo-roadmap-service-rounds", "rules": []}])
+
+    text = values.read_text(encoding="utf-8")
+    assert "stale" not in text
+    assert yaml.safe_load(text) == {
+        "serverFiles": {
+            "devops_cli_alerting_rules.yml": {
+                "groups": [
+                    {"name": "roadmap-service"},
+                    {"name": "slo-roadmap-service-rounds", "rules": []},
+                ]
+            },
+            "other.yml": {"groups": []},
+        }
+    }
+
+
+def test_load_slo_specs_refuses_two_specs_of_one_service_and_name(tmp_path: Path) -> None:
+    """Two specs of one service and one SLO name record one series name twice, so the load
+    refuses the pair (#4709)."""
+    from devops_cli.prometheus.slo_rules import load_slo_specs
+
+    (tmp_path / "first.yaml").write_text(SLO_SPEC, encoding="utf-8")
+    (tmp_path / "second.yaml").write_text(SLO_SPEC, encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="roadmap-service"):
+        load_slo_specs(tmp_path)
+
+
+def test_load_slo_specs_names_the_field_that_a_spec_does_not_hold(tmp_path: Path) -> None:
+    """A spec that holds no total query is refused with its file and the key (#4709)."""
+    from devops_cli.prometheus.slo_rules import load_slo_specs
+
+    (tmp_path / "broken.yaml").write_text(
+        SLO_SPEC.replace("        total_query:", "        valid_events:"), encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigurationError, match="total_query"):
+        load_slo_specs(tmp_path)
+
+
+def test_load_slo_specs_refuses_a_spec_that_holds_two_slos(tmp_path: Path) -> None:
+    """A spec holds one SLO: a second one would render a second group of the same file (#4709)."""
+    from devops_cli.prometheus.slo_rules import load_slo_specs
+
+    (tmp_path / "two.yaml").write_text(
+        SLO_SPEC + "  - name: second\n    objective: 99\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigurationError, match="one SLO"):
+        load_slo_specs(tmp_path)
+
+
+def test_a_spec_with_no_alerting_name_names_its_alerts_after_its_file(tmp_path: Path) -> None:
+    """A spec that names no `alerting.name` takes the stem of its file, so the alerts of
+    `llm-gateway-latency.yaml` start with `LlmGatewayLatency` (#4709)."""
+    from devops_cli.prometheus.slo_rules import render_slo_groups
+
+    text = SLO_SPEC_WITHOUT_GROUPING.replace("    alerting:\n      name: LlmGatewayRequests\n", "")
+    (spec,) = _slo_specs(tmp_path, text, "llm-gateway-latency")
+
+    (group,) = render_slo_groups([spec])
+
+    assert next(rule["alert"] for rule in group["rules"] if "alert" in rule) == (
+        "LlmGatewayLatencyPage1h"
+    )
+
+
+def test_write_slo_groups_refuses_a_values_file_with_no_marker(tmp_path: Path) -> None:
+    """A values file with no marker gets no render: the write names the missing marker (#4709)."""
+    from devops_cli.prometheus.slo_rules import write_slo_groups
+
+    values = tmp_path / "values.yaml"
+    values.write_text(
+        "serverFiles:\n  devops_cli_alerting_rules.yml:\n    groups: []\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ConfigurationError, match="BEGIN slo-rules"):
+        write_slo_groups(values, [])
+
+
+def test_main_writes_the_render_of_a_folder_only_when_it_is_asked(tmp_path: Path) -> None:
+    """The module prints the groups without `--write`, and writes them between the markers
+    with it (#4709)."""
+    from devops_cli.prometheus.slo_rules import (
+        SLO_GROUPS_END_MARKER,
+        SLO_GROUPS_START_MARKER,
+        load_slo_specs,
+        main,
+        render_slo_groups,
+    )
+
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    (specs / "roadmap-service-rounds.yaml").write_text(SLO_SPEC, encoding="utf-8")
+    values = tmp_path / "values.yaml"
+    values.write_text(
+        f"groups:\n  {SLO_GROUPS_START_MARKER}\n  {SLO_GROUPS_END_MARKER}\n", encoding="utf-8"
+    )
+    before = values.read_text(encoding="utf-8")
+
+    main([str(specs), str(values)])
+
+    assert values.read_text(encoding="utf-8") == before
+    main([str(specs), str(values), "--write"])
+    assert yaml.safe_load(values.read_text(encoding="utf-8")) == {
+        "groups": render_slo_groups(load_slo_specs(specs))
+    }

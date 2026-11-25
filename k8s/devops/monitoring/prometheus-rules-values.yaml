@@ -534,3 +534,415 @@ serverFiles:
             annotations:
               summary: "The drift check of the repository settings sent no result in 2 days"
               description: "CronJob repos-drift sent a result in the last 7 days but none in the last 2 days. An error before the reports, such as a refused App token, sends no result. Read the status and the log of its last Job with `kubectl -n devops get jobs -l app.kubernetes.io/name=repos-drift` (k8s/README.md, Alerting)."
+      # The four SLO groups of #4709: the render of the Sloth specs of
+      # k8s/devops/monitoring/slos/, which hold the objective and the 28-day window of each SLO and
+      # the four burn-rate rows of docs/guidelines/sre.md. A person changes a spec and renders the
+      # groups again with `uv run python src/devops_cli/prometheus/slo_rules.py
+      # k8s/devops/monitoring/slos k8s/devops/monitoring/prometheus-rules-values.yaml --write`,
+      # and the `k8s` row of `devops ci` refuses a file that is not the render. The render
+      # replaces the text between the two markers and leaves the rest of the file as it is.
+      # BEGIN slo-rules
+      - name: slo-llm-gateway-latency
+        rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[5m])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[5m])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[5m])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate30m
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[30m])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[30m])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[30m])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate1h
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1h])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[1h])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1h])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate2h
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[2h])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[2h])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[2h])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate6h
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[6h])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[6h])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[6h])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate1d
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1d])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[1d])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1d])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:sli_error:ratio_rate3d
+          expr: (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[3d])) - sum(increase(litellm_request_total_latency_metric_bucket{le="60.0"}[3d])))
+            / (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[3d])))
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:objective:ratio
+          expr: vector(0.95)
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:error_budget:ratio
+          expr: vector(0.05)
+          labels:
+            service: llm-gateway
+            slo: latency
+        - record: slo:time_period:days
+          expr: vector(28)
+          labels:
+            service: llm-gateway
+            slo: latency
+        - alert: LlmGatewayLatencyPage1h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1h{service="llm-gateway", slo="latency"} > (13.44 * 0.05)
+              and
+              slo:sli_error:ratio_rate5m{service="llm-gateway", slo="latency"} > (13.44 * 0.05)
+            )
+            and on () (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1h])) >= 20)
+          labels:
+            severity: critical
+        - alert: LlmGatewayLatencyPage6h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate6h{service="llm-gateway", slo="latency"} > (5.6 * 0.05)
+              and
+              slo:sli_error:ratio_rate30m{service="llm-gateway", slo="latency"} > (5.6 * 0.05)
+            )
+            and on () (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[6h])) >= 20)
+          labels:
+            severity: critical
+        - alert: LlmGatewayLatencyTicket1d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1d{service="llm-gateway", slo="latency"} > (2.8 * 0.05)
+              and
+              slo:sli_error:ratio_rate2h{service="llm-gateway", slo="latency"} > (2.8 * 0.05)
+            )
+            and on () (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[1d])) >= 20)
+          labels:
+            severity: warning
+        - alert: LlmGatewayLatencyTicket3d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate3d{service="llm-gateway", slo="latency"} > (0.93 * 0.05)
+              and
+              slo:sli_error:ratio_rate6h{service="llm-gateway", slo="latency"} > (0.93 * 0.05)
+            )
+            and on () (sum(increase(litellm_request_total_latency_metric_bucket{le="+Inf"}[3d])) >= 20)
+          labels:
+            severity: warning
+      - name: slo-llm-gateway-requests
+        rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[5m]))) / (sum(increase(litellm_proxy_total_requests_metric_total[5m])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate30m
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[30m]))) / (sum(increase(litellm_proxy_total_requests_metric_total[30m])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate1h
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[1h])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate2h
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[2h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[2h])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate6h
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[6h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[6h])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate1d
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1d]))) / (sum(increase(litellm_proxy_total_requests_metric_total[1d])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:sli_error:ratio_rate3d
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[3d]))) / (sum(increase(litellm_proxy_total_requests_metric_total[3d])))
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:objective:ratio
+          expr: vector(0.995)
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:error_budget:ratio
+          expr: vector(0.005)
+          labels:
+            service: llm-gateway
+            slo: requests
+        - record: slo:time_period:days
+          expr: vector(28)
+          labels:
+            service: llm-gateway
+            slo: requests
+        - alert: LlmGatewayRequestsPage1h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1h{service="llm-gateway", slo="requests"} > (13.44 * 0.005)
+              and
+              slo:sli_error:ratio_rate5m{service="llm-gateway", slo="requests"} > (13.44 * 0.005)
+            )
+            and on () (sum(increase(litellm_proxy_total_requests_metric_total[1h])) >= 20)
+          labels:
+            severity: critical
+        - alert: LlmGatewayRequestsPage6h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate6h{service="llm-gateway", slo="requests"} > (5.6 * 0.005)
+              and
+              slo:sli_error:ratio_rate30m{service="llm-gateway", slo="requests"} > (5.6 * 0.005)
+            )
+            and on () (sum(increase(litellm_proxy_total_requests_metric_total[6h])) >= 20)
+          labels:
+            severity: critical
+        - alert: LlmGatewayRequestsTicket1d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1d{service="llm-gateway", slo="requests"} > (2.8 * 0.005)
+              and
+              slo:sli_error:ratio_rate2h{service="llm-gateway", slo="requests"} > (2.8 * 0.005)
+            )
+            and on () (sum(increase(litellm_proxy_total_requests_metric_total[1d])) >= 20)
+          labels:
+            severity: warning
+        - alert: LlmGatewayRequestsTicket3d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate3d{service="llm-gateway", slo="requests"} > (0.93 * 0.005)
+              and
+              slo:sli_error:ratio_rate6h{service="llm-gateway", slo="requests"} > (0.93 * 0.005)
+            )
+            and on () (sum(increase(litellm_proxy_total_requests_metric_total[3d])) >= 20)
+          labels:
+            severity: warning
+      - name: slo-roadmap-service-rounds
+        rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[5m]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[5m])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate30m
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[30m]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[30m])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate1h
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[1h]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[1h])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate2h
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[2h]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[2h])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate6h
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[6h]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[6h])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate1d
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[1d]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[1d])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:sli_error:ratio_rate3d
+          expr: (sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[3d]))) / (sum by
+            (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[3d])))
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:objective:ratio
+          expr: vector(0.99)
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:error_budget:ratio
+          expr: vector(0.01)
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - record: slo:time_period:days
+          expr: vector(28)
+          labels:
+            service: roadmap-service
+            slo: rounds
+        - alert: RoadmapServiceRoundsPage1h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1h{service="roadmap-service", slo="rounds"} > (13.44 * 0.01)
+              and
+              slo:sli_error:ratio_rate5m{service="roadmap-service", slo="rounds"} > (13.44 * 0.01)
+            )
+            and on (repo, row) (sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[1h])) >= 20)
+          labels:
+            severity: critical
+        - alert: RoadmapServiceRoundsPage6h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate6h{service="roadmap-service", slo="rounds"} > (5.6 * 0.01)
+              and
+              slo:sli_error:ratio_rate30m{service="roadmap-service", slo="rounds"} > (5.6 * 0.01)
+            )
+            and on (repo, row) (sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[6h])) >= 20)
+          labels:
+            severity: critical
+        - alert: RoadmapServiceRoundsTicket1d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1d{service="roadmap-service", slo="rounds"} > (2.8 * 0.01)
+              and
+              slo:sli_error:ratio_rate2h{service="roadmap-service", slo="rounds"} > (2.8 * 0.01)
+            )
+            and on (repo, row) (sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[1d])) >= 20)
+          labels:
+            severity: warning
+        - alert: RoadmapServiceRoundsTicket3d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate3d{service="roadmap-service", slo="rounds"} > (0.93 * 0.01)
+              and
+              slo:sli_error:ratio_rate6h{service="roadmap-service", slo="rounds"} > (0.93 * 0.01)
+            )
+            and on (repo, row) (sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[3d])) >= 20)
+          labels:
+            severity: warning
+      - name: slo-runner-jobs-duration
+        rules:
+        - record: slo:sli_error:ratio_rate5m
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[5m])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[5m]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[5m])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate30m
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[30m])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[30m]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[30m])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate1h
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[1h]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate2h
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[2h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[2h]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[2h])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate6h
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[6h]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate1d
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[1d]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:sli_error:ratio_rate3d
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[3d]))
+            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d])
+            > 0))
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:objective:ratio
+          expr: vector(0.9)
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:error_budget:ratio
+          expr: vector(0.1)
+          labels:
+            service: runner-jobs
+            slo: duration
+        - record: slo:time_period:days
+          expr: vector(28)
+          labels:
+            service: runner-jobs
+            slo: duration
+        - alert: RunnerJobsDurationPage1h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1h{service="runner-jobs", slo="duration"} > (13.44 * 0.1)
+              and
+              slo:sli_error:ratio_rate5m{service="runner-jobs", slo="duration"} > (13.44 * 0.1)
+            )
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h]) > 0) >= 20)
+          labels:
+            severity: critical
+        - alert: RunnerJobsDurationPage6h
+          expr: |-
+            (
+              slo:sli_error:ratio_rate6h{service="runner-jobs", slo="duration"} > (5.6 * 0.1)
+              and
+              slo:sli_error:ratio_rate30m{service="runner-jobs", slo="duration"} > (5.6 * 0.1)
+            )
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h]) > 0) >= 20)
+          labels:
+            severity: critical
+        - alert: RunnerJobsDurationTicket1d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate1d{service="runner-jobs", slo="duration"} > (2.8 * 0.1)
+              and
+              slo:sli_error:ratio_rate2h{service="runner-jobs", slo="duration"} > (2.8 * 0.1)
+            )
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d]) > 0) >= 20)
+          labels:
+            severity: warning
+        - alert: RunnerJobsDurationTicket3d
+          expr: |-
+            (
+              slo:sli_error:ratio_rate3d{service="runner-jobs", slo="duration"} > (0.93 * 0.1)
+              and
+              slo:sli_error:ratio_rate6h{service="runner-jobs", slo="duration"} > (0.93 * 0.1)
+            )
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d]) > 0) >= 20)
+          labels:
+            severity: warning
+      # END slo-rules

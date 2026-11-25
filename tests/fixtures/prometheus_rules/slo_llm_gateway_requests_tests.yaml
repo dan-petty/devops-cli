@@ -1,0 +1,152 @@
+# promtool rule unit tests of the SLO group slo-llm-gateway-requests in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4709). The group is the render of
+# k8s/devops/monitoring/slos/llm-gateway-requests.yaml, so each case shows what the Sloth spec
+# promises: the four burn-rate alerts of Table 2 of docs/guidelines/sre.md, and the 20-event guard
+# of the low-sample rule. The SLI counts the requests of the gateway that end with a failure over
+# each request.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts
+# each series at time 0, one sample each `interval`. A range selector reads the samples of its
+# window, and increase() extrapolates to the edges: a counter that grows by 1 each minute gives 60
+# over the 59 minutes of the 1 hour window that ends at minute 90.
+#
+# The file sets evaluation_interval: 5m and each case sets interval: 1m, so the 5 minute short
+# window of the page row holds five samples, and a case of 3 days makes 864 rounds, under
+# MAX_PROMTOOL_ROUNDS.
+rule_files:
+  - slo-llm-gateway-requests.rules.yaml
+
+evaluation_interval: 5m
+
+tests:
+  - name: 1 request of 10 fails, so every window breaches and all four alerts fire
+    interval: 1m
+    input_series:
+      # 60 failed requests over the 600 requests of the last hour: an error ratio of 0.1 over the
+      # 0.005 error budget of the 99.5 % objective.
+      - series: 'litellm_proxy_failed_requests_metric_total{job="llm-gateway"}'
+        values: '0+1x90'
+      - series: 'litellm_proxy_total_requests_metric_total{job="llm-gateway"}'
+        values: '0+10x90'
+    alert_rule_test:
+      # The 1 hour ratio and the 5 minute ratio are above 13.44 x 0.005, and the 1 hour window
+      # holds 600 requests.
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage1h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: llm-gateway
+              slo: requests
+      # The 6 hour ratio and the 30 minute ratio are above 5.6 x 0.005, and the 6 hour window
+      # holds 600 requests.
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage6h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: llm-gateway
+              slo: requests
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.005, and the 1 day window holds 600
+      # requests.
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: requests
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.005, and the 3 day window holds
+      # 600 requests.
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: requests
+
+  - name: 1 request of 1001 fails, so every window stays quiet
+    interval: 1m
+    input_series:
+      # 60 failed requests over 60,060 requests of the last hour: an error ratio of 0.001, which is
+      # under the 0.00465 of the lowest burn-rate line.
+      - series: 'litellm_proxy_failed_requests_metric_total{job="llm-gateway"}'
+        values: '0+1x90'
+      - series: 'litellm_proxy_total_requests_metric_total{job="llm-gateway"}'
+        values: '0+1000x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket3d
+        exp_alerts: []
+
+  - name: Ten requests in ten minutes fire no alert, though every ratio is 1
+    interval: 1m
+    input_series:
+      # Ten requests, all of them in the last ten minutes of the case and all of them failed, so
+      # the 1 hour, the 6 hour, the 1 day and the 3 day windows hold 10 requests each. Every window
+      # is above its burn-rate line, and the 20-event guard is the only reason that no alert fires.
+      - series: 'litellm_proxy_failed_requests_metric_total{job="llm-gateway"}'
+        values: '0x51 1+1x9'
+      - series: 'litellm_proxy_total_requests_metric_total{job="llm-gateway"}'
+        values: '0x51 1+1x9'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: LlmGatewayRequestsPage1h
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayRequestsPage6h
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayRequestsTicket1d
+        exp_alerts: []
+      - eval_time: 60m
+        alertname: LlmGatewayRequestsTicket3d
+        exp_alerts: []
+
+  - name: Five requests in the last hour fire the two ticket alerts and no page alert
+    interval: 1m
+    input_series:
+      # 20 requests in the first 20 minutes, and 5 requests in the last 5 minutes: 25 requests in
+      # the 1 day window and 5 in the last hour. The 1 hour and the 6 hour windows hold 5
+      # requests, under the guard of the 20-event rule, while their error ratio of 1 is above every
+      # burn-rate line.
+      - series: 'litellm_proxy_failed_requests_metric_total{job="llm-gateway"}'
+        values: '0 1+1x19 20x455 21+1x4'
+      - series: 'litellm_proxy_total_requests_metric_total{job="llm-gateway"}'
+        values: '0 1+1x19 20x455 21+1x4'
+    alert_rule_test:
+      - eval_time: 8h
+        alertname: LlmGatewayRequestsPage1h
+        exp_alerts: []
+      - eval_time: 8h
+        alertname: LlmGatewayRequestsPage6h
+        exp_alerts: []
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.005, and the 1 day window holds 25
+      # requests.
+      - eval_time: 8h
+        alertname: LlmGatewayRequestsTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: requests
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.005, and the 3 day window holds 25
+      # requests.
+      - eval_time: 8h
+        alertname: LlmGatewayRequestsTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: llm-gateway
+              slo: requests

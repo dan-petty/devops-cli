@@ -1,0 +1,420 @@
+# promtool rule unit tests of the SLO group slo-runner-jobs-duration in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#4709). The group is the render of
+# k8s/devops/monitoring/slos/runner-jobs-duration.yaml, so each case shows what the Sloth spec
+# promises: the four burn-rate alerts of Table 2 of docs/guidelines/sre.md, and the 20-event guard
+# of the low-sample rule. The SLI counts the runner Jobs that end at 3,600 s or later over the
+# runner Jobs that end.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts
+# each series at time 0, one sample each `interval`. kube_job_status_start_time is the start of a
+# Job and kube_job_status_completion_time is its end, so a Job of 4,000 s is a start of 1000 and a
+# completion of 5000, and a Job of 500 s is a completion of 1500. A Job with no end is a
+# completion of 0, and a Job whose object is gone has no series.
+#
+# The 1 hour page alert of this SLO stays quiet in every case: its line is 13.44 * 0.1, which is an
+# error ratio of 1.344, and the error count of a window is at most the count of the Jobs that end
+# in it, so no case can reach it.
+#
+# The file sets evaluation_interval: 5m and each case sets interval: 1m, so the 5 minute short
+# window of the page row holds five samples, and a case of 3 days makes 864 rounds, under
+# MAX_PROMTOOL_ROUNDS.
+rule_files:
+  - slo-runner-jobs-duration.rules.yaml
+
+evaluation_interval: 5m
+
+tests:
+  - name: 12 of the 20 runner Jobs end at 3,600 s or later, so every reachable alert fires
+    interval: 1m
+    input_series:
+      # 20 runner Jobs end within the last hour, 12 of them at 4,000 s and 8 of them at 500 s: an
+      # error ratio of 0.6, above the 0.56 of the 6 hour page row and above both ticket rows.
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-01"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-01"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-02"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-02"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-03"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-03"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-04"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-04"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-05"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-05"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-06"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-06"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-07"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-07"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-08"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-08"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-09"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-09"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-10"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-10"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-11"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-11"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-12"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-12"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-01"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-01"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-02"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-02"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-03"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-03"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-04"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-04"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-05"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-05"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-06"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-06"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-07"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-07"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-fast-08"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-fast-08"}'
+        values: '1500x91'
+    alert_rule_test:
+      # The 1 hour line is an error ratio of 1.344, which no window of this SLI reaches.
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage1h
+        exp_alerts: []
+      # The 6 hour ratio and the 30 minute ratio are above 5.6 x 0.1, and the 6 hour window holds
+      # 20 Jobs that end.
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage6h
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              service: runner-jobs
+              slo: duration
+      # The 1 day ratio and the 2 hour ratio are above 2.8 x 0.1, and the 1 day window holds 20
+      # Jobs that end.
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: runner-jobs
+              slo: duration
+      # The 3 day ratio and the 6 hour ratio are above 0.93 x 0.1, and the 3 day window holds 20
+      # Jobs that end.
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: runner-jobs
+              slo: duration
+
+  - name: Every runner Job of the window ends in under 3,600 s, so every window stays quiet
+    interval: 1m
+    input_series:
+      # 20 runner Jobs end within the last hour, each of them at 500 s, so the error ratio of each
+      # window is 0 although the guard of the low-sample rule is satisfied.
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-01"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-01"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-02"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-02"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-03"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-03"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-04"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-04"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-05"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-05"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-06"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-06"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-07"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-07"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-08"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-08"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-09"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-09"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-10"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-10"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-11"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-11"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-12"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-12"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-13"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-13"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-14"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-14"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-15"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-15"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-16"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-16"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-17"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-17"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-18"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-18"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-19"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-19"}'
+        values: '1500x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-20"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-20"}'
+        values: '1500x91'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket3d
+        exp_alerts: []
+
+  - name: Ten runner Jobs that end late fire no alert, though the error ratio is 1
+    interval: 1m
+    input_series:
+      # 10 runner Jobs end within the last hour, each of them at 4,000 s, so the error ratio of
+      # each window is 1. The 20-event guard of the low-sample rule is the only reason that no
+      # alert fires.
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-01"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-01"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-02"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-02"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-03"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-03"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-04"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-04"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-05"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-05"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-06"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-06"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-07"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-07"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-08"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-08"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-09"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-09"}'
+        values: '5000x91'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-few-10"}'
+        values: '1000x91'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-few-10"}'
+        values: '5000x91'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RunnerJobsDurationTicket3d
+        exp_alerts: []
+
+  - name: Five runner Jobs in the last hour fire the two ticket alerts and no page alert
+    interval: 1m
+    input_series:
+      # 15 runner Jobs end within the first 100 minutes, 1 of them at 4,000 s and 14 of them at
+      # 500 s, and 5 runner Jobs end within the last hour, each of them at 4,000 s. The 1 day
+      # window holds 20 Jobs that end, 6 of them late, and the 1 hour and the 6 hour windows hold
+      # 5 Jobs that end, all of them late: the 20-event guard keeps the two page alerts quiet while
+      # their error ratio of 1 is above both lines.
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-slow"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-slow"}'
+        values: '5000x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-01"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-01"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-02"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-02"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-03"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-03"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-04"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-04"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-05"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-05"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-06"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-06"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-07"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-07"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-08"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-08"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-09"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-09"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-10"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-10"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-11"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-11"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-12"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-12"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-13"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-13"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-early-14"}'
+        values: '1000x101'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-early-14"}'
+        values: '1500x101'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-late-01"}'
+        values: '_x421 1000x60'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-late-01"}'
+        values: '_x421 5000x60'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-late-02"}'
+        values: '_x421 1000x60'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-late-02"}'
+        values: '_x421 5000x60'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-late-03"}'
+        values: '_x421 1000x60'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-late-03"}'
+        values: '_x421 5000x60'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-late-04"}'
+        values: '_x421 1000x60'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-late-04"}'
+        values: '_x421 5000x60'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-late-05"}'
+        values: '_x421 1000x60'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-late-05"}'
+        values: '_x421 5000x60'
+    alert_rule_test:
+      # The 1 hour line is an error ratio of 1.344, which no window of this SLI reaches.
+      - eval_time: 8h
+        alertname: RunnerJobsDurationPage1h
+        exp_alerts: []
+      # The 6 hour window holds 5 Jobs that end, under the guard of the 20-event rule, although
+      # its error ratio of 1 is above 5.6 x 0.1.
+      - eval_time: 8h
+        alertname: RunnerJobsDurationPage6h
+        exp_alerts: []
+      # The 1 day window holds 20 Jobs that end, 6 of them late: an error ratio of 0.3, above
+      # 2.8 x 0.1, and the 2 hour ratio of the 5 late Jobs is 1.
+      - eval_time: 8h
+        alertname: RunnerJobsDurationTicket1d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: runner-jobs
+              slo: duration
+      # The 3 day window holds the same 20 Jobs, so its ratio of 0.3 is above 0.93 x 0.1, and the
+      # 6 hour ratio of the 5 late Jobs is 1.
+      - eval_time: 8h
+        alertname: RunnerJobsDurationTicket3d
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              service: runner-jobs
+              slo: duration

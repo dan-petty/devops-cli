@@ -1,0 +1,29 @@
+# SLO 2 of k8s/README.md (#4709): the runner Jobs that end in under 3,600 s, over the 28-day
+# window. `src/devops_cli/prometheus/slo_rules.py` renders the rule group
+# `slo-runner-jobs-duration` from this file, and the group sits under
+# `serverFiles.devops_cli_alerting_rules.yml` of
+# `k8s/devops/monitoring/prometheus-rules-values.yaml`, which the Prometheus server loads.
+#
+# kube-state-metrics gives the two gauges: `kube_job_status_start_time` is the start of a Job, and
+# `kube_job_status_completion_time` is its end, or 0 while the Job has no end. A Job whose object is
+# gone has no series, so the two counts read the Jobs that still exist in the window.
+version: "prometheus/v1"
+service: runner-jobs
+slos:
+  - name: duration
+    objective: 90
+    description: >-
+      A runner Job of the template `devops-cli-runner` that ends in under 3,600 s, over the 28-day
+      window. Only the runner Jobs that end count: kube-state-metrics shows a Job while its object
+      exists, and a Job with no end is not in the SLI, so a Job that a drain, a kill or the deadline
+      of the cluster leaves with no end adds no event to either side.
+    sli:
+      events:
+        error_query: >-
+          count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[{{.window}}])
+          - on (job_name)
+          last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[{{.window}}])) >= 3600)
+        total_query: >-
+          count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[{{.window}}]) > 0)
+    alerting:
+      name: RunnerJobsDuration
