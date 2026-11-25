@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from devops_cli.git.worktree_inventory import (
+    count_ignored_data_files,
     directory_size,
     inventory_worktrees,
     scope_refusal,
@@ -586,3 +587,52 @@ def test_forced_prune_removes_a_refused_worktree_but_keeps_main_and_the_current_
     }
     assert [p.exists() for p in (repo, here, noted, outside)] == [True, True, False, False]
     assert github_api.requested == []
+
+
+def test_count_ignored_data_files_excludes_nested_venv(repo: Path, git: Git, managed: Path) -> None:
+    """A nested `.venv` directory is regenerable cache, not ignored data (#6636)."""
+    wt = managed / "w-2100"
+    _worktree_with(git, repo, "fix/2100-old", wt, "sub/project/.venv/lib/site.py")
+
+    assert count_ignored_data_files(wt) == 0
+
+
+def test_count_ignored_data_files_counts_data_beside_nested_venv(
+    repo: Path, git: Git, managed: Path
+) -> None:
+    """Data under `.data/agent/` still counts when a nested `.venv` is present (#6636)."""
+    wt = managed / "w-2100"
+    _worktree_with(git, repo, "fix/2100-old", wt, "sub/project/.venv/lib/site.py", NOTE)
+
+    assert count_ignored_data_files(wt) == 1
+
+
+def test_count_ignored_data_files_keeps_nested_build_as_data(
+    repo: Path, git: Git, managed: Path
+) -> None:
+    """Only root `build/` is regenerable; a nested `build/` stays ignored data (#6636)."""
+    wt = managed / "w-2100"
+    _worktree(git, repo, "fix/2100-old", wt, gitignore=f"{GITIGNORE}build/\n")
+    _put(wt, "sub/project/build/output.bin")
+
+    assert count_ignored_data_files(wt) == 1
+
+
+def test_prune_previews_a_merged_worktree_with_only_nested_venv_as_removable(
+    cli: Cli,
+    repo: Path,
+    git: Git,
+    managed: Path,
+    github_api: GitHubApiFake,
+) -> None:
+    """Prune preview without `--confirm` marks a merged nested-`.venv` worktree removable (#6636)."""
+    old = managed / "w-2100"
+    _merged(
+        github_api, _worktree_with(git, repo, "fix/2100-old", old, "sub/project/.venv/pyvenv.cfg")
+    )
+
+    preview, outcomes = _prune(cli, repo)
+
+    assert preview.exit_code == 0, preview.output
+    assert outcomes[str(old)] == ("would remove", "head of merged pull request #2134")
+    assert old.is_dir()

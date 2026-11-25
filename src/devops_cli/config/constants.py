@@ -787,12 +787,12 @@ CONST_AGENT_WORKTREE_PREFIX: Final[str] = "w-"
 # cache or a build output that a command makes again, so it holds no data: `uv sync` makes `.venv`,
 # a test run makes `__pycache__`, `.pytest_cache`, `.hypothesis` and the coverage outputs of
 # `pyproject.toml`. A plain pathspec matches at the root of the worktree and covers the files under
-# it, so `dist` under `.data/agent/scratch` stays data; the `**/` globs match at any depth. The
+# it, so `dist` under `.data/agent/scratch` stays data; the `**/` globs match at any depth,
+# including a nested `.venv` under a service subdirectory (#6636). The
 # coverage data files match only at the root, where coverage writes them by default, and under
 # `.data`, where `pyproject.toml` writes them, so a note named `.coverage-notes.md` stays data.
 # Each other file that `.gitignore` hides is data and keeps the worktree from `worktrees prune`.
 CONST_WORKTREE_REGENERABLE_PATHSPECS: Final[tuple[str, ...]] = (
-    ":(exclude).venv",
     ":(exclude)dist",
     ":(exclude)build",
     ":(exclude)htmlcov",
@@ -805,6 +805,7 @@ CONST_WORKTREE_REGENERABLE_PATHSPECS: Final[tuple[str, ...]] = (
     ":(exclude,glob).coverage.*",
     ":(exclude).data/.coverage",
     ":(exclude,glob).data/.coverage.*",
+    ":(exclude,glob)**/.venv/**",
     ":(exclude,glob)**/__pycache__/**",
     ":(exclude,glob)**/.pytest_cache/**",
     ":(exclude,glob)**/.ruff_cache/**",
