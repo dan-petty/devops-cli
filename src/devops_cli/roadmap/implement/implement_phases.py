@@ -42,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 from devops_cli.ai.client.models import AIClientError, AICredentialsError
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
     CONST_GITHUB_CLONE_URL,
     CONST_OPENSPEC_ARCHIVE_DIR,
     CONST_OPENSPEC_CHANGES_DIR,
@@ -56,8 +57,10 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_STATE_FILE,
     CONST_ROADMAP_PHASE_SUMMARY_FILE,
     CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
+    publish_token_permissions,
 )
 from devops_cli.config.settings import load_settings
+from devops_cli.core.process import token_permissions_scope
 from devops_cli.core.repo import resolve_data_path
 from devops_cli.exceptions import (
     DevOpsCLIError,
@@ -302,118 +305,122 @@ def prepare_implement(
 ) -> ImplementState | ImplementResult:
     """`prepare` of one item: the state of the run, or how the run ended here. It runs git calls
     and GitHub calls only, and no program of the branch."""
-    number = target.item.number
-    report = RunReport(store, repo, target, target.pull)
-    folders.make()
-    if (owner := claimed_by(_fresh(store, number))) is not None:
-        report.yield_to(owner, MESSAGES.roadmap.implement_boundary_start)
-        write_json(
-            folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
-            ImplementState(repo=repo, item=number, ended=True),
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        number = target.item.number
+        report = RunReport(store, repo, target, target.pull)
+        folders.make()
+        if (owner := claimed_by(_fresh(store, number))) is not None:
+            report.yield_to(owner, MESSAGES.roadmap.implement_boundary_start)
+            write_json(
+                folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+                ImplementState(repo=repo, item=number, ended=True),
+            )
+            return ImplementResult.YIELDED
+        clone = clone_branch(
+            folders.work,
+            url=CONST_GITHUB_CLONE_URL.format(repo=repo),
+            issue=number,
+            branch=target.branch,
         )
-        return ImplementResult.YIELDED
-    clone = clone_branch(
-        folders.work,
-        url=CONST_GITHUB_CLONE_URL.format(repo=repo),
-        issue=number,
-        branch=target.branch,
-    )
-    (clone.path / CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR).mkdir(parents=True, exist_ok=True)
-    marks: dict[Any, str | None] = {
-        ImplementRecordKey.BRANCH: target.branch,
-        ImplementRecordKey.TRACE: None,
-        ImplementRecordKey.RESULT: None,
-        ImplementRecordKey.CHECK_LOG: None,
-        ImplementRecordKey.CONFLICT: None,
-        ImplementRecordKey.PUBLISHED_SHA: None,
-        ImplementRecordKey.REPAIR_ROUNDS: None,
-        # The draft of this run: a draft of an earlier Job that the plan did not find open goes.
-        ImplementRecordKey.PR: str(target.pull) if target.pull is not None else None,
-    }
-    record = target.item.job_record
-    if not record.get(ImplementRecordKey.BASE):
-        # Where the branch stood before the first Job of the item pushed, for a return (#3677).
-        marks[ImplementRecordKey.BASE] = clone.lease or _NEW_BRANCH
-    if target.retry:
-        for key in (
-            ImplementRecordKey.STOPPED,
-            ImplementRecordKey.FAILURE,
-            ImplementRecordKey.LEFT_ACTION,
-            ImplementRecordKey.CHECK,
-            ImplementRecordKey.SPEND,
-            ImplementRecordKey.SPEND_COUNTED,
-        ):
-            marks[key] = None
-    write_status(store, _fresh(store, number), StatusFacts(job_active=True), marks=marks)
-    try:
-        proposal = f":(glob){CONST_OPENSPEC_CHANGES_DIR}/{number}-*/proposal.md"
-        subject = git_call(
-            clone.path,
-            "log",
-            "-1",
-            "--diff-filter=A",
-            "--format=%s",
-            "HEAD",
-            "--",
-            proposal,
-            home=folders.state,
+        (clone.path / CONST_ROADMAP_IMPLEMENT_SCRATCH_DIR).mkdir(parents=True, exist_ok=True)
+        marks: dict[Any, str | None] = {
+            ImplementRecordKey.BRANCH: target.branch,
+            ImplementRecordKey.TRACE: None,
+            ImplementRecordKey.RESULT: None,
+            ImplementRecordKey.CHECK_LOG: None,
+            ImplementRecordKey.CONFLICT: None,
+            ImplementRecordKey.PUBLISHED_SHA: None,
+            ImplementRecordKey.REPAIR_ROUNDS: None,
+            # The draft of this run: a draft of an earlier Job that the plan did not find open goes.
+            ImplementRecordKey.PR: str(target.pull) if target.pull is not None else None,
+        }
+        record = target.item.job_record
+        if not record.get(ImplementRecordKey.BASE):
+            # Where the branch stood before the first Job of the item pushed, for a return (#3677).
+            marks[ImplementRecordKey.BASE] = clone.lease or _NEW_BRANCH
+        if target.retry:
+            for key in (
+                ImplementRecordKey.STOPPED,
+                ImplementRecordKey.FAILURE,
+                ImplementRecordKey.LEFT_ACTION,
+                ImplementRecordKey.CHECK,
+                ImplementRecordKey.SPEND,
+                ImplementRecordKey.SPEND_COUNTED,
+            ):
+                marks[key] = None
+        write_status(store, _fresh(store, number), StatusFacts(job_active=True), marks=marks)
+        try:
+            proposal = f":(glob){CONST_OPENSPEC_CHANGES_DIR}/{number}-*/proposal.md"
+            subject = git_call(
+                clone.path,
+                "log",
+                "-1",
+                "--diff-filter=A",
+                "--format=%s",
+                "HEAD",
+                "--",
+                proposal,
+                home=folders.state,
+            )
+            preset = resolve_profile(clone.path, f"origin/{clone.default}").preset
+            archive = bool(
+                preset.archive_argv
+                and uses_openspec(clone.path, f"origin/{clone.default}", operation=GIT_OPERATION)
+            )
+            comments = StepComments.read(store, number, clone.path)
+        except (DevOpsCLIError, subprocess.TimeoutExpired) as exc:
+            stop = _error_stop(MESSAGES.roadmap.implement_step_names["rebase"], exc)
+            report.stop(_facts(stop), "")
+            write_json(
+                folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+                ImplementState(repo=repo, item=number, ended=True),
+            )
+            return ImplementResult.STOPPED
+        base = clone.lease if clone.lease and not rebase else clone.base
+        summary = record.get(ImplementRecordKey.PLAN_SUMMARY) or plan_summary(
+            subject.strip(), number
         )
-        preset = resolve_profile(clone.path, f"origin/{clone.default}").preset
-        archive = bool(
-            preset.archive_argv
-            and uses_openspec(clone.path, f"origin/{clone.default}", operation=GIT_OPERATION)
+        if summary and not record.get(ImplementRecordKey.PLAN_SUMMARY):
+            store.set_marks(_fresh(store, number), {ImplementRecordKey.PLAN_SUMMARY: summary})
+        state = ImplementState(
+            repo=repo,
+            item=number,
+            branch=target.branch,
+            pull=target.pull,
+            base=base,
+            lease=clone.lease,
+            default=clone.default,
+            plan_summary=summary,
+            archive_required=archive,
         )
-        comments = StepComments.read(store, number, clone.path)
-    except (DevOpsCLIError, subprocess.TimeoutExpired) as exc:
-        stop = _error_stop(MESSAGES.roadmap.implement_step_names["rebase"], exc)
-        report.stop(_facts(stop), "")
-        write_json(
-            folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
-            ImplementState(repo=repo, item=number, ended=True),
+        write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
+        inputs = AgentInput(
+            repo=repo,
+            checkout=str(clone.path),
+            base=base,
+            onto=clone.base,
+            rebase=rebase,
+            default=clone.default,
+            target=_TARGET.dump_python(target, mode="json"),
+            comments=_COMMENTS.dump_python(comments, mode="json"),
         )
-        return ImplementResult.STOPPED
-    base = clone.lease if clone.lease and not rebase else clone.base
-    summary = record.get(ImplementRecordKey.PLAN_SUMMARY) or plan_summary(subject.strip(), number)
-    if summary and not record.get(ImplementRecordKey.PLAN_SUMMARY):
-        store.set_marks(_fresh(store, number), {ImplementRecordKey.PLAN_SUMMARY: summary})
-    state = ImplementState(
-        repo=repo,
-        item=number,
-        branch=target.branch,
-        pull=target.pull,
-        base=base,
-        lease=clone.lease,
-        default=clone.default,
-        plan_summary=summary,
-        archive_required=archive,
-    )
-    write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
-    inputs = AgentInput(
-        repo=repo,
-        checkout=str(clone.path),
-        base=base,
-        onto=clone.base,
-        rebase=rebase,
-        default=clone.default,
-        target=_TARGET.dump_python(target, mode="json"),
-        comments=_COMMENTS.dump_python(comments, mode="json"),
-    )
-    write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
-    return state
+        write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
+        return state
 
 
 def prepare_left_out(plan: ImplementPlan, item: int, folders: RunFolders) -> None:
     """`prepare` of an item that the plan leaves out: a state that says the run ended, and why.
     `agent` and `publish` run after `prepare` in their own containers (#3700), and they end with
     nothing to do, as the one process did."""
-    reason = next(
-        (out.reason for out in (*plan.left_out, *plan.unmatched) if out.number == item), ""
-    )
-    folders.make()
-    write_json(
-        folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
-        ImplementState(repo=plan.repo, item=item, ended=True, reason=reason),
-    )
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        reason = next(
+            (out.reason for out in (*plan.left_out, *plan.unmatched) if out.number == item), ""
+        )
+        folders.make()
+        write_json(
+            folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+            ImplementState(repo=plan.repo, item=item, ended=True, reason=reason),
+        )
 
 
 def _facts(stop: _StopError) -> StopFacts:
@@ -723,7 +730,8 @@ def _push(
 
     # The new repository goes to the temporary folder: `publish` mounts the run folder read-only
     # (#3700).
-    published = publish_patch(target, patches, before_push=before_push)
+    with token_permissions_scope(publish_token_permissions(workflows=bool(target.workflow_paths))):
+        published = publish_patch(target, patches, before_push=before_push)
     if published is not None:
         store.set_marks(_fresh(store, number), {ImplementRecordKey.PUBLISHED_SHA: published.commit})
     return published, (held[0] if held else None)
@@ -898,32 +906,33 @@ def publish_implement(
     result, gets none either."""
     if state.ended:
         return None
-    item = _fresh(store, state.item)
-    record = item.job_record
-    # `prepare` cleared the result: a result here is the end of an earlier `publish` of this run.
-    if ended := record.get(ImplementRecordKey.RESULT):
-        return ImplementResult(ended)
-    if state.pull is None and (recorded := record.get(ImplementRecordKey.PR)):
-        # An earlier `publish` of this run opened the draft of the new branch.
-        state = state.model_copy(update={"pull": int(recorded)})
-    outcome = read_implement_outcome(folders)
-    report = _report(store, state, outcome)
-    try:
-        if (owner := claimed_by(item)) is not None:
-            raise _Claimed(owner)
-        return _publish_outcome(store, state, outcome, report, folders)
-    except _Claimed as claimed:
-        report.yield_to(claimed.owner, _boundary(outcome))
-        return ImplementResult.YIELDED
-    except _PublishStop as exc:
-        report.stop(exc.stop, "")
-        return ImplementResult.STOPPED
-    except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
-        raise
-    except (DevOpsCLIError, subprocess.TimeoutExpired) as exc:
-        step = MESSAGES.roadmap.implement_step_names["push"]
-        report.stop(replace(_facts(_error_stop(step, exc)), push=False), "")
-        return ImplementResult.STOPPED
+    with token_permissions_scope(publish_token_permissions(workflows=False)):
+        item = _fresh(store, state.item)
+        record = item.job_record
+        # `prepare` cleared the result: a result here is the end of an earlier `publish` of this run.
+        if ended := record.get(ImplementRecordKey.RESULT):
+            return ImplementResult(ended)
+        if state.pull is None and (recorded := record.get(ImplementRecordKey.PR)):
+            # An earlier `publish` of this run opened the draft of the new branch.
+            state = state.model_copy(update={"pull": int(recorded)})
+        outcome = read_implement_outcome(folders)
+        report = _report(store, state, outcome)
+        try:
+            if (owner := claimed_by(item)) is not None:
+                raise _Claimed(owner)
+            return _publish_outcome(store, state, outcome, report, folders)
+        except _Claimed as claimed:
+            report.yield_to(claimed.owner, _boundary(outcome))
+            return ImplementResult.YIELDED
+        except _PublishStop as exc:
+            report.stop(exc.stop, "")
+            return ImplementResult.STOPPED
+        except AICredentialsError, GitHubUnauthenticatedError, ServiceStoppingError:
+            raise
+        except (DevOpsCLIError, subprocess.TimeoutExpired) as exc:
+            step = MESSAGES.roadmap.implement_step_names["push"]
+            report.stop(replace(_facts(_error_stop(step, exc)), push=False), "")
+            return ImplementResult.STOPPED
 
 
 def _publish_outcome(
@@ -1018,20 +1027,23 @@ def publish_phase(
 ) -> ImplementResult | None:
     """`--phase publish` for item `item` of `repo`: the state file, read as data, must name that
     item, and the branch that `prepare` recorded on the item."""
-    state = _read_state(folders)
-    if (state.repo, state.item) != (repo, item):
-        raise PhaseOutputError("The state file of the run names another item")
-    if state.ended:
-        if state.reason:
-            # The Service reads the log of `publish`, so the reason is masked as each line of the
-            # log of the runner is.
-            line = MESSAGES.roadmap.implement_phase_left_out.format(item=item, reason=state.reason)
-            print_info(mask_secrets(line), safe=True)
-        return None
-    recorded = _fresh(store, item).job_record.get(ImplementRecordKey.BRANCH)
-    if recorded != state.branch:
-        raise PhaseOutputError("The state file of the run names another branch")
-    return publish_implement(store, state, folders)
+    with token_permissions_scope(publish_token_permissions(workflows=False)):
+        state = _read_state(folders)
+        if (state.repo, state.item) != (repo, item):
+            raise PhaseOutputError("The state file of the run names another item")
+        if state.ended:
+            if state.reason:
+                # The Service reads the log of `publish`, so the reason is masked as each line of the
+                # log of the runner is.
+                line = MESSAGES.roadmap.implement_phase_left_out.format(
+                    item=item, reason=state.reason
+                )
+                print_info(mask_secrets(line), safe=True)
+            return None
+        recorded = _fresh(store, item).job_record.get(ImplementRecordKey.BRANCH)
+        if recorded != state.branch:
+            raise PhaseOutputError("The state file of the run names another branch")
+        return publish_implement(store, state, folders)
 
 
 def implement_round(

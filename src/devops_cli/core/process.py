@@ -12,7 +12,8 @@ import signal
 import subprocess
 import threading
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -296,8 +297,34 @@ def _validate_subprocess_cwd(cwd: Path | str | None) -> None:
 # process with no login starts no `gh auth token` before each git call (#6691).
 _github_token: str | None = None
 _github_token_expires_at: datetime | None = None
+_github_token_permissions: frozenset[tuple[str, str]] | None = None
 _git_lookup_failed = False
 _GITHUB_TOKEN_LOCK = threading.Lock()
+_PHASE_TOKEN_PERMISSIONS: ContextVar[dict[str, str] | None] = ContextVar(
+    "github_phase_token_permissions", default=None
+)
+
+
+def _permissions_key(permissions: Mapping[str, str] | None) -> frozenset[tuple[str, str]] | None:
+    """Order-independent key identifying the active installation token permission map."""
+    return None if permissions is None else frozenset(permissions.items())
+
+
+def active_token_permissions() -> dict[str, str] | None:
+    """Return a copy of the active phase token permission map, or None when unscoped."""
+    permissions = _PHASE_TOKEN_PERMISSIONS.get()
+    return None if permissions is None else dict(permissions)
+
+
+@contextlib.contextmanager
+def token_permissions_scope(permissions: Mapping[str, str] | None) -> Iterator[None]:
+    """Scope GitHub App installation tokens minted within the context to `permissions`."""
+    scoped = None if permissions is None else dict(permissions)
+    token = _PHASE_TOKEN_PERMISSIONS.set(scoped)
+    try:
+        yield
+    finally:
+        _PHASE_TOKEN_PERMISSIONS.reset(token)
 
 
 @dataclass(frozen=True)
@@ -336,7 +363,7 @@ def github_identity() -> GitHubIdentity:
     if acts_as_github_app():
         from devops_cli.github.app_installation import configured_app
 
-        app = configured_app()
+        app = configured_app(permissions=active_token_permissions())
         return GitHubIdentity(key=app.ledger_key, login=app.bot_login, renews=True)
     return GitHubIdentity(key=github_token())
 
@@ -388,7 +415,7 @@ def _lookup_session_token() -> tuple[str, str, datetime | None]:
     if acts_as_github_app():
         from devops_cli.github.app_installation import mint_installation_token
 
-        return mint_installation_token()
+        return mint_installation_token(permissions=active_token_permissions())
     token, why = _lookup_github_token()
     return token, why, None
 
@@ -401,11 +428,16 @@ def _renewal_due(expires_at: datetime | None) -> bool:
     return left <= timedelta(seconds=DEFAULT_GITHUB_APP_TOKEN_RENEW_SECONDS)
 
 
-def _kept_token() -> str:
-    """The kept installation token while it has not expired, else "". The caller holds
-    `_GITHUB_TOKEN_LOCK`."""
+def _kept_token(permissions_key: frozenset[tuple[str, str]] | None) -> str:
+    """The kept installation token while it matches `permissions_key` and has not expired, else
+    "". The caller holds `_GITHUB_TOKEN_LOCK`."""
     expires_at = _github_token_expires_at
-    if _github_token and expires_at is not None and expires_at > datetime.now(UTC):
+    if (
+        _github_token
+        and _github_token_permissions == permissions_key
+        and expires_at is not None
+        and expires_at > datetime.now(UTC)
+    ):
         return _github_token
     return ""
 
@@ -414,23 +446,34 @@ def _session_github_token() -> tuple[str, str]:
     """The session's token, looked up on first use; or "" and why there is none.
 
     gh's token is kept for the life of the process, and an App's installation token until its
-    renewal is due. A lookup that finds none is not kept, so the next call looks again. When the
-    renewal fails, the kept token serves until it expires, and the next call mints again (#6671).
+    renewal is due or the active phase permission scope changes. A lookup that finds none is not
+    kept, so the next call looks again. When the renewal fails, the kept token serves until it
+    expires, and the next call mints again (#6671).
     """
-    global _github_token, _github_token_expires_at
+    global _github_token, _github_token_expires_at, _github_token_permissions
+    permissions = active_token_permissions() if acts_as_github_app() else None
+    permissions_key = _permissions_key(permissions)
     with _GITHUB_TOKEN_LOCK:
-        if _github_token and not _renewal_due(_github_token_expires_at):
+        if (
+            _github_token
+            and _github_token_permissions == permissions_key
+            and not _renewal_due(_github_token_expires_at)
+        ):
             return _github_token, ""
         try:
             token, why, expires_at = _lookup_session_token()
         except GitHubUnreadError, GitHubRateLimitError:
-            if not _kept_token():
+            if not _kept_token(permissions_key):
                 raise
             token, why, expires_at = "", "", None
         if token:
-            _github_token, _github_token_expires_at = token, expires_at
+            _github_token, _github_token_expires_at, _github_token_permissions = (
+                token,
+                expires_at,
+                permissions_key,
+            )
             return token, ""
-        if kept := _kept_token():
+        if kept := _kept_token(permissions_key):
             logger.warning(
                 "The renewal of the GitHub token failed; the kept token serves until it expires"
             )
@@ -475,9 +518,14 @@ def _git_github_token() -> str:
 def reset_github_token() -> None:
     """Forget the token and a failed lookup, so the next GitHub call looks it up or mints it
     again."""
-    global _github_token, _github_token_expires_at, _git_lookup_failed
+    global _github_token, _github_token_expires_at, _github_token_permissions, _git_lookup_failed
     with _GITHUB_TOKEN_LOCK:
-        _github_token, _github_token_expires_at, _git_lookup_failed = None, None, False
+        (
+            _github_token,
+            _github_token_expires_at,
+            _github_token_permissions,
+            _git_lookup_failed,
+        ) = None, None, None, False
 
 
 def is_local_gh_command(gh_args: list[str]) -> bool:

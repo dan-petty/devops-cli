@@ -1669,6 +1669,34 @@ CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "pull_requests": "read",
     "secrets": "read",
 }
+CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "actions": "read",
+    "checks": "read",
+    "contents": "read",
+    "issues": "write",
+    "pull_requests": "read",
+}
+CONST_GITHUB_APP_PUBLISH_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "actions": "read",
+    "checks": "read",
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+}
+
+
+def publish_token_permissions(*, workflows: bool = False) -> dict[str, str]:
+    """Return the GitHub App installation token permissions for the `publish` phase.
+
+    Omits `workflows: write` unless the merged plan names a `.github/workflows/` path.
+    """
+    permissions = dict(CONST_GITHUB_APP_PUBLISH_TOKEN_PERMISSIONS)
+    if workflows:
+        permissions["workflows"] = "write"
+    return permissions
+
+
 # The GitHub App that self-hosted Renovate acts as (#4893). The owner named it on 2026-11-16, so
 # its bot is `dan-petty-renovate[bot]`, which the Fail-to-Pass Check skips.
 CONST_RENOVATE_GITHUB_APP_SLUG: Final[str] = "dan-petty-renovate"

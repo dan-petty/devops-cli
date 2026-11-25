@@ -36,6 +36,7 @@ from devops_cli.commands.roadmap_eval import eval_app
 from devops_cli.commands.roadmap_review import review_app
 from devops_cli.commands.roadmap_step import step_app
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
     CONST_OUTPUT_FORMAT_TABLE,
     CONST_ROADMAP_CONSOLIDATE_MAX_LIMIT,
 )
@@ -46,6 +47,7 @@ from devops_cli.config.defaults import (
     DEFAULT_TABLE_FORMAT,
 )
 from devops_cli.core.cli import new_typer
+from devops_cli.core.process import token_permissions_scope
 from devops_cli.core.repo import find_repo_root, get_repo_origin_name
 from devops_cli.dry_run import PlannedRequest, dry_run_class, is_dry_run
 from devops_cli.exceptions import DevOpsCLIError, RoadmapRunError
@@ -1048,19 +1050,20 @@ def _implement_phase(
         )
         from devops_cli.roadmap.run import model_clone
 
-        plan = plan_implement(
-            store,
-            repo=target,
-            source=source or model_clone(target),
-            filters=parse_implement_filters(()),
-            item_number=item,
-            limit=1,
-        )
-        write_stdout(render_implement_plan(plan) + "\n")
-        if not plan.selected:
-            phases.prepare_left_out(plan, item, folders)
-        for selected in plan.selected:
-            phases.prepare_implement(store, target, selected, folders, rebase=rebase)
+        with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+            plan = plan_implement(
+                store,
+                repo=target,
+                source=source or model_clone(target),
+                filters=parse_implement_filters(()),
+                item_number=item,
+                limit=1,
+            )
+            write_stdout(render_implement_plan(plan) + "\n")
+            if not plan.selected:
+                phases.prepare_left_out(plan, item, folders)
+            for selected in plan.selected:
+                phases.prepare_implement(store, target, selected, folders, rebase=rebase)
 
 
 @app.command("implement", help=HELP.roadmap.implement)
