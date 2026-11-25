@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.218.1](https://github.com/dan-petty/devops-cli/compare/v0.218.0...v0.218.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **pr:** align proposal scaffold and pr describe closing check ([#7115](https://github.com/dan-petty/devops-cli/issues/7115)) ([7a465ec](https://github.com/dan-petty/devops-cli/commit/7a465eca837d00cd4953dcbb6d786f451973677e))
+* **pr:** raise pr monitor default timeout to 600 seconds ([#7118](https://github.com/dan-petty/devops-cli/issues/7118)) ([00cf92e](https://github.com/dan-petty/devops-cli/commit/00cf92ecae7d1771950127250e73c310fa5258bf))
+* **roadmap:** list in-force ADR index in plan context ([#7116](https://github.com/dan-petty/devops-cli/issues/7116)) ([7958cd8](https://github.com/dan-petty/devops-cli/commit/7958cd815f35f9e151fcdbc8c42e23793c5ef6fa))
+* **roadmap:** stop criteria and section readers at job block markers ([#7117](https://github.com/dan-petty/devops-cli/issues/7117)) ([da9753e](https://github.com/dan-petty/devops-cli/commit/da9753e408819caa63e97d9c12432ff01d98f9b0))
+
 ## [0.218.0](https://github.com/dan-petty/devops-cli/compare/v0.217.0...v0.218.0) (2026-11-25)
 
 
