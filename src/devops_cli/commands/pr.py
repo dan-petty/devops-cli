@@ -6,7 +6,7 @@ import dataclasses
 import json
 import logging
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, TextIO, cast
 
 import typer
 
@@ -896,6 +896,18 @@ def _fallback_patch_pr(
     return pull_ok
 
 
+def _resolve_body_input(body: str | None, body_file: TextIO | None) -> str | None:
+    """Resolve PR body text from `--body` or `--body-file` (stdin `-`), refusing both."""
+    if body is not None and body_file is not None:
+        raise typer.BadParameter(
+            "Cannot pass both --body and --body-file.",
+            param_hint="'--body' / '--body-file'",
+        )
+    if body_file is not None:
+        return body_file.read()
+    return body
+
+
 @app.command("edit")
 @dry_run_class("request-plan")
 def edit_pr(
@@ -912,6 +924,10 @@ def edit_pr(
         str | None,
         typer.Option("--body", "-b", help=HELP.pr.edit_body),
     ] = None,
+    body_file: Annotated[
+        typer.FileText | None,
+        typer.Option("--body-file", "-F", help=HELP.pr.body_file),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
@@ -926,28 +942,31 @@ def edit_pr(
     ] = False,
 ) -> None:
     """Edit pull request base branch, title, body, or milestone."""
+    resolved_body = _resolve_body_input(body, body_file)
     if dry_run or is_dry_run():
         plan = plan_pr_edit(
             number,
             base=base,
             title=title,
-            body=body,
+            body=resolved_body,
             repo=repo,
             milestone=milestone,
         )
         render_request_plan("Planned requests for devops pr edit:", plan)
         return
     _require_gh_cli()
-    if not any([title, body, base, milestone]):
-        print_warning("No changes specified. Use --title, --body, --base, or --milestone.")
+    if not any([title, resolved_body, base, milestone]):
+        print_warning(
+            "No changes specified. Use --title, --body, --body-file, --base, or --milestone."
+        )
         return
     if title is not None:
         _edit_title_checked(title)
 
-    cmd = pr_edit_args(number, base, title, body, repo, milestone)
+    cmd = pr_edit_args(number, base, title, resolved_body, repo, milestone)
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_patch_pr(number, base, title, body, repo, milestone=milestone):
+        if _fallback_patch_pr(number, base, title, resolved_body, repo, milestone=milestone):
             print_success(f"Successfully updated PR #{number}")
             return
         raise typer.Exit(res.returncode)
@@ -1348,7 +1367,11 @@ def describe_pr(
 @dry_run_class("request-plan")
 def create_pr(
     title: Annotated[str, typer.Option("--title", "-t", help=HELP.options.title)],
-    body: Annotated[str, typer.Option("--body", "-b", help=HELP.options.body)] = "",
+    body: Annotated[str | None, typer.Option("--body", "-b", help=HELP.options.body)] = None,
+    body_file: Annotated[
+        typer.FileText | None,
+        typer.Option("--body-file", "-F", help=HELP.pr.body_file),
+    ] = None,
     base: Annotated[
         str | None,
         typer.Option("--base", "-B", help=HELP.pr.create_base),
@@ -1382,10 +1405,12 @@ def create_pr(
     title and a body in that form. The rules of the body apply where the base branch holds
     openspec/config.yaml. In another repository, the command does not check the body.
     """
+    resolved_body = _resolve_body_input(body, body_file)
+    body_text = resolved_body if resolved_body is not None else ""
     if dry_run or is_dry_run():
-        _form_checked(title, body, repo, base, offline=True)
+        _form_checked(title, body_text, repo, base, offline=True)
         target = _target_repo(repo)
-        plan = plan_pr_create(title=title, body=body, base=base, repo=target, head=head)
+        plan = plan_pr_create(title=title, body=body_text, base=base, repo=target, head=head)
         render_request_plan(
             MESSAGES.pr.draft_would_open_into.format(base=base or MESSAGES.pr.create_default_base),
             plan,
@@ -1393,12 +1418,12 @@ def create_pr(
         )
         return
     _require_gh_cli()
-    _form_checked(title, body, repo, base, offline=False)
-    cmd = pr_create_args(title, body, base, repo, head)
+    _form_checked(title, body_text, repo, base, offline=False)
+    cmd = pr_create_args(title, body_text, base, repo, head)
 
     res = run_gh(cmd, check=False)
     if res.returncode != 0:
-        if _fallback_create_pr(title, body, base, repo, head):
+        if _fallback_create_pr(title, body_text, base, repo, head):
             return
         _report_create_failure(res, base)
         raise typer.Exit(res.returncode)

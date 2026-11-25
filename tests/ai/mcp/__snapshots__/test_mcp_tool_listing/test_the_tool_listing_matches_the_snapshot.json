@@ -3850,6 +3850,18 @@
           "default": null,
           "description": "Set the new body."
         },
+        "body_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Read the body text from file (or - for stdin)."
+        },
         "dry_run": {
           "default": false,
           "description": "Preview execution plan without mutating external state.",
