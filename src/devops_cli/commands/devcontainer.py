@@ -920,12 +920,15 @@ def _wait_for_docker_daemon(timeout_seconds: int = 45) -> bool:
     return False
 
 
-def _start_minikube_cluster(dry_run: bool) -> tuple[bool, str]:
+def _start_minikube_cluster(
+    dry_run: bool, *, env: dict[str, str] | None = None
+) -> tuple[bool, str]:
     """Start Minikube cluster with GPU support fallback to CPU."""
-    from devops_cli.commands.k8s.cluster_runtime import _start_minikube
+    from devops_cli.commands.k8s.cluster_runtime import _start_minikube, minikube_docker_env
     from devops_cli.security.sanitizer import mask_secrets
 
-    success, raw_msg = _start_minikube(dry_run=dry_run)
+    resolved_env = env if env is not None else minikube_docker_env()
+    success, raw_msg = _start_minikube(dry_run=dry_run, env=resolved_env)
     msg = mask_secrets(raw_msg)[:256] if raw_msg else ""
     if not success and not msg.startswith("Warning:"):
         return False, f"Warning: {msg}"
@@ -936,6 +939,8 @@ def _run_k8s_bootstrap_worker(
     workspace_dir: Path, stack: str | None = None, *, dry_run: bool = False
 ) -> list[str]:
     """Execute complete Minikube startup and context update."""
+    from devops_cli.commands.k8s.cluster_runtime import minikube_docker_env
+
     actions: list[str] = []
     if not shutil.which("minikube"):
         actions.append("Warning: Minikube binary is not available; skipping cluster start")
@@ -945,17 +950,20 @@ def _run_k8s_bootstrap_worker(
         actions.append("Warning: Docker daemon is not running; skipping Minikube start")
         return actions
 
-    res = run_subprocess(["minikube", "status", "--format", "{{.Host}}"], check=False, quiet=True)
+    docker_env = minikube_docker_env()
+    res = run_subprocess(
+        ["minikube", "status", "--format", "{{.Host}}"], check=False, quiet=True, env=docker_env
+    )
     is_running = res.returncode == 0 and "Running" in str(res.stdout)
 
     if not is_running:
-        healthy, action_msg = _start_minikube_cluster(dry_run)
+        healthy, action_msg = _start_minikube_cluster(dry_run, env=docker_env)
         actions.append(action_msg)
         if healthy and not dry_run:
-            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+            run_subprocess(["minikube", "update-context"], check=False, quiet=True, env=docker_env)
     else:
         if not dry_run:
-            run_subprocess(["minikube", "update-context"], check=False, quiet=True)
+            run_subprocess(["minikube", "update-context"], check=False, quiet=True, env=docker_env)
         actions.append("Minikube cluster is already running")
 
     return actions

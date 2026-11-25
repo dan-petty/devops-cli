@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-from typing import Any
+from typing import Any, Final
 
+from devops_cli.config.constants import (
+    CONST_DOCKER_DEFAULT_UNIX_SOCKET,
+    CONST_PODMAN_ROOTFUL_SOCKET_PATH,
+)
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess as run_subprocess
 from devops_cli.core.validation import validate_k8s_name
@@ -67,19 +72,43 @@ _MINIKUBE_START_FLAGS = (
     "--cni=calico",
     "--addons=storage-provisioner-rancher",
 )
+DEFAULT_MINIKUBE_DOCKER_HOST: Final[str] = f"unix://{CONST_DOCKER_DEFAULT_UNIX_SOCKET}"
 
 
-def _minikube_running() -> bool:
+def minikube_docker_env() -> dict[str, str]:
+    """Environment directing `podman-docker` to the rootful Podman API socket."""
+    return {"DOCKER_HOST": DEFAULT_MINIKUBE_DOCKER_HOST}
+
+
+def _minikube_env(env: dict[str, str] | None = None) -> dict[str, str] | None:
+    """Resolve `DOCKER_HOST` for Minikube: keep explicit overrides, or pin the rootful socket
+    when the Podman API service socket exists (#6466)."""
+    if env is not None:
+        return dict(env)
+    if (
+        CONST_PODMAN_ROOTFUL_SOCKET_PATH.exists()
+        and os.environ.get("DOCKER_HOST") != DEFAULT_MINIKUBE_DOCKER_HOST
+    ):
+        return minikube_docker_env()
+    return None
+
+
+def _minikube_running(*, env: dict[str, str] | None = None) -> bool:
     try:
         result = _run_cmd(
-            ["minikube", "status", "--format", "{{.Host}}"], check=False, capture=True
+            ["minikube", "status", "--format", "{{.Host}}"],
+            check=False,
+            capture=True,
+            env=_minikube_env(env),
         )
         return result.returncode == 0 and "Running" in result.stdout
     except FileNotFoundError, OSError, subprocess.SubprocessError:
         return False
 
 
-def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
+def _start_minikube(
+    dry_run: bool = False, *, env: dict[str, str] | None = None
+) -> tuple[bool, str]:
     """Start Minikube cluster with GPU support fallback and context refresh."""
     import shutil
 
@@ -91,15 +120,16 @@ def _start_minikube(dry_run: bool = False) -> tuple[bool, str]:
     if dry_run:
         return True, gpu_text if has_gpu else cpu_text
 
+    resolved_env = _minikube_env(env)
     if has_gpu:
-        start_res = _run_cmd(["minikube", "start", *gpu_flags], check=False)
-        if start_res.returncode == 0 and _minikube_running():
-            _run_cmd(["minikube", "update-context"], check=False)
+        start_res = _run_cmd(["minikube", "start", *gpu_flags], check=False, env=resolved_env)
+        if start_res.returncode == 0 and _minikube_running(env=resolved_env):
+            _run_cmd(["minikube", "update-context"], check=False, env=resolved_env)
             return True, gpu_text
 
-    fallback_res = _run_cmd(["minikube", "start", *cpu_flags], check=False)
-    if fallback_res.returncode == 0 and _minikube_running():
-        _run_cmd(["minikube", "update-context"], check=False)
+    fallback_res = _run_cmd(["minikube", "start", *cpu_flags], check=False, env=resolved_env)
+    if fallback_res.returncode == 0 and _minikube_running(env=resolved_env):
+        _run_cmd(["minikube", "update-context"], check=False, env=resolved_env)
         return True, cpu_text
 
     return False, "Failed to start Minikube cluster"
