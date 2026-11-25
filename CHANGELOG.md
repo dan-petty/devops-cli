@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.2](https://github.com/dan-petty/devops-cli/compare/v0.221.1...v0.221.2) (2026-11-25)
+
+
+### Performance Improvements
+
+* **docker:** keep the uv seed cache layer across releases ([#7210](https://github.com/dan-petty/devops-cli/issues/7210)) ([75cd9fb](https://github.com/dan-petty/devops-cli/commit/75cd9fb52d4b28eec604a3bf5569ff9e5a7a2652)), closes [#7208](https://github.com/dan-petty/devops-cli/issues/7208)
+
 ## [0.221.1](https://github.com/dan-petty/devops-cli/compare/v0.221.0...v0.221.1) (2026-11-25)
 
 
