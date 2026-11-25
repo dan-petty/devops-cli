@@ -814,6 +814,11 @@ devops gh pr list [OPTIONS]
 |---|---|---|---|
 | `--state`, `-s` | `string` | `open` | Filter by state (open, closed, merged, all). |
 | `--limit`, `-n` | `integer` | `30` | Maximum number of items to return or display. |
+| `--search`, `-S` | `string` | - | Filter pull requests with search query. |
+| `--head`, `-H` | `string` | - | Filter pull requests by head branch. |
+| `--base`, `-B` | `string` | - | Filter pull requests by base branch. |
+| `--json` | `string` | - | Output JSON with the specified fields (comma-separated). |
+| `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -835,6 +840,26 @@ devops gh pr view [OPTIONS] <number>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
+| `--comments`, `-c` | `boolean` | - | View pull request comments. |
+| `--json` | `string` | - | Output JSON with the specified fields (comma-separated). |
+| `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression. |
+| `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+### `devops gh pr status`
+
+**Show status of relevant pull requests.**
+
+```bash
+devops gh pr status [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--json` | `string` | - | Output JSON with the specified fields (comma-separated). |
+| `--jq`, `-q` | `string` | - | Filter JSON output using a jq expression. |
 | `--repo`, `-R` | `string` | - | Target repository in OWNER/REPO format. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 

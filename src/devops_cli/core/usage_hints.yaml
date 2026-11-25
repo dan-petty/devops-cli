@@ -99,69 +99,21 @@ hints:
     hint: "Use `devops gh api search/issues -f q=<query>`."
 
   - command_path: gh pr view
-    typed: --json
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n>`."
-  - command_path: gh pr view
-    typed: --jq
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n> --jq '<filter>'`."
-  - command_path: gh pr view
-    typed: --comments
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments`."
-  - command_path: gh pr view
     typed: --search
     reason: other_name
     hint: "Use `devops gh api search/issues -f q=<query>`."
 
-  - command_path: gh pr list
-    typed: --json
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls`."
-  - command_path: gh pr list
-    typed: --jq
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls --jq '<filter>'`."
   - command_path: gh pr list
     typed: --comments
     reason: other_name
     hint: "Use `devops gh api repos/{owner}/{repo}/pulls/comments`."
-  - command_path: gh pr list
-    typed: --search
-    reason: other_name
-    hint: "Use `devops gh api search/issues -f q=<query>`."
 
-  - command_path: pr view
-    typed: --json
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n>`."
-  - command_path: pr view
-    typed: --jq
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n> --jq '<filter>'`."
-  - command_path: pr view
-    typed: --comments
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments`."
   - command_path: pr view
     typed: --search
     reason: other_name
     hint: "Use `devops gh api search/issues -f q=<query>`."
 
-  - command_path: pr list
-    typed: --json
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls`."
-  - command_path: pr list
-    typed: --jq
-    reason: other_name
-    hint: "Use `devops gh api repos/{owner}/{repo}/pulls --jq '<filter>'`."
   - command_path: pr list
     typed: --comments
     reason: other_name
     hint: "Use `devops gh api repos/{owner}/{repo}/pulls/comments`."
-  - command_path: pr list
-    typed: --search
-    reason: other_name
-    hint: "Use `devops gh api search/issues -f q=<query>`."

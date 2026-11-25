@@ -24,8 +24,15 @@ def pr_list_args(
     state: str,
     limit: int,
     repo: str | None = None,
+    *,
+    search: str | None = None,
+    head: str | None = None,
+    base: str | None = None,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
 ) -> list[str]:
     """CLI arguments for gh pr list."""
+    fields = json_fields or "number,title,state,headRefName,baseRefName,author,updatedAt,url"
     cmd = [
         CONST_GH_CLI,
         "pr",
@@ -35,8 +42,16 @@ def pr_list_args(
         "--limit",
         str(limit),
         "--json",
-        "number,title,state,headRefName,baseRefName,author,updatedAt,url",
+        fields,
     ]
+    if jq_expr:
+        cmd.extend(["--jq", jq_expr])
+    if search:
+        cmd.extend(["--search", search])
+    if head:
+        cmd.extend(["--head", head])
+    if base:
+        cmd.extend(["--base", base])
     if repo:
         cmd.extend(["--repo", repo])
     return cmd
@@ -46,6 +61,12 @@ def plan_pr_list(
     state: str,
     limit: int,
     repo: str | None = None,
+    *,
+    search: str | None = None,
+    head: str | None = None,
+    base: str | None = None,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
 ) -> list[PlannedRequest]:
     """Generate planned requests for devops pr list."""
     target_repo = repo or ":owner/:repo"
@@ -53,7 +74,18 @@ def plan_pr_list(
         PlannedRequest(
             method="GET",
             target=f"repos/{target_repo}/pulls",
-            argv=tuple(pr_list_args(state, limit, repo)),
+            argv=tuple(
+                pr_list_args(
+                    state,
+                    limit,
+                    repo,
+                    search=search,
+                    head=head,
+                    base=base,
+                    json_fields=json_fields,
+                    jq_expr=jq_expr,
+                )
+            ),
         )
     ]
 
@@ -61,9 +93,19 @@ def plan_pr_list(
 def pr_view_args(
     number: int | str,
     repo: str | None = None,
+    *,
+    comments: bool = False,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
 ) -> list[str]:
     """CLI arguments for gh pr view."""
     cmd = [CONST_GH_CLI, "pr", "view", str(number)]
+    if comments:
+        cmd.append("--comments")
+    if json_fields:
+        cmd.extend(["--json", json_fields])
+    if jq_expr:
+        cmd.extend(["--jq", jq_expr])
     if repo:
         cmd.extend(["--repo", repo])
     return cmd
@@ -72,6 +114,10 @@ def pr_view_args(
 def plan_pr_view(
     number: int | str,
     repo: str | None = None,
+    *,
+    comments: bool = False,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
 ) -> list[PlannedRequest]:
     """Generate planned requests for devops pr view."""
     target_repo = repo or ":owner/:repo"
@@ -79,7 +125,49 @@ def plan_pr_view(
         PlannedRequest(
             method="GET",
             target=f"repos/{target_repo}/pulls/{number}",
-            argv=tuple(pr_view_args(number, repo)),
+            argv=tuple(
+                pr_view_args(
+                    number,
+                    repo,
+                    comments=comments,
+                    json_fields=json_fields,
+                    jq_expr=jq_expr,
+                )
+            ),
+        )
+    ]
+
+
+def pr_status_args(
+    repo: str | None = None,
+    *,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
+) -> list[str]:
+    """CLI arguments for gh pr status."""
+    cmd = [CONST_GH_CLI, "pr", "status"]
+    if json_fields:
+        cmd.extend(["--json", json_fields])
+    if jq_expr:
+        cmd.extend(["--jq", jq_expr])
+    if repo:
+        cmd.extend(["--repo", repo])
+    return cmd
+
+
+def plan_pr_status(
+    repo: str | None = None,
+    *,
+    json_fields: str | None = None,
+    jq_expr: str | None = None,
+) -> list[PlannedRequest]:
+    """Generate planned requests for devops pr status."""
+    target_repo = repo or ":owner/:repo"
+    return [
+        PlannedRequest(
+            method="GET",
+            target=f"repos/{target_repo}/pulls",
+            argv=tuple(pr_status_args(repo, json_fields=json_fields, jq_expr=jq_expr)),
         )
     ]
 

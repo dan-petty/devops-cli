@@ -1585,6 +1585,11 @@ List pull requests with base targeting and review status.
 |---|---|---|---|---|
 | `state` | `string` | No | `open` | Filter by state (open, closed, merged, all). |
 | `limit` | `integer` | No | `30` | Maximum number of items to return or display. |
+| `search` | `string` | No | - | Filter pull requests with search query. |
+| `head` | `string` | No | - | Filter pull requests by head branch. |
+| `base` | `string` | No | - | Filter pull requests by base branch. |
+| `json_fields` | `string` | No | - | Output JSON with the specified fields (comma-separated). |
+| `jq_expr` | `string` | No | - | Filter JSON output using a jq expression. |
 | `repo` | `string` | No | - | Target repository in OWNER/REPO format. |
 | `dry_run` | `boolean` | No | `False` | Preview execution plan without mutating external state. |
 

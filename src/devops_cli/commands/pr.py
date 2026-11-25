@@ -76,6 +76,7 @@ from devops_cli.github.pr_plans import (
     plan_pr_list,
     plan_pr_monitor,
     plan_pr_ready,
+    plan_pr_status,
     plan_pr_threads_list,
     plan_pr_threads_reply,
     plan_pr_threads_resolve,
@@ -87,6 +88,7 @@ from devops_cli.github.pr_plans import (
     pr_diff_args,
     pr_edit_args,
     pr_list_args,
+    pr_status_args,
     pr_view_args,
     pr_view_payload_args,
 )
@@ -228,6 +230,17 @@ def _render_pr_list_fallback(state: str, limit: int, repo: str | None = None) ->
     return False
 
 
+def _echo_masked(text: str, *, err: bool = False) -> None:
+    """Emit stdout or stderr from `gh` after masking secret tokens."""
+    from devops_cli.security.sanitizer import mask_secrets
+
+    masked = mask_secrets(text.rstrip())
+    if err:
+        print_error(masked, prefix=False)
+    else:
+        typer.echo(masked)
+
+
 @app.command("list")
 @dry_run_class("request-plan")
 def list_prs(
@@ -239,6 +252,26 @@ def list_prs(
         int,
         typer.Option("--limit", "-n", help=HELP.options.limit),
     ] = DEFAULT_PR_LIMIT,
+    search: Annotated[
+        str | None,
+        typer.Option("--search", "-S", help=HELP.pr.list_search),
+    ] = None,
+    head: Annotated[
+        str | None,
+        typer.Option("--head", "-H", help=HELP.pr.list_head),
+    ] = None,
+    base: Annotated[
+        str | None,
+        typer.Option("--base", "-B", help=HELP.pr.list_base),
+    ] = None,
+    json_fields: Annotated[
+        str | None,
+        typer.Option("--json", help=HELP.pr.json_fields),
+    ] = None,
+    jq_expr: Annotated[
+        str | None,
+        typer.Option("--jq", "-q", help=HELP.pr.jq_filter),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
@@ -250,18 +283,46 @@ def list_prs(
 ) -> None:
     """List pull requests with base targeting and review status."""
     if dry_run or is_dry_run():
-        plan = plan_pr_list(state, limit, repo)
+        plan = plan_pr_list(
+            state,
+            limit,
+            repo,
+            search=search,
+            head=head,
+            base=base,
+            json_fields=json_fields,
+            jq_expr=jq_expr,
+        )
         render_request_plan("Planned requests for devops pr list:", plan)
         return
     _require_gh_cli()
-    cmd = pr_list_args(state, limit, repo)
+    cmd = pr_list_args(
+        state,
+        limit,
+        repo,
+        search=search,
+        head=head,
+        base=base,
+        json_fields=json_fields,
+        jq_expr=jq_expr,
+    )
 
     res = run_gh(cmd, check=False)
+    raw_output = json_fields is not None or jq_expr is not None
     if res.returncode != 0:
+        if raw_output:
+            if res.stderr:
+                _echo_masked(res.stderr, err=True)
+            raise typer.Exit(res.returncode)
         if _render_pr_list_fallback(state, limit, repo):
             return
         print_error(f"Failed to list PRs: {res.stderr}", prefix=False)
         raise typer.Exit(res.returncode)
+
+    if raw_output:
+        if res.stdout:
+            _echo_masked(res.stdout)
+        return
 
     try:
         prs = json.loads(res.stdout) if res.stdout.strip() else []
@@ -402,6 +463,18 @@ def _render_pr_checks_fallback(number: int, repo: str | None = None) -> bool:
 @dry_run_class("request-plan")
 def view_pr(
     number: Annotated[int, typer.Argument(help=HELP.pr.number)],
+    comments: Annotated[
+        bool,
+        typer.Option("--comments", "-c", help=HELP.pr.view_comments),
+    ] = False,
+    json_fields: Annotated[
+        str | None,
+        typer.Option("--json", help=HELP.pr.json_fields),
+    ] = None,
+    jq_expr: Annotated[
+        str | None,
+        typer.Option("--jq", "-q", help=HELP.pr.jq_filter),
+    ] = None,
     repo: Annotated[
         str | None,
         typer.Option("--repo", "-R", help=HELP.pr.target_repo),
@@ -413,19 +486,68 @@ def view_pr(
 ) -> None:
     """View details of a pull request."""
     if dry_run or is_dry_run():
-        plan = plan_pr_view(number, repo)
+        plan = plan_pr_view(
+            number,
+            repo,
+            comments=comments,
+            json_fields=json_fields,
+            jq_expr=jq_expr,
+        )
         render_request_plan("Planned requests for devops pr view:", plan)
         return
     _require_gh_cli()
-    from devops_cli.security.sanitizer import mask_secrets
-
-    cmd = pr_view_args(number, repo)
+    cmd = pr_view_args(
+        number,
+        repo,
+        comments=comments,
+        json_fields=json_fields,
+        jq_expr=jq_expr,
+    )
     res = run_gh(cmd, check=False)
     if res.stdout:
-        typer.echo(mask_secrets(res.stdout.rstrip()))
+        _echo_masked(res.stdout)
     if res.returncode != 0:
-        if _render_pr_view_fallback(number, repo):
+        raw_output = json_fields is not None or jq_expr is not None
+        if not raw_output and _render_pr_view_fallback(number, repo):
             return
+        if raw_output and res.stderr:
+            _echo_masked(res.stderr, err=True)
+        raise typer.Exit(res.returncode)
+
+
+@app.command("status", help=HELP.pr.status)
+@dry_run_class("request-plan")
+def status_pr(
+    json_fields: Annotated[
+        str | None,
+        typer.Option("--json", help=HELP.pr.json_fields),
+    ] = None,
+    jq_expr: Annotated[
+        str | None,
+        typer.Option("--jq", "-q", help=HELP.pr.jq_filter),
+    ] = None,
+    repo: Annotated[
+        str | None,
+        typer.Option("--repo", "-R", help=HELP.pr.target_repo),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help=HELP.options.dry_run),
+    ] = False,
+) -> None:
+    """Show status of relevant pull requests."""
+    if dry_run or is_dry_run():
+        plan = plan_pr_status(repo, json_fields=json_fields, jq_expr=jq_expr)
+        render_request_plan("Planned requests for devops pr status:", plan)
+        return
+    _require_gh_cli()
+    cmd = pr_status_args(repo, json_fields=json_fields, jq_expr=jq_expr)
+    res = run_gh(cmd, check=False)
+    if res.stdout:
+        _echo_masked(res.stdout)
+    if res.returncode != 0:
+        if res.stderr:
+            _echo_masked(res.stderr, err=True)
         raise typer.Exit(res.returncode)
 
 
