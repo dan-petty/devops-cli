@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import time_machine
 
+from devops_cli.ai.review.pipeline import ReviewPipelineOrchestrator
 from devops_cli.ai.review_schema import FileReviewPayload, ReviewSessionPayload, SavedFinding
 from devops_cli.config.constants import CONST_EXIT_FAILURE
 from devops_cli.exceptions import SecurityError
 from devops_cli.exceptions.ai import ReviewSessionExistsError
-from devops_cli.review.session import ReviewSession, ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore, new_session_name
 from devops_cli.ui.data_providers import fetch_review_status
 
 
@@ -379,3 +382,76 @@ def test_two_paths_that_flatten_alike_are_recorded_apart(
         FileReviewPayload.model_validate_json(record.read_text("utf-8")).file_path
         for record in (published / "files").glob("*.json")
     ) == ["src/a/b.py", "src/a_b.py"]
+
+
+_ULID_PATTERN = re.compile(r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")
+
+
+def test_new_session_name_returns_distinct_ulids_and_sorts_by_millisecond() -> None:
+    """Verify new_session_name yields unique 26-char Crockford base32 ULIDs ordered by ms."""
+    names = [new_session_name() for _ in range(100)]
+
+    assert len(set(names)) == 100
+    assert all(_ULID_PATTERN.match(name) for name in names)
+
+    with time_machine.travel("2026-11-17T00:00:00.000Z", tick=False):
+        first = new_session_name()
+    with time_machine.travel("2026-11-17T00:00:00.001Z", tick=False):
+        second = new_session_name()
+
+    assert first < second
+
+
+def test_review_pipeline_orchestrator_defaults_to_distinct_ulid_session_ids(
+    tmp_path: Path,
+) -> None:
+    """Verify ReviewPipelineOrchestrator assigns a distinct ULID when session_id is omitted."""
+    first = ReviewPipelineOrchestrator(target_dir=tmp_path)
+    second = ReviewPipelineOrchestrator(target_dir=tmp_path)
+
+    assert _ULID_PATTERN.match(first.session_id)
+    assert _ULID_PATTERN.match(second.session_id)
+    assert first.session_id != second.session_id
+
+
+def test_two_sessions_named_by_new_session_name_publish_in_one_folder(
+    review_store: type[ReviewSessionStore],
+) -> None:
+    """Verify two sessions named by new_session_name publish cleanly into one store."""
+    first_dir = _published(review_store, new_session_name(), "First").directory
+    second_dir = _published(review_store, new_session_name(), "Second").directory
+
+    assert first_dir != second_dir
+    assert len(review_store.sessions()) == 2
+
+
+def test_sessions_latest_and_summary_order_mixed_legacy_and_ulid_by_start_time(
+    review_store: type[ReviewSessionStore],
+) -> None:
+    """Verify mixed legacy timestamp, ULID, and non-timestamp session folders sort newest-first
+    by start time across sessions(), latest(), in_flight(), and fetch_review_status()."""
+    _published(review_store, "20261001-120000", "Legacy")
+    _published(review_store, "20260908-120000-sample-repo", "Tagged")
+    with time_machine.travel("2026-11-17T00:00:00Z", tick=False):
+        ulid_name = new_session_name()
+        in_flight_ulid = new_session_name()
+    _published(review_store, ulid_name, "ULID")
+
+    stale_in_flight = review_store.session("20261002-120000")
+    stale_in_flight.create()
+    active_in_flight = review_store.session(in_flight_ulid)
+    active_in_flight.create()
+
+    latest = review_store.latest()
+    assert [session.name for session in review_store.sessions()] == [
+        ulid_name,
+        "20261001-120000",
+        "20260908-120000-sample-repo",
+    ]
+    assert latest is not None
+    assert latest.name == ulid_name
+    assert [session.name for session in review_store.in_flight()] == [
+        in_flight_ulid,
+        "20261002-120000",
+    ]
+    assert fetch_review_status().session_name == ulid_name

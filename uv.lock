@@ -896,6 +896,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pynacl" },
     { name = "python-hcl2" },
+    { name = "python-ulid" },
     { name = "pytrec-eval-terrier" },
     { name = "pyyaml" },
     { name = "qdrant-client" },
@@ -1024,6 +1025,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.16.3" },
     { name = "pynacl", specifier = "==1.6.2" },
     { name = "python-hcl2", specifier = "==8.2.0" },
+    { name = "python-ulid", specifier = "==4.2.0" },
     { name = "pytrec-eval-terrier", specifier = "==0.5.11" },
     { name = "pyyaml", specifier = "==6.0.4" },
     { name = "qdrant-client", specifier = "==1.20.0" },
@@ -4000,6 +4002,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7e/c0/c753d487a83d873f6946cee6cbc26cea3fe59a476ad0de99a14938a2fbd8/python_multipart-0.0.34.tar.gz", hash = "sha256:b998ae90ca6e1e363261ce2e0e230281b8af53867b757970abd69ee9edcd843a", size = 52456, upload-time = "2026-11-16T10:40:38.261Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/0e/090c52b122d8ec5fa37942c1410fea9cf04ce98bca0c84dde7f0aa11594d/python_multipart-0.0.34-py3-none-any.whl", hash = "sha256:ebacd224bd686eee2f9aa1066a657affe07435a185834e05e5235e2e59173e91", size = 32585, upload-time = "2026-11-16T10:40:37.119Z" },
+]
+
+[[package]]
+name = "python-ulid"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/5a/ccca42a406a2b71cb359371c2692a326511b870c6b09ce12b6ee58c143a8/python_ulid-4.2.0.tar.gz", hash = "sha256:b935122d37ccb12afc45314019a0c0a59dba46a9e7ac722764c9be2540378c58", size = 126331, upload-time = "2026-11-17T12:14:09.878Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/ca/f205496fe60dc8fe0981eecb53b06079f4a229bcc150d8a233d81e8b378e/python_ulid-4.2.0-py3-none-any.whl", hash = "sha256:3411984a53c5f80d75784153b9ea0f116bd2b719423104ca9e948d08c3abcaaf", size = 18047, upload-time = "2026-11-17T12:14:08.515Z" },
 ]
 
 [[package]]

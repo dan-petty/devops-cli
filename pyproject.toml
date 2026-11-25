@@ -92,6 +92,7 @@ dependencies = [
     "wcmatch==12.0.4",
     "boto3==1.44.11",
     "botocore==1.44.11",
+    "python-ulid==4.2.0",
 ]
 
 [project.optional-dependencies]
@@ -445,7 +446,7 @@ not-callable = "ignore"
 invalid-parameter-default = "ignore"
 
 [tool.deptry]
-package_module_name_map = { "pytrec-eval-terrier" = "pytrec_eval" }
+package_module_name_map = { "pytrec-eval-terrier" = "pytrec_eval", "python-ulid" = "ulid" }
 
 [tool.deptry.per_rule_ignores]
 # Tree-sitter grammars are loaded by name in ai/ast/engine.py.

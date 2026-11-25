@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import time_machine
+from ulid import ULID
 
 from devops_cli.ai.review.runner import format_pr_review_comment, post_pr_review_comment
 from devops_cli.ai.review_schema import Finding, ReviewResult
+from devops_cli.review.session import ReviewSessionStore
 from tests.support.fakes.github import (
     github_json,
     pull_request_file_payload,
@@ -17,10 +22,12 @@ from tests.support.fakes.github import (
     route_pull_request,
     route_pull_request_changes,
 )
+from tests.support.fakes.process import ProcessAnswer, ProcessCall
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from tests.support.fakes.git import GitFake
     from tests.support.fakes.github import GitHubApiFake
     from tests.support.fakes.model import ModelFake
 
@@ -455,3 +462,114 @@ def test_devops_review_pr_post_names_the_files_the_pull_request_leaves_in_place(
     file_lists = [r for r in github_api.requested if "/compare/main...abc123?per_page=1" in r]
     assert (result.exit_code, len(posted), len(file_lists)) == (0, 1, 1)
     assert "- **Files checked:** `openspec/changes/1-x/tasks.md`\n" in posted[0][1]["body"]
+
+
+def test_two_pr_reviews_with_post_in_one_second_both_publish_and_comment(
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    isolate_data_dir: Path,
+) -> None:
+    """Verify two devops review pr --post calls in the same second get distinct ULID session
+    names, publish both sessions, and post both comments (#6221)."""
+    del isolate_data_dir
+    diff_text = (
+        "diff --git a/openspec/changes/1-x/tasks.md b/openspec/changes/1-x/tasks.md\n+- [x] Done.\n"
+    )
+    files = [pull_request_file_payload("openspec/changes/1-x/tasks.md", "added")]
+
+    with time_machine.travel("2026-11-17T12:00:00Z", tick=False):
+        _route_the_pull_request(github_api, files=files, diff=diff_text, comments=True)
+        first = cli("review", "pr", "42", "--repo", "org/repo", "--post")
+        _route_the_pull_request(github_api, files=files, diff=diff_text, comments=True)
+        second = cli("review", "pr", "42", "--repo", "org/repo", "--post")
+
+    sessions = ReviewSessionStore.sessions()
+    posts = _posted(github_api)
+    assert (first.exit_code, second.exit_code, len(sessions), len(posts)) == (0, 0, 2, 2)
+    assert sessions[0].name != sessions[1].name
+
+
+_BRANCH_DIFF_TEXT = (
+    "diff --git a/openspec/changes/1-x/tasks.md b/openspec/changes/1-x/tasks.md\n+- [x] Done.\n"
+)
+
+
+def _branch_git_answer(call: ProcessCall, repo: Path) -> ProcessAnswer:
+    """Answer git calls for an offline branch review targeting a routed change task file."""
+    argv = call.argv
+    if "worktree" in argv and "add" in argv:
+        dest = Path(argv[argv.index("add") + 2])
+        dest_task = dest / "openspec" / "changes" / "1-x" / "tasks.md"
+        dest_task.parent.mkdir(parents=True, exist_ok=True)
+        dest_task.write_text("- [x] Done.\n", encoding="utf-8")
+        (dest / ".git").mkdir(parents=True, exist_ok=True)
+        return ProcessAnswer()
+    if "rev-parse" in argv:
+        if "--abbrev-ref" in argv:
+            return ProcessAnswer(stdout="feature\n")
+        if "--show-toplevel" in argv:
+            return ProcessAnswer(stdout=f"{Path(call.cwd or repo).resolve()}\n")
+        return ProcessAnswer(stdout=f"{'2' * 40}\n")
+    if "diff" in argv:
+        if "-z" in argv:
+            return ProcessAnswer(stdout="A\0openspec/changes/1-x/tasks.md\0")
+        return ProcessAnswer(stdout="" if "HEAD" in argv else _BRANCH_DIFF_TEXT)
+    static_answers = {
+        "merge-base": ProcessAnswer(stdout=f"{'1' * 40}\n"),
+        "for-each-ref": ProcessAnswer(stdout="main\nfeature\n"),
+        "ls-files": ProcessAnswer(stdout="openspec/changes/1-x/tasks.md\n"),
+        "check-ignore": ProcessAnswer(returncode=1),
+        "log": ProcessAnswer(stdout="2026-01-01T00:00:00+00:00\n"),
+    }
+    return next(
+        (static_answers[word] for word in argv[1:] if word in static_answers),
+        ProcessAnswer(),
+    )
+
+
+def test_review_branch_and_pr_both_use_new_session_name(
+    cli: Callable[..., Any],
+    github_api: GitHubApiFake,
+    git_fake: GitFake,
+    tmp_path: Path,
+    isolate_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify devops review branch and devops review pr both name sessions as ULIDs via new_session_name()."""
+    repo = tmp_path / "repo"
+    task_file = repo / "openspec" / "changes" / "1-x" / "tasks.md"
+    task_file.parent.mkdir(parents=True)
+    task_file.write_text("- [x] Done.\n", encoding="utf-8")
+    (repo / ".git").mkdir()
+
+    git_fake.answer(lambda _: True, lambda call: _branch_git_answer(call, repo))
+    _route_the_pull_request(
+        github_api,
+        files=[pull_request_file_payload("openspec/changes/1-x/tasks.md", "added")],
+        diff=_BRANCH_DIFF_TEXT,
+        comments=False,
+    )
+    monkeypatch.chdir(repo)
+
+    with time_machine.travel("2026-11-17T01:02:03Z", tick=False):
+        branch_res = cli("review", "branch", "feature", "--base", "main", "--repo", str(repo))
+    with time_machine.travel("2026-11-18T04:05:06Z", tick=False):
+        pr_res = cli("review", "pr", "42", "--repo", "org/repo")
+
+    session_dirs = sorted(
+        (
+            p
+            for p in (isolate_data_dir / "reviews").iterdir()
+            if p.is_dir() and (p / "findings.json").is_file()
+        ),
+        key=lambda p: p.name,
+    )
+    ulid_pattern = re.compile(r"^[0-7][0-9A-HJKMNP-TV-Z]{25}$")
+    assert branch_res.exit_code == 0
+    assert pr_res.exit_code == 0
+    assert len(session_dirs) == 2
+    assert all(ulid_pattern.match(path.name) for path in session_dirs)
+    assert [ULID.from_str(path.name).datetime for path in session_dirs] == [
+        datetime(2026, 11, 17, 1, 2, 3, tzinfo=UTC),
+        datetime(2026, 11, 18, 4, 5, 6, tzinfo=UTC),
+    ]

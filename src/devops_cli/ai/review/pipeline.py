@@ -105,7 +105,7 @@ from devops_cli.output import (
     print_success,
 )
 from devops_cli.review.report import ReportInput, render_console, render_markdown
-from devops_cli.review.session import ReviewSession, ReviewSessionStore
+from devops_cli.review.session import ReviewSession, ReviewSessionStore, new_session_name
 from devops_cli.review.severity import load_severity_caps
 from devops_cli.review.suppression import load_review_suppressions
 from devops_cli.security.reference_extractor import (
@@ -2125,7 +2125,7 @@ class ReviewPipelineOrchestrator:
         executor = tool_executor or SandboxToolExecutor()
         self.tool_executor = RecordingToolExecutor(executor)
         self._canary_executor: ToolExecutor = executor
-        self.session_id = session_id or datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        self.session_id = session_id or new_session_name()
         self.base_revision = base_revision
         self.partial_context = partial_context
         self.added_diff_lines: set[tuple[str, int]] = set(added_diff_lines or ())
