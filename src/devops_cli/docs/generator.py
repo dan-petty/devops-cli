@@ -1279,6 +1279,7 @@ class DocGenerator:
             "such as `AI_AGENT`, and the implement job sets `AI_AGENT=devops-implement`. The log "
             "record `cli_usage_error` and one JSON line of `usage-errors.jsonl` under the user "
             "data root also hold the typed command word or the option name, Click's suggestion, "
+            "whether a usage hint matched (`hinted` / `usage.hinted`), "
             "the agent tool and the version. A word that is not in the form of a CLI name, such as "
             "a token, a number or a path, is recorded as `<value>`. No record holds the message, "
             "an argument value or the command line. The ledger keeps 1 MiB in each of 4 files, "

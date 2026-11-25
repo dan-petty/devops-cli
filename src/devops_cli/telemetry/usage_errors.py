@@ -99,6 +99,7 @@ class UsageErrorRecord(BaseModel):
         f"`{VALUE_PLACEHOLDER}` for a word that is not in the form of a CLI name"
     )
     suggestion: str | None = Field(description="The close name that Click suggests")
+    hinted: bool = Field(default=False, description="Whether a usage hint was shown")
     caller: UsageCaller = Field(description="Who ran the command")
     agent_tool: str | None = Field(description="The agent tool that ran the command")
     version: str = Field(description="The version of devops-cli")
@@ -132,7 +133,12 @@ def ledger_path() -> Path:
     return user_data_root() / LEDGER_NAME
 
 
-def usage_error_record(error: UsageError) -> UsageErrorRecord:
+def classify_usage_error(error: UsageError) -> tuple[UsageErrorKind, str | None, str | None]:
+    """Return `(kind, raw_name, suggestion)` extracted from Click/Typer metadata on `error`."""
+    return _classified(error)
+
+
+def usage_error_record(error: UsageError, *, hinted: bool = False) -> UsageErrorRecord:
     """The record of `error`: its kind, its names and its caller, and no argument value."""
     from devops_cli import __version__
 
@@ -144,18 +150,19 @@ def usage_error_record(error: UsageError) -> UsageErrorRecord:
         command_path=_command_path(error),
         name=_cli_name(name),
         suggestion=_cli_name(suggestion),
+        hinted=hinted,
         caller=_caller(tool),
         agent_tool=tool,
         version=__version__,
     )
 
 
-def record_usage_error(error: UsageError) -> None:
+def record_usage_error(error: UsageError, *, hinted: bool = False) -> None:
     """Count `error`, log it and add it to the ledger. A ledger that cannot be written gives one
     warning, and the error goes on to Typer as before."""
     from devops_cli.telemetry.instruments import USAGE_ERROR_TOTAL, emit
 
-    record = usage_error_record(error)
+    record = usage_error_record(error, hinted=hinted)
     emit(
         USAGE_ERROR_TOTAL,
         1.0,
@@ -291,6 +298,7 @@ __all__ = [
     "UsageCaller",
     "UsageErrorKind",
     "UsageErrorRecord",
+    "classify_usage_error",
     "ledger_path",
     "record_usage_error",
     "tag_parse_error",

@@ -62,6 +62,7 @@ def _record(
     name: str | None = None,
     suggestion: str | None = None,
     *,
+    hinted: bool = False,
     caller: str = "person",
     agent_tool: str | None = None,
 ) -> dict[str, Any]:
@@ -70,6 +71,7 @@ def _record(
         "command_path": command_path,
         "name": name,
         "suggestion": suggestion,
+        "hinted": hinted,
         "caller": caller,
         "agent_tool": agent_tool,
         "version": __version__,
@@ -168,6 +170,7 @@ def test_the_log_record_holds_the_names_of_the_ledger_line(
             "usage.command_path": "pr view",
             "usage.name": "--repoo",
             "usage.suggestion": "--repo",
+            "usage.hinted": False,
             "usage.caller": "person",
             "usage.version": __version__,
         }

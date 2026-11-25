@@ -1,0 +1,167 @@
+hints:
+  - command_path: pr
+    typed: merge
+    reason: by_design
+    hint: "Only a person merges a pull request; run `devops pr ready <n>` once checks pass."
+  - command_path: gh pr
+    typed: merge
+    reason: by_design
+    hint: "Only a person merges a pull request; run `devops pr ready <n>` once checks pass."
+
+  - command_path: roadmap
+    typed: show
+    reason: other_name
+    hint: "Did you mean: devops roadmap explain <n>"
+  - command_path: roadmap
+    typed: view
+    reason: other_name
+    hint: "Did you mean: devops roadmap explain <n>"
+  - command_path: roadmap
+    typed: get
+    reason: other_name
+    hint: "Did you mean: devops roadmap explain <n>"
+  - command_path: roadmap
+    typed: list
+    reason: other_name
+    hint: "Did you mean: devops roadmap inbox"
+  - command_path: roadmap
+    typed: status
+    reason: other_name
+    hint: "Did you mean: devops roadmap inbox"
+
+  - command_path: pr
+    typed: show
+    reason: other_name
+    hint: "Did you mean: devops pr view <n>"
+  - command_path: pr
+    typed: info
+    reason: other_name
+    hint: "Did you mean: devops pr view <n>"
+  - command_path: gh pr
+    typed: show
+    reason: other_name
+    hint: "Did you mean: devops pr view <n>"
+  - command_path: gh pr
+    typed: info
+    reason: other_name
+    hint: "Did you mean: devops pr view <n>"
+
+  - command_path: pr
+    typed: comment
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments -X POST -F body=@<file>`."
+  - command_path: gh pr
+    typed: comment
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments -X POST -F body=@<file>`."
+
+  - command_path: openspec
+    typed: validate
+    reason: other_tool
+    hint: "Use the OpenSpec CLI (`openspec validate`) or run `devops openspec check`."
+  - command_path: openspec
+    typed: list
+    reason: other_tool
+    hint: "Use the OpenSpec CLI (`openspec list`) or run `devops openspec check`."
+
+  - command_path: gh issue view
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>`."
+  - command_path: gh issue view
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n> --jq '<filter>'`."
+  - command_path: gh issue view
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments`."
+  - command_path: gh issue view
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
+
+  - command_path: gh issue list
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues`."
+  - command_path: gh issue list
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues --jq '<filter>'`."
+  - command_path: gh issue list
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/comments`."
+  - command_path: gh issue list
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
+
+  - command_path: gh pr view
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n>`."
+  - command_path: gh pr view
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n> --jq '<filter>'`."
+  - command_path: gh pr view
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments`."
+  - command_path: gh pr view
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
+
+  - command_path: gh pr list
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls`."
+  - command_path: gh pr list
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls --jq '<filter>'`."
+  - command_path: gh pr list
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/comments`."
+  - command_path: gh pr list
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
+
+  - command_path: pr view
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n>`."
+  - command_path: pr view
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/<n> --jq '<filter>'`."
+  - command_path: pr view
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/issues/<n>/comments`."
+  - command_path: pr view
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
+
+  - command_path: pr list
+    typed: --json
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls`."
+  - command_path: pr list
+    typed: --jq
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls --jq '<filter>'`."
+  - command_path: pr list
+    typed: --comments
+    reason: other_name
+    hint: "Use `devops gh api repos/{owner}/{repo}/pulls/comments`."
+  - command_path: pr list
+    typed: --search
+    reason: other_name
+    hint: "Use `devops gh api search/issues -f q=<query>`."
