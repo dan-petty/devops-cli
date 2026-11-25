@@ -82,6 +82,11 @@ def gate_repo(
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     return stage_repo
 
 

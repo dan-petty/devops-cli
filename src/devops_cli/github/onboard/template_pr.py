@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Final
 from urllib.parse import urlencode
 
 from devops_cli.core import clock
+from devops_cli.github.client import missing_pull_reviewers
 from devops_cli.github.onboard.model import DOC_MERGE, PersonStep, Row, RowContext, RowState
 from devops_cli.github.onboard.routes import TEMPLATE_BRANCH
 
@@ -256,6 +257,21 @@ def template_row(
             )
     if pull is None or head is None:
         return Row(9, name, RowState.PENDING, changes=changes), tuple(kept)
+    existing_reviewers = tuple(
+        str(entry.get("login") or "")
+        for entry in (pull.get("requested_reviewers") or ())
+        if isinstance(entry, dict)
+    )
+    author = str((pull.get("user") or {}).get("login") or "")
+    needed = missing_pull_reviewers(
+        (ctx.options.repo.owner,), author=author, existing=existing_reviewers
+    )
+    if needed:
+        writer.rest(
+            "template-pull-reviewers",
+            f"/repos/{repo}/pulls/{pull['number']}/requested_reviewers",
+            {"reviewers": list(needed)},
+        )
     ctx.template_pull = int(pull["number"])
     ctx.template_head = head
     if stale and not writer.confirm:

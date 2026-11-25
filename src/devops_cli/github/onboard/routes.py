@@ -246,6 +246,14 @@ ROUTES: Final[tuple[Route, ...]] = (
         "draft template pull request",
     ),
     Route(
+        "template-pull-reviewers",
+        9,
+        "POST",
+        "/repos/{repo}/pulls/{pull}/requested_reviewers",
+        RouteOwner.TEMPLATE_PULL,
+        "review request on the template pull request",
+    ),
+    Route(
         "ruleset-create",
         10,
         "POST",

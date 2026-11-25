@@ -197,11 +197,16 @@ def test_mode_on_opens_a_test_item_with_a_runtime_diff_under_a_type_that_ships(
             {"number": 900, "html_url": "https://github.com/example/roadmap/pull/900"}, status=201
         ),
     )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/900/requested_reviewers",
+        github_json({"requested_reviewers": [{"login": "example"}]}),
+    )
 
     result = run_open_round(store, repo=STAGE_REPO, source=stage_repo.clone, mode="on", base="main")
 
-    sent = next(r for r in github_api.sent if r.method == "POST")
-    payload = json.loads(sent.content)
+    posts = [r for r in github_api.sent if r.method == "POST"]
+    payload = json.loads(posts[0].content)
     assert result.opened == [900]
     assert (payload["title"], payload["head"], payload["draft"]) == (
         "fix(roadmap): the Planned limit stays out of refine",
@@ -209,6 +214,11 @@ def test_mode_on_opens_a_test_item_with_a_runtime_diff_under_a_type_that_ships(
         True,
     )
     assert payload["body"] == f"{WHY}\n\nCloses #{number}\n\nChange: `{change}/`"
+    assert [r.url.path for r in posts] == [
+        f"/repos/{STAGE_REPO}/pulls",
+        f"/repos/{STAGE_REPO}/pulls/900/requested_reviewers",
+    ]
+    assert json.loads(posts[1].content) == {"reviewers": ["example"]}
 
 
 def test_the_why_falls_back_to_the_item_summary() -> None:

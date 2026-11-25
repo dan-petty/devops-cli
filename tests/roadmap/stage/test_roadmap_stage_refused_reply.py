@@ -172,6 +172,11 @@ def test_a_staged_item_deletes_its_refused_file(
     github_api: GitHubApiFake,
 ) -> None:
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(_missing_path())
     _plan(store, stage_repo)
     assert _refused_file().is_file()
@@ -640,6 +645,11 @@ def test_a_staged_item_deletes_the_refused_file_of_a_schema_failure(
     github_api: GitHubApiFake,
 ) -> None:
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(_two_violations())
     _plan(store, stage_repo)
     assert _refused_file().is_file()

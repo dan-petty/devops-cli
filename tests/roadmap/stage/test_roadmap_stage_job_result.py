@@ -57,6 +57,11 @@ def test_the_jobs_of_three_tried_items_and_one_left_out_log_three_result_lines(
 ) -> None:
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     seed_stageable(store)
     seed_stageable(store, "fix(roadmap): the job drops a label")
     seed_stageable(store, "fix(roadmap): the job drops a tag")
@@ -138,6 +143,11 @@ def test_a_plan_of_a_client_with_no_trace_counts_its_plan_call(
     count comes from the model calls of the attempt (#5166)."""
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     seed_stageable(store)
     model_fake.answer(make_stage_proposal())
 
@@ -157,6 +167,11 @@ def test_an_attempt_that_stages_a_kept_plan_logs_no_plan_call_count(
     to the earlier attempt, so the line holds no `plan_calls` count, and not 0 (#5166)."""
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     seed_stageable(store)
     model_fake.answer(make_stage_proposal())
     _plain_round(store, stage_repo)

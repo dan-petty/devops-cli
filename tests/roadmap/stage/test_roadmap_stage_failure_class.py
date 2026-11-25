@@ -117,6 +117,12 @@ def _two_items(
             for pull in pulls
         ),
     )
+    for pull in pulls:
+        api.route(
+            "POST",
+            f"{PULLS}/{pull}/requested_reviewers",
+            github_json({"requested_reviewers": []}),
+        )
     return store
 
 

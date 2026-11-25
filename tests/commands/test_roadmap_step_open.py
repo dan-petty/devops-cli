@@ -67,6 +67,11 @@ def test_open_cmd_creates_pr_and_prints_json_line(
             status=201,
         ),
     )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/101/requested_reviewers",
+        github_json({"requested_reviewers": [{"login": "example"}]}),
+    )
 
     result = _open(
         cli,
@@ -95,6 +100,10 @@ def test_open_cmd_creates_pr_and_prints_json_line(
     assert parsed["job"] == "open"
     assert parsed["number"] == 101
     assert parsed["status"] == "created"
+    reviewer_call = next(
+        req for req in github_api.sent if req.url.path.endswith("/pulls/101/requested_reviewers")
+    )
+    assert json.loads(reviewer_call.content) == {"reviewers": ["example"]}
 
 
 def test_open_cmd_dry_run(

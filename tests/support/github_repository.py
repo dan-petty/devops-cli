@@ -263,6 +263,7 @@ class RepositoryState:
         ]
     )
     merge_state: str = "BLOCKED"
+    pull_author: str | None = None
     # A person pushes to the template branch while the run reads the checks of its head.
     push_during_checks: bool = False
     hooks: list[dict[str, Any]] = field(default_factory=list)
@@ -431,6 +432,7 @@ class RepositoryState:
             ("POST", rf"{repo}/labels", self._create_label),
             ("GET", rf"{repo}/pulls", self._pulls),
             ("POST", rf"{repo}/pulls", self._create_pull),
+            ("POST", rf"{repo}/pulls/(?P<number>\d+)/requested_reviewers", self._request_reviewers),
             ("GET", rf"{repo}/pulls/(?P<number>\d+)", self._pull),
             ("GET", rf"{repo}/git/ref/heads/(?P<branch>.+)", self._ref),
             (
@@ -631,6 +633,7 @@ class RepositoryState:
 
     def _create_pull(self, _found: Any, _query: Any, body: dict[str, Any]) -> httpx2.Response:
         number = len(self.pulls) + 1
+        author = self.pull_author or self.repo.partition("/")[0]
         pull = {
             "number": number,
             "node_id": f"PR_{number}",
@@ -639,10 +642,31 @@ class RepositoryState:
             "merged": False,
             "auto_merge": None,
             "title": body["title"],
+            "user": {"login": author},
+            "requested_reviewers": [],
             "head": {"ref": body["head"], "sha": self.refs[body["head"]]},
         }
         self.pulls.append(pull)
         return github_json(pull, status=201)
+
+    def _request_reviewers(
+        self, found: re.Match[str], _query: Any, body: dict[str, Any]
+    ) -> httpx2.Response:
+        pull = self.pulls[int(found["number"]) - 1]
+        author = str((pull.get("user") or {}).get("login") or "").lower()
+        reviewers = [str(name) for name in body.get("reviewers", ())]
+        if any(name.lower() == author for name in reviewers):
+            return github_json(
+                {"message": "Review cannot be requested from pull request author."}, status=422
+            )
+        existing = {
+            str(entry.get("login") or "").lower() for entry in pull.get("requested_reviewers", [])
+        }
+        for name in reviewers:
+            if name.lower() not in existing:
+                pull.setdefault("requested_reviewers", []).append({"login": name})
+                existing.add(name.lower())
+        return github_json({"requested_reviewers": pull.get("requested_reviewers", [])}, status=201)
 
     def _pull(self, found: re.Match[str], *_: Any) -> httpx2.Response:
         pull = self.pulls[int(found["number"]) - 1]

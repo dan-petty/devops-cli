@@ -100,6 +100,12 @@ def _roadmap(count: int, openspec: OpenSpecFake, api: GitHubApiFake) -> InMemory
         store.seed_pull("staging PR", head_ref=_branch(n), draft=True) for n in range(1, count + 1)
     ]
     api.route("POST", PULLS, *(_opened(pull) for pull in pulls))
+    for pull in pulls:
+        api.route(
+            "POST",
+            f"{PULLS}/{pull}/requested_reviewers",
+            github_json({"requested_reviewers": []}),
+        )
     return store
 
 
@@ -196,7 +202,11 @@ def test_killed_between_items_the_first_item_is_written_and_the_others_have_noth
 
     assert (
         _pushed(stage_repo),
-        [json.loads(r.content)["head"] for r in github_api.sent if r.method == "POST"],
+        [
+            json.loads(r.content)["head"]
+            for r in github_api.sent
+            if r.method == "POST" and r.url.path == PULLS
+        ],
         _record(store, 1).get(StageRecordKey.PR.value),
         len(_staged_comments(store, 1)),
         [_record(store, n).get(StageRecordKey.BRANCH.value) for n in (2, 3)],
@@ -340,6 +350,11 @@ def test_phase_order_removals_and_rejections_of_unselected_items_come_before_the
     store.close_by_hand(1, CloseReason.COMPLETED)
     _rejected(store, github_api, 2)
     github_api.route("POST", PULLS, _opened(6))
+    github_api.route(
+        "POST",
+        f"{PULLS}/6/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     store.events.clear()
     no_findings(model_fake)
 
@@ -384,6 +399,11 @@ def test_phase_order_a_rejection_of_a_selected_item_falls_between_its_plan_and_i
     pull = _rejected(roadmap_store, github_api, 1)
     stage_repo.push_branch(_branch(1), author=STAGE_NAME)
     github_api.route("POST", PULLS, _opened(pull + 1))
+    github_api.route(
+        "POST",
+        f"{PULLS}/{pull + 1}/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     roadmap_store.seed_pull("staging PR", head_ref=_branch(1), draft=True)
     order: list[str] = []
     no_findings(model_fake)

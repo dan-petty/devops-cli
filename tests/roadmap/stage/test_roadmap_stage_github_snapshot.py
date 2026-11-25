@@ -392,6 +392,11 @@ def test_phase_all_keeps_live_reads_and_writes_no_snapshot(
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 9, "html_url": "https://example.com/pull/9"}, status=201),
     )
+    fake_github.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/9/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     # Citing `src/devops_cli/sample.py` causes `--phase all` to run live `open_pulls` via GraphQL.
     number = seed_stageable(store, body="Update `src/devops_cli/sample.py`.")

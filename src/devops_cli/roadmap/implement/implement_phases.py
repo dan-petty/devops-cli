@@ -72,6 +72,7 @@ from devops_cli.exceptions import (
 from devops_cli.exceptions.roadmap import PhaseOutputError
 from devops_cli.exceptions.validation import ValidationError as BodyFormError
 from devops_cli.github.client import PullRequestFile
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
@@ -773,6 +774,7 @@ def _open_draft(
                 store=store,
                 lookup_existing=found is not None,
                 retry_refused=False,
+                reviewers=(RepoRef(state.repo).owner,),
             )
         )
     except DevOpsCLIError as exc:

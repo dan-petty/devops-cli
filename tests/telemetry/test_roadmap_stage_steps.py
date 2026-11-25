@@ -101,6 +101,11 @@ def valid_openspec(openspec_fake: OpenSpecFake) -> OpenSpecFake:
 def opened_pull(github_api: Any) -> None:
     """The draft pull request that the writer opens."""
     cast("GitHubApiFake", github_api).route("POST", PULLS, OPENED)
+    cast("GitHubApiFake", github_api).route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
 
 
 class StepClock:

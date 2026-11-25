@@ -526,6 +526,11 @@ def test_a_new_branch_after_a_person_deleted_the_old_one_gets_a_new_draft(
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 6, "html_url": "https://example.com/pull/6"}, status=201),
     )
+    planned_world.api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/6/requested_reviewers",
+        github_json({"requested_reviewers": [{"login": "example"}]}),
+    )
     _continue(planned_world)
 
     planned_world.run(two_groups())

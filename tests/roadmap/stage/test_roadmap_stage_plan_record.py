@@ -482,6 +482,11 @@ def test_plan_then_confirm_send_the_planner_one_request_and_the_plan_makes_no_gi
 ) -> None:
     api: GitHubApiFake = github_api
     api.route("POST", PULLS, OPENED)
+    api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(make_stage_proposal())
 
     planned = _plan(store, stage_repo)
@@ -532,6 +537,11 @@ def test_a_staged_item_deletes_its_plan_file(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, model_fake: ModelFake, github_api: Any
 ) -> None:
     cast("GitHubApiFake", github_api).route("POST", PULLS, OPENED)
+    cast("GitHubApiFake", github_api).route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(make_stage_proposal())
     planned = _plan(store, stage_repo)
     assert _file().is_file()

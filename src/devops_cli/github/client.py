@@ -86,9 +86,30 @@ class PullRequest(BaseModel):
     @field_validator("labels", mode="before")
     @classmethod
     def _turn_labels(cls, value: Any) -> tuple[str, ...]:
-        if not value:
-            return ()
-        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+        return _extract_field_tuple(value, "name")
+
+
+def _extract_field_tuple(value: Any, field_name: str) -> tuple[str, ...]:
+    """Read a GitHub list of objects or strings into a tuple of `field_name` values."""
+    if not value:
+        return ()
+    return tuple(item[field_name] if isinstance(item, dict) else str(item) for item in value)
+
+
+def missing_pull_reviewers(
+    candidates: Sequence[str], *, author: str = "", existing: Sequence[str] = ()
+) -> tuple[str, ...]:
+    """Return unique non-empty logins from `candidates` not matching `author` or `existing`."""
+    skip = {name.strip().lower() for name in (author, *existing) if name and name.strip()}
+    selected: list[str] = []
+    for candidate in candidates:
+        login = candidate.strip()
+        key = login.lower()
+        if not login or key in skip:
+            continue
+        skip.add(key)
+        selected.append(login)
+    return tuple(selected)
 
 
 class OpenPullRequest(BaseModel):
@@ -108,9 +129,7 @@ class OpenPullRequest(BaseModel):
     @field_validator("labels", mode="before")
     @classmethod
     def _turn_labels(cls, value: Any) -> tuple[str, ...]:
-        if not value:
-            return ()
-        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+        return _extract_field_tuple(value, "name")
 
     @field_validator("body", mode="before")
     @classmethod
@@ -171,9 +190,7 @@ class PullStatus(BaseModel):
     @field_validator("labels", mode="before")
     @classmethod
     def _turn_labels(cls, value: Any) -> tuple[str, ...]:
-        if not value:
-            return ()
-        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+        return _extract_field_tuple(value, "name")
 
     @field_validator("body", mode="before")
     @classmethod
@@ -215,19 +232,26 @@ class CommitPull(BaseModel):
 
 
 class CreatedPull(BaseModel):
-    """A pull request that GitHub made: its number, the address of its page, and the labels it
-    holds (#3264)."""
+    """A pull request that GitHub made: its number, the address of its page, the labels it
+    holds (#3264), its author, and its requested reviewers."""
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
     number: int
     html_url: str
     labels: tuple[str, ...] = ()
+    author: str = Field(default="", validation_alias=AliasPath("user", "login"))
+    requested_reviewers: tuple[str, ...] = ()
 
     @field_validator("labels", mode="before")
     @classmethod
     def _turn_labels(cls, value: Any) -> tuple[str, ...]:
-        if not value:
-            return ()
-        return tuple(item["name"] if isinstance(item, dict) else str(item) for item in value)
+        return _extract_field_tuple(value, "name")
+
+    @field_validator("requested_reviewers", mode="before")
+    @classmethod
+    def _turn_requested_reviewers(cls, value: Any) -> tuple[str, ...]:
+        return _extract_field_tuple(value, "login")
 
 
 class IssueSearchHit(BaseModel):
@@ -557,6 +581,14 @@ class GitHubClient:
         path = _repo_path(repo, "pulls")
         payload = {"title": title, "body": body, "head": head, "base": base, "draft": True}
         return _read_as(CreatedPull, self._session.rest("POST", path, body=payload), path=path)
+
+    def request_pull_reviewers(self, repo: str, number: int, reviewers: Sequence[str]) -> None:
+        """Request reviews from `reviewers` on pull request `number`."""
+        names = missing_pull_reviewers(reviewers)
+        if not names:
+            return
+        path = _repo_path(repo, f"pulls/{number}/requested_reviewers")
+        self._session.rest("POST", path, body={"reviewers": list(names)})
 
     def get_pull_status(self, repo: str, number: int) -> PullStatus:
         """The state, the draft flag, the merge flag and the head commit of the pull request `number`

@@ -150,6 +150,11 @@ def staging(
     seed_stageable(store)
     store.seed_file(".github/labels.yml", '- name: "type/docs"\n  color: "0075ca"\n')
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     return store
 
@@ -176,7 +181,11 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     _, staged, _ = _stage_round(staging, stage_repo, now=NOW)
 
     assert staged == ()
-    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert github_api.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
     assert _pushed(stage_repo) == [BRANCH, "main"]
     record = _record(staging)
     assert StageRecordKey.PR.value not in record
@@ -209,7 +218,11 @@ def test_a_round_after_the_marks_write_fails_removes_the_orphan_and_plans_the_it
     _, staged, removed = _stage_round(staging, stage_repo, now=LATER)
 
     assert (staged, removed) == ((1,), ())
-    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert github_api.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
     assert _pushed(stage_repo) == [BRANCH, "main"]
     record = _record(staging)
     assert (record["stage.branch"], record["stage.pr"]) == (BRANCH, "5")

@@ -46,6 +46,7 @@ def open_cmd(
         print_error("Pass --title <title>.")
         raise typer.Exit(1)
 
+    from devops_cli.github.repo_ref import RepoRef
     from devops_cli.github.request_scope import request_scope
     from devops_cli.roadmap.job_result import job_lines_to_stderr
     from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
@@ -69,6 +70,7 @@ def open_cmd(
                 item=item,
                 dry_run=dry_run or is_dry_run(),
                 store=store,
+                reviewers=(RepoRef(target).owner,),
             )
             result = open_or_update(request)
     except DevOpsCLIError as exc:

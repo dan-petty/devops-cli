@@ -583,6 +583,11 @@ def test_a_run_that_names_the_item_stages_a_new_plan_and_the_item_stays_ready(
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 9, "html_url": "https://example.com/pull/9"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/9/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
 
@@ -759,6 +764,11 @@ def test_a_staged_plan_clears_the_record_of_the_rejection(
         "POST",
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 9, "html_url": "https://example.com/pull/9"}, status=201),
+    )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/9/requested_reviewers",
+        github_json({"requested_reviewers": []}),
     )
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())

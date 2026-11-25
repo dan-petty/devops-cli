@@ -87,6 +87,11 @@ def gate_repo(
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     return stage_repo
 
 
@@ -135,7 +140,9 @@ def _form(
 ) -> tuple[Any, ...]:
     """What a form of the stage Job wrote: the pushed tree and commit, the opened draft, the record
     of the item and the comments of the item and of the draft."""
-    opened = [request for request in api.sent if request.method == "POST"]
+    opened = [
+        request for request in api.sent if request.method == "POST" and request.url.path == PULLS
+    ]
     record = _record(store, number)
     record.pop("stage.job_result", None)
     return (
@@ -221,7 +228,9 @@ def test_publish_runs_no_git_command_under_the_work_folder(
 
 
 def _published_body(api: GitHubApiFake) -> dict[str, Any]:
-    opened = [request for request in api.sent if request.method == "POST"]
+    opened = [
+        request for request in api.sent if request.method == "POST" and request.url.path == PULLS
+    ]
     body: dict[str, Any] = json.loads(opened[-1].content)
     return body
 
