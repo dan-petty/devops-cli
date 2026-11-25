@@ -1337,3 +1337,84 @@ def test_watch_row_rest_fallback_and_closed_stage_plans(
         get_github_rate_limiter().update_quota(
             "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
         )
+
+
+def test_rest_fallback_checks_failed_head_backoff_before_reading_check_runs(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    tmp_path: Path,
+) -> None:
+    """In REST fallback under GraphQL quota hold, a failed head inside its 30-minute backoff makes
+    zero REST check-run requests (#6004)."""
+    import time
+
+    from devops_cli.github.rate_limiter import get_github_rate_limiter
+
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=0, limit=5000, reset_epoch=time.time() + 600.0
+    )
+    try:
+        issue_num = store.seed_issue("Delivery Issue", fields={ItemField.PRIORITY: "P1-High"})
+        pr_num = store.seed_pull("feat: deliv", head_ref="feat/deliv")
+        pr_payload = {
+            "number": pr_num,
+            "state": "open",
+            "merged": False,
+            "draft": False,
+            "body": f"Closes #{issue_num}",
+            "head": {"sha": HEAD_FAIL, "ref": "feat/deliv"},
+            "base": {"ref": "main", "repo": {"default_branch": "main"}},
+        }
+        check_runs_payload = {
+            "check_runs": [
+                {"name": "Tests & Coverage", "status": "completed", "conclusion": "failure"}
+            ]
+        }
+        github_api.route("GET", f"/repos/{REPO}/pulls/{pr_num}", github_json(pr_payload))
+        github_api.route(
+            "GET",
+            f"/repos/{REPO}/commits/{HEAD_FAIL}/check-runs?per_page=100",
+            github_json(check_runs_payload),
+        )
+        ledger_path = tmp_path / CONST_ROADMAP_WATCH_LEDGER_FILENAME
+
+        res1 = watch_round(store, repo=REPO, ledger_path=ledger_path, now=NOW)
+        tick1_check_runs = [r for r in github_api.sent if r.url.path.endswith("/check-runs")]
+        assert (res1.watched, res1.failed_heads, len(tick1_check_runs)) == (1, (pr_num,), 1)
+
+        github_api.route("GET", f"/repos/{REPO}/pulls/{pr_num}", github_json(pr_payload))
+        github_api.route(
+            "GET",
+            f"/repos/{REPO}/commits/{HEAD_FAIL}/check-runs?per_page=100",
+            github_json(check_runs_payload),
+        )
+        res2 = watch_round(
+            store, repo=REPO, ledger_path=ledger_path, now=NOW + timedelta(minutes=10)
+        )
+        all_check_runs = [r for r in github_api.sent if r.url.path.endswith("/check-runs")]
+
+        assert (res2.watched, res2.failed_heads, len(all_check_runs) - len(tick1_check_runs)) == (
+            1,
+            (pr_num,),
+            0,
+        )
+
+        github_api.route("GET", f"/repos/{REPO}/pulls/{pr_num}", github_json(pr_payload))
+        github_api.route(
+            "GET",
+            f"/repos/{REPO}/commits/{HEAD_FAIL}/check-runs?per_page=100",
+            github_json(check_runs_payload),
+        )
+        res3 = watch_round(
+            store, repo=REPO, ledger_path=ledger_path, now=NOW + timedelta(minutes=31)
+        )
+        tick3_check_runs = [r for r in github_api.sent if r.url.path.endswith("/check-runs")]
+        assert (res3.watched, res3.failed_heads, len(tick3_check_runs) - len(all_check_runs)) == (
+            1,
+            (pr_num,),
+            1,
+        )
+    finally:
+        get_github_rate_limiter().update_quota(
+            "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+        )

@@ -380,6 +380,28 @@ class _WatchContext:
     watched_count: int = 0
 
 
+def _failed_head_in_backoff(
+    ctx: _WatchContext,
+    pr_number: int,
+    head_sha: str,
+    base_ref: str,
+) -> bool:
+    """Count and record `pr_number` and return True when its failed head is in backoff (#6004)."""
+    entry = ctx.recorded_pulls.get(pr_number)
+    if (
+        entry is not None
+        and entry.verdict == PRVerdict.FAILED.value
+        and entry.head == head_sha
+        and entry.base == base_ref
+        and entry.next_read_at
+        and ctx.current_time < datetime.fromisoformat(entry.next_read_at)
+    ):
+        ctx.watched_count += 1
+        ctx.failed_heads.append(pr_number)
+        return True
+    return False
+
+
 def _evaluate_pull(
     ctx: _WatchContext,
     *,
@@ -398,17 +420,12 @@ def _evaluate_pull(
 ) -> None:
     """Evaluate one roadmap pull request and apply lifecycle steps. `labels` are the labels of the
     pull request: a verdict label other than `verdict/mergeable` holds the ready mark (#6024)."""
+    if _failed_head_in_backoff(ctx, pr_number, head_sha, base_ref):
+        return
+
     ctx.watched_count += 1
     has_live_unit = job_holds(item) or bool(item.job_record.get(StageRecordKey.JOB))
-
     entry = ctx.recorded_pulls.get(pr_number)
-    if entry is not None and entry.verdict == PRVerdict.FAILED.value:
-        if entry.head == head_sha and entry.base == base_ref:
-            if entry.next_read_at:
-                next_time = datetime.fromisoformat(entry.next_read_at)
-                if ctx.current_time < next_time:
-                    ctx.failed_heads.append(pr_number)
-                    return
 
     if mergeable is False and not is_draft and not is_plan:
         ctx.total_conflicted += 1
@@ -847,6 +864,9 @@ def _process_rest_pulls(
         if resolved is None:
             continue
         item, is_plan = resolved
+
+        if _failed_head_in_backoff(ctx, pr_number, pull_status.head_sha, pull_status.base_ref):
+            continue
 
         checks = read_check_runs(owner, name, pull_status.head_sha)
         pull_author = getattr(pull_status, "author", "") or ""
