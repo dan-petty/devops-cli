@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.216.0](https://github.com/dan-petty/devops-cli/compare/v0.215.0...v0.216.0) (2026-11-25)
+
+
+### Features
+
+* **ai:** choose a persona lens from evidence with a rule table ([#7069](https://github.com/dan-petty/devops-cli/issues/7069)) ([0477867](https://github.com/dan-petty/devops-cli/commit/04778673d3a3cfe9dea31b076e26d5f61e7e002a))
+* **ci:** replay changed tests/gate modules in fail-to-pass ([#7086](https://github.com/dan-petty/devops-cli/issues/7086)) ([707f48d](https://github.com/dan-petty/devops-cli/commit/707f48dddc3eb4f6627123f5e9e5f7d2392122ce))
+* **cli:** usage errors show a hint for known wrong commands ([#7043](https://github.com/dan-petty/devops-cli/issues/7043)) ([120804c](https://github.com/dan-petty/devops-cli/commit/120804cfd1a2a1e71367dda0bb36d53f4786c253))
+* **docs:** mark generated documents in .gitattributes ([#7081](https://github.com/dan-petty/devops-cli/issues/7081)) ([52b2371](https://github.com/dan-petty/devops-cli/commit/52b2371f08b7391376728620adc1965c93d11768)), closes [#4888](https://github.com/dan-petty/devops-cli/issues/4888)
+* **roadmap:** add eval funnel report by cohort and step ([#7084](https://github.com/dan-petty/devops-cli/issues/7084)) ([74d983b](https://github.com/dan-petty/devops-cli/commit/74d983b2065eea2b924c6207591cd1eed1215393)), closes [#5494](https://github.com/dan-petty/devops-cli/issues/5494)
+* **roadmap:** add soft-cap decision chain guards, rule mode, and fit bar ([#7073](https://github.com/dan-petty/devops-cli/issues/7073)) ([f56ae6a](https://github.com/dan-petty/devops-cli/commit/f56ae6afa7149600c1857acb21f1ad12fb524d13))
+* **roadmap:** choose project review facts by profile ([#7082](https://github.com/dan-petty/devops-cli/issues/7082)) ([e06f45f](https://github.com/dan-petty/devops-cli/commit/e06f45f1ba3651ce78e192dce0ea644abc4acf13))
+* **roadmap:** one shared citation module for gate and brain ([#7070](https://github.com/dan-petty/devops-cli/issues/7070)) ([452bd14](https://github.com/dan-petty/devops-cli/commit/452bd1441bc1abca3fe22cfc0e8f14dd76d7f6e6))
+
+
+### Bug Fixes
+
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.1.12 ([#7067](https://github.com/dan-petty/devops-cli/issues/7067)) ([853e515](https://github.com/dan-petty/devops-cli/commit/853e515bf2a104b399faf63e6421b0a1f887c4ee))
+* **roadmap:** read live issue state after runner Jobs end ([#7085](https://github.com/dan-petty/devops-cli/issues/7085)) ([7179d25](https://github.com/dan-petty/devops-cli/commit/7179d2542c39552768ad45133ad426b3948c3f77))
+* **roadmap:** skip release image checks on unrelated repos ([#7074](https://github.com/dan-petty/devops-cli/issues/7074)) ([b0f4551](https://github.com/dan-petty/devops-cli/commit/b0f4551f293845d422e60a806ec69a11d4fd348e))
+* **roadmap:** work tracker sub-issues instead of returning ([#7083](https://github.com/dan-petty/devops-cli/issues/7083)) ([a038be7](https://github.com/dan-petty/devops-cli/commit/a038be7901b8ca2f59517f51b2759e8a6149661c))
+
+
+### Code Refactoring
+
+* **ai:** remove duplicate KB doc copies and require front matter ([#7071](https://github.com/dan-petty/devops-cli/issues/7071)) ([1f0d49c](https://github.com/dan-petty/devops-cli/commit/1f0d49ce73e33ed48c00cb8c8d062eb874d06ae3)), closes [#3917](https://github.com/dan-petty/devops-cli/issues/3917)
+
 ## [0.215.0](https://github.com/dan-petty/devops-cli/compare/v0.214.0...v0.215.0) (2026-11-25)
 
 
