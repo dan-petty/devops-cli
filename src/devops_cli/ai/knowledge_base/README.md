@@ -3,7 +3,7 @@
 The **DevOps CLI Knowledge Base** is a comprehensive, centralized technical manual and operational guide covering all core tools, subsystems, automation workflows, architectural concepts, and engineering tasks leveraged across the `devops-cli` ecosystem.
 
 The Knowledge Base is divided into two primary structural divisions:
-1. [**DevOps CLI Information**](#-division-1-devops-cli-information-devops_cli): Architecture, settings hierarchy, CLI command references, and operational task workflows specific to `devops-cli`.
+1. [**DevOps CLI Information**](#-division-1-devops-cli-information-devops_cli): Library references and operational task workflows specific to `devops-cli`.
 2. [**Information Technology Domain-Specific Information**](#-division-2-information-technology-domain-specific-information-it_domains): Industry architectural topic guides and standard tool reference manuals across cloud-native, observability, security, and developer infrastructure.
 
 ---
@@ -22,15 +22,6 @@ The Knowledge Base is divided into two primary structural divisions:
 ---
 
 ## 💻 Division 1: DevOps CLI Information (`devops_cli/`)
-
-### Core Architecture & Configuration Reference
-
-| Article | Summary | Guide |
-| :--- | :--- | :--- |
-| **DevOps CLI Architecture** | Subsystem breakdown, code review engine, prompt isolation, dry-run protocol, and language catalogs. | [architecture.md](devops_cli/architecture.md) |
-| **Configuration & Settings** | Pydantic settings schema hierarchy, resolution priority, OS Keyring secrets storage, and dotted config commands. | [configuration_and_settings.md](devops_cli/configuration_and_settings.md) |
-| **CLI Command Reference** | Command surface reference across command groups, subcommands, arguments, and flags (the complete generated reference is docs/CLI_REFERENCE.md (`devops docs generate`)). | [cli_command_reference.md](devops_cli/cli_command_reference.md) |
-| **Python Packages & Code Libraries** | Technical manual and dedicated guides for the core production runtime dependencies and development quality tools. | [python_packages.md](devops_cli/python_packages.md) |
 
 ### Code Library Guides (`devops_cli/libraries/`)
 

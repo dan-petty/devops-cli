@@ -5751,9 +5751,10 @@ CONST_MANIFEST_TO_LOCKFILES: Final[dict[str, tuple[str, ...]]] = {
     "Gemfile": ("Gemfile.lock",),
 }
 
-# ── Knowledge Base Version Grounding & Reference Tracking (#1149) ────────────
+# ── Knowledge Base Version Grounding & Reference Tracking (#1149, #3917) ──────
 CONST_KB_METADATA_TARGET_SUBDIRS: Final[tuple[str, ...]] = (
     "devops_cli/libraries",
+    "devops_cli/tasks",
     "it_domains/tools",
     "it_domains/topics",
 )

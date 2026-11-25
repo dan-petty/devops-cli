@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/dan-petty/devops-cli"
+  - "https://github.com/dan-petty/devops-cli/blob/main/CONTRIBUTING.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "ci"
+---
+
 # Knowledge Base Task: Local CI Quality Gate & Validation
 
 ## 1. Overview & Purpose

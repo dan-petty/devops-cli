@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/aquasecurity/trivy"
+  - "https://github.com/PyCQA/bandit"
+  - "https://github.com/dan-petty/devops-cli/blob/main/SECURITY.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "security"
+---
+
 # Knowledge Base Task: Security Auditing & Vulnerability Scanning
 
 ## 1. Overview & Purpose

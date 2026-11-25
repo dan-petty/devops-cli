@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/dan-petty/devops-cli/blob/main/AGENTS.md"
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/CLI_REFERENCE.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "agents"
+---
+
 # Knowledge Base Task: AI Agent Instructions Scaffolding & Pointer Stubs
 
 ## 1. Overview & Purpose

@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://cli.github.com/manual"
+  - "https://docs.github.com/en/issues/planning-and-tracking-with-projects"
+  - "https://docs.github.com/en/rest/pages"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "github"
+---
+
 # Knowledge Base Task: GitHub Project Governance, Views, Milestones, Issues & Pages
 
 ## 1. Overview & Purpose

@@ -9,6 +9,7 @@ from devops_cli.ai.kb import (
     MatchedManual,
     filter_kb_manuals_for_group,
     get_knowledge_base_dir,
+    kb_metadata_problems,
     list_knowledge_base_articles,
     load_matched_kb_manuals,
     parse_manual_front_matter,
@@ -62,13 +63,14 @@ def _make_dummy_finding(
 
 
 def test_every_target_manual_has_valid_front_matter() -> None:
-    """Every it_domains manual and devops_cli/libraries guide gains valid front-matter (#1149)."""
+    """Every subfolder in CONST_KB_METADATA_TARGET_SUBDIRS holds valid front-matter (#1149, #3917)."""
     kb_dir = get_knowledge_base_dir()
     target_articles: list[Path] = []
     for sub in CONST_KB_METADATA_TARGET_SUBDIRS:
         target_articles.extend(list_knowledge_base_articles(sub))
 
-    assert len(target_articles) == 59
+    assert len(target_articles) == 71
+    assert kb_metadata_problems() == []
 
     for article in target_articles:
         rel = article.relative_to(kb_dir).as_posix()
@@ -85,6 +87,57 @@ def test_every_target_manual_has_valid_front_matter() -> None:
         )
         assert len(fm.reviewed) == 10, f"{rel} invalid reviewed date format: {fm.reviewed}"
         assert len(body.strip()) > 0, f"{rel} body is empty"
+
+
+def test_kb_metadata_target_subdirs_cover_entire_knowledge_base() -> None:
+    """CONST_KB_METADATA_TARGET_SUBDIRS equals all article subfolders of the KB root (#3917)."""
+    kb_dir = get_knowledge_base_dir()
+    article_subdirs = {
+        path.parent.relative_to(kb_dir).as_posix()
+        for path in kb_dir.rglob("*.md")
+        if path.name != "README.md"
+    }
+    assert set(CONST_KB_METADATA_TARGET_SUBDIRS) == article_subdirs
+
+
+def test_kb_metadata_problems_rejects_article_missing_applies_to(tmp_path: Path) -> None:
+    """Metadata check reports the path when any KB article lacks applies_to (#3917)."""
+    article = tmp_path / "devops_cli" / "tasks" / "missing_applies.md"
+    article.parent.mkdir(parents=True, exist_ok=True)
+    article.write_text(
+        "---\nsources:\n  - https://example.com\nreviewed: '2026-11-25'\n---\n\n# Body\n",
+        encoding="utf-8",
+    )
+
+    problems = kb_metadata_problems(tmp_path)
+
+    assert len(problems) == 1
+    assert "devops_cli/tasks/missing_applies.md" in problems[0]
+
+
+def test_kb_copy_articles_are_removed_and_unreferenced() -> None:
+    """Removed copy articles do not exist in the KB tree or appear in src/ or tests/ (#3917)."""
+    from tests.support.paths import REPO_ROOT
+
+    kb_dir = get_knowledge_base_dir()
+    stems = (
+        "architecture",
+        "cli_command_reference",
+        "configuration_and_settings",
+        "python_packages",
+    )
+    removed = [f"{stem}.md" for stem in stems]
+    assert not any((kb_dir / "devops_cli" / name).exists() for name in removed)
+    matches = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}:{name}"
+        for tree in (REPO_ROOT / "src", REPO_ROOT / "tests")
+        for path in tree.rglob("*.py")
+        if "knowledge_base/devops_cli/" in (text := path.read_text(encoding="utf-8"))
+        or "devops_cli/" in text
+        for name in removed
+        if f"devops_cli/{name}" in text
+    ]
+    assert matches == []
 
 
 def test_loader_matches_tool_versions_inventory_floor_and_kubernetes() -> None:

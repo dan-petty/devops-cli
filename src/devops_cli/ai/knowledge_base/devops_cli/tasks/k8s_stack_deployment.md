@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/CLUSTER.md"
+  - "https://github.com/argoproj/argo-helm"
+  - "https://github.com/prometheus-community/helm-charts"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "kubernetes"
+---
+
 # Knowledge Base Task: Local Kubernetes Stack Deployment & Teardown
 
 ## 1. Overview & Purpose

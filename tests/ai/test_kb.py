@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 import tree_sitter
 import tree_sitter_markdown
 
 from devops_cli.ai.kb import (
     get_knowledge_base_dir,
     get_knowledge_base_stats,
+    kb_metadata_problems,
     list_knowledge_base_articles,
     load_kb_article,
 )
@@ -35,8 +37,8 @@ def test_get_knowledge_base_dir() -> None:
 
 def test_list_knowledge_base_articles_all() -> None:
     articles = list_knowledge_base_articles()
-    # 38 devops_cli (4 core + 12 tasks + 22 libraries) + 37 it_domains (10 topics + 27 tools)
-    assert len(articles) == 75
+    # 34 devops_cli (12 tasks + 22 libraries) + 37 it_domains (10 topics + 27 tools)
+    assert len(articles) == 71
     assert all(a.suffix == ".md" for a in articles)
     assert all(a.name != "README.md" for a in articles)
     assert any(a.name == "valkey.md" for a in articles)
@@ -46,7 +48,7 @@ def test_list_knowledge_base_articles_by_division() -> None:
     devops_cli_articles = list_knowledge_base_articles("devops_cli")
     it_domains_articles = list_knowledge_base_articles("it_domains")
 
-    assert len(devops_cli_articles) == 38  # 4 core + 12 tasks + 22 libraries
+    assert len(devops_cli_articles) == 34  # 12 tasks + 22 libraries
     assert len(it_domains_articles) == 37  # 10 topics + 27 tools
 
 
@@ -71,15 +73,10 @@ def test_load_kb_article_success() -> None:
     assert content_new is not None
     assert "Agentic AI" in content_new
 
-    # Test loading devops_cli core article
-    arch_content = load_kb_article("devops_cli/architecture.md")
-    assert arch_content is not None
-    assert "DevOps CLI Architecture" in arch_content
-
-    # Test loading python_packages article
-    pkg_content = load_kb_article("devops_cli/python_packages.md")
-    assert pkg_content is not None
-    assert "Python Packages & Code Libraries Reference Manual" in pkg_content
+    # Test loading devops_cli task article
+    task_content = load_kb_article("devops_cli/tasks/ci_quality_gate.md")
+    assert task_content is not None
+    assert "CI Quality Gate" in task_content
 
     # Test loading a dedicated library article
     typer_content = load_kb_article("devops_cli/libraries/typer.md")
@@ -101,12 +98,12 @@ def test_load_kb_article_missing_or_invalid() -> None:
 def test_get_knowledge_base_stats() -> None:
     stats = get_knowledge_base_stats()
     assert stats.exists is True
-    assert stats.devops_cli_count == 38
+    assert stats.devops_cli_count == 34
     assert stats.it_domains_count == 37
     assert stats.topics_count == 10
     assert stats.tools_count == 27
     assert stats.tasks_count == 12
-    assert stats.total_articles == 75
+    assert stats.total_articles == 71
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
@@ -268,3 +265,53 @@ def test_no_manual_names_the_archived_harness_repository() -> None:
         if "pydantic/pydantic-ai-harness" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+def test_kb_metadata_problems_reports_missing_dir_unreadable_file_and_bad_front_matter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`kb_metadata_problems` reports missing KB roots, read errors, and missing metadata (#3917)."""
+    missing_dir = tmp_path / "missing_kb"
+    assert kb_metadata_problems(missing_dir) == [
+        f"{missing_dir.resolve()}: knowledge base directory does not exist"
+    ]
+
+    kb_dir = tmp_path / "kb"
+    kb_dir.mkdir()
+    (kb_dir / "README.md").write_text("# Index\n", encoding="utf-8")
+    (kb_dir / "valid.md").write_text(
+        textwrap.dedent(
+            """\
+            ---
+            applies_to:
+              - pkg:pypi/typer@0.27.*
+            sources:
+              - https://example.com/guide
+            reviewed: "2026-10-21"
+            tags:
+              - cli
+            ---
+            # Valid
+            """
+        ),
+        encoding="utf-8",
+    )
+    good_bad = kb_dir / "no_meta.md"
+    good_bad.write_text("# Plain article\n", encoding="utf-8")
+    unreadable = kb_dir / "unreadable.md"
+    unreadable.write_text("# Secret\n", encoding="utf-8")
+
+    real_read_text = Path.read_text
+
+    def fake_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == unreadable:
+            raise OSError("permission denied")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+    problems = kb_metadata_problems(kb_dir)
+
+    assert len(problems) == 2
+    assert any(p.startswith("no_meta.md:") for p in problems)
+    assert any(p == "unreadable.md: failed to read (permission denied)" for p in problems)
