@@ -157,7 +157,7 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0010](0010-openspec-is-the-spec-and-change-proposal-layer.md) | OpenSpec is the spec and change-proposal layer | accepted | 2026-10-23 | amended by 0012 |
 | [0011](0011-releases-come-from-trunk-towncrier-uv-and-semver-tags-instead-of-a-bespoke-cut.md) | Releases come from trunk, and towncrier, uv and semver tags replace the bespoke cut | superseded | 2026-10-23 | superseded by 0012 |
 | [0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md) | Releases are derived by release-please from trunk, and milestones are planning buckets | superseded | 2026-10-23 | supersedes 0011; superseded by 0013; amends 0001, 0004, 0010; amended by 0025 |
-| [0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) | Releases use release-please as it ships, and agents stay out of them | accepted | 2026-10-23 | supersedes 0012 |
+| [0013](0013-releases-use-release-please-as-it-ships-and-agents-stay-out.md) | Releases use release-please as it ships, and agents stay out of them | accepted | 2026-10-23 | supersedes 0012; amended by 0040 |
 | [0014](0014-required-checks-gate-the-merge-and-the-pre-push-hook-runs-the-fast-static-checks.md) | The required checks of `main` gate the merge, and the pre-push hook runs only the fast static checks | accepted | 2026-10-24 | amends 0004 |
 | [0015](0015-roadmap-jobs-act-as-a-github-app-on-the-personal-account.md) | Roadmap jobs act as a GitHub App on the personal account | accepted | 2026-10-28 | supersedes 0002 |
 | [0016](0016-labels-hold-the-roadmap-items-fields.md) | Labels hold the roadmap Item's fields, and no roadmap job reads or writes a project board | accepted | 2026-10-28 | amends 0001, 0002, 0003 |
@@ -184,5 +184,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0037](0037-tool-commands-mirror-and-pass-through-options.md) | Tool commands mirror and pass through options | accepted | 2026-11-12 |  |
 | [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
 | [0039](0039-homepage-is-the-cluster-start-page.md) | Homepage is the cluster start page | accepted | 2026-11-25 |  |
+| [0040](0040-renovate-pins-product-refs-to-release-tags.md) | Renovate pins product refs to release tags after cutover | proposed | 2026-11-25 | amends 0013 |
 
 <!-- ADR_INDEX_END -->
