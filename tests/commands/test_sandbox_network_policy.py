@@ -84,7 +84,8 @@ _WHITELIST_POLICIES: dict[str, dict[str, Any]] = {
 
 def _egress_without_dns(config: dict[str, Any], **policy: Any) -> list[dict[str, Any]]:
     """The egress rules a configuration's policy holds, the kube-dns rule left out."""
-    egress = SandboxNetworkConfig(**config).to_k8s_network_policy(**policy)["spec"]["egress"]
+    _, egress_policy = SandboxNetworkConfig(**config).to_k8s_network_policy(**policy)
+    egress = egress_policy["spec"]["egress"]
     return [rule for rule in egress if rule != _DNS_EGRESS_RULE]
 
 
@@ -100,11 +101,8 @@ def _unvalidated_rules(mode: SandboxNetworkMode, entries: list[str]) -> list[dic
     """The egress rules a whitelist builds when its validators are skipped (`model_construct`)."""
     field = "public_whitelist" if mode == SandboxNetworkMode.PUBLIC_WHITELIST else "local_whitelist"
     config = SandboxNetworkConfig.model_construct(mode=mode, **{field: entries})
-    return [
-        rule
-        for rule in config.to_k8s_network_policy()["spec"]["egress"]
-        if rule != _DNS_EGRESS_RULE
-    ]
+    _, egress_policy = config.to_k8s_network_policy()
+    return [rule for rule in egress_policy["spec"]["egress"] if rule != _DNS_EGRESS_RULE]
 
 
 @pytest.fixture
@@ -130,10 +128,21 @@ def test_a_public_whitelist_policy_opens_one_rule_for_each_entry(public_address:
     `public_address` address."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public names and an address"])
 
-    policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    ingress_policy, egress_policy = cfg.to_k8s_network_policy(
+        name="app-sandbox", namespace="sandbox"
+    )
 
-    assert (policy["kind"], policy["spec"]["egress"]) == (
+    assert (
+        ingress_policy["kind"],
+        ingress_policy["spec"]["policyTypes"],
+        egress_policy["kind"],
+        egress_policy["spec"]["policyTypes"],
+        egress_policy["spec"]["egress"],
+    ) == (
         "NetworkPolicy",
+        ["Ingress"],
+        "NetworkPolicy",
+        ["Egress"],
         [
             _DNS_EGRESS_RULE,
             _tcp_rule([f"{public_address}/32"], 443),
@@ -161,7 +170,7 @@ def test_a_local_whitelist_policy_opens_one_rule_for_each_entry_but_loopback() -
     """The `localhost` entry opens no rule: NetworkPolicy never polices a pod's loopback."""
     cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local urls and addresses"])
 
-    policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    _, policy = cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
 
     assert (policy["kind"], policy["spec"]["egress"]) == (
         "NetworkPolicy",
@@ -236,7 +245,7 @@ def test_the_host_gateway_name_is_refused_in_the_local_whitelist_without_a_looku
 def test_a_loopback_entry_opens_no_egress_rule(entry: str, dns: DnsFake) -> None:
     """NetworkPolicy never polices a pod's loopback, so a loopback entry adds no rule, and
     nothing is looked up to build the policy (#1174)."""
-    policy = SandboxNetworkConfig(
+    _, policy = SandboxNetworkConfig(
         mode=SandboxNetworkMode.LOCAL_WHITELIST, local_whitelist=[entry]
     ).to_k8s_network_policy()
     assert (
@@ -256,7 +265,7 @@ def test_a_loopback_host_or_network_resolves_to_no_address() -> None:
 
 @pytest.mark.usefixtures("public_address")
 def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
-    """Verify `devops sandbox network-policy` CLI command generates valid Kubernetes YAML."""
+    """Verify `devops sandbox network-policy` CLI command generates single-type Kubernetes YAML."""
     res = cli(
         "sandbox",
         "network-policy",
@@ -268,12 +277,17 @@ def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
         "test-ns",
     )
     assert res.exit_code == 0
-    parsed = yaml.safe_load(res.stdout)
-    assert parsed["kind"] == "NetworkPolicy"
-    assert parsed["metadata"]["name"] == "test-pod-network-policy"
-    assert parsed["metadata"]["namespace"] == "test-ns"
-    assert parsed["spec"]["ingress"] == []
-    assert parsed["spec"]["egress"] == []
+    ingress_doc, egress_doc = list(yaml.safe_load_all(res.stdout))
+    assert ingress_doc["kind"] == "NetworkPolicy"
+    assert egress_doc["kind"] == "NetworkPolicy"
+    assert ingress_doc["metadata"]["name"] == "test-pod-network-policy-ingress"
+    assert egress_doc["metadata"]["name"] == "test-pod-network-policy-egress"
+    assert ingress_doc["metadata"]["namespace"] == "test-ns"
+    assert egress_doc["metadata"]["namespace"] == "test-ns"
+    assert ingress_doc["spec"]["policyTypes"] == ["Ingress"]
+    assert egress_doc["spec"]["policyTypes"] == ["Egress"]
+    assert ingress_doc["spec"]["ingress"] == []
+    assert egress_doc["spec"]["egress"] == []
 
     # Test namespace mode
     res_ns = cli(
@@ -285,9 +299,9 @@ def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
         "custom-ns",
     )
     assert res_ns.exit_code == 0
-    parsed_ns = yaml.safe_load(res_ns.stdout)
-    assert parsed_ns["kind"] == "NetworkPolicy"
-    assert parsed_ns["metadata"]["namespace"] == "custom-ns"
+    ns_docs = list(yaml.safe_load_all(res_ns.stdout))
+    assert [doc["spec"]["policyTypes"] for doc in ns_docs] == [["Ingress"], ["Egress"]]
+    assert [doc["metadata"]["namespace"] for doc in ns_docs] == ["custom-ns", "custom-ns"]
 
     # Test public whitelist mode
     res_pub = cli(
@@ -299,8 +313,8 @@ def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
         ",".join(_WHITELIST_POLICIES["public names and an address"]["public_whitelist"]),
     )
     assert res_pub.exit_code == 0
-    parsed_pub = yaml.safe_load(res_pub.stdout)
-    assert parsed_pub["kind"] == "NetworkPolicy"
+    pub_docs = list(yaml.safe_load_all(res_pub.stdout))
+    assert [doc["spec"]["policyTypes"] for doc in pub_docs] == [["Ingress"], ["Egress"]]
 
     # Test local whitelist mode
     res_local = cli(
@@ -312,8 +326,8 @@ def test_cli_sandbox_network_policy_command(cli: Callable[..., Any]) -> None:
         ",".join(_WHITELIST_POLICIES["local urls and addresses"]["local_whitelist"]),
     )
     assert res_local.exit_code == 0
-    parsed_local = yaml.safe_load(res_local.stdout)
-    assert parsed_local["kind"] == "NetworkPolicy"
+    loc_docs = list(yaml.safe_load_all(res_local.stdout))
+    assert [doc["spec"]["policyTypes"] for doc in loc_docs] == [["Ingress"], ["Egress"]]
 
 
 def test_cli_sandbox_deploy_network_options(tmp_path: Path, cli: Callable[..., Any]) -> None:
@@ -495,7 +509,7 @@ def test_a_local_whitelist_refuses_link_local_metadata_and_public_addresses(
 def test_sandbox_network_config_ipv6_whitelists() -> None:
     """Verify NetworkPolicy generates correct IPv6 /128 ipBlock CIDRs for public and local modes."""
     public_cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["public ipv6 and ipv4 addresses"])
-    public_policy = public_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    _, public_policy = public_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     public_blocks = [
         t["ipBlock"]["cidr"]
         for rule in public_policy["spec"]["egress"]
@@ -509,7 +523,7 @@ def test_sandbox_network_config_ipv6_whitelists() -> None:
     ) == (True, True, True)
 
     local_cfg = SandboxNetworkConfig(**_WHITELIST_POLICIES["local ipv6 url and ipv4 address"])
-    local_policy = local_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
+    _, local_policy = local_cfg.to_k8s_network_policy(name="app-sandbox", namespace="sandbox")
     local_blocks = [
         t["ipBlock"]["cidr"]
         for rule in local_policy["spec"]["egress"]
@@ -767,7 +781,7 @@ def test_every_whitelist_rule_but_the_dns_rule_names_its_ports(case: str) -> Non
 @pytest.mark.parametrize("case", sorted(_WHITELIST_POLICIES))
 def test_every_whitelist_rule_names_a_destination(case: str) -> None:
     """No rule has an empty or missing `to`, which would allow every destination (#1174)."""
-    policy = SandboxNetworkConfig(**_WHITELIST_POLICIES[case]).to_k8s_network_policy()
+    _, policy = SandboxNetworkConfig(**_WHITELIST_POLICIES[case]).to_k8s_network_policy()
     assert [rule for rule in policy["spec"]["egress"] if not rule.get("to")] == []
 
 
@@ -826,7 +840,8 @@ def test_the_collector_lane_is_refused_in_a_mode_it_does_not_apply_to(
 @pytest.mark.parametrize("mode", sorted(_MODE_POLICIES))
 def test_without_the_flag_no_rule_selects_the_collector_namespace(mode: str) -> None:
     """The collector lane is opt-in in every mode."""
-    egress = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy()["spec"]["egress"]
+    _, policy = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy()
+    egress = policy["spec"]["egress"]
     assert [rule for rule in egress if _selects_otel(rule)] == []
 
 
@@ -838,7 +853,7 @@ def test_without_the_flag_no_rule_selects_the_collector_namespace(mode: str) -> 
 )
 def test_no_policy_opens_the_cache_port(mode: str, allow_collector: bool) -> None:
     """There is no lane to a Valkey on 6379, with or without the collector lane."""
-    policy = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy(
+    _, policy = SandboxNetworkConfig(**_MODE_POLICIES[mode]).to_k8s_network_policy(
         allow_collector=allow_collector
     )
     ports = {port["port"] for rule in policy["spec"]["egress"] for port in rule.get("ports", [])}
@@ -847,20 +862,31 @@ def test_no_policy_opens_the_cache_port(mode: str, allow_collector: bool) -> Non
 
 @pytest.mark.usefixtures("cli")  # loads devops_cli.main, which the MCP tools dispatch through
 def test_the_mcp_tool_asks_for_the_collector_lane_only_when_told_to() -> None:
-    """`sandbox_network_policy(allow_collector=True)` adds the collector lane to the policy it prints."""
+    """`sandbox_network_policy(allow_collector=True)` adds the collector lane to the policies it prints."""
     from devops_cli.ai.mcp.server import sandbox_network_policy
 
-    with_lane = yaml.safe_load(
-        sandbox_network_policy(network_mode="sandbox_namespace", allow_collector=True)
+    with_in, with_lane = list(
+        yaml.safe_load_all(
+            sandbox_network_policy(network_mode="sandbox_namespace", allow_collector=True)
+        )
     )
-    without_lane = yaml.safe_load(sandbox_network_policy(network_mode="sandbox_namespace"))
+    _without_in, without_lane = list(
+        yaml.safe_load_all(sandbox_network_policy(network_mode="sandbox_namespace"))
+    )
 
     assert (
         [rule for rule in with_lane["spec"]["egress"] if _selects_otel(rule)],
         [rule for rule in without_lane["spec"]["egress"] if _selects_otel(rule)],
+        with_in["metadata"]["name"],
         with_lane["metadata"]["name"],
         with_lane["metadata"]["namespace"],
-    ) == ([_COLLECTOR_RULE], [], "app-sandbox-network-policy", "sandbox")
+    ) == (
+        [_COLLECTOR_RULE],
+        [],
+        "app-sandbox-network-policy-ingress",
+        "app-sandbox-network-policy-egress",
+        "sandbox",
+    )
 
 
 def test_cli_sandbox_network_policy_prints_a_public_ipv6_cidr(
@@ -876,6 +902,7 @@ def test_cli_sandbox_network_policy_prints_a_public_ipv6_cidr(
         "2606:4700::/48",
     )
 
-    egress = yaml.safe_load(res.stdout)["spec"]["egress"]
+    _, egress_policy = list(yaml.safe_load_all(res.stdout))
+    egress = egress_policy["spec"]["egress"]
 
     assert (res.exit_code, _tcp_rule(["2606:4700::/48"], 443) in egress) == (0, True)
