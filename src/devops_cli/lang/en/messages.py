@@ -6788,6 +6788,8 @@ class RoadmapMessages:
         "gate catches ({rate})."
     )
     stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_score_case: str = "- {name} ({outcome})"
+    stage_eval_score_case_reason: str = "- {name} ({outcome}): {reason}"
     stage_eval_usage_tokens: str = "Tokens: {input} in, {output} out."
     stage_eval_usage_spend: str = "Spend: {spend:.4f} USD at the hosted price of the model."
     stage_eval_usage_unpriced: str = "Spend: no price for the model."

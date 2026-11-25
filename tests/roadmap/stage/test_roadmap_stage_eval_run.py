@@ -19,6 +19,7 @@ from devops_cli.ai.client.models import (
 from devops_cli.config.defaults import DEFAULT_ROADMAP_STAGE_MAX_TOOL_CALLS
 from devops_cli.exceptions import GitOperationError
 from devops_cli.roadmap.clone_git import checkout_at
+from devops_cli.roadmap.stage import stage_eval_render, stage_eval_run
 from devops_cli.roadmap.stage.stage import StagedChange, plan_item
 from devops_cli.roadmap.stage.stage_change import StageProposal
 from devops_cli.roadmap.stage.stage_eval_cases import (
@@ -29,6 +30,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import (
     load_cases,
 )
 from devops_cli.roadmap.stage.stage_eval_gates import PENDING_GATES, replay_all
+from devops_cli.roadmap.stage.stage_eval_render import render_score, score_json
 from devops_cli.roadmap.stage.stage_eval_run import (
     CaseRun,
     Outcome,
@@ -198,7 +200,85 @@ def test_a_failed_model_call_ends_the_case_failed_with_no_first_reply(
 
     run = run_case(case, _client(model_fake), stage_repo.clone)
 
-    assert (run.outcome, run.reason, run.first) == (Outcome.FAILED, "AIClientError", None)
+    assert (run.outcome, run.reason, run.first) == (
+        Outcome.FAILED,
+        "provider: the model is down",
+        None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_class", "forbidden"),
+    [
+        (
+            AIClientError("rate limited", status=429),
+            "gateway_429",
+            ("schema_refusal", "provider", "timeout"),
+        ),
+        (
+            AIClientError("provider failed", status=500),
+            "provider",
+            ("schema_refusal", "gateway_429", "timeout"),
+        ),
+        (
+            AIClientError("timed out", timed_out=True),
+            "timeout",
+            ("schema_refusal", "gateway_429", "provider"),
+        ),
+        (
+            StructuredOutputValidationError(
+                "invalid schema", violations=1, error_types=("missing",)
+            ),
+            "schema_refusal",
+            ("gateway_429", "provider", "timeout"),
+        ),
+    ],
+    ids=["gateway-429", "provider-500", "timeout", "schema-refusal"],
+)
+def test_a_failed_case_separates_infrastructure_errors_from_schema_refusal_and_masks(
+    cases: list[StageCase],
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    openspec: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    error: AIClientError,
+    expected_class: str,
+    forbidden: tuple[str, ...],
+) -> None:
+    """Failed runs classify 429, timeout, provider errors, and schema refusals and mask secrets (#6324)."""
+    monkeypatch.setattr(stage_eval_run, "mask_secrets", lambda text: f"[MASKED:{len(text)}]")
+    case = _live_case(cases, stage_repo)
+    model_fake.answer(error)
+
+    run = run_case(case, _client(model_fake), stage_repo.clone)
+
+    assert run.outcome is Outcome.FAILED
+    assert run.reason.startswith(f"{expected_class}: ")
+    assert "[MASKED:" in run.reason
+    assert str(error) not in run.reason
+    assert not any(name in run.reason for name in forbidden)
+
+
+def test_render_score_and_score_json_include_case_runs_and_mask_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both text and JSON reports list each case with its outcome and masked reason (#6324)."""
+    monkeypatch.setattr(stage_eval_render, "mask_secrets", lambda _text: "[MASKED]")
+    run = CaseRun("101-sample-case", Outcome.FAILED, "token=raw-secret-value", 0, None)
+    score = score_runs("model-x", [], [run])
+
+    text = render_score(score, gateway="http://gateway.example.com")
+    payload = json.loads(score_json(score, gateway="http://gateway.example.com", taken="now"))
+
+    assert any(
+        "101-sample-case" in line and "failed" in line and "[MASKED]" in line
+        for line in text.splitlines()
+    )
+    assert "raw-secret-value" not in text
+    assert payload["case_runs"] == [
+        {"name": "101-sample-case", "outcome": "failed", "reason": "[MASKED]"}
+    ]
+    assert "raw-secret-value" not in json.dumps(payload)
 
 
 def test_a_model_that_breaks_the_schema_twice_has_no_first_reply_and_scores_as_neither(
