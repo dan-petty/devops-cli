@@ -280,7 +280,7 @@ A person reads the panel, and not the issue. So the gauge proves itself with liv
 
 ## The manual path
 
-A person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner <args>` makes the Job. Its options, and the rule for `--repo`, are in [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs. The same stop and retry path applies.
+An agent or a person can run the work of the Service for one Item. The Item must be Staged or Planned, and nobody may hold its claim. A Blocked Item is not startable: comment `implement: retry`, and the next round of row `implement` clears the stop. The command `devops k8s run-job --template runner <args>` makes the Job. Its options, and the rule for `--repo`, are in [docs/CLUSTER.md](CLUSTER.md#runner-jobs), Runner Jobs. The same stop and retry path applies.
 
 ## The diagram
 
@@ -349,7 +349,7 @@ A plan is acceptable when a person merges it without rework. The golden set meas
 
 - **Recall.** After the gates and the verification pass, the job finds at least 90% of the known defects of the severities `blocker` and `major`. `devops roadmap eval verify` prints this recall and the floor, which is `CONST_ROADMAP_VERIFY_RECALL_FLOOR` (0.9), and states whether the recall reaches it. The verification pass returns a plan `roadmap.stage.verify_repair_rounds` repair rounds (default 2, #3039), and one more round while the last review fixes more earlier findings than it adds, up to `roadmap.stage.verify_repair_rounds_ceiling` rounds (default 4, #5066, #5409, #5440).
 - **Good plans.** The verification pass makes no finding on the good plans of the golden set. `devops roadmap eval verify` prints the mean of the findings that would return a good plan to the planner, for each good plan that it verified, and the ceiling, which is `CONST_ROADMAP_VERIFY_GOOD_RETURNING_CEILING`, and states whether the mean passes it (#5411). Only a blocker or a major finding returns a plan, so a minor or a nit finding does not count. A pass that finds more defects must not get there by returning good plans.
-- **Live plans.** At least 80% of the plan pull requests that the job opens in 28 days are merged without a hold. A person reads the pull requests and records the share.
+- **Live plans.** At least 80% of the plan pull requests that the job opens in 28 days are merged without a hold. Measure the merged pull requests and record the share.
 
 A cheaper model or a lower cap must keep the score of the baseline on the same eval. The score of the current model is no bar, because that model fails the live plans that a person reviewed on 2026-11-02.
 
