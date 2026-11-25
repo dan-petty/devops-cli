@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.217.0](https://github.com/dan-petty/devops-cli/compare/v0.216.0...v0.217.0) (2026-11-25)
+
+
+### Features
+
+* **pr:** forward gh options in pr view, list, and add status ([#7087](https://github.com/dan-petty/devops-cli/issues/7087)) ([a8e6e7c](https://github.com/dan-petty/devops-cli/commit/a8e6e7c4aa3da846ec59c06ca286d5b0a73dc4c5))
+* **service:** run each roadmap row in a child trace span ([#7088](https://github.com/dan-petty/devops-cli/issues/7088)) ([f490b09](https://github.com/dan-petty/devops-cli/commit/f490b09985a909ae0364f45161c99d3db4f3b471)), closes [#5415](https://github.com/dan-petty/devops-cli/issues/5415)
+
+
+### Bug Fixes
+
+* **roadmap:** ignore drop verbs in removal scan ([#7100](https://github.com/dan-petty/devops-cli/issues/7100)) ([feb4e96](https://github.com/dan-petty/devops-cli/commit/feb4e969a66ddb92c66d7c6e12466f3b9ceb05f6)), closes [#6884](https://github.com/dan-petty/devops-cli/issues/6884)
+* **telemetry:** avoid 500-series Loki error on 7d eval grades ([#7094](https://github.com/dan-petty/devops-cli/issues/7094)) ([c8989e6](https://github.com/dan-petty/devops-cli/commit/c8989e6624af6e5947e134bd13dc14d7ead87326))
+
 ## [0.216.0](https://github.com/dan-petty/devops-cli/compare/v0.215.0...v0.216.0) (2026-11-25)
 
 
