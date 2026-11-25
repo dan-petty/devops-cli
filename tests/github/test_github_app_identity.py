@@ -553,12 +553,12 @@ def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
     )
 
 
-def test_configured_app_accepts_explicit_permissions_and_read_only_wins(
+def test_configured_app_accepts_explicit_permissions_and_drift_check_wins(
     app_identity: GitHubApiFake, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`configured_app(permissions=...)` sends those permissions instead of
-    `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, while `service.github_app.read_only` keeps the read-only
-    set (#6780)."""
+    `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, while `service.github_app.drift_check` keeps the set of the
+    drift check (#6780, #6888)."""
     from devops_cli.config.constants import CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS
     from devops_cli.github.app_installation import configured_app, mint_installation_token
 
@@ -579,14 +579,14 @@ def test_configured_app_accepts_explicit_permissions_and_read_only_wins(
         },
     )
 
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", "true")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK", "true")
     app_identity.route("POST", MINT, _installation_token("ghs_ro", timedelta(hours=1)))
     token_ro, _, _ = mint_installation_token(
         configured_app(permissions=CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS)
     )
     assert (token_ro, json.loads(app_identity.sent[1].content)) == (
         "ghs_ro",
-        {"permissions": READ_PERMISSIONS},
+        {"permissions": DRIFT_PERMISSIONS},
     )
 
 

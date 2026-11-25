@@ -1667,6 +1667,19 @@ CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     # The traffic endpoints of each repository (#4757).
     "administration": "read",
 }
+# A read set for an App token that must change nothing on GitHub, such as the reader App of the
+# tf/github stacks (#7172): read on each permission that a check of the repository settings uses.
+CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "actions": "read",
+    "administration": "read",
+    "checks": "read",
+    "contents": "read",
+    "environments": "read",
+    "issues": "read",
+    "metadata": "read",
+    "pull_requests": "read",
+    "secrets": "read",
+}
 # What the token of the drift check asks for instead, as the nightly drift Job of
 # `devops repos onboard --all --plan` sets with `service.github_app.drift_check` (#6783): each
 # permission of the GETs of the rows that the Job runs. The GitHub page "Permissions required for
@@ -1679,15 +1692,9 @@ CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
 # pod holds the key of the App, which can mint a write token anyway; a plan sends GET requests
 # only, because `RouteWriter` sends no write without `--confirm`.
 CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
-    "actions": "read",
+    **CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS,
     "administration": "write",
-    "checks": "read",
     "contents": "write",
-    "environments": "read",
-    "issues": "read",
-    "metadata": "read",
-    "pull_requests": "read",
-    "secrets": "read",
 }
 CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "actions": "read",

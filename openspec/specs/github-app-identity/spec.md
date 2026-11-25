@@ -94,7 +94,7 @@ Secret `devops/devops-cli` SHALL hold `DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
 - **THEN** the render raises `KubernetesContextError` naming `service.github_app.app_id` and `service.github_app.installation_id`
 
 ### Requirement: Each installation token asks only for the roadmap jobs' permissions
-Unless `read_only` or a phase scope overrides it, `POST /app/installations/<installation_id>/access_tokens` SHALL request `CONST_GITHUB_APP_TOKEN_PERMISSIONS` (`issues`, `pull_requests`, `contents`, `workflows` write; `checks`, `actions`, `metadata` read), plus `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS` when `token_repository` is empty.
+Unless `drift_check` or a phase scope overrides it, `POST /app/installations/<installation_id>/access_tokens` SHALL request `CONST_GITHUB_APP_TOKEN_PERMISSIONS` (`issues`, `pull_requests`, `contents`, `workflows` write; `checks`, `actions`, `metadata` read), plus `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS` when `token_repository` is empty.
 
 #### Scenario: The token request names the roadmap jobs' permissions
 - **WHEN** the process acts as App 1001 on installation 42, `service.github_app.token_repository` is empty, and the process mints a token outside a phase scope
