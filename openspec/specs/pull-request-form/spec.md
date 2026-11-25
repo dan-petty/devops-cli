@@ -144,7 +144,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **THEN** the output ends with the `Change:` line, a blank line, the first value, a blank line and the second value
 
 ### Requirement: devops pr describe refuses and prints nothing
-`devops pr describe` SHALL exit 1, print every problem to stderr, and print nothing to stdout when: the summary breaks a rule of the title; the scope of the issue has no label; the text above `Closes` has more than 1,000 characters; the proposal has no section `Why`; the text of the proposal holds a closing keyword for an issue; the issue has no change folder, or more than one; or the number is no item of the roadmap. It SHALL NOT cut a text.
+`devops pr describe` SHALL exit 1, print every problem to stderr, and print nothing to stdout when: the summary breaks a rule of the title; the scope of the issue has no label; the text above `Closes` has more than 1,000 characters; the proposal has no section `Why`; the text of the proposal holds a closing keyword for an issue other than the delivered issue; the issue has no change folder, or more than one; or the number is no item of the roadmap. It SHALL NOT cut a text.
 
 #### Scenario: A summary of 61 characters or more
 - **WHEN** the summary has more than 60 characters
@@ -167,7 +167,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **THEN** the exit status is 1 and stderr names the proposal and the option `--why`
 
 #### Scenario: A why that closes an issue
-- **WHEN** the section `Why` says `This closes #7`
+- **WHEN** the section `Why` says `This closes #7` for issue 1
 - **THEN** the exit status is 1 and stderr names the closing keyword
 
 #### Scenario: No change folder
@@ -448,3 +448,10 @@ The form check of `devops pr create`, the open step, the ready check, the measur
 #### Scenario: Oversized file body is refused
 - **WHEN** `--body-file` points to a body whose prose exceeds 1,000 characters
 - **THEN** `devops pr create` exits 1 with the form refusal and sends no `gh` request
+
+### Requirement: Delivered issue closing keyword is dropped
+`devops pr describe` SHALL drop a closing keyword clause that names the delivered issue from the proposal `Why` text and keep the remaining text with one `Closes #<issue>` line in the body.
+
+#### Scenario: Why holds a closing clause for the delivered issue
+- **WHEN** a test runs `devops pr describe 5434 --summary "set the pod overhead of RuntimeClass gvisor"` on a proposal whose `Why` holds `This change sets the overhead and closes #5434.`
+- **THEN** the command exits 0, and the body holds `This change sets the overhead.` and one `Closes #5434`

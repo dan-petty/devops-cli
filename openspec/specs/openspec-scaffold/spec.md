@@ -43,3 +43,10 @@ The dry run SHALL name the folder and the branch that a real run creates in the 
 #### Scenario: The dry run is in a worktree on the branch of the issue
 - **WHEN** the worktree is on `fix/4593-alpha` and the author runs `devops openspec new 4593 --dry-run --title "fix(openspec): beta"`
 - **THEN** the output holds `Would create openspec/changes/4593-alpha on branch fix/4593-alpha.` and `Branch: fix/4593-alpha`, and no folder is created
+
+### Requirement: Scaffold Why comment has no closing keyword
+`scaffold_proposal` SHALL cite the issue number in the `Why` comment without any GitHub closing keyword.
+
+#### Scenario: Scaffold proposal text
+- **WHEN** a test calls `scaffold_proposal(5345)`
+- **THEN** the `Why` section cites `#5345` and does not contain `Closes #5345` or trigger `closing_keyword_in`

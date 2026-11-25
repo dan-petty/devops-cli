@@ -98,6 +98,18 @@ def test_proposal_holds_six_headings_and_cites_issue(
     assert "#3203" in why_section
 
 
+def test_proposal_why_comment_has_no_closing_keyword() -> None:
+    """`scaffold_proposal` cites the issue without any closing keyword (#5398)."""
+    from devops_cli.openspec.scaffold import scaffold_proposal
+    from devops_cli.roadmap.stage.stage_change import closing_keyword_in
+
+    proposal = scaffold_proposal(5345)
+    why_section = proposal[proposal.find("## Why") : proposal.find("## What Changes")]
+    assert "#5345" in why_section
+    assert "Closes #5345" not in proposal
+    assert closing_keyword_in(why_section) is None
+
+
 def test_design_holds_decisions_and_rejected_alternatives_with_marker(
     cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:

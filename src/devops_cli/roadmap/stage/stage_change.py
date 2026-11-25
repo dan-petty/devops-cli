@@ -3257,6 +3257,22 @@ def closing_keyword_in(text: str) -> str | None:
     return None
 
 
+def strip_closing_keyword(text: str, issue: int) -> str:
+    """Drop closing-keyword clauses naming `issue` (`#<issue>`), keeping prose intact (#5398)."""
+    keywords = "|".join(sorted(_CLOSING_KEYWORDS, key=len, reverse=True))
+    ref = rf"(?:#{issue}\b|/issues/{issue}\b)"
+    clause = re.compile(
+        rf"(?:\(\s*(?:{keywords})\s*:?\s*{ref}\s*\)"
+        rf"|\b(?:and\s+)?(?:{keywords})\s*:?\s*{ref})",
+        re.IGNORECASE,
+    )
+    cleaned = clause.sub("", text)
+    cleaned = re.sub(r"^\s*[.,;:]+\s*", "", cleaned)
+    cleaned = re.sub(r"\s+([.,;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\.\s*\.+", ".", cleaned)
+    return " ".join(cleaned.split()).strip()
+
+
 # ── The files ─────────────────────────────────────────────────────────────────
 
 
