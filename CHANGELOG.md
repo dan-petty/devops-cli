@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.1](https://github.com/dan-petty/devops-cli/compare/v0.221.0...v0.221.1) (2026-11-25)
+
+
+### Performance Improvements
+
+* **ci:** build pull request images in the Docker Engine ([#7207](https://github.com/dan-petty/devops-cli/issues/7207)) ([e11881c](https://github.com/dan-petty/devops-cli/commit/e11881c5191c79b44fab472695b30fd503be9366))
+
 ## [0.221.0](https://github.com/dan-petty/devops-cli/compare/v0.220.0...v0.221.0) (2026-11-25)
 
 
