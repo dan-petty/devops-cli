@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import os
 import signal
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
@@ -26,6 +28,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions import RoadmapStageError
 from devops_cli.exceptions.roadmap import PhaseOutputError
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.roadmap.attempt_kill import AttemptKill, AttemptKilled
 from devops_cli.roadmap.phases.files import RunFolders
 from devops_cli.roadmap.stage.stage_job_phases import (
@@ -39,7 +42,19 @@ from tests.support.github_identity import fail_the_github_lookup
 from tests.support.model_script import ModelScript, say, tool_call
 from tests.support.roadmap_stage import STAGE_REPO, StageRepo, seed_stageable
 
+if TYPE_CHECKING:
+    from tests.support.fakes.github import GitHubApiFake
+
 pytestmark = pytest.mark.usefixtures("keyring_store")
+
+
+@pytest.fixture(autouse=True)
+def _fake_github(github_api: GitHubApiFake) -> None:
+    """Provide the fake GitHub API and GraphQL quota for `prepare` snapshot reads (#6831)."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
+
 
 CHANGE = "1-the-job-drops-a-comment"
 ROOT = f"openspec/changes/{CHANGE}"

@@ -899,6 +899,18 @@ LIMITS: Final[dict[str, tuple[str, str]]] = {
         "setting",
         "the heads that a fix step pushes to one pull request (ADR 0021 section 8); a setting since #5440",
     ),
+    "CONST_ROADMAP_STAGE_GITHUB_INDEX_MAX_ISSUES": (
+        "kept",
+        "the maximum open issues written to `work/github/issue-index.jsonl` (#6831)",
+    ),
+    "CONST_ROADMAP_STAGE_GITHUB_INDEX_BODY_CHARS": (
+        "kept",
+        "characters of each issue body kept in `work/github/issue-index.jsonl` (#6831)",
+    ),
+    "CONST_ROADMAP_STAGE_PULL_FILE_PATCH_CHARS": (
+        "kept",
+        "characters of each changed-file patch kept in `work/github/pull-files/` (#6831)",
+    ),
 }
 
 

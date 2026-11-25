@@ -56,6 +56,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_CANDIDATE_FILE,
     CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE,
+    CONST_ROADMAP_STAGE_GITHUB_DIR,
     CONST_ROADMAP_STAGE_ISSUES_FILE,
     CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
 )
@@ -115,6 +116,7 @@ from devops_cli.roadmap.stage.stage_change import (
     measure_groups,
     shared_texts,
 )
+from devops_cli.roadmap.stage.stage_github_snapshot import write_github_snapshot
 from devops_cli.roadmap.stage.stage_job import (
     BUDGET_SETTING,
     StageJobExit,
@@ -432,6 +434,11 @@ class _Prepare:
             path = folder / CONST_ROADMAP_STAGE_ISSUES_FILE
             path.write_bytes(listing)
             path.chmod(0o600)
+        write_github_snapshot(
+            self.folders.work / CONST_ROADMAP_STAGE_GITHUB_DIR,
+            repo=self.repo,
+            item=target.item,
+        )
         rejection = next((r for r in plan.rejections if r.number == number), None)
         write_json(
             self.folders.work / CONST_ROADMAP_PHASE_INPUT_FILE,
@@ -624,6 +631,7 @@ def _request(inputs: StageAgentInput, listing: Path) -> str:
             "branch": inputs.branch,
             "base": inputs.base,
             "issue_listing": str(listing),
+            "github": str(listing.parent / CONST_ROADMAP_STAGE_GITHUB_DIR),
             "candidate": CONST_ROADMAP_STAGE_CANDIDATE_FILE,
             "checks": list(check_commands(inputs, listing)),
         }
