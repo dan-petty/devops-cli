@@ -666,7 +666,11 @@ jobs:
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
 
+      # The three scans run in the background: each one overlaps the steps after it (#7236). A
+      # failed gate scan fails the job at the wait step at the end of the job.
       - name: Scan MCP Server Image for Vulnerabilities
+        id: scan_mcp_server
+        background: true
         if: steps.image_changes.outputs.changed == 'true'
         timeout-minutes: 4
         uses: ./.github/actions/image-scan
@@ -687,6 +691,8 @@ jobs:
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
 
       - name: Scan Runner Image for Vulnerabilities
+        id: scan_runner
+        background: true
         if: steps.image_changes.outputs.changed == 'true'
         timeout-minutes: 4
         uses: ./.github/actions/image-scan
@@ -724,12 +730,17 @@ jobs:
           '
 
       - name: Scan UV Seed Image for Vulnerabilities
+        id: scan_uv_seed
+        background: true
         if: steps.image_changes.outputs.changed == 'true'
         timeout-minutes: 4
         uses: ./.github/actions/image-scan
         with:
           image-ref: devops-cli-uv-seed:local
           category: trivy-image-uv-seed
+
+      - name: Wait for the Image Scans
+        wait-all:
 
   # Advisory only: reports newer upstream releases without gating any merge. Scheduled so
   # the PyPI round-trip never sits on the pull request critical path.
