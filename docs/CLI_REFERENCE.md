@@ -130,6 +130,7 @@ fetched at its revision. Exits 1, before it resolves an image, when an image has
 the latest tag or no tag, unless Image Updater moves it or --managed names its repository.
 Exits 1 when a registry does not hold an image or refuses the read. The CI job `image-pins`
 runs the check on a pull request that changes k8s/. |
+|  | `devops k8s catalog [OPTIONS]` | Generate or check the Kubernetes service catalog from rendered Argo CD Applications, catalog.toml, Sloth SLO specs, service dashboards, and UI annotations. |
 |  | `devops k8s crawl4ai-check [OPTIONS]` | Check that the Crawl4AI service refuses internal targets. It sends each of five routes
 (/md, /html, /screenshot, /pdf and /llm) to each of five internal targets (the metadata
 address, localhost, the Kubernetes API, the service itself and the roadmap Service) with the
