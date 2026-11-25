@@ -98,6 +98,29 @@ def test_start_minikube_gpu_fallback_to_cpu(
     assert calls_starting(process_fake, "minikube", "start") == [_START_WITH_GPU, _START_CPU_ONLY]
 
 
+def test_start_minikube_uses_rootful_podman_socket_when_present(
+    process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When rootful Podman socket exists and DOCKER_HOST is not already set to the rootful socket,
+    _start_minikube directs Minikube to unix:///var/run/docker.sock (#6466)."""
+    from devops_cli.config.constants import CONST_PODMAN_ROOTFUL_SOCKET_PATH
+
+    _nvidia_smi_present(monkeypatch, False)
+    minikube_running(process_fake)
+    monkeypatch.setenv("DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock")
+    real_exists = Path.exists
+    monkeypatch.setattr(
+        Path,
+        "exists",
+        lambda p: True if p == CONST_PODMAN_ROOTFUL_SOCKET_PATH else real_exists(p),
+    )
+
+    success, _msg = _start_minikube(dry_run=False)
+    assert success is True
+    start_call = next(c for c in process_fake.calls if c.argv[:2] == ("minikube", "start"))
+    assert start_call.env == {"DOCKER_HOST": "unix:///var/run/docker.sock"}
+
+
 def test_start_minikube_cpu_only(
     process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:

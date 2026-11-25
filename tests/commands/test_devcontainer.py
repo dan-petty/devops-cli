@@ -335,6 +335,31 @@ class TestDevcontainerCli:
             for c in process_fake.calls
         )
 
+    def test_bootstrap_k8s_minikube_driver_uses_rootful_podman_socket(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        process_fake: ProcessFake,
+        docker_daemon: DockerEngineFake,
+    ) -> None:
+        """Devcontainer bootstrap starts Minikube with `--driver=docker` and `DOCKER_HOST=unix:///var/run/docker.sock` (#6466)."""
+        import subprocess
+
+        def answer_status(call: ProcessCall) -> subprocess.CompletedProcess[str]:
+            if any(c.argv[:2] == ("minikube", "start") for c in process_fake.calls):
+                return subprocess.CompletedProcess(list(call.argv), 0, stdout="Running", stderr="")
+            return subprocess.CompletedProcess(list(call.argv), 1, stdout="Stopped", stderr="")
+
+        process_fake.answer(["minikube", "status"], ProcessAnswer(side_effect=answer_status))
+
+        result = runner.invoke(app, ["bootstrap-k8s", "--workspace", str(tmp_path)])
+        assert result.exit_code == 0
+        start_calls = [c for c in process_fake.calls if c.argv[:2] == ("minikube", "start")]
+        assert start_calls
+        assert "--driver=docker" in start_calls[0].argv
+        assert start_calls[0].env is not None
+        assert start_calls[0].env.get("DOCKER_HOST") == "unix:///var/run/docker.sock"
+
     def test_bootstrap_k8s_warns_when_docker_daemon_down(
         self,
         runner: CliRunner,

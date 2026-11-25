@@ -887,3 +887,22 @@ def test_config_example_yaml_maps_to_settings_fields_and_validates() -> None:
     assert unknown == []
     assert isinstance(validated, Settings)
     assert unknown_mutated == ["ai.nonexistent_setting_key"]
+
+
+def test_devcontainer_usage_driver_names_docker_driver_and_podman_socket() -> None:
+    """Topology 1 of `docs/DEVCONTAINER_USAGE.md` names `--driver=docker` and `/var/run/docker.sock` (#6466)."""
+    text = (REPO_ROOT / "docs" / "DEVCONTAINER_USAGE.md").read_text(encoding="utf-8")
+    start = text.index("### Topology 1:")
+    end = text.index("### Topology 2:", start)
+    topology_1 = text[start:end]
+
+    assert "--driver=docker" in topology_1
+    assert "/var/run/docker.sock" in topology_1
+
+
+def test_devcontainer_usage_minikube_issue_link_resolves_to_6466() -> None:
+    """No `#MINIKUBE_ISSUE` placeholder remains in `docs/DEVCONTAINER_USAGE.md`, and `#6466` is linked (#6466)."""
+    text = (REPO_ROOT / "docs" / "DEVCONTAINER_USAGE.md").read_text(encoding="utf-8")
+
+    assert "#MINIKUBE_ISSUE" not in text
+    assert "#6466" in text

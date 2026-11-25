@@ -430,7 +430,7 @@ devops config set k8s.context arn:aws:eks:us-west-2:123456789012:cluster/staging
 
 ### Topology 1: Embedded Minikube in DevContainer (Default Mode)
 
-When developing in self-contained environments or GitHub Codespaces, the Dev Container runs an embedded single-node Minikube cluster with the docker driver (`--driver=docker`). In the image, `docker` is `podman-docker`, which runs Podman, and this combination is not tested ([#6466](https://github.com/dan-petty/devops-cli/issues/6466)).
+When developing in self-contained environments or GitHub Codespaces, the Dev Container runs an embedded single-node Minikube cluster with the `docker` driver (`--driver=docker`). In the image, `docker` is `podman-docker` (rootless by default), so the bootstrap sets `DOCKER_HOST=unix:///var/run/docker.sock` to direct `podman-docker` to the rootful Podman API socket (`/run/podman/podman.sock`), keeping the live cluster start check on the owner's rootless Podman host and Docker as the merge gate ([#6466](https://github.com/dan-petty/devops-cli/issues/6466)).
 
 #### Conditional Autostart Behavior
 - **Default Autostart**: If `k8s.context` is set to `minikube` (the default), `devops devcontainer post-start` automatically verifies and starts the Minikube cluster when the Dev Container opens.
