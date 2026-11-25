@@ -368,6 +368,17 @@ _REMOVED_PERSON_STEP_PHRASES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
         "src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md",
         ("agents record none.", "Verdicts Come From People"),
     ),
+    (
+        "docs/TESTING.md",
+        ("A person runs the scorer against the real Qdrant",),
+    ),
+    (
+        "docs/ROADMAP_WORKFLOW.md",
+        (
+            "A person can run the work of the Service for one Item.",
+            "A person reads the pull requests and records the share.",
+        ),
+    ),
 )
 
 
