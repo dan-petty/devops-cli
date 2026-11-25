@@ -491,8 +491,9 @@ def test_fix_plan_label_constant_matches_plan_verdict_and_has_single_source() ->
 
 
 def test_adr_0021_and_kb_name_all_six_verdict_labels() -> None:
-    """ADR 0021 and the GitHub project management knowledge-base page list every verdict label and
-    ADR 0021 drops `plan/needs-fix` (#5984)."""
+    """ADR 0021 Status History and the GitHub project management knowledge-base page list every
+    verdict label, and Status History supersedes `plan/needs-fix` without altering the accepted
+    body hash (#5984)."""
     labels = sorted({name for mapping in VERDICT_LABELS.values() for name in mapping})
     adr_path = (
         REPO_ROOT
@@ -511,7 +512,9 @@ def test_adr_0021_and_kb_name_all_six_verdict_labels() -> None:
         / "github_project_management.md"
     )
     adr_text = adr_path.read_text("utf-8")
+    _, _, status_history = adr_text.partition("## Status History")
     kb_text = kb_path.read_text("utf-8")
-    assert [label for label in labels if label not in adr_text] == []
+    assert [label for label in labels if label not in status_history] == []
     assert [label for label in labels if label not in kb_text] == []
-    assert "plan/needs-fix" not in adr_text
+    assert "Fact out of date:" in status_history
+    assert "plan/needs-fix" in status_history

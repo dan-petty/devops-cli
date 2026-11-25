@@ -251,8 +251,8 @@ Every reader and writer of `verdict/fix-plan` under `src/devops_cli/roadmap` SHA
 - **THEN** `VERDICT_LABELS[PullKind.PLAN][FIX_PLAN_LABEL]` is `Verdict.NEEDS_FIX` and no other module defines the literal `verdict/fix-plan`
 
 ### Requirement: Six verdict labels in docs
-ADR 0021 and `github_project_management.md` SHALL list all six verdict labels (`verdict/mergeable`, `verdict/fix-plan`, `verdict/discard-plan`, `verdict/issue-changed`, `verdict/fix-implementation`, and `verdict/discard-implementation`), and current Service sections of ADR 0021 SHALL NOT name `plan/needs-fix`.
+ADR 0021 Status History and `github_project_management.md` SHALL list all six verdict labels (`verdict/mergeable`, `verdict/fix-plan`, `verdict/discard-plan`, `verdict/issue-changed`, `verdict/fix-implementation`, and `verdict/discard-implementation`), and ADR 0021 Status History SHALL note that `plan/needs-fix` is out of date while preserving the accepted body hash.
 
 #### Scenario: Documents match VERDICT_LABELS
-- **WHEN** a test compares every label key in `VERDICT_LABELS` against ADR 0021 and `github_project_management.md`
-- **THEN** all six labels appear in both files and `plan/needs-fix` does not appear in the current Service sections of ADR 0021
+- **WHEN** a test compares every label key in `VERDICT_LABELS` against ADR 0021 Status History and `github_project_management.md`
+- **THEN** all six labels appear in both files and ADR 0021 Status History records that `plan/needs-fix` was replaced
