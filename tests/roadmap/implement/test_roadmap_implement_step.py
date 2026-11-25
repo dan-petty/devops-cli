@@ -2539,3 +2539,73 @@ def test_the_trace_holds_plan_defect_for_the_group_that_changed_no_file_only(
         if event.kind is TraceEventKind.ATTEMPT
     ]
     assert classes == ["plan_defect", ""]
+
+
+def test_section_text_stops_at_job_block_markers() -> None:
+    """section_text ends open sections at top-level job block markers (#6626)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_REFINE_END_MARKER,
+        CONST_ROADMAP_REFINE_START_MARKER,
+    )
+    from devops_cli.roadmap.step_files import section_text
+
+    body = (
+        "## Acceptance criteria\n\n"
+        "- Keep only person text.\n\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Lacks:\n"
+        "- Alternatives item.\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n\n"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n"
+        "### Requirement: Refined requirement\n\n"
+        "The behavior SHALL work.\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}\n"
+    )
+
+    extracted = section_text(
+        body, frozenset({"acceptance criteria", "requirement: refined requirement"})
+    )
+
+    assert "Keep only person text." in extracted
+    assert "The behavior SHALL work." in extracted
+    assert "Alternatives item." not in extracted
+
+
+def test_issue_inputs_stops_last_section_before_job_blocks() -> None:
+    """issue_inputs excludes alternatives and refine non-requirement text after the last section (#6626)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_REFINE_END_MARKER,
+        CONST_ROADMAP_REFINE_START_MARKER,
+    )
+
+    body = (
+        "## Problem statement\n\n"
+        "The section reader reads the alternatives block.\n\n"
+        "## Acceptance criteria\n\n"
+        "- Stop at job markers.\n\n"
+        f"{CONST_ROADMAP_REFINE_START_MARKER}\n"
+        "<!-- checked-at: sha=abc -->\n"
+        "## Proposed design\n\n"
+        "### Problem statement\n\n"
+        "Refined problem.\n\n"
+        "### Requirement: Stop at marker\n\n"
+        "The reader SHALL stop at markers.\n"
+        f"{CONST_ROADMAP_REFINE_END_MARKER}\n\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Alternatives check of 2026-11-21: none.\n"
+        "Tool: none found.\n\n"
+        "Lacks:\n"
+        "- No marker awareness\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    )
+
+    rendered = issue_inputs(make_item(body=body))
+
+    assert "Stop at job markers." in rendered
+    assert "The reader SHALL stop at markers." in rendered
+    assert "No marker awareness" not in rendered
+    assert "Alternatives check" not in rendered

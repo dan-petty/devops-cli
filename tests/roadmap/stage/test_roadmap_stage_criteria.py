@@ -266,3 +266,44 @@ def test_a_start_marker_with_no_end_marker_gives_no_refine_block() -> None:
         ([], []),
         ["A criterion after the start marker."],
     )
+
+
+def test_acceptance_criteria_stops_at_alternatives_block() -> None:
+    """acceptance_criteria stops an open heading at a job block marker so Covers/Lacks do not leak (#6626)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    )
+
+    body = (
+        "## Acceptance criteria\n\n"
+        "- [ ] First criterion\n"
+        "- [x] Second criterion\n\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Alternatives check of 2026-11-21: none.\n"
+        "Tool: none found.\n\n"
+        "Lacks:\n"
+        "- No awareness of job block markers\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    )
+
+    assert acceptance_criteria(body) == ["First criterion", "Second criterion"]
+
+
+def test_criterion_problems_ignores_lacks_items_from_alternatives_block() -> None:
+    """criterion_problems does not require mapping Lacks items inside an alternatives block (#6626)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+    )
+
+    body = (
+        "## Acceptance criteria\n\n"
+        "- First criterion\n\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_START_MARKER}\n"
+        "Lacks:\n"
+        "- Unrelated tool gap\n"
+        f"{CONST_ROADMAP_ALTERNATIVES_END_MARKER}\n"
+    )
+
+    assert criterion_problems([_entry("First criterion")], body, 1) == []

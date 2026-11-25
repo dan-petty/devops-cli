@@ -158,3 +158,10 @@ The stage job SHALL cut the refine block from the body only at a start marker an
 #### Scenario: A start marker with no end marker
 - **WHEN** a body holds a refine start marker as an HTML block on a line of its own, then a `Chosen` line and an acceptance criterion, and no end marker
 - **THEN** `refine_decisions` returns no decision, and `acceptance_criteria` returns that criterion
+
+### Requirement: Stage criteria stop at job block markers
+`acceptance_criteria` in `src/devops_cli/roadmap/stage/stage_criteria.py` SHALL end an open `Acceptance criteria` heading at any top-level job block marker (`block_marker_of`), so Covers and Lacks items inside an alternatives block do not become criteria or trigger missing-criterion refusals in `criterion_problems`.
+
+#### Scenario: Alternatives block follows a person's criteria list
+- **WHEN** `acceptance_criteria(body)` reads a body with two items under `Acceptance criteria` followed by `<!-- devops-roadmap-alternatives:start -->` and a `Lacks:` list
+- **THEN** `acceptance_criteria(body)` returns only the two person items and `criterion_problems` does not require mapping the `Lacks:` items

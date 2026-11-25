@@ -249,14 +249,17 @@ def issue_inputs(item: Item) -> str:
     """The title of the item, then its problem and its acceptance criteria, with no HTML comment.
     The refine job writes each criterion as a `Requirement:` section after its `Acceptance
     criteria` heading, at the same level, so these sections come too: the criteria section alone
-    ends at the first of them. An issue that holds none of the sections gives its whole body."""
-    body = _without_comments(item.body)
+    ends at the first of them. `section_text` reads the body before `_without_comments` so each
+    section stops at a job block marker (#6626). An issue that holds none of the sections gives its
+    whole body."""
+    clean = _without_comments(item.body)
     wanted = (
         CONST_ROADMAP_IMPLEMENT_PROBLEM_HEADINGS
         | CONST_ROADMAP_IMPLEMENT_CRITERIA_HEADINGS
-        | _requirement_titles(body)
+        | _requirement_titles(clean)
     )
-    text = section_text(body, wanted) or body.strip()
+    extracted = section_text(item.body, wanted)
+    text = _without_comments(extracted).strip() if extracted else clean.strip()
     return f"# Item #{item.number}: {item.title}\n\n{text}"
 
 
