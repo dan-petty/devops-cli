@@ -59,6 +59,7 @@ Each exception class declares its `error_code` and `exit_code`. A command that a
 | `DoctorCheckError` | `K8S_DOCTOR_CHECK_FAILED` | `1` | K8s | Raised inside `devops k8s doctor --stack` when one check fails; the message is its reason. |
 | `EmbeddingsError` | `EMBEDDINGS_ERROR` | `1` | Ai | Raised when embeddings generation fails across all endpoints. |
 | `GatewayTuneError` | `DEVOPS_CLI_ERROR` | `1` | Ai | Raised when the gateway's deployments cannot be discovered or measured. |
+| `GitHubApiAccessRefusedError` | `GITHUB_API_ACCESS_REFUSED` | `1` | Git | Raised when an agent caller attempts a protected mutating `devops gh api` request (#5316). |
 | `GitHubFileNotFoundError` | `GITHUB_FILE_NOT_FOUND` | `1` | Git | Raised when a repository file GitHub was asked for does not exist on that ref. |
 | `GitHubNotFoundError` | `GITHUB_NOT_FOUND` | `1` | Git | Raised when GitHub answers that what it was asked for does not exist (HTTP 404). |
 | `GitHubOperationError` | `GITHUB_OPERATION_FAILED` | `1` | Git | Exception raised for GitHub API or CLI automation failures. |

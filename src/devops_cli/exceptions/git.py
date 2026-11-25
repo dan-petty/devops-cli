@@ -102,6 +102,26 @@ class GitHubOperationError(DevOpsCLIError, RuntimeError):
         super().__init__(message, exit_code=exit_code, details=err_details)
 
 
+class GitHubApiAccessRefusedError(GitHubOperationError):
+    """Raised when an agent caller attempts a protected mutating `devops gh api` request (#5316)."""
+
+    error_code = "GITHUB_API_ACCESS_REFUSED"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        method: str,
+        endpoint: str,
+        route_class: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        err_details = {"method": method, "endpoint": endpoint, "route_class": route_class}
+        if details:
+            err_details.update(details)
+        super().__init__(message, operation="gh_api_write_guard", details=err_details)
+
+
 class GitHubNotFoundError(GitHubOperationError):
     """Raised when GitHub answers that what it was asked for does not exist (HTTP 404)."""
 

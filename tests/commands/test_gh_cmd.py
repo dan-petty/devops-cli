@@ -1193,6 +1193,78 @@ def test_gh_api_error_masked(gh_edge: ProcessFake, clock: ClockFake) -> None:
 
 
 @pytest.mark.parametrize(
+    ("argv", "expected_route"),
+    [
+        (["api", "repos/o/r/transfer", "-X", "POST"], "repos/o/r/transfer"),
+        (["api", "/repos/o/r/rulesets/1?force=true", "-X", "PUT"], "repos/o/r/rulesets/1"),
+        (
+            ["api", "repos/o/r/actions/secrets/KEY", "-f", "encrypted_value=abc"],
+            "repos/o/r/actions/secrets/KEY",
+        ),
+        (["api", "orgs/o", "-X", "PATCH"], "orgs/o"),
+        (["api", "repos/o/r", "-X", "PATCH"], "repos/o/r"),
+    ],
+)
+def test_gh_api_agent_protected_write_refused(
+    gh_edge: ProcessFake,
+    agent_caller: None,
+    argv: list[str],
+    expected_route: str,
+) -> None:
+    """An agent caller writing to a protected route via `devops gh api` is refused without running `gh` (#5316)."""
+    result = runner.invoke(app, argv)
+    text = _flat(result.output)
+
+    assert (result.exit_code, expected_route in text, gh_argv(gh_edge)) == (1, True, [])
+    assert "owner" in text.lower() or "person" in text.lower()
+    assert "Traceback" not in result.output
+
+
+def test_gh_api_person_protected_write_allowed(gh_edge: ProcessFake, person_caller: None) -> None:
+    """A person caller writing to a protected route runs `gh` once (#5316)."""
+    gh_edge.answer(["gh", "api", "repos/o/r/transfer"], ProcessAnswer(stdout="{}\n"))
+
+    result = runner.invoke(app, ["api", "repos/o/r/transfer", "-X", "POST"])
+
+    assert (result.exit_code, gh_argv(gh_edge)) == (
+        0,
+        [["api", "repos/o/r/transfer", "-X", "POST"]],
+    )
+
+
+def test_gh_api_agent_protected_write_dry_run_prints_request(
+    gh_edge: ProcessFake, agent_caller: None
+) -> None:
+    """`--dry-run` on a protected route prints the method and endpoint for an agent without running `gh` (#5316)."""
+    result = runner.invoke(app, ["api", "repos/o/r/transfer", "-X", "POST", "--dry-run"])
+    text = _flat(result.output)
+
+    assert (result.exit_code, gh_argv(gh_edge)) == (0, [])
+    assert "POST" in text
+    assert "repos/o/r/transfer" in text
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "/repos/o/r/issues",
+        "/repos/o/r/pulls",
+        "/repos/o/r/labels",
+        "/repos/o/r/actions/workflows/1/dispatches",
+    ],
+)
+def test_gh_api_agent_open_routes_allowed(
+    gh_edge: ProcessFake, agent_caller: None, endpoint: str
+) -> None:
+    """Issue, pull request, label, and workflow dispatch writes remain open for agent callers (#5316)."""
+    gh_edge.answer(["gh", "api", endpoint], ProcessAnswer(stdout="{}\n"))
+
+    result = runner.invoke(app, ["api", endpoint, "-X", "POST"])
+
+    assert (result.exit_code, gh_argv(gh_edge)) == (0, [["api", endpoint, "-X", "POST"]])
+
+
+@pytest.mark.parametrize(
     "argv",
     [["issue", "list", "-R", "octo/repo"], ["label", "sync", "-R", "octo/repo"]],
     ids=["issues-list", "labels-sync"],

@@ -33,6 +33,7 @@ from devops_cli.exceptions.docker import (
 )
 from devops_cli.exceptions.git import (
     BranchAlreadyExistsError,
+    GitHubApiAccessRefusedError,
     GitHubFileNotFoundError,
     GitHubNotFoundError,
     GitHubOperationError,
@@ -176,6 +177,7 @@ __all__ = [
     "DockerError",
     "DockerSandboxError",
     "DocsSiteError",
+    "GitHubApiAccessRefusedError",
     "GitHubFileNotFoundError",
     "GitHubNotFoundError",
     "GitHubOperationError",
