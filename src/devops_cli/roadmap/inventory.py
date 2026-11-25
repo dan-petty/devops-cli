@@ -68,6 +68,16 @@ _DEPS_DEV_TYPES = {
     "NUGET": "nuget",
     "RUBYGEMS": "gem",
 }
+
+# Standard library GitHub projects mapped to their SBOM PURL type and deployed file suffixes.
+_STDLIB_LANGUAGES: dict[str, tuple[str, frozenset[str]]] = {
+    "github.com/python/cpython": (_PYPI, frozenset({".py"})),
+    "github.com/golang/go": ("golang", frozenset({".go"})),
+    "github.com/rust-lang/rust": ("cargo", frozenset({".rs"})),
+    "github.com/ruby/ruby": ("gem", frozenset({".rb"})),
+    "github.com/dotnet/runtime": ("nuget", frozenset({".cs"})),
+    "github.com/nodejs/node": (_NPM, frozenset({".js", ".mjs", ".cjs", ".ts"})),
+}
 # The relation of a package version to a project that makes the project its source.
 _SOURCE_REPO = "SOURCE_REPO"
 
@@ -172,19 +182,34 @@ def _whole_word(name: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){re.escape(name)}(?!\w)", re.IGNORECASE)
 
 
-def _read_files(root: Path, paths: Sequence[str]) -> str:
-    """The text of each file under the deployed `paths` of the clone at `root`. A path that the
-    clone does not hold is left out, and a symbolic link is not followed."""
+def _read_files(root: Path, paths: Sequence[str]) -> tuple[str, frozenset[str]]:
+    """The text and lower-cased suffixes of each file under the deployed `paths` of the clone at
+    `root`. A path that the clone does not hold is left out, and a symbolic link is not
+    followed."""
     texts: list[str] = []
+    suffixes: set[str] = set()
     for path in paths:
         target = safe_resolve_subpath(root, path)
         files = [target] if target.is_file() else sorted(target.rglob("*"))
-        texts += [
-            file.read_text(encoding="utf-8", errors="ignore")
-            for file in files
-            if file.is_file() and not file.is_symlink()
-        ]
-    return "\n".join(texts)
+        for file in files:
+            if file.is_file() and not file.is_symlink():
+                texts.append(file.read_text(encoding="utf-8", errors="ignore"))
+                if file.suffix:
+                    suffixes.add(file.suffix.lower())
+    return "\n".join(texts), frozenset(suffixes)
+
+
+def _stdlib_in_use(project: str | None, packages: frozenset[str], suffixes: frozenset[str]) -> bool:
+    """Whether `project` is the standard library of a language that the SBOM packages or deployed
+    file `suffixes` signal as in use."""
+    if project is None:
+        return False
+    signal = _STDLIB_LANGUAGES.get(project.lower())
+    if signal is None:
+        return False
+    purl_type, lang_suffixes = signal
+    prefix = f"{purl_type}:"
+    return bool(lang_suffixes & suffixes) or any(package.startswith(prefix) for package in packages)
 
 
 # The packages that deps.dev links to each project, in the process and in the cache Valkey, by
@@ -221,22 +246,26 @@ def _linked_packages(project: str) -> frozenset[str]:
 @dataclass
 class Inventory:
     """The tools in use of one repository at HEAD: the keys of the packages of its SBOM, and the
-    text of the deployed files of a clone. One run reads it once, and keeps what deps.dev said
-    of each project it asked about."""
+    text and suffixes of the deployed files of a clone. One run reads it once, and keeps what
+    deps.dev said of each project it asked about."""
 
     packages: frozenset[str] = frozenset()
     deployed: str = ""
+    suffixes: frozenset[str] = frozenset()
     _linked: dict[str, frozenset[str]] = field(default_factory=dict, init=False, repr=False)
 
     def uses(self, url: str, project: str | None) -> bool:
         """Whether the repository uses the tool at `url`, whose GitHub project is `project`:
-        the SBOM holds its package, the deployed files name it, or the SBOM holds a package that
-        deps.dev links to its project. deps.dev is asked only when the SBOM holds a package.
-        Raises as deps.dev raises."""
+        the SBOM holds its package, the deployed files name it, the repository uses its
+        language's standard library, or the SBOM holds a package that deps.dev links to its
+        project. deps.dev is asked only when the SBOM holds a package and the earlier checks do
+        not match. Raises as deps.dev raises."""
         project = project or project_of(url)
         if _tool_keys(url, project) & self.packages:
             return True
         if any(_whole_word(name).search(self.deployed) for name in _tool_names(url)):
+            return True
+        if _stdlib_in_use(project, self.packages, self.suffixes):
             return True
         if project is None or not self.packages:
             return False
@@ -248,8 +277,8 @@ class Inventory:
 def read_inventory(store: RoadmapStore, source: Path | None, paths: Sequence[str]) -> Inventory:
     """The inventory of the repository of `store`: one read of its SBOM, and the deployed `paths`
     of the clone at `source` when the run has one."""
-    deployed = _read_files(source, paths) if source is not None else ""
-    return Inventory(package_keys(store.dependency_purls()), deployed)
+    deployed, suffixes = _read_files(source, paths) if source is not None else ("", frozenset())
+    return Inventory(package_keys(store.dependency_purls()), deployed, suffixes)
 
 
 __all__ = [
