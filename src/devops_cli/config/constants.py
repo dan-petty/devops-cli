@@ -1229,12 +1229,13 @@ CONST_K8S_CONFIGMAP_CHANGED_EVENT: Final[str] = "configmap_changed"
 """WARNING log message emitted when `devops k8s deploy-stack` applies changed `devops-cli-config` data."""
 CONST_K8S_CONFIGMAP_CHANGED_LOGGER: Final[str] = "devops_cli.k8s.configmap"
 """Logger name used for `configmap_changed` WARNING records exported by `OTelLoggingHandler`."""
-CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS: Final[tuple[str, ...]] = (
+CONST_K8S_PLACEHOLDER_HOST_APPLICATIONS: Final[tuple[str, ...]] = (
     "devops",
     "ingress",
     "mattermost",
 )
-"""The Argo CD Applications whose hosts deploy-stack sets from the configured domain (#1290)."""
+"""The Argo CD Applications that can render a placeholder host: the infra repo sets their real
+hosts with Kustomize patches of the Application (#7257)."""
 CONST_K8S_KUSTOMIZATION_NAMES: Final[tuple[str, ...]] = (
     "kustomization.yaml",
     "kustomization.yml",
@@ -1251,18 +1252,8 @@ CONST_K8S_VALID_STACKS: Final[tuple[str, ...]] = (*CONST_K8S_STACKS, CONST_K8S_A
 CONST_K8S_MATTERMOST_URL: Final[str] = "http://mattermost.mattermost.svc.cluster.local:8065"
 """Mattermost's base URL inside the cluster, which the derived hook URLs of the push table start
 with (#1391, #1392, #1393)."""
-CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK: Final[dict[str, tuple[str, ...]]] = {
-    # Application `ingress` also renders the CORS origins of Open WebUI, which follow the hosts of
-    # its Ingress (k8s/ingress/open-webui-origins.yaml, #5306).
-    "infra": ("ingress",),
-    "devops": ("devops", "ingress"),
-    # Application `ingress` renders the Ingress of the git host (k8s/ingress/ingress-routes.yaml).
-    "gitea": ("ingress",),
-    "chat": ("mattermost",),
-}
-"""The homelab Applications whose hosts a stack's deploy sets."""
 CONST_K8S_ARGOCD_FETCH_TIMEOUT_SECONDS: Final[float] = 300.0
-"""How long fetching an Application's revision may take before deploy-stack gives up."""
+"""How long fetching the revision of an Application source may take."""
 """JQ expression in cluster.yaml ignoreDifferences matching Argo CD PreDelete/PostDelete finalizers (#1674)."""
 CONST_GIT_NONINTERACTIVE_ENV: Final[dict[str, str]] = {"GIT_TERMINAL_PROMPT": "0"}
 """Environment that makes git fail instead of prompting for credentials."""

@@ -403,11 +403,6 @@ class K8sCommandHelp:
         "Push the stacks' Secrets from the OS keyring before applying anything "
         "(--no-push-secrets for a cluster without a keyring)."
     )
-    argocd_revision: str = (
-        "Derive the Argo CD host overrides from this Git revision instead of each Application's "
-        "targetRevision, to stage them before a pull request merges into main (Argo CD-managed "
-        "clusters only)."
-    )
     change_reason: str = (
         "Record a reason, such as an issue number, in the change metadata when "
         "deploy-stack changes ConfigMap devops-cli-config."

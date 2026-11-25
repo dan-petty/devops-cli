@@ -2960,18 +2960,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
-        "argocd_revision": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Derive the Argo CD host overrides from this Git revision instead of each Application's targetRevision, to stage them before a pull request merges into main (Argo CD-managed clusters only)."
-        },
         "configure_urls": {
           "default": false,
           "description": "Auto-configure devops-cli settings with detected Kubernetes service URLs.",

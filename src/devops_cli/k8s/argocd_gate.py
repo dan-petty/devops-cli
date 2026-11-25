@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from devops_cli.config.constants import CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+from devops_cli.config.constants import CONST_K8S_PLACEHOLDER_HOST_APPLICATIONS
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.k8s import ApplicationSourceError, ArgoCDGateError, KubernetesError
@@ -29,7 +29,6 @@ from devops_cli.k8s.app_sources import (
     repository_origin,
     source_revision,
 )
-from devops_cli.k8s.argocd_overrides import _host_fields
 from devops_cli.k8s.environment import EnvironmentTree
 from devops_cli.k8s.template import build_manifest_path, holds_template_domain_value
 
@@ -150,8 +149,73 @@ def _check_helm_source(
     return errors
 
 
+def _env_fields(pod_spec: dict[str, Any]) -> list[tuple[str, str]]:
+    """The JSON pointer and value of each container ``env[].value`` that holds the placeholder."""
+    return [
+        (f"/spec/template/spec/{group}/{i}/env/{j}/value", var["value"])
+        for group in ("initContainers", "containers")
+        for i, container in enumerate(pod_spec.get(group) or [])
+        if isinstance(container, dict)
+        for j, var in enumerate(container.get("env") or [])
+        if isinstance(var, dict)
+        and isinstance(var.get("value"), str)
+        and holds_template_domain_value(var["value"])
+    ]
+
+
+def _data_fields(config_map: dict[str, Any]) -> list[tuple[str, str]]:
+    """The JSON pointer and value of each ConfigMap ``data`` value that holds the placeholder.
+
+    A ConfigMap key holds only letters, digits, ``-``, ``_`` and ``.``, so it needs no JSON
+    pointer escape.
+    """
+    data = config_map.get("data") or {}
+    return [
+        (f"/data/{key}", value)
+        for key, value in data.items()
+        if isinstance(value, str) and holds_template_domain_value(value)
+    ]
+
+
+def _host_fields(doc: dict[str, Any]) -> list[tuple[str, str]]:
+    """The JSON pointer and value of every host an Ingress, IngressRoute, or Mattermost routes,
+    of each environment value of a Deployment's containers that holds the placeholder (#4542),
+    and of each ConfigMap data value that holds it, such as the CORS origins of Open WebUI (#5306).
+    """
+    if doc.get("kind") == "ConfigMap":
+        return _data_fields(doc)
+    spec = doc.get("spec") or {}
+    if doc.get("kind") == "Deployment":
+        return _env_fields((spec.get("template") or {}).get("spec") or {})
+    if doc.get("kind") == "Ingress":
+        rules = [
+            (f"/spec/rules/{i}/host", rule["host"])
+            for i, rule in enumerate(spec.get("rules") or [])
+            if isinstance(rule, dict) and "host" in rule
+        ]
+        tls = [
+            (f"/spec/tls/{i}/hosts/{j}", host)
+            for i, entry in enumerate(spec.get("tls") or [])
+            if isinstance(entry, dict)
+            for j, host in enumerate(entry.get("hosts") or [])
+        ]
+        return rules + tls
+    if doc.get("kind") == "IngressRoute":
+        return [
+            (f"/spec/routes/{i}/match", route["match"])
+            for i, route in enumerate(spec.get("routes") or [])
+            if isinstance(route, dict) and "match" in route
+        ]
+    if doc.get("kind") == "Mattermost":
+        ingress = spec.get("ingress") or {}
+        if isinstance(ingress, dict) and isinstance(ingress.get("host"), str):
+            return [("/spec/ingress/host", ingress["host"])]
+    return []
+
+
 def _check_rendered_doc_placeholders(app_name: str, doc: dict[str, Any]) -> list[str]:
-    """Validate that placeholders appear only in authorized host fields of homelab applications."""
+    """Validate that placeholders appear only in the host fields of the applications that the infra
+    repo patches."""
     errors: list[str] = []
     doc_kind = doc.get("kind", "Unknown")
     doc_name = doc.get("metadata", {}).get("name", "unknown")
@@ -159,7 +223,7 @@ def _check_rendered_doc_placeholders(app_name: str, doc: dict[str, Any]) -> list
 
     allowed_pointers = (
         {ptr for ptr, _ in _host_fields(doc)}
-        if app_name in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS
+        if app_name in CONST_K8S_PLACEHOLDER_HOST_APPLICATIONS
         else set()
     )
 

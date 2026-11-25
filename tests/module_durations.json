@@ -675,7 +675,6 @@
   "tests/k8s/test_http_connection_pool.py": 0.1,
   "tests/k8s/test_image_pins.py": 1.5,
   "tests/k8s/test_k8s_argocd_gate.py": 0.3,
-  "tests/k8s/test_k8s_argocd_overrides.py": 0.2,
   "tests/k8s/test_k8s_cluster_job.py": 0.2,
   "tests/k8s/test_k8s_cluster_job_api.py": 1.1,
   "tests/k8s/test_k8s_configmap.py": 0.4,

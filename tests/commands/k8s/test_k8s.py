@@ -2243,53 +2243,7 @@ def _deploy(cluster: _Cluster, *args: str, push: bool = False) -> Any:
     return runner.invoke(app, ["deploy-stack", flag, *_CONTEXT, *args])
 
 
-def _hosts(application: str, *pinned: tuple[str, str, str, list[str]]) -> list[str]:
-    """`kubectl patch` of `application` setting each (kind, name, namespace, hosts) under _DOMAIN."""
-    patches = [
-        {
-            "target": {
-                "group": "networking.k8s.io",
-                "version": "v1",
-                "kind": kind,
-                "name": name,
-                "namespace": ns,
-            },
-            "patch": json.dumps(
-                [
-                    op
-                    for i, host in enumerate(hosts)
-                    for op in (
-                        {"op": "test", "path": f"/spec/rules/{i}/host", "value": host},
-                        {
-                            "op": "replace",
-                            "path": f"/spec/rules/{i}/host",
-                            "value": host.replace("example.com", _DOMAIN),
-                        },
-                    )
-                ]
-            ),
-        }
-        for kind, name, ns, hosts in pinned
-    ]
-    body = json.dumps({"spec": {"source": {"kustomize": {"patches": patches}}}})
-    return [
-        "kubectl",
-        "patch",
-        "application",
-        application,
-        "-n",
-        "argocd",
-        "--type",
-        "merge",
-        "-p",
-        body,
-        *_CONTEXT,
-    ]
-
-
 _APPLY_STDIN = ["kubectl", "apply", "-f", "-", *_CONTEXT]
-_DEVOPS_HOSTS = _hosts("devops", ("Ingress", "roadmap-service", "devops", ["hooks.example.com"]))
-_INGRESS_HOSTS = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com"]))
 
 
 def _stdin_payloads(cluster: _Cluster) -> list[str]:
@@ -2297,11 +2251,11 @@ def _stdin_payloads(cluster: _Cluster) -> list[str]:
     return [given or "" for cmd, given in cluster.calls if cmd == _APPLY_STDIN]
 
 
-def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each_applications_revision(
+def test_deploy_stack_on_argo_cd_applies_the_config_maps_and_patches_no_application(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
-    """The hosts come from what the Applications render at their revision, not the checkout, and
-    the ConfigMap and its credential-free copy come from the active config (#4147)."""
+    """The ConfigMap and its credential-free copy come from the active config (#4147), and no
+    Application gets a host override (#7257)."""
     _configure_service(isolate_devops_cli_config)
     cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
@@ -2320,70 +2274,20 @@ def test_deploy_stack_on_argo_cd_applies_the_config_map_and_sets_hosts_from_each
         (service["repos"], service["github_app"]["slug"]),
     ) == (
         0,
-        [_APPLY_STDIN, _APPLY_STDIN, _APPLY_STDIN, history_patch, _DEVOPS_HOSTS, _INGRESS_HOSTS],
+        [_APPLY_STDIN, _APPLY_STDIN, _APPLY_STDIN, history_patch],
         "devops-cli-config",
         "devops-cli-config-sandbox",
         (["owner/repo"], "devops-roadmap"),
     )
 
 
-def test_deploy_stack_leaves_the_service_digest_image_updater_set_on_application_devops(
-    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
-) -> None:
-    """The host patch replaces `kustomize.patches` alone, so `kustomize.images` stays (#1485).
-
-    Image Updater writes the digest of the Service image to `spec.source.kustomize.images` of the
-    live Application devops. deploy-stack sends a JSON merge patch (`--type merge`, RFC 7386). A
-    merge patch merges each object into the object at its place and changes only the members it
-    names, so a patch whose path to `patches` names no other member keeps the digest (#5132).
-    """
-    _configure_service(isolate_devops_cli_config)
-    cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
-    sent = next(cmd for cmd in cluster.writes() if cmd[1:4] == ["patch", "application", "devops"])
-    patch = json.loads(sent[sent.index("-p") + 1])
-    assert (
-        res.exit_code,
-        sent[sent.index("--type") + 1],
-        list(patch),
-        list(patch["spec"]),
-        list(patch["spec"]["source"]),
-        list(patch["spec"]["source"]["kustomize"]),
-    ) == (0, "merge", ["spec"], ["source"], ["kustomize"], ["patches"])
-
-
-def test_deploy_stack_stages_the_hosts_of_a_revision_before_it_merges(
+def test_deploy_stack_infra_on_argo_cd_patches_no_application(
     make_cluster: ClusterFactory,
 ) -> None:
+    """The infra repo holds the hosts, so deploy-stack writes none and needs no domain (#7257)."""
     cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "release")
-    staged = _hosts("ingress", ("Ingress", "chat", "llm", ["chat.example.com", "ai.example.com"]))
-    assert (res.exit_code, cluster.writes()) == (0, [staged])
-
-
-def test_deploy_stack_refuses_a_revision_with_no_placeholder_host_rather_than_clear_staged_hosts(
-    make_cluster: ClusterFactory,
-) -> None:
-    """A revision whose hosts are already real (an older overlay) would leave an empty patch list."""
-    cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "pinned")
-    assert (
-        res.exit_code,
-        cluster.writes(),
-        "renders no host under the placeholder" in res.output,
-    ) == (
-        1,
-        [],
-        True,
-    )
-
-
-def test_deploy_stack_infra_on_argo_cd_sets_only_the_ingress_hosts(
-    make_cluster: ClusterFactory,
-) -> None:
-    cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN)
-    assert (res.exit_code, cluster.writes()) == (0, [_INGRESS_HOSTS])
+    res = _deploy(cluster, "--stack", "infra")
+    assert (res.exit_code, cluster.writes()) == (0, [])
 
 
 def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(make_cluster: ClusterFactory) -> None:
@@ -2393,32 +2297,6 @@ def test_deploy_stack_llm_on_argo_cd_changes_nothing_itself(make_cluster: Cluste
         0,
         [],
         True,
-    )
-
-
-def test_deploy_stack_on_argo_cd_sets_the_open_webui_origins_under_the_configured_domain(
-    make_cluster: ClusterFactory,
-) -> None:
-    """Open WebUI allows only the origins of its Ingress hosts: the ConfigMap that holds them
-    gets the configured domain as a Kustomize patch on Application `ingress`, with the hosts
-    (#5306)."""
-    cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "infra", "--domain", _DOMAIN, "--argocd-revision", "origins")
-    (sent,) = cluster.writes()
-    patches = json.loads(sent[sent.index("-p") + 1])["spec"]["source"]["kustomize"]["patches"]
-    origins = next(p for p in patches if p["target"]["kind"] == "ConfigMap")
-    assert (res.exit_code, sent[:4], origins["target"]["name"], json.loads(origins["patch"])) == (
-        0,
-        ["kubectl", "patch", "application", "ingress"],
-        "open-webui-origins",
-        [
-            {"op": "test", "path": "/data/CORS_ALLOW_ORIGIN", "value": "https://chat.example.com"},
-            {
-                "op": "replace",
-                "path": "/data/CORS_ALLOW_ORIGIN",
-                "value": f"https://chat.{_DOMAIN}",
-            },
-        ],
     )
 
 
@@ -2545,7 +2423,7 @@ def test_deploy_stack_reports_post_helm_apply_failure_when_crd_not_installed(
     assert applied_post_helm == []
 
 
-def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_before_writing(
+def test_deploy_stack_on_argo_cd_pushes_secrets_before_writing(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory, keyring_store: FakeKeyring
 ) -> None:
     _configure_service(isolate_devops_cli_config)
@@ -2566,20 +2444,7 @@ def test_deploy_stack_on_argo_cd_pushes_secrets_after_deriving_the_hosts_and_bef
     ) == (
         0,
         True,
-        ["<push>", "apply", "apply", "apply", "patch", "patch", "patch"],
-    )
-
-
-def test_deploy_stack_fails_when_argo_cd_refuses_the_hosts(
-    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
-) -> None:
-    _configure_service(isolate_devops_cli_config)
-    cluster = make_cluster(fail="ingress")
-    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
-    assert (res.exit_code, "Application 'ingress'" in res.output, "denied" in res.output) == (
-        1,
-        True,
-        True,
+        ["<push>", "apply", "apply", "apply", "patch"],
     )
 
 
@@ -2596,16 +2461,7 @@ def test_deploy_stack_fails_when_the_cluster_refuses_the_config_map(
     ) == (1, [_APPLY_STDIN], True)
 
 
-def test_deploy_stack_writes_nothing_when_an_application_does_not_build_at_its_revision(
-    isolate_devops_cli_config: Path, make_cluster: ClusterFactory
-) -> None:
-    _configure_service(isolate_devops_cli_config)
-    cluster = make_cluster(paths={"ingress": "k8s/overlays/homelab/missing"})
-    res = _deploy(cluster, "--stack", "devops", "--domain", _DOMAIN)
-    assert (res.exit_code, cluster.writes(), "kubectl kustomize" in res.output) == (1, [], True)
-
-
-def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
+def test_deploy_stack_devops_on_argo_cd_needs_no_domain(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
@@ -2613,7 +2469,8 @@ def test_deploy_stack_without_a_domain_writes_nothing_and_names_the_setting(
     _configure_service(isolate_devops_cli_config)
     cluster = make_cluster()
     res = _deploy(cluster, "--stack", "devops")
-    assert (res.exit_code, cluster.writes(), "k8s.domain" in res.output) == (1, [], True)
+    patched = [cmd[2] for cmd in cluster.writes() if cmd[1] == "patch"]
+    assert (res.exit_code, patched) == (0, ["configmap"])
 
 
 def test_deploy_stack_without_service_repositories_writes_nothing_and_names_the_setting(
@@ -2711,7 +2568,7 @@ def test_teardown_stack_devops_deletes_the_config_map_deploy_stack_rendered(
     ) == (0, True, True)
 
 
-def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs_nothing(
+def test_deploy_stack_dry_run_reports_the_config_maps_and_no_override_and_runs_nothing(
     isolate_devops_cli_config: Path, make_cluster: ClusterFactory
 ) -> None:
     _configure_service(isolate_devops_cli_config)
@@ -2722,19 +2579,8 @@ def test_deploy_stack_dry_run_reports_the_config_map_and_host_overrides_and_runs
         cluster.calls,
         "devops/devops-cli-config" in res.output,
         "devops/devops-cli-config-sandbox" in res.output,
-        "argocd/devops" in res.output,
-        "argocd/ingress" in res.output,
-    ) == (0, [], True, True, True, True)
-
-
-def test_deploy_stack_dry_run_says_an_argo_cd_cluster_needs_a_domain_and_runs_nothing(
-    make_cluster: ClusterFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for name in ("DEVOPS_CLI_K8S_DOMAIN", "DEVOPS_CLI_DOMAIN", "DEVOPS_CLI_CLOUDFLARE_DOMAIN"):
-        monkeypatch.delenv(name, raising=False)
-    cluster = make_cluster()
-    res = _deploy(cluster, "--stack", "infra", "--dry-run")
-    assert (res.exit_code, cluster.calls, "no usable domain" in res.output) == (0, [], True)
+        "argocd_overrides" in res.output,
+    ) == (0, [], True, True, False)
 
 
 def test_deploy_stack_dry_run_refuses_like_the_deploy_without_service_repositories(
