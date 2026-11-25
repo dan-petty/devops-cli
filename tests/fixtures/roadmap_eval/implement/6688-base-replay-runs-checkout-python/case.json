@@ -1,0 +1,17 @@
+{
+  "name": "6688-base-replay-runs-checkout-python",
+  "source": "Merged delivery commit db5de9b84f0a of #6688, group 2.",
+  "issue": 6688,
+  "title": "fix(roadmap): the base replay of a step runs the checkout Python",
+  "group": 2,
+  "change": "6688-base-replay-runs-checkout-python",
+  "base": "3f81cdb1d5e24ecc3533e311edf0051382128192",
+  "changes": [
+    "docs/ROADMAP_WORKFLOW.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/implement/test_roadmap_implement_step_fail_to_pass.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

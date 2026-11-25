@@ -1,0 +1,18 @@
+{
+  "name": "1966-release-urgent-auto-merge",
+  "source": "Merged delivery commit 20e8ac46a41f of #1966, group 1.",
+  "issue": 1966,
+  "title": "feat(release): an urgent fix merges the release pull request",
+  "group": 1,
+  "change": "1966-release-urgent-auto-merge",
+  "base": "7d822567426fadadc975f8163438f91137d752f4",
+  "changes": [
+    ".github/labels.yml",
+    "RELEASE_CYCLE.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

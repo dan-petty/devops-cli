@@ -1,0 +1,17 @@
+{
+  "name": "1810-review-plan-validator",
+  "source": "Merged delivery commit aece067ac661 of #1810, group 1.",
+  "issue": 1810,
+  "title": "fix(review): do not cache rejected review plan replies (#1810)",
+  "group": 1,
+  "change": "1810-review-plan-validator",
+  "base": "001a7af8981b9dbe702828fdc9381744a4aa9911",
+  "changes": [
+    "tests/test_review_group_analysis.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_review_group_analysis.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

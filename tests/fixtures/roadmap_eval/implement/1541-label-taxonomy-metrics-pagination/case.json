@@ -1,0 +1,17 @@
+{
+  "name": "1541-label-taxonomy-metrics-pagination",
+  "source": "Merged delivery commit f5cd02270be2 of #1541, group 1.",
+  "issue": 1541,
+  "title": "fix(github): the label taxonomy metrics count every open issue across all pages and no pull requests",
+  "group": 1,
+  "change": "1541-label-taxonomy-metrics-pagination",
+  "base": "169859ad88aadba6e8c4ef1d8296d5bd3eb56e7f",
+  "changes": [
+    "tests/test_github_metrics.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_github_client.py tests/test_github_metrics.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

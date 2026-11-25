@@ -1,0 +1,17 @@
+{
+  "name": "4727-bytecode-caches",
+  "source": "Merged delivery commit b6fbbee4b2cc of #4727, group 1.",
+  "issue": 4727,
+  "title": "perf(ci): skip the sync bytecode compile in the test jobs",
+  "group": 1,
+  "change": "4727-bytecode-caches",
+  "base": "31adfc3e50bef245d5d620998c4825c304e3c19e",
+  "changes": [
+    ".github/actions/setup-toolchain/action.yml"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_ci.py tests/invariants/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

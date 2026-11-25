@@ -1,0 +1,17 @@
+{
+  "name": "3736-gate-test-self-acceptance",
+  "source": "Merged delivery commit 303bf4f3b9e7 of #3736, group 1.",
+  "issue": 3736,
+  "title": "fix(roadmap): a gate test holds the self-acceptance test",
+  "group": 1,
+  "change": "3736-gate-test-self-acceptance",
+  "base": "29309f04b878d6cf79c00009c75313685aafec0b",
+  "changes": [
+    "tests/roadmap/test_roadmap_stage_gates.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/test_roadmap_stage_gates.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

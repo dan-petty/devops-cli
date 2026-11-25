@@ -1,0 +1,19 @@
+{
+  "name": "2073-valkey-circuit-breaker",
+  "source": "Merged delivery commit 9d61b39d142c of #2073, group 1.",
+  "issue": 2073,
+  "title": "fix(cache): one circuit breaker with open, cooldown and half-open states guards the valkey cache tier and the rag lookup pause",
+  "group": 1,
+  "change": "2073-valkey-circuit-breaker",
+  "base": "f730cdbc57ead1b150a44f9cf54a23687ed4db98",
+  "changes": [
+    "src/devops_cli/config/defaults.py",
+    "src/devops_cli/valkey/cache.py",
+    "tests/test_valkey_cache_tier.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_builtin_tools.py tests/test_library_vector_tier.py tests/test_qdrant_timeout_setting.py tests/test_rag_embeddings.py tests/test_rag_investigator.py tests/test_security_threat_intel.py tests/test_valkey_cache_tier.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

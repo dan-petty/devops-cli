@@ -1,0 +1,18 @@
+{
+  "name": "4838-monitor-retry",
+  "source": "Merged delivery commit ad096e5bb1e0 of #4838, group 1.",
+  "issue": 4838,
+  "title": "fix(github): poll again after one failed read in pr monitor",
+  "group": 1,
+  "change": "4838-monitor-retry",
+  "base": "0c9e1411cef6eca643913f7a96789bc4a1bd3a9b",
+  "changes": [
+    "src/devops_cli/github/pr_monitor.py",
+    "tests/github/test_pr_monitor_retry.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/github/test_pr_monitor_retry.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

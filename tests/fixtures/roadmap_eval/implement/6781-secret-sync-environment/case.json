@@ -1,0 +1,24 @@
+{
+  "name": "6781-secret-sync-environment",
+  "source": "Merged delivery commit f9627cdd9c99 of #6781, group 1.",
+  "issue": 6781,
+  "title": "feat(gh): seal a secret into an environment with secret sync",
+  "group": 1,
+  "change": "6781-secret-sync-environment",
+  "base": "9197e922aa24e9b16762a20e21affb979d3c25b8",
+  "changes": [
+    "src/devops_cli/commands/config.py",
+    "src/devops_cli/commands/gh.py",
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/config/secret_input.py",
+    "src/devops_cli/github/secrets.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/lang/en/messages.py",
+    "tests/github/test_github_secrets.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/github/test_github_secrets.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

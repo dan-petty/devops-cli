@@ -1,0 +1,17 @@
+{
+  "name": "1356-mcp-tool-timeout",
+  "source": "Merged delivery commit 6cf8ff0cdd1b of #1356, group 1.",
+  "issue": 1356,
+  "title": "fix(mcp): an mcp tool stops at its timeout, also when its command runs in-process",
+  "group": 1,
+  "change": "1356-mcp-tool-timeout",
+  "base": "00b3572ab6873580d0a09fec6f375fffb39bce13",
+  "changes": [
+    "tests/test_fastmcp_in_process.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_fastmcp_in_process.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

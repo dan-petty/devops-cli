@@ -1,0 +1,17 @@
+{
+  "name": "6177-show-every-source-in-the-alternatives",
+  "source": "Merged delivery commit c8ee55803d6e of #6177, group 2.",
+  "issue": 6177,
+  "title": "fix(roadmap): Show every source in the alternatives comment",
+  "group": 2,
+  "change": "6177-show-every-source-in-the-alternatives",
+  "base": "a42ee4692f952d235a701e50daa108d7b2e2910a",
+  "changes": [
+    "docs/roadmap/alternatives.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/test_roadmap_alternatives.py tests/roadmap/test_roadmap_limit_classes.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

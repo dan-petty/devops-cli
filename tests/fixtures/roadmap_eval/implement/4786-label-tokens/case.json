@@ -1,0 +1,18 @@
+{
+  "name": "4786-label-tokens",
+  "source": "Merged delivery commit d945694f7c0d of #4786, group 1.",
+  "issue": 4786,
+  "title": "test(roadmap): hold each label color to its design token",
+  "group": 1,
+  "change": "4786-label-tokens",
+  "base": "eccd1714fa32526ebdf1e4e5c7d4ca0f79bb9064",
+  "changes": [
+    "src/devops_cli/roadmap/workflow_labels.py",
+    "tests/roadmap/test_roadmap_labels_file.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/test_roadmap_labels_file.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

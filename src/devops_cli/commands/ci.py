@@ -155,7 +155,7 @@ CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "startup-imports",
     "swallowed-failures",
     "domain",
-    "roadmap-stage-eval-commits",
+    "roadmap-eval-commits",
 )
 
 
@@ -1140,11 +1140,11 @@ def get_check_specs() -> list[CheckSpec]:
             host_refusal=_domain_host_refusal,
         ),
         CheckSpec(
-            name="roadmap-stage-eval-commits",
-            display_title=MESSAGES.ci.roadmap_stage_eval_commits,
-            cmd=_python_check_cmd("roadmap_stage_eval_commits"),
-            span_name="ci.step.roadmap_stage_eval_commits",
-            metric_step="roadmap_stage_eval_commits",
+            name="roadmap-eval-commits",
+            display_title=MESSAGES.ci.roadmap_eval_commits,
+            cmd=_python_check_cmd("roadmap_eval_commits"),
+            span_name="ci.step.roadmap_eval_commits",
+            metric_step="roadmap_eval_commits",
         ),
     ]
 

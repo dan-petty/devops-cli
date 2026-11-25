@@ -1,0 +1,21 @@
+{
+  "name": "1904-dashboard-invalid-tab",
+  "source": "Merged delivery commit 27f8c60d3b66 of #1904, group 1.",
+  "issue": 1904,
+  "title": "fix(dashboard): reject unknown tab option values and remove refresh_all",
+  "group": 1,
+  "change": "1904-dashboard-invalid-tab",
+  "base": "7672c7151a7b2eba9f455582a641f265450d2603",
+  "changes": [
+    "src/devops_cli/commands/dashboard.py",
+    "src/devops_cli/lang/en/errors.py",
+    "src/devops_cli/ui/refresh.py",
+    "tests/test_ui_dashboard.py",
+    "tests/test_ui_reactive.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_ui_dashboard.py tests/test_ui_reactive.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

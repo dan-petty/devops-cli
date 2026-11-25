@@ -1,0 +1,11 @@
+Split from #5017.
+
+### Problem Description 22 of the 60 newest deliveries of the repository hook got HTTP 403 with the response header `Server: cloudflare` (2026-11-12 07:56-08:09Z). GitHub does not send a failed delivery again, so each event step of the roadmap loses deliveries. The alert `RoadmapServiceWebhooksRejected` counts only the refusals of the route behind Traefik, so it cannot see a refusal at the edge. ### Why this part is deferred The cause is a rule of the Cloudflare zone: an Access application with no bypass for the path, a WAF rule or a rate rule. Only the owner changes the Cloudflare configuration (k8s/README.md, GitOps), and owner decision O3 holds the change. The App token of the Service cannot read the Access applications, the WAF rules or the zone settings, so no runner Job can find the rule. ### Work 1. Read the failed deliveries: `uv run devops gh api repos/<owner>/<name>/hooks/<id>/deliveries` gives the time, the event, the status code and the response headers. 2. Read the Access applications and policies of `hooks.<domain>` with `devops cloudflare access status --json` and `devops cloudflare access policies <app-id>`. 3. Find the rule that answers 403. Give the evidence to the owner when the fix is a change at the edge. ### Acceptance Criteria - [ ] The deliveries after the fix time hold no 403: `uv run devops gh api repos/<owner>/<name>/hooks/<id>/deliveries --jq '[.[]|select(.status_code==403)]|length'` gives 0. - [ ] `k8s/README.md`, setup step 6, names the bypass or the rule that the fix adds. - [ ] A comment on this issue names the rule that answered 403 and the time of the fix.
+
+### Owner decision 2026-11-13
+
+The approved pipeline split (tracker #5482, Phase 3) needs the webhook route for the events of D8. Its scope does not change. Owner step O3 changes the edge rule.
+
+- [ ] Live proof: after the fix and the owner step, a test delivery from the App settings page gets a 2xx answer through the edge. A comment gives the delivery ID and the status.
+
+<!-- devops-roadmap-record {"Effort": "Medium", "Owner": "Agent", "Priority": "P2-Medium", "Status": "In Review", "Value": "High", "intake.jev_shadow": "{\"at\":\"2026-11-12T10:32:55Z\",\"answers\":{\"priority\":[\"P1-High\",0.87,\"P2-Medium\"],\"value\":[\"High\",0.66,\"High\"],\"effort\":[\"Low\",0.31,\"Medium\"],\"duplicate\":[\"\",0.02,\"\"]}}"} -->

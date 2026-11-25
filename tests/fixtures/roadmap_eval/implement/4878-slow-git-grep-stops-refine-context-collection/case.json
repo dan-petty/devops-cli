@@ -1,0 +1,17 @@
+{
+  "name": "4878-slow-git-grep-stops-refine-context-collection",
+  "source": "Merged delivery commit 0eecb651a756 of #4878, group 1.",
+  "issue": 4878,
+  "title": "fix(roadmap): handle git grep timeout in refine context collection",
+  "group": 1,
+  "change": "4878-slow-git-grep-stops-refine-context-collection",
+  "base": "729dbeb8f817e7ff1daadf086900b9378e63e7c3",
+  "changes": [
+    "src/devops_cli/roadmap/refine/refine.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/refine/test_roadmap_refine_context.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

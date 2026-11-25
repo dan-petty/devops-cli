@@ -1,0 +1,17 @@
+{
+  "name": "6103-stage-request-window",
+  "source": "Merged delivery commit dd4681cf92f1 of #6103, group 2.",
+  "issue": 6103,
+  "title": "fix(roadmap): Fit the first stage request in its window again",
+  "group": 2,
+  "change": "6103-stage-request-window",
+  "base": "2b4ae1f67be7597f75cf9ed6979efd70a3d68c8b",
+  "changes": [
+    "docs/roadmap/stage.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_window.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

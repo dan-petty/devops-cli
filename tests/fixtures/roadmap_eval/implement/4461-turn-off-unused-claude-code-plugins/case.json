@@ -1,0 +1,18 @@
+{
+  "name": "4461-turn-off-unused-claude-code-plugins",
+  "source": "Merged delivery commit ff2b3a3a4c86 of #4461, group 1.",
+  "issue": 4461,
+  "title": "chore(agent): turn off unused Claude Code plugins",
+  "group": 1,
+  "change": "4461-turn-off-unused-claude-code-plugins",
+  "base": "54743c44dd786ed98e71b6e8d974c131099f9db1",
+  "changes": [
+    ".claude/settings.json",
+    "src/devops_cli/templates/claude_settings.json.j2"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_devcontainer.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

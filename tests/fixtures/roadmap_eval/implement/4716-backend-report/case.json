@@ -1,0 +1,18 @@
+{
+  "name": "4716-backend-report",
+  "source": "Merged delivery commit eccd1714fa32 of #4716, group 1.",
+  "issue": 4716,
+  "title": "fix(ai): pass served_by from the build_agent spend hook",
+  "group": 1,
+  "change": "4716-backend-report",
+  "base": "e61c91fc20909c7b043ac710b488fa3d9f870960",
+  "changes": [
+    "src/devops_cli/ai/client/factory.py",
+    "tests/ai/client/test_agent_factory.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/ai/client/test_agent_factory.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

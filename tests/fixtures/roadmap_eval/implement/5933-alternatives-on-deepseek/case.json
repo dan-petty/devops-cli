@@ -1,0 +1,19 @@
+{
+  "name": "5933-alternatives-on-deepseek",
+  "source": "Merged delivery commit dc5e3b66e0af of #5933, group 1.",
+  "issue": 5933,
+  "title": "fix(k8s): alternatives returns to DeepSeek",
+  "group": 1,
+  "change": "5933-alternatives-on-deepseek",
+  "base": "fc58f9ff0ca4a5e75a23d7788f0e560a4145252d",
+  "changes": [
+    "k8s/devops/configmap.example.yaml",
+    "tests/config/test_k8s_devops_runtime.py",
+    "tests/k8s/test_k8s_configmap.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/config/test_k8s_devops_runtime.py tests/k8s/test_k8s_configmap.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

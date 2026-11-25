@@ -1,0 +1,18 @@
+{
+  "name": "5970-generous-implement-tokens",
+  "source": "Merged delivery commit f5b7ce6cb332 of #5970, group 1.",
+  "issue": 5970,
+  "title": "chore(k8s): generous token budgets for the implement job",
+  "group": 1,
+  "change": "5970-generous-implement-tokens",
+  "base": "e6cf73110c7d0920e8150fa9f1494c064b406a8b",
+  "changes": [
+    "k8s/devops/configmap.example.yaml",
+    "tests/config/test_k8s_devops_runtime.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/config/test_k8s_devops_runtime.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

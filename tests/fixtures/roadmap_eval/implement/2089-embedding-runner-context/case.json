@@ -1,0 +1,18 @@
+{
+  "name": "2089-embedding-runner-context",
+  "source": "Merged delivery commit ff475047a19f of #2089, group 1.",
+  "issue": 2089,
+  "title": "fix(llm): pass num_ctx with direct ollama embedding requests",
+  "group": 1,
+  "change": "2089-embedding-runner-context",
+  "base": "9f97c14fe6ae1a37965a00835b1388f83d4c8420",
+  "changes": [
+    "src/devops_cli/ai/rag/embeddings.py",
+    "tests/test_rag_embeddings.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_rag_embeddings.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

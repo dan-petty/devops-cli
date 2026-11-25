@@ -1,0 +1,18 @@
+{
+  "name": "6654-delete-scaffold-step",
+  "source": "Merged delivery commit 90cf4f62b999 of #6654, group 2.",
+  "issue": 6654,
+  "title": "refactor(roadmap): delete the unused scaffold step",
+  "group": 2,
+  "change": "6654-delete-scaffold-step",
+  "base": "3ede1c4f20dfab49a03698be77db9382fa8b02c7",
+  "changes": [
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/roadmap/stage.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_roadmap_step.py tests/commands/test_roadmap_step_scaffold.py tests/github/test_client_git_refs.py tests/invariants/test_roadmap_workflow_doc.py tests/roadmap/steps/test_roadmap_step_scaffold.py tests/roadmap/test_roadmap_scaffold_docs.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

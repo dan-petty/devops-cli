@@ -1,0 +1,17 @@
+{
+  "name": "2292-naming-section-and-branch-hook",
+  "source": "Merged delivery commit 31aa72ebde56 of #2292, group 2.",
+  "issue": 2292,
+  "title": "docs(contributing): one Naming section states the branch pattern and each other naming rule with its check, and a pre-commit hook refuses a branch that breaks the pattern",
+  "group": 2,
+  "change": "2292-naming-section-and-branch-hook",
+  "base": "9383fd5f0ad17f609fac334eaf4b91a0cb415f8b",
+  "changes": [
+    ".pre-commit-config.yaml"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_agents_md_claims.py tests/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

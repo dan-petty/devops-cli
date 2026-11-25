@@ -1,0 +1,17 @@
+{
+  "name": "1430-review-dry-run-request-preview",
+  "source": "Merged delivery commit 9383fd5f0ad1 of #1430, group 1.",
+  "issue": 1430,
+  "title": "fix(review): the review dry run shows the request the model client would send, built by that client",
+  "group": 1,
+  "change": "1430-review-dry-run-request-preview",
+  "base": "2e6b40f0ddce52bf4e612987955576d6bed41fa8",
+  "changes": [
+    "tests/test_review_dry_run_preview.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_review_dry_run_preview.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

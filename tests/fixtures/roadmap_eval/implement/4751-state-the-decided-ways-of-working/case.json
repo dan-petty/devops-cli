@@ -1,0 +1,26 @@
+{
+  "name": "4751-state-the-decided-ways-of-working",
+  "source": "Merged delivery commit 84df338ec06b of #4751, group 1.",
+  "issue": 4751,
+  "title": "docs(sdlc): state the decided ways of working in the standards",
+  "group": 1,
+  "change": "4751-state-the-decided-ways-of-working",
+  "base": "fbe8984de5a477437e4f7c6b01b2e3504a273ada",
+  "changes": [
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "CONTEXT.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs/ROADMAP_WORKFLOW.md",
+    "docs/ROUTINE_TASKS.md",
+    "docs/SDLC.md",
+    "docs/TESTING.md",
+    "k8s/README.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/invariants/test_roadmap_stage_measure_doc.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

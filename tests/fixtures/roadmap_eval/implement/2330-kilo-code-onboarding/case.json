@@ -1,0 +1,19 @@
+{
+  "name": "2330-kilo-code-onboarding",
+  "source": "Merged delivery commit 3a6189eab951 of #2330, group 1.",
+  "issue": 2330,
+  "title": "feat(devcontainer): onboard Kilo Code with a kilo.jsonc that exposes the devops-cli MCP server",
+  "group": 1,
+  "change": "2330-kilo-code-onboarding",
+  "base": "1b17048ba119f68b6d8f4d709865cb9ef7e8c010",
+  "changes": [
+    "docs/DEVCONTAINER_USAGE.md",
+    "kilo.jsonc",
+    "tests/test_devcontainer.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_devcontainer.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

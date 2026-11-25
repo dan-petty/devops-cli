@@ -1,0 +1,26 @@
+{
+  "name": "2231-delete-the-kubernetes-and-logs-dashboard",
+  "source": "Merged delivery commit 2d8b693d99f6 of #2231, group 1.",
+  "issue": 2231,
+  "title": "refactor(ui): delete kubernetes and logs dashboard tabs",
+  "group": 1,
+  "change": "2231-delete-the-kubernetes-and-logs-dashboard",
+  "base": "aea5adc80ea91030fcde08de6008addc65118255",
+  "changes": [
+    "src/devops_cli/commands/dashboard.py",
+    "src/devops_cli/config/constants.py",
+    "src/devops_cli/config/defaults.py",
+    "src/devops_cli/lang/en/help.py",
+    "src/devops_cli/ui/dashboard.py",
+    "src/devops_cli/ui/data_providers.py",
+    "src/devops_cli/ui/pod_inspector.py",
+    "src/devops_cli/ui/projections.py",
+    "src/devops_cli/ui/refresh.py",
+    "src/devops_cli/ui/widgets.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/k8s/test_k8s.py tests/ui/test_ui_container_aware_logs.py tests/ui/test_ui_dashboard_app.py tests/ui/test_ui_dashboard_cli.py tests/ui/test_ui_dashboard_state_store.py tests/ui/test_ui_focus_follows_tab.py tests/ui/test_ui_help.py tests/ui/test_ui_k8s_filters.py tests/ui/test_ui_k8s_provider.py tests/ui/test_ui_k8s_stable_selection.py tests/ui/test_ui_keeping_place.py tests/ui/test_ui_log_pane.py tests/ui/test_ui_one_stream_at_a_time.py tests/ui/test_ui_pod_inspector.py tests/ui/test_ui_projections.py tests/ui/test_ui_refresh_coordination.py tests/ui/test_ui_row_keys.py tests/ui/test_ui_shutdown.py tests/ui/test_ui_snapshot_age_staleness.py tests/ui/test_ui_widget_app_integration.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

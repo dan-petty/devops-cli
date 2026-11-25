@@ -1,0 +1,18 @@
+{
+  "name": "2022-grafana-drilldown-plugins",
+  "source": "Merged delivery commit 1c602332d568 of #2022, group 1.",
+  "issue": 2022,
+  "title": "fix(monitoring): grafana pins its four drilldown app plugins at the 3.x releases that grafana 13 needs",
+  "group": 1,
+  "change": "2022-grafana-drilldown-plugins",
+  "base": "3807f8f66c57ce9efac18085628fe70787b0bd5f",
+  "changes": [
+    "k8s/monitoring/grafana-values.yaml",
+    "tests/test_k8s_monitoring_integration.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_k8s_monitoring_integration.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}
