@@ -2846,7 +2846,6 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization(
         [
             Path("k8s"),
             Path("k8s", "monitoring"),
-            Path("k8s", "gpu-feature-discovery"),
             # The object store, after the charts: its Seaweed CR needs the operator's CRD (#4750).
             Path("k8s", "object-store"),
         ],
@@ -2858,11 +2857,11 @@ def test_native_deploy_stack_infra_applies_the_monitoring_kustomization(
     [
         (
             "infra",
-            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+            [str(Path("k8s", "monitoring"))],
         ),
         (
             "all",
-            [str(Path("k8s", "monitoring")), str(Path("k8s", "gpu-feature-discovery"))],
+            [str(Path("k8s", "monitoring"))],
         ),
         ("llm", []),
     ],

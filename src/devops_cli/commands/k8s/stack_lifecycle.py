@@ -371,7 +371,7 @@ PRODUCT_MANIFESTS_BY_STACK: dict[str, list[Path]] = {
 # `monitoring` Application alone owns its objects (#1279); a cluster without Argo CD gets the same
 # kustomization from here: the namespace's perimeter (#913) and the Grafana dashboards (#1297).
 KUSTOMIZATIONS_BY_STACK: dict[str, tuple[Path, ...]] = {
-    "infra": (Path("monitoring"), Path("gpu-feature-discovery")),
+    "infra": (Path("monitoring"),),
 }
 
 # Paths under --k8s-dir applied after Helm releases install their CRDs (step 9) and deleted in
