@@ -11,6 +11,10 @@ the modules it imports.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+REFUSED_STAND_IN_DIRNAME = "refused-program-bin"
+
 
 def refused_programs() -> frozenset[str]:
     """gh, and the binary of every scanner the security scanner registry holds."""
@@ -22,3 +26,13 @@ def refused_programs() -> frozenset[str]:
     return frozenset(
         {CONST_GH_CLI, *(scanner.binary_name for scanner in scanners if scanner is not None)}
     )
+
+
+def stand_in_directory(directory: Path) -> Path:
+    """Write an executable stand-in for every refused program into `directory` (#4439)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in sorted(refused_programs()):
+        executable = directory / name
+        executable.write_text("#!/bin/sh\nexit 127\n", encoding="utf-8")
+        executable.chmod(0o755)
+    return directory

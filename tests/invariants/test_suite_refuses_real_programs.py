@@ -10,13 +10,15 @@ exceptions.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
 from devops_cli.config.commands import BIN_BANDIT, BIN_GITLEAKS, BIN_SEMGREP
 from devops_cli.config.constants import CONST_GH_CLI
-from tests.support.refused_programs import refused_programs
+from tests.support.refused_programs import REFUSED_STAND_IN_DIRNAME, refused_programs
 
 
 @pytest.mark.parametrize("program", sorted(refused_programs()))
@@ -73,3 +75,15 @@ def test_the_refused_programs_include_gh_and_the_scanners_a_review_runs() -> Non
     named = {CONST_GH_CLI, BIN_SEMGREP, BIN_GITLEAKS, BIN_BANDIT}
 
     assert named - refused_programs() == set()
+
+
+@pytest.mark.parametrize("program", sorted(refused_programs()))
+def test_each_refused_program_is_found_on_the_floor_path(
+    program: str, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Each refused program resolves to the floor stand-in directory on every host (#4439)."""
+    expected = tmp_path_factory.getbasetemp() / REFUSED_STAND_IN_DIRNAME / program
+    found = shutil.which(program)
+
+    assert found is not None
+    assert Path(found) == expected
