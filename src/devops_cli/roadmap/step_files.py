@@ -22,6 +22,7 @@ from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import block_marker_of
 from devops_cli.roadmap.markdown import commonmark_parser
 
 MARKDOWN = commonmark_parser()
@@ -182,17 +183,21 @@ def _headings(tokens: Sequence[Token], tag: str) -> list[tuple[int, int, str]]:
 
 def section_text(body: str, titles: frozenset[str]) -> str:
     """The text of each section of `body` whose heading is one of `titles`, heading included.
-    A section ends at the next heading of its level or a higher one."""
+    A section ends at the next heading of its level or a higher one, or at a top-level job block
+    marker (`block_marker_of`, #6626)."""
     tokens = MARKDOWN.parse(body)
     lines = body.splitlines()
-    marks = [
-        (token.map[0], int(token.tag[1:]), tokens[index + 1].content)
-        for index, token in enumerate(tokens)
-        if token.type == "heading_open" and token.level == 0 and token.map is not None
-    ]
+    marks: list[tuple[int, int, str | None]] = []
+    for index, token in enumerate(tokens):
+        if token.level != 0 or token.map is None:
+            continue
+        if token.type == "heading_open":
+            marks.append((token.map[0], int(token.tag[1:]), tokens[index + 1].content))
+        elif block_marker_of(token) is not None:
+            marks.append((token.map[0], 0, None))
     found: list[str] = []
     for position, (first, level, title) in enumerate(marks):
-        if title.strip().casefold() not in titles:
+        if title is None or title.strip().casefold() not in titles:
             continue
         end = next(
             (start for start, deeper, _ in marks[position + 1 :] if deeper <= level), len(lines)

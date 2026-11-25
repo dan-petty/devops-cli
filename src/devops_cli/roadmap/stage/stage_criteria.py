@@ -32,7 +32,7 @@ from markdown_it.token import Token
 from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.body_hash import extract_section_and_outside
+from devops_cli.roadmap.body_hash import block_marker_of, extract_section_and_outside
 from devops_cli.roadmap.markdown import commonmark_parser
 
 PENDING_PERSON: Final[str] = "pending-person"
@@ -230,7 +230,8 @@ def requirement_lines(body: str) -> list[RequirementLine]:
 
 def acceptance_criteria(body: str) -> list[str]:
     """The acceptance criteria of the issue body: the top-level list items under each heading
-    `Acceptance criteria` of the part that a person wrote, each on one line, in order."""
+    `Acceptance criteria` of the part that a person wrote, ending an open heading at a job block
+    marker (`block_marker_of`, #6626), each on one line, in order."""
     tokens = commonmark_parser().parse(_without_refine_block(body))
     found: list[str] = []
     level = 0  # the level of the open `Acceptance criteria` heading, 0 when none is open
@@ -238,6 +239,8 @@ def acceptance_criteria(body: str) -> list[str]:
         if token.type == "heading_open":
             title = tokens[index + 1].content.strip()
             level = int(token.tag[1:]) if _HEADING_TITLE.fullmatch(title) else 0
+        elif block_marker_of(token) is not None:
+            level = 0
         elif level and token.type == "list_item_open" and token.level == _ITEM_LEVEL:
             inline = next(t for t in tokens[index + 1 :] if t.type == "inline")
             text = one_line(_TASK_MARK.sub("", inline.content.strip()))
