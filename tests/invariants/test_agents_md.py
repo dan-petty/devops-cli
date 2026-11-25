@@ -826,3 +826,16 @@ def test_rule_2_directs_agents_to_work_tracker_sub_issues_instead_of_returning()
     assert "tracker" in generated
     assert "sub-issues" in generated
     assert "related issues" in generated
+
+
+def test_sdlc_prioritizes_blockers_and_allows_explicit_pr_handoff() -> None:
+    """`docs/SDLC.md` orders pull requests by priority rather than strict chronological FIFO
+    across all open pull requests, and lets agents act on handed-off or unclaimed pull requests
+    while keeping active session branches isolated (#7092)."""
+    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
+
+    assert "Sequential Pull Request Processing Queue" not in sdlc
+    assert "Process only your own pull requests." not in sdlc
+    assert "Priority-First Pull Request Processing & Handoff" in sdlc
+    assert "handoff" in sdlc.lower()
+    assert "active session" in sdlc.lower()
