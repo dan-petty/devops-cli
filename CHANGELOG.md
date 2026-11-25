@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.9](https://github.com/dan-petty/devops-cli/compare/v0.221.8...v0.221.9) (2026-11-25)
+
+
+### Code Refactoring
+
+* **k8s:** delete the deploy-time host overrides of Argo CD ([#7258](https://github.com/dan-petty/devops-cli/issues/7258)) ([9237574](https://github.com/dan-petty/devops-cli/commit/92375740edb0e5a815bf426495ef956384f59744))
+
 ## [0.221.8](https://github.com/dan-petty/devops-cli/compare/v0.221.7...v0.221.8) (2026-11-25)
 
 
