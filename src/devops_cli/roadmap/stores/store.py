@@ -1314,14 +1314,16 @@ class RoadmapStore(Protocol):
     def close_milestone(self, name: str) -> Milestone:
         """Close the milestone `name` names, raising if there is none."""
 
-    def item(self, number: int) -> Item | None:
+    def item(self, number: int, *, fresh: bool = False) -> Item | None:
         """The Item numbered `number`, or None when that issue is no Item: it holds no
-        Priority, is a pull request or does not exist."""
+        Priority, is a pull request or does not exist. When `fresh` is true, read live state
+        from GitHub rather than trusting a cached brain entry."""
 
-    def issue(self, number: int) -> IssueRecord | None:
+    def issue(self, number: int, *, fresh: bool = False) -> IssueRecord | None:
         """The issue numbered `number`, Item or not, from one read, or None when it is a pull
         request or does not exist. The Status writer reads its label back through it, also on a
-        candidate that holds no Priority yet (#5018)."""
+        candidate that holds no Priority yet (#5018). When `fresh` is true, read live state
+        from GitHub rather than trusting a cached brain entry."""
 
     def items(self, *, milestone: int | None = None) -> list[Item]:
         """Every Item, open and closed, or only those in the milestone numbered `milestone`."""

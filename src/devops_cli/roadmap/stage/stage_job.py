@@ -272,7 +272,7 @@ def check_in(
     the item reads now."""
     if job is None:
         return None
-    item = store.item(number)
+    item = store.item(number, fresh=True)
     if item is None or item.job_record.get(StageRecordKey.JOB) != job:
         return None
     if item.job_record.get(StageRecordKey.PR) and (
@@ -342,7 +342,7 @@ def _return_for_split(
             },
         ),
     )
-    held = store.item(item.number)
+    held = store.item(item.number, fresh=True)
     if held is not None and held.owner == CONST_ROADMAP_OWNER_SERVICE:
         service_release(store, item.number, {})
 
@@ -383,7 +383,7 @@ def known_job(store: RoadmapStore, number: int, job: str | None) -> bool:
     when the Job does not check in. A Job that a person starts has no check-out."""
     if job is None:
         return False
-    held = store.item(number)
+    held = store.item(number, fresh=True)
     return held is not None and held.job_record.get(StageRecordKey.JOB) == job
 
 

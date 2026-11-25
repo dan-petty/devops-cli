@@ -169,7 +169,7 @@ def _read_back(store: RoadmapStore, done: StatusWrite) -> None:
     """Read the issue of `done` again, and raise when its label is not the written Status. The
     read is of the issue, not of the Item: intake writes New before the Priority that makes the
     issue an Item."""
-    back = store.issue(done.number)
+    back = store.issue(done.number, fresh=True)
     found = item_of(back).status if back is not None else None
     if found == done.status:
         return
@@ -223,7 +223,7 @@ def sync_status(store: RoadmapStore, item: Item, facts: StatusFacts) -> str | No
     status = derive_status(facts)
     if status == item.status:
         return None
-    current = store.item(item.number)
+    current = store.item(item.number, fresh=True)
     if current is None or current.status != item.status or not owns_status(current):
         return None
     return write_status(store, current, facts).status

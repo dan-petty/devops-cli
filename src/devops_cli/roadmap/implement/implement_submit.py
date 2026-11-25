@@ -236,7 +236,7 @@ def _settles_as_stop(item: Item) -> bool:
 
 
 def _fresh(store: RoadmapStore, number: int) -> Item:
-    held = store.item(number)
+    held = store.item(number, fresh=True)
     if held is None:
         raise LookupError(MESSAGES.roadmap.item_left_not_item)
     return held
@@ -391,15 +391,20 @@ def _report(
         marks[ImplementRecordKey.SPEND_COUNTED] = str(spend)
     service_release(store, item.number, marks)
     if stops and failure is not None:
-        write_status(
-            store,
-            _fresh(store, item.number),
-            StatusFacts(stopped=True),
-            marks={
-                ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP,
-                ImplementRecordKey.FAILURE: failure.value,
-            },
-        )
+        item = _fresh(store, item.number)
+        if _settles_as_stop(item):
+            write_status(
+                store,
+                item,
+                StatusFacts(stopped=True),
+                marks={
+                    ImplementRecordKey.STOPPED: CONST_ROADMAP_IMPLEMENT_JOB_STEP,
+                    ImplementRecordKey.FAILURE: failure.value,
+                },
+            )
+        else:
+            failure = _recorded_failure(item)
+            result = _attempt_result(item)
     _emit_implement_metrics(repo, item, _outcome(state, failure), failure, new_tokens)
     log_implement_attempt(
         repo,

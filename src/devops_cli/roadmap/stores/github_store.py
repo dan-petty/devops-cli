@@ -866,18 +866,18 @@ class GitHubRoadmapStore(RoadmapStore):
 
     # ── Items ──
 
-    def item(self, number: int) -> Item | None:
+    def item(self, number: int, *, fresh: bool = False) -> Item | None:
         """The Item numbered `number`, from one read of its issue, or None when the issue holds
         no Priority, is a pull request or does not exist."""
-        found = self.issue(number)
+        found = self.issue(number, fresh=fresh)
         return None if found is None else next(iter(select_items([found])), None)
 
-    def issue(self, number: int) -> IssueRecord | None:
+    def issue(self, number: int, *, fresh: bool = False) -> IssueRecord | None:
         """The issue numbered `number`, Item or not, from one read, or None when it is a pull
         request or does not exist."""
         row = request_labels().get("row", "")
         cached = cached_issue(self._repo, number)
-        if cached is not None and cached.is_fresh():
+        if cached is not None and not fresh and cached.is_fresh():
             emit(BRAIN_CACHE_TOTAL, 1, {"row": row, "result": "hit"})
             return cached.record
 
@@ -893,6 +893,8 @@ class GitHubRoadmapStore(RoadmapStore):
             self._repo,
             CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)),
         )
+        if self._all is not None:
+            self._all = self._all | {record.number: record}
         return record
 
     def _revalidate_issue(self, number: int, entry: CachedIssue) -> IssueRecord | None:

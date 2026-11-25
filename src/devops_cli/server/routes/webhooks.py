@@ -422,6 +422,40 @@ def _remember_delivery_issue(repo: str, payload: GitHubWebhookPayload | None) ->
         remember_issue(repo, issue_from_event(repo, payload.issue))
 
 
+def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> None:
+    """Refresh the cached issue from an App bot `issues` webhook only when its `updated_at` time
+    is strictly newer than the stored entry, so stale or same-second hooks cannot replace newer
+    writes (#7063)."""
+    issue = payload.issue
+    if (
+        payload.comment is not None
+        or issue is None
+        or issue.number is None
+        or issue.pull_request is not None
+    ):
+        return
+    from devops_cli.roadmap.stores.brain_issues import (
+        cached_issue,
+        issue_from_event,
+        remember_issue,
+    )
+
+    existing = cached_issue(repo, issue.number)
+    if existing is not None and existing.record.updated_at is not None:
+        if issue.updated_at is None or issue.updated_at <= existing.record.updated_at:
+            return
+    remember_issue(repo, issue_from_event(repo, issue))
+
+
+def _own_write_refusal(bot: str | None, payload: GitHubWebhookPayload) -> str | None:
+    """Refuse webhooks authored by the Service bot after refreshing newer `issues` payloads."""
+    sender = payload.sender
+    if not (bot and sender and sender.login.lower() == bot.lower()):
+        return None
+    _remember_own_delivery_issue(payload.repository.full_name, payload)
+    return CONST_SERVICE_STATUS_OWN_WRITE
+
+
 def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
     """The roadmap jobs' consumer: each event their batch keys name runs a round in every lane of
     its repository, except the writes of the GitHub App's own bot. A subscribed event that can be
@@ -490,17 +524,12 @@ def roadmap_consumer(service_manager: ServiceManager) -> WebhookConsumer:
             repo, CONST_SERVICE_SOURCE_WEBHOOK, event, action, subject=subject
         )
 
-    def refuse_own_write(payload: GitHubWebhookPayload) -> str | None:
-        bot, sender = service_manager.bot_login, payload.sender
-        own_write = bot and sender and sender.login.lower() == bot.lower()
-        return CONST_SERVICE_STATUS_OWN_WRITE if own_write else None
-
     def refuse_comment(payload: GitHubWebhookPayload) -> str | None:
         """The status of a delivery that the roadmap consumer ignores, before any GitHub request:
         the App bot's own write, else the refusal of the comment that the payload carries (#4415),
         else the refusal of the release that it carries (#4416)."""
         return (
-            refuse_own_write(payload)
+            _own_write_refusal(service_manager.bot_login, payload)
             or _comment_refusal(payload, payload.comment)
             or _release_refusal(payload)
         )

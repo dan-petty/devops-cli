@@ -2601,3 +2601,123 @@ def test_two_groups_of_an_item_share_one_conversation(
     assert seen[0][1] is not None
     assert seen[1][1] is seen[0][1]
     assert seen[1][2] is sentinel
+
+
+def test_report_reads_live_issue_when_brain_cache_holds_stale_in_progress(
+    process_fake: Any,
+    built: FakeCluster,
+    shared_valkey: Any,
+    valkey_server: Any,
+) -> None:
+    """`_report` bypasses a fresh stale `brain-issue` cache entry when a runner Job published
+    `status/in-review` and `implement.result="drafted"` without Valkey access (#7063)."""
+    from datetime import UTC, datetime
+
+    from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
+    from devops_cli.roadmap.implement import implement_submit
+    from devops_cli.roadmap.stores.brain_issues import CachedIssue, remember_issue
+    from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
+    from devops_cli.roadmap.stores.store import (
+        IssueRecord,
+        encode_job_record,
+        select_items,
+        split_record,
+        with_record,
+    )
+    from tests.support.fakes.github import RunnerSession
+    from tests.support.fakes.github_repository import GitHubFake
+
+    now = datetime.now(UTC)
+    github = GitHubFake(STAGE_REPO)
+    live_body = with_record(
+        "Implement feature",
+        encode_job_record(
+            {},
+            {
+                ImplementRecordKey.JOB: "runner-job-1",
+                ImplementRecordKey.RESULT: "drafted",
+            },
+        ),
+    )
+    github.seed_issue(
+        1,
+        "Track fix",
+        body=live_body,
+        labels=("priority/p1-high", "status/in-review", "owner/service"),
+        updated_at=now,
+    )
+    github.install(process_fake)
+    store = GitHubRoadmapStore(STAGE_REPO, runner=github, session=RunnerSession(github))
+
+    stale_record = IssueRecord(
+        number=1,
+        title="Track fix",
+        url=f"https://github.com/{STAGE_REPO}/issues/1",
+        body="Implement feature",
+        labels=("priority/p1-high", "status/in-progress", "owner/service"),
+        updated_at=now,
+        job_record={ImplementRecordKey.JOB.value: "runner-job-1"},
+    )
+    remember_issue(STAGE_REPO, CachedIssue(record=stale_record, etag='W/"1"', checked_at=now))
+    stale_item = select_items([stale_record])[0]
+
+    implement_submit._report(
+        store,
+        ClusterJobs(),
+        STAGE_REPO,
+        stale_item,
+        "runner-job-1",
+        ClusterJob(name="runner-job-1", state=JobState.SUCCEEDED),
+    )
+
+    live_labels = {lbl["name"] for lbl in github.issues[1]["labels"]}
+    _, live_marks = split_record(github.issues[1]["body"], issue="#1")
+    assert github.comments.get(1, []) == []
+    assert "status/in-review" in live_labels
+    assert "status/blocked" not in live_labels
+    assert "owner/service" not in live_labels
+    assert live_marks.get(ImplementRecordKey.JOB_STATE.value) == "succeeded"
+    assert ImplementRecordKey.STOPPED.value not in live_marks
+    assert ImplementRecordKey.FAILURE.value not in live_marks
+
+
+def test_report_skips_stop_write_when_service_release_sees_non_stop_status(
+    built: FakeCluster,
+) -> None:
+    """If the runner updates the issue to `In Review` after the initial read and before
+    `write_status`, `_report` re-checks `_settles_as_stop` and keeps `In Review` (#7063)."""
+    from devops_cli.k8s.cluster_job_api import ClusterJob, ClusterJobs, JobState
+    from devops_cli.roadmap.implement import implement_submit
+
+    store = InMemoryRoadmapStore(repo=STAGE_REPO)
+    number = seed_staged(store, status="In Progress")
+    held = _held(store, number)
+    store.label_issue(number, "owner/service")
+    store.set_marks(held, {ImplementRecordKey.JOB: "runner-job-1"})
+    held = _held(store, number)
+
+    original_set_field = store.set_field
+
+    def race_on_release(item_arg: Any, field: Any, value: Any, **kwargs: Any) -> Any:
+        result = original_set_field(item_arg, field, value, **kwargs)
+        if field is ItemField.OWNER:
+            live = _held(store, number)
+            original_set_field(live, ItemField.STATUS, "In Review")
+            store.set_marks(_held(store, number), {ImplementRecordKey.RESULT: "drafted"})
+        return result
+
+    store.set_field = race_on_release  # type: ignore[method-assign]
+
+    implement_submit._report(
+        store,
+        ClusterJobs(),
+        STAGE_REPO,
+        held,
+        "runner-job-1",
+        ClusterJob(name="runner-job-1", state=JobState.SUCCEEDED),
+    )
+
+    final_item = _held(store, number)
+    assert final_item.status == "In Review"
+    assert final_item.job_record.get(ImplementRecordKey.STOPPED.value) is None
+    assert final_item.job_record.get(ImplementRecordKey.FAILURE.value) is None
