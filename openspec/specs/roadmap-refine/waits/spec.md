@@ -177,14 +177,18 @@ A round that writes a proposal SHALL record `CONST_ROADMAP_REFINE_RULES_SINCE` a
 - **THEN** the next round leaves it waiting on a person and makes no model call
 
 ### Requirement: A dependency cycle gives a person step that names it
-`devops roadmap refine` SHALL give an item the next step `person` when a dependency of the item leads back to the item, before the step that its proposal gives. The detail of the step SHALL name the full cycle, and refine's section SHALL name the cycle under its Suspected block heading. The round SHALL record no open issue as a blocker for that item.
+`devops roadmap refine` SHALL decide the cycle step from the open blockers of its new proposal against the round's graph, giving `person` when a dependency leads back, naming the cycle in the detail and under Suspected block, and recording no open blocker.
 
 #### Scenario: Two items in a cycle
-- **WHEN** a refine round reads a store where the record of A names B and the Dependencies section of B names A, and each proposal is complete
+- **WHEN** a refine round reads a store where the record of A names B and the Dependencies section of B names A, and each proposal keeps its dependency
 - **THEN** the step of A and of B is `person`, each detail names its cycle, no open issue is a blocker of either, and each refine section names the cycle under its Suspected block heading
 
+#### Scenario: Reply removes the last edge
+- **WHEN** a person reply removes the last edge of a cycle, the model proposal names no dependency, and `uv run pytest tests/roadmap/refine/test_roadmap_refine_cycle.py -k reply_removes_edge` runs
+- **THEN** the test asserts that the same round gives the item no `person` cycle step and sets its Status to Ready
+
 ### Requirement: A cycle keeps an item out of Ready and ends its wait
-Refine SHALL NOT set the Status to Ready for an item in a cycle, and a Ready item in a cycle SHALL go back to New. A round SHALL end the recorded wait of an item whose record holds the step `blocked` when that item is in a cycle, and `devops roadmap explain` SHALL give the answer that the round gives.
+Refine SHALL NOT set the Status to Ready for an item in a cycle, and a Ready item in a cycle SHALL go back to New. A round SHALL end the recorded wait of an item whose record holds the step `blocked` when that item is in a cycle, and SHALL end a `person` wait whose recorded cycle no longer exists in the current bodies and records of the open items. `devops roadmap explain` SHALL give the answer that the round gives.
 
 #### Scenario: The Status of an item in a cycle stays New
 - **WHEN** a refine round finds item A in a cycle whose proposal passes every form check
@@ -197,6 +201,10 @@ Refine SHALL NOT set the Status to Ready for an item in a cycle, and a Ready ite
 #### Scenario: Explain ends the wait that the round ends
 - **WHEN** a person runs `devops roadmap explain` for item A whose record holds the step `blocked` on the open item B, and the record of B or its Dependencies section names A
 - **THEN** the refine line of the output says that refine takes the item, and names no wait on the open issue
+
+#### Scenario: Other body removes the edge
+- **WHEN** a person removes the edge `#2 → #1` from the body of #2, the next round refines #1, and `uv run pytest tests/roadmap/refine/test_roadmap_refine_cycle.py -k stale_cycle_wait_ends` runs
+- **THEN** the test asserts that the round clears the `person` wait of #1 and sets its Status to Ready
 
 ### Requirement: An issue reference under Dependencies names a blocker
 Refine SHALL read each `#N` under the Dependencies heading of the body as a dependency of the proposal, also in a sentence of prose, unless the requirement "A link under Dependencies names no blocker" leaves it out.
@@ -376,3 +384,10 @@ A round SHALL refine an unchanged item that waits on `NextStep.BLOCKED` when its
 #### Scenario: The body still names an open dependency under the current rule
 - **WHEN** the new look runs for an item whose body still names an open issue in its Dependencies section under the current rule
 - **THEN** the round keeps `refine.blocked_by` naming that open issue, updates `refine.rules` to `CONST_ROADMAP_REFINE_RULES_SINCE`, and the next round keeps it waiting
+
+### Requirement: Refine guide names the cycle step
+The refine guide SHALL name the dependency cycle step in its list of next steps and state that only an open dependency outside a cycle makes an item wait.
+
+#### Scenario: Guide text check
+- **WHEN** `uv run pytest tests/roadmap/refine/test_roadmap_refine_cycle.py -k guide` runs
+- **THEN** the test asserts that `docs/roadmap/refine.md` names the cycle step and the rule that only an open dependency outside a cycle makes an item wait

@@ -25,6 +25,7 @@ from devops_cli.roadmap.stores.store import (
     install_roadmap_store,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_refine import (
     READY,
     REPO,
@@ -91,9 +92,10 @@ def _seed_cycle(
     round leaves A with the step `blocked` on B, and the body of B closes the cycle (#6449)."""
     store.seed_visibility(is_private=True)
     a = seed_item(store, "New", "P1-High")
-    b = seed_item(store, "New", "P1-High", body=f"Body P1-High\n\n## Dependencies\n\n- #{a}\n")
-    model_fake.answer(blocked_by_issue(b), READY)
+    b = seed_item(store, "New", "P1-High")
+    model_fake.answer(blocked_by_issue(b), blocked_by_issue(b), blocked_by_issue(a))
     refine_round(store, source, limit=1)
+    store.write_issue_body(b, f"Body P1-High\n\n## Dependencies\n\n- #{a}\n")
     return a, b
 
 
@@ -274,3 +276,90 @@ def test_an_edge_to_the_parent_tracker_closes_no_cycle(
         [(r.item.number, r.next_step) for r in plan.refined_items],
         require_item(store, number).status,
     ) == ([(number, "ready")], "Ready")
+
+
+def _settle_cycle_person_wait(
+    store: InMemoryRoadmapStore, source: Path, model_fake: ModelFake
+) -> tuple[int, int]:
+    """Seed two open items whose proposals name each other, and run one round so both settle on
+    the `person` cycle step (#6515)."""
+    store.seed_visibility(is_private=True)
+    a = seed_item(store, "New", "P1-High")
+    b = seed_item(store, "New", "P1-High", body=f"Body P1-High\n\n## Dependencies\n\n- #{a}\n")
+    store.set_marks(require_item(store, a), {RefineRecordKey.BLOCKED_BY: str(b)})
+    model_fake.answer(blocked_by_issue(b), blocked_by_issue(a))
+    refine_round(store, source)
+    return a, b
+
+
+def test_reply_removes_edge_gives_no_cycle_step(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """When a person reply removes the last edge of a cycle and the model proposal names no
+    dependency, the same refine round decides the cycle from the new proposal and sets Ready
+    instead of keeping the pre-round `person` cycle wait (#6515)."""
+    a, b = _settle_cycle_person_wait(store, git_repo, model_fake)
+    assert require_item(store, a).job_record.get(RefineRecordKey.NEXT_STEP) == "person"
+
+    store.as_actor("alice").comment(a, f"#{a} does not depend on #{b}.")
+    model_fake.answer(READY)
+    plan = refine_round(store, git_repo)
+
+    item_a = require_item(store, a)
+    assert (
+        [(r.item.number, r.is_ready, r.next_step, r.step_details) for r in plan.refined_items],
+        item_a.status,
+        "dependency cycle" in store.read_issue_body(a),
+    ) == ([(a, True, "ready", ())], "Ready", False)
+
+
+def test_stale_cycle_wait_ends_when_other_body_removes_edge(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """When a person removes `#2 -> #1` from the body of #2 so the recorded cycle no longer exists
+    in the open items' bodies and records, the next round clears #1's stale `person` wait without
+    requiring a reply on #1 (#6515)."""
+    a, b = _settle_cycle_person_wait(store, git_repo, model_fake)
+    assert refine_left_out(store, require_item(store, a)) is not None
+
+    _, section_b = extract_section_and_outside(store.read_issue_body(b))
+    assert section_b is not None
+    store.write_issue_body(b, f"Body P1-High\n\n## Dependencies\n\nNone.\n\n{section_b}")
+    explained = refine_left_out(store, require_item(store, a))
+    model_fake.answer(READY, READY)
+    plan = refine_round(store, git_repo)
+
+    assert (
+        explained,
+        [(r.item.number, r.is_ready, r.next_step) for r in plan.refined_items],
+        require_item(store, a).status,
+        require_item(store, b).status,
+    ) == (None, [(a, True, "ready"), (b, True, "ready")], "Ready", "Ready")
+
+
+def test_unchanged_active_cycle_keeps_person_wait_with_no_model_call(
+    store: _ListingCountingStore, git_repo: Path, model_fake: ModelFake
+) -> None:
+    """When the recorded cycle still exists in the current bodies and records, the next round
+    leaves the item waiting on `person` with zero model calls (#6515)."""
+    a, _ = _settle_cycle_person_wait(store, git_repo, model_fake)
+    calls = model_fake.call_count
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step.value) for w in plan.waiting_items if w.item.number == a],
+        plan.refined_items,
+        model_fake.call_count - calls,
+    ) == ([(a, "person")], [], 0)
+
+
+def test_refine_guide_names_cycle_step() -> None:
+    """The refine guide lists the cycle step among the next steps and states that only an open
+    dependency outside a cycle makes an item wait (#6515)."""
+    text = (REPO_ROOT / "docs" / "roadmap" / "refine.md").read_text(encoding="utf-8")
+    marker = "An item that refine cannot set to Ready gets a next step. The step is one of these:"
+    _, after = text.split(marker, 1)
+    step_list = after.split("\n\n", 2)[1]
+    assert "cycle" in step_list.lower()
+    assert "outside a cycle" in text.lower()
