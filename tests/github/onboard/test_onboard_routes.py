@@ -45,6 +45,7 @@ def test_no_route_writes_a_setting_of_another_owner(route: object) -> None:
 
 
 def test_each_write_of_a_confirmed_run_is_a_route(onboard_github: OnboardHarness) -> None:
+    onboard_github.state.pull_author = "devops-cli-service[bot]"
     options = OnboardOptions(repo=RepoRef(REPO), confirm=True, workdir=onboard_github.workdir)
 
     onboard_repository(options, session=get_github_session(), settings=load_settings())

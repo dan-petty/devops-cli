@@ -477,6 +477,31 @@ def test_a_stale_template_pull_request_gets_a_new_commit(onboard_github: Onboard
     assert f"POST /repos/{REPO}/pulls" not in onboard_github.writes()
 
 
+def test_a_bot_template_pull_request_requests_the_repository_owner(
+    onboard_github: OnboardHarness,
+) -> None:
+    onboard_github.state.pull_author = "devops-cli-service[bot]"
+
+    report = _run(onboard_github, confirm=True, only=frozenset({9}))
+
+    assert _row(report, 9).state is RowState.APPLIED, render_report(report)
+    assert f"POST /repos/{REPO}/pulls/1/requested_reviewers" in onboard_github.writes()
+    assert [entry["login"] for entry in onboard_github.state.pulls[0]["requested_reviewers"]] == [
+        "example-org"
+    ]
+
+
+def test_an_owner_template_pull_request_skips_requesting_the_owner(
+    onboard_github: OnboardHarness,
+) -> None:
+    onboard_github.state.pull_author = "example-org"
+
+    report = _run(onboard_github, confirm=True, only=frozenset({9}))
+
+    assert _row(report, 9).state is RowState.APPLIED, render_report(report)
+    assert f"POST /repos/{REPO}/pulls/1/requested_reviewers" not in onboard_github.writes()
+
+
 def test_a_confirmed_run_starts_the_pass_of_an_index_that_is_not_current(
     onboard_github: OnboardHarness, config: Any
 ) -> None:

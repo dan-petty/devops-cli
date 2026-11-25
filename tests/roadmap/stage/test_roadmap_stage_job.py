@@ -209,6 +209,11 @@ def test_the_job_counts_its_item_with_the_repository(
     otlp: FakeCollector,
 ) -> None:
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     number = seed_stageable(store)
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
@@ -230,6 +235,11 @@ def test_the_jobs_count_staged_needs_split_failed_and_skipped_items_once_each(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     github_api.route("POST", f"/repos/{STAGE_REPO}/pulls", OPENED)
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     seed_stageable(store)
     seed_stageable(store, "fix(roadmap): the job drops a label")
     seed_stageable(store, "fix(roadmap): the job drops a tag")

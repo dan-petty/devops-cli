@@ -375,6 +375,11 @@ def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     _seed_pull_5(store)
     finding = _finding(DefectType.TASK_ORDER, SAMPLE_QUOTE)
     model_fake.answer(make_stage_proposal())
@@ -387,7 +392,12 @@ def test_an_open_task_order_finding_keeps_the_draft_with_the_label(
     assert (model_fake.call_count, verifier.call_count) == (3, 3)
     assert change.open_findings == (finding,)
     assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
-    assert json.loads(github_api.sent[-1].content)["draft"] is True
+    assert (
+        json.loads(
+            [r for r in github_api.sent if r.method == "POST" and r.url.path == PULLS][-1].content
+        )["draft"]
+        is True
+    )
 
 
 def test_a_quote_of_a_file_that_the_verifier_read_past_the_cap_returns_the_plan(
@@ -502,6 +512,11 @@ def test_the_comment_lists_the_findings_of_each_repair_round_and_each_verifier_r
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(make_stage_proposal(), make_stage_proposal(summary="Repaired plan"))
     reads = Script(
         call("read_file", path="src/devops_cli/sample.py"),
@@ -535,6 +550,11 @@ def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_an
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(make_stage_proposal())
     verifier.answer(
         Verification(
@@ -548,8 +568,17 @@ def test_a_minor_contrived_test_finding_is_in_the_comment_and_the_draft_opens_an
     assert applied.staged == (1,)
     assert "contrived_test" in comment
     assert "Problem of contrived_test." in comment
-    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
-    assert json.loads(github_api.sent[-1].content)["draft"] is True
+    assert github_api.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
+    assert (
+        json.loads(
+            [r for r in github_api.sent if r.method == "POST" and r.url.path == PULLS][-1].content
+        )["draft"]
+        is True
+    )
 
 
 def test_a_comment_without_findings_has_no_findings_section(
@@ -563,6 +592,11 @@ def test_a_comment_without_findings_has_no_findings_section(
         "POST",
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
     )
     model_fake.answer(make_stage_proposal())
     verifier.answer(Verification())
@@ -601,6 +635,11 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     _seed_pull_5(store)
     placeholder = _finding(DefectType.OTHER, "placeholder")
     model_fake.answer(make_stage_proposal())
@@ -614,7 +653,12 @@ def test_a_placeholder_finding_keeps_the_draft_and_applies_the_label(
     assert applied.staged == (1,)
     assert change.open_findings == (placeholder,)
     assert store._roadmap.issues[5].labels == (FIX_PLAN_LABEL,)
-    assert json.loads(github_api.sent[-1].content)["draft"] is True
+    assert (
+        json.loads(
+            [r for r in github_api.sent if r.method == "POST" and r.url.path == PULLS][-1].content
+        )["draft"]
+        is True
+    )
     # The plan-state comment lists the open findings after the groups, and the comment of the run
     # lists none (#6197).
     heading = "A model review of the plan found these open findings."
@@ -637,6 +681,11 @@ def test_a_clean_review_applies_no_needs_fix_label(
         "POST",
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
     )
     _seed_pull_5(store)
     model_fake.answer(make_stage_proposal())
@@ -663,6 +712,11 @@ def test_a_minor_finding_is_a_point_of_the_comment_and_applies_no_label(
         "POST",
         PULLS,
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
+    )
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
     )
     _seed_pull_5(store)
     minor = _finding(DefectType.SPEC_DELTA_WRONG, SAMPLE_QUOTE, severity=Severity.MINOR)

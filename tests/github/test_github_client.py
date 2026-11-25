@@ -845,6 +845,55 @@ def test_a_draft_pull_request_is_opened_with_the_draft_flag(
     }
 
 
+def test_created_pull_reads_author_and_requested_reviewers_and_requests_missing_only(
+    github_api: GitHubApiFake, pin_github_session: str
+) -> None:
+    """CreatedPull reads author and requested_reviewers, missing_pull_reviewers drops the author
+    and existing reviewers case-insensitively, and request_pull_reviewers posts once."""
+    from devops_cli.github.client import missing_pull_reviewers
+
+    github_api.route(
+        "POST",
+        "/repos/octocat/Hello-World/pulls",
+        github_json(
+            {
+                "number": 12,
+                "html_url": "https://example.com/pull/12",
+                "user": {"login": "devops-cli-service[bot]"},
+                "requested_reviewers": [{"login": "Existing-Reviewer"}],
+            },
+            status=201,
+        ),
+    )
+    github_api.route(
+        "POST",
+        "/repos/octocat/Hello-World/pulls/12/requested_reviewers",
+        github_json({"requested_reviewers": [{"login": "dan-petty"}]}),
+    )
+
+    created = _client().create_draft_pull(
+        "octocat/Hello-World", title="fix: a title", body="Plans #1", head="fix/1-a", base="main"
+    )
+    needed = missing_pull_reviewers(
+        ("DevOps-CLI-Service[bot]", "existing-reviewer", "dan-petty", "dan-petty"),
+        author=created.author,
+        existing=created.requested_reviewers,
+    )
+    _client().request_pull_reviewers("octocat/Hello-World", created.number, needed)
+    _client().request_pull_reviewers("octocat/Hello-World", created.number, ())
+
+    assert (created.author, created.requested_reviewers, needed) == (
+        "devops-cli-service[bot]",
+        ("Existing-Reviewer",),
+        ("dan-petty",),
+    )
+    assert github_api.requested == [
+        f"POST {API}/repos/octocat/Hello-World/pulls",
+        f"POST {API}/repos/octocat/Hello-World/pulls/12/requested_reviewers",
+    ]
+    assert json.loads(github_api.sent[1].content) == {"reviewers": ["dan-petty"]}
+
+
 def test_a_pull_request_is_closed_with_a_state_change(
     github_api: GitHubApiFake, pin_github_session: str
 ) -> None:

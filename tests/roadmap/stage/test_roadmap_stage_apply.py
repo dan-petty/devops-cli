@@ -87,6 +87,11 @@ def store() -> InMemoryRoadmapStore:
 def opened(github_api: GitHubApiFake) -> GitHubApiFake:
     """GitHub, answering the request that opens a pull request."""
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     return github_api
 
 
@@ -144,8 +149,13 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
         "openspec/config.yaml",
         "openspec/specs/roadmap-refine/spec.md",
     ]
-    assert opened.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
-    request = json.loads(opened.sent[-1].content)
+    assert opened.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
+    pull_post = next(r for r in opened.sent if r.method == "POST" and r.url.path == PULLS)
+    request = json.loads(pull_post.content)
     assert request["draft"] is True
     assert request["title"] == "docs(spec): plan #1 Stop the job dropping a comment"
     assert (request["head"], request["base"]) == (BRANCH, "main")
@@ -271,6 +281,11 @@ def test_the_comment_states_the_graphql_requests_of_the_overlap_read(
         ),
     )
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(
         make_stage_proposal(
             feasibility=[
@@ -533,7 +548,7 @@ def test_a_refused_push_stops_its_item_and_the_others_are_staged(
     assert (failure.number, failure.error) == (1, "GitOperationError")
     assert "refused by the hook" in failure.reason
     assert _pushed(stage_repo) == ["fix/2-the-job-drops-a-label", "main"]
-    posted = [r for r in opened.sent if r.method == "POST"]
+    posted = [r for r in opened.sent if r.method == "POST" and r.url.path == PULLS]
     assert [json.loads(r.content)["head"] for r in posted] == ["fix/2-the-job-drops-a-label"]
     item = store.item(1)
     assert item is not None

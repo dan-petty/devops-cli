@@ -62,6 +62,11 @@ def staging(
     seed_stageable(roadmap_store)
     roadmap_store.seed_file(".github/labels.yml", '- name: "type/docs"\n  color: "0075ca"\n')
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     return roadmap_store
 
@@ -167,7 +172,11 @@ def test_next_stage_round_resumes_and_stages_after_orphan_cleanup_kept_branch(
     )
     assert record.job_record.get(StageRecordKey.PR) == "5"
     assert record.job_record.get(StageRecordKey.PENDING) is None
-    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert github_api.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
 
 
 def test_orphan_cleanup_clears_pending_when_branch_is_deleted_or_gone(
@@ -306,4 +315,8 @@ def test_a_stage_round_killed_after_checkpoint_push_resumes_with_zero_planner_ca
     assert staged == (1,)
     assert removed == (1,)
     assert _pushed(stage_repo) == [BRANCH, "main"]
-    assert github_api.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert github_api.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]

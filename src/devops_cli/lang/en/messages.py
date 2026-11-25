@@ -5103,6 +5103,7 @@ class RoadmapMessages:
             "repair": "the review of the head plan has an open finding",
             "push": "the pushed plan reads back: revised or cleared: the revision is not the same plan as the gated plan, and its reviews fixed more open findings of the head than they added; or regated: the plan that the checks pass is not the same plan as the head",
             "validate": "the openspec binary is on PATH",
+            "pull_reviewers": "the pull request author is not the owner",
             "update_pull": "the title or the body of the pushed plan differs",
             "unlabel": "cleared (no open finding remains), dismissed (the review of the head found none), or regated after a review of the new plan with no open finding and no failed step",
             "comment": "the result is revised, cleared, regated, dismissed, stopped or timeout",
@@ -5206,6 +5207,7 @@ class RoadmapMessages:
             "push": "push the branch of the item with a lease on the recorded commit of a "
             "re-stage, or on the tip that prepare found",
             "pull": "open the draft pull request of the item",
+            "pull_reviewers": "request a review of the pull request from the owner",
             "delete_failed": "delete the pushed branch when the pull request cannot open",
             "delete_rejected": "delete the staged branch of a rejected plan",
             "close_pull": "close the draft pull request of a closed item",
@@ -5221,6 +5223,7 @@ class RoadmapMessages:
             "model_split": "a task group is over the budget",
             "model_correction": "the change fails its checks",
             "validate": "the openspec binary is on PATH",
+            "pull_reviewers": "the pull request author is not the owner",
             "delete_failed": "GitHub refuses the pull request",
             "orphan_pulls": "the round removes the pushed branch of an orphan draft",
             "close_pull": "only the identity of the session wrote to the branch",
@@ -5275,6 +5278,7 @@ class RoadmapMessages:
             "find_draft": "the open draft of the new branch, which an earlier publish of the run "
             "opened",
             "create_pull": "open the draft pull request of the new branch",
+            "pull_reviewers": "request a review of the pull request from the owner",
             "delete_refused": "delete the new branch with a lease on its push, when GitHub refuses "
             "its draft",
             "body": "set the title and the body of the pull request to close the issue",
@@ -5312,6 +5316,7 @@ class RoadmapMessages:
             "draft_refused": "GitHub refuses the draft of a branch that the run made",
             "unlabel": "the pull request holds a label that the new title does not give",
             "removal": "the pull request holds a label that the new title does not give",
+            "pull_reviewers": "the pull request author is not the owner",
         }
     )
     stage_none: str = "None."

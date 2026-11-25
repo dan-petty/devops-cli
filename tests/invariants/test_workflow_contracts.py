@@ -210,6 +210,18 @@ def test_release_please_makes_every_release_on_a_push_to_main() -> None:
             _RELEASE_CREATED,
         ),
     )
+    review_step = steps["Request review on the release pull request"]
+    assert (
+        review_step["if"],
+        review_step["env"]["GH_TOKEN"],
+        review_step["env"]["REVIEWER"],
+        "requested_reviewers" in review_step["run"],
+    ) == (
+        "steps.release.outputs.releases_created != 'true' && steps.release.outputs.pr != ''",
+        "${{ steps.app.outputs.token }}",
+        "dan-petty",
+        True,
+    )
     assert [name for name in jobs if name != "release-please" and not _gated(jobs, name)] == []
 
 

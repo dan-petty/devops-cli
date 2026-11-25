@@ -704,3 +704,86 @@ def test_a_draft_body_over_the_limit_above_closes_is_refused() -> None:
     assert open_body_problems(at_limit, issue=5020, plan=False) == []
     problems = open_body_problems(over_limit, issue=5020, plan=False)
     assert [f"has {BODY_MAX_CHARS + 1} characters" in problem for problem in problems] == [True]
+
+
+@pytest.mark.parametrize(
+    ("pull_payload", "expect_request"),
+    [
+        pytest.param(
+            {
+                "number": 701,
+                "html_url": f"https://github.com/{REPO}/pull/701",
+                "user": {"login": "devops-cli-service[bot]"},
+                "requested_reviewers": [],
+            },
+            True,
+            id="bot-author",
+        ),
+        pytest.param(
+            {
+                "number": 701,
+                "html_url": f"https://github.com/{REPO}/pull/701",
+                "user": {"login": "dan-petty"},
+                "requested_reviewers": [],
+            },
+            False,
+            id="reviewer-is-author",
+        ),
+        pytest.param(
+            {
+                "number": 701,
+                "html_url": f"https://github.com/{REPO}/pull/701",
+                "user": {"login": "devops-cli-service[bot]"},
+                "requested_reviewers": [{"login": "dan-petty"}],
+            },
+            False,
+            id="already-requested",
+        ),
+    ],
+)
+def test_open_requests_missing_non_author_reviewers(
+    store: InMemoryRoadmapStore,
+    github_api: GitHubApiFake,
+    pull_payload: dict[str, Any],
+    expect_request: bool,
+) -> None:
+    """When opening a new draft PR, request reviewers only if not author or already requested."""
+    from devops_cli.roadmap.steps.open import OpenRequest, open_or_update
+
+    item_num = store.seed_issue(title=TITLE, body=BODY, fields={ItemField.PRIORITY: "P1-High"})
+    github_api.route("POST", f"/repos/{REPO}/pulls", github_json(pull_payload, status=201))
+    if expect_request:
+        github_api.route(
+            "POST",
+            f"/repos/{REPO}/pulls/701/requested_reviewers",
+            github_json({"requested_reviewers": [{"login": "dan-petty"}]}),
+        )
+
+    open_or_update(
+        OpenRequest(
+            repo=REPO,
+            head=BRANCH,
+            base=BASE,
+            title=TITLE,
+            body=_delivery_body(item_num),
+            kind="delivery",
+            item=item_num,
+            store=store,
+            lookup_existing=False,
+            reviewers=("dan-petty",),
+        )
+    )
+
+    reviewer_posts = [
+        req for req in github_api.requested if req.endswith("/pulls/701/requested_reviewers")
+    ]
+    assert reviewer_posts == (
+        [f"POST {API}/repos/{REPO}/pulls/701/requested_reviewers"] if expect_request else []
+    )
+    if expect_request:
+        reviewer_call = next(
+            req
+            for req in github_api.sent
+            if req.url.path.endswith("/pulls/701/requested_reviewers")
+        )
+        assert json.loads(reviewer_call.content) == {"reviewers": ["dan-petty"]}

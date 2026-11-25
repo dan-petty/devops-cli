@@ -898,6 +898,13 @@ def stage_requests(
             repeat=each_item,
         ),
         other("REST write", "pull", "POST", pulls),
+        other(
+            "REST write",
+            "pull_reviewers",
+            "POST",
+            f"{pulls}/{_p('pull')}/requested_reviewers",
+            when=cond["pull_reviewers"],
+        ),
         *within(store.file(CONST_ROADMAP_LABELS_PATH, None), repeat=each_item),
         *within(store.label_issue(_p("pull")), repeat=each_item),
         other("git", "new_repo", "git", "init", "--quiet", fresh, when=cond["delete_failed"]),
@@ -1228,6 +1235,13 @@ def implement_requests(
             "POST",
             f"{CONST_URL_GITHUB_API_BASE}/repos/{repo}/pulls",
             when=cond["planned"],
+        ),
+        other(
+            "REST write",
+            "pull_reviewers",
+            "POST",
+            f"{pulls}/requested_reviewers",
+            when=cond["pull_reviewers"],
         ),
         *new_repo(cond["draft_refused"]),
         git(

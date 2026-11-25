@@ -40,6 +40,7 @@ from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
 from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.git.worktree_add import read_remote_heads
 from devops_cli.git.worktree_inventory import CONST_REFS_HEADS_PREFIX
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.clone_git import git
@@ -208,6 +209,7 @@ def delivery_request(
         kind="delivery",
         item=item.number,
         store=store,
+        reviewers=(RepoRef(repo).owner,),
         changed=tuple(files),
     )
 

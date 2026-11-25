@@ -131,6 +131,11 @@ def stageable(
     number = seed_stageable(store)
     _check_out(store, number, JOB)
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     return number
 
 
@@ -557,6 +562,11 @@ def test_a_job_that_a_person_starts_logs_its_result_line(
     config(roadmap={"stage": {"job": JOB}})
     number = seed_stageable(store)
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     model_fake.answer(make_stage_proposal())
 
     with caplog.at_level(logging.INFO, logger=RESULT_LOGGER):
@@ -914,9 +924,9 @@ def test_the_entry_installs_a_request_budget_of_the_setting(
     config: Callable[..., Path],
 ) -> None:
     """Every GitHub request of the Job takes a place in the budget of the pod. The reads of the open
-    step (#5974) and the pull request of the draft are such requests, and at the limit the next
-    request waits."""
-    limit = len(OPEN_STEP_READS) + 1
+    step (#5974), opening the draft, and requesting reviewers are such requests, and at the limit
+    the next request waits."""
+    limit = len(OPEN_STEP_READS) + 2
     config(roadmap={"stage": {"job": JOB, "github_requests_per_hour": limit}})
     model_fake.answer(make_stage_proposal())
 
@@ -959,6 +969,11 @@ def test_the_command_exits_with_the_code_of_the_job(
 ) -> None:
     config(roadmap={"stage": {"job": JOB}})
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     number = seed_stageable(roadmap_store)
     _check_out(roadmap_store, number, JOB)
     model_fake.answer(AttemptKilled())
@@ -981,6 +996,11 @@ def test_the_command_writes_the_result_line_to_stderr(
     (#5556)."""
     config(roadmap={"stage": {"job": JOB}})
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     number = seed_stageable(roadmap_store)
     _check_out(roadmap_store, number, JOB)
     no_findings(model_fake)
@@ -1082,6 +1102,11 @@ def test_the_three_phases_run_in_turn_on_one_run_folder(
     stage_repo.track(gate_files(openspec_fake.version))
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     number = seed_stageable(roadmap_store)
     work = tmp_path / "run"
     clone = work / "work" / CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME
@@ -1128,6 +1153,11 @@ def test_no_phase_runs_the_stage_job_in_one_process_with_no_run_file(
     tmp_path: Path,
 ) -> None:
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     number = seed_stageable(roadmap_store)
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())

@@ -668,6 +668,11 @@ def _world(
                 {"number": PULL, "html_url": f"https://example.com/pull/{PULL}"}, status=201
             ),
         )
+        api.route(
+            "POST",
+            f"/repos/{STAGE_REPO}/pulls/{PULL}/requested_reviewers",
+            github_json({"requested_reviewers": [{"login": "example"}]}),
+        )
     roadmap_store.seed_file(".github/labels.yml", LABELS_FILE)
     seed_staged(roadmap_store, record=not planned)
     for i in range(2, 5):

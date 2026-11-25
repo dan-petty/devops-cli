@@ -36,6 +36,7 @@ from devops_cli.exceptions.git import (
 )
 from devops_cli.exceptions.roadmap import RoadmapOpenRefusedError
 from devops_cli.git.branch_form import issue_of_branch
+from devops_cli.github.client import missing_pull_reviewers
 from devops_cli.github.release_title import (
     ADDED_STATUS,
     RELEASE_CONFIG_PATH,
@@ -132,6 +133,7 @@ class OpenRequest:
     head_commit_message: str | None = None
     lookup_existing: bool = True
     retry_refused: bool = True
+    reviewers: Sequence[str] = ()
     # The files of the diff of the head, when the caller read them: the step then reads no diff.
     changed: Sequence[PullRequestFile] | None = None
 
@@ -414,6 +416,12 @@ def _handle_new_pull(
             head=request.head,
             base=request.base,
         )
+
+    reviewers = missing_pull_reviewers(
+        request.reviewers, author=created.author, existing=created.requested_reviewers
+    )
+    if reviewers:
+        client.request_pull_reviewers(request.repo, created.number, reviewers)
 
     if request.store and desired_labels:
         try:

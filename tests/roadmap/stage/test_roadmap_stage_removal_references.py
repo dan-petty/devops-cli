@@ -46,6 +46,11 @@ def store() -> InMemoryRoadmapStore:
 @pytest.fixture
 def opened(github_api: GitHubApiFake) -> GitHubApiFake:
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     return github_api
 
 
@@ -336,7 +341,11 @@ def test_stage_succeeds_and_comments_warning_on_unhandled_source_reference(
     _stage_one(store, STAGE_REPO, stage_repo.clone, sha, change, (), NOW)
 
     # Pull request was opened, after the reads of the open step (#5974)
-    assert opened.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
+    assert opened.requested == [
+        *OPEN_STEP_READS,
+        f"POST {API}{PULLS}",
+        f"POST {API}{PULLS}/5/requested_reviewers",
+    ]
     # Issue comment names src/example.py as a warning
     comments = [c.body for c in store.comments_on(1)]
     assert any("src/example.py" in c and "warning" in c.lower() for c in comments)

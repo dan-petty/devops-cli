@@ -73,6 +73,26 @@ jobs:
             gh pr merge "$number" --repo "$REPOSITORY" --auto --squash
           fi
 
+      # Ask the owner to review the release pull request when the author is not the owner.
+      - name: Request review on the release pull request
+        if: steps.release.outputs.releases_created != 'true' && steps.release.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+          REVIEWER: dan-petty
+        run: |
+          number=$(jq -r '.number // empty' <<< "$RELEASE_PR")
+          if [ -n "$number" ]; then
+            author=$(jq -r '.user.login // empty' <<< "$RELEASE_PR")
+            has_reviewer=$(jq -r --arg r "$REVIEWER" \
+              '[.requested_reviewers[]?.login] | index($r) != null' <<< "$RELEASE_PR")
+            if [ "$author" != "$REVIEWER" ] && [ "$has_reviewer" != "true" ]; then
+              gh api "repos/$REPOSITORY/pulls/$number/requested_reviewers" \
+                -X POST -f "reviewers[]=$REVIEWER"
+            fi
+          fi
+
   assets:
     name: Upload Release Assets
     needs: release-please

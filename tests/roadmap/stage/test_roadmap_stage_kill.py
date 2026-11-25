@@ -83,6 +83,11 @@ def stageable(
         },
     )
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/{DRAFT}/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     github_api.route("PATCH", f"{PULLS}/{DRAFT}", github_json({"number": DRAFT}))
     github_api.route(
         "GET",

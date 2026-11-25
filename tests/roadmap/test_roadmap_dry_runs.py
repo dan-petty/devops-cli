@@ -932,6 +932,7 @@ def test_the_implement_plan_reads_the_default_branch_and_lists_the_writes_of_a_p
     assert any("show origin/main:openspec/changes/<change>/tasks.md" in line for line in read_lines)
     assert any("switch --quiet -c <new branch> origin/main" in line for line in write_lines)
     assert f"POST {API}/repos/{REPO}/pulls" in write_lines
+    assert f"POST {API}/repos/{REPO}/pulls/<pull request>/requested_reviewers" in write_lines
 
 
 def test_the_stage_plan_lists_the_read_of_the_labels_file_and_the_label_request() -> None:
@@ -941,6 +942,7 @@ def test_the_stage_plan_lists_the_read_of_the_labels_file_and_the_label_request(
     _, writes = stage_requests(REPO)
 
     write_lines = [" ".join(request.argv) for request in writes]
+    assert f"POST {API}/repos/{REPO}/pulls/<pull request>/requested_reviewers" in write_lines
     assert any(
         CONST_ROADMAP_LABELS_PATH in line or ".github%2Flabels.yml" in line for line in write_lines
     )

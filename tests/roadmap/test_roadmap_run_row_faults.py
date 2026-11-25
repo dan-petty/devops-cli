@@ -130,6 +130,11 @@ def test_service_stop_between_stage_items_preserves_first_stage_work(
     store.seed_pull("staging PR 1", head_ref="fix/1-the-job-drops-a-comment", draft=True)
     store.seed_pull("staging PR 2", head_ref="fix/2-the-job-drops-a-label", draft=True)
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
 
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     openspec_fake.script_sequence(validate_args("2-the-job-drops-a-label"), (0, VALID_REPORT))
@@ -176,6 +181,11 @@ def test_failed_marks_write_records_stage_failure_and_keeps_draft_pr(
     )
     store.seed_pull("staging PR 1", head_ref="fix/1-the-job-drops-a-comment", draft=True)
     github_api.route("POST", PULLS, OPENED)
+    github_api.route(
+        "POST",
+        f"{PULLS}/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
 
     openspec_fake.script_sequence(validate_args("1-the-job-drops-a-comment"), (0, VALID_REPORT))
     model_fake.answer(make_stage_proposal())

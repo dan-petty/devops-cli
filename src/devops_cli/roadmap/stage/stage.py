@@ -161,6 +161,7 @@ from devops_cli.git.worktree_add import (
     remote_branches,
 )
 from devops_cli.github.client import CreatedPull
+from devops_cli.github.repo_ref import RepoRef
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.openspec.project import uses_openspec
@@ -3856,6 +3857,7 @@ def _open_pull(repo: str, source: Path, change: StagedChange, sha: str) -> Creat
                 body=change.body,
                 kind="plan",
                 lookup_existing=False,
+                reviewers=(RepoRef(repo).owner,),
             )
         )
         return CreatedPull(number=res.number, html_url=res.html_url, labels=res.labels)

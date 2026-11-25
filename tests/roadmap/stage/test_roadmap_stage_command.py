@@ -92,6 +92,11 @@ def test_confirm_stages_the_item_and_reports_it(
         f"/repos/{STAGE_REPO}/pulls",
         github_json({"number": 5, "html_url": "https://example.com/pull/5"}, status=201),
     )
+    github_api.route(
+        "POST",
+        f"/repos/{STAGE_REPO}/pulls/5/requested_reviewers",
+        github_json({"requested_reviewers": []}),
+    )
     seed_stageable(roadmap_store)
     no_findings(model_fake)
     model_fake.answer(make_stage_proposal())
