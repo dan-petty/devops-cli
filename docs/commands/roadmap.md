@@ -596,6 +596,24 @@ devops roadmap eval grades [OPTIONS]
 | `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
 | `--dry-run` | `boolean` | - | Send no request: print the LogQL queries that a run sends. |
 
+### `devops roadmap eval funnel`
+
+**Report roadmap item conversion by ISO-week cohort and path (G1 or continue) from GitHub timeline events and Loki result lines (docs/roadmap/job-success.md). Groups items by latest active status/ready event at or after --since, gives n, share, Wilson 95% bounds, smallest change, median and p90 duration, young in-progress count, tokens and cost_usd_micros per success, New-to-staged tokens per item, and missing result-line counts.**
+
+```bash
+devops roadmap eval funnel [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--since` | `string` | - | Start date or ISO timestamp (UTC) for cohort status/ready label events. |
+| `--repo` | `string` | - | Report only this repository (owner/name). Default: repositories in service.repos. |
+| `--loki-url` | `string` | - | The Loki to query. Without it, the loki.url setting, else http://localhost:3100. |
+| `--json`, `-j` | `boolean` | - | Output findings or metrics as JSON. |
+| `--dry-run` | `boolean` | - | Send no request: print the planned GitHub REST and Loki LogQL queries. |
+
 ### `devops roadmap eval harbor`
 
 **Export an implement eval fixture as a Harbor task, and run the trials of one task with the Harbor command line. Harbor (harbor-framework/harbor) runs one agent on one task in a container N times and reports the reward of each trial, so the numbers compare with those of another harness. Both commands are on demand and no part of `devops ci`, and the harbor program and the Docker engine go through the process seam.**

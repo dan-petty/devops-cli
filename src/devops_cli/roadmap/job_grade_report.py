@@ -137,8 +137,10 @@ _FIELDS: Final = (
     r"result=(?P<result>\S+) success=(?P<success>\S+) class=(?P<failure_class>\S+) "
     r"infra=(?P<infra>\S+) .*version=(?P<version>\S+)$"
 )
-# The fields of a line with its item, for the `drafted` lines of implement (#6559).
-_ITEM_FIELDS: Final = _FIELDS.replace(r"item=\S+ ", r"item=#?(?P<item>[0-9]+) ")
+# The fields of a line with its item, for the `drafted` lines of implement (#6559) and the
+# item cohort funnel (#5494).
+ITEM_FIELDS: Final = _FIELDS.replace(r"item=\S+ ", r"item=#?(?P<item>[0-9]+) ")
+_ITEM_FIELDS: Final = ITEM_FIELDS
 _KEY: Final = "roadmap_job, repo"
 # The counts of each efficiency query: the count of the line and the LogQL of the range.
 _EFFICIENCY: Final[Mapping[GradeQueryKind, tuple[str, str]]] = {
@@ -342,8 +344,13 @@ def _lines(repo: RepoRef | None) -> str:
     return pipeline
 
 
-def _count_label(count: str) -> str:
+def count_label(count: str) -> str:
+    """The LogQL regexp stage that extracts numeric count `count` from a result line."""
     return f"| regexp ` {count}=(?P<{count}>[0-9]+) `"
+
+
+def _count_label(count: str) -> str:
+    return count_label(count)
 
 
 def _query(kind: GradeQueryKind, window: GradeWindow, repo: RepoRef | None) -> GradeQuery:
@@ -981,6 +988,7 @@ def _verdict_lines(report: GradeReport) -> list[str]:
 
 
 __all__ = [
+    "ITEM_FIELDS",
     "RESULT_LINES",
     "RESULT_LINE_SELECTOR",
     "TREND_WINDOWS",
@@ -996,6 +1004,7 @@ __all__ = [
     "WindowGrade",
     "WorkflowGrade",
     "build_grade_report",
+    "count_label",
     "grade_report",
     "plan_grade_queries",
     "plan_verdict_search",
