@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.218.2](https://github.com/dan-petty/devops-cli/compare/v0.218.1...v0.218.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* **devcontainer:** set DOCKER_HOST for Minikube with Podman ([#7126](https://github.com/dan-petty/devops-cli/issues/7126)) ([bdb338a](https://github.com/dan-petty/devops-cli/commit/bdb338a3f1e60242e85564e4f94add0e3736eca1))
+* **repos:** exclude nested .venv directories from prune data ([#7127](https://github.com/dan-petty/devops-cli/issues/7127)) ([a45d7ce](https://github.com/dan-petty/devops-cli/commit/a45d7ce2b2d1ceefcf3c3ae2e52d7cf7ac725b09)), closes [#6636](https://github.com/dan-petty/devops-cli/issues/6636)
+* **roadmap:** clear implement run keys on rejected plan or return ([#7121](https://github.com/dan-petty/devops-cli/issues/7121)) ([2ad146a](https://github.com/dan-petty/devops-cli/commit/2ad146a8b446058025dbed55fc9043354488566d))
+* **roadmap:** remove spend disagreement pair from catalog ([#7125](https://github.com/dan-petty/devops-cli/issues/7125)) ([97b13eb](https://github.com/dan-petty/devops-cli/commit/97b13ebcd3f212e81d1636ca08ceed418be4a3bd))
+* **sandbox:** give each sandbox NetworkPolicy one type ([#7122](https://github.com/dan-petty/devops-cli/issues/7122)) ([7148aa1](https://github.com/dan-petty/devops-cli/commit/7148aa1fe2d587a29727e42cb1369d6a86d08b21))
+
 ## [0.218.1](https://github.com/dan-petty/devops-cli/compare/v0.218.0...v0.218.1) (2026-11-25)
 
 
