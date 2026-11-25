@@ -1737,7 +1737,7 @@ devops ai gateway failover [OPTIONS] <virtual_model>
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
-| `<virtual_model>` | `string` | No | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). Give none with --reset. |
+| `<virtual_model>` | `string` | No | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, qwen3-embedding:0.6b). Give none with --reset. |
 
 **Options:**
 

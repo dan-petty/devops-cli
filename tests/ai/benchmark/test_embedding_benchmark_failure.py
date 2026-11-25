@@ -12,7 +12,7 @@ def test_embedding_benchmark_defaults_to_gateway_embedding_model(
     isolate_devops_cli_config: Any,
     cli: Any,
 ) -> None:
-    """Embedding benchmark defaults to devops-embedding when gateway provider is configured."""
+    """Embedding benchmark defaults to qwen3-embedding:0.6b when gateway provider is configured."""
     isolate_devops_cli_config.write_text(
         "ai:\n  provider: gateway\n  gateway_url: https://gateway.example.com/v1\n",
         encoding="utf-8",
@@ -22,7 +22,7 @@ def test_embedding_benchmark_defaults_to_gateway_embedding_model(
         assert result.exit_code == 0
         assert mock_exec.called
         model_list = mock_exec.call_args[1].get("model_list") or mock_exec.call_args[0][0]
-        assert model_list == ["devops-embedding"]
+        assert model_list == ["qwen3-embedding:0.6b"]
 
 
 def test_embedding_benchmark_all_failed_exits_nonzero_and_does_not_save_run(

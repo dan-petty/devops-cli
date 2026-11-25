@@ -53,9 +53,9 @@ logger = logging.getLogger(__name__)
 
 # The route of each virtual model: the model that the gateway config (k8s/llm/gateway/config.yaml)
 # sends to the tier of the default Ollama Service, or to an embedding tier for an embedding model.
-# The wheel and the service image hold only src/devops_cli, so the CLI cannot read that config. tests/test_k8s_llm_gateway.py fails when a
-# route, or the route that a failover records, names a model that the config does not send to the
-# route's tier (#1969).
+# The wheel and the service image hold only src/devops_cli, so the CLI cannot read that config.
+# tests/ai/benchmark/test_k8s_llm_gateway.py fails when a route, or the route that a failover
+# records, names a model that the config does not send to the route's tier (#1969).
 DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     {
         "virtual_model": "devops-chat",
@@ -76,7 +76,7 @@ DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
         "backend_url": DEFAULT_OLLAMA_CLUSTER_URL,
     },
     {
-        "virtual_model": "devops-embedding",
+        "virtual_model": "qwen3-embedding:0.6b",
         "target_model": "qwen3-embedding:0.6b",
         "backend_type": "ollama",
         "backend_url": setting_default("ai.embedding_ollama_urls")[0],
@@ -91,7 +91,7 @@ MODEL_FAILOVER_PAIRS: Final[dict[str, str]] = {
     "devops-reasoning": "devops-coder",
     "devops-coder": "devops-chat",
     "devops-chat": "direct-ollama",
-    "devops-embedding": "direct-ollama",
+    "qwen3-embedding:0.6b": "direct-ollama",
 }
 
 
@@ -106,6 +106,7 @@ class GatewayRoute(BaseModel):
     backend_url: str
     healthy: bool = True
     latency_ms: float = 0.0
+    checked: bool = True
 
 
 class GatewayStatus(BaseModel):
@@ -559,6 +560,13 @@ class GatewayRouter:
             ) as client:
                 is_ok, status_code, err_msg = _probe_gateway_http(client, probe_base, self.provider)
 
+            remote_routes = (
+                _fetch_remote_routes(
+                    raw_url, self.config.allow_private_network, self._api_key, self.config
+                )
+                if is_ok
+                else None
+            )
             elapsed = time.perf_counter() - start
             latency = round(elapsed * 1000, 2)
             # A healthy probe keeps a failover route: LiteLLM, not this route table, moves the
@@ -573,10 +581,27 @@ class GatewayRouter:
                     backend_url=r.backend_url,
                     healthy=is_ok,
                     latency_ms=latency if is_ok else 0.0,
+                    checked=False,
                 )
                 for r in self._active_routes
             ]
             _save_gateway_state(self.state_file, self._circuit_breaker_active, self._active_routes)
+            reported_routes = (
+                [
+                    GatewayRoute(
+                        virtual_model=r.virtual_model,
+                        target_model=r.target_model,
+                        backend_type=r.backend_type,
+                        backend_url=r.backend_url,
+                        healthy=is_ok,
+                        latency_ms=latency if is_ok else 0.0,
+                        checked=True,
+                    )
+                    for r in remote_routes
+                ]
+                if remote_routes is not None
+                else list(self._active_routes)
+            )
 
             emit(AI_GATEWAY_PROBE_DURATION, elapsed)
             emit(AI_GATEWAY_HEALTHY, 1.0 if is_ok else 0.0)
@@ -592,10 +617,10 @@ class GatewayRouter:
             return GatewayStatus(
                 healthy=is_ok,
                 gateway_url=raw_url,
-                active_routes=list(self._active_routes),
+                active_routes=reported_routes,
                 circuit_breaker_tripped=self._circuit_breaker_active,
                 failover_routes=failover,
-                backend_counts=_count_backends(self._active_routes),
+                backend_counts=_count_backends(reported_routes),
                 details=details,
             )
 

@@ -244,7 +244,7 @@ def run_benchmark(
         if not models:
             effective_provider = provider or settings.ai.provider
             if effective_provider == "gateway":
-                model_list = ["devops-embedding"]
+                model_list = ["qwen3-embedding:0.6b"]
             else:
                 emb_model = getattr(getattr(settings.ai.tasks, "embedding", None), "model", None)
                 model_list = [emb_model] if emb_model else [settings.ai.model]

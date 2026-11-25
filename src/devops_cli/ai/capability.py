@@ -49,7 +49,7 @@ VIRTUAL_MODEL_TIER_MAPPING: Final[dict[str, ModelCapabilityTier]] = {
     "devops-chat": ModelCapabilityTier.CHAT,
     "chat": ModelCapabilityTier.CHAT,
     "general": ModelCapabilityTier.CHAT,
-    "devops-embedding": ModelCapabilityTier.EMBEDDING,
+    "qwen3-embedding:0.6b": ModelCapabilityTier.EMBEDDING,
     "embedding": ModelCapabilityTier.EMBEDDING,
 }
 
