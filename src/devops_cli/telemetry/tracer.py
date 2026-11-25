@@ -71,6 +71,10 @@ logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+_SPAN_HANDLES: contextvars.ContextVar[tuple[SpanHandle, ...]] = contextvars.ContextVar(
+    "otel_span_handles", default=()
+)
+
 
 class ContextPropagatingThreadPoolExecutor(ThreadPoolExecutor):
     """ThreadPoolExecutor that automatically propagates ContextVar snapshots to worker threads."""
@@ -1364,6 +1368,7 @@ class OTelTelemetryClient:
         _normalize_and_deduplicate_attributes(attrs)
 
         handle = SpanHandle(span_id, attrs)
+        handles_token = _SPAN_HANDLES.set((*_SPAN_HANDLES.get(), handle))
         status_code = "STATUS_CODE_OK"
         error_msg = ""
         span_kind = _SPAN_KINDS.get(kind.lower(), "SPAN_KIND_INTERNAL")
@@ -1388,6 +1393,7 @@ class OTelTelemetryClient:
             raise
         finally:
             end_nano = int(time.time() * 1e9)
+            _SPAN_HANDLES.reset(handles_token)
             _leave_span(context_token)
 
             _normalize_and_deduplicate_attributes(attrs)
@@ -1650,6 +1656,13 @@ def reset_tracer() -> None:
         _detect_vcs_metadata.cache_clear()
     if hasattr(_detect_k8s_context, "cache_clear"):
         _detect_k8s_context.cache_clear()
+
+
+def set_root_span_attribute(key: str, value: Any) -> None:
+    """Set an attribute on the outermost active span of the current context, if any (#5415)."""
+    handles = _SPAN_HANDLES.get()
+    if handles:
+        handles[0].set_attribute(key, value)
 
 
 @contextlib.contextmanager

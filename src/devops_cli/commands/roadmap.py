@@ -614,6 +614,13 @@ def _end_stage_job(run: StageJobRun, number: int) -> NoReturn:
     raise typer.Exit(int(run.exit_code))
 
 
+def _set_runner_row(row: str) -> None:
+    """Tag the runner Job's root trace span with `service.row` (#5415)."""
+    from devops_cli.telemetry import set_root_span_attribute
+
+    set_root_span_attribute("service.row", row)
+
+
 def _stage_phase(
     target: str, number: int, source: Path | None, phase: RunPhase, work: Path
 ) -> NoReturn:
@@ -625,6 +632,7 @@ def _stage_phase(
     from devops_cli.core import process_hardening
 
     process_hardening.deny_environment_reads()
+    _set_runner_row("stage")
     from devops_cli.github.request_scope import request_scope
     from devops_cli.roadmap.attempt_kill import AttemptKilled
     from devops_cli.roadmap.job_result import job_lines_to_stderr
@@ -670,6 +678,7 @@ def _stage_job(target: str, number: int, source: Path | None) -> NoReturn:
         job_lines_to_stderr(),
         request_scope(repo=target, row="stage"),
     ):
+        _set_runner_row("stage")
         _, store = _open_store(target)
         run = run_stage_job(
             store,
@@ -935,6 +944,7 @@ def _implement_job(
         # The run starts the code of a pull request as the user of the Job, so the process is
         # unreadable to its children before the plan starts one (#2667, #3702).
         process_hardening.deny_environment_reads()
+        _set_runner_row("implement")
     elif not plan_only:
         print_info(MESSAGES.roadmap.implement_job_plain_note)
     from devops_cli.roadmap.run import model_clone
@@ -1002,6 +1012,7 @@ def _implement_phase(
     from devops_cli.core import process_hardening
 
     process_hardening.deny_environment_reads()
+    _set_runner_row("implement")
     from devops_cli.roadmap.implement import implement_phases as phases
     from devops_cli.roadmap.implement.implement_run import require_agent_runner, require_runner
     from devops_cli.roadmap.phases.files import RunFolders

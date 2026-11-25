@@ -50,6 +50,7 @@ the retry command, whose own rule clears the stop, and the `refine` row for any 
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -58,7 +59,7 @@ import shutil
 import subprocess
 import threading
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import cache, partial
@@ -192,6 +193,7 @@ from devops_cli.server.service import (
     keep_state_record,
     read_state_record,
 )
+from devops_cli.telemetry import trace_span
 from devops_cli.telemetry.instruments import (
     ROADMAP_ROW_INTERVAL_SECONDS,
     ROADMAP_ROW_QUEUE_ITEMS,
@@ -2075,6 +2077,24 @@ def _format_error_line(exc: BaseException) -> str:
     return f"{first} (failed items: {', '.join(f'#{number}' for number in items)})"
 
 
+@contextlib.contextmanager
+def _row_span(repo: str, row_name: str) -> Iterator[None]:
+    """Run one due row inside a child `service.row <name>` span of its round (#5415)."""
+    attrs: dict[str, Any] = {
+        "service.repo": repo,
+        "service.row": row_name,
+    }
+    if row_name == "fix_plan":
+        attrs["service.mode"] = load_settings().roadmap.fix_plan.mode
+    with trace_span(f"service.row {row_name}", attributes=attrs) as span:
+        try:
+            yield
+        except Exception as exc:
+            span.set_attribute("service.result", _failed_result(exc))
+            raise
+        span.set_attribute("service.result", CONST_SERVICE_JOB_RESULT_SUCCESS)
+
+
 def _failed_result(exc: BaseException) -> str:
     """The `result` of a job that ended with `exc`: a stop of the Service is no failure (#2753)."""
     return (
@@ -2167,20 +2187,21 @@ def _execute_due_rows(
 
         started: float | None = None
         try:
-            if row.needs_clone and clone_path is None:
-                clone_path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
+            with _row_span(repo, row.name):
+                if row.needs_clone and clone_path is None:
+                    clone_path = ensure_checkout(repo, base_data, remote_url, clone_dirname)
 
-            started = clock.monotonic()
-            with request_scope(row=row.name):
-                outcome = row.runner(
-                    store=store,
-                    clone_path=clone_path,
-                    changes=changes,
-                    batch=active_batch,
-                    repo=repo,
-                    repo_dir=schedule_path.parent,
-                    now=current_time,
-                )
+                started = clock.monotonic()
+                with request_scope(row=row.name):
+                    outcome = row.runner(
+                        store=store,
+                        clone_path=clone_path,
+                        changes=changes,
+                        batch=active_batch,
+                        repo=repo,
+                        repo_dir=schedule_path.parent,
+                        now=current_time,
+                    )
             outcomes[row.name] = outcome or JobOutcome()
             _stamp_stage_due(schedule_path, outcomes[row.name], current_time)
             cadences.keep(repo, row.name, outcomes[row.name].queue)
