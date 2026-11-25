@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.219.0](https://github.com/dan-petty/devops-cli/compare/v0.218.3...v0.219.0) (2026-11-25)
+
+
+### Features
+
+* **cli:** add devops store commands ([#7143](https://github.com/dan-petty/devops-cli/issues/7143)) ([468215c](https://github.com/dan-petty/devops-cli/commit/468215c4112dd77a82f45cbef4239e4b93518f63)), closes [#4761](https://github.com/dan-petty/devops-cli/issues/4761)
+* **k8s:** cap Valkey maxmemory at three quarters of limit ([#7161](https://github.com/dan-petty/devops-cli/issues/7161)) ([450feb8](https://github.com/dan-petty/devops-cli/commit/450feb8ef05a73e1143013c321ec79ddb94b6455))
+* **k8s:** generate service catalog from rendered Applications ([#7185](https://github.com/dan-petty/devops-cli/issues/7185)) ([fcaf8d9](https://github.com/dan-petty/devops-cli/commit/fcaf8d9c3485f1aa7d57881f8c242c3ef69859d2)), closes [#5535](https://github.com/dan-petty/devops-cli/issues/5535)
+* **k8s:** record live devops ConfigMap changes ([#7179](https://github.com/dan-petty/devops-cli/issues/7179)) ([050f73e](https://github.com/dan-petty/devops-cli/commit/050f73efbbe452b12e859853bd0ffe3793376579))
+* **roadmap:** add readiness report to project review ([#7147](https://github.com/dan-petty/devops-cli/issues/7147)) ([f146226](https://github.com/dan-petty/devops-cli/commit/f1462261b205464c5dc634327b95f8fd5075bec0))
+* **roadmap:** give each stage Job its own metric instance id ([#6364](https://github.com/dan-petty/devops-cli/issues/6364)) ([#7167](https://github.com/dan-petty/devops-cli/issues/7167)) ([d921852](https://github.com/dan-petty/devops-cli/commit/d921852be3bff11f28dad999db8f45ec1955ebd7))
+* **roadmap:** scope App token permissions by job phase ([#7171](https://github.com/dan-petty/devops-cli/issues/7171)) ([d431076](https://github.com/dan-petty/devops-cli/commit/d4310767ae545b7d7827a5108f756f5b5146a8bd))
+* **roadmap:** stage prepare snapshots GitHub reads ([#7142](https://github.com/dan-petty/devops-cli/issues/7142)) ([e2a0de3](https://github.com/dan-petty/devops-cli/commit/e2a0de38621612261abafc629f5778a0dd4ba7ee))
+* **terraform:** guard tf/github stacks against agent writes ([#7172](https://github.com/dan-petty/devops-cli/issues/7172)) ([f21fcee](https://github.com/dan-petty/devops-cli/commit/f21fcee368f50a0de41411f9f93f81fea171a293))
+
+
+### Bug Fixes
+
+* **ai:** capture served deployment model on gateway calls ([#6002](https://github.com/dan-petty/devops-cli/issues/6002)) ([#7169](https://github.com/dan-petty/devops-cli/issues/7169)) ([9b73aa1](https://github.com/dan-petty/devops-cli/commit/9b73aa1413c5f25e462020b4fbc23080d6291ed4))
+* **ai:** halve batch only on input, timeout, or short reply ([#6722](https://github.com/dan-petty/devops-cli/issues/6722)) ([#7152](https://github.com/dan-petty/devops-cli/issues/7152)) ([da59cfc](https://github.com/dan-petty/devops-cli/commit/da59cfc7bd670783f50292de00f62423c74fd578))
+* **ai:** replace unserved devops-embedding with qwen3-embedding ([#7170](https://github.com/dan-petty/devops-cli/issues/7170)) ([766f19b](https://github.com/dan-petty/devops-cli/commit/766f19b669f250e37ae40908559bc63ece1be73a))
+* **ci:** finish the fail-to-pass error rule of [#6379](https://github.com/dan-petty/devops-cli/issues/6379) ([#6400](https://github.com/dan-petty/devops-cli/issues/6400)) ([#7180](https://github.com/dan-petty/devops-cli/issues/7180)) ([357f60d](https://github.com/dan-petty/devops-cli/commit/357f60d61a2e006edd9dcddba93a8508084b2848))
+* **deps:** update golangci-lint flags and config to v2 ([#7176](https://github.com/dan-petty/devops-cli/issues/7176)) ([c681e72](https://github.com/dan-petty/devops-cli/commit/c681e72878864151256672e5216a1bf496aadf23)), closes [#5072](https://github.com/dan-petty/devops-cli/issues/5072)
+* **devcontainer:** remove unused init options ([#7153](https://github.com/dan-petty/devops-cli/issues/7153)) ([369d878](https://github.com/dan-petty/devops-cli/commit/369d878f8e65157873e732c8d21faa0d4bebf5be))
+* **k8s:** report the workloads that no Argo CD Application manages ([#7186](https://github.com/dan-petty/devops-cli/issues/7186)) ([2aba8fb](https://github.com/dan-petty/devops-cli/commit/2aba8fb0a68f3dceaf5136d3dc0980354bccf794))
+* **pr:** read head branch labels.yml when --repo is set ([#7134](https://github.com/dan-petty/devops-cli/issues/7134)) ([a89fed8](https://github.com/dan-petty/devops-cli/commit/a89fed872dbd0d1250f056c7830aab1b6af2aaae)), closes [#6469](https://github.com/dan-petty/devops-cli/issues/6469)
+* **review:** use ULID names for review sessions ([#6221](https://github.com/dan-petty/devops-cli/issues/6221)) ([#7188](https://github.com/dan-petty/devops-cli/issues/7188)) ([feddcc2](https://github.com/dan-petty/devops-cli/commit/feddcc2d869d7c9c480722a6c3886bb565f86088))
+* **roadmap:** avoid false rejected verdicts on tools in use ([#6441](https://github.com/dan-petty/devops-cli/issues/6441)) ([#7146](https://github.com/dan-petty/devops-cli/issues/7146)) ([851a87c](https://github.com/dan-petty/devops-cli/commit/851a87c2424f6ca95a509fbcbc50f90613abd0e6))
+* **roadmap:** check failed head backoff before REST check-runs ([#6004](https://github.com/dan-petty/devops-cli/issues/6004)) ([#7155](https://github.com/dan-petty/devops-cli/issues/7155)) ([017ef6d](https://github.com/dan-petty/devops-cli/commit/017ef6d272230f0ecca0c8e306ce7e8816d38a8d))
+* **roadmap:** convert post-merge refine questions to criteria ([#7145](https://github.com/dan-petty/devops-cli/issues/7145)) ([f1125c1](https://github.com/dan-petty/devops-cli/commit/f1125c1f8c5943c7b945541a4d02b3ead6aa24e1))
+* **roadmap:** drop stale cycle waits and check proposal ([#7137](https://github.com/dan-petty/devops-cli/issues/7137)) ([6ec0372](https://github.com/dan-petty/devops-cli/commit/6ec037238e9cf24d06c1755b121ba313d23811c4)), closes [#6515](https://github.com/dan-petty/devops-cli/issues/6515)
+* **roadmap:** end blocked refine waits on older rules ([#7132](https://github.com/dan-petty/devops-cli/issues/7132)) ([9c62b71](https://github.com/dan-petty/devops-cli/commit/9c62b71aca805da5ba3a8bbea2797767f98f9ef8))
+* **roadmap:** exclude trackers from refine inbox waits ([#7135](https://github.com/dan-petty/devops-cli/issues/7135)) ([376513b](https://github.com/dan-petty/devops-cli/commit/376513b6c43358610974d989e04f981b0ec2bcb1))
+* **roadmap:** keep stage pending mark on kept orphan branch ([#7175](https://github.com/dan-petty/devops-cli/issues/7175)) ([0b9c698](https://github.com/dan-petty/devops-cli/commit/0b9c6983f2cd4e5f9888f1cd739870718e1f1b08))
+* **roadmap:** keep the off-path return in reply_fixable shadow mode ([#7139](https://github.com/dan-petty/devops-cli/issues/7139)) ([2ec4924](https://github.com/dan-petty/devops-cli/commit/2ec4924e3ed4dccca015d4ebc483674cfb93418d))
+* **roadmap:** log tool, mode, and parts on refine stop ([#5991](https://github.com/dan-petty/devops-cli/issues/5991)) ([#7160](https://github.com/dan-petty/devops-cli/issues/7160)) ([d4a6932](https://github.com/dan-petty/devops-cli/commit/d4a6932c11cb3430c62f45c9d538aaac08afb901))
+* **roadmap:** mark a used language's stdlib as in-use ([#6347](https://github.com/dan-petty/devops-cli/issues/6347)) ([#7182](https://github.com/dan-petty/devops-cli/issues/7182)) ([55dba0a](https://github.com/dan-petty/devops-cli/commit/55dba0ae3a9a9eda32a8db4aacc47873b616a6d7))
+* **roadmap:** omit repeated text in intake and retitle comments ([#6198](https://github.com/dan-petty/devops-cli/issues/6198)) ([#7158](https://github.com/dan-petty/devops-cli/issues/7158)) ([f2ee61b](https://github.com/dan-petty/devops-cli/commit/f2ee61bd1b608483adab948742554701802b8104))
+* **roadmap:** read shared frame replies for covers questions ([#7129](https://github.com/dan-petty/devops-cli/issues/7129)) ([49d4062](https://github.com/dan-petty/devops-cli/commit/49d4062fcec91311bc3a7b8b0df921ced48a2358))
+* **roadmap:** record read_at on written refine rounds ([#7144](https://github.com/dan-petty/devops-cli/issues/7144)) ([44fb86a](https://github.com/dan-petty/devops-cli/commit/44fb86a04f74a6d241f3960f428f84e2d4eb9c88)), closes [#6371](https://github.com/dan-petty/devops-cli/issues/6371)
+* **roadmap:** refine looks again at an edited Ready item ([#6452](https://github.com/dan-petty/devops-cli/issues/6452)) ([#7178](https://github.com/dan-petty/devops-cli/issues/7178)) ([3bb8a48](https://github.com/dan-petty/devops-cli/commit/3bb8a48917e7c0f69be53c3d7cf8aa38f3b3bedb))
+* **roadmap:** refuse unlisted non-namespaced labels in row guard ([#7128](https://github.com/dan-petty/devops-cli/issues/7128)) ([a840fdd](https://github.com/dan-petty/devops-cli/commit/a840fdd03259af405a8c03b17408ad265a41e36d))
+* **roadmap:** score renamed bot PR by first verdict kind ([#5984](https://github.com/dan-petty/devops-cli/issues/5984)) ([#7162](https://github.com/dan-petty/devops-cli/issues/7162)) ([879e71f](https://github.com/dan-petty/devops-cli/commit/879e71f71cc15606755aa620c240d06cd0fb29bc))
+* **roadmap:** show stage eval case outcomes and reasons ([#6324](https://github.com/dan-petty/devops-cli/issues/6324)) ([#7154](https://github.com/dan-petty/devops-cli/issues/7154)) ([00885b6](https://github.com/dan-petty/devops-cli/commit/00885b62c1063da86845758672c28be1a4890e21))
+* **roadmap:** use _read_at for Ready comment re-selection ([#7190](https://github.com/dan-petty/devops-cli/issues/7190)) ([#7192](https://github.com/dan-petty/devops-cli/issues/7192)) ([43d458c](https://github.com/dan-petty/devops-cli/commit/43d458c2f3af41dae4022be43f7e43478486d91d))
+* **tests:** declare lizard in dev group and guard test setup ([#7173](https://github.com/dan-petty/devops-cli/issues/7173)) ([f82acc1](https://github.com/dan-petty/devops-cli/commit/f82acc182cb37c0ed7d4bcd1155f6ae83504de86)), closes [#6380](https://github.com/dan-petty/devops-cli/issues/6380)
+* **tests:** freeze wall clock in stage agent snapshot test ([#7181](https://github.com/dan-petty/devops-cli/issues/7181)) ([#7183](https://github.com/dan-petty/devops-cli/issues/7183)) ([06f35ef](https://github.com/dan-petty/devops-cli/commit/06f35ef30b7d71398c3090bb8fb697832863aac2))
+
+
+### Performance Improvements
+
+* **k8s:** seed the uv cache of a runner pod from the image ([#7156](https://github.com/dan-petty/devops-cli/issues/7156)) ([ac5d7b0](https://github.com/dan-petty/devops-cli/commit/ac5d7b023704d06d8235149403cf5007eb477328)), closes [#4814](https://github.com/dan-petty/devops-cli/issues/4814)
+
+
+### Code Refactoring
+
+* **roadmap:** use spec scope for plan titles and commits ([#7174](https://github.com/dan-petty/devops-cli/issues/7174)) ([a81b050](https://github.com/dan-petty/devops-cli/commit/a81b05025a2ab71a2b1391a62bd57b7702b77628))
+
 ## [0.218.3](https://github.com/dan-petty/devops-cli/compare/v0.218.2...v0.218.3) (2026-11-25)
 
 
