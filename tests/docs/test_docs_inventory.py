@@ -25,7 +25,11 @@ from devops_cli.config.constants import (
 )
 from devops_cli.core.repo import list_repo_files
 from devops_cli.docs.generator import DocGenerator
-from devops_cli.docs.inventory import document_class, hand_written_documents
+from devops_cli.docs.inventory import (
+    document_class,
+    generated_attribute_problems,
+    hand_written_documents,
+)
 from devops_cli.docs.markdown_argv_collector import (
     collect_documented_argv_references,
     is_pattern_entry,
@@ -185,3 +189,72 @@ def test_every_hand_written_document_names_only_real_commands() -> None:
         <= documents_read,
         cli_reference_lines >= 60,
     ) == ([], True, True)
+
+
+def test_gitattributes_marks_only_generated_markdown_files() -> None:
+    """Every generated document sets `linguist-generated=true`, while all other tracked Markdown
+    files remain `unspecified` (#4888)."""
+    from devops_cli.core.process import run_subprocess
+
+    assert generated_attribute_problems(REPO_ROOT) == []
+
+    ls_proc = run_subprocess(
+        ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "--", "*.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked_md = sorted(path for path in ls_proc.stdout.split("\0") if path)
+    attr_proc = run_subprocess(
+        ["git", "-C", str(REPO_ROOT), "check-attr", "-z", "--stdin", "linguist-generated"],
+        input="".join(f"{path}\0" for path in tracked_md),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    words = attr_proc.stdout.split("\0")
+    attrs = {
+        path: value for path, _, value in zip(words[0::3], words[1::3], words[2::3], strict=False)
+    }
+
+    generated_globs = CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED]
+    generated_tracked = {path for path in tracked_md if _matches(path, generated_globs)}
+    other_tracked = set(tracked_md) - generated_tracked - {"CHANGELOG.md"}
+
+    assert len(generated_tracked) >= 50
+    assert {path: attrs[path] for path in generated_tracked} == dict.fromkeys(
+        generated_tracked, "true"
+    )
+    assert attrs["CHANGELOG.md"] in {"set", "true"}
+    assert attrs["README.md"] == "unspecified"
+    assert {path: attrs[path] for path in other_tracked} == dict.fromkeys(
+        other_tracked, "unspecified"
+    )
+
+
+def test_generated_attribute_check_fails_when_glob_lacks_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Adding a glob to the generated class without a `.gitattributes` line fails the check."""
+    monkeypatch.setitem(
+        CONST_DOCS_INVENTORY,
+        CONST_DOCS_CLASS_GENERATED,
+        (*CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED], "docs/UNMARKED_GENERATED.md"),
+    )
+    problems = generated_attribute_problems(REPO_ROOT)
+    assert any(
+        "docs/UNMARKED_GENERATED.md" in problem and "linguist-generated" in problem
+        for problem in problems
+    )
+
+
+def test_contributing_documents_generated_file_rebase_conflict_step() -> None:
+    """Documentation Synchronization in `CONTRIBUTING.md` holds the generated-file rebase conflict
+    recovery steps (#4888)."""
+    text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    _, _, sync_section = text.partition("- **Documentation Synchronization**:")
+    bullet, _, _ = sync_section.partition("\n---")
+
+    assert "git checkout --ours -- <file>" in bullet
+    assert "git rebase --continue" in bullet
+    assert "uv run devops docs generate" in bullet

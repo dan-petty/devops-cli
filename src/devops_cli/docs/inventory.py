@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from devops_cli.config.constants import CONST_DOCS_CLASS_HAND_WRITTEN, CONST_DOCS_INVENTORY
+from devops_cli.config.constants import (
+    CONST_DOCS_CLASS_GENERATED,
+    CONST_DOCS_CLASS_HAND_WRITTEN,
+    CONST_DOCS_INVENTORY,
+)
+from devops_cli.core.process import run_subprocess
 from devops_cli.core.repo import list_repo_files
 
 
@@ -41,3 +46,58 @@ def hand_written_documents(root: Path) -> list[Path]:
         for path in list_repo_files(root)
         if path.suffix == ".md" and not explicit_classes(path.relative_to(root).as_posix())
     )
+
+
+def generated_attribute_problems(root: Path) -> list[str]:
+    """Check that `.gitattributes` and `git check-attr` mark generated docs and leave other
+    tracked Markdown files `unspecified` (#4888)."""
+    problems: list[str] = []
+    attr_file = root / ".gitattributes"
+    attrs_by_pattern: dict[str, set[str]] = {}
+    if attr_file.is_file():
+        for raw_line in attr_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            attrs_by_pattern.setdefault(parts[0], set()).update(parts[1:])
+
+    generated_globs = CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED]
+    for glob in generated_globs:
+        if "linguist-generated=true" not in attrs_by_pattern.get(glob, ()):
+            problems.append(
+                f"Missing 'linguist-generated=true' attribute line in .gitattributes for '{glob}'."
+            )
+
+    ls_proc = run_subprocess(
+        ["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked_md = sorted(path for path in ls_proc.stdout.split("\0") if path)
+    if not tracked_md:
+        return problems
+
+    attr_proc = run_subprocess(
+        ["git", "-C", str(root), "check-attr", "-z", "--stdin", "linguist-generated"],
+        input="".join(f"{path}\0" for path in tracked_md),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    words = attr_proc.stdout.split("\0")
+    for path, _, value in zip(words[0::3], words[1::3], words[2::3], strict=False):
+        if path == "CHANGELOG.md":
+            # CHANGELOG.md is tool-owned by release-please and intentionally marked generated.
+            continue
+        expected = (
+            "true"
+            if any(PurePosixPath(path).full_match(glob) for glob in generated_globs)
+            else "unspecified"
+        )
+        if value != expected:
+            problems.append(
+                f"Expected '{path}' to report 'linguist-generated={expected}', got '{value}'."
+            )
+    return problems

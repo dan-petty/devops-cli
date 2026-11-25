@@ -4983,16 +4983,15 @@ CONST_VERIFIED_BY_AGENT: Final[str] = "agent"
 # label is a machine's, not a person's, so `ai prompt-eval` leaves it out unless asked (#950).
 CONST_VERIFIED_BY_DETERMINISTIC_PREFIX: Final[str] = "deterministic:"
 
-# ── Review Report Integrity (#948) ───────────────────────────────────────────
-# Files a review keeps off persona pages, by repository-relative path: planning documents and
-# generated references, where no persona finding held up in past branch reviews. Lockfiles
-# (`CONST_REVIEW_GENERATED_FILES`) stay off by name, for their size. Both still reach the secret
+# ── Review Report Integrity (#948, #4888) ────────────────────────────────────
+# Files a review keeps off persona pages, by repository-relative path: planning documents,
+# where no persona finding held up in past branch reviews. Generated docs come dynamically from
+# `CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED]`, and lockfiles
+# (`CONST_REVIEW_GENERATED_FILES`) stay off by name, for their size. All still reach the secret
 # scan. Patterns follow `PurePath.full_match`.
 CONST_REVIEW_ROUTED_PATH_PATTERNS: Final[tuple[str, ...]] = (
     CONST_CHANGELOG_FILENAME,
     "docs/adr/**",
-    "docs/commands/*.md",
-    "docs/CLI_REFERENCE.md",
     "openspec/**",
     ".claude/skills/openspec-*/**",
     ".agents/skills/openspec-*/**",
