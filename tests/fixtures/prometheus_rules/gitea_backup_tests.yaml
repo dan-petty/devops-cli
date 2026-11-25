@@ -1,0 +1,48 @@
+# promtool rule unit tests of the alert group gitea-backup in
+# k8s/devops/monitoring/prometheus-rules-values.yaml (#2144). The alert fires when the last
+# successful backup of the k8up operator, of the Gitea namespace, is older than 26 hours: one daily
+# run at 02:00 plus a grace of 2 hours, so the first missed run warns. A later successful backup
+# ends the alert.
+#
+# tests/prometheus/test_k8s_monitoring_alerting.py writes the group to the file that `rule_files`
+# names, beside a copy of this file, and runs `promtool test rules` on the copy. promtool starts each
+# series at time 0, with one sample each `interval`, and `time()` is the seconds since time 0. The
+# label sets are those of the operator's exporter: `job_type` and `namespace`.
+rule_files:
+  - gitea_backup.rules.yaml
+
+evaluation_interval: 1h
+
+tests:
+  - name: A backup older than 26 hours fires
+    interval: 1h
+    input_series:
+      # The last successful backup of namespace gitea is of time 0.
+      - series: 'k8up_jobs_last_successful_timestamp{job_type="backup", namespace="gitea"}'
+        values: '0x30'
+    alert_rule_test:
+      # 26 hours is the limit itself, so the alert holds.
+      - eval_time: 26h
+        alertname: GiteaBackupTooOld
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: GiteaBackupTooOld
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              job_type: backup
+              namespace: gitea
+            exp_annotations:
+              summary: "The last successful Gitea backup is 97200 seconds old"
+              description: "The last successful backup of the Gitea forge is older than 26 hours, so a lost node loses the repositories, the packages and the issues of one day or more. Read the Jobs of namespace gitea with `kubectl -n gitea get jobs`, and the log of the last backup pod (k8s/README.md, Gitea)."
+
+  - name: A backup of 20 hours stays quiet
+    interval: 1h
+    input_series:
+      # The backup of time 0 succeeded, and the next one, at 20h, reports its own timestamp.
+      - series: 'k8up_jobs_last_successful_timestamp{job_type="backup", namespace="gitea"}'
+        values: '0x20 72000x10'
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: GiteaBackupTooOld
+        exp_alerts: []

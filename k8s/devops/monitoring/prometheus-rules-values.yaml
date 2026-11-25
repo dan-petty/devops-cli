@@ -1,6 +1,8 @@
 # The alert rules of devops-cli: the rule groups that watch the `devops_cli_*` series of the
 # roadmap Service, of its page fetches, of `devops research sweep`, of the model spend and of the
-# RAG ingest workflow. They are product content, so they stay in devops-cli (#5292).
+# RAG ingest workflow, and the group that watches the `k8up_jobs_last_successful_timestamp` series
+# of the k8up operator's backup of the Gitea forge (#2144). They are product content, so they stay
+# in devops-cli (#5292).
 #
 # Application `prometheus` gives the prometheus chart this file after the environment values
 # (k8s/monitoring/prometheus-values.yaml), as its second `$values` file, and `devops k8s
@@ -534,3 +536,19 @@ serverFiles:
             annotations:
               summary: "The drift check of the repository settings sent no result in 2 days"
               description: "CronJob repos-drift sent a result in the last 7 days but none in the last 2 days. An error before the reports, such as a refused App token, sends no result. Read the status and the log of its last Job with `kubectl -n devops get jobs -l app.kubernetes.io/name=repos-drift` (k8s/README.md, Alerting)."
+      # The age of the last successful backup of the Gitea forge (#2144). The k8up operator of
+      # namespace k8up runs the Schedule `gitea-backup` of dan-petty/homelab each day at 02:00, and
+      # its exporter reports the last successful job of each type on port 8080. 93600 seconds is one
+      # daily run plus a grace of 2 hours, so the first missed run warns, and the alert has no hold.
+      # The series is the one of the operator, so no `devops_cli_` prefix: the rule file names the
+      # Gitea section of k8s/README.md, where the restore procedure stays.
+      - name: gitea-backup
+        rules:
+          - alert: GiteaBackupTooOld
+            expr: time() - k8up_jobs_last_successful_timestamp{job_type="backup"} > 93600
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: 'The last successful Gitea backup is {{ printf "%.0f" $value }} seconds old'
+              description: "The last successful backup of the Gitea forge is older than 26 hours, so a lost node loses the repositories, the packages and the issues of one day or more. Read the Jobs of namespace gitea with `kubectl -n gitea get jobs`, and the log of the last backup pod (k8s/README.md, Gitea)."

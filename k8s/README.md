@@ -677,7 +677,7 @@ SLO 2 counts only the runner Jobs that end. kube-state-metrics shows a Job only 
 
 The [SRE guideline](../docs/guidelines/sre.md) sets the method of the SLOs, the burn-rate alerts, the page and ticket targets and the incident steps. [Service levels](#service-levels) holds the decisions of this cluster. This section holds the rules and the receiver.
 
-Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules, the groups that select a `devops_cli_*` series, are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files, in the order of the Application. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` checks that each rule selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. The row work series that more than one consumer reads have a group of recording rules (#4562): the group `roadmap-service-recording` records `repo_lane_row:devops_cli_service_jobs_total:increase1h`, the failed jobs of the last hour by repository, lane, row and result, `service:devops_cli_service_budget_requests_per_limit:ratio`, the spent requests of the last hour over the hourly budget, and `repo_row_class:devops_cli_service_job_suspended:max`, the rows that wait after a failed round by repository, row and class. Each rule of the group matches `job=~"roadmap-service|roadmap-.+"` and drops the `job` label, so one recorded series holds the series of the Service and of a `roadmap-<row>` pod, and a move of the row work changes one name in the group and no consumer. The row work alerts `RoadmapServiceJobsFailing`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceRowSuspended` read the recorded series, and the router health selectors keep `job="roadmap-service"`, because the router keeps its own job. The cases of the group are in `tests/fixtures/prometheus_rules/roadmap_service_recording_tests.yaml`. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
+Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prometheus-values.yaml`), and Grafana reads it as the `Alertmanager` datasource. The environment rules are in the same file, under `serverFiles.alerting_rules.yml`. The product rules are in `devops/monitoring/prometheus-rules-values.yaml`, under `serverFiles.devops_cli_alerting_rules.yml` (#5292): most of their groups select a `devops_cli_*` series, and the group `gitea-backup` selects the `k8up_jobs_last_successful_timestamp` series of the k8up operator of the Gitea backup (#2144). The `prometheus` Application gives the chart this file as its second values file, and `devops k8s deploy-stack` gives `helm upgrade` both files, in the order of the Application. The chart writes each key of `serverFiles` to the ConfigMap `prometheus-server`, and `serverFiles.prometheus.yml.rule_files` of the environment values names the 4 rule files of the chart and the product file. `tests/prometheus/test_k8s_monitoring_alerting.py` checks that each rule selects only series that a scrape or the OpenTelemetry collector in `k8s/` serves. The row work series that more than one consumer reads have a group of recording rules (#4562): the group `roadmap-service-recording` records `repo_lane_row:devops_cli_service_jobs_total:increase1h`, the failed jobs of the last hour by repository, lane, row and result, `service:devops_cli_service_budget_requests_per_limit:ratio`, the spent requests of the last hour over the hourly budget, and `repo_row_class:devops_cli_service_job_suspended:max`, the rows that wait after a failed round by repository, row and class. Each rule of the group matches `job=~"roadmap-service|roadmap-.+"` and drops the `job` label, so one recorded series holds the series of the Service and of a `roadmap-<row>` pod, and a move of the row work changes one name in the group and no consumer. The row work alerts `RoadmapServiceJobsFailing`, `RoadmapServiceGitHubRequestsHigh` and `RoadmapServiceRowSuspended` read the recorded series, and the router health selectors keep `job="roadmap-service"`, because the router keeps its own job. The cases of the group are in `tests/fixtures/prometheus_rules/roadmap_service_recording_tests.yaml`. No rule watches the controller manager, scheduler or proxy: k3s runs them inside its server process, so nothing scrapes them and such a rule would fire on the missing target.
 
 | Alert | Fires when | For | Severity |
 | :--- | :--- | :--- | :--- |
@@ -726,6 +726,7 @@ Alertmanager runs from the prometheus chart (`alertmanager` in `monitoring/prome
 | `RepositorySettingsDrift` | The last nightly drift check of the last 2 days (CronJob `repos-drift`, #6783) found rows of a repository of `service.repos` off the baseline of the template repository: `pending`, `failed` or `waiting`. Read the rows in the log of the last Job of `repos-drift`, or run `devops repos onboard <owner>/<name> --plan` with your own login. Then apply the baseline with `--confirm`, or change the baseline in the template repository ([onboard](../docs/repos/onboard.md#the-nightly-job)) | — | warning |
 | `RepositorySettingsUnreadable` | The last nightly drift check of the last 2 days could not read rows of a repository, so it cannot say that the repository matches its baseline. A not readable row never fires `RepositorySettingsDrift`. The log of the last Job of `repos-drift` gives the reason of each row: a runner image with no `copier` program (dan-petty/devtools pull request 43), or a permission that the read-only token does not have. Fix the image or the permission set `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`. GitHub gives the merge settings of row 2 and `bypass_actors` of row 10 only to a write permission, so the read-only token cannot read them (#6875): read these rows with your own login, `devops repos onboard <owner>/<name> --plan --only 2,10` | — | warning |
 | `RepositoryDriftCheckStopped` | CronJob `repos-drift` sent a result in the last 7 days but none in the last 2 days. An error before the reports, such as a refused App token, sends no result. Read the status and the log of its last Job with `kubectl -n devops get jobs -l app.kubernetes.io/name=repos-drift` | — | warning |
+| `GiteaBackupTooOld` | The last successful backup of the Gitea forge is older than 26 hours, which is one daily run plus a 2 hour grace, so the first missed run warns. The k8up operator of namespace `k8up` reports the series `k8up_jobs_last_successful_timestamp`, and the Schedule `gitea-backup` of dan-petty/homelab runs each day at 02:00. Read the Jobs of namespace `gitea` with `kubectl -n gitea get jobs`, and the log of the last backup pod. A lost node then loses the repositories, the packages and the issues of a day or more ([Gitea](#gitea), Data) | — | warning |
 | `ClaudeSpendDailyHigh` | The calls of `claude-sonnet-5-5` cost more than 15 USD in the last 24 hours (#4222). The rule sums the 24 hour increase of `devops_cli_ai_spend_usd_total` of every job, and keeps the spend of a counter that reset. The highest normal day is 5.59 USD, and a failed stage burst costs about 21 USD per hour. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job. Set the threshold again with the data of a month | — | warning |
 | `HostedSpendDailyHigh` | The calls of all hosted models cost more than 25 USD in the last 24 hours (#4222). A local request adds 0 to `devops_cli_ai_spend_usd_total`, so the sum is the hosted spend. Read the cost page of the AI spend dashboard, find the caller by the `end_user` label, and stop the job | — | warning |
 | `RoadmapServiceIdentityRefused`, `RoadmapServiceGitHubThrottled`, `RoadmapProviderKeySpendLimit` | GitHub refused the identity of the roadmap Service, or throttled its requests, or the provider key behind the LLM gateway reached its spend limit; see [docs/CLUSTER.md](../docs/CLUSTER.md#alerts), Roadmap service, Alerts | — | critical |
@@ -1060,9 +1061,109 @@ The password goes only into the Authorization header of the create and the delet
 
 Gitea keeps its repositories, its packages and its SQLite database (WAL mode) on the `local-path` claim `gitea-shared-storage` on one worker node. `local-path` does not enforce the claim's 10Gi. The pod never runs on the control-plane node, and one pod runs at a time (`Recreate`). The namespace and the claim have `Prune=false,Delete=false`, and the claim has `helm.sh/resource-policy: keep`, so neither Argo CD nor `teardown-stack --stack gitea` deletes them. `teardown-stack --stack all` deletes namespace `gitea` with the root kustomization, and the data with it.
 
-There are no backups yet. A branch that a clone pushed is also in that clone, but an issue or a pull request made in Gitea is lost with the node.
+The k8up operator backs up the claim each day at 02:00, off the node (#2144). The k8up release, the Schedule `gitea-backup` of namespace `gitea`, the PodConfig and the NetworkPolicies are environment objects of dan-petty/homelab, because the `k8s` row of this repository refuses a change to an environment path. The Schedule runs the command of the `k8up.io/backupcommand` annotation of the Gitea pod template: `gitea dump`, which writes only the archive to stdout. A file copy of the live SQLite database in WAL mode can be inconsistent, so the dump is the backup. The target is the bucket `backups-gitea` of the in-cluster SeaweedFS S3 gateway on port 8333 ([Object Store](#object-store)), which keeps 2 copies on 2 nodes. The Schedule keeps 7 daily and 4 weekly snapshots, prunes each week and runs a restic check each week. The k8up operator exports its metrics on port 8080, and the rule `GiteaBackupTooOld` warns when the last successful backup is older than 26 hours ([Alerting](#alerting)).
+
+The S3 key Secret comes with dan-petty/homelab#98. The restic password is an environment Secret row of namespace `gitea` in dan-petty/homelab, and a person pushes it with `uv run devops k8s push-secrets` before the first backup. This repository holds no value of either Secret. The alert `GiteaBackupTooOld` is product content, so it stays in `devops/monitoring/prometheus-rules-values.yaml`.
 
 The next major version of the chart (its main branch, with Gitea 28) replaces `gitea.admin` with `secrets.admin`, turns persistence off by default and moves `strategy` under `deployment`. Change those keys in `gitea/values.yaml` in the pull request that changes the pinned version in `argocd/apps/gitea.yaml`.
+
+### Restore
+
+A k8up `Restore` object writes one snapshot of the bucket `backups-gitea` into a scratch namespace, so a restore never touches the live Gitea (#2144). The namespace `gitea` and its claim stay as they are. The dump of the backup is one archive, so a restored snapshot is an archive to unpack and not a data tree to mount. Run the steps below on the homelab cluster after the k8up release and the Schedule `gitea-backup` of dan-petty/homelab sync. The [k8up documentation](https://docs.k8up.io) gives each field of the object.
+
+1. List the snapshots of the repository. The log of the last Job of the Schedule prints the snapshots, and its newest line holds the newest ID:
+   ```bash
+   kubectl -n gitea get jobs
+   kubectl -n gitea logs job/<backup-job> | tail -20
+   ```
+   `snapshot: latest` in the object of step 4 takes the newest snapshot, so the ID is needed only for an older one.
+
+2. Make the scratch namespace, and give it the label that the S3 gateway admits (`object-store/networkpolicy.yaml`):
+   ```bash
+   kubectl create namespace gitea-restore
+   kubectl label namespace gitea-restore backup-client=true
+   ```
+
+3. Copy the Secrets of the backend into the scratch namespace. The `Restore` reads the restic password and the S3 key from its own namespace, and the Schedule `gitea-backup` names both Secrets:
+   ```bash
+   kubectl -n gitea get schedule gitea-backup -o yaml   # the Secret of the password, and the Secret of the S3 key
+   for secret in <s3-key-secret> <restic-secret>; do
+     kubectl -n gitea get secret "$secret" -o yaml \
+       | sed 's/namespace: gitea/namespace: gitea-restore/' \
+       | kubectl apply -f -
+   done
+   ```
+
+4. Apply a `Restore` of one snapshot with the S3 method. It reads the snapshot from the bucket `backups-gitea` and writes the files into the bucket `gitea-restore` of the same gateway:
+   ```bash
+   kubectl -n gitea-restore apply -f - <<'YAML'
+   apiVersion: k8up.io/v1
+   kind: Restore
+   metadata:
+     name: gitea-restore
+   spec:
+     snapshot: latest
+     restoreMethod:
+       s3:
+         endpoint: http://seaweedfs-s3.object-store.svc.cluster.local:8333
+         bucket: gitea-restore
+         accessKeyIDSecretRef:
+           name: <s3-key-secret>
+           key: <key of the access key ID>
+         secretAccessKeySecretRef:
+           name: <s3-key-secret>
+           key: <key of the secret access key>
+     backend:
+       repoPasswordSecretRef:
+         name: <restic-secret>
+         key: <key of the restic password>
+       s3:
+         endpoint: http://seaweedfs-s3.object-store.svc.cluster.local:8333
+         bucket: backups-gitea
+         accessKeyIDSecretRef:
+           name: <s3-key-secret>
+           key: <key of the access key ID>
+         secretAccessKeySecretRef:
+           name: <s3-key-secret>
+           key: <key of the secret access key>
+   YAML
+   kubectl -n gitea-restore get restore gitea-restore -o yaml   # the phase and the message
+   ```
+
+5. Use the folder method when the S3 method fails on the signature of the request to the gateway. The folder method writes the files into a claim of the scratch namespace in place of a bucket. Set `restoreMethod.folder.claimName` to the claim, and keep the `backend` of step 4:
+   ```bash
+   kubectl -n gitea-restore apply -f - <<'YAML'
+   apiVersion: k8up.io/v1
+   kind: Restore
+   metadata:
+     name: gitea-restore
+   spec:
+     snapshot: latest
+     restoreMethod:
+       folder:
+         claimName: gitea-restore
+     backend:
+       # the backend of step 4: repoPasswordSecretRef and s3
+   YAML
+   ```
+
+6. Start a Gitea of the scratch namespace on the restored data. Install the chart with the values of `gitea/values.yaml`, with the restored bucket or claim in place of `gitea-shared-storage`, and unpack the archive at the root of its data folder so that the `gitea` folder and `gitea.db` of the dump land where the chart expects them.
+
+7. Port-forward the Gitea of the scratch namespace, and check the restored data:
+   ```bash
+   kubectl -n gitea-restore port-forward svc/gitea-http 3000:3000
+   ```
+   The check passes when:
+   - `http://localhost:3000/gitea_admin` lists each repository of the live Gitea,
+   - the packages page of a repository lists the container images of the snapshot,
+   - `git clone http://localhost:3000/gitea_admin/<repository>.git` gets the branches of the snapshot.
+
+8. Delete the scratch namespace, and then the bucket `gitea-restore` when the S3 method made one, with the client of the store, so that the copy of the snapshot leaves the cluster:
+   ```bash
+   kubectl delete namespace gitea-restore
+   ```
+
+Run these steps once on the homelab cluster after the first backup, and record the measured time in #7022. The live Gitea keeps serving during the restore, because the steps read the bucket and change neither the namespace `gitea` nor its claim.
 
 ### Trials
 

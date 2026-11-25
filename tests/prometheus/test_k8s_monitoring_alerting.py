@@ -1,8 +1,9 @@
 """The alert rules of the Prometheus server: promtool checks them and runs their unit tests.
 
 The environment rules live in `k8s/monitoring/prometheus-values.yaml`
-(`serverFiles.alerting_rules.yml`). The product rules, which watch the `devops_cli_` series, live
-in `k8s/devops/monitoring/prometheus-rules-values.yaml`
+(`serverFiles.alerting_rules.yml`). The product rules, which watch the `devops_cli_` series and the
+`k8up_jobs_last_successful_timestamp` series of the Gitea backup, live in
+`k8s/devops/monitoring/prometheus-rules-values.yaml`
 (`serverFiles.devops_cli_alerting_rules.yml`), the second values file of the chart (#5292). The
 server loads each file that `rule_files` of the environment values names. A rule over a series
 nothing in the stack serves never fires, so every expression may name only the series in
@@ -98,6 +99,7 @@ REPOS_DRIFT_RULE_TESTS = FIXTURES / "prometheus_rules" / "repos_drift_tests.yaml
 AI_SPEND_RULE_TESTS = FIXTURES / "prometheus_rules" / "ai_spend_tests.yaml"
 GATEWAY_DATABASE_RULE_TESTS = FIXTURES / "prometheus_rules" / "llm_gateway_db_tests.yaml"
 METRIC_STREAMS_RULE_TESTS = FIXTURES / "prometheus_rules" / "metric_streams_tests.yaml"
+GITEA_BACKUP_RULE_TESTS = FIXTURES / "prometheus_rules" / "gitea_backup_tests.yaml"
 
 ROADMAP_SERVICE_GROUP = "roadmap-service"
 # The row work series that the group records for its alerts, the dashboards and the start page
@@ -138,6 +140,8 @@ AI_SPEND_GROUP = "ai-spend"
 METRIC_STREAMS_GROUP = "metric-streams"
 # The rules of the database of the LLM gateway, a CloudNativePG Cluster of one instance (#4994).
 GATEWAY_DATABASE_GROUP = "llm-gateway-db"
+# The age of the last successful k8up backup of the Gitea forge (#2144).
+GITEA_BACKUP_GROUP = "gitea-backup"
 # Each group whose rules have promtool unit tests, with a file of its tests.
 RULE_GROUP_TESTS = (
     *ROADMAP_SERVICE_GROUP_TESTS,
@@ -149,6 +153,7 @@ RULE_GROUP_TESTS = (
     (AI_SPEND_GROUP, AI_SPEND_RULE_TESTS),
     (GATEWAY_DATABASE_GROUP, GATEWAY_DATABASE_RULE_TESTS),
     (METRIC_STREAMS_GROUP, METRIC_STREAMS_RULE_TESTS),
+    (GITEA_BACKUP_GROUP, GITEA_BACKUP_RULE_TESTS),
 )
 RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
 # promtool evaluates the rules of a group once each `evaluation_interval` of a file, from 0 to
@@ -337,6 +342,9 @@ SERVED_SERIES = frozenset(
         # The recorded row work series of the roadmap Service (#4562): the failed jobs of the
         # last hour, the budget used ratio and the suspended rows.
         *RECORDED_ROW_WORK_SERIES,
+        # The k8up operator's last successful job of each type, of namespace gitea, through the
+        # ServiceMonitor of its chart (#2144).
+        "k8up_jobs_last_successful_timestamp",
         # The resource attributes of each stream that the OTLP receiver of Prometheus writes, one
         # series for each stream of a job and instance (#4697).
         "target_info",
@@ -618,7 +626,8 @@ def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_ser
     `roadmap-service-activity` (#2475), of `roadmap-service-items` (#2919), of
     `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
     `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `repos-drift`
-    (#6783), of `ai-spend` (#4222), of `llm-gateway-db` (#4994) and of `metric-streams` (#4697).
+    (#6783), of `ai-spend` (#4222), of `llm-gateway-db` (#4994), of `metric-streams` (#4697) and of
+    `gitea-backup` (#2144).
 
     Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
     on a normal series, before its wait ends, and on the series it must not count. Each file
