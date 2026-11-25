@@ -433,7 +433,6 @@ def _comment_of(change: TitleChange) -> str:
             type=kind,
             types=", ".join(CONST_BRANCH_TYPES),
             old=change.item.title,
-            new=change.title,
             source=change.source,
         )
     return MESSAGES.roadmap.retitle_comment_changed.format(
@@ -441,7 +440,6 @@ def _comment_of(change: TitleChange) -> str:
         length=change.old_length,
         limit=SUMMARY_MAX_CHARS,
         old=change.item.title,
-        new=change.title,
         source=change.source,
     )
 

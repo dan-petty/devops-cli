@@ -118,7 +118,8 @@ def test_a_security_title_becomes_a_fix_with_the_security_scope_and_no_model_cal
     assert f"`{SHORT}` becomes `fix(security): verify node host keys`" in render_retitle_plan(plan)
     (comment,) = _job_comments(store, number)
     assert SHORT in comment
-    assert "fix(security): verify node host keys" in comment
+    assert "- After:" not in comment
+    assert "fix(security): verify node host keys" not in comment
     assert "`security`" in comment
     # The next round selects the item no more.
     assert plan_retitle(store, repo=REPO, model=model).changes == ()

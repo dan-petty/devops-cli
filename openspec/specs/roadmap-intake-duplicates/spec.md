@@ -138,3 +138,14 @@ Intake SHALL compare a candidate with the text that a person wrote in each item:
 #### Scenario: An item with the block and the section of jobs
 - **WHEN** an item holds a person's text, the block of the alternatives job and the section of refine, and the model names the item as the original of a candidate
 - **THEN** intake embeds the title and the person's text of the item, the shortlist excerpt holds only the person's text, and the reason comment of the candidate names the item as the possible original
+
+### Requirement: Refine deferrals carry an apart set
+`NewCandidate` SHALL accept an `apart` collection of issue numbers that `_apart` excludes from the duplicate shortlist, and refine deferrals SHALL populate `apart` with the parent issue number and the numbers in `refine.deferred`.
+
+#### Scenario: NewCandidate apart excludes an issue without a source
+- **WHEN** intake plans a `NewCandidate` with `apart={6167}` and no `source`
+- **THEN** the shortlist sent to the intake model excludes issue `#6167`
+
+#### Scenario: Refine deferral excludes parent and recorded deferrals
+- **WHEN** refine plans a deferred part for an item with recorded `refine.deferred` numbers
+- **THEN** intake excludes both the parent issue and the recorded deferred issues from the candidate shortlist

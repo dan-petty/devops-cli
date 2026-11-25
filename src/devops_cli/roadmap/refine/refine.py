@@ -229,6 +229,7 @@ from devops_cli.roadmap.body_hash import (
     extract_section_and_outside,
     hash_text,
     is_unchanged,
+    issue_references,
 )
 from devops_cli.roadmap.commit_title import commit_type, corrected_title, unlisted_type_reason
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
@@ -2639,11 +2640,6 @@ def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[Issue
     return _comments_without(comments, others)
 
 
-# An issue number in text: not part of a word, a path or the reference of another repository, which
-# GitHub writes `owner/repo#N`.
-_ISSUE_REF_RE = re.compile(r"(?<![\w/#])#(\d+)\b")
-
-
 def changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -> bool:
     """Whether a commit on the default branch changed one of `paths` at or after `since`."""
     for path in paths:
@@ -2690,12 +2686,9 @@ def text_paths(text: str, *, tracked_paths: Collection[str] | None = None) -> li
 def _text_issues(text: str, own: int) -> list[int]:
     """The numbers of the issues that `text` names, each once and not `own`, the first
     `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
-    numbers: list[int] = []
-    for match in _ISSUE_REF_RE.finditer(text):
-        number = int(match.group(1))
-        if number != own and number not in numbers:
-            numbers.append(number)
-    return numbers[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
+    return [number for number in issue_references(text) if number != own][
+        :CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS
+    ]
 
 
 # A code scanning alert reference in text: code-scanning/(alerts/)?123 or alert 123.
@@ -3992,14 +3985,16 @@ def _joined(text: str) -> str:
     return " ".join(text.split())
 
 
-def _deferral_candidate(item: Item, part: DeferredPart, urls: set[str]) -> NewCandidate:
+def _deferral_candidate(
+    item: Item, part: DeferredPart, urls: set[str], apart: Collection[int] = ()
+) -> NewCandidate:
     """The new issue of `part`: its text sanitized like the section, and a body that starts with
     the link to `item`. It has no `source`, so intake links no sub-issue and `item` stays a plain
     item that the stage job takes (#2423)."""
     title = sanitize_text(_joined(part.title), urls)
     body = sanitize_text(part.body.strip(), urls)
     split_from = MESSAGES.roadmap.refine_deferred_split_from.format(number=item.number)
-    return NewCandidate(title=title, body=f"{split_from}\n\n{body}")
+    return NewCandidate(title=title, body=f"{split_from}\n\n{body}", apart=apart)
 
 
 def _plan_deferrals(
@@ -4014,14 +4009,16 @@ def _plan_deferrals(
     """The intake plan of each deferred part of a Ready proposal that no earlier round filed, or
     the detail that keeps the item waiting on a person: a part that intake cannot place, or
     whose text looks like a secret (#2423)."""
+    recorded_numbers = _recorded_numbers(item)
     recorded = {_joined(title) for _, title in _recorded_deferrals(store, item)}
     parts = [part for part in proposal.deferred if _joined(part.title) not in recorded]
     if not parts:
         return (), None
     intake_model = model or build_intake_model()
+    apart = frozenset((item.number, *recorded_numbers))
     planned: list[PlannedDeferral] = []
     for part in parts:
-        candidate = _deferral_candidate(item, part, urls)
+        candidate = _deferral_candidate(item, part, urls, apart=apart)
         refused = MESSAGES.roadmap.refine_deferred_refused.format(title=candidate.title)
         try:
             plan = plan_intake(store, repo=repo, model=intake_model, new=candidate)

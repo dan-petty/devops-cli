@@ -308,3 +308,21 @@ def test_an_item_whose_issue_github_lists_as_a_sub_issue_of_the_source_is_on_no_
         [[neighbour.number for neighbour in request.shortlist] for request in model.requests],
         [decision.outcome for decision in plan.decisions],
     ) == ([[3]], [Outcome.PLACE])
+
+
+def test_new_candidate_apart_excludes_named_issues_without_a_source(roadmap: Roadmap) -> None:
+    """A NewCandidate with `apart` excludes those issue numbers from the shortlist even when
+    `source` is None (#6198)."""
+    parent = roadmap.finished("feat(roadmap): parent task with deferred part")
+    other = roadmap.finished("fix(cli): unrelated item")
+    candidate = NewCandidate(
+        title="feat(roadmap): split deferred part",
+        body=f"Split from #{parent}.",
+        apart={parent},
+    )
+    model = FakeModel()
+    plan = roadmap.plan(model, new=candidate)
+    assert (
+        [[neighbour.number for neighbour in request.shortlist] for request in model.requests],
+        [decision.outcome for decision in plan.decisions],
+    ) == ([[other]], [Outcome.PLACE])
