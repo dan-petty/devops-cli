@@ -16,17 +16,17 @@ The lines come in this order of classes:
 2. Ready implementation pull requests of the jobs (G2), class `implement`.
 3. The open release pull request (G3), class `release`.
 4. Items in `status/blocked`, with their cause, class `blocked`.
-5. New items that wait on a person in refine, one line for each, class `refine`. The line comes from the job record: the last refine round left a question for a person, or the stage job returned the item twice on the same body. A reply shows in the list until the next refine round. `devops roadmap explain <number>` gives the cause.
-6. New items with a split that no person has applied, one line for each, class `split`. Refine proposed the split under Fit in its section of the body.
-7. New items whose refine round put a covering tool to a person, one line for each, class `alternatives`. The line names the tool.
-8. New items whose refine job failed as often as the limit allows, one line for each, class `failed`. The line names the failed checks, the count of tries and the last error, and asks no question. An item that refine will try again has no line. A body edit makes refine try again.
+5. New items that are not trackers and wait on a person in refine, one line for each, class `refine`. The line comes from the job record: the last refine round left a question for a person, or the stage job returned the item twice on the same body. A reply shows in the list until the next refine round. `devops roadmap explain <number>` gives the cause.
+6. New items that are not trackers and hold a split that no person has applied, one line for each, class `split`. Refine proposed the split under Fit in its section of the body.
+7. New items that are not trackers and whose refine round put a covering tool to a person, one line for each, class `alternatives`. The line names the tool.
+8. New items that are not trackers and whose refine job failed as often as the limit allows, one line for each, class `failed`. The line names the failed checks, the count of tries and the last error, and asks no question. An item that refine will try again has no line. A body edit makes refine try again.
 9. Ready items whose stage job failed, one line for each, class `stage_retry`. The line names the failure class of the last plan or write, such as `provider` or `limit_reached`. The stage job holds the item for the wait of that class and takes it again when the wait ends, so the line asks nothing of a person. `devops roadmap explain <number>` names the wait. An item in `status/new` keeps the class of its last failure with no line, because the stage job does not take a New item. A staged item clears the class.
 10. Drafts of jobs, class `draft`. A draft of a job is listed when a check of its head commit failed in its latest run, or when it is older than `roadmap.inbox.draft_days`. An older run that a newer run of the same check replaced does not count. A newer draft with no failed check is not listed. A pull request that a runner Job holds is not listed either.
 11. Claims with no activity for 7 days, class `claim`.
 12. Workflow labels of the package and labels of `.github/labels.yml` that the repository lacks or holds with another color or description, class `labels`.
 13. The state of the Planned queue, when the count of Planned items is at `roadmap.stage.planned_limit`, class `queue`. The stage job then plans only items with the priority `P0-Critical` or `P1-High`, and a refine round still takes New items. The line has no number and no age.
 
-A second list holds open owner questions (class `owner`). Each line lists the item number, age, question, and the clear command `gh issue comment <number> --body "<answer>"`. It also holds the other open pull requests of people and agents, class `person`. It marks the drafts.
+A second list holds open owner questions on items that are not trackers (class `owner`). Each line lists the item number, age, question, and the clear command `gh issue comment <number> --body "<answer>"`. It also holds the other open pull requests of people and agents, class `person`. It marks the drafts.
 
 ## The counts as telemetry
 

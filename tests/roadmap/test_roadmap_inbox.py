@@ -788,3 +788,96 @@ def test_an_open_owner_question_has_one_line_with_the_question_and_the_command(
     )
     assert inbox.people == tuple(lines)
     assert "Open owner questions" in render_inbox(inbox, repo=REPO)
+
+
+@pytest.mark.parametrize(
+    "tracker_kwargs",
+    [
+        {"labels": ("type/epic",)},
+        {"sub_issues": 2},
+    ],
+)
+def test_trackers_with_refine_or_owner_waits_produce_no_inbox_lines(
+    store: InMemoryRoadmapStore,
+    tracker_kwargs: dict[str, Any],
+) -> None:
+    """Trackers with stale refine waits or open owner questions stay out of the inbox (#6446)."""
+    from devops_cli.config.constants import (
+        CONST_ROADMAP_EPIC_LABEL,
+        CONST_ROADMAP_P3_PRIORITY,
+        CONST_ROADMAP_STATUS_NEW,
+    )
+    from devops_cli.roadmap.inbox import refine_wait_on_person
+    from devops_cli.roadmap.stores.store import (
+        Item,
+        OwnerQuestionRecordKey,
+        RefineRecordKey,
+        encode_job_record,
+    )
+
+    labels: tuple[str, ...] = tuple(tracker_kwargs.get("labels", ()))
+    sub_issues: int = int(tracker_kwargs.get("sub_issues", 0))
+    base_fields = {
+        ItemField.STATUS: CONST_ROADMAP_STATUS_NEW,
+        ItemField.PRIORITY: CONST_ROADMAP_P3_PRIORITY,
+    }
+    wait_records = [
+        {RefineRecordKey.NEXT_STEP: "person"},
+        {RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.RETURNED_BODY_HASH: "abc"},
+        {RefineRecordKey.NEXT_STEP: "split"},
+        {RefineRecordKey.ALTERNATIVES_ASKED: "ruff"},
+        {
+            RefineRecordKey.NEXT_STEP: "failed",
+            RefineRecordKey.FAILED_CHECK: "scope",
+            RefineRecordKey.TRIES: "2",
+            RefineRecordKey.FAILURE: "timed out",
+        },
+        {
+            OwnerQuestionRecordKey.HASH: "h1",
+            OwnerQuestionRecordKey.TEXT: "Approve epic direction?",
+        },
+    ]
+    tracker_numbers = {
+        store.seed_issue(
+            f"Tracker {idx}",
+            body=encode_job_record({}, record),
+            fields=base_fields,
+            labels=labels,
+            sub_issues=sub_issues,
+            updated_at=_ago(hours=2),
+        )
+        for idx, record in enumerate(wait_records)
+    }
+    work_number = store.seed_issue(
+        "Real work item",
+        body=encode_job_record({}, {RefineRecordKey.NEXT_STEP: "person"}),
+        fields=base_fields,
+        updated_at=_ago(hours=2),
+    )
+
+    inbox = _read(store)
+    listed = {line.item for line in (*inbox.jobs, *inbox.people)}
+    assert listed.isdisjoint(tracker_numbers)
+    assert work_number in listed
+    assert [line.item for line in _lines(inbox, InboxKind.REFINE)] == [work_number]
+    for kind in (InboxKind.SPLIT, InboxKind.ALTERNATIVES, InboxKind.FAILED, InboxKind.OWNER):
+        assert _lines(inbox, kind) == []
+
+    epic_item = Item(
+        number=999,
+        title="Epic",
+        url="https://example.com/issues/999",
+        status=CONST_ROADMAP_STATUS_NEW,
+        labels=(CONST_ROADMAP_EPIC_LABEL,),
+        job_record={RefineRecordKey.NEXT_STEP: "person"},
+    )
+    sub_item = Item(
+        number=1000,
+        title="Parent",
+        url="https://example.com/issues/1000",
+        status=CONST_ROADMAP_STATUS_NEW,
+        sub_issues=2,
+        job_record={RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.RETURNED_BODY_HASH: "abc"},
+    )
+    assert refine_wait_on_person(epic_item) is None
+    assert refine_wait_on_person(sub_item) is None
