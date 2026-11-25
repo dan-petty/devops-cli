@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.220.0](https://github.com/dan-petty/devops-cli/compare/v0.219.0...v0.220.0) (2026-11-25)
+
+
+### Features
+
+* **ai:** enforce gateway first-token timeout ([#6000](https://github.com/dan-petty/devops-cli/issues/6000)) ([#7198](https://github.com/dan-petty/devops-cli/issues/7198)) ([af6958c](https://github.com/dan-petty/devops-cli/commit/af6958cfb09dcd40a4cb0048f738b256871107ab))
+* **github:** request dan-petty and automerge all PRs ([#7195](https://github.com/dan-petty/devops-cli/issues/7195)) ([681c6c3](https://github.com/dan-petty/devops-cli/commit/681c6c39b378e38bd91daea896eea096d70a64bf))
+
+
+### Bug Fixes
+
+* **ci:** check ADDED/MODIFIED requirement length ([#5378](https://github.com/dan-petty/devops-cli/issues/5378)) ([#7194](https://github.com/dan-petty/devops-cli/issues/7194)) ([4712043](https://github.com/dan-petty/devops-cli/commit/47120430bee5625be110291a622946a2e33085da))
+* **ci:** run single-module narrowed tests serially ([#5612](https://github.com/dan-petty/devops-cli/issues/5612)) ([#7196](https://github.com/dan-petty/devops-cli/issues/7196)) ([7b3289c](https://github.com/dan-petty/devops-cli/commit/7b3289c57f15dc76c644af5980c07a1c0f5fbaba))
+* **config:** refuse typesafe/jev-router as decision model ([#6361](https://github.com/dan-petty/devops-cli/issues/6361)) ([#7197](https://github.com/dan-petty/devops-cli/issues/7197)) ([46777dd](https://github.com/dan-petty/devops-cli/commit/46777dd25bbaeeb68e3c70a9b22241bc5423b402))
+* **terraform:** exit non-zero on drift or failed check ([#7193](https://github.com/dan-petty/devops-cli/issues/7193)) ([f24cfc2](https://github.com/dan-petty/devops-cli/commit/f24cfc221d838717109150757da853a5041cdfb3)), closes [#5319](https://github.com/dan-petty/devops-cli/issues/5319)
+
 ## [0.219.0](https://github.com/dan-petty/devops-cli/compare/v0.218.3...v0.219.0) (2026-11-25)
 
 
