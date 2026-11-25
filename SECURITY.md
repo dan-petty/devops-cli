@@ -71,6 +71,10 @@ These guards apply at every level and to every caller. An apply needs a plan of 
 
 Secrets and hardware stay with the owner at every level. An infra repo holds no secret. `devops infra` passes the SSH key of `devops ssh` and no other credential. The level stops an agent error; it is not a security boundary, because an agent with a shell can run `ansible-playbook`. So an agent changes a host only with `devops infra`, never with `ansible-playbook`, `kubectl drain`, `make` or a reboot over SSH.
 
+## GitHub Settings
+
+`devops tf` manages GitHub organization and repository settings under `tf/github` stacks ([ADR 0026](docs/adr/0026-github-settings-are-opentofu-code-the-owner-applies.md)). Each stack entry in `tf.stacks[].agent_access` admits only `plan` or `apply`, and every `tf/github` stack defaults to `plan`; only a person sets `apply`. When `is_agent_caller()` reports an agent session, `devops tf apply` and `devops tf destroy` refuse `tf/github` stacks before OpenTofu builds or starts, naming `tf.stacks[].agent_access`. Person sessions keep full apply and destroy access. Before any `tf/github` stack plan starts, `devops tf plan` checks the local `run_gh` core quota ledger against `DEFAULT_TF_GITHUB_CORE_BUDGET_FLOOR` (250 remaining) and refuses below the floor without making an external request. For an agent `tf/github` plan, `devops tf plan` mints a read-only installation token for `devops-settings-reader` from `tf.github_reader.app_id`, `tf.github_reader.installation_id`, and `tf.github_reader.private_key` (OS keyring `tf_github_reader_private_key`), and fails closed instead of falling back to writer App credentials. Passing `--dry-run` checks agent access and the local quota ledger without reading credentials, minting tokens, starting OpenTofu, or sending external provider requests.
+
 ## A Finding with No Fix
 
 A scanner can name a finding that no update of the pinned package solves yet. The agent then adds a time-limited ignore entry itself and does not ask the owner. The entry expires by itself, and the failing scan after the date is the reminder. The owner set these limits on 2026-11-07, and the owner can lift them.

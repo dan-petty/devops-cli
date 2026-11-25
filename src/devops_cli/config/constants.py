@@ -1697,6 +1697,8 @@ def publish_token_permissions(*, workflows: bool = False) -> dict[str, str]:
 # The GitHub App that self-hosted Renovate acts as (#4893). The owner named it on 2026-11-16, so
 # its bot is `dan-petty-renovate[bot]`, which the Fail-to-Pass Check skips.
 CONST_RENOVATE_GITHUB_APP_SLUG: Final[str] = "dan-petty-renovate"
+# Read-only GitHub App for agent OpenTofu plans on `tf/github` stacks (ADR 0026, #5320).
+CONST_TF_GITHUB_READER_SLUG: Final[str] = "devops-settings-reader"
 # What an installation token of the Renovate App asks for: the repository permissions that the
 # Renovate documentation names for a GitHub App, and no other one (#4897).
 CONST_RENOVATE_GITHUB_APP_TOKEN_PERMISSIONS: Final[dict[str, str]] = {

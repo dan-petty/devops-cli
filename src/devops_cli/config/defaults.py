@@ -917,6 +917,9 @@ DEFAULT_GH_PROJECT_ITEM_PAGE_SIZE: int = 100
 # points left than this: 5% of the 5,000-point hourly budget stays for the run's writes and for
 # the other tools sharing the identity (#1125).
 DEFAULT_GH_GRAPHQL_BUDGET_FLOOR: int = 250
+# An OpenTofu plan on a `tf/github` stack preserves 5% of the 5,000-point hourly REST core
+# budget for concurrent writes and shared GitHub callers (#5320).
+DEFAULT_TF_GITHUB_CORE_BUDGET_FLOOR: int = 250
 # What one page of a board read is taken to cost before the run has read a page and measured it:
 # GitHub charges a hundredth of the connection requests a query may make, rounded and at least 1,
 # and a page of 100 items with their field values may make 101 (#1125).

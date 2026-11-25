@@ -246,6 +246,12 @@ from devops_cli.infra.access import AgentAccess
 from devops_cli.lang import ERRORS
 from devops_cli.roadmap.implement.implement_size import MIN_MEMORY_LIMIT_GI
 from devops_cli.roadmap.stage.stage_filter import split_filter_entry
+from devops_cli.tf.access import (
+    TF_AGENT_ACCESS_KEY,
+    TFAccessLevel,
+    is_github_stack_path,
+    normalize_stack_path,
+)
 from devops_cli.valkey.endpoint import ValkeyEndpoint, parse_valkey_url
 
 if typing.TYPE_CHECKING:
@@ -2534,6 +2540,90 @@ class StoreConfig(BaseModel):
         return value
 
 
+class TFStackConfig(BaseModel):
+    """One entry in `tf.stacks` giving the agent access level of an OpenTofu stack (#5320)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    path: str = Field(
+        min_length=1,
+        description="Relative or trailing directory path of the OpenTofu stack, such as `tf/github/dan-petty`",
+    )
+    agent_access: TFAccessLevel | None = Field(
+        default=None,
+        description=(
+            "What an agent may do on this stack: `plan` or `apply`. Defaults to `plan` for "
+            "`tf/github` stacks and `None` (no restriction) for other stacks. A person may do "
+            "everything"
+        ),
+    )
+
+    @field_validator("agent_access", mode="before")
+    @classmethod
+    def _validate_agent_access(cls, value: Any) -> TFAccessLevel | None:
+        """Reject unknown agent access levels with a clear `plan` or `apply` message."""
+        if value is None or isinstance(value, TFAccessLevel):
+            return value
+        if isinstance(value, str):
+            try:
+                return TFAccessLevel(value)
+            except ValueError:
+                pass
+        raise ValueError(
+            ERRORS.tf.agent_access_invalid.format(key=TF_AGENT_ACCESS_KEY, value=value)
+        )
+
+    @model_validator(mode="after")
+    def _default_github_stack_agent_access(self) -> Self:
+        """Default omitted `agent_access` under `tf/github` to `plan`."""
+        if self.agent_access is None and is_github_stack_path(self.path):
+            object.__setattr__(self, "agent_access", TFAccessLevel.PLAN)
+        return self
+
+
+class TFGitHubReaderConfig(BaseModel):
+    """Read-only GitHub App that agent plans in `tf/github` mint an installation token from (#5320)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    app_id: Annotated[int | None, Variable()] = Field(
+        default=None,
+        gt=0,
+        description="ID of the `devops-settings-reader` GitHub App used for agent `tf plan` runs in `tf/github`",
+    )
+    installation_id: Annotated[int | None, Variable()] = Field(
+        default=None,
+        gt=0,
+        description="Installation ID of `devops-settings-reader` on the target owner for agent `tf plan` runs in `tf/github`",
+    )
+
+
+class TFConfig(BaseModel):
+    """`devops tf`: OpenTofu stack access policies and GitHub reader App identity (#5320)."""
+
+    model_config = ConfigDict(extra="ignore", validate_assignment=True, hide_input_in_errors=True)
+
+    stacks: list[TFStackConfig] = Field(
+        default_factory=list,
+        description="OpenTofu stacks and their agent access level (`plan` or `apply`)",
+    )
+    github_reader: TFGitHubReaderConfig = Field(default_factory=TFGitHubReaderConfig)
+
+    @field_validator("stacks")
+    @classmethod
+    def _stacks_are_distinct(cls, values: list[TFStackConfig]) -> list[TFStackConfig]:
+        """Reject duplicate stack paths even across `./` or trailing-slash spellings."""
+        seen: dict[str, str] = {}
+        for entry in values:
+            norm = normalize_stack_path(entry.path)
+            if norm in seen:
+                raise ValueError(
+                    f"Duplicate tf.stacks entry {entry.path!r} matches {seen[norm]!r}."
+                )
+            seen[norm] = entry.path
+        return values
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore",
@@ -2591,6 +2681,7 @@ class Settings(BaseSettings):
     search: SearchConfig = SearchConfig()
     infra: InfraConfig = InfraConfig()
     store: StoreConfig = StoreConfig()
+    tf: TFConfig = TFConfig()
     # The values that `load_settings` returned, so `save_settings` writes only the keys that
     # changed after the load (#1999). Settings made in code have none, and start from the defaults.
     _loaded: dict[str, Any] | None = PrivateAttr(default=None)
@@ -3205,6 +3296,11 @@ def get_renovate_github_app_private_key(settings: Settings) -> str | None:
 def get_service_github_app_private_key(settings: Settings) -> str | None:
     """Resolve the private key of the GitHub App that the roadmap Service acts as."""
     return _resolve("service.github_app.private_key", settings)
+
+
+def get_tf_github_reader_private_key(settings: Settings) -> str | None:
+    """Resolve the PEM private key of the `devops-settings-reader` GitHub App (#5320)."""
+    return _resolve("tf.github_reader.private_key", settings)
 
 
 def get_release_app_private_key(settings: Settings) -> str | None:
