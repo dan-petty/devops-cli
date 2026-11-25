@@ -142,3 +142,14 @@ Rule 2 of `AGENTS.md`, `src/devops_cli/templates/AGENTS.md.j2`, and the `devops-
 - **WHEN** an agent inspects Rule 2 of `AGENTS.md` or `.agents/skills/devops-roadmap/SKILL.md`
 - **THEN** both tell the agent never to return a tracker (`type/epic` or sub-issues) and to work its open sub-issues or related issues instead
 - **AND** `AGENTS.md`, `src/devops_cli/templates/AGENTS.md.j2`, and the three skill roots pass all `tests/invariants/test_agents_md.py` and `tests/invariants/test_skills.py` checks
+
+### Requirement: The draft rule gives the duty to mark a draft ready
+Rule 6 of `AGENTS.md` and rule 6 of the `AGENTS.md` that `devops ai agents` generates SHALL tell an agent to always mark a draft pull request ready when the checks pass and no agent work remains. `CONTRIBUTING.md` SHALL say what agent work is, and the `devops-pr-ci` skill SHALL give the same condition with `devops pr ready` in each skill root.
+
+#### Scenario: Rule 6 holds the duty
+- **WHEN** the invariant test reads rule 6 of `AGENTS.md` and rule 6 of the `AGENTS.md` generated for devops-cli
+- **THEN** each holds "Always mark it ready" and "no agent work remains"
+
+#### Scenario: The routed documents give the condition
+- **WHEN** the invariant test reads `CONTRIBUTING.md` and `devops-pr-ci/SKILL.md` in `.agents/skills`, `.claude/skills` and `.kilocode/skills`
+- **THEN** `CONTRIBUTING.md` says what agent work is, and each skill copy holds "Always run `uv run devops pr ready <number>`" with "no agent work remains"

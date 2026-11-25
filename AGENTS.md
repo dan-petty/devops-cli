@@ -9,7 +9,7 @@
 3. **Use an open tool before you build.** Name the tool or library that covers the need. To build instead, write the cost in tokens and time. This rule outranks every other convention.
 4. **Test new behavior first.** Prove other changes with a command.
 5. **Pass the checks.** Never use `--no-verify`. Never lower a security or quality threshold; only the owner can allow it ([exceptions](SECURITY.md#a-finding-with-no-fix)). A check that averages over 5 min + 1 min tolerance is a P0 bug.
-6. **Open every pull request as a draft** with `devops pr create`, and mark it ready only after the checks pass.
+6. **Open every pull request as a draft** with `devops pr create`. Always mark it ready when checks pass and no agent work remains.
 7. **Use `devops gh` and `devops pr`.** Never run bare `gh`. Run one `devops ai` call at a time, only when no file or deterministic check can answer ([ask-jev](.agents/skills/ask-jev/SKILL.md)).
 8. **Write as merged.** Make no commit or pull request that only updates tracking. If a change makes a document wrong, fix it in the same pull request.
 9. **Write prose in ASD-STE100** ([rules](src/devops_cli/ai/tasks/style_ste100.md)).
