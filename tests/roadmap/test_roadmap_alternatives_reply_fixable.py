@@ -344,3 +344,105 @@ def test_stopped_investigation_timeout_gives_band_continue(
         alts_lines[0]["band"],
         alts_lines[0]["returns"],
     ) == ("refused", "timeout", "continue", "0")
+
+
+_REPEATED_CODES = [
+    ("skip_only", AlternativesReply(reason=REASON, verdict=Verdict.NOT_APPLICABLE), True),
+    ("job_verdict", AlternativesReply(reason=REASON, verdict=Verdict.IN_USE), True),
+    ("no_search", AlternativesReply(reason=REASON, verdict=Verdict.NONE), False),
+]
+
+
+def _refused_script(
+    refused_reply: AlternativesReply, *, use_search: bool, retry_valid: bool
+) -> Script:
+    """Script where the first answer refuses, then returns either valid or refused."""
+    steps: list[Any] = []
+    if use_search:
+        steps.append(call("search_web", query="scanner"))
+    steps.append(refused_reply)
+    if retry_valid:
+        if not use_search:
+            steps.append(call("search_web", query="scanner"))
+        steps.append(AlternativesReply(reason=REASON, verdict=Verdict.NONE))
+    else:
+        steps.append(refused_reply)
+    return Script(*steps)
+
+
+@pytest.mark.parametrize(("code", "refused_reply", "use_search"), _REPEATED_CODES)
+@pytest.mark.parametrize("mode", ["shadow", "off", "on"])
+def test_mode_shadow_keeps_off_path_return_on_repeated_fixable_code(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    caplog: pytest.LogCaptureFixture,
+    code: str,
+    refused_reply: AlternativesReply,
+    use_search: bool,
+    mode: str,
+) -> None:
+    """In shadow and off, repeated fixable codes execute 1 return; only mode on stops it (#6358)."""
+    if mode != "off":
+        config(roadmap={"decisions": {"alternatives.reply_fixable": mode}})
+    number = _item(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {AlternativesRecordKey.FAILED_REASON: code})
+
+    script = _refused_script(refused_reply, use_search=use_search, retry_valid=True)
+    writer = AlternativesWriter(store, REPO)
+    with caplog.at_level(logging.INFO):
+        plan = plan_alternatives(
+            store, repo=REPO, investigator=script.model(), writer=writer, now=NOW
+        )
+
+    lines = [entry for entry in result_fields(caplog) if entry.get("job") == "alternatives"]
+    assert len(lines) == 1
+    if mode == "on":
+        assert len(plan.checks) == 0
+        assert len(plan.failures) == 1
+        assert plan.failures[0].band == Band.CONTINUE
+        assert lines[0]["returns"] == "0"
+        assert lines[0]["band"] == "continue"
+    else:
+        assert len(plan.failures) == 0
+        assert len(plan.checks) == 1
+        assert plan.checks[0].returns == 1
+        assert lines[0]["returns"] == "1"
+
+
+@pytest.mark.parametrize(("code", "refused_reply", "use_search"), _REPEATED_CODES)
+def test_mode_shadow_records_band_continue_after_executing_return(
+    store: InMemoryRoadmapStore,
+    web_key: None,
+    config: Callable[..., Any],
+    caplog: pytest.LogCaptureFixture,
+    code: str,
+    refused_reply: AlternativesReply,
+    use_search: bool,
+) -> None:
+    """Shadow records band=continue when a retried repeated fixable refusal stays refused (#6358)."""
+    config(roadmap={"decisions": {"alternatives.reply_fixable": "shadow"}})
+    number = _item(store)
+    item = store.item(number)
+    assert item is not None
+    store.set_marks(item, {AlternativesRecordKey.FAILED_REASON: code})
+
+    script = _refused_script(refused_reply, use_search=use_search, retry_valid=False)
+    writer = AlternativesWriter(store, REPO)
+    with caplog.at_level(logging.INFO):
+        plan = plan_alternatives(
+            store, repo=REPO, investigator=script.model(), writer=writer, now=NOW
+        )
+
+    lines = [entry for entry in result_fields(caplog) if entry.get("job") == "alternatives"]
+    assert len(plan.checks) == 0
+    assert len(plan.failures) == 1
+    assert (
+        plan.failures[0].reason_code,
+        plan.failures[0].band,
+        plan.failures[0].returns,
+        lines[0]["band"],
+        lines[0]["returns"],
+    ) == (code, Band.CONTINUE, 1, "continue", "1")

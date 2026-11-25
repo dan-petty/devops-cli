@@ -1346,7 +1346,7 @@ class _OutputChecker:
             band = record.band
         self.last_band = band
 
-        if self.returns > 0 or band is Band.CONTINUE:
+        if self.returns > 0:
             return None
         if self.chain is not None and self.chain.mode is Mode.ON:
             if band is Band.REVIEW:
