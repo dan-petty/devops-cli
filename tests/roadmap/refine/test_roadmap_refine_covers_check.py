@@ -455,7 +455,11 @@ def test_the_same_covering_tool_found_again_asks_nothing_and_a_new_tool_asks_aga
         model_fake.answer(READY)
         refine_round(store, git_repo)
         store.as_actor("alice").comment(ready, "Keep it: the tool has no SARIF output.")
-        model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+        keep_ready = _with_questions(_adopt_or_keep("Adopt the tool?"))
+        ask_waiting = _with_questions(
+            _adopt_or_keep("Adopt the tool?").model_copy(update={"kind": "person"})
+        )
+        model_fake.answer(keep_ready, ask_waiting)
         refine_round(store, git_repo)
         refine_round(store, git_repo)
         frame = require_item(store, waiting).job_record.get(RefineRecordKey.FRAME)
@@ -493,3 +497,40 @@ def test_a_check_that_no_longer_covers_clears_the_tool_refine_asked_about(
     refine_round(store, git_repo)
 
     assert (asked, _asked(store, number)) == (_SCANNER, None)
+
+
+def test_a_person_reply_on_a_shared_frame_closes_the_linked_covers_question(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """Two items share one covers frame on the older item; a trusted person's reply on the frame
+    item answers the linked item's covers question in refine_round (#6602)."""
+    store.seed_visibility(is_private=True)
+    first = seed_item(store, "New", "P1-High")
+    second = seed_item(store, "New", "P1-High")
+    _record_check(store, first, "covers")
+    _record_check(store, second, "covers")
+    model_fake.answer(READY)
+    refine_round(store, git_repo)
+    assert any(f"on #{first}:" in body for body in comment_bodies(store, second))
+
+    store.as_actor("alice").comment(first, "Keep it: the tool has no SARIF output.")
+    model_fake.answer(_with_questions(_adopt_or_keep("Adopt the tool?")))
+
+    plan = refine_round(store, git_repo)
+
+    second_req = next(
+        json.loads(call.prompt)
+        for call in reversed(model_fake.calls)
+        if json.loads(call.prompt)["number"] == second
+    )
+    assert (
+        second_req["alternatives"]["answers"],
+        require_item(store, first).status,
+        require_item(store, second).status,
+        sorted(r.item.number for r in plan.refined_items),
+    ) == (
+        ["Keep it: the tool has no SARIF output."],
+        "Ready",
+        "Ready",
+        sorted([first, second]),
+    )

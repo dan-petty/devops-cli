@@ -173,3 +173,24 @@ def test_a_reply_of_the_account_that_the_job_acts_as_is_no_answer() -> None:
         answer_of([frame, own], question.hash, actor="the-job"),
         answer_of([frame, own], question.hash),
     ) == (None, own)
+
+
+def test_linked_frame_item_parses_link_comment_and_ignores_other_comments() -> None:
+    from devops_cli.roadmap.owner_question import linked_frame_item
+
+    question = _question()
+    plain = _comment("No frame link here.", "a-person", "OWNER")
+    link = _comment(
+        question.link_comment(
+            frame_item=4605, frame_url="https://example.com/issues/4605#issuecomment-1"
+        ),
+        "the-job",
+        "CONTRIBUTOR",
+    )
+    own_frame = _comment(question.render(), "the-job", "CONTRIBUTOR")
+
+    assert (
+        linked_frame_item([plain]),
+        linked_frame_item([plain, link]),
+        linked_frame_item([plain, link, own_frame]),
+    ) == (None, 4605, None)

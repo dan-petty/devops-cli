@@ -43,6 +43,7 @@ from devops_cli.config.defaults import (
 )
 from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
 from devops_cli.exceptions.roadmap import RoadmapAlternativesError
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap import alternatives
 from devops_cli.roadmap.adr import read_adrs
 from devops_cli.roadmap.alternatives import (
@@ -58,13 +59,15 @@ from devops_cli.roadmap.alternatives import (
     select_items,
 )
 from devops_cli.roadmap.body_hash import extract_section_and_outside
+from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
 from devops_cli.roadmap.page_fetch import PageFetch
-from devops_cli.roadmap.refine.refine import covers_question, recorded_check
+from devops_cli.roadmap.refine.refine import RecordedCheck, covers_question, recorded_check
 from devops_cli.roadmap.run import MODEL_LANE_ROWS, run_due_jobs
 from devops_cli.roadmap.stores.github_store import GitHubRoadmapStore
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
     CloseReason,
+    IssueComment,
     Item,
     ItemField,
     RepositoryFacts,
@@ -1268,6 +1271,98 @@ def _question(store: RoadmapStore, number: int) -> Any:
     assert item is not None
     return covers_question(
         recorded_check(item, store.read_issue_body(number)), store.comments_on(number)
+    )
+
+
+def _covers_owner_question(url: str = TOOL_URL) -> OwnerQuestion:
+    texts = MESSAGES.roadmap
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+        question=texts.refine_alternatives_question.format(url=url),
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.refine_owner_question_options.items()
+        ),
+        recommendation=texts.refine_owner_question_recommendation,
+        evidence=(texts.refine_owner_question_evidence.format(url="https://example.com/issues/1"),),
+    )
+
+
+def test_a_shared_frame_reply_answers_a_linked_covers_question() -> None:
+    """A trusted person's reply after the shared frame on the frame item answers the linked
+    item's covers question; bot/actor replies on the frame are ignored, and local replies stay
+    answered (#6602)."""
+    check = RecordedCheck(
+        verdict=Verdict.COVERS, tool=TOOL_URL, block="Alternatives check: covers."
+    )
+    question = _covers_owner_question()
+    frame = IssueComment(
+        body=question.render(),
+        created_at=NOW,
+        author_login="the-job",
+        author_association="CONTRIBUTOR",
+    )
+    bot_reply = IssueComment(
+        body="Automated comment on the frame item.",
+        created_at=NOW + timedelta(minutes=1),
+        author_login="dependabot[bot]",
+        author_association="CONTRIBUTOR",
+    )
+    actor_reply = IssueComment(
+        body="Job account comment on the frame item.",
+        created_at=NOW + timedelta(minutes=2),
+        author_login="the-job",
+        author_association="OWNER",
+    )
+    person_reply = IssueComment(
+        body="Keep it: the tool lacks SARIF output.",
+        created_at=NOW + timedelta(minutes=3),
+        author_login="alice",
+        author_association="OWNER",
+    )
+    link = IssueComment(
+        body=question.link_comment(
+            frame_item=10, frame_url="https://example.com/issues/10#issuecomment-1"
+        ),
+        created_at=NOW + timedelta(minutes=1),
+        author_login="the-job",
+        author_association="CONTRIBUTOR",
+    )
+    local_reply = IssueComment(
+        body="Adopt locally instead.",
+        created_at=NOW + timedelta(minutes=4),
+        author_login="bob",
+        author_association="MEMBER",
+    )
+
+    answered = covers_question(
+        check,
+        [link],
+        frame_comments=[frame, bot_reply, actor_reply, person_reply],
+        actor="the-job",
+    )
+    unanswered_only_bot = covers_question(
+        check, [link], frame_comments=[frame, bot_reply, actor_reply], actor="the-job"
+    )
+    answered_locally = covers_question(check, [link, local_reply], frame_comments=[frame])
+
+    assert answered is not None
+    assert (answered.answered, answered.answers) == (
+        True,
+        ("Keep it: the tool lacks SARIF output.",),
+    )
+    assert unanswered_only_bot is not None
+    assert (
+        unanswered_only_bot.answered,
+        unanswered_only_bot.answers,
+    ) == (False, ())
+    assert answered_locally is not None
+    assert (
+        answered_locally.answered,
+        answered_locally.answers,
+    ) == (
+        True,
+        ("Adopt locally instead.",),
     )
 
 
