@@ -826,3 +826,17 @@ def test_non_count_series_limit_does_not_split(web: WebFake) -> None:
 
     assert quantile_err.value.status_code == 400
     assert len(web.sent) == 4
+
+
+def test_render_grade_report_shows_verdict_error_and_keeps_loki_rows(web: WebFake) -> None:
+    """When `verdict_error` is recorded, rendering keeps all Loki rows and shows the reason
+    (#5984)."""
+    serve_grade_replies(web)
+    base = grade_report(GradeWindow.D7, None, LOKI_URL)
+    report = base.model_copy(update={"verdict_error": "GitHub GraphQL rate limit"})
+
+    rendered = render_grade_report(report)
+
+    assert "verdicts not read: GitHub GraphQL rate limit" in rendered
+    assert len(report.workflows) == len(base.workflows)
+    assert "stage" in rendered

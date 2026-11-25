@@ -57,7 +57,7 @@ Facts measured from 2026-11-04 to 2026-11-11:
 | implement | one item, as the runner Job; one Workflow for each item with #3105 | the sweep |
 | `fix-checks` (section 8) | one head and one failed check of a bot pull request | the sweep, for the due mark `fix-checks:<pr>` that `watch` sets |
 | `fix-conflict` (section 8) | one base and one head of a bot pull request | the sweep, for the due mark `fix-conflict:<pr>` that `watch` sets |
-| `fix-plan` (section 8) | one plan pull request with the label `plan/needs-fix` | until the sweep step, the row `fix_plan` of the model lane of the Service; then the sweep |
+| `fix-plan` (section 8) | one plan pull request with the label `verdict/fix-plan` | until the sweep step, the row `fix_plan` of the model lane of the Service; then the sweep |
 
 - **Only the router and the sweep create units.** No unit creates another unit, and no DAG chain links two jobs. A unit that makes more work due sets a due mark, and the next sweep creates the unit within 5 minutes.
 - **One unit for each item.** Before a create, the creator lists the units of the repository by the labels of the repository, the job and the item. A template-level mutex for each item also stops a second pod. A unit name of at most 63 characters, fixed by its input, makes a repeated create get 409.
@@ -122,7 +122,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 #### Rules of these rows
 
 1. In the job record and in the comments, a row writes only its own keys and its own marked comments.
-2. A model verdict only flags. It never closes an item, and it never marks a pull request ready.
+2. A model verdict only flags. It never closes an item, and it never marks a pull request ready. The six verdict labels are `verdict/mergeable`, `verdict/fix-plan`, `verdict/discard-plan`, `verdict/issue-changed`, `verdict/fix-implementation`, and `verdict/discard-implementation`.
 3. Valkey holds only due marks, ledgers and caches for these rows. The GitHub job record stays the source of truth (section 3).
 4. No row starts another row, and no coordinator exists. A row that makes work due sets a due mark, and the sweep creates the unit (section 2).
 5. Each row has the mode `off`, `plan` or `on` in `roadmap.<row>.mode`, with `_` in place of each `-` of the row name. Mode `plan` writes the plan to the log and nothing to GitHub. Mode `off` is the stop switch. The new rows `resolve`, `group`, `split`, `fix-checks`, `fix-conflict` and `fix-plan` start in mode `plan`. The row `watch` starts in mode `on`, because it replaces the live rows `stage_ready` and `pr_conflicts`, and the work of those two rows must not stop.
@@ -212,7 +212,7 @@ The issue stewards of tracker #4780 add the rows `resolve`, `group` and `split`.
 
 #### `fix-plan`: one repair of a plan pull request with open findings
 
-- **Selection.** An open draft plan pull request that holds `plan/needs-fix` and that the record of a Staged item names in `stage.pr`. The item has no runner Job and no claim of an agent or a person. The branch holds only commits of the App.
+- **Selection.** An open draft plan pull request that holds `verdict/fix-plan` and that the record of a Staged item names in `stage.pr`. The item has no runner Job and no claim of an agent or a person. The branch holds only commits of the App.
 - **Stops.** The step judges the pull request again at the start of an attempt. It stops before any write when the head moved after the read or holds a commit of another author.
 - **Work.** The open findings of the last plan comment of the item: the stage comment, or the comment of an attempt that kept the label, of a trusted author. With no such finding, one model review of the plan of the head at the latest default branch. With an open finding, one repair by the stage planner with that plan as `previous` and the open findings as `problem`, then the normal verification repair rounds of the stage job. A revision with fewer open findings is one commit on the latest default branch, pushed with `--force-with-lease` on the head that the step read. The label goes when no open finding remains.
 - **Trigger.** Until the sweep step (#4574), the row `fix_plan` of the model lane of the Service, after `stage`, every 53 minutes and on a first run.

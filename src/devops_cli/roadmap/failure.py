@@ -69,6 +69,7 @@ from devops_cli.exceptions import (
     ToolExecutionError,
 )
 from devops_cli.lang import ERRORS, MESSAGES
+from devops_cli.roadmap.workflow_labels import FIX_PLAN_LABEL
 
 
 class FailureClass(StrEnum):
@@ -369,8 +370,8 @@ _PREMISE = re.compile(
 # class (#3264). The stops of a step that changed no file are typed by the
 # step (#3476).
 _PLAN = re.compile(
-    r"has a task that is not ticked"
-    r"|inputs of the step measure|not a file on the default branch|open finding|verdict/fix-plan"
+    rf"has a task that is not ticked"
+    rf"|inputs of the step measure|not a file on the default branch|open finding|{re.escape(FIX_PLAN_LABEL)}"
     rf"|{_NO_TEST_FILE}|{_BASE_PASSES}|{_BASE_ERRORS}",
     _FLAGS,
 )

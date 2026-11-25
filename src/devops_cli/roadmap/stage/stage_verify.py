@@ -67,6 +67,7 @@ from devops_cli.roadmap.stage.stage_eval_cases import DefectType, Severity
 from devops_cli.roadmap.stage.stage_pull_files import PullRequestFiles
 from devops_cli.roadmap.stage.stage_specs import requirement_text
 from devops_cli.roadmap.stage.stage_tools import with_call_budget
+from devops_cli.roadmap.workflow_labels import FIX_PLAN_LABEL
 from devops_cli.security.sanitizer import mask_secrets
 
 if TYPE_CHECKING:
@@ -107,8 +108,6 @@ OPEN_TYPES: Final[frozenset[DefectType]] = frozenset(
 OPEN_SEVERITIES: Final[frozenset[Severity]] = frozenset({Severity.BLOCKER, Severity.MAJOR})
 # The nine types that the verification prompt and reply schema name.
 VERIFY_TYPES: Final[frozenset[DefectType]] = OPEN_TYPES
-# The label of a plan pull request with an open finding (#3264).
-FIX_PLAN_LABEL: Final[str] = "verdict/fix-plan"
 # The keys of a group of the plan that name files.
 _FILE_KEYS: Final[tuple[str, ...]] = ("reads", "changes")
 # The keys of the plan that the task groups and the spec delta hold. Each other key of the plan,

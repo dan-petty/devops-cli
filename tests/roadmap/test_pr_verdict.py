@@ -8,6 +8,7 @@ search gives the label events of each pull request of the window.
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 from datetime import UTC, datetime
@@ -38,8 +39,10 @@ from devops_cli.roadmap.pr_verdict import (
     verdict_search,
 )
 from devops_cli.roadmap.stage.stage_change import STAGING_TYPE
+from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
 from devops_cli.roadmap.workflow_labels import WORKFLOW_LABELS
 from tests.support.fakes.github import GitHubApiFake, github_json
+from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_job_grades import hold_graphql_quota, pull_node
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
@@ -342,3 +345,173 @@ def test_a_graphql_error_stops_the_read(github_api: GitHubApiFake) -> None:
 
     with pytest.raises(GitHubUnreadError, match="Something went wrong"):
         read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+
+
+def test_the_verdict_query_selects_renamed_title_events_and_timeline_page_info(
+    github_api: GitHubApiFake,
+) -> None:
+    """The verdict GraphQL query selects `RENAMED_TITLE_EVENT`, `previousTitle`, and timeline
+    `pageInfo.hasNextPage` (#5984)."""
+    hold_graphql_quota()
+    github_api.route("POST", "/graphql", _page([], total=0))
+
+    read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+
+    query = json.loads(github_api.sent[0].content)["query"]
+    for token in ("LABELED_EVENT", "RENAMED_TITLE_EVENT", "previousTitle", "hasNextPage"):
+        assert token in query
+
+
+def test_renamed_bot_pull_requests_score_by_the_kind_at_their_first_verdict_label(
+    github_api: GitHubApiFake,
+) -> None:
+    """A verdict label before a rename uses `previousTitle`, a label after uses the current title,
+    a cross-kind label stays unscored, and an unlabeled renamed PR keeps its current kind (#5984)."""
+    hold_graphql_quota()
+    github_api.route(
+        "POST",
+        "/graphql",
+        _page(
+            [
+                pull_node(41, "feat(cli): Implement alpha (#1)", [])
+                | {
+                    "timelineItems": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [
+                            {"label": {"name": "verdict/mergeable"}},
+                            {"previousTitle": "docs(openspec): plan #1 Alpha"},
+                        ],
+                    }
+                },
+                pull_node(42, "feat(cli): Implement beta (#2)", [])
+                | {
+                    "timelineItems": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [
+                            {"previousTitle": "docs(openspec): plan #2 Beta"},
+                            {"label": {"name": "verdict/fix-implementation"}},
+                        ],
+                    }
+                },
+                pull_node(43, "feat(cli): Implement gamma (#3)", [])
+                | {
+                    "timelineItems": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [
+                            {"previousTitle": "docs(openspec): plan #3 Gamma"},
+                            {"label": {"name": FIX_PLAN_LABEL}},
+                        ],
+                    }
+                },
+                pull_node(44, "feat(cli): Implement delta (#4)", [])
+                | {
+                    "timelineItems": {
+                        "pageInfo": {"hasNextPage": False},
+                        "nodes": [{"previousTitle": "docs(openspec): plan #4 Delta"}],
+                    }
+                },
+            ],
+            total=4,
+        ),
+    )
+
+    pulls = read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+
+    assert [(p.number, p.kind, p.verdict, p.unscored) for p in pulls] == [
+        (41, PullKind.PLAN, Verdict.MERGEABLE, None),
+        (42, PullKind.DELIVERY, Verdict.NEEDS_FIX, None),
+        (43, PullKind.DELIVERY, None, FIX_PLAN_LABEL),
+        (44, PullKind.DELIVERY, None, None),
+    ]
+    stage = grade_verdicts(
+        RoadmapJob.STAGE,
+        [p.verdict for p in pulls if p.kind is PullKind.PLAN and p.unscored is None],
+        partial_score=0.5,
+        unscored=sum(p.kind is PullKind.PLAN and p.unscored is not None for p in pulls),
+    )
+    implement = grade_verdicts(
+        RoadmapJob.IMPLEMENT,
+        [p.verdict for p in pulls if p.kind is PullKind.DELIVERY and p.unscored is None],
+        partial_score=0.5,
+        unscored=sum(p.kind is PullKind.DELIVERY and p.unscored is not None for p in pulls),
+    )
+    assert stage.counts[Verdict.MERGEABLE] == 1
+    assert implement.counts[Verdict.NEEDS_FIX] == 1
+    assert implement.unscored == 1
+
+
+def test_more_than_one_page_of_timeline_events_stops_the_read(github_api: GitHubApiFake) -> None:
+    """When `timelineItems.pageInfo.hasNextPage` is true, `read_bot_pulls` raises
+    `GitHubUnreadError` with the PR number and timeline page reason (#5984)."""
+    hold_graphql_quota()
+    github_api.route(
+        "POST",
+        "/graphql",
+        _page(
+            [
+                pull_node(77, "feat(cli): Implement omega", [])
+                | {"timelineItems": {"pageInfo": {"hasNextPage": True}, "nodes": []}}
+            ],
+            total=1,
+        ),
+    )
+
+    with pytest.raises(GitHubUnreadError, match=r"#77.*timeline"):
+        read_bot_pulls(get_github_session().client, "is:pr author:app/example-bot")
+
+
+def test_fix_plan_label_constant_matches_plan_verdict_and_has_single_source() -> None:
+    """`FIX_PLAN_LABEL` matches `VERDICT_LABELS[PullKind.PLAN]` for `Verdict.NEEDS_FIX`, and only
+    `workflow_labels.py` defines the literal `"verdict/fix-plan"` in `src/devops_cli/roadmap`
+    (#5984)."""
+    assert VERDICT_LABELS[PullKind.PLAN][FIX_PLAN_LABEL] is Verdict.NEEDS_FIX
+    roadmap_dir = REPO_ROOT / "src" / "devops_cli" / "roadmap"
+    workflow_labels_path = roadmap_dir / "workflow_labels.py"
+    duplicates: list[str] = []
+    for py_path in sorted(roadmap_dir.rglob("*.py")):
+        if py_path == workflow_labels_path:
+            continue
+        tree = ast.parse(py_path.read_text("utf-8"), filename=str(py_path))
+        docstring_nodes = {
+            id(node.value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        }
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docstring_nodes
+                and FIX_PLAN_LABEL in node.value
+            ):
+                duplicates.append(f"{py_path.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert duplicates == []
+
+
+def test_adr_0021_and_kb_name_all_six_verdict_labels() -> None:
+    """ADR 0021 and the GitHub project management knowledge-base page list every verdict label and
+    ADR 0021 drops `plan/needs-fix` (#5984)."""
+    labels = sorted({name for mapping in VERDICT_LABELS.values() for name in mapping})
+    adr_path = (
+        REPO_ROOT
+        / "docs"
+        / "adr"
+        / "0021-the-roadmap-service-is-a-webhook-router-cluster-pods-run-the-roadmap-jobs-and-valkey-holds-their-shared-state.md"
+    )
+    kb_path = (
+        REPO_ROOT
+        / "src"
+        / "devops_cli"
+        / "ai"
+        / "knowledge_base"
+        / "devops_cli"
+        / "tasks"
+        / "github_project_management.md"
+    )
+    adr_text = adr_path.read_text("utf-8")
+    kb_text = kb_path.read_text("utf-8")
+    assert [label for label in labels if label not in adr_text] == []
+    assert [label for label in labels if label not in kb_text] == []
+    assert "plan/needs-fix" not in adr_text

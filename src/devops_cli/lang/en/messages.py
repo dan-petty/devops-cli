@@ -6981,6 +6981,7 @@ class RoadmapMessages:
         "Verdicts: not read. Set service.github_app.slug to read the verdicts of the pull "
         "requests of the bot."
     )
+    grades_verdicts_error: str = "verdicts not read: {reason}"
     grades_verdicts_title: str = (
         "Verdicts of the pull requests that {bot} opened in the {window} window. The first "
         "verdict of each pull request counts, and needs fix scores {partial}. A share counts the "
