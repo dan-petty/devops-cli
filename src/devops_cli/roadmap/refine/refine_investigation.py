@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import itertools
 import logging
+import re
 import subprocess
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
@@ -21,7 +22,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Final, Protocol, cast
 
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry, RunContext, Tool, capture_run_messages
+from pydantic_ai import (
+    ModelRetry,
+    NativeOutput,
+    PromptedOutput,
+    RunContext,
+    Tool,
+    ToolOutput,
+    capture_run_messages,
+)
 from pydantic_ai.capabilities import PrepareTools
 from pydantic_ai.exceptions import (
     ModelAPIError,
@@ -65,11 +74,13 @@ from devops_cli.config.constants import (
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.ai import SearchFailed, SearchQueryRefused
+from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import (
     RunLimit,
     RunTrace,
     StopCause,
     StopReason,
+    bounded_text,
     cut_answer,
     drain_events,
     empty_answer,
@@ -206,7 +217,8 @@ class InvestigationStopped:
     `cause` is the typed cause of the stop (#3717), which names the tool, the retry limit or the
     limit that ended the run, and the text of the reply that stopped it. `output_limit` and
     `invalid_arguments` are true for the reasons `output_limit` and `invalid_arguments` of the
-    cause."""
+    cause. `tool_name`, `registered_tools`, `output_mode`, `part_kinds`, and `stop_reason` carry
+    diagnostic details of the run stop (#5991)."""
 
     reason: str
     message: str
@@ -214,6 +226,11 @@ class InvestigationStopped:
     schema_broken: bool = False
     output_limit: bool = False
     invalid_arguments: bool = False
+    tool_name: str = ""
+    registered_tools: tuple[str, ...] = ()
+    output_mode: str = ""
+    part_kinds: tuple[str, ...] = ()
+    stop_reason: str = ""
 
 
 @dataclass
@@ -542,6 +559,40 @@ def _toolset_names(toolsets: Sequence[Any] | None) -> set[str]:
     return names
 
 
+_TOOL_NAME_IN_ERROR: Final[re.Pattern[str]] = re.compile(r"^Tool '([^']+)' exceeded max retries")
+
+
+def _output_mode(agent: Any, output_type: Any) -> str:
+    """Return the structured-output mode name for stop diagnostics (#5991)."""
+    if isinstance(output_type, (NativeOutput, PromptedOutput, ToolOutput)):
+        return type(output_type).__name__
+    mode = getattr(getattr(agent, "_output_schema", None), "mode", None)
+    return str(mode) if mode else type(output_type).__name__
+
+
+def _last_part_kinds(messages: Sequence[ModelMessage]) -> tuple[str, ...]:
+    """Return the `part_kind` of each part in the last model response (#5991)."""
+    last = next((m for m in reversed(messages) if isinstance(m, ModelResponse)), None)
+    return tuple(part.part_kind for part in last.parts) if last is not None else ()
+
+
+def _retried_tool_name(stopped: Exception, cause: StopCause) -> str:
+    """Return the masked failed tool name when a tool error or retry stop named one (#5991)."""
+    if (
+        cause.reason
+        in (
+            StopReason.REFUSED_TOOL_CALL,
+            StopReason.TOOL_RETRIES_EXHAUSTED,
+            StopReason.INVALID_ARGUMENTS,
+        )
+        and cause.detail
+    ):
+        return bounded_text(cause.detail)
+    msg = getattr(stopped, "message", "") or ""
+    match = _TOOL_NAME_IN_ERROR.match(msg)
+    return bounded_text(match.group(1)) if match else ""
+
+
 def _stopped_outcome(
     stopped: UsageLimitExceeded | UnexpectedModelBehavior,
     messages: Sequence[ModelMessage],
@@ -551,6 +602,7 @@ def _stopped_outcome(
     offered: Sequence[tuple[str, ...]],
     tool_retries: int,
     output_retries: int,
+    output_mode: str = "",
     trace: RunTrace | None = None,
 ) -> InvestigationStopped:
     """The result when an investigation ends early from a usage limit or model behavior. It names
@@ -577,13 +629,36 @@ def _stopped_outcome(
     if trace is not None:
         trace.stop_reason = cause.reason
         trace.stop_detail = cause.detail
+    registered = tuple(sorted(tool_names))
+    failed_tool = _retried_tool_name(stopped, cause)
+    part_kinds = _last_part_kinds(messages)
+    short_message = run_error_message(stopped)
+    base_reason = MESSAGES.roadmap.run_stop_reason.format(
+        error=type(stopped).__name__, message=short_message
+    )
+    diagnostics: list[str] = []
+    if failed_tool:
+        diagnostics.append(f"tool={failed_tool}")
+    if failed_tool or part_kinds:
+        if registered:
+            diagnostics.append(f"registered=[{', '.join(registered)}]")
+        if output_mode:
+            diagnostics.append(f"output_mode={output_mode}")
+    if part_kinds:
+        diagnostics.append(f"parts=[{', '.join(part_kinds)}]")
+    full_reason = f"{base_reason} ({'; '.join(diagnostics)})" if diagnostics else base_reason
     return InvestigationStopped(
         type(stopped).__name__,
-        run_error_message(stopped),
+        short_message,
         cause,
         schema_broken=schema_broken,
         output_limit=output_limit,
         invalid_arguments=invalid_arguments,
+        tool_name=failed_tool,
+        registered_tools=registered,
+        output_mode=output_mode,
+        part_kinds=part_kinds,
+        stop_reason=full_reason,
     )
 
 
@@ -592,7 +667,7 @@ def investigate[T: BaseModel](
     instructions: str,
     request: str,
     tools: ToolSet,
-    output_type: type[T],
+    output_type: type[T] | NativeOutput[T] | ToolOutput[T] | PromptedOutput[T],
     output_check: Callable[[T], str | None] | None = None,
     *,
     toolsets: Sequence[Any] | None = None,
@@ -644,7 +719,9 @@ def investigate[T: BaseModel](
         request_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_REQUESTS,
         tool_calls_limit=CONST_ROADMAP_REFINE_INVESTIGATION_MAX_TOOL_CALLS,
     )
-    tool_names = {tool.name for tool in function_tools} | _toolset_names(toolsets)
+    tool_names = {tool.name for tool in function_tools}
+    all_tools = tool_names | _toolset_names(toolsets)
+    output_mode = _output_mode(agent, output_type)
     with capture_run_messages() as messages:
         try:
             result = agent.run_sync(request, usage_limits=limits, event_stream_handler=drain_events)
@@ -652,11 +729,12 @@ def investigate[T: BaseModel](
             return _stopped_outcome(
                 stopped,
                 messages,
-                tool_names,
+                all_tools,
                 limits_hit,
                 offered=offered,
                 tool_retries=CONST_ROADMAP_REFINE_INVESTIGATION_RETRIES,
                 output_retries=output_retries_used,
+                output_mode=output_mode,
                 trace=trace,
             )
         except ModelAPIError as exc:

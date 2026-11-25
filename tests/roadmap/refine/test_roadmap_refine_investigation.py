@@ -21,7 +21,7 @@ import httpx2
 import pytest
 import time_machine
 from openai import APIConnectionError
-from pydantic_ai import Tool
+from pydantic_ai import NativeOutput, Tool
 from pydantic_ai.exceptions import (
     ModelConnectionError,
     ModelHTTPError,
@@ -1359,3 +1359,74 @@ def test_a_failed_web_search_answers_as_text(web: WebFake, firecrawl_only: None)
     answer = cited_web_search("gitleaks", cited, results=5).text
 
     assert (answer, cited) == ("The search failed: no provider answered.", set())
+
+
+def test_a_stopped_run_records_failed_tool_and_registered_tools_with_function_model(
+    git_repo: Path,
+) -> None:
+    """When a refine investigation stops after a tool exceeds retries, stop_reason records the
+    tool name (even `<text>`), registered tool names, output mode, and part kinds (#5991)."""
+    tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
+    model = Script(call("<text>")).model()
+
+    stopped = investigate(model, "Instructions.", "{}", tools, RefinementProposal)
+
+    assert not isinstance(stopped, RefinementProposal)
+    reason = stopped.stop_reason
+    assert (
+        "tool=<text>" in reason,
+        "registered=[" in reason,
+        all(name in reason for name in ("read_file", "list_files", "search_code")),
+        "parts=[tool-call]" in reason,
+    ) == (True, True, True, True)
+
+
+def test_a_stopped_run_with_native_output_records_output_mode_and_part_kinds(
+    git_repo: Path,
+) -> None:
+    """When NativeOutput receives plain text past output retries, stop_reason records `NativeOutput`
+    and the response part kind `text` (#5991)."""
+    tools = InvestigationTools(source=git_repo, sha=inspect_checkout(git_repo, REPO))
+    model = Script(ModelResponse(parts=[TextPart(content="not json")])).model()
+
+    stopped = investigate(
+        model,
+        "Instructions.",
+        "{}",
+        tools,
+        NativeOutput(RefinementProposal),
+    )
+
+    assert not isinstance(stopped, RefinementProposal)
+    reason = stopped.stop_reason
+    assert (
+        "output_mode=NativeOutput" in reason,
+        "parts=[text]" in reason,
+        "registered=[" in reason,
+    ) == (True, True, True)
+
+
+def test_plan_refine_records_stop_diagnostics_in_failure_and_warning_log(
+    git_repo: Path, store: InMemoryRoadmapStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    """End-to-end refine failure record and warning log include tool and part diagnostics (#5991)."""
+    number = store.seed_issue(
+        "Item", body="Body.", fields={ItemField.STATUS: "New", ItemField.PRIORITY: "P1-High"}
+    )
+    record_alternatives_check(store, number, "none")
+    model = Script(call("<text>")).model()
+
+    with caplog.at_level(logging.WARNING, logger="devops_cli.roadmap.refine.refine"):
+        plan = plan_refine(
+            store,
+            repo=REPO,
+            source=git_repo,
+            model=_FirstPhase(_FIRST),
+            investigator=model,
+        )
+
+    failure = plan.refined_items[0].failure
+    assert failure is not None
+    assert "tool=<text>" in failure.error
+    assert "parts=[tool-call]" in failure.error
+    assert "tool=<text>" in caplog.text
