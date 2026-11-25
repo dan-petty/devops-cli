@@ -1611,7 +1611,7 @@ closed without a merge; 3: the timeout passed first.
 |---|---|---|---|---|
 | `number` | `integer` | No | - | Pull request number. |
 | `interval` | `integer` | No | `60` | Polling interval in seconds between check queries. |
-| `timeout` | `integer` | No | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `timeout` | `integer` | No | `600` | Maximum time in seconds to wait for checks and reviews. |
 | `settle_timeout` | `integer` | No | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
 | `require_reviews` | `boolean` | No | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `output_format` | `string` | No | `table` | Output format type (table, json, yaml, markdown). |

@@ -7,6 +7,7 @@ from devops_cli.config.constants import (
     CONST_PR_EVIDENCE_MARKER,
     CONST_ROADMAP_LABELS_PATH,
 )
+from devops_cli.config.defaults import DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.github.check_verdict import pr_checks_args
 from devops_cli.github.pr_threads import (
@@ -385,7 +386,7 @@ def plan_pr_close(
 def plan_pr_monitor(
     number: int | None,
     interval: int = 60,
-    timeout: int = 300,
+    timeout: int = DEFAULT_PR_MONITOR_TIMEOUT_SECONDS,
     require_reviews: bool = True,
     repo: str | None = None,
 ) -> list[PlannedRequest]:

@@ -4069,7 +4069,7 @@
           "type": "integer"
         },
         "timeout": {
-          "default": 300,
+          "default": 600,
           "description": "Maximum time in seconds to wait for checks and reviews.",
           "minimum": 1,
           "type": "integer"

@@ -874,6 +874,8 @@ DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS: float = 5.0
 # GitHub links the issue a new pull request closes a moment after it opens (#5112).
 DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS: int = 6
 DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS: float = 5.0
+# Wait long enough for code PR shards and aggregate checks to settle under default options (#5417).
+DEFAULT_PR_MONITOR_TIMEOUT_SECONDS: int = 600
 DEFAULT_GH_SUBPROCESS_TIMEOUT_SECONDS: float = 30.0
 DEFAULT_GH_RUN_LOG_TIMEOUT_SECONDS: float = 120.0
 # The wall-clock bound on one gh process walking every `Link` page of a `devops gh api
