@@ -22,7 +22,7 @@ None.
 
 ### Modified Capabilities
 
-- `product-monitoring-content`: The Gitea backup age has an alert rule, The product alert rules have their own values file
+- `product-monitoring-content`: The Gitea backup age has an alert rule
 
 ## Impact
 
@@ -44,7 +44,7 @@ None.
 - `k8s/README.md:1304:From this repository, it reads only the product base` shows that Application `prometheus` reads `k8s/devops/monitoring/prometheus-rules-values.yaml` from this repository, so the age alert of the Gitea backup is product content that this change delivers.
 - Criterion 1 has two parts: group 1 delivers the age series and the warning alert that Application `prometheus` reads from the product rule file, and the Schedule, the PodConfig and the NetworkPolicies are environment objects of dan-petty/homelab, because `tests/gate/k8s_checks/environment_freeze.py:67:f"{_NAME}: {path} is an environment path, and dan-petty/homelab holds the environment."` is the message of the required `k8s` row for such a file.
 - `read_file tests/invariants/test_k8s_manifests.py` showed `tests/invariants/test_k8s_manifests.py:135:def test_readme_lists_the_table`, which reads the Cluster Secrets table of `k8s/README.md`; `src/devops_cli/k8s/cluster_secrets.py` holds the product rows in `CLUSTER_SECRETS: tuple[ClusterSecret, ...] = (`, so the restic password row of namespace `gitea` is an environment row of dan-petty/homelab and this plan adds no product row.
-- `k8s/README.md:680:The product rules, the groups that select a` becomes false when the group `gitea-backup` joins the file, so group 2 changes that sentence and the plan modifies the requirement `The product alert rules have their own values file`.
+- `k8s/README.md:680:The product rules, the groups that select a` becomes false when the group `gitea-backup` joins the file, so group 2 changes that sentence. Active change `4709-define-the-service-slos-in-a` already modifies `The product alert rules have their own values file` in `openspec/changes/4709-define-the-service-slos-in-a/specs/product-monitoring-content/spec.md`, so this change adds only `The Gitea backup age has an alert rule` to avoid an overlap failure in `devops openspec check`.
 - `tests/prometheus/test_k8s_monitoring_alerting.py:544:def test_each_row_of_the_alerting_table_renders_every_cell` holds each row of the Alerting table to a row that renders every cell, and `k8s/README.md:682:| Alert | Fires when | For | Severity |` gives their order, so group 2 writes the row of `GiteaBackupTooOld` with its 4 cells.
 - `read_file tests/prometheus/test_k8s_monitoring_alerting.py` showed `tests/prometheus/test_k8s_monitoring_alerting.py:142:RULE_GROUP_TESTS = (`, `tests/prometheus/test_k8s_monitoring_alerting.py:157:MAX_PROMTOOL_ROUNDS = 1_000` and `tests/prometheus/test_k8s_monitoring_alerting.py:190:SERVED_SERIES = frozenset(`, so the group, its case file and its series join three places of one module, and the 27 rounds of the case stay under 1000.
 - `tests/prometheus/test_k8s_monitoring_alerting.py:581:def test_the_promtool_files_of_a_group_test_every_alert_of_the_group` and `tests/prometheus/test_k8s_monitoring_alerting.py:613:def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series` are the two cases that the new pair of `RULE_GROUP_TESTS` must satisfy: the case file tests each alert of the group, and one case fires while another stays quiet.
