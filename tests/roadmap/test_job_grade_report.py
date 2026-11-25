@@ -633,3 +633,196 @@ def test_a_version_row_gives_every_attempt_and_its_infrastructure_share(
     assert "6 of 9" in version_line
     assert "all attempts 12, infrastructure cuts 3" in version_line
     assert "0.25" in version_line
+
+
+def test_each_planned_query_keeps_only_its_used_labels() -> None:
+    """Every grade query drops unused stream and extracted labels via `keep` before range
+    aggregation, and before `unwrap` for efficiency queries (#7064)."""
+    from devops_cli.roadmap.job_grade_report import GradeQueryKind
+    from devops_cli.roadmap.job_result import FIRST_PASS_LIMITS
+
+    by_key = {query.key: query.expr for query in plan_grade_queries(GradeWindow.D7)}
+    first_pass_counts = ", ".join(
+        sorted({limit.count for limits in FIRST_PASS_LIMITS.values() for limit in limits})
+    )
+
+    assert (
+        "| keep roadmap_job, repo, version, success, infra [7d]"
+        in by_key[f"{GradeQueryKind.COUNTS}@{GradeWindow.D7}"]
+    )
+    classes_expr = by_key[f"{GradeQueryKind.CLASSES}@{GradeWindow.D7}"]
+    assert '| success="false" | infra="false"' in classes_expr
+    assert "| keep roadmap_job, repo, failure_class, success, infra [7d]" in classes_expr
+
+    drafted_expr = by_key[f"{GradeQueryKind.DRAFTED}@{GradeWindow.D7}"]
+    assert '| roadmap_job="implement" | result="drafted" | infra="false"' in drafted_expr
+    assert "| keep repo, item, pull, repair_rounds [7d]" in drafted_expr
+
+    fp_expr = by_key[f"{GradeQueryKind.FIRST_PASSES}@{GradeWindow.D7}"]
+    assert '| success="true" | infra="false"' in fp_expr
+    assert f"| keep roadmap_job, repo, {first_pass_counts} [7d]" in fp_expr
+
+    for kind in (
+        GradeQueryKind.TOKENS_P50,
+        GradeQueryKind.TOKENS_P90,
+        GradeQueryKind.TOKENS_MAX,
+        GradeQueryKind.TOKENS_SUM,
+    ):
+        assert "| keep roadmap_job, repo, tokens | unwrap tokens [7d]" in by_key[f"{kind}@7d"]
+    for kind in (
+        GradeQueryKind.SECONDS_P50,
+        GradeQueryKind.SECONDS_P90,
+        GradeQueryKind.SECONDS_MAX,
+        GradeQueryKind.SECONDS_SUM,
+    ):
+        assert "| keep roadmap_job, repo, seconds | unwrap seconds [7d]" in by_key[f"{kind}@7d"]
+
+
+def test_count_query_splits_window_in_half_and_sums_on_series_limit(web: WebFake) -> None:
+    """When Loki rejects a count query on the 500-series limit, `grade_report` splits the
+    window into `[84h]` halves at `end - 84h` and `end` and sums the counts (#7064)."""
+    from devops_cli.roadmap.job_result import RoadmapJob
+
+    now = datetime(2026, 11, 25, 4, 0, tzinfo=UTC)
+    seen_counts_splits: list[tuple[str, str | None]] = []
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != QUERY_PATH:
+            return None
+        expr = request.url.params.get("query", "")
+        at = request.url.params.get("time")
+        if "version, success, infra" in expr and "[7d]" in expr:
+            return httpx2.Response(
+                400,
+                text="maximum number of series (500) reached for a single query",
+            )
+        if "version, success, infra" in expr and "[84h]" in expr:
+            seen_counts_splits.append((expr, at))
+            if at == "2026-11-21T16:00:00Z":
+                result = [
+                    {
+                        "metric": {
+                            "roadmap_job": RoadmapJob.STAGE.value,
+                            "repo": GRADES_REPO,
+                            "version": "0.214.0",
+                            "success": "true",
+                            "infra": "false",
+                        },
+                        "value": [1795579200, "2"],
+                    },
+                    {
+                        "metric": {
+                            "roadmap_job": RoadmapJob.IMPLEMENT.value,
+                            "repo": GRADES_REPO,
+                            "version": "0.214.0",
+                            "success": "false",
+                            "infra": "false",
+                        },
+                        "value": [1795579200, "1"],
+                    },
+                ]
+            else:
+                result = [
+                    {
+                        "metric": {
+                            "roadmap_job": RoadmapJob.STAGE.value,
+                            "repo": GRADES_REPO,
+                            "version": "0.214.0",
+                            "success": "true",
+                            "infra": "false",
+                        },
+                        "value": [1795579200, "3"],
+                    },
+                    {
+                        "metric": {
+                            "roadmap_job": RoadmapJob.STAGE.value,
+                            "repo": GRADES_REPO,
+                            "version": "0.215.0",
+                            "success": "false",
+                            "infra": "false",
+                        },
+                        "value": [1795579200, "1"],
+                    },
+                ]
+            return httpx2.Response(
+                200, json={"status": "success", "data": {"resultType": "vector", "result": result}}
+            )
+        return httpx2.Response(
+            200, json={"status": "success", "data": {"resultType": "vector", "result": []}}
+        )
+
+    web.serve(answer)
+
+    report = grade_report(GradeWindow.D7, None, LOKI_URL, now=now)
+
+    assert [at for _, at in seen_counts_splits] == [
+        "2026-11-21T16:00:00Z",
+        "2026-11-25T04:00:00Z",
+    ]
+    stage = _row(report, RoadmapJob.STAGE.value, GRADES_REPO)
+    implement = _row(report, RoadmapJob.IMPLEMENT.value, GRADES_REPO)
+    assert (stage.measure.attempts, stage.measure.successes) == (6, 5)
+    assert (implement.measure.attempts, implement.measure.successes) == (1, 0)
+
+
+def test_count_query_stops_splitting_at_one_hour_floor(web: WebFake) -> None:
+    """Recursive splitting stops before sub-1h windows and raises `ServiceRequestError` (#7064)."""
+    import re
+
+    seen_ranges: list[str] = []
+
+    def answer(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != QUERY_PATH:
+            return None
+        expr = request.url.params.get("query", "")
+        matched = re.search(r"\[(\d+[smhd])\]", expr)
+        if matched:
+            seen_ranges.append(matched.group(1))
+        return httpx2.Response(
+            400,
+            text="maximum number of series (500) reached for a single query",
+        )
+
+    web.serve(answer)
+
+    with pytest.raises(ServiceRequestError) as raised:
+        grade_report(GradeWindow.H6, None, LOKI_URL, now=datetime(2026, 11, 25, 4, 0, tzinfo=UTC))
+
+    assert raised.value.status_code == 400
+    assert seen_ranges[:3] == ["6h", "3h", "90m"]
+    assert len(seen_ranges) == 3
+
+
+def test_other_400_error_does_not_split(web: WebFake) -> None:
+    """Syntax 400 errors that do not name the series limit are not split (#7064)."""
+    web.serve(lambda _request: httpx2.Response(400, text="parse error: unexpected syntax"))
+
+    with pytest.raises(ServiceRequestError) as syntax_err:
+        grade_report(GradeWindow.D7, None, LOKI_URL)
+
+    assert (syntax_err.value.status_code, len(web.sent)) == (400, 1)
+
+
+def test_non_count_series_limit_does_not_split(web: WebFake) -> None:
+    """Series-limit 400 errors on non-count quantile queries are not split (#7064)."""
+
+    def fail_quantile(request: httpx2.Request) -> httpx2.Response | None:
+        if request.url.path != QUERY_PATH:
+            return None
+        expr = request.url.params.get("query", "")
+        if "quantile_over_time" in expr:
+            return httpx2.Response(
+                400,
+                text="maximum number of series (500) reached for a single query",
+            )
+        return httpx2.Response(
+            200, json={"status": "success", "data": {"resultType": "vector", "result": []}}
+        )
+
+    web.serve(fail_quantile)
+
+    with pytest.raises(ServiceRequestError) as quantile_err:
+        grade_report(GradeWindow.D7, None, LOKI_URL)
+
+    assert quantile_err.value.status_code == 400
+    assert len(web.sent) == 4
