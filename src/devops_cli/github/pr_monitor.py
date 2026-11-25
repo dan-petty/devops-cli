@@ -16,7 +16,10 @@ from devops_cli.config.constants import (
     CONST_GITHUB_REVIEW_AUTHOR_KEYS,
     CONST_MAX_ERROR_DETAIL_LENGTH,
 )
-from devops_cli.config.defaults import DEFAULT_GH_REST_PER_PAGE
+from devops_cli.config.defaults import (
+    DEFAULT_GH_REST_PER_PAGE,
+    DEFAULT_PR_MONITOR_TIMEOUT_SECONDS,
+)
 from devops_cli.core import clock
 from devops_cli.core.process import run_subprocess
 from devops_cli.exceptions.git import GitHubOperationError
@@ -645,7 +648,7 @@ def monitor_pr(
     repo: str,
     pr_number: int,
     *,
-    timeout: int = 300,
+    timeout: int = DEFAULT_PR_MONITOR_TIMEOUT_SECONDS,
     interval: int = 60,
     settle_timeout: int = 60,
     require_reviews: bool = True,

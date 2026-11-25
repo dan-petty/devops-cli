@@ -147,7 +147,7 @@ devops pr wait [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
-| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--timeout`, `-t` | `integer` | `600` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |
@@ -183,7 +183,7 @@ devops pr monitor [OPTIONS] <number>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--interval`, `-i` | `integer` | `60` | Polling interval in seconds between check queries. |
-| `--timeout`, `-t` | `integer` | `300` | Maximum time in seconds to wait for checks and reviews. |
+| `--timeout`, `-t` | `integer` | `600` | Maximum time in seconds to wait for checks and reviews. |
 | `--settle-timeout`, `-s` | `integer` | `60` | Grace period in seconds to allow Copilot review sessions to initialize. |
 | `--require-reviews` / `--no-require-reviews` | `boolean` | `True` | Wait for active Copilot review sessions to conclude and check for unresolved threads. |
 | `--format`, `-f` | `string` | `table` | Output format type (table, json, yaml, markdown). |

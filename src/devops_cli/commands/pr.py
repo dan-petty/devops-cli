@@ -23,6 +23,7 @@ from devops_cli.config.defaults import (
     DEFAULT_PR_CREATE_CLOSING_POLL_ATTEMPTS,
     DEFAULT_PR_CREATE_CLOSING_POLL_INTERVAL_SECONDS,
     DEFAULT_PR_LIMIT,
+    DEFAULT_PR_MONITOR_TIMEOUT_SECONDS,
     DEFAULT_PR_STATE,
     DEFAULT_PR_UPDATE_HEAD_POLL_ATTEMPTS,
     DEFAULT_PR_UPDATE_HEAD_POLL_INTERVAL_SECONDS,
@@ -868,7 +869,7 @@ def monitor_pr_command(
     timeout: Annotated[
         int,
         typer.Option("--timeout", "-t", min=1, help=HELP.pr.monitor_timeout),
-    ] = 300,
+    ] = DEFAULT_PR_MONITOR_TIMEOUT_SECONDS,
     settle_timeout: Annotated[
         int,
         typer.Option("--settle-timeout", "-s", min=0, help=HELP.pr.settle_timeout),

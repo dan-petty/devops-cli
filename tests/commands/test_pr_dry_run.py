@@ -348,3 +348,39 @@ def test_status_dry_run_plan_matches_args_builder() -> None:
     assert plan[0].argv == tuple(
         pr_status_args("owner/repo", json_fields="number,title", jq_expr=".title")
     )
+
+
+def test_monitor_default_timeout_uses_constant_and_keeps_override(
+    refuse_requests: list[str],
+    process_fake: ProcessFake,
+) -> None:
+    """`devops pr monitor` defaults `--timeout` to `DEFAULT_PR_MONITOR_TIMEOUT_SECONDS` (600) while honoring explicit overrides (#5417)."""
+    import inspect
+
+    from devops_cli.config.defaults import DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
+    from devops_cli.github.pr_plans import plan_pr_monitor
+
+    assert DEFAULT_PR_MONITOR_TIMEOUT_SECONDS == 600
+    assert inspect.signature(monitor_pr_command).parameters["timeout"].default == 600
+
+    default_plan = plan_pr_monitor(42, repo="owner/repo")
+    assert "up to 600s" in default_plan[0].repeat
+
+    override_plan = plan_pr_monitor(42, timeout=42, repo="owner/repo")
+    assert "up to 42s" in override_plan[0].repeat
+
+    res_default = runner.invoke(app, ["pr", "monitor", "42", "-R", "owner/repo", "--dry-run"])
+    assert (res_default.exit_code, "600s" in res_default.output, process_fake.calls) == (
+        0,
+        True,
+        [],
+    )
+
+    res_override = runner.invoke(
+        app, ["pr", "monitor", "42", "-R", "owner/repo", "--timeout", "42", "--dry-run"]
+    )
+    assert (res_override.exit_code, "42s" in res_override.output, process_fake.calls) == (
+        0,
+        True,
+        [],
+    )
