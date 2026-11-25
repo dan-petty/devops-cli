@@ -1,0 +1,17 @@
+{
+  "name": "6017-model-jobs-six",
+  "source": "Merged delivery commit 0ddb85dcee73 of #6017, group 1.",
+  "issue": 6017,
+  "title": "chore(k8s): Let six model Jobs run at once in the cluster",
+  "group": 1,
+  "change": "6017-model-jobs-six",
+  "base": "dfc56b388574644173389d81ef7ba20c23a37182",
+  "changes": [
+    "k8s/devops/configmap.example.yaml"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/config/test_roadmap_model_jobs.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

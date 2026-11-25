@@ -1,0 +1,17 @@
+{
+  "name": "6031-renovate-security-automerge",
+  "source": "Merged delivery commit c75013263fc5 of #6031, group 1.",
+  "issue": 6031,
+  "title": "feat(deps): Merge each Renovate security fix after its checks",
+  "group": 1,
+  "change": "6031-renovate-security-automerge",
+  "base": "5972ad8e06546037fe930d2885815cc9f3d31daa",
+  "changes": [
+    ".github/renovate.json"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/core/test_renovate_config.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

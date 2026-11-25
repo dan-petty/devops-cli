@@ -1,0 +1,17 @@
+{
+  "name": "4891-helper-test-keeps-pythonpath",
+  "source": "Merged delivery commit 99c109d63882 of #4891, group 1.",
+  "issue": 4891,
+  "title": "fix(tests): the plain-Python helper test keeps PYTHONPATH",
+  "group": 1,
+  "change": "4891-helper-test-keeps-pythonpath",
+  "base": "0da637f04a63f35ccde6ca0fa97396eb0e9706fb",
+  "changes": [
+    "tests/invariants/test_hermetic_floor.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/invariants/test_hermetic_floor.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

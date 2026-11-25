@@ -1,0 +1,17 @@
+{
+  "name": "4906-check-the-design-test-bound-and",
+  "source": "Merged delivery commit e2c1a5a15db9 of #4906, group 2.",
+  "issue": 4906,
+  "title": "fix(design): check the design test bound and source hex values",
+  "group": 2,
+  "change": "4906-check-the-design-test-bound-and",
+  "base": "8797c88aef9c14881b5a8db2331d38245bada91b",
+  "changes": [
+    "tests/design/test_tokens.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/design/test_tokens.py tests/invariants/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

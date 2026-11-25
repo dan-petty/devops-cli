@@ -1,0 +1,21 @@
+{
+  "name": "2253-valkey-vault-dry-run",
+  "source": "Merged delivery commit 91a971ee079e of #2253, group 1.",
+  "issue": 2253,
+  "title": "feat(vault): preview requests in dry run for valkey and vault commands",
+  "group": 1,
+  "change": "2253-valkey-vault-dry-run",
+  "base": "37383f1c23571796286ac2832a18ee9f122c3a44",
+  "changes": [
+    "src/devops_cli/commands/valkey.py",
+    "src/devops_cli/commands/vault.py",
+    "src/devops_cli/security/vault_plans.py",
+    "src/devops_cli/valkey/valkey_plans.py",
+    "tests/fixtures/dry_run_gaps.json"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_valkey.py tests/commands/test_valkey_vault_dry_run.py tests/commands/test_vault_cmd.py tests/security/test_vault_broker.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

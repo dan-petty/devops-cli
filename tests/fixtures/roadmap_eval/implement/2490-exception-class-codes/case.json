@@ -1,0 +1,18 @@
+{
+  "name": "2490-exception-class-codes",
+  "source": "Merged delivery commit 410dece30f87 of #2490, group 1.",
+  "issue": 2490,
+  "title": "refactor(exceptions): each exception class declares its error_code and exit_code",
+  "group": 1,
+  "change": "2490-exception-class-codes",
+  "base": "a556984b700ecc235d421da7d70f61a71728e084",
+  "changes": [
+    "CONTRIBUTING.md",
+    "docs/ERRORS.md"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/review/test_review_targets_stay_inside_the_repository.py tests/test_ai_controller.py tests/test_argo_gitops.py tests/test_docs.py tests/test_exceptions.py tests/test_github_contract.py tests/test_github_errors.py tests/test_install_tools.py tests/test_review_session_store.py tests/test_sandbox_networking.py tests/test_subprocess_env_boundary.py tests/test_tool_executor_contract.py tests/test_valkey.py tests/test_zero_plaintext_invariants.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

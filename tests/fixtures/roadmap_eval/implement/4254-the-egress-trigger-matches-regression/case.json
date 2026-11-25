@@ -1,0 +1,18 @@
+{
+  "name": "4254-the-egress-trigger-matches-regression",
+  "source": "Merged delivery commit ec96082391f3 of #4254, group 1.",
+  "issue": 4254,
+  "title": "fix(roadmap): match a security trigger word as a word",
+  "group": 1,
+  "change": "4254-the-egress-trigger-matches-regression",
+  "base": "d31717d1815f85672b711e88b70df5f36e1f6244",
+  "changes": [
+    "src/devops_cli/roadmap/stage/stage_change.py",
+    "tests/roadmap/stage/test_roadmap_stage_security.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/stage/test_roadmap_stage_security.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

@@ -1,0 +1,18 @@
+{
+  "name": "2261-duplicate-checkmarks",
+  "source": "Merged delivery commit db7c3c488a05 of #2261, group 1.",
+  "issue": 2261,
+  "title": "fix(output): remove duplicated check marks from success messages",
+  "group": 1,
+  "change": "2261-duplicate-checkmarks",
+  "base": "27f8c60d3b66c985e98ca6d42a23fd16fba9462e",
+  "changes": [
+    "src/devops_cli/ai/knowledge_base/devops_cli/libraries/rich.md",
+    "tests/test_output.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_output.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

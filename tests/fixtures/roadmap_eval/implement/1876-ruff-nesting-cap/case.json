@@ -1,0 +1,18 @@
+{
+  "name": "1876-ruff-nesting-cap",
+  "source": "Merged delivery commit 31b82cddd739 of #1876, group 1.",
+  "issue": 1876,
+  "title": "ci(lint): Ruff PLR1702 caps nesting at 4 blocks and replaces the hook",
+  "group": 1,
+  "change": "1876-ruff-nesting-cap",
+  "base": "3731dff0080a40b9e81ddfd928d20454d266f6be",
+  "changes": [
+    "pyproject.toml",
+    "tests/test_ruff_complexity_cap.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_ai_spec.py tests/test_architectural_invariants.py tests/test_code_metrics.py tests/test_docs_command_resolver.py tests/test_net_construct_rules.py tests/test_review_ruff_mypy_evidence.py tests/test_ruff_complexity_cap.py tests/test_scan_complexity.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

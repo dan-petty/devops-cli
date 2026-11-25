@@ -1,0 +1,18 @@
+{
+  "name": "2110-pre-push-fast-static-checks",
+  "source": "Merged delivery commit 9b53ea2199a1 of #2110, group 1.",
+  "issue": 2110,
+  "title": "ci(gate): required status checks gate the merge and the pre-push hook runs the fast static checks",
+  "group": 1,
+  "change": "2110-pre-push-fast-static-checks",
+  "base": "35b5632f158a0dc85e6b37ed90053b27aa0598a0",
+  "changes": [
+    ".pre-commit-config.yaml",
+    "tests/test_workflow_contracts.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_agents_md_claims.py tests/test_ci.py tests/test_ci_cache_fingerprint.py tests/test_test_module_independence.py tests/test_test_selection.py tests/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

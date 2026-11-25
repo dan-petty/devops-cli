@@ -1,0 +1,18 @@
+{
+  "name": "5364-homelab-source-repo",
+  "source": "Merged delivery commit f299667c9523 of #5364, group 1.",
+  "issue": 5364,
+  "title": "feat(argocd): admit the homelab repo in both AppProjects",
+  "group": 1,
+  "change": "5364-homelab-source-repo",
+  "base": "67e7aba582d7d50091d14205acda2ae36c631146",
+  "changes": [
+    "k8s/argocd/apps/projects.yaml",
+    "tests/invariants/test_k8s_argocd_apps.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/invariants/test_k8s_argocd_apps.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

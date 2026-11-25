@@ -1,0 +1,20 @@
+{
+  "name": "3858-config-tests-on-edge-fakes",
+  "source": "Merged delivery commit 055049763169 of #3858, group 1.",
+  "issue": 3858,
+  "title": "test(config): config tests use the config fixture and edge fakes",
+  "group": 1,
+  "change": "3858-config-tests-on-edge-fakes",
+  "base": "a3d9dff976d1a4634e75e02e7b5091dbaa30e700",
+  "changes": [
+    "tests/config/test_ai_task_settings_paths.py",
+    "tests/config/test_settings_cache.py",
+    "tests/support/config.py",
+    "tests/telemetry/test_config_env_overrides.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/config/test_ai_task_settings_paths.py tests/config/test_setting_sources.py tests/config/test_settings_cache.py tests/telemetry/test_config_env_overrides.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

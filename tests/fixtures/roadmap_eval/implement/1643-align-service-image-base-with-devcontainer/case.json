@@ -1,0 +1,21 @@
+{
+  "name": "1643-align-service-image-base-with-devcontainer",
+  "source": "Merged delivery commit 48812f58c704 of #1643, group 1.",
+  "issue": 1643,
+  "title": "chore(docker): run test suite inside service image in CI",
+  "group": 1,
+  "change": "1643-align-service-image-base-with-devcontainer",
+  "base": "f9cadb5f17ef63e328e52002e8eeefb1d40607e9",
+  "changes": [
+    "tests/ai/test_run_store.py",
+    "tests/docs/test_docs.py",
+    "tests/docs/test_docs_source_argv_collector.py",
+    "tests/sandbox/test_host_sandbox.py",
+    "tests/support/git_recording.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/ai/test_run_store.py tests/commands/test_ci.py tests/docs/test_docs.py tests/docs/test_docs_source_argv_collector.py tests/invariants/test_architectural_invariants.py tests/sandbox/test_host_sandbox.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

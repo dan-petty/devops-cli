@@ -1,0 +1,22 @@
+{
+  "name": "4825-delete-the-stream-route-that-sends",
+  "source": "Merged delivery commit e9d51b5cbcf0 of #4825, group 1.",
+  "issue": 4825,
+  "title": "fix(service): delete the stream route that sends canned verified text",
+  "group": 1,
+  "change": "4825-delete-the-stream-route-that-sends",
+  "base": "c40b0ad58b5d5e820f005e6ad96c2f7900f6b1cd",
+  "changes": [
+    "src/devops_cli/config/defaults.py",
+    "src/devops_cli/server/app.py",
+    "src/devops_cli/server/routes/stream.py",
+    "tests/fixtures/swallowed_failures_ceilings.json",
+    "tests/server/test_server.py",
+    "tests/server/test_server_stream.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/server/test_server.py tests/server/test_server_stream.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

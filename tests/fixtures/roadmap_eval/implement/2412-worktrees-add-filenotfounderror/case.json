@@ -1,0 +1,18 @@
+{
+  "name": "2412-worktrees-add-filenotfounderror",
+  "source": "Merged delivery commit 4226904e21d1 of #2412, group 1.",
+  "issue": 2412,
+  "title": "fix(git): ignore missing files when measuring directory size during reclaim",
+  "group": 1,
+  "change": "2412-worktrees-add-filenotfounderror",
+  "base": "4d5f78937f24fcb459c9c51ae570fb8711c908fa",
+  "changes": [
+    "src/devops_cli/git/worktree_inventory.py",
+    "tests/test_repos_worktrees.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_repos_worktrees.py tests/test_repos_worktrees_reclaim.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

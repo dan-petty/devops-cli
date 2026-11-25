@@ -1,0 +1,19 @@
+{
+  "name": "2039-job-metrics-increase",
+  "source": "Merged delivery commit cc34caa444c0 of #2039, group 2.",
+  "issue": 2039,
+  "title": "fix(telemetry): export created timestamps for cluster job counters (#2039)",
+  "group": 2,
+  "change": "2039-job-metrics-increase",
+  "base": "15bd6014d544fda76e8e87c40e726f7fffa9f8d6",
+  "changes": [
+    "docs/TELEMETRY.md",
+    "k8s/monitoring/prometheus-values.yaml",
+    "k8s/otel/values.yaml"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_telemetry_instruments.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

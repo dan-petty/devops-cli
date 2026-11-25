@@ -1,0 +1,20 @@
+{
+  "name": "4593-openspec-new-branch",
+  "source": "Merged delivery commit 2deaaeceb261 of #4593, group 1.",
+  "issue": 4593,
+  "title": "fix(openspec): name the checkout branch in the new output",
+  "group": 1,
+  "change": "4593-openspec-new-branch",
+  "base": "a49091f9b09e6ad8f46e9abf599447daff3b3a4c",
+  "changes": [
+    "src/devops_cli/commands/openspec.py",
+    "src/devops_cli/lang/en/messages.py",
+    "src/devops_cli/openspec/scaffold.py",
+    "tests/openspec/test_openspec_new.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/openspec/test_openspec_new.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

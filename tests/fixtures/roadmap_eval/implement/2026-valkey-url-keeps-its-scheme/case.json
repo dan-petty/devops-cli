@@ -1,0 +1,18 @@
+{
+  "name": "2026-valkey-url-keeps-its-scheme",
+  "source": "Merged delivery commit 5f36c4cd05fb of #2026, group 1.",
+  "issue": 2026,
+  "title": "fix(valkey): valkey.url keeps its scheme, so a valkeys url dials tls with host name checks",
+  "group": 1,
+  "change": "2026-valkey-url-keeps-its-scheme",
+  "base": "8a3b79e2c95b2096ff34e2620bdc9499cdfeb4af",
+  "changes": [
+    "tests/test_ui_dashboard.py",
+    "tests/test_valkey.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_ui_dashboard.py tests/test_valkey.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

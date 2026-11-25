@@ -1,0 +1,17 @@
+{
+  "name": "1436-cloudflare-access-sync-pagination-retry",
+  "source": "Merged delivery commit a86aa4bd7061 of #1436, group 1.",
+  "issue": 1436,
+  "title": "fix(infra): cloudflare access sync reads every page of applications and policies and retries rate-limited requests",
+  "group": 1,
+  "change": "1436-cloudflare-access-sync-pagination-retry",
+  "base": "31aa72ebde5632e0b32ad96bc60437a1c96789b7",
+  "changes": [
+    "tests/test_cloudflare_commands.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_cloudflare_commands.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

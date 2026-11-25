@@ -15,7 +15,7 @@ _GATE_ROWS = {
     "startup-imports": "startup_imports",
     "swallowed-failures": "swallowed_failures",
     "domain": "configured_domain",
-    "roadmap-stage-eval-commits": "roadmap_stage_eval_commits",
+    "roadmap-eval-commits": "roadmap_eval_commits",
 }
 
 

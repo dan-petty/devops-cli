@@ -1,0 +1,17 @@
+{
+  "name": "2045-gateway-routes-defaults",
+  "source": "Merged delivery commit 8317526e29a0 of #2045, group 1.",
+  "issue": 2045,
+  "title": "fix(ai): a saved gateway route table keeps only failover state, so a changed default route reaches every machine",
+  "group": 1,
+  "change": "2045-gateway-routes-defaults",
+  "base": "be318276402e68835423c5b90d50d489b5ab8a41",
+  "changes": [
+    "tests/test_ai_gateway.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_ai_gateway.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

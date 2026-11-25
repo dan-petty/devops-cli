@@ -1,0 +1,18 @@
+{
+  "name": "4782-pr-edit-title",
+  "source": "Merged delivery commit c729a48f6fe4 of #4782, group 1.",
+  "issue": 4782,
+  "title": "fix(pr): check the title form on pr edit",
+  "group": 1,
+  "change": "4782-pr-edit-title",
+  "base": "b72e392719968cac09376e630d2b888480f0e50b",
+  "changes": [
+    "src/devops_cli/commands/pr.py",
+    "tests/commands/test_pr_update.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_pr_cmd.py tests/commands/test_pr_update.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

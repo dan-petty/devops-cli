@@ -1,0 +1,18 @@
+{
+  "name": "2161-service-github-limits",
+  "source": "Merged delivery commit 0f00e96ab56a of #2161, group 1.",
+  "issue": 2161,
+  "title": "fix(service): stop every roadmap job on a refused identity and keep GitHub requests under an hourly budget",
+  "group": 1,
+  "change": "2161-service-github-limits",
+  "base": "f9c7ef515cbd393f434fba8bb869b1b2d9e00c4c",
+  "changes": [
+    "tests/test_github_errors.py",
+    "tests/test_service_limits.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_github_errors.py tests/test_service_limits.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

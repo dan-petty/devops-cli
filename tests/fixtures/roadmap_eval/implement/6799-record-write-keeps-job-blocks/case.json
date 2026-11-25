@@ -1,0 +1,19 @@
+{
+  "name": "6799-record-write-keeps-job-blocks",
+  "source": "Merged delivery commit b1d485234f0a of #6799, group 1.",
+  "issue": 6799,
+  "title": "fix(roadmap): a record write keeps job blocks readable",
+  "group": 1,
+  "change": "6799-record-write-keeps-job-blocks",
+  "base": "9dfe03e3e7df1078de4049e6f03e859055821d5e",
+  "changes": [
+    "src/devops_cli/roadmap/stores/store.py",
+    "tests/roadmap/refine/test_roadmap_refine_block_markers.py",
+    "tests/roadmap/stores/test_roadmap_store_record_block.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/roadmap/refine/test_roadmap_refine_block_markers.py tests/roadmap/stores/test_roadmap_store_record_block.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

@@ -1,0 +1,26 @@
+{
+  "name": "4685-the-claim-sets-in-progress",
+  "source": "Merged delivery commit 06ef1c61d4bb of #4685, group 1.",
+  "issue": 4685,
+  "title": "feat(repos): the claim sets In Progress",
+  "group": 1,
+  "change": "4685-the-claim-sets-in-progress",
+  "base": "9a0659dccde718d4a90bc8fcfe4c204bdf3e0354",
+  "changes": [
+    "src/devops_cli/commands/repos.py",
+    "src/devops_cli/git/worktree_add.py",
+    "src/devops_cli/lang/en/messages.py",
+    "src/devops_cli/roadmap/claim.py",
+    "src/devops_cli/roadmap/pull_status.py",
+    "src/devops_cli/roadmap/status_sync.py",
+    "tests/core/test_repos_worktrees_add.py",
+    "tests/git/test_repos_worktrees_reclaim.py",
+    "tests/roadmap/test_roadmap_claim.py",
+    "tests/roadmap/test_roadmap_status_sync.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/core/test_repos_worktrees_add.py tests/git/test_repos_worktrees_reclaim.py tests/roadmap/test_roadmap_claim.py tests/roadmap/test_roadmap_status_sync.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

@@ -1,0 +1,18 @@
+{
+  "name": "2148-log-or-metric-volume-disk-low",
+  "source": "Merged delivery commit 7b381ea16817 of #2148, group 1.",
+  "issue": 2148,
+  "title": "fix(monitoring): evaluate log or metric volume disk low alert while a pod moves",
+  "group": 1,
+  "change": "2148-log-or-metric-volume-disk-low",
+  "base": "621282ba542701cfd372f73fd9c5c5285ff0f637",
+  "changes": [
+    "k8s/monitoring/prometheus-values.yaml",
+    "tests/test_k8s_monitoring_alerting.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/test_k8s_monitoring_alerting.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}

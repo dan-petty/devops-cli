@@ -242,7 +242,7 @@ the probe measured nothing. |
 |  | `devops ci startup-imports [OPTIONS]` | Run the startup-imports check. |
 |  | `devops ci swallowed-failures [OPTIONS]` | Run the swallowed-failures check. |
 |  | `devops ci domain [OPTIONS]` | Run the domain check. |
-|  | `devops ci roadmap-stage-eval-commits [OPTIONS]` | Run the roadmap-stage-eval-commits check. |
+|  | `devops ci roadmap-eval-commits [OPTIONS]` | Run the roadmap-eval-commits check. |
 | [**uv**](commands/uv.md) | `devops uv sync [OPTIONS]` | Sync project dependencies into the virtual environment. |
 |  | `devops uv lock [OPTIONS]` | Regenerate the uv lockfile. |
 |  | `devops uv python-install [OPTIONS]` | Install project Python version with uv. |

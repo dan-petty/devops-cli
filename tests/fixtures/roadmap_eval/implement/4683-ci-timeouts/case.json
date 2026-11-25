@@ -1,0 +1,19 @@
+{
+  "name": "4683-ci-timeouts",
+  "source": "Merged delivery commit e61c91fc2090 of #4683, group 1.",
+  "issue": 4683,
+  "title": "fix(ci): give the test row and the index build their own bounds",
+  "group": 1,
+  "change": "4683-ci-timeouts",
+  "base": "c729a48f6fe4bcca10dad60648d82f2ce52320de",
+  "changes": [
+    "docs/TESTING.md",
+    "src/devops_cli/commands/ci.py",
+    "src/devops_cli/config/defaults.py"
+  ],
+  "tests_pass": [
+    "uv run devops ci test tests/commands/test_ci_shard.py tests/invariants/test_workflow_contracts.py"
+  ],
+  "allow_lost_tests": [],
+  "results": []
+}
