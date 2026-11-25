@@ -54,8 +54,6 @@ logger = logging.getLogger(__name__)
 # The route of each virtual model: the model that the gateway config (k8s/llm/gateway/config.yaml)
 # sends to the tier of the default Ollama Service, or to an embedding tier for an embedding model.
 # The wheel and the service image hold only src/devops_cli, so the CLI cannot read that config.
-# tests/ai/benchmark/test_k8s_llm_gateway.py fails when a route, or the route that a failover
-# records, names a model that the config does not send to the route's tier (#1969).
 DEFAULT_GATEWAY_ROUTES: Final[tuple[dict[str, str], ...]] = (
     {
         "virtual_model": "devops-chat",

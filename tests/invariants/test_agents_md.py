@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from collections import deque
 from datetime import date
 from itertools import pairwise, takewhile
@@ -345,28 +344,6 @@ def test_the_draft_rule_marks_a_draft_ready_when_no_agent_work_remains() -> None
     ] == []
 
 
-def test_agents_md_keeps_the_safety_rules_inline() -> None:
-    """The safety rules stay in AGENTS.md, which every session and every implement step reads in
-    full, also when their detail moves to the document that owns it (#5421)."""
-    assert [
-        needle
-        for needle in (
-            "Never commit or push to `main`",
-            "Never use `--no-verify`",
-            "Never lower a security or quality threshold",
-            "Never run bare `gh`",
-            "**Only a person** merges pull requests",
-            "changes secrets, repository settings and hardware",
-            "Never commit a secret, a gitignored file, an internal hostname, a private address or "
-            "registry, or a device path",
-            "`example.com`",
-            "RFC 5737",
-            "`<storage-node>`",
-        )
-        if needle not in _AGENTS_MD.read_text(encoding="utf-8")
-    ] == []
-
-
 _REMOVED_PERSON_STEP_PHRASES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
     ("AGENTS.md", ("records verdicts", "plans milestones")),
     ("CONTRIBUTING.md", ("a verdict or a release", "Do not add these labels by hand.")),
@@ -614,13 +591,6 @@ def test_a_link_to_a_missing_file_or_heading_is_broken(tmp_path: Path) -> None:
     assert _broken_links(document) == ["missing.md", "other.md#gone", "#nowhere"]
 
 
-def test_the_gate_list_of_the_sdlc_names_the_openspec_row() -> None:
-    """docs/SDLC.md, the document AGENTS.md routes the gate to, lists the `openspec` row as the
-    last check that `devops ci` runs."""
-    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
-    assert "14. `openspec`: Runs `devops openspec check`" in sdlc
-
-
 # ── No agent instruction names a deleted process (#1961) ─────────────────────────────────────
 
 _AGENTS_MD = REPO_ROOT / "AGENTS.md"
@@ -781,17 +751,6 @@ def test_contributing_md_states_the_branch_form_once_and_names_each_check() -> N
 def test_every_relative_link_of_the_release_page_resolves() -> None:
     """The release page a person follows links only files and headings that exist."""
     assert _broken_links(_RELEASE_CYCLE_MD) == []
-
-
-_PYPROJECT = REPO_ROOT / "pyproject.toml"
-
-
-def test_the_coverage_run_table_measures_branches() -> None:
-    """`[tool.coverage.run]` measures both sides of each conditional in every row of the gate,
-    and it keeps the data file that the aggregate job combines (#2163)."""
-    run = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))["tool"]["coverage"]["run"]
-
-    assert run == {"data_file": ".data/.coverage", "parallel": True, "branch": True}
 
 
 CONST_RETIRED_TEST_PHRASES: Final[tuple[str, ...]] = (

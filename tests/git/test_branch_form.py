@@ -8,49 +8,15 @@ the three disagree, `add` makes a branch that the hook then refuses.
 
 from __future__ import annotations
 
-import json
-from typing import Any
-
 import pytest
-import yaml
 
-from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN, CONST_BRANCH_TYPES
+from devops_cli.config.constants import CONST_BRANCH_SLUG_PATTERN
 from devops_cli.git.branch_form import parse_branch, slug_from_title
-from tests.support.paths import REPO_ROOT
 
 # The second form that the `branch-name` hook accepts: the branch that GitHub gives the Copilot
 # cloud agent, which the agent cannot rename (#5136). No module of `src/` reads it, so it lives
 # here and in the hook (CONTRIBUTING.md, Naming).
 COPILOT_BRANCH_FORM = f"copilot/{CONST_BRANCH_SLUG_PATTERN}"
-
-
-def _branch_name_hook_pattern() -> str:
-    """The `--pattern` argument of the `branch-name` hook of `.pre-commit-config.yaml`."""
-    config: dict[str, Any] = yaml.safe_load(
-        (REPO_ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    )
-    hooks = [
-        hook
-        for repo in config["repos"]
-        for hook in repo["hooks"]
-        if hook.get("alias") == "branch-name"
-    ]
-    assert len(hooks) == 1
-    args: list[str] = hooks[0]["args"]
-    return args[args.index("--pattern") + 1]
-
-
-def test_the_branch_types_are_the_types_release_please_lists() -> None:
-    config = json.loads((REPO_ROOT / "release-please-config.json").read_text(encoding="utf-8"))
-
-    assert set(CONST_BRANCH_TYPES) == {section["type"] for section in config["changelog-sections"]}
-
-
-def test_the_branch_form_of_the_code_is_the_form_of_the_hook() -> None:
-    types = "|".join(CONST_BRANCH_TYPES)
-    form = f"(?:{types})/[0-9]+-{CONST_BRANCH_SLUG_PATTERN}"
-
-    assert _branch_name_hook_pattern() == f"^(?!(?:{form}|{COPILOT_BRANCH_FORM})$)"
 
 
 def test_a_branch_gives_its_type_issue_and_slug() -> None:

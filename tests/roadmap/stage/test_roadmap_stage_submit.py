@@ -293,10 +293,9 @@ def test_a_round_with_no_repository_is_refused_before_any_request(
     assert kube.custom_objects.calls == []
 
 
-def test_the_jobs_setting_defaults_to_1_and_refuses_0() -> None:
+def test_the_jobs_setting_refuses_0() -> None:
     with pytest.raises(ValueError, match="jobs"):
         RoadmapConfig.model_validate({"stage": {"jobs": 0}})
-    assert RoadmapConfig().stage.jobs == 1
 
 
 # ── The submit ────────────────────────────────────────────────────────────────

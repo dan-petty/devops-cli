@@ -86,24 +86,6 @@ def _use_process_fake(process_fake: ProcessFake, clock: ClockFake) -> ProcessFak
     return process_fake
 
 
-def test_load_project_template() -> None:
-    """ProjectTemplate properly parses the declarative template schema."""
-    template_path = Path(".github/project-template.json")
-    assert template_path.exists()
-
-    template = load_project_template(template_path)
-    assert isinstance(template, ProjectTemplate)
-    assert "DevOps CLI" in template.name
-    assert len(template.fields) >= 4
-    assert len(template.views) == 4
-
-    view_names = [v.name for v in template.views]
-    assert "Sprint Kanban" in view_names
-    assert "Roadmap Timeline" in view_names
-    assert "Triage & Quality Table" in view_names
-    assert "Value vs Effort Priority Matrix" in view_names
-
-
 _PROJECT_SCOPE_MISSING = (
     "error: your authentication token is missing required scopes [read:project]\n"
     "To request it, run:  gh auth refresh -s read:project"

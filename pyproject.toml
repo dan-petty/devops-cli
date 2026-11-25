@@ -355,12 +355,6 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/roadmap/stage/test_roadmap_stage_models.py::test_model_fields_reads_module_and_fields",
     # Reads staged case files tracked by git in the checkout.
     "--deselect=tests/roadmap/stage/test_roadmap_stage_eval_compare.py::test_the_staged_item_case_loads_with_its_commit",
-    # Reads .claude/settings.json which is not copied into mutants/.
-    "--deselect=tests/core/test_third_party_telemetry.py::test_the_committed_claude_settings_opt_out_of_openspec_telemetry_and_its_update_check",
-    # Reads typings/ directory which is not copied into mutants/.
-    "--deselect=tests/invariants/test_declared_dependencies.py::test_declared_dependencies_numpy_and_pytrec_eval",
-    # Reads openspec change proposals.
-    "--deselect=tests/invariants/test_mcp_server_image.py::test_the_change_records_the_findings_and_the_date",
     # Reads skill files from .kilocode which is not copied into mutants/.
     "--ignore=tests/invariants/test_skills.py",
     # Resolves relative links across markdown files not copied into mutants/.
@@ -371,12 +365,6 @@ pytest_add_cli_args_test_selection = [
     "--deselect=tests/github/test_gh_issues_milestones_labels_runs_dry_run.py::test_request_plan_commands_make_no_external_requests[roadmap_run-run_cmd-argv14]",
     # Runs pages verify which reads zensical.toml.
     "--deselect=tests/github/test_gh_project_views_pages_dry_run.py::test_no_external_request_commands_run_normally[pages_verify-pages_verify_cmd-argv0]",
-    # Reads .bandit which is not copied into mutants/.
-    "--deselect=tests/commands/test_ci.py::test_bandit_s_config_skips_only_the_low_rules_that_need_no_decision",
-    # Reads .bandit which is not copied into mutants/.
-    "--deselect=tests/commands/test_ci.py::test_the_security_row_scans_the_targets_that_bandit_s_config_names",
-    # Reads tracked Python files via git ls-files and reads .bandit.
-    "--deselect=tests/commands/test_security_bandit.py::test_the_bandit_targets_hold_every_python_file_the_repository_tracks",
     # Runs bandit on this repository with .bandit.
     "--deselect=tests/commands/test_security_bandit.py::test_the_scan_report_runs_bandit_on_this_repository_with_the_gate_s_config",
     # Review workflows create profiles and query checkout tracking.

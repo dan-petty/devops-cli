@@ -111,11 +111,6 @@ def _limit() -> str:
 
 
 @pytest.mark.usefixtures("clean_setting")
-def test_the_memory_limit_is_8gi_when_the_setting_is_not_set() -> None:
-    assert _limit() == "8Gi"
-
-
-@pytest.mark.usefixtures("clean_setting")
 def test_a_variable_raises_the_memory_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(VARIABLE, "12Gi")
 

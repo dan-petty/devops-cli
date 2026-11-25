@@ -41,7 +41,7 @@ class GpuProfile(BaseModel):
     tensor_parallel_size: int
     quantization: str
     # The gateway group that serves the profile's model class, as is the `virtual_model` of a
-    # Service alias. tests/test_k8s_llm_gateway.py binds both to k8s/llm/gateway/config.yaml.
+    # Service alias.
     virtual_gateway_model: str
     description: str = Field(default="")
 

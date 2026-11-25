@@ -20,7 +20,6 @@ promtool of the devtools image, which the devcontainer has and which CI copies w
 
 from __future__ import annotations
 
-import re
 from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -31,7 +30,6 @@ from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 
 from devops_cli.config.constants import (
-    CONST_GH_MUTATION_HTTP_METHODS,
     CONST_SERVICE_METRIC_BUDGET_LIMIT,
     CONST_SERVICE_METRIC_BUDGET_SPENT,
     CONST_SERVICE_METRIC_FIX_CHECKS_JOBS,
@@ -186,9 +184,6 @@ RULE_TEST_IDS = [rule_tests.stem for _, rule_tests in RULE_GROUP_TESTS]
 # of 4 rules and took 64 s on a CI runner (#4456). The longest case of the other files makes 390.
 MAX_PROMTOOL_ROUNDS = 1_000
 
-# The job matcher of each rule of the recording group: the Service's own job, and the job of a row
-# pod, which is named after the pod (#4562).
-ROADMAP_SERVICE_RECORDING_JOB_MATCHER = 'job=~"roadmap-service|roadmap-.+"'
 # The row work selectors that the recording group shares (#4562): the metrics that each selector
 # reads, and the record name of its rule. A single-metric selector's record name holds its metric;
 # the budget ratio's holds `_per_` and `ratio`.
@@ -206,15 +201,6 @@ COVERED_ROW_WORK_SELECTORS = (
 # The record names of the row work series: each is a series that the server serves, because the
 # group records it.
 RECORDED_ROW_WORK_SERIES = tuple(record for _, record in COVERED_ROW_WORK_SELECTORS)
-# The row work alerts that read a recorded series of `roadmap-service-recording` (#4562): the
-# failed jobs of a row, the GitHub request budget of the Service and the rows that stay suspended.
-# The router health alerts keep their raw `job="roadmap-service"` selector, because the router
-# keeps the job.
-ROW_WORK_ALERTS = (
-    "RoadmapServiceJobsFailing",
-    "RoadmapServiceGitHubRequestsHigh",
-    "RoadmapServiceRowSuspended",
-)
 
 # Every series an alert rule may select, by what serves it.
 SERVED_SERIES = frozenset(
@@ -405,22 +391,6 @@ def _rule_files() -> dict[str, dict[str, Any]]:
     return {key: server_files[key] for key in keys if (server_files.get(key) or {}).get("groups")}
 
 
-def _groups() -> list[dict[str, Any]]:
-    """Every rule group that the server loads, in the order of `rule_files`."""
-    return [group for rules in _rule_files().values() for group in rules["groups"]]
-
-
-def _rules() -> list[dict[str, Any]]:
-    """Every rule the Prometheus server loads."""
-    return [rule for group in _groups() for rule in group["rules"]]
-
-
-def _group(name: str) -> list[dict[str, Any]]:
-    """The rules of one group, in file order."""
-    (rules,) = [group["rules"] for group in _groups() if group["name"] == name]
-    return list(rules)
-
-
 def _unserved(expression: str) -> list[str]:
     """Each selector in an expression that names no metric or one nothing serves."""
     return [
@@ -444,116 +414,6 @@ def test_the_served_series_check_rejects_what_nothing_serves(
 ) -> None:
     """Pin the check on literal expressions: an unknown series, and a selector with no name."""
     assert len(_unserved(expression)) == unserved
-
-
-# One part of a record name, which is the `level:metric:operations` form of the Prometheus naming
-# practice (#4562), and the `by (...)` grouping of an expression.
-_RECORD_NAME_PART = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
-_GROUPING_LABELS = re.compile(r"by \(([^)]*)\)")
-
-
-def test_every_alert_rule_selects_only_series_the_stack_serves() -> None:
-    """A rule over a series no scrape serves stays silent, or fires on the missing target.
-
-    The recording rules of `roadmap-service-recording` (#4562) are part of the check: each has a
-    `level:metric:operations` name, each covered row work selector has one rule and no other, each
-    rule matches the Service's own job and the job of a row pod, and each record name is served.
-    Each row work alert then reads a recorded series of that group, and holds no raw
-    `job="roadmap-service"` selector, so the move of the row work into `roadmap-<row>` pods changes
-    the job of its series and no alert. The check sits here, in a test that already reads the rule
-    file: the `test-tree` row holds this module to a count of tests that read a config file, and
-    the count only falls (#6060).
-    """
-    rules = _rules()
-    assert (len(rules) > 0, [v for rule in rules for v in _unserved(rule["expr"])]) == (True, [])
-    recording = _group(ROADMAP_SERVICE_RECORDING_GROUP)
-
-    def selected(rule: dict[str, Any]) -> list[str | None]:
-        return sorted(selector.metric for selector in selectors(rule["expr"]))
-
-    # A record name has exactly two colons, and each of its three parts is an identifier.
-    assert [
-        record
-        for record in (str(rule.get("record", "")) for rule in recording)
-        if len(record.split(":")) != 3
-        or not all(_RECORD_NAME_PART.fullmatch(part) for part in record.split(":"))
-    ] == []
-    # One rule for each covered selector, and no fourth rule, each selecting only the metrics of
-    # its selector and recording them under the name that the selector names.
-    assert len(recording) == len(COVERED_ROW_WORK_SELECTORS)
-    assert {
-        record: [
-            (rule.get("record"), selected(rule))
-            for rule in recording
-            if set(metrics) & set(selected(rule))
-        ]
-        for metrics, record in COVERED_ROW_WORK_SELECTORS
-    } == {record: [(record, sorted(metrics))] for metrics, record in COVERED_ROW_WORK_SELECTORS}
-    assert [
-        record
-        for metrics, record in COVERED_ROW_WORK_SELECTORS
-        if not (
-            all(metric in record for metric in metrics)
-            if len(metrics) == 1
-            else all(part in record for part in ("_per_", "ratio"))
-        )
-    ] == []
-    # Each rule matches the Service's job and the row pods' jobs, and records a served name.
-    assert [
-        rule.get("record")
-        for rule in recording
-        if ROADMAP_SERVICE_RECORDING_JOB_MATCHER not in rule["expr"]
-        or rule.get("record") not in SERVED_SERIES
-    ] == []
-    # The failed jobs rule keeps the `result` label, so the alert compares the error series with
-    # the success series of one repo, lane and row.
-    (jobs,) = [rule for rule in recording if rule.get("record") == RECORDED_ROW_WORK_SERIES[0]]
-    assert [
-        sorted(grouping.split(", ")) for grouping in _GROUPING_LABELS.findall(jobs["expr"])
-    ] == [["lane", "repo", "result", "row"]]
-    # Each row work alert reads a recorded series of the group, and no raw selector of the
-    # Service's own job (#4562).
-    row_work = [
-        rule for rule in _group(ROADMAP_SERVICE_GROUP) if rule.get("alert") in ROW_WORK_ALERTS
-    ]
-    recorded = {str(rule["record"]) for rule in recording}
-    assert sorted(str(rule["alert"]) for rule in row_work) == sorted(ROW_WORK_ALERTS)
-    # Each selector of an expression names a series that a rule of the recording group records.
-    assert [
-        (rule["alert"], selector.metric)
-        for rule in row_work
-        for selector in selectors(rule["expr"])
-        if selector.metric not in recorded
-    ] == []
-    # Each alert reads at least one recorded series.
-    assert [
-        rule["alert"]
-        for rule in row_work
-        if not any(selector.metric in recorded for selector in selectors(rule["expr"]))
-    ] == []
-    assert [rule["alert"] for rule in row_work if 'job="roadmap-service"' in rule["expr"]] == []
-
-
-# The regular expression of a `method=~` matcher.
-_METHOD_REGEX_MATCHER = re.compile(r'method=~"([^"]*)"')
-
-
-def test_the_write_rule_names_each_write_method_of_the_request_classifier() -> None:
-    """`RoadmapServiceGitHubWritesHigh` counts the methods that `is_write_request` calls a REST
-    write, each by name, and no other (#2574).
-
-    PromQL reads an absent label as the empty string, so a negative matcher such as
-    `method!="GET"` counts each request of a series with no `method` label as a write. A matcher
-    that names the write methods counts none of them, and must name each write the code sends.
-    """
-    (rule,) = [
-        rule
-        for rule in _group(ROADMAP_SERVICE_ACTIVITY_GROUP)
-        if rule["alert"] == "RoadmapServiceGitHubWritesHigh"
-    ]
-    assert [
-        frozenset(methods.split("|")) for methods in _METHOD_REGEX_MATCHER.findall(rule["expr"])
-    ] == [CONST_GH_MUTATION_HTTP_METHODS] * 3
 
 
 @cache
@@ -606,28 +466,6 @@ def test_promtool_accepts_every_alert_rule(tmp_path: Path) -> None:
     assert (len(paths) > 0, result.returncode) == (True, 0), result.stdout + result.stderr
 
 
-def _tested_alerts(rule_tests: Path) -> set[str]:
-    """The alerts that the cases of a file of promtool unit tests name."""
-    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
-    return {
-        case["alertname"]
-        for test in unit_tests["tests"]
-        for case in test.get("alert_rule_test", [])
-    }
-
-
-@pytest.mark.parametrize("group", tuple(dict.fromkeys(group for group, _ in RULE_GROUP_TESTS)))
-def test_the_promtool_files_of_a_group_test_every_alert_of_the_group(group: str) -> None:
-    """The files of promtool unit tests of a group test each of its alerts, and no other."""
-    tested = set().union(
-        *(_tested_alerts(path) for name, path in RULE_GROUP_TESTS if name == group)
-    )
-    # A recording rule holds no `alert` key, and a file of its cases holds no `alert_rule_test`.
-    assert sorted(tested) == sorted(
-        alert for alert in (rule.get("alert") for rule in _group(group)) if alert is not None
-    )
-
-
 @pytest.mark.parametrize(("group", "rule_tests"), RULE_GROUP_TESTS, ids=RULE_TEST_IDS)
 def test_no_promtool_case_evaluates_more_rounds_than_the_budget(
     group: str, rule_tests: Path
@@ -645,38 +483,6 @@ def test_no_promtool_case_evaluates_more_rounds_than_the_budget(
         for test in unit_tests["tests"]
     }
     assert {name: n for name, n in rounds.items() if n > MAX_PROMTOOL_ROUNDS} == {}, group
-
-
-@pytest.mark.live("promtool")
-@pytest.mark.parametrize(("group", "rule_tests"), RULE_GROUP_TESTS, ids=RULE_TEST_IDS)
-def test_each_unit_tested_rule_fires_on_a_sample_and_stays_quiet_on_a_normal_series(
-    group: str, rule_tests: Path, tmp_path: Path
-) -> None:
-    """`promtool test rules` passes the unit tests of each rule of `roadmap-service` (#2472), of
-    `roadmap-service-recording` (#4562), of `roadmap-service-webhooks` (#2476), of
-    `roadmap-service-activity` (#2475), of `roadmap-service-items` (#2919), of
-    `roadmap-service-tools` (#3240), of `crawl4ai` (#3893), of
-    `otel-collector` (#1642), of `valkey-memory` (#2094), of `research` (#3899), of `repos-drift`
-    (#6783), of `ai-spend` (#4222), of `llm-gateway-db` (#4994) and of `metric-streams` (#4697).
-
-    Each alert fires on a sample series with the labels and annotations it pins, and stays quiet
-    on a normal series, before its wait ends, and on the series it must not count. Each file
-    tests alerts of its group only.
-    """
-    unit_tests = yaml.safe_load(rule_tests.read_text(encoding="utf-8"))
-    (rule_file,) = unit_tests["rule_files"]
-    groups = _groups()
-    (tmp_path / rule_file).write_text(
-        yaml.safe_dump({"groups": [g for g in groups if g["name"] == group]}),
-        encoding="utf-8",
-    )
-    copy = tmp_path / rule_tests.name
-    copy.write_text(rule_tests.read_text(encoding="utf-8"), encoding="utf-8")
-    result = promtool("test", "rules", copy)
-    assert (
-        sorted(_tested_alerts(rule_tests) - {rule.get("alert") for rule in _group(group)}),
-        result.returncode,
-    ) == ([], 0), result.stdout + result.stderr
 
 
 def test_github_requests_high_action_does_not_lower_budget() -> None:

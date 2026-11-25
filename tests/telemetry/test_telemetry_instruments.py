@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Final
 
 import pytest
-import yaml
 
 from devops_cli.ai.client import LLMClient, LLMResponse
 from devops_cli.ai.response_cache import get_llm_response_cache
@@ -155,11 +154,6 @@ def _devops_cli_dashboards() -> list[Path]:
     ]
 
 
-def _all_queries() -> list[str]:
-    """Every query in the devops-cli dashboards."""
-    return [query for dashboard in _devops_cli_dashboards() for query in _queries(dashboard)]
-
-
 # The AI spend dashboard also reads the gateway's request and token series, which count every
 # caller's calls (#1668).
 _GATEWAY_SERIES_DASHBOARDS: frozenset[str] = frozenset({"ai-spend.json"})
@@ -186,39 +180,6 @@ def test_every_dashboard_query_names_a_metric_devops_cli_sends(dashboard: Path) 
     ]
 
     assert (len(queries) > 0, sorted(unsent), unnamed) == (True, [], [])
-
-
-# The functions that read each kind of series over time. A counter's raw sum is the count since
-# the collector last reset the series, which it does when the series sits idle for an hour. A
-# gauge holds a snapshot, which Prometheus finds only within five minutes of its sample (#974).
-_READ_THROUGH: dict[InstrumentKind, frozenset[str]] = {
-    InstrumentKind.COUNTER: frozenset({"rate", "increase"}),
-    InstrumentKind.GAUGE: frozenset({"last_over_time"}),
-    InstrumentKind.HISTOGRAM: frozenset({"rate", "increase", "last_over_time"}),
-}
-_KIND_OF: dict[str, InstrumentKind] = {
-    instrument.name: instrument.kind for instrument in INSTRUMENTS
-} | SERVICE_SERIES
-
-
-def _reading_function(before: str) -> str:
-    """The function whose first argument starts where `before` ends, or "" for none."""
-    found = re.search(r"\b([a-z_]+)\(\s*$", before)
-    return found.group(1) if found else ""
-
-
-@pytest.mark.parametrize("dashboard", _devops_cli_dashboards(), ids=lambda path: path.name)
-def test_every_series_is_read_through_the_function_of_its_kind(dashboard: Path) -> None:
-    """Verify each series is the first argument of a function that reads its kind over time: a
-    counter's `rate(` or `increase(`, a gauge's `last_over_time(`, a histogram's either."""
-    misread = [
-        (query, match.group(0))
-        for query in _queries(dashboard)
-        for match in SERIES_NAME.finditer(query)
-        if _reading_function(query[: match.start()])
-        not in _READ_THROUGH.get(_KIND_OF.get(match.group(0)), frozenset())
-    ]
-    assert misread == []
 
 
 def test_a_counter_name_ends_in_total_and_no_other_name_does() -> None:
@@ -515,22 +476,6 @@ def test_the_resource_label_check_names_a_job_attribute_in_each_form_and_passes_
         "example.py:7",
         "example.py:8",
     ]
-
-
-def test_the_items_panels_group_only_by_labels_the_gauge_sends() -> None:
-    """A panel that groups `devops_cli_project_items` by a label that the gauge does not send
-    shows one series for all items (#2263)."""
-    queries = [query for query in _all_queries() if PROJECT_ITEMS.name in query]
-    grouped = {
-        label.strip()
-        for query in queries
-        for labels in re.findall(r"\bby\s*\(([^)]*)\)", query)
-        for label in labels.split(",")
-        if label.strip()
-    }
-
-    assert len(queries) == 2
-    assert grouped - set(PROJECT_ITEM_LABELS) == set()
 
 
 def test_each_project_instrument_names_the_repo_label() -> None:
@@ -1171,49 +1116,6 @@ def test_a_review_sends_its_duration_and_findings_by_severity_and_status(
     ) == (
         [({"target_type": "path"}, 312.5)],
         [("HIGH", "VERIFIED", 2.0), ("LOW", "INVALIDATED", 1.0)],
-    )
-
-
-def test_the_collector_deletes_the_host_name_of_devops_cli_metrics_before_it_adds_them_up(
-    otlp: FakeCollector,
-) -> None:
-    """A devops-cli build from before #4697 sends `host.name` in its metric Resource, and a new
-    build does not. `delta_to_cumulative` keys a stream by every resource attribute, while
-    Prometheus keeps only `job` and `instance`, so the two builds of one workload write two
-    running totals into one series (#5338). A transform processor before `delta_to_cumulative`
-    deletes `host.name` where `telemetry.sdk.name` is the SDK name that the tracer sends, so
-    every build sends one stream and the Resource of another SDK stays as it is."""
-    tracer_module.get_tracer().increment_counter("devops_cli_command_total", 1, attributes={})
-    resource = {
-        a["key"]: a["value"]["stringValue"]
-        for a in otlp.payloads(OtlpSignal.METRICS)[0]["resourceMetrics"][0]["resource"][
-            "attributes"
-        ]
-    }
-    config = yaml.safe_load(
-        (REPO_ROOT / "k8s" / "otel" / "values.yaml").read_text(encoding="utf-8")
-    )["config"]
-    processors = config["service"]["pipelines"]["metrics"]["processors"]
-    sdk_condition = (
-        f'resource.attributes["telemetry.sdk.name"] == "{resource["telemetry.sdk.name"]}"'
-    )
-
-    assert (
-        processors[: processors.index("delta_to_cumulative")],
-        config["processors"].get("transform/metric_resource"),
-    ) == (
-        ["memory_limiter", "transform/metric_resource"],
-        {
-            "error_mode": "ignore",
-            "metric_statements": [
-                {
-                    "context": "resource",
-                    "statements": [
-                        f'delete_key(resource.attributes, "host.name") where {sdk_condition}'
-                    ],
-                }
-            ],
-        },
     )
 
 

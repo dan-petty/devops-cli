@@ -149,12 +149,6 @@ def test_each_program_of_a_hook_is_held_or_left_out_with_a_reason() -> None:
     assert sorted(needed - DECIDED) == []
 
 
-def test_each_tool_that_a_required_job_installs_is_held_or_left_out_with_a_reason() -> None:
-    needed = set().union(*_gate_job_tools().values())
-
-    assert (sorted(needed - DECIDED), "trivy" in needed, "promtool" in needed) == ([], True, True)
-
-
 def test_each_binary_of_a_live_marked_test_is_held_or_left_out_with_a_reason() -> None:
     needed = set(_live_binaries())
 

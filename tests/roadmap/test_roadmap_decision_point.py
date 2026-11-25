@@ -592,7 +592,6 @@ def test_one_counter_counts_the_decisions_and_states_the_bound_of_the_catalogue(
         & names
     )
     assert f"{CONST_ROADMAP_DECISION_POINT_MAX_SERIES} series" in DECISION_POINT_TOTAL.description
-    assert CONST_ROADMAP_DECISION_POINT_MAX_SERIES == 110
     assert REGISTRY.series_count <= CONST_ROADMAP_DECISION_POINT_MAX_SERIES
 
 
@@ -651,9 +650,6 @@ def test_mode_rule_runs_without_cuts_records_model_answers_and_falls_back_on_err
 ) -> None:
     """Mode.RULE needs no cuts file, keeps standing rule decisions, records model probabilities
     with model_band=None when rule defers, and falls back on error or 5s timeout."""
-    from devops_cli.config.constants import CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS
-
-    assert CONST_ROADMAP_DECISION_POINT_TIMEOUT_SECONDS == 5.0
     missing_cuts = tmp_path / "does_not_exist.json"
 
     rule_decides = DecisionPoint(

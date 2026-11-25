@@ -1,8 +1,7 @@
 """The branch form `<type>/<issue>-<slug>` and the issue that a branch names (#2337).
 
-CONTRIBUTING.md (Naming) gives the form, the `branch-name` pre-commit hook refuses a commit on a
-branch that breaks it, and `tests/test_branch_form.py` fails when the types or the slug pattern of
-`config/constants.py` disagree with the hook or with `release-please-config.json`.
+CONTRIBUTING.md (Naming) gives the form, and the `branch-name` pre-commit hook refuses a commit on
+a branch that breaks it.
 """
 
 from __future__ import annotations

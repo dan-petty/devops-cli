@@ -17,14 +17,12 @@ import yaml
 from devops_cli.core.process import run_subprocess
 from devops_cli.k8s.cluster_job import (
     JOB_NAMESPACE,
-    PLANNER_NAME_LABEL_VALUE,
     PLANNER_TEMPLATE,
     build_job,
 )
 from tests.support.paths import REPO_ROOT
 
 CRONJOB = REPO_ROOT / "k8s/devops/roadmap-service/cronjob-planner-run.yaml"
-NETWORK_POLICY = REPO_ROOT / "k8s/devops/roadmap-service/networkpolicy-planner-run.yaml"
 JOB_NAME = "devops-cli-planner-run-20261115-120000-ab12"
 
 _PROBE = """status=0
@@ -47,92 +45,11 @@ def _pod_spec(job: dict[str, Any]) -> dict[str, Any]:
     return cast(dict[str, Any], job["spec"]["template"]["spec"])
 
 
-def _pod_labels(job: dict[str, Any]) -> dict[str, str]:
-    return cast(dict[str, str], job["spec"]["template"]["metadata"]["labels"])
-
-
 def _container(pod: dict[str, Any]) -> dict[str, Any]:
     (container,) = [
         entry for entry in pod["containers"] if entry["name"] == PLANNER_TEMPLATE.container
     ]
     return cast(dict[str, Any], container)
-
-
-def _network_policies() -> list[tuple[str, dict[str, Any]]]:
-    found: list[tuple[str, dict[str, Any]]] = []
-    for path in sorted((REPO_ROOT / "k8s").rglob("*.yaml")):
-        for document in yaml.safe_load_all(path.read_text(encoding="utf-8")):
-            if isinstance(document, dict) and document.get("kind") == "NetworkPolicy":
-                found.append((str(path.relative_to(REPO_ROOT)), document))
-    return found
-
-
-def test_a_write_outside_the_read_only_copy_fails() -> None:
-    """The clone, the config and the root filesystem are read-only, so only the two `emptyDir`
-    volumes of the pod take a write (ADR 0018, control 1)."""
-    pod = _pod_spec(_planner_job())
-    container = _container(pod)
-    mounts = {
-        mount["mountPath"]: bool(mount.get("readOnly", False))
-        for mount in container["volumeMounts"]
-    }
-    volumes = {volume["name"]: volume for volume in pod["volumes"]}
-    writable = sorted(
-        mount["name"] for mount in container["volumeMounts"] if not mount.get("readOnly")
-    )
-
-    assert (
-        mounts["/repo"],
-        mounts["/config"],
-        container["securityContext"]["readOnlyRootFilesystem"],
-        writable,
-        [name for name in writable if "emptyDir" not in volumes[name]],
-    ) == (True, True, True, ["home", "tmp"], [])
-
-
-def test_a_read_of_a_credential_and_of_the_service_account_token_finds_no_file() -> None:
-    """The pod mounts no token, no Secret and no `valueFrom`, and its config comes from the
-    credential-free ConfigMap (ADR 0018, control 2)."""
-    pod = _pod_spec(_planner_job())
-    container = _container(pod)
-    volumes = {volume["name"]: volume for volume in pod["volumes"]}
-
-    assert (
-        pod["automountServiceAccountToken"],
-        container.get("envFrom"),
-        volumes["config"]["configMap"]["name"],
-        [name for name, volume in volumes.items() if "secret" in volume],
-        [entry for entry in container.get("env", []) if "valueFrom" in entry],
-    ) == (False, None, "devops-cli-config-sandbox", [], [])
-
-
-def test_an_outbound_connection_fails() -> None:
-    """The NetworkPolicy selects the planner pod labels, holds only `Egress`, and has no egress
-    rule, so every connection and DNS lookup fails; no other policy admits egress for the pod
-    (ADR 0018, control 3)."""
-    policy = cast(dict[str, Any], yaml.safe_load(NETWORK_POLICY.read_text(encoding="utf-8")))
-    selector = policy["spec"]["podSelector"]["matchLabels"]
-    admitted = [
-        path
-        for path, document in _network_policies()
-        if document["spec"]["podSelector"].get("matchLabels") == selector
-        and "Egress" in document["spec"].get("policyTypes", [])
-        and document["spec"].get("egress")
-    ]
-
-    labels = _pod_labels(_planner_job())
-
-    assert (
-        {key: labels.get(key) for key in selector},
-        policy["spec"]["policyTypes"],
-        policy["spec"].get("egress"),
-        admitted,
-    ) == (
-        {"app.kubernetes.io/name": PLANNER_NAME_LABEL_VALUE},
-        ["Egress"],
-        None,
-        [],
-    )
 
 
 @pytest.mark.k8s

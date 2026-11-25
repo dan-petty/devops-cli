@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import configparser
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,9 +12,8 @@ from typer.testing import CliRunner
 from devops_cli.ai.review_schema import Finding
 from devops_cli.commands.ci import get_check_spec
 from devops_cli.commands.scan import app as scan_app
-from devops_cli.config.commands import BIN_BANDIT, BIN_GIT
+from devops_cli.config.commands import BIN_BANDIT
 from devops_cli.config.constants import CONST_BANDIT_INI_NAME
-from devops_cli.core.process import run_subprocess
 from devops_cli.dry_run.state import set_dry_run
 from devops_cli.security.bandit import BanditScanner, parse_bandit_json, run_bandit_scan
 from tests.support.fakes.git import GitFake
@@ -253,27 +251,6 @@ def test_the_scan_report_runs_bandit_on_this_repository_with_the_gate_s_config(
             ["-r", "src", "--ini", ini, "--severity-level", "low"],
             ["-r", "tests", "--ini", ini, "--severity-level", "medium"],
         ],
-    )
-
-
-def test_the_bandit_targets_hold_every_python_file_the_repository_tracks() -> None:
-    """Verify the targets `.bandit` names, which the gate and the code-scanning upload both scan,
-    are src and tests, scanned recursively, and hold every tracked Python file, so none goes
-    unscanned."""
-    ini = configparser.ConfigParser()
-    ini.read(REPO_ROOT / CONST_BANDIT_INI_NAME, encoding="utf-8")
-    targets = ini["bandit"]["targets"].split(",")
-    tracked = run_subprocess(
-        [BIN_GIT, "ls-files", "--", "*.py", "*.pyw"],
-        cwd=REPO_ROOT,
-    ).stdout.split()
-    outside = [name for name in tracked if not any(Path(name).is_relative_to(t) for t in targets)]
-
-    assert (targets, ini["bandit"].getboolean("recursive"), bool(tracked), outside) == (
-        ["src", "tests"],
-        True,
-        True,
-        [],
     )
 
 

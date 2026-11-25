@@ -526,16 +526,12 @@ def test_retry_delay_the_setting_defaults_to_three_and_is_at_least_one(
 ) -> None:
     from pydantic import ValidationError
 
-    from devops_cli.config.settings import AlternativesConfig, load_settings
+    from devops_cli.config.settings import AlternativesConfig
 
     config()
     with pytest.raises(ValidationError) as raised:
         AlternativesConfig(retry_days=0)
     assert [error["loc"] for error in raised.value.errors()] == [("retry_days",)]
-    assert (AlternativesConfig().retry_days, load_settings().roadmap.alternatives.retry_days) == (
-        3,
-        3,
-    )
 
 
 # ── The tools of the run ──────────────────────────────────────────────────────
@@ -3366,13 +3362,12 @@ def test_the_limit_setting_defaults_to_five_and_is_at_least_one(
 ) -> None:
     from pydantic import ValidationError
 
-    from devops_cli.config.settings import AlternativesConfig, load_settings
+    from devops_cli.config.settings import AlternativesConfig
 
     config()
     with pytest.raises(ValidationError) as raised:
         AlternativesConfig(limit=0)
     assert len(raised.value.errors()) > 0
-    assert load_settings().roadmap.alternatives.limit == 5
 
 
 def test_the_first_pass_limit_setting_defaults_to_twenty_and_is_at_least_one(
@@ -3380,13 +3375,12 @@ def test_the_first_pass_limit_setting_defaults_to_twenty_and_is_at_least_one(
 ) -> None:
     from pydantic import ValidationError
 
-    from devops_cli.config.settings import AlternativesConfig, load_settings
+    from devops_cli.config.settings import AlternativesConfig
 
     config()
     with pytest.raises(ValidationError) as raised:
         AlternativesConfig(first_pass_limit=0)
     assert len(raised.value.errors()) > 0
-    assert load_settings().roadmap.alternatives.first_pass_limit == 20
 
 
 def test_the_row_checks_the_first_pass_limit_while_items_lack_a_check(

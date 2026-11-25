@@ -10,8 +10,7 @@ shorter one. A cut text ends with `...` and reads as a mistake. The functions re
 no request: the caller passes the labels that the repository declares.
 
 The `Semantic PR title` workflow (`.github/workflows/pr-title.yml`) cannot read this module: an
-action takes static inputs. `tests/invariants/test_workflow_contracts.py` holds its summary pattern
-equal to `SUMMARY_MAX_CHARS`.
+action takes static inputs. Its summary pattern must allow `SUMMARY_MAX_CHARS` characters.
 """
 
 from __future__ import annotations

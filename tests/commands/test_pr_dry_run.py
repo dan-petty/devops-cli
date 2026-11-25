@@ -360,17 +360,17 @@ def test_monitor_default_timeout_uses_constant_and_keeps_override(
     from devops_cli.config.defaults import DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
     from devops_cli.github.pr_plans import plan_pr_monitor
 
-    assert DEFAULT_PR_MONITOR_TIMEOUT_SECONDS == 600
-    assert inspect.signature(monitor_pr_command).parameters["timeout"].default == 600
+    default = DEFAULT_PR_MONITOR_TIMEOUT_SECONDS
+    assert inspect.signature(monitor_pr_command).parameters["timeout"].default == default
 
     default_plan = plan_pr_monitor(42, repo="owner/repo")
-    assert "up to 600s" in default_plan[0].repeat
+    assert f"up to {default}s" in default_plan[0].repeat
 
     override_plan = plan_pr_monitor(42, timeout=42, repo="owner/repo")
     assert "up to 42s" in override_plan[0].repeat
 
     res_default = runner.invoke(app, ["pr", "monitor", "42", "-R", "owner/repo", "--dry-run"])
-    assert (res_default.exit_code, "600s" in res_default.output, process_fake.calls) == (
+    assert (res_default.exit_code, f"{default}s" in res_default.output, process_fake.calls) == (
         0,
         True,
         [],

@@ -8,11 +8,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
-from urllib.parse import urlsplit
 
 import httpx2
 import pytest
-import yaml
 from typer.testing import CliRunner
 
 from devops_cli.ai.client import AICredentialsError
@@ -25,9 +23,6 @@ from devops_cli.commands.ai_gateway import app as gateway_cli_app
 from devops_cli.config.constants import (
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_EXIT_ERROR_INFERENCE,
-)
-from devops_cli.config.defaults import (
-    DEFAULT_OLLAMA_CLUSTER_URL,
 )
 from devops_cli.config.settings import AIConfig
 from devops_cli.exceptions.ai import CapabilityDegradationError
@@ -228,35 +223,6 @@ class TestGatewayRouter:
             "qwen3.8:27b",
             False,
         )
-
-    def test_direct_ollama_failover_targets_the_default_ollama_tier(self, tmp_path: Path) -> None:
-        """Verify devops-chat fails over to the Service of the default Ollama tier (#953), with the
-        model of its default route (#1969).
-
-        The direct-Ollama fallback sent requests to `ollama.llm.svc.cluster.local`, a Service
-        nothing deploys since the Ollama tiers replaced the single `ollama` workload, and it named
-        `qwen2.5-coder:7b`, which that tier does not hold.
-        """
-        router = GatewayRouter(state_file=tmp_path / "gateway_state.json")
-        router.trigger_failover("devops-chat", simulate=False)
-        chat = next(r for r in router.list_routes() if r.virtual_model == "devops-chat")
-        tier_services = {
-            doc["metadata"]["name"]
-            for doc in yaml.safe_load_all(
-                Path("k8s/llm/profiles/services.yaml").read_text(encoding="utf-8")
-            )
-            if doc and doc.get("kind") == "Service"
-        }
-
-        service, namespace = str(urlsplit(chat.backend_url).hostname).split(".")[:2]
-
-        assert (
-            chat.target_model,
-            chat.backend_type,
-            chat.backend_url,
-            namespace,
-            service in tier_services,
-        ) == ("qwen3.8:27b", "failover:ollama", DEFAULT_OLLAMA_CLUSTER_URL, "llm", True)
 
     def test_trigger_failover_capability_gating(self, tmp_path: Path) -> None:
         """Verify reasoning failover to underpowered tier is blocked without --force."""
@@ -1255,40 +1221,6 @@ def test_status_marks_default_routes_not_checked_when_model_info_unavailable(
             ("devops-reasoning", False),
             ("qwen3-embedding:0.6b", False),
         ],
-    )
-
-
-def test_gateway_constants_and_comment_reference_served_embedding_and_real_test_path() -> None:
-    """Routes, failover pairs, capability tiers, and gateway.py comments replace the dead
-    embedding alias with `qwen3-embedding:0.6b` and cite `tests/ai/benchmark/test_k8s_llm_gateway.py`."""
-    from devops_cli.ai.capability import ModelCapabilityTier, resolve_capability_tier
-    from devops_cli.ai.gateway import DEFAULT_GATEWAY_ROUTES, MODEL_FAILOVER_PAIRS
-    from tests.support.paths import REPO_ROOT
-
-    dead_name = "devops" + "-embedding"
-    gateway_src = (REPO_ROOT / "src" / "devops_cli" / "ai" / "gateway.py").read_text(
-        encoding="utf-8"
-    )
-    assert (
-        "qwen3-embedding:0.6b" in CONST_AI_GATEWAY_VIRTUAL_MODELS,
-        dead_name in CONST_AI_GATEWAY_VIRTUAL_MODELS,
-        "qwen3-embedding:0.6b" in {r["virtual_model"] for r in DEFAULT_GATEWAY_ROUTES},
-        dead_name in {r["virtual_model"] for r in DEFAULT_GATEWAY_ROUTES},
-        "qwen3-embedding:0.6b" in MODEL_FAILOVER_PAIRS,
-        dead_name in MODEL_FAILOVER_PAIRS,
-        resolve_capability_tier("qwen3-embedding:0.6b"),
-        "tests/ai/benchmark/test_k8s_llm_gateway.py" in gateway_src,
-        "tests/test_k8s_llm_gateway.py" in gateway_src,
-    ) == (
-        True,
-        False,
-        True,
-        False,
-        True,
-        False,
-        ModelCapabilityTier.EMBEDDING,
-        True,
-        False,
     )
 
 

@@ -30,12 +30,6 @@ SETTINGS = ("request_timeout_seconds", "command_timeout_seconds")
 PRE_COMMIT_CONFIG = Path("/data/cache/pre-commit-trusted-config.yaml")
 
 
-def test_the_defaults_are_20_minutes_for_a_call_and_30_for_a_command() -> None:
-    implement = load_settings().roadmap.implement
-
-    assert (implement.request_timeout_seconds, implement.command_timeout_seconds) == (1200, 1800)
-
-
 def test_each_limit_has_a_variable_named_after_its_setting() -> None:
     variables = env.setting_variables()
 

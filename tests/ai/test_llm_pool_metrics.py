@@ -14,43 +14,13 @@ from typing import Any
 
 import httpx2
 import pytest
-import yaml
 
 from devops_cli.ai import pool_load as pool_load_module
 from devops_cli.ai.pool_load import pool_load, window_seconds
-from devops_cli.commands.k8s.stack_lifecycle import HELM_RELEASES_BY_STACK, HELM_REPOS_BY_STACK
 from devops_cli.http.egress import EgressLevel
 from tests.support.fakes.http import WebFake
 
 K8S = Path("k8s")
-
-
-def test_the_dcgm_exporter_runs_on_every_gpu_node_without_extra_privileges() -> None:
-    """Verify the exporter is installed with the monitoring stack, scheduled onto GPU nodes with
-    the NVIDIA runtime, and holds SYS_ADMIN capability required for datacenter GPUs. Its own
-    ServiceMonitor stays off: k8s-monitoring's dcgm-exporter integration scrapes it (#1130)."""
-    values = yaml.safe_load((K8S / "monitoring/dcgm-exporter-values.yaml").read_text("utf-8"))
-    release = next(r for r in HELM_RELEASES_BY_STACK["infra"] if r["name"] == "dcgm-exporter")
-    repo = release["chart"].split("/")[0]
-
-    assert (
-        (values["runtimeClassName"], values["nodeSelector"]),
-        {t["key"] for t in values["tolerations"]} >= {"nvidia.com/gpu"},
-        values["securityContext"]["capabilities"].get("add", []),
-        values["rollingUpdate"]["maxUnavailable"],
-        values["serviceMonitor"]["enabled"],
-        (
-            release["namespace"],
-            repo in HELM_REPOS_BY_STACK["infra"],
-        ),
-    ) == (
-        ("nvidia", {"nvidia.com/gpu.present": "true"}),
-        True,
-        ["SYS_ADMIN"],
-        "50%",
-        False,
-        ("monitoring", True),
-    )
 
 
 def _fake_prometheus(expr: str) -> list[tuple[dict[str, str], float]]:

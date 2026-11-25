@@ -92,12 +92,11 @@ DEFAULT_WORKSPACE_FILE = Path(".code-workspace")
 DEFAULT_AI_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, and a gateway
 # group of the same name, so `provider: ollama` and `provider: gateway` both find it. It is the
-# model of the devops-chat route and of config.example.yaml. tests/test_k8s_llm_gateway.py binds
-# it to k8s/llm/gateway/config.yaml.
+# model of the devops-chat route and of config.example.yaml.
 DEFAULT_AI_MODEL = "qwen3.8:27b"
 DEFAULT_AI_FALLBACK_PROVIDER = "ollama"
 # A model that the gateway config sends to the tier of the default Ollama Service, the model of
-# the devops-coder route. tests/test_k8s_llm_gateway.py binds it to k8s/llm/gateway/config.yaml.
+# the devops-coder route.
 DEFAULT_AI_FALLBACK_MODEL = "qwen3.8:27b"
 # The hosted model that local chat tokens are priced against when `ai.reference_model` is not
 # set (#2194). The Service ConfigMap template sets `qwen3.8:27b` and its price (#4241), and the AI
