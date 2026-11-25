@@ -239,6 +239,7 @@ from devops_cli.roadmap.intake.intake import (
 )
 from devops_cli.roadmap.intake.intake_model import IntakeModel, build_intake_model
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
+from devops_cli.roadmap.markdown import commonmark_parser
 from devops_cli.roadmap.owner_question import (
     OwnerQuestion,
     QuestionOption,
@@ -1247,7 +1248,7 @@ def body_questions(body: str) -> list[str]:
     not a heading.
     """
     persons_text, _ = extract_section_and_outside(body)
-    section = _section_tokens(MarkdownIt("commonmark").parse(persons_text), _KEY_QUESTIONS_TITLE_RE)
+    section = _section_tokens(commonmark_parser().parse(persons_text), _KEY_QUESTIONS_TITLE_RE)
     asked = (_unanswered_question(item) for item in _top_items(section))
     return [question for question in asked if question]
 
@@ -1265,7 +1266,7 @@ def body_dependencies(body: str) -> list[int]:
     (#6736).
     """
     closed = close_blocks_before_markers(body)
-    section = _section_tokens(MarkdownIt("commonmark").parse(closed), _DEPENDENCIES_TITLE_RE)
+    section = _section_tokens(commonmark_parser().parse(closed), _DEPENDENCIES_TITLE_RE)
     return [
         number
         for token in section
@@ -1419,7 +1420,7 @@ def _quoted_titles(body: str) -> list[str]:
     list item or a paragraph that names an issue as `#N` names its issues by number, so its
     quoted text is no title."""
     persons_text, _ = extract_section_and_outside(body)
-    section = _section_tokens(MarkdownIt("commonmark").parse(persons_text), _DEPENDENCIES_TITLE_RE)
+    section = _section_tokens(commonmark_parser().parse(persons_text), _DEPENDENCIES_TITLE_RE)
     quoted = (
         " ".join(next(text for text in match.groups() if text is not None).split())
         for token in section

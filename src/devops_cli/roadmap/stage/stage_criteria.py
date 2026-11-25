@@ -28,12 +28,12 @@ import re
 from collections.abc import Sequence
 from typing import Annotated, Final, Literal, Self
 
-from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from pydantic import AfterValidator, BaseModel, ConfigDict, model_validator
 
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.body_hash import extract_section_and_outside
+from devops_cli.roadmap.markdown import commonmark_parser
 
 PENDING_PERSON: Final[str] = "pending-person"
 RequirementKind = Literal["command", "path", "decision", "bullet"]
@@ -208,7 +208,7 @@ def requirement_lines(body: str) -> list[RequirementLine]:
     repository paths and `devops` commands of its text, and each line that starts with
     `Decision:`. The items of the acceptance-criteria list are left out, and so is the block of
     the refine job."""
-    tokens = MarkdownIt("commonmark").parse(_without_refine_block(body))
+    tokens = commonmark_parser().parse(_without_refine_block(body))
     found: list[tuple[int, RequirementKind, str]] = []
     acceptance_level = 0
     for index, token in enumerate(tokens):
@@ -231,7 +231,7 @@ def requirement_lines(body: str) -> list[RequirementLine]:
 def acceptance_criteria(body: str) -> list[str]:
     """The acceptance criteria of the issue body: the top-level list items under each heading
     `Acceptance criteria` of the part that a person wrote, each on one line, in order."""
-    tokens = MarkdownIt("commonmark").parse(_without_refine_block(body))
+    tokens = commonmark_parser().parse(_without_refine_block(body))
     found: list[str] = []
     level = 0  # the level of the open `Acceptance criteria` heading, 0 when none is open
     for index, token in enumerate(tokens):

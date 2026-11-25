@@ -16,15 +16,15 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
 from devops_cli.ai.context_budget import truncate_to_token_limit
 from devops_cli.ai.context_packer import ContextPacker, PackingConfig
 from devops_cli.config.constants import CONST_ROADMAP_IMPLEMENT_FILE_MAX_TOKENS
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.markdown import commonmark_parser
 
-MARKDOWN = MarkdownIt("commonmark")
+MARKDOWN = commonmark_parser()
 CHECKBOXES = ("[ ]", "[x]", "[X]")
 _VERIFICATION = "Verification:"
 # A code span of a `Verification:` line is a command only when it starts with this mark, as a
