@@ -950,16 +950,25 @@ def _js_length(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
+def requirement_length_problem(name: str, text: str) -> str | None:
+    """Return the length error when `text` exceeds `REQUIREMENT_MAX_CHARS` UTF-16 code units, else
+    None. Both stage proposal checks and `devops openspec check` use this (#4524, #5378)."""
+    length = _js_length(text.strip())
+    if length <= REQUIREMENT_MAX_CHARS:
+        return None
+    return MESSAGES.roadmap.stage_problem_requirement_long.format(
+        requirement=name.strip(), length=length, limit=REQUIREMENT_MAX_CHARS
+    )
+
+
 def _length_problems(spec: StageSpec) -> list[str]:
     """One problem for each ADDED and MODIFIED requirement of `spec` whose text has more than
     `REQUIREMENT_MAX_CHARS` characters. The validation of a change passes such a text, and the
     strict validation of the spec refuses it after `openspec archive` (#4524)."""
     return [
-        MESSAGES.roadmap.stage_problem_requirement_long.format(
-            requirement=requirement.name.strip(), length=length, limit=REQUIREMENT_MAX_CHARS
-        )
+        problem
         for requirement in (*spec.added, *spec.modified)
-        if (length := _js_length(requirement.text.strip())) > REQUIREMENT_MAX_CHARS
+        if (problem := requirement_length_problem(requirement.name, requirement.text)) is not None
     ]
 
 

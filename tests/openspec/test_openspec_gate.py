@@ -3,6 +3,7 @@ reports for each tree the real tool was recorded over (#1844)."""
 
 from __future__ import annotations
 
+import ast
 import json
 import shlex
 import shutil
@@ -16,7 +17,9 @@ from devops_cli.config.constants import CONST_OPENSPEC_SCAFFOLD_MARKER, CONST_OP
 from devops_cli.exceptions import DependencyError
 from devops_cli.openspec import gate
 from devops_cli.openspec.gate import GateCheck, GateFinding, check_openspec
+from devops_cli.roadmap.stage import stage_change
 from tests.support.fakes.openspec import OpenSpecFake
+from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.paths import REPO_ROOT
 
 Cli = Callable[..., Any]
@@ -572,3 +575,194 @@ def test_project_skills_pass_the_gate(openspec_fake: OpenSpecFake) -> None:
 
     findings = check_openspec(tree)
     assert findings == []
+
+
+_REQUIREMENT_NAME = "Export widgets"
+_LONG_LEAD = "The system SHALL export every widget "
+_LONG_LENGTH = 523
+
+
+def _delta_payload(change: str, operation: str, text: str) -> str:
+    """Recorded `openspec show --json --deltas-only` payload for one requirement delta."""
+    return json.dumps(
+        {
+            "id": change,
+            "title": change,
+            "deltaCount": 1,
+            "deltas": [
+                {
+                    "spec": "widget-export",
+                    "operation": operation,
+                    "requirement": {"name": _REQUIREMENT_NAME, "text": text, "scenarios": []},
+                }
+            ],
+        }
+    )
+
+
+def _long_text(length: int = _LONG_LENGTH) -> str:
+    """Requirement text with `length` ASCII characters."""
+    return _LONG_LEAD + "a" * (length - len(_LONG_LEAD))
+
+
+@pytest.mark.parametrize(
+    ("change", "operation"),
+    [
+        ("1902-export-json", "MODIFIED"),
+        ("1901-export-widgets", "ADDED"),
+    ],
+)
+def test_a_long_requirement_in_an_active_change_fails_openspec_check(
+    cli: Cli,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    operation: str,
+) -> None:
+    """An active change holding an ADDED or MODIFIED requirement over REQUIREMENT_MAX_CHARS fails
+    `devops openspec check` with the requirement name, its length and the limit (#5378)."""
+    tree = openspec_fake.tree("pair")
+    openspec_fake.script(
+        ("show", change, "--json", "--deltas-only"),
+        0,
+        stdout=_delta_payload(change, operation, _long_text()),
+    )
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "check")
+
+    assert result.exit_code == 1
+    assert _REQUIREMENT_NAME in result.output
+    assert str(_LONG_LENGTH) in result.output
+    assert str(stage_change.REQUIREMENT_MAX_CHARS) in result.output
+    findings = check_openspec(tree)
+    assert findings[0].check == GateCheck.REQUIREMENT_LENGTH
+
+
+def test_openspec_gate_reuses_stage_requirement_length_definition() -> None:
+    """The gate shares REQUIREMENT_MAX_CHARS and requirement_length_problem with `stage_change`
+    and defines no copy of its own (#5378)."""
+    assert gate.REQUIREMENT_MAX_CHARS is stage_change.REQUIREMENT_MAX_CHARS
+    assert gate.requirement_length_problem is stage_change.requirement_length_problem
+    source = (REPO_ROOT / "src/devops_cli/openspec/gate.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    assigned = [
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    ] + [
+        node.target.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+    ]
+    assert "REQUIREMENT_MAX_CHARS" not in assigned
+
+
+def test_surrogate_pair_counts_as_two_utf16_code_units(
+    cli: Cli,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Requirement length follows UTF-16 code units, so 500 BMP chars + 1 astral char counts 502 (#5378)."""
+    tree = openspec_fake.tree("pair")
+    text = _long_text(stage_change.REQUIREMENT_MAX_CHARS) + "\N{GRINNING FACE}"
+    assert len(text) == stage_change.REQUIREMENT_MAX_CHARS + 1
+    openspec_fake.script(
+        ("show", "1902-export-json", "--json", "--deltas-only"),
+        0,
+        stdout=_delta_payload("1902-export-json", "MODIFIED", text),
+    )
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "check")
+
+    assert result.exit_code == 1
+    assert _REQUIREMENT_NAME in result.output
+    assert str(stage_change.REQUIREMENT_MAX_CHARS + 2) in result.output
+
+
+def test_openspec_ci_row_fails_on_a_long_modified_requirement(
+    process_fake: ProcessFake,
+    openspec_fake: OpenSpecFake,
+    cli: Cli,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The `openspec` row of `devops ci` runs `devops openspec check` and fails on a long MODIFIED
+    requirement (#5378)."""
+    tree = openspec_fake.tree("pair")
+    openspec_fake.script(
+        ("show", "1902-export-json", "--json", "--deltas-only"),
+        0,
+        stdout=_delta_payload("1902-export-json", "MODIFIED", _long_text()),
+    )
+    monkeypatch.chdir(tree)
+
+    def answer(call: ProcessCall) -> ProcessAnswer:
+        if Path(call.argv[0]).name == "openspec":
+            done = openspec_fake.run(list(call.argv), cwd=call.cwd, env=call.env or {}, text=True)
+            return ProcessAnswer(returncode=done.returncode, stdout=done.stdout, stderr=done.stderr)
+        if call.argv[-2:] == ("openspec", "check"):
+            findings = check_openspec(tree)
+            return ProcessAnswer(
+                returncode=1 if findings else 0,
+                stdout="\n".join(finding.line() for finding in findings),
+            )
+        return ProcessAnswer()
+
+    process_fake.answer(lambda _call: True, answer)
+
+    result = cli("ci", "--check", "--no-cache", "--only", "openspec")
+
+    assert result.exit_code == 1
+    assert any(call.argv[-2:] == ("openspec", "check") for call in process_fake.calls)
+    assert _REQUIREMENT_NAME in result.output
+    assert str(_LONG_LENGTH) in result.output
+
+
+def test_archived_change_with_long_requirement_passes_openspec_check(
+    cli: Cli,
+    openspec_fake: OpenSpecFake,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long requirements under `openspec/changes/archive/` are history and pass the gate (#5378)."""
+    tree = openspec_fake.tree("empty")
+    spec = tree / "openspec/changes/archive/2026-10-01-1900-old-spec/specs/widget-export/spec.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text(
+        f"## MODIFIED Requirements\n\n### Requirement: {_REQUIREMENT_NAME}\n{_long_text()}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tree)
+
+    result = cli("openspec", "check")
+
+    assert result.exit_code == 0
+    assert [call.argv for call in openspec_fake.calls if call.argv[0] == "show"] == []
+
+
+def test_requirement_delta_without_text_field_does_not_crash(
+    openspec_fake: OpenSpecFake,
+) -> None:
+    """Overlap or summary delta payloads that omit `requirement['text']` pass length checking (#5378)."""
+    tree = openspec_fake.tree("pair")
+    openspec_fake.script(
+        ("show", "1902-export-json", "--json", "--deltas-only"),
+        0,
+        stdout=json.dumps(
+            {
+                "deltas": [
+                    {
+                        "spec": "widget-export",
+                        "operation": "MODIFIED",
+                        "requirement": {"name": _REQUIREMENT_NAME},
+                    }
+                ]
+            }
+        ),
+    )
+
+    findings = check_openspec(tree)
+
+    assert [f for f in findings if f.check == GateCheck.REQUIREMENT_LENGTH] == []

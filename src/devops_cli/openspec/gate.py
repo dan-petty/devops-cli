@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import Any, Final
 
 from devops_cli.config.commands import BIN_OPENSPEC, build_openspec_cmd
 from devops_cli.config.constants import (
@@ -46,7 +48,11 @@ from devops_cli.core.binaries import version_line
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import ToolExecutionError
 from devops_cli.lang import MESSAGES
-from devops_cli.openspec.overlap import overlapping_requirements, show_args
+from devops_cli.openspec.overlap import (
+    change_deltas,
+    overlapping_deltas,
+    show_args,
+)
 from devops_cli.openspec.skills import UPDATE_ARGS, skill_drift
 from devops_cli.openspec.tool import (
     LIST_ARGS,
@@ -57,6 +63,12 @@ from devops_cli.openspec.tool import (
     locked_version,
     output_of,
     settings_args,
+)
+from devops_cli.roadmap.stage.stage_change import (
+    REQUIREMENT_MAX_CHARS as REQUIREMENT_MAX_CHARS,
+)
+from devops_cli.roadmap.stage.stage_change import (
+    requirement_length_problem,
 )
 
 CONFIG_PATH = Path(CONST_OPENSPEC_DIR) / CONST_OPENSPEC_CONFIG_FILENAME
@@ -73,11 +85,16 @@ VERSION_ARGS: tuple[str, ...] = ("--version",)
 _PROBE_ARGS: tuple[str, ...] = ("new", "change", CONST_OPENSPEC_PROBE_CHANGE)
 
 
+# Delta operations whose requirement texts merge into specs on archive and must fit REQUIREMENT_MAX_CHARS.
+_LENGTH_CHECK_OPERATIONS: Final[frozenset[str]] = frozenset({"ADDED", "MODIFIED"})
+
+
 class GateCheck(StrEnum):
     """The checks the gate runs, as a finding names them."""
 
     CONFIGURATION = "configuration"
     VERSION = "version"
+    REQUIREMENT_LENGTH = "requirement length"
     VALIDATE = "validate"
     VALIDATE_ARCHIVED = "validate --archived"
     SKILLS = "skills"
@@ -178,11 +195,33 @@ def _instruction_findings(tool: OpenSpecTool, root: Path) -> list[GateFinding]:
     return [GateFinding(GateCheck.INSTRUCTIONS, "\n".join(reports))] if reports else []
 
 
-def _overlap_findings(tool: OpenSpecTool, root: Path, changes: list[str]) -> list[GateFinding]:
+def _requirement_length_findings(
+    deltas_by_change: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> list[GateFinding]:
+    """Each ADDED or MODIFIED requirement whose text exceeds `REQUIREMENT_MAX_CHARS` (#5378)."""
+    findings: list[GateFinding] = []
+    for deltas in deltas_by_change.values():
+        for delta in deltas:
+            if delta.get("operation") not in _LENGTH_CHECK_OPERATIONS:
+                continue
+            requirement = delta.get("requirement")
+            if not isinstance(requirement, Mapping):
+                continue
+            problem = requirement_length_problem(
+                str(requirement.get("name") or ""),
+                str(requirement.get("text") or ""),
+            )
+            if problem is not None:
+                findings.append(GateFinding(GateCheck.REQUIREMENT_LENGTH, problem))
+    return findings
+
+
+def _overlap_findings(
+    deltas_by_change: Mapping[str, Sequence[Mapping[str, Any]]],
+    unreadable: ToolExecutionError | None,
+) -> list[GateFinding]:
     """Check 5: no requirement is rewritten by two active changes."""
-    try:
-        overlaps = overlapping_requirements(tool, root, changes)
-    except ToolExecutionError as unreadable:
+    if unreadable is not None:
         return [GateFinding(GateCheck.OVERLAP, str(unreadable))]
     return [
         GateFinding(
@@ -195,7 +234,7 @@ def _overlap_findings(tool: OpenSpecTool, root: Path, changes: list[str]) -> lis
                 ),
             ),
         )
-        for overlap in overlaps
+        for overlap in overlapping_deltas(deltas_by_change)
     ]
 
 
@@ -242,11 +281,18 @@ def check_openspec(root: Path) -> list[GateFinding]:
         if version_problem is not None:
             return [version_problem]
         changes = active_changes(tool, root)
+        deltas_by_change: dict[str, list[dict[str, Any]]] = {}
+        delta_error: ToolExecutionError | None = None
+        try:
+            deltas_by_change = change_deltas(tool, root, changes)
+        except ToolExecutionError as unreadable:
+            delta_error = unreadable
         return [
+            *_requirement_length_findings(deltas_by_change),
             *_validation_findings(tool, root),
             *_skill_findings(tool, root),
             *_instruction_findings(tool, root),
-            *_overlap_findings(tool, root, changes),
+            *_overlap_findings(deltas_by_change, delta_error),
             *_scaffold_findings(root),
         ]
 
