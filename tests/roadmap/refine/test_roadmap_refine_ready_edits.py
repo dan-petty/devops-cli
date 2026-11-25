@@ -48,7 +48,7 @@ def _seed_refined_ready(
     *,
     author_login: str | None = "alice",
     author_association: str | None = "OWNER",
-    repeated_at: datetime | None = None,
+    read_at: datetime | None = None,
 ) -> int:
     """An open refined Ready item with matching refine hashes and a refine marker comment at `_T0`."""
     store.seed_visibility(is_private=True)
@@ -68,8 +68,8 @@ def _seed_refined_ready(
             RefineRecordKey.SECTION_HASH: section_hash,
             RefineRecordKey.NEXT_STEP: "ready",
         }
-        if repeated_at is not None:
-            marks[RefineRecordKey.REPEATED_AT] = repeated_at.isoformat()
+        if read_at is not None:
+            marks[RefineRecordKey.READ_AT] = read_at.isoformat()
         store.set_marks(item, marks)
         store.seed_comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nNext step: ready.")
     return number
@@ -86,13 +86,13 @@ def test_refinable_takes_ready_item_edited_outside_refine_section(
     assert [it.number for it in selected] == [number]
 
 
-@pytest.mark.parametrize("use_repeated_at", [False, True], ids=["refine-comment", "repeated-at"])
+@pytest.mark.parametrize("use_read_at", [False, True], ids=["refine-comment", "read-at"])
 def test_refinable_takes_ready_item_with_trusted_comment_after_last_round(
-    store: InMemoryRoadmapStore, use_repeated_at: bool
+    store: InMemoryRoadmapStore, use_read_at: bool
 ) -> None:
-    repeated = _T0 + timedelta(minutes=10) if use_repeated_at else None
-    number = _seed_refined_ready(store, repeated_at=repeated)
-    comment_at = (repeated or _T0) + timedelta(minutes=5)
+    read_at = _T0 + timedelta(minutes=10) if use_read_at else None
+    number = _seed_refined_ready(store, read_at=read_at)
+    comment_at = (read_at or _T0) + timedelta(minutes=5)
     with time_machine.travel(comment_at, tick=False):
         store.seed_comment(
             number,
@@ -100,6 +100,46 @@ def test_refinable_takes_ready_item_with_trusted_comment_after_last_round(
             author_association="OWNER",
             author_login="alice",
         )
+
+    selected, _ = select_candidates(store)
+
+    assert [it.number for it in selected] == [number]
+
+
+def test_refinable_takes_ready_item_with_trusted_comment_between_read_at_and_marker(
+    store: InMemoryRoadmapStore,
+) -> None:
+    store.seed_visibility(is_private=True)
+    read_time = _T0 - timedelta(minutes=2)
+    with time_machine.travel(read_time, tick=False):
+        number = store.seed_issue(
+            "feat(roadmap): ready item",
+            body=f"Original scope.\n\n{_SECTION}",
+            fields={ItemField.STATUS: CONST_ROADMAP_STATUS_READY, ItemField.PRIORITY: "P2-Medium"},
+            author_login="alice",
+            author_association="OWNER",
+        )
+        store.set_field(require_item(store, number), ItemField.STATUS, CONST_ROADMAP_STATUS_READY)
+    with time_machine.travel(_T0 - timedelta(minutes=1), tick=False):
+        store.seed_comment(
+            number,
+            "Clarifying scope while round runs.",
+            author_association="OWNER",
+            author_login="alice",
+        )
+    with time_machine.travel(_T0, tick=False):
+        item = require_item(store, number)
+        body_hash, section_hash = body_hashes(item.body)
+        store.set_marks(
+            item,
+            {
+                RefineRecordKey.BODY_HASH: body_hash,
+                RefineRecordKey.SECTION_HASH: section_hash,
+                RefineRecordKey.NEXT_STEP: "ready",
+                RefineRecordKey.READ_AT: read_time.isoformat(),
+            },
+        )
+        store.seed_comment(number, f"{CONST_ROADMAP_REFINE_COMMENT_MARKER}\nNext step: ready.")
 
     selected, _ = select_candidates(store)
 
@@ -135,12 +175,12 @@ def test_refinable_skips_ready_item_with_bot_or_untrusted_comment(
 def test_refinable_skips_unchanged_ready_item_with_no_comment_after_last_round(
     store: InMemoryRoadmapStore,
 ) -> None:
-    repeated = _T0 + timedelta(minutes=10)
-    number = _seed_refined_ready(store, repeated_at=repeated)
+    read_at = _T0 + timedelta(minutes=10)
+    number = _seed_refined_ready(store, read_at=read_at)
     with time_machine.travel(_T0 + timedelta(minutes=5), tick=False):
         store.seed_comment(
             number,
-            "Comment before repeated_at.",
+            "Comment before read_at.",
             author_association="OWNER",
             author_login="alice",
         )

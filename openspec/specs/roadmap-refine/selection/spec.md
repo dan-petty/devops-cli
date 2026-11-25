@@ -180,11 +180,15 @@ The refine job SHALL leave out an open item whose sub-issues count is above zero
 - **THEN** `_refinable` returns the item
 
 ### Requirement: New trusted comment is refinable
-`_refinable` and `devops roadmap refine` SHALL select an open `Ready` item again, even when `unrefined_ready=False`, when a trusted person comment follows its last refine round (`refine.repeated_at` when set, else the newest comment carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`).
+`_refinable` and `devops roadmap refine` SHALL select an open `Ready` item again, even when `unrefined_ready=False`, when a trusted person comment follows its last refine round (`refine.read_at` when set, else the newest comment carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`).
 
 #### Scenario: Person comments on a Ready item
-- **WHEN** an open `Ready` item holds a refine record and a comment by a trusted person after its last refine round, and `_refinable` runs with `unrefined_ready=False`
+- **WHEN** an open `Ready` item holds a refine record and a comment by a trusted person after `refine.read_at` (or after its last refine marker comment when `refine.read_at` is absent), and `_refinable` runs with `unrefined_ready=False`
 - **THEN** `_refinable` returns the item
+
+#### Scenario: Trusted comment posted between read_at and marker comment
+- **WHEN** an open `Ready` item holds `refine.read_at` earlier than its newest refine marker comment and a trusted person comment was posted between those two times
+- **THEN** `_refinable` selects the item again
 
 ### Requirement: Bot comment is not refinable
 `_refinable` and `devops roadmap refine` MUST NOT select an unchanged open `Ready` item again when the only comment after its last refine round was written by a bot or an untrusted account.

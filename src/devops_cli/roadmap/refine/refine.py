@@ -3487,28 +3487,17 @@ def _has_trusted_comment_since_last_round(
     trusted: Callable[[IssueComment], bool],
 ) -> bool:
     """Whether `comments` holds a trusted person comment after the last refine round on `item`
-    (#6452): after `refine.repeated_at` when set and newer than any refine marker comment, else
-    after the newest comment carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`. Roadmap job comments
-    are ignored."""
-    repeated = _repeated_at(item)
-    marked = [
-        i
-        for i, comment in enumerate(comments)
-        if CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body
-    ]
-    if not marked:
-        if repeated is None:
-            return False
-        candidates = comments_without_jobs(comments)
-        return any(
-            trusted(comment) and as_utc(comment.created_at) > repeated for comment in candidates
-        )
-    marker_idx = marked[-1]
-    since = as_utc(comments[marker_idx].created_at)
-    after = comments_without_jobs(comments[marker_idx + 1 :])
-    if repeated is not None and repeated > since:
-        return any(trusted(comment) and as_utc(comment.created_at) > repeated for comment in after)
-    return any(trusted(comment) and as_utc(comment.created_at) >= since for comment in after)
+    (#6452, #7190): after `refine.read_at` when set (#6371), else after the newest comment
+    carrying `CONST_ROADMAP_REFINE_COMMENT_MARKER`. Roadmap job comments are ignored."""
+    if any(CONST_ROADMAP_REFINE_COMMENT_MARKER in comment.body for comment in comments):
+        return any(trusted(comment) for comment in _since_wait_start(item, comments))
+    read_at = _read_at(item)
+    if read_at is None:
+        return False
+    return any(
+        trusted(comment) and as_utc(comment.created_at) > read_at
+        for comment in comments_without_jobs(comments)
+    )
 
 
 def _is_unrefined_ready(item: Item) -> bool:
