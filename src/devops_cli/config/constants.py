@@ -3106,6 +3106,113 @@ CONST_GH_MUTATION_HTTP_METHODS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Protected GitHub REST API route rules refused for agent callers on mutating HTTP methods (#5316).
+# Each entry is `(route_class, methods, pattern)`, where `{name}` matches one path segment and
+# `**` matches zero or more segments. Specific classes (transfer, rulesets, secrets) sit before
+# broader settings patterns so classification names the narrowest protected area.
+CONST_GH_API_PROTECTED_ROUTES: Final[tuple[tuple[str, frozenset[str], str], ...]] = (
+    ("repository transfer", frozenset({"POST"}), "repos/{owner}/{repo}/transfer"),
+    ("rulesets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/rulesets/**"),
+    ("rulesets", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/rulesets/**"),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/actions/secrets/**"),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/dependabot/secrets/**"),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/codespaces/secrets/**"),
+    (
+        "secrets",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/environments/{env}/secrets/**",
+    ),
+    (
+        "secrets",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repositories/{repo_id}/environments/{env}/secrets/**",
+    ),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/actions/secrets/**"),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/dependabot/secrets/**"),
+    ("secrets", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/codespaces/secrets/**"),
+    ("repository settings", frozenset({"PATCH", "DELETE"}), "repos/{owner}/{repo}"),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/branches/**/protection/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/actions/permissions/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/actions/oidc/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/actions/variables/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/environments/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/collaborators/**",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/invitations/**",
+    ),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/keys/**"),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/hooks/**"),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/teams/**"),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/autolinks/**"),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/vulnerability-alerts",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/automated-security-fixes",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/private-vulnerability-reporting",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/code-scanning/default-setup",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/secret-scanning/push-protection",
+    ),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/properties/values",
+    ),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/topics"),
+    (
+        "repository settings",
+        CONST_GH_MUTATION_HTTP_METHODS,
+        "repos/{owner}/{repo}/interaction-limits",
+    ),
+    ("repository settings", CONST_GH_MUTATION_HTTP_METHODS, "repos/{owner}/{repo}/pages"),
+    ("organization settings", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}"),
+    ("organization settings", CONST_GH_MUTATION_HTTP_METHODS, "orgs/{org}/**"),
+    ("organization settings", CONST_GH_MUTATION_HTTP_METHODS, "organizations/{org_id}"),
+    ("organization settings", CONST_GH_MUTATION_HTTP_METHODS, "organizations/{org_id}/**"),
+)
+
 # gh porcelain command groups that use the GraphQL API (#1415).
 CONST_GH_GRAPHQL_GROUPS: Final[frozenset[str]] = frozenset({"project"})
 

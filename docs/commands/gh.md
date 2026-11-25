@@ -6,7 +6,7 @@ GitHub Views, Projects, Issues, Pages, Milestones, and Labels automation.
 
 ## `devops gh api`
 
-**Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching.**
+**Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. Agent callers are refused on mutating requests (POST, PATCH, PUT, DELETE) targeting repository settings, rulesets, secrets, organization settings, or repository transfer (`--dry-run` still previews the request). Issue, pull request, label, and workflow dispatch routes stay open.**
 
 ```bash
 devops gh api [OPTIONS] <endpoint>

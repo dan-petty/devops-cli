@@ -358,7 +358,7 @@ and draft readiness. |
 |  | `devops pr update [OPTIONS] <number>` | Merge the base branch into a pull request only when a required check failed on its head. |
 |  | `devops pr hardening-report [OPTIONS]` | Audit merged defect pull requests for guardrail additions to declared hardening surfaces. |
 |  | `devops pr threads COMMAND [ARGS]...` | GitHub Pull Request workflows and reviews. |
-| [**gh**](commands/gh.md) | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. |
+| [**gh**](commands/gh.md) | `devops gh api [OPTIONS] <endpoint>` | Execute a GitHub API request with quota-derived spacing, rate-limit backoff, and optional caching. Agent callers are refused on mutating requests (POST, PATCH, PUT, DELETE) targeting repository settings, rulesets, secrets, organization settings, or repository transfer (`--dry-run` still previews the request). Issue, pull request, label, and workflow dispatch routes stay open. |
 |  | `devops gh rate-limit [OPTIONS]` | Display GitHub REST and GraphQL API rate limits, quotas, and reset countdowns. |
 |  | `devops gh status [OPTIONS]` | Display GitHub published operational status, key components, and active incidents. |
 |  | `devops gh app-token [OPTIONS]` | Write an installation token of a GitHub App to a file with mode 0600, and print where and when GitHub ends it, never the token. GitHub ends the token after 1 hour, so run the command again before each run that uses it. --app renovate reads renovate.github_app_id (the App ID or the Client ID), renovate.github_app_installation_id and renovate.github_app_private_key. |

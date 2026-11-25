@@ -1515,6 +1515,10 @@ def api_cmd(
         render_request_plan(f"Plan for api ({endpoint})", planned)
         return
 
+    from devops_cli.github.api_guard import require_gh_api_argv_access
+
+    require_gh_api_argv_access(args[1:], method_override=method, endpoint_override=endpoint)
+
     # gh walks every `Link` page of a `--paginate` call in one process, under one timeout.
     timeout = (
         DEFAULT_GH_API_PAGINATE_TIMEOUT_SECONDS
