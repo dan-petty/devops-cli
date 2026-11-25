@@ -184,6 +184,7 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
 
     `status` is the HTTP status of the failed reply, when each endpoint that was asked gave that
     status, and None for a request with no reply or for endpoints that gave different statuses.
+    `can_subdivide` is True when halving an Ollama batch can isolate a failing subset of texts.
     """
 
     error_code = "EMBEDDINGS_ERROR"
@@ -194,11 +195,13 @@ class EmbeddingsError(DevOpsCLIError, RuntimeError):
         *,
         is_transient: bool = False,
         status: int | None = None,
+        can_subdivide: bool = False,
         exit_code: int | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         self.is_transient = is_transient
         self.status = status
+        self.can_subdivide = can_subdivide
         DevOpsCLIError.__init__(
             self,
             message,
@@ -311,6 +314,7 @@ def _reply_vectors(
                 endpoint=_endpoint_text(endpoint), received=len(vectors), expected=expected
             ),
             is_transient=False,
+            can_subdivide=True,
             details={
                 "endpoint": _endpoint_text(endpoint),
                 "received": len(vectors),
@@ -363,6 +367,16 @@ def is_input_refused_error(exc: BaseException) -> bool:
     """Whether `exc` is a reply that refuses the input of the request: HTTP 400, 413 or 422 from
     each endpoint that was asked. Another request with other texts can succeed."""
     return isinstance(exc, EmbeddingsError) and exc.status in _INPUT_REFUSED_STATUSES
+
+
+def _can_subdivide_error(exc: BaseException) -> bool:
+    """Whether halving an Ollama batch can isolate `exc`: an input-refused HTTP status (400,
+    413 or 422), a request timeout or a short/empty HTTP 200 vector reply (#6722)."""
+    return (
+        isinstance(exc, (httpx2.TimeoutException, TimeoutError))
+        or is_input_refused_error(exc)
+        or (isinstance(exc, EmbeddingsError) and exc.can_subdivide)
+    )
 
 
 def _common_status(errors: Sequence[BaseException]) -> int | None:
@@ -977,6 +991,7 @@ class EmbeddingsEngine:
         model: str | None = None,
         is_transient: bool = False,
         status: int | None = None,
+        can_subdivide: bool = False,
     ) -> EmbeddingsError:
         """The EmbeddingsError for a request no endpoint answered with embeddings."""
         name = model or self.model
@@ -991,6 +1006,7 @@ class EmbeddingsEngine:
             ERRORS.rag.embedding_failed.format(model=name, failures="; ".join(failures)),
             is_transient=is_transient,
             status=status,
+            can_subdivide=can_subdivide,
             details=details,
         )
 
@@ -1123,20 +1139,25 @@ class EmbeddingsEngine:
                 failures.append(_endpoint_failure(_ollama_embed_endpoint(base_url), exc))
                 errors.append(exc)
         all_transient = bool(errors) and all(map(is_transient_embedding_error, errors))
+        can_subdivide = any(map(_can_subdivide_error, errors))
         raise self._embedding_error(
-            failures, is_transient=all_transient, status=_common_status(errors)
+            failures,
+            is_transient=all_transient,
+            status=_common_status(errors),
+            can_subdivide=can_subdivide,
         )
 
     def _embed_batch_with_subdivision(
         self, urls: list[str], batch_texts: list[str]
     ) -> list[list[float]]:
-        """Embed a batch, halving it while every node fails, until a single text fails."""
+        """Embed a batch, halving it when a failure can come from the batch size or one text,
+        until a single text fails (#6722)."""
         if not batch_texts:
             return []
         try:
             return self._try_query_candidate_nodes(urls, batch_texts)
-        except EmbeddingsError:
-            if len(batch_texts) == 1:
+        except EmbeddingsError as exc:
+            if len(batch_texts) == 1 or not _can_subdivide_error(exc):
                 raise
         mid = len(batch_texts) // 2
         left = self._embed_batch_with_subdivision(urls, batch_texts[:mid])
