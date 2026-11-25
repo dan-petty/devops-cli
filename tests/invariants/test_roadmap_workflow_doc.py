@@ -269,3 +269,14 @@ def test_document_without_the_new_image_transition_fails() -> None:
 def test_document_without_the_retry_transition_fails() -> None:
     removed = _document().replace("implement: retry", "implement: again")
     assert "the retry transition is missing" in workflow_problems(removed)
+
+
+def test_amendment_docs_list_add_path_and_group() -> None:
+    """`docs/ROADMAP_WORKFLOW.md` and `docs/roadmap/implement.md` list `add_path` and `group`
+    alongside `path`, `command`, and `task` (#7093)."""
+    workflow_doc = _document()
+    implement_doc = (REPO_ROOT / "docs" / "roadmap" / "implement.md").read_text(encoding="utf-8")
+
+    for doc in (workflow_doc, implement_doc):
+        assert "`add_path`" in doc
+        assert "`group`" in doc
