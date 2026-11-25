@@ -136,6 +136,9 @@ dev = [
     # builds the schema version 42 of Grafana 12.3.3 to 13.3.1. The dev group holds it, so the test
     # images and the type check of the runner have it.
     "grafana-foundation-sdk==0.0.22",
+    # Required by complexity_fact (#6380): declaring it in dev ensures plain `uv run` test
+    # environments install lizard so review_window contract and review-facts suites stay reproducible.
+    "lizard==1.26.1",
 ]
 # The docs site builder (#5152). Zensical is a beta from 0.1.0, so the pin is exact.
 docs = [
