@@ -31,7 +31,7 @@ from devops_cli.telemetry.instruments import INSTRUMENTS
 PULL_PAGE_SIZE: Final[int] = 100
 # The type and scope of a pull request that only plans an item.
 _PLAN_TYPE: Final[str] = "docs"
-_PLAN_SCOPE: Final[str] = "openspec"
+_PLAN_SCOPES: Final[frozenset[str]] = frozenset({"spec", "openspec"})
 # A metric name of devops-cli, as `INSTRUMENTS` writes it.
 _METRIC: Final[re.Pattern[str]] = re.compile(r"\bdevops_cli_[a-z0-9_]+\b")
 
@@ -144,7 +144,7 @@ def _open_pull(node: Any) -> OpenPull | None:
     if not isinstance(number, int):
         return None
     title = mask_secrets(str(fields.get("title") or ""))
-    plan = commit_type(title) == _PLAN_TYPE and commit_scope(title) == _PLAN_SCOPE
+    plan = commit_type(title) == _PLAN_TYPE and commit_scope(title) in _PLAN_SCOPES
     return OpenPull(
         number=number,
         title=title,

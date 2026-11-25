@@ -1382,11 +1382,11 @@ def test_labeling_an_issue_adds_the_label_once_as_a_job_write(store: InMemoryRoa
 def test_unlabel_issue_takes_one_label_off_a_seeded_pull_request(
     store: InMemoryRoadmapStore,
 ) -> None:
-    number = store.seed_issue("pull", labels=("type/docs", "scope/openspec"), pull_request=True)
+    number = store.seed_issue("pull", labels=("type/docs", "scope/spec"), pull_request=True)
     store.unlabel_issue(number, "type/docs")
     issue = store._roadmap.issues[number]
     assert (issue.labels, [w.operation for w in store.job_writes()][-1:]) == (
-        ("scope/openspec",),
+        ("scope/spec",),
         ["unlabel_issue"],
     )
     with pytest.raises(GitHubOperationError, match="does not hold the label"):

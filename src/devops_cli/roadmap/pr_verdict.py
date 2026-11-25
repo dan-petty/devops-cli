@@ -86,7 +86,23 @@ class Verdict(StrEnum):
 
 # The title of a plan pull request: `STAGING_TYPE` of `roadmap/stage/stage_change.py` and the lead
 # of the stage title. A test holds the two equal; the import of that module costs about 1 s.
-PLAN_TITLE_PREFIX: Final = "docs(openspec): plan #"
+PLAN_TITLE_PREFIX: Final = "docs(spec): plan #"
+LEGACY_PLAN_TITLE_PREFIX: Final = "docs(openspec): plan #"
+PLAN_TITLE_PREFIXES: Final[tuple[str, ...]] = (
+    PLAN_TITLE_PREFIX,
+    LEGACY_PLAN_TITLE_PREFIX,
+)
+
+
+def is_plan_title(title: str) -> bool:
+    """Whether `title` begins with a plan pull-request prefix (with `#`)."""
+    return title.strip().startswith(PLAN_TITLE_PREFIXES)
+
+
+def is_plan_title_prefix(title: str) -> bool:
+    """Whether `title` begins like a plan pull request (`docs(spec): plan` or legacy)."""
+    return title.strip().startswith(("docs(spec): plan", "docs(openspec): plan"))
+
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +214,7 @@ class VerdictGrade(BaseModel):
 
 def pull_kind(title: str) -> PullKind:
     """A plan when the title is the title of the stage job, else a delivery."""
-    return PullKind.PLAN if title.strip().startswith(PLAN_TITLE_PREFIX) else PullKind.DELIVERY
+    return PullKind.PLAN if is_plan_title(title) else PullKind.DELIVERY
 
 
 def first_verdict_label(labels: Iterable[str]) -> str | None:

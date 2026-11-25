@@ -119,7 +119,7 @@ def test_hook_failure_on_docs_commit_stops_the_item(job_world: JobWorld) -> None
 
     assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
-    assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
+    assert "docs(spec): archive the change (#1)" not in job_world.origin_log()
 
     item = job_world.store.item(1)
     assert item is not None
@@ -194,7 +194,7 @@ def test_no_change_runs_no_hook(job_world: JobWorld) -> None:
     # Docs commit was skipped because there were no changes
     assert "docs: regenerate the documentation (#1)" not in job_world.origin_log()
     # Archive commit still ran
-    assert "docs(openspec): archive the change (#1)" in job_world.origin_log()
+    assert "docs(spec): archive the change (#1)" in job_world.origin_log()
 
 
 def test_a_hook_that_fails_on_the_archive_commit_is_lint_and_no_plan_defect(

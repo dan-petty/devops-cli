@@ -38,7 +38,7 @@ from devops_cli.roadmap.clone_git import git
 from devops_cli.roadmap.toolchains import ToolchainPreset
 
 # The subject of the archive commit of an item, which the step finds by it (`archive_commit`).
-ARCHIVE_MESSAGE: Final[str] = "docs(openspec): archive the change (#{number})"
+ARCHIVE_MESSAGE: Final[str] = "docs(spec): archive the change (#{number})"
 
 # Runs a program in the checkout, and raises when it fails or runs out of time.
 Generate = Callable[[Sequence[str]], None]

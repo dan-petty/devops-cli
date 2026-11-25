@@ -86,7 +86,7 @@ def _item(store: InMemoryRoadmapStore, title: str = OLD, status: str = "Ready") 
 
 def _planned_without_title(store: InMemoryRoadmapStore) -> int:
     number = _item(store, status="Planned")
-    pull = store.seed_pull("docs(openspec): not a plan title", head_ref=f"docs/{number}-plan")
+    pull = store.seed_pull("docs(spec): not a plan title", head_ref=f"docs/{number}-plan")
     item = store.item(number)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pull)})
@@ -199,7 +199,7 @@ def _change_body(store: InMemoryRoadmapStore, number: int) -> None:
 
 
 def _change_plan_pull(store: InMemoryRoadmapStore, number: int) -> None:
-    pull = store.seed_pull("docs(openspec): plan #1 Add a title repair", head_ref="docs/plan")
+    pull = store.seed_pull("docs(spec): plan #1 Add a title repair", head_ref="docs/plan")
     item = store.item(number)
     assert item is not None
     store.set_marks(item, {StageRecordKey.PR: str(pull)})

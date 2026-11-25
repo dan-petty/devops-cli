@@ -808,7 +808,7 @@ def test_a_staged_item_with_an_open_finding_is_a_failed_attempt_not_a_staged_pla
     )
     change = StagedChange(
         target=StageTarget(item, "fix", "the-job-drops-a-comment"),
-        title="docs(openspec): plan #1",
+        title="docs(spec): plan #1",
         body="Plans #1",
         files={},
         groups=(),

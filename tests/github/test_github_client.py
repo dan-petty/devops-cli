@@ -119,11 +119,11 @@ def test_a_pull_request_is_read_with_its_title_and_both_commits(
 
 def test_get_pull_returns_labels_of_the_pull_request(github_api: GitHubApiFake) -> None:
     payload = dict(_RECORDED["pull_request"]) | {
-        "labels": [{"name": "type/docs"}, {"name": "scope/openspec"}]
+        "labels": [{"name": "type/docs"}, {"name": "scope/spec"}]
     }
     github_api.route("GET", _PULL, github_json(payload))
     pull = _client().get_pull("octocat/Hello-World", 158)
-    assert pull.labels == ("type/docs", "scope/openspec")
+    assert pull.labels == ("type/docs", "scope/spec")
 
 
 def test_a_pull_request_that_lacks_a_title_is_unread(github_api: GitHubApiFake) -> None:

@@ -81,7 +81,7 @@ def _stage_draft(title: str, body: str) -> Draft:
 
 
 def test_draft_readiness_refuses_a_stage_plan_whose_title_summary_is_a_placeholder() -> None:
-    draft = _stage_draft("docs(openspec): plan #3321 x", "A real body.")
+    draft = _stage_draft("docs(spec): plan #3321 x", "A real body.")
 
     result = draft_readiness(draft)
 
@@ -89,7 +89,7 @@ def test_draft_readiness_refuses_a_stage_plan_whose_title_summary_is_a_placehold
 
 
 def test_draft_readiness_refuses_a_stage_plan_whose_body_is_a_placeholder() -> None:
-    draft = _stage_draft("docs(openspec): plan #3321 Refuse a placeholder summary", "x")
+    draft = _stage_draft("docs(spec): plan #3321 Refuse a placeholder summary", "x")
 
     result = draft_readiness(draft)
 
@@ -98,7 +98,7 @@ def test_draft_readiness_refuses_a_stage_plan_whose_body_is_a_placeholder() -> N
 
 def test_draft_readiness_marks_a_complete_stage_plan_ready() -> None:
     draft = _stage_draft(
-        "docs(openspec): plan #3321 Refuse a placeholder summary",
+        "docs(spec): plan #3321 Refuse a placeholder summary",
         "Plans #3321",
     )
 
@@ -453,7 +453,7 @@ def test_read_draft_keeps_the_title_and_the_body_of_the_stage_plan_pull() -> Non
     pull = PullStatus(
         state="open",
         draft=True,
-        title="docs(openspec): plan #3321 Refuse a placeholder summary",
+        title="docs(spec): plan #3321 Refuse a placeholder summary",
         body="Plans #3321",
         head_ref=f"fix/{issue_num}-refuse-a-placeholder-summary",
         head_sha="sha123",
@@ -563,9 +563,9 @@ def test_kind_of_resolves_colliding_pr_as_stage_plan_when_title_is_plan() -> Non
         job_record={ImplementRecordKey.PR: "335", StageRecordKey.PR: "335"},
     )
     assert (
-        kind_of(item, 335, title="docs(openspec): plan #1 Keep the last comment")
-        is DraftKind.STAGE_PLAN
-    )
+        kind_of(item, 335, title="docs(spec): plan #1 Keep the last comment"),
+        kind_of(item, 335, title="docs(openspec): plan #1 Keep the last comment"),
+    ) == (DraftKind.STAGE_PLAN, DraftKind.STAGE_PLAN)
 
 
 def test_kind_of_resolves_colliding_pr_as_implement_when_title_is_implement() -> None:
@@ -602,7 +602,7 @@ def test_read_draft_classifies_colliding_stage_plan_pr() -> None:
     pull = PullStatus(
         state="open",
         draft=True,
-        title="docs(openspec): plan #1 Keep the last comment",
+        title="docs(spec): plan #1 Keep the last comment",
         body="Plans #1",
         head_ref=f"fix/{issue_num}-keep-the-last-comment",
         head_sha="sha123",
@@ -637,7 +637,7 @@ def test_draft_readiness_accepts_colliding_stage_plan_with_unticked_tasks() -> N
     pull = PullStatus(
         state="open",
         draft=True,
-        title="docs(openspec): plan #1 Keep the last comment",
+        title="docs(spec): plan #1 Keep the last comment",
         body="Plans #1",
         head_ref=f"fix/{issue_num}-keep-the-last-comment",
         head_sha="sha123",

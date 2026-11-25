@@ -86,7 +86,7 @@ The stage plan SHALL refuse a `summary` that is longer than `STAGE_SUMMARY_MAX_C
 
 #### Scenario: Staging title holds the summary
 - **WHEN** `staging_title` receives item 3200 and the summary `Refuse placeholder text`.
-- **THEN** The returned title is `docs(openspec): plan #3200 Refuse placeholder text`.
+- **THEN** The returned title is `docs(spec): plan #3200 Refuse placeholder text`.
 
 ### Requirement: The replay judges a placeholder plan
 The stage replay SHALL catch a recorded placeholder plan as a defect of type `other` through the `content` gate.
@@ -153,11 +153,11 @@ The stage job SHALL refuse an item whose issue title has a Conventional Commit t
 
 #### Scenario: A word in angle brackets in a title
 - **WHEN** `staging_title` receives item 3 and the summary `Reject <section>.<option> keys`, and `delivery_title` receives `fix(config): reject <section>.<option> keys`
-- **THEN** the titles are `docs(openspec): plan #3 Reject <section>.<option> keys` and `fix(config): reject <section>.<option> keys`
+- **THEN** the titles are `docs(spec): plan #3 Reject <section>.<option> keys` and `fix(config): reject <section>.<option> keys`
 
 #### Scenario: A comment opener in a title
 - **WHEN** `staging_title` receives item 3 and the summary `Block <!-- hidden`
-- **THEN** the title is `docs(openspec): plan #3 Block &lt;!-- hidden`
+- **THEN** the title is `docs(spec): plan #3 Block &lt;!-- hidden`
 
 #### Scenario: A summary of the most characters with a tag
 - **WHEN** the model gives a summary of the most characters that the schema accepts, and the summary ends with ` <b>`

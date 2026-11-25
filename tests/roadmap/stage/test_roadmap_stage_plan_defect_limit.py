@@ -271,7 +271,7 @@ def _two_items(
     """Two Ready bugs and the draft pull request that each one gets."""
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for title, branch in zip(TITLES, BRANCHES, strict=True):
         seed_stageable(store, title)

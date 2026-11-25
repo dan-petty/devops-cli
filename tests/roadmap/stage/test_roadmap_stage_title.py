@@ -38,7 +38,7 @@ pytestmark = pytest.mark.usefixtures("keyring_store")
 
 LONG_SUMMARY = "Report a clear error when a merge key is unset in the file"
 # The label names that .github/labels.yml declares, as far as these tests need them.
-DECLARED = ("scope/cli", "scope/config", "scope/openspec", "scope/roadmap")
+DECLARED = ("scope/cli", "scope/config", "scope/spec", "scope/roadmap")
 
 
 # The largest number that the schema supports: the lead of the title is longest for it.
@@ -104,9 +104,9 @@ def test_a_title_with_no_type_keeps_its_reason_when_its_summary_is_over_the_limi
     assert "limit is" not in left.reason
 
 
-def test_a_staging_title_has_the_type_docs_openspec_the_issue_and_the_summary() -> None:
+def test_a_staging_title_has_the_type_docs_spec_the_issue_and_the_summary() -> None:
     assert staging_title(2656, "Report a clear error") == (
-        "docs(openspec): plan #2656 Report a clear error"
+        "docs(spec): plan #2656 Report a clear error"
     )
 
 
@@ -369,7 +369,7 @@ def test_the_summary_error_tells_that_a_handle_or_a_link_gets_a_code_span() -> N
 
 def test_a_summary_with_a_handle_has_it_in_a_code_span_so_that_the_title_pings_no_one() -> None:
     assert staging_title(3, "Ask @maintainer about it") == (
-        "docs(openspec): plan #3 Ask `@maintainer` about it"
+        "docs(spec): plan #3 Ask `@maintainer` about it"
     )
 
 
@@ -377,7 +377,7 @@ def test_a_staging_title_shows_a_word_in_angle_brackets_as_it_is() -> None:
     """A title is plain text: GitHub shows `<section>` as text and not as a tag, and the squash
     commit takes the title as it is. An entity would show as the text `&lt;` (#3504)."""
     assert staging_title(3, "Reject <section>.<option> keys") == (
-        "docs(openspec): plan #3 Reject <section>.<option> keys"
+        "docs(spec): plan #3 Reject <section>.<option> keys"
     )
 
 
@@ -393,7 +393,7 @@ def test_a_title_still_turns_the_opener_of_a_comment_into_an_entity() -> None:
     assert (
         staging_title(3, "Block <!-- hidden"),
         delivery_title("fix(config): block <!-- hidden", DECLARED),
-    ) == ("docs(openspec): plan #3 Block &lt;!-- hidden", "fix(config): block &lt;!-- hidden")
+    ) == ("docs(spec): plan #3 Block &lt;!-- hidden", "fix(config): block &lt;!-- hidden")
 
 
 def test_a_summary_with_words_in_angle_brackets_fits_as_the_check_counts_it() -> None:
@@ -435,7 +435,7 @@ def test_the_staging_pull_request_of_a_bug_and_a_feature_has_the_docs_type_and_t
     )
 
     (change,) = plan.ready
-    assert change.title == f"docs(openspec): plan #{number} Stop the job dropping a comment"
+    assert change.title == f"docs(spec): plan #{number} Stop the job dropping a comment"
     assert change.target.branch.startswith(f"{branch_type}/{number}-")
 
 
@@ -478,19 +478,25 @@ REAL_DELIVERIES = [
     (
         3785,
         "fix(k8s): find the source of the <gpu-node> host crashes",
+        "docs(spec): plan #3785 Remove the profiler exclusion of the <gpu-node> node (#5182)",
+        "fix(k8s): Remove the profiler exclusion of the <gpu-node> node",
+    ),
+    (
+        3785,
+        "fix(k8s): find the source of the <gpu-node> host crashes",
         "docs(openspec): plan #3785 Remove the profiler exclusion of the <gpu-node> node (#5182)",
         "fix(k8s): Remove the profiler exclusion of the <gpu-node> node",
     ),
     (
         4697,
         "fix(telemetry): keep one metric stream per workload",
-        "docs(openspec): plan #4697 Keep one metric stream for each workload (#5283)",
+        "docs(spec): plan #4697 Keep one metric stream for each workload (#5283)",
         "fix(telemetry): Keep one metric stream for each workload",
     ),
     (
         5107,
         "fix(tools): install-tools --check passes an older openspec binary",
-        "docs(openspec): plan #5107 Read the OpenSpec version on PATH in the check (#5333)",
+        "docs(spec): plan #5107 Read the OpenSpec version on PATH in the check (#5333)",
         "fix: Read the OpenSpec version on PATH in the check",
     ),
     (
@@ -519,6 +525,10 @@ def test_the_delivery_title_names_the_change_of_the_plan_and_not_the_goal_of_the
     [
         "fix(roadmap): plan",
         "fix(k8s): find the source of the host crashes (#5336)",
+        "docs(spec): plan #3785",
+        "docs(spec): plan #3785 (#5182)",
+        "docs(spec): plan #37850 Remove the profiler exclusion (#5182)",
+        "docs(spec): archive the change (#3785)",
         "docs(openspec): plan #3785",
         "docs(openspec): plan #3785 (#5182)",
         "docs(openspec): plan #37850 Remove the profiler exclusion (#5182)",

@@ -4241,7 +4241,7 @@ class RoadmapMessages:
     implement_stop_question_second: str = (
         "A second plan request was received for group {group}: {defect}. Evidence: {evidence}"
     )
-    implement_commit_split: str = "docs(openspec): split group {group} (#{number})"
+    implement_commit_split: str = "docs(spec): split group {group} (#{number})"
     implement_stop_split_missing: str = (
         "A group is over the limit of the step, and no splitter is configured."
     )
@@ -5875,7 +5875,7 @@ class RoadmapMessages:
     )
     plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
     plan_check_line: str = "{path}: {rule}: {message}"
-    plan_check_title: str = "The title is not `docs(openspec): plan #{number} <summary>`."
+    plan_check_title: str = "The title is not `docs(spec): plan #{number} <summary>`."
     plan_check_title_long: str = (
         "The text of the title after the colon has {length} characters, and the limit is {limit}."
     )

@@ -24,7 +24,7 @@ from tests.support.gh_process import answer_origin, gh_argv, mentions
 REPO = "example/roadmap"
 LABELS = "".join(
     f'- name: "{name}"\n  color: "ededed"\n'
-    for name in ("type/feature", "scope/pr", "scope/ai", "type/docs", "scope/openspec")
+    for name in ("type/feature", "scope/pr", "scope/ai", "type/docs", "scope/spec")
 )
 TITLE = "feat(pr): check the form of a pull request"
 BODY = (
@@ -219,7 +219,7 @@ def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
     )
 
 
-PLAN_TITLE = "docs(openspec): plan #3236 revise scope to role tools"
+PLAN_TITLE = "docs(spec): plan #3236 revise scope to role tools"
 PLAN_BODY = (
     "The plan audits the job-role tools and names the follow-up for the rest of the tools.\n\n"
     "Plans #3236\n\n"

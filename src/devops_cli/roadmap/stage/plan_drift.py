@@ -46,6 +46,7 @@ from devops_cli.roadmap.plan_check import (
     read_pull,
 )
 from devops_cli.roadmap.plan_read import change_root, scenario_names_at, specs_at, tree_files
+from devops_cli.roadmap.pr_verdict import PLAN_TITLE_PREFIX, is_plan_title
 from devops_cli.roadmap.stage.stage_paths import StagedTree
 from devops_cli.roadmap.stage.stage_registry import registry_table
 from devops_cli.roadmap.stage.stage_verify import FIX_PLAN_LABEL
@@ -55,7 +56,7 @@ from devops_cli.roadmap.stores.store import RoadmapStore, split_record
 logger = logging.getLogger(__name__)
 
 PLAN_DRIFT_MARKER: Final[str] = "<!-- devops roadmap plan drift -->"
-PLAN_DRIFT_TITLE_PREFIX: Final[str] = "docs(openspec): plan #"
+PLAN_DRIFT_TITLE_PREFIX: Final[str] = PLAN_TITLE_PREFIX
 GIT_OPERATION: Final[str] = "roadmap.plan-drift"
 
 
@@ -237,7 +238,7 @@ def run_plan_drift(
     checked: list[int] = []
     failing: list[int] = []
     for pull in store.open_pulls():
-        if not pull.title.startswith(PLAN_DRIFT_TITLE_PREFIX):
+        if not is_plan_title(pull.title):
             continue
         facts = read_pull(reads, repo, pull.number)
         if not is_plan(facts) or facts.base_ref != branch:

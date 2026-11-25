@@ -38,7 +38,7 @@ def store() -> InMemoryRoadmapStore:
     seed_stageable(store)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     return store
 
@@ -281,7 +281,7 @@ def test_stage_fails_on_unhandled_test_reference(
     target = StageTarget(item, "fix", "1-the-job-drops-a-comment")
     change = StagedChange(
         target=target,
-        title="docs(openspec): plan #1 Stop the job dropping a comment",
+        title="docs(spec): plan #1 Stop the job dropping a comment",
         body=(
             "The change removes `valkey_set` from the exposure table.\n\nPlans #1\n\n"
             f"Change: `openspec/changes/{target.change}/`"
@@ -317,7 +317,7 @@ def test_stage_succeeds_and_comments_warning_on_unhandled_source_reference(
     target = StageTarget(item, "fix", "1-the-job-drops-a-comment")
     change = StagedChange(
         target=target,
-        title="docs(openspec): plan #1 Stop the job dropping a comment",
+        title="docs(spec): plan #1 Stop the job dropping a comment",
         body=(
             "The change removes `valkey_set` from the exposure table.\n\nPlans #1\n\n"
             f"Change: `openspec/changes/{target.change}/`"

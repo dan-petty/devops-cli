@@ -89,7 +89,7 @@ def _roadmap(count: int, openspec: OpenSpecFake, api: GitHubApiFake) -> InMemory
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for number in range(1, count + 1):
         seed_stageable(store, _title(number))
@@ -161,7 +161,7 @@ def _journaled(count: int, openspec: OpenSpecFake, api: GitHubApiFake) -> _Journ
     store = _Journal(repo=STAGE_REPO)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for number in range(1, count + 1):
         seed_stageable(store, _title(number))
@@ -291,7 +291,7 @@ def service_app(config: Callable[..., object]) -> None:
 
 def _rejected(store: InMemoryRoadmapStore, api: GitHubApiFake, number: int) -> int:
     """Item `number` has a plan pull request that a person closed with no merge and a reason."""
-    pull = store.seed_pull("docs(openspec): plan", head_ref=_branch(number))
+    pull = store.seed_pull("docs(spec): plan", head_ref=_branch(number))
     item = store.item(number)
     assert item is not None
     store.set_marks(
@@ -378,7 +378,7 @@ def test_phase_order_a_rejection_of_a_selected_item_falls_between_its_plan_and_i
     openspec_fake.script_sequence(validate_args(_branch(1).removeprefix("fix/")), (0, VALID_REPORT))
     roadmap_store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     seed_stageable(roadmap_store, _title(1))
     pull = _rejected(roadmap_store, github_api, 1)
@@ -500,7 +500,7 @@ def test_a_false_premise_returns_the_item_to_new_with_no_branch_and_no_pr(
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     stage_repo.track({"src/devops_cli/status.py": "class PullStatus:\n    labels: list[str]\n"})
     number = store.seed_issue(

@@ -121,7 +121,7 @@
   color: "DCDCD6"
   description: "Linters, formatters and their configuration"
 
-- name: "scope/openspec"
+- name: "scope/spec"
   color: "DCDCD6"
   description: "OpenSpec changes, specs and their checks"
 

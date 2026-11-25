@@ -289,7 +289,7 @@ def test_needs_fix_of_the_model_on_a_plan_leaves_fix_plan() -> None:
 
 
 @pytest.mark.parametrize(
-    "title", ["docs(openspec): plan #12 Add the sample", "feat(roadmap): Add the sample"]
+    "title", ["docs(spec): plan #12 Add the sample", "feat(roadmap): Add the sample"]
 )
 @pytest.mark.parametrize("verdict", list(Verdict))
 def test_each_label_that_the_step_writes_reads_back_as_its_verdict(
@@ -705,7 +705,7 @@ def test_a_ready_pull_request_that_needs_work_goes_back_to_draft(
         ),
         (
             PullKind.PLAN,
-            "docs(openspec): plan #1 Add the sample",
+            "docs(spec): plan #1 Add the sample",
             Verdict.DISCARD_PLAN,
             "verdict/discard-plan",
         ),
@@ -758,7 +758,7 @@ _RULE_DISCARD = Judgement(Verdict.DISCARD_IMPLEMENTATION, "The work cannot be fi
             Verdict.DISCARD_IMPLEMENTATION,
             ImplementRecordKey.PR,
         ),
-        (PullKind.PLAN, "docs(openspec): plan #1 Add", Verdict.DISCARD_PLAN, StageRecordKey.PR),
+        (PullKind.PLAN, "docs(spec): plan #1 Add", Verdict.DISCARD_PLAN, StageRecordKey.PR),
     ],
 )
 def test_a_discard_deletes_the_branch_first_then_closes_then_returns_the_item(
@@ -897,7 +897,7 @@ def test_a_discard_of_a_branch_that_holds_other_work_is_left_for_a_person(
 ) -> None:
     """A plan branch that the implement job builds on, or a delivery on the branch of its plan,
     keeps its branch (#6024, item 6)."""
-    title = "docs(openspec): plan #1 Add" if kind is PullKind.PLAN else "feat(roadmap): Add"
+    title = "docs(spec): plan #1 Add" if kind is PullKind.PLAN else "feat(roadmap): Add"
     item = world.item()
     pull = world.pull(item, title=title, kind=kind)
     branch = f"{'docs' if kind is PullKind.PLAN else 'feat'}/{item}-sample"
@@ -924,7 +924,7 @@ def test_a_new_fact_on_a_judged_head_gives_a_new_verdict(world: World) -> None:
     rules run again on the same head, the model is not asked again, and the plan goes back to
     draft for fix-plan (#6024, item 1)."""
     item = world.item()
-    title = "docs(openspec): plan #1 Add the sample"
+    title = "docs(spec): plan #1 Add the sample"
     pull = world.pull(item, title=title, kind=PullKind.PLAN)
     judge = FakeJudge(_reply(ReplyVerdict.MERGEABLE))
     world.run(pull, judge, mode="on", confirm=True)

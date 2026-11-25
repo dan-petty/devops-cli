@@ -70,7 +70,6 @@ jobs:
             main
             mcp
             monitoring
-            openspec
             output
             pr
             rag
@@ -84,6 +83,7 @@ jobs:
             sdlc
             security
             service
+            spec
             telemetry
             terraform
             tests
@@ -124,7 +124,7 @@ jobs:
   plan-check:
     name: Plan Check
     needs: semantic-title
-    if: "${{ !cancelled() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && startsWith(github.event.pull_request.title, 'docs(openspec): plan #') }}"
+    if: "${{ !cancelled() && github.event.pull_request.user.login == 'devops-cli-service[bot]' && (startsWith(github.event.pull_request.title, 'docs(spec): plan #') || startsWith(github.event.pull_request.title, 'docs(openspec): plan #')) }}"
     # An edit of the pull request cancels the run that read the plan form, so a delivery form
     # never meets a run that its earlier plan event started (#3829).
     concurrency:

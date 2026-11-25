@@ -111,7 +111,9 @@ logger = logging.getLogger(__name__)
 
 # A plan is documentation, not a fix or a feature: only the types feat, fix, perf, refactor and
 # revert add a line to the changelog, so a pull request that only plans an item has this type.
-STAGING_TYPE: Final[str] = "docs(openspec)"
+STAGING_TYPE: Final[str] = "docs(spec)"
+LEGACY_STAGING_TYPE: Final[str] = "docs(openspec)"
+_STAGING_TYPES: Final[tuple[str, ...]] = (STAGING_TYPE, LEGACY_STAGING_TYPE)
 # The end that GitHub adds to the subject of a squash commit: ` (#<pull>)` (CONTRIBUTING.md).
 _SQUASH_SUFFIX: Final[re.Pattern[str]] = re.compile(r" \(#[0-9]+\)$")
 _ELLIPSIS: Final[str] = "..."
@@ -122,7 +124,7 @@ _INVISIBLE_CATEGORIES: Final[frozenset[str]] = frozenset(
     {"Cc", "Cf", "Cs", "Co", "Cn", "Zs", "Zl", "Zp"}
 )
 _BLANK_FILLERS: Final[str] = "\u2800\u115f\u1160\u3164\uffa0"
-# The most digits that the number of an issue has. The title of a plan is `docs(openspec): plan
+# The most digits that the number of an issue has. The title of a plan is `docs(spec): plan
 # #<number> <summary>` and its summary has at most `SUMMARY_MAX_CHARS` characters (#2714), so the
 # room for the model's summary depends on the digits. The schema cannot know the number, so its
 # limit is the room for the longest number, and a shorter number leaves room over (#3249).
@@ -3594,7 +3596,7 @@ def _shows_something(char: str) -> bool:
 
 
 def staging_title(number: int, summary: str) -> str:
-    """The title of the draft pull request of item `number`: `docs(openspec): plan #<number>
+    """The title of the draft pull request of item `number`: `docs(spec): plan #<number>
     <summary>`. It is on one line, with a handle or a link in a code span, so it pings no one. The
     part after the colon has at most `SUMMARY_MAX_CHARS` characters (#2714). A summary that the
     schema accepts (`STAGE_SUMMARY_MAX_CHARS`) always fits, for a number of `ISSUE_NUMBER_DIGITS`
@@ -3618,11 +3620,13 @@ def plan_summary(subject: str, number: int) -> str | None:
     its change folder (#5341). The stage job writes that subject as `staging_title` does, and the
     squash merge of the plan pull request writes its title and adds ` (#<pull>)`. None when
     `subject` is no plan title of the item, or holds no summary."""
-    lead = f"{STAGING_TYPE}: {MESSAGES.roadmap.stage_title_lead.format(number=number)}"
     title = _SQUASH_SUFFIX.sub("", subject.strip())
-    if not title.startswith(lead):
-        return None
-    return title.removeprefix(lead).strip() or None
+    lead_text = MESSAGES.roadmap.stage_title_lead.format(number=number)
+    for staging_type in _STAGING_TYPES:
+        lead = f"{staging_type}: {lead_text}"
+        if title.startswith(lead):
+            return title.removeprefix(lead).strip() or None
+    return None
 
 
 def delivery_title(
@@ -3637,7 +3641,7 @@ def delivery_title(
     goal, and the plan states the change that the branch makes. With no `summary`, the title keeps
     the whole summary of the issue's title. It is never cut, because a cut text ends with `...`
     and hides the summary (#3200): the form check of the pull request judges a long one. The
-    staging pull request has the type `docs(openspec)`, which the delivery must not keep. A mark
+    staging pull request has the type `docs(spec)` (or legacy `docs(openspec)`), which the delivery must not keep. A mark
     of a breaking change is dropped: the project has none before 1.0.0. A scope whose `scope/*`
     label is not in `declared` is dropped too, because the `Semantic PR title` check refuses it
     (#2800)."""

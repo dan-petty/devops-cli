@@ -29,6 +29,7 @@ from devops_cli.github.client import GitHubClient, PullRequestFile, PullStatus
 from devops_cli.github.run_view import fetch_workflow_run_view
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.pr_verdict import is_plan_title_prefix
 from devops_cli.roadmap.pull_form import is_placeholder
 from devops_cli.roadmap.step_files import parse_task_groups
 from devops_cli.roadmap.stores import store as roadmap_store
@@ -100,7 +101,7 @@ def kind_of(item: Item | None, pull: int | None = None, title: str | None = None
     Reads the record, in this order: `owner/agent` gives agent, `owner/human` gives person,
     `implement.pr` equal to the pull request gives implement, `stage.pr` equal to it gives
     stage plan, else person. When both records hold the pull request number, the title
-    breaks the tie: a title starting with `docs(openspec): plan` gives stage plan, else
+    breaks the tie: a title starting with `docs(spec): plan` (or legacy `docs(openspec): plan`) gives stage plan, else
     implement.
     """
     if item is None:
@@ -113,7 +114,7 @@ def kind_of(item: Item | None, pull: int | None = None, title: str | None = None
     implement_pr = item.job_record.get(ImplementRecordKey.PR)
     stage_pr = item.job_record.get(StageRecordKey.PR)
     if pull_str and implement_pr == pull_str and stage_pr == pull_str:
-        if title is not None and title.startswith("docs(openspec): plan"):
+        if title is not None and is_plan_title_prefix(title):
             return DraftKind.STAGE_PLAN
         return DraftKind.IMPLEMENT
     if pull_str and implement_pr == pull_str:

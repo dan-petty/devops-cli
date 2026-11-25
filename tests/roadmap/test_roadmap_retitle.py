@@ -88,7 +88,7 @@ def _item(store: InMemoryRoadmapStore, title: str = OLD, status: str = "Ready") 
 def _planned(store: InMemoryRoadmapStore, plan_title: str | None) -> int:
     number = _item(store, status="Planned")
     pull = store.seed_pull(
-        plan_title or "docs(openspec): not a plan title", head_ref=f"docs/{number}-plan"
+        plan_title or "docs(spec): not a plan title", head_ref=f"docs/{number}-plan"
     )
     item = store.item(number)
     assert item is not None
@@ -189,7 +189,7 @@ def test_two_replies_that_fail_the_form_leave_the_item(store: InMemoryRoadmapSto
 def test_a_planned_item_takes_the_summary_of_its_plan_title_with_no_model_call(
     store: InMemoryRoadmapStore,
 ) -> None:
-    number = _planned(store, "docs(openspec): plan #1 Add a title repair pass")
+    number = _planned(store, "docs(spec): plan #1 Add a title repair pass")
     model = FakeModel()
 
     plan = plan_retitle(store, repo=REPO, model=model)

@@ -470,7 +470,7 @@ def test_the_title_of_the_pull_request_has_no_scope_that_the_labels_file_lacks(
 PLAN_SUMMARY = "Keep the last comment of a thread"
 
 
-@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY}"])
+@pytest.mark.parametrize("plan_subject", [f"docs(spec): plan #1 {PLAN_SUMMARY}"])
 def test_the_title_of_a_staged_item_names_the_change_of_its_plan(job_world: JobWorld) -> None:
     """The issue states a goal, and the commit of the stage job that adds the change folder holds
     the plan title (#5341). The title keeps the type and the scope of the issue and takes the
@@ -481,7 +481,7 @@ def test_the_title_of_a_staged_item_names_the_change_of_its_plan(job_world: JobW
     assert patched["title"] == f"fix(roadmap): {PLAN_SUMMARY}"
 
 
-@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY} (#4)"])
+@pytest.mark.parametrize("plan_subject", [f"docs(spec): plan #1 {PLAN_SUMMARY} (#4)"])
 def test_the_title_of_a_planned_item_names_the_change_of_its_merged_plan(
     planned_world: JobWorld,
 ) -> None:
@@ -497,7 +497,7 @@ def test_the_title_of_a_planned_item_names_the_change_of_its_merged_plan(
 LONG_PLAN_SUMMARY = "Keep the last comment of a thread when the job rewrites the body"
 
 
-@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {LONG_PLAN_SUMMARY}"])
+@pytest.mark.parametrize("plan_subject", [f"docs(spec): plan #1 {LONG_PLAN_SUMMARY}"])
 def test_a_plan_summary_that_the_form_refuses_gives_way_to_the_summary_of_the_issue(
     job_world: JobWorld,
 ) -> None:
@@ -1691,19 +1691,19 @@ def test_implement_replaces_staging_labels_with_new_title_labels(job_world: JobW
         "state": "open",
         "draft": True,
         "merged": False,
-        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "title": "docs(spec): plan #1 Stop the job dropping a comment",
         "head": {"ref": BRANCH, "sha": ""},
         "base": {"ref": "main", "sha": "basesha"},
         "labels": [
             {"name": "type/docs"},
-            {"name": "scope/openspec"},
+            {"name": "scope/spec"},
             {"name": "scope/ai"},
         ],
     }
     route_pull_status(job_world.api, status)
     pr_issue = job_world.store._roadmap.issues[PULL]
     job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
-        update={"labels": ("type/docs", "scope/openspec", "scope/ai")}
+        update={"labels": ("type/docs", "scope/spec", "scope/ai")}
     )
 
     applied = job_world.run(two_groups())
@@ -1723,7 +1723,7 @@ def test_implement_with_no_labels_held_sends_no_delete(job_world: JobWorld) -> N
         "state": "open",
         "draft": True,
         "merged": False,
-        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "title": "docs(spec): plan #1 Stop the job dropping a comment",
         "head": {"ref": BRANCH, "sha": ""},
         "base": {"ref": "main", "sha": "basesha"},
         "labels": [],
@@ -1821,7 +1821,7 @@ def test_implement_refused_label_comments_on_pull_and_ends_at_the_draft(
         "state": "open",
         "draft": True,
         "merged": False,
-        "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+        "title": "docs(spec): plan #1 Stop the job dropping a comment",
         "head": {"ref": BRANCH, "sha": ""},
         "base": {"ref": "main", "sha": "basesha"},
         "labels": [{"name": "type/docs"}],

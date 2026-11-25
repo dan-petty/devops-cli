@@ -125,7 +125,7 @@ def test_service_stop_between_stage_items_preserves_first_stage_work(
     seed_stageable(store, "fix(roadmap): the job drops a label")
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     store.seed_pull("staging PR 1", head_ref="fix/1-the-job-drops-a-comment", draft=True)
     store.seed_pull("staging PR 2", head_ref="fix/2-the-job-drops-a-label", draft=True)
@@ -172,7 +172,7 @@ def test_failed_marks_write_records_stage_failure_and_keeps_draft_pr(
     seed_stageable(store, "fix(roadmap): the job drops a comment")
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     store.seed_pull("staging PR 1", head_ref="fix/1-the-job-drops-a-comment", draft=True)
     github_api.route("POST", PULLS, OPENED)

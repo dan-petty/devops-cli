@@ -327,7 +327,7 @@ def grounding_blockers(grounding: Grounding) -> list[str]:
 
 # The title that the stage job writes for a plan (`staging_title`): the pull request plans an item
 # and delivers none, so the rules of a delivery do not apply to it (#3280).
-_PLAN_TITLE_RE = re.compile(r"docs\(openspec\): plan #(?P<issue>\d+) ")
+_PLAN_TITLE_RE = re.compile(r"docs\((?:spec|openspec)\): plan #(?P<issue>\d+) ")
 
 
 def plan_issue(title: str) -> int | None:

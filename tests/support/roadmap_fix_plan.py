@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 PLAN_PULL = 5
 PLAN_BRANCH = "fix/1-the-job-drops-a-comment"
 PLAN_CHANGE = "1-the-job-drops-a-comment"
-PLAN_TITLE = "docs(openspec): plan #1 Stop the job dropping a comment"
+PLAN_TITLE = "docs(spec): plan #1 Stop the job dropping a comment"
 PLAN_PATH = f"/repos/{STAGE_REPO}/pulls/{PLAN_PULL}"
 # A text of the issue body, so a finding that quotes it is open (`VerificationInput.contains`).
 ISSUE_QUOTE = "The job drops the last comment of a thread."

@@ -67,7 +67,7 @@ def store() -> InMemoryRoadmapStore:
     seed_stageable(store)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     store.seed_pull("staging PR", head_ref="fix/1-the-job-drops-a-comment", draft=True)
     return store
