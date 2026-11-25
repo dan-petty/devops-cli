@@ -78,8 +78,11 @@ class GitHubApp:
         return CONST_GITHUB_APP_LEDGER_KEY.format(installation_id=self.installation_id)
 
 
-def configured_app() -> GitHubApp:
+def configured_app(permissions: Mapping[str, str] | None = None) -> GitHubApp:
     """The App the process acts as: `service.github_app` and the private key of the environment.
+
+    When `service.github_app.read_only` is true, `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` overrides
+    any explicit `permissions` map so a read-only process cannot widen its token.
 
     Raises ConfigurationError naming each setting that is not set.
     """
@@ -99,17 +102,22 @@ def configured_app() -> GitHubApp:
             ),
             key=missing[0],
         )
+    effective_permissions = (
+        CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS if config.read_only else permissions
+    )
     return GitHubApp(
         app_id=config.app_id,
         installation_id=config.installation_id,
         slug=config.slug,
         private_key=os.environ.get(CONST_GITHUB_APP_PRIVATE_KEY_ENV, ""),
         token_repository=config.token_repository,
-        permissions=CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS if config.read_only else None,
+        permissions=effective_permissions,
     )
 
 
-def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, datetime | None]:
+def mint_installation_token(
+    app: GitHubApp | None = None, *, permissions: Mapping[str, str] | None = None
+) -> tuple[str, str, datetime | None]:
     """A new installation token of `app`, else of the App the process acts as, and when it
     expires, or "" and why GitHub gave none.
 
@@ -130,7 +138,7 @@ def mint_installation_token(app: GitHubApp | None = None) -> tuple[str, str, dat
     from devops_cli.exceptions.git import GitHubRateLimitError, GitHubUnreadError
     from devops_cli.github.error_classifier import classify_http_error
 
-    app = app or configured_app()
+    app = app or configured_app(permissions=permissions)
     if not _is_rsa_private_key(app.private_key):
         return "", _token_failed(app, ERRORS.git.github_app_key_unreadable), None
     try:

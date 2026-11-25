@@ -549,3 +549,386 @@ def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
             )
         ],
     )
+
+
+def test_configured_app_accepts_explicit_permissions_and_read_only_wins(
+    app_identity: GitHubApiFake, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`configured_app(permissions=...)` sends those permissions instead of
+    `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, while `service.github_app.read_only` keeps the read-only
+    set (#6780)."""
+    from devops_cli.config.constants import CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS
+    from devops_cli.github.app_installation import configured_app, mint_installation_token
+
+    app_identity.route("POST", MINT, _installation_token("ghs_prepare", timedelta(hours=1)))
+    token, _, _ = mint_installation_token(
+        configured_app(permissions=CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS)
+    )
+    assert (token, json.loads(app_identity.sent[0].content)) == (
+        "ghs_prepare",
+        {
+            "permissions": {
+                "contents": "read",
+                "pull_requests": "read",
+                "issues": "write",
+                "checks": "read",
+                "actions": "read",
+            }
+        },
+    )
+
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", "true")
+    app_identity.route("POST", MINT, _installation_token("ghs_ro", timedelta(hours=1)))
+    token_ro, _, _ = mint_installation_token(
+        configured_app(permissions=CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS)
+    )
+    assert (token_ro, json.loads(app_identity.sent[1].content)) == (
+        "ghs_ro",
+        {"permissions": READ_PERMISSIONS},
+    )
+
+
+def test_token_permissions_scope_mints_prepare_and_publish_tokens_by_workflow_flag(
+    app_identity: GitHubApiFake,
+) -> None:
+    """`token_permissions_scope` updates `_session_github_token` when phase permissions change and
+    `publish_token_permissions` omits `workflows` unless `workflows=True` (#6780)."""
+    from devops_cli.config.constants import (
+        CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
+        publish_token_permissions,
+    )
+    from devops_cli.core.process import token_permissions_scope
+
+    app_identity.route(
+        "POST",
+        MINT,
+        _installation_token("ghs_prep", timedelta(hours=1)),
+        _installation_token("ghs_pub", timedelta(hours=1)),
+        _installation_token("ghs_pub_wf", timedelta(hours=1)),
+    )
+
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        prep_token = github_token()
+        with token_permissions_scope(publish_token_permissions(workflows=False)):
+            pub_token = github_token()
+            with token_permissions_scope(publish_token_permissions(workflows=True)):
+                pub_wf_token = github_token()
+
+    prep_perms = json.loads(app_identity.sent[0].content)["permissions"]
+    pub_perms = json.loads(app_identity.sent[1].content)["permissions"]
+    pub_wf_perms = json.loads(app_identity.sent[2].content)["permissions"]
+    assert (
+        (prep_token, pub_token, pub_wf_token),
+        prep_perms,
+        ("workflows" in pub_perms, pub_perms["contents"], pub_perms["pull_requests"]),
+        pub_wf_perms.get("workflows"),
+    ) == (
+        ("ghs_prep", "ghs_pub", "ghs_pub_wf"),
+        {
+            "contents": "read",
+            "pull_requests": "read",
+            "issues": "write",
+            "checks": "read",
+            "actions": "read",
+        },
+        (False, "write", "write"),
+        "write",
+    )
+
+
+def test_adr_0030_has_no_deferred_token_sentence() -> None:
+    """ADR 0030 no longer claims one process keeps `workflows: write` until #3700 (#6780)."""
+    import re
+
+    from tests.support.paths import REPO_ROOT
+
+    adr = REPO_ROOT / "docs/adr/0030-roadmap-steps-run-their-agent-apart-from-the-app-key.md"
+    text = adr.read_text(encoding="utf-8")
+    assert not re.search(r"Until #3700.*token|token keeps `workflows: write`", text)
+
+
+def test_stage_job_phases_scope_token_permissions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`stage` `prepare` and `publish` bind their respective token permissions (#6780)."""
+    from types import SimpleNamespace
+
+    from devops_cli.config.constants import (
+        CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
+        publish_token_permissions,
+    )
+    from devops_cli.core.process import active_token_permissions
+    from devops_cli.roadmap.phases.files import RunFolders
+    from devops_cli.roadmap.stage import stage_job_phases
+    from devops_cli.roadmap.stage.stage import StageResult
+
+    seen: list[tuple[str, dict[str, str] | None]] = []
+    monkeypatch.setattr(stage_job_phases, "require_job_token_scope", lambda _repo: None)
+    monkeypatch.setattr(
+        stage_job_phases,
+        "load_settings",
+        lambda: SimpleNamespace(
+            roadmap=SimpleNamespace(
+                stage=SimpleNamespace(
+                    github_requests_per_hour=100,
+                    job="stage",
+                    time_budget_seconds=10,
+                    job_deadline=None,
+                )
+            )
+        ),
+    )
+    monkeypatch.setattr(stage_job_phases, "known_job", lambda *_a, **_k: False)
+    monkeypatch.setattr(stage_job_phases, "job_time_budget", lambda *_a, **_k: 0)
+
+    def fake_deadline_end(*_a: object, **_k: object) -> stage_job_phases.StageJobRun:
+        seen.append(("stage_prepare", active_token_permissions()))
+        return stage_job_phases.StageJobRun(
+            stage_job_phases.StageJobExit.RESULT,
+            StageResult.STAGED,
+            SimpleNamespace(spent=lambda: 0),
+        )
+
+    def fake_read_stage_state(*_a: object, **_k: object) -> stage_job_phases.StageState:
+        seen.append(("stage_publish", active_token_permissions()))
+        return stage_job_phases.StageState(
+            repo="o/r",
+            item=1,
+            job="stage",
+            ended=True,
+            end=stage_job_phases.StageJobExit.RESULT,
+            result=StageResult.STAGED,
+            requests=0,
+        )
+
+    monkeypatch.setattr(stage_job_phases, "deadline_end", fake_deadline_end)
+    monkeypatch.setattr(stage_job_phases, "_write_state", lambda *_a, **_k: None)
+    stage_job_phases.prepare_stage_job(
+        SimpleNamespace(), RunFolders(tmp_path / "stage-prep"), repo="o/r", item=1
+    )
+
+    monkeypatch.setattr(stage_job_phases, "read_stage_state", fake_read_stage_state)
+    stage_job_phases.publish_stage_job(
+        SimpleNamespace(), RunFolders(tmp_path / "stage-pub"), repo="o/r", item=1
+    )
+
+    assert seen == [
+        ("stage_prepare", CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS),
+        ("stage_publish", publish_token_permissions(workflows=False)),
+    ]
+
+
+def test_fix_checks_phases_scope_token_permissions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`fix-checks` binds `prepare` on prepare, `workflows=False` on ambient `publish`, and
+    `workflows=True` during push only when workflow paths are present (#6780)."""
+    from types import SimpleNamespace
+
+    from devops_cli.config.constants import (
+        CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
+        publish_token_permissions,
+    )
+    from devops_cli.core.process import active_token_permissions
+    from devops_cli.github.client import PullStatus
+    from devops_cli.roadmap.phases.files import OutcomeKind, RunFolders
+    from devops_cli.roadmap.steps import fix_checks_phases
+    from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
+    from devops_cli.roadmap.steps.fix_checks_phases import FixTier
+
+    seen: list[tuple[str, dict[str, str] | None]] = []
+
+    def fake_judge_round(*_a: object, **_k: object) -> FixChecksReport:
+        seen.append(("fix_checks_prepare", active_token_permissions()))
+        return FixChecksReport(repo="o/r", pull=2, result=FixChecksResult.SKIPPED, head="a" * 40)
+
+    monkeypatch.setattr(fix_checks_phases, "judge_round", fake_judge_round)
+    fix_checks_phases.prepare_phase(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        "o/r",
+        2,
+        head=None,
+        check=None,
+        repair=SimpleNamespace(),
+        folders=RunFolders(tmp_path / "fc-prep"),
+    )
+
+    status = PullStatus(
+        number=2,
+        state="open",
+        head_sha="a" * 40,
+        head_ref="feat/2-x",
+        base_ref="main",
+        mergeable=True,
+    )
+    facts = SimpleNamespace(
+        repo="o/r",
+        pull=2,
+        item_num=2,
+        item=None,
+        status=status,
+        check="ci",
+        errors=1,
+        rounds=0,
+        heads=(),
+        report=lambda result, reason="", **_k: FixChecksReport(
+            repo="o/r", pull=2, result=result, head="a" * 40, reason=reason
+        ),
+    )
+    original_target = fix_checks_phases._target
+
+    def capture_ambient_target(repair_arg: object, facts_arg: object, base_arg: str) -> object:
+        seen.append(("fix_checks_publish_ambient", active_token_permissions()))
+        return original_target(repair_arg, facts_arg, base_arg)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(fix_checks_phases, "_live_round", lambda *_a, **_k: facts)
+    monkeypatch.setattr(
+        fix_checks_phases,
+        "read_outcome",
+        lambda _f: SimpleNamespace(
+            kind=OutcomeKind.DONE,
+            result=FixChecksResult.REPAIRED.value,
+            detail=FixTier.TIER1.value,
+            reason="",
+            files=[],
+        ),
+    )
+    monkeypatch.setattr(fix_checks_phases, "_branch_patches", lambda *_a: [])
+    monkeypatch.setattr(fix_checks_phases, "_read_patch", lambda *_a: b"diff")
+    monkeypatch.setattr(fix_checks_phases, "record_outcome", lambda *_a, **_k: None)
+    monkeypatch.setattr(fix_checks_phases, "named_files", lambda *_a, **_k: "")
+    monkeypatch.setattr(fix_checks_phases, "_target", capture_ambient_target)
+
+    def run_publish(workflows: tuple[str, ...]) -> None:
+        def fake_publish(_target: object, _patches: object, _before: object) -> SimpleNamespace:
+            tag = "fix_checks_publish_wf" if workflows else "fix_checks_publish_no_wf"
+            seen.append((tag, active_token_permissions()))
+            return SimpleNamespace(commit="b" * 40, paths=["src/a.py"])
+
+        repair = SimpleNamespace(
+            author=lambda: ("bot[bot]", "bot@example.com"),
+            workflows=lambda *_a: workflows,
+            publish=fake_publish,
+        )
+        judged_round = fix_checks_phases.JudgedRound("o/r", 2, 2, status, "ci", 1, "")
+        fix_checks_phases.publish_round(
+            SimpleNamespace(),
+            SimpleNamespace(),
+            judged_round,
+            RunFolders(tmp_path / ("fc-pub-wf" if workflows else "fc-pub")),
+            repair,  # type: ignore[arg-type]
+        )
+
+    run_publish(())
+    run_publish((".github/workflows/ci.yml",))
+
+    assert seen == [
+        ("fix_checks_prepare", CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS),
+        ("fix_checks_publish_ambient", publish_token_permissions(workflows=False)),
+        ("fix_checks_publish_no_wf", publish_token_permissions(workflows=False)),
+        ("fix_checks_publish_ambient", publish_token_permissions(workflows=False)),
+        ("fix_checks_publish_wf", publish_token_permissions(workflows=True)),
+    ]
+
+
+def test_fix_conflict_phases_scope_token_permissions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`fix-conflict` binds `prepare` on prepare, `workflows=False` on ambient `publish`, and
+    `workflows=True` during push only when workflow paths are present (#6780)."""
+    from types import SimpleNamespace
+
+    from devops_cli.config.constants import (
+        CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
+        publish_token_permissions,
+    )
+    from devops_cli.core.process import active_token_permissions
+    from devops_cli.github.client import PullStatus
+    from devops_cli.roadmap.phases.files import OutcomeKind, RunFolders
+    from devops_cli.roadmap.steps import fix_conflict_phases
+    from devops_cli.roadmap.steps.fix_conflict import (
+        ConflictRound,
+        FixConflictReport,
+        FixConflictResult,
+    )
+
+    seen: list[tuple[str, dict[str, str] | None]] = []
+
+    def fake_admit_round(*_a: object, **_k: object) -> FixConflictReport:
+        seen.append(("fix_conflict_prepare", active_token_permissions()))
+        return FixConflictReport(
+            repo="o/r", pull=3, result=FixConflictResult.STOPPED, reason="done"
+        )
+
+    monkeypatch.setattr(fix_conflict_phases.fix_conflict, "admit_round", fake_admit_round)
+    fix_conflict_phases.prepare_phase(
+        SimpleNamespace(),
+        SimpleNamespace(),
+        "o/r",
+        3,
+        head=None,
+        folders=RunFolders(tmp_path / "fconf-prep"),
+    )
+
+    monkeypatch.setattr(
+        fix_conflict_phases,
+        "read_outcome",
+        lambda _f: SimpleNamespace(
+            kind=OutcomeKind.DONE, result=FixConflictResult.RESOLVED.value, reason=""
+        ),
+    )
+    monkeypatch.setattr(
+        fix_conflict_phases,
+        "get_github_session",
+        lambda: SimpleNamespace(login="bot[bot]", commit_email="bot@example.com"),
+    )
+    monkeypatch.setattr(fix_conflict_phases, "_patches", lambda *_a: [])
+    monkeypatch.setattr(
+        fix_conflict_phases.fix_conflict, "record_fix_conflict_marks", lambda *_a, **_k: None
+    )
+
+    status = PullStatus(
+        number=3,
+        state="open",
+        head_sha="a" * 40,
+        head_ref="feat/3-x",
+        base_ref="main",
+        mergeable=False,
+    )
+
+    def run_publish(workflows: tuple[str, ...]) -> None:
+        def fake_merged(_repo: str, _default: str, _num: int) -> tuple[str, ...]:
+            seen.append(("fix_conflict_publish_ambient", active_token_permissions()))
+            return workflows
+
+        def fake_publish_patch(
+            _target: object, _patches: object, before_push: object = None
+        ) -> SimpleNamespace:
+            tag = "fix_conflict_publish_wf" if workflows else "fix_conflict_publish_no_wf"
+            seen.append((tag, active_token_permissions()))
+            return SimpleNamespace(commit="c" * 40)
+
+        monkeypatch.setattr(fix_conflict_phases, "merged_workflows", fake_merged)
+        monkeypatch.setattr(fix_conflict_phases, "publish_patch", fake_publish_patch)
+        round_obj = ConflictRound(
+            "o/r", 3, status, 3, SimpleNamespace(title="T"), SimpleNamespace(), 0, ()
+        )
+        prepared = fix_conflict_phases.PreparedRound(round_obj, "a" * 40, ("a.py",), "k", 1)
+        fix_conflict_phases.publish_round(
+            SimpleNamespace(item=lambda _n: SimpleNamespace(title="T")),
+            SimpleNamespace(),
+            prepared,
+            RunFolders(tmp_path / ("fconf-pub-wf" if workflows else "fconf-pub")),
+        )
+
+    run_publish(())
+    run_publish((".github/workflows/ci.yml",))
+
+    assert seen == [
+        ("fix_conflict_prepare", CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS),
+        ("fix_conflict_publish_ambient", publish_token_permissions(workflows=False)),
+        ("fix_conflict_publish_no_wf", publish_token_permissions(workflows=False)),
+        ("fix_conflict_publish_ambient", publish_token_permissions(workflows=False)),
+        ("fix_conflict_publish_wf", publish_token_permissions(workflows=True)),
+    ]

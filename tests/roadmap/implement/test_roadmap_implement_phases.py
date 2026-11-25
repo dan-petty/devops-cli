@@ -704,3 +704,123 @@ def test_a_return_with_nothing_to_withdraw_writes_the_base_only_at_the_return(
         if write.key == ImplementRecordKey.BASE and write.value is None
     ]
     assert cleared == [ImplementRecordKey.BASE]
+
+
+@pytest.mark.parametrize("with_workflow", [False, True])
+def test_prepare_and_publish_mint_phase_permissions_for_plain_and_workflow_plans(
+    job_world: JobWorld,
+    tmp_path: Path,
+    config: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    with_workflow: bool,
+) -> None:
+    """`prepare` requests read permissions (with `issues: write` and no `workflows`), `publish`
+    omits `workflows: write` when the merged plan names no workflow path, and requests
+    `workflows: write` when the merged plan names `.github/workflows/ci.yml` (#6780)."""
+    import base64
+    import time
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from devops_cli.config.constants import CONST_GITHUB_APP_PRIVATE_KEY_ENV
+    from devops_cli.github.app_installation import configured_app
+    from devops_cli.github.rate_limiter import identity_rate_limiter
+    from devops_cli.github.session import reset_github_session
+    from tests.support.fakes.github import API
+
+    (target,) = job_world.plan().selected
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode()
+    config(
+        roadmap={"implement": {"in_runner": True}},
+        service={
+            "github_app": {
+                "app_id": 1001,
+                "installation_id": 42,
+                "slug": STAGE_NAME.removesuffix("[bot]"),
+                "token_repository": STAGE_REPO,
+            }
+        },
+    )
+    monkeypatch.setenv(CONST_GITHUB_APP_PRIVATE_KEY_ENV, pem)
+    reset_github_session()
+    limiter = identity_rate_limiter(configured_app().ledger_key)
+    for resource in ("core", "graphql"):
+        limiter.update_quota(resource, remaining=5000, limit=5000, reset_epoch=time.time() + 600.0)
+
+    expires = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    mint_path = "/app/installations/42/access_tokens"
+    job_world.api.route(
+        "POST",
+        mint_path,
+        github_json({"token": "ghs_prep", "expires_at": expires}, status=201),
+        github_json({"token": "ghs_pub", "expires_at": expires}, status=201),
+        github_json({"token": "ghs_pub_wf", "expires_at": expires}, status=201),
+        github_json({"token": "ghs_pub_post", "expires_at": expires}, status=201),
+    )
+
+    folders = RunFolders(tmp_path / "run")
+    state = prepare_implement(job_world.store, STAGE_REPO, target, folders)
+    assert isinstance(state, ImplementState)
+    mint_url = f"{API}{mint_path}"
+    prep_requests = [
+        json.loads(req.content) for req in job_world.api.sent if str(req.url) == mint_url
+    ]
+    assert len(prep_requests) == 1
+    assert prep_requests[0]["permissions"] == {
+        "actions": "read",
+        "checks": "read",
+        "contents": "read",
+        "issues": "write",
+        "pull_requests": "read",
+    }
+
+    agent_implement(folders, AgentTools(two_groups().model(), WINDOW))
+    if with_workflow:
+        workflow_tasks = base64.b64encode(
+            b"# Tasks\n\n## 1. Workflow change\n\nChanges: `.github/workflows/ci.yml`.\n\n"
+            b"- [ ] 1.1 Update `.github/workflows/ci.yml`\n"
+            b"  - Verification: `$ uv run devops docs check`\n"
+        ).decode()
+        job_world.api.route(
+            "GET",
+            f"/repos/{STAGE_REPO}/contents/openspec/changes?ref=main",
+            github_json([{"name": "1-the-job-drops-a-comment", "type": "dir"}]),
+        )
+        job_world.api.route(
+            "GET",
+            f"/repos/{STAGE_REPO}/contents/openspec/changes/1-the-job-drops-a-comment/tasks.md?ref=main",
+            github_json({"type": "file", "encoding": "base64", "content": workflow_tasks}),
+        )
+    else:
+        job_world.api.route(
+            "GET", f"/repos/{STAGE_REPO}/contents/openspec/changes?ref=main", github_json([])
+        )
+
+    assert (
+        publish_phase(job_world.store, folders, repo=STAGE_REPO, item=1) is ImplementResult.DRAFTED
+    )
+    all_requests = [
+        json.loads(req.content) for req in job_world.api.sent if str(req.url) == mint_url
+    ]
+    if with_workflow:
+        assert [req["permissions"].get("workflows") for req in all_requests] == [
+            None,
+            None,
+            "write",
+            None,
+        ]
+    else:
+        assert len(all_requests) == 2
+        pub_perms = all_requests[1]["permissions"]
+        assert (
+            "workflows" in pub_perms,
+            pub_perms["contents"],
+            pub_perms["pull_requests"],
+        ) == (False, "write", "write")
