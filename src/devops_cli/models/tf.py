@@ -224,6 +224,31 @@ class IaCState(BaseModel):
     outputs: dict[str, Any] = Field(default_factory=dict, description="Recorded output values")
 
 
+class PlanDriftResult(BaseModel):
+    """Results from `tofu plan -refresh-only` and saved-plan `checks` inspection."""
+
+    drifted: list[str] = Field(
+        default_factory=list,
+        description="Resource addresses with live attribute drift",
+    )
+    failed_checks: list[str] = Field(
+        default_factory=list,
+        description="Check block addresses whose saved-plan status is fail or error",
+    )
+    unknown_checks: list[str] = Field(
+        default_factory=list,
+        description="Check block addresses whose saved-plan status is unknown",
+    )
+    plan_returncode: int = Field(
+        default=0,
+        description="Exit code returned by `tofu plan -refresh-only`",
+    )
+    plan_error: str = Field(
+        default="",
+        description="Error output captured when `tofu plan` fails outside exit codes 0 and 2",
+    )
+
+
 class IaCDriftReport(BaseModel):
     """Divergence between declared configuration and recorded state."""
 
@@ -240,11 +265,23 @@ class IaCDriftReport(BaseModel):
         default_factory=list,
         description="Resources with attribute drift against live infrastructure",
     )
+    failed_checks: list[str] = Field(
+        default_factory=list,
+        description="Check block addresses with fail or error status in the saved plan",
+    )
+    unknown_checks: list[str] = Field(
+        default_factory=list,
+        description="Check block addresses with unknown status in the saved plan",
+    )
     in_sync: list[str] = Field(
         default_factory=list, description="Addresses present in both configuration and state"
     )
     drift_detected: bool = Field(default=False, description="Whether any divergence was found")
     state_present: bool = Field(default=False, description="Whether a state file was found")
+    plan_error: str = Field(
+        default="",
+        description="Error output if the refresh-only drift plan failed",
+    )
 
 
 class IaCBlastRadius(BaseModel):

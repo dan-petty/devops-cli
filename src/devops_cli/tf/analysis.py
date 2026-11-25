@@ -11,6 +11,7 @@ import json
 import logging
 import re
 import subprocess
+import tempfile
 from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
@@ -37,6 +38,7 @@ from devops_cli.models.tf import (
     IaCResource,
     IaCState,
     IaCStateResource,
+    PlanDriftResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -408,20 +410,113 @@ def parse_plan_drift(raw_output: str | dict[str, Any]) -> list[str]:
     return sorted(set(drifted))
 
 
-def read_plan_drift(directory: Path, binary: str | None = None) -> list[str]:
-    """Execute `tofu plan -refresh-only -json` and return drifted resource addresses."""
+def _check_display_name(entry: dict[str, Any]) -> str:
+    """Extract `address.to_display` from a saved-plan `checks` entry."""
+    address = entry.get("address")
+    if isinstance(address, dict):
+        return str(address.get("to_display") or address.get("name") or "").strip()
+    if isinstance(address, str):
+        return address.strip()
+    return ""
+
+
+def _decode_json_dict(raw_output: str | dict[str, Any]) -> dict[str, Any] | None:
+    """Decode `raw_output` JSON into a mapping, or return None on malformed/non-dict input."""
+    if isinstance(raw_output, str):
+        text = raw_output.strip()
+        if not text:
+            return None
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return None
+    else:
+        data = raw_output
+    return data if isinstance(data, dict) else None
+
+
+def parse_plan_checks(raw_output: str | dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Extract `(failed_checks, unknown_checks)` from saved `tofu show -json` data."""
+    data = _decode_json_dict(raw_output)
+    checks = data.get("checks", []) if data is not None else []
+    if not isinstance(checks, list):
+        return [], []
+
+    failed: set[str] = set()
+    unknown: set[str] = set()
+    for entry in checks:
+        if not isinstance(entry, dict):
+            continue
+        name = _check_display_name(entry)
+        if not name:
+            continue
+        status = str(entry.get("status", "")).lower()
+        if status in {"fail", "error"}:
+            failed.add(name)
+        elif status == "unknown":
+            unknown.add(name)
+    return sorted(failed), sorted(unknown)
+
+
+def _subprocess_error_text(res: subprocess.CompletedProcess[str], fallback: str) -> str:
+    """Return trimmed stderr/stdout from a failed subprocess run, or a concise fallback."""
+    return (res.stderr or res.stdout or "").strip() or fallback
+
+
+def read_plan_drift(directory: Path, binary: str | None = None) -> PlanDriftResult:
+    """Run unlocked `tofu plan -refresh-only` into a temp plan file and inspect `tofu show -json`."""
     if not is_directory_initialized(directory):
-        return []
+        return PlanDriftResult()
 
     tf_binary = binary or "tofu"
-    cmd = [tf_binary, "plan", "-refresh-only", "-json"]
-    try:
-        res = run_subprocess(cmd, cwd=directory, capture_output=True, check=False)
-    except (subprocess.SubprocessError, OSError) as exc:
-        logger.debug("Failed running %s in %s: %s", cmd, directory, exc)
-        return []
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        plan_file = Path(tmp_dir) / "drift.plan"
+        plan_cmd = [
+            tf_binary,
+            "plan",
+            "-refresh-only",
+            "-detailed-exitcode",
+            "-lock=false",
+            f"-out={plan_file}",
+        ]
+        try:
+            plan_res = run_subprocess(plan_cmd, cwd=directory, capture_output=True, check=False)
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.debug("Failed running %s in %s: %s", plan_cmd, directory, exc)
+            return PlanDriftResult(plan_returncode=1, plan_error=str(exc))
 
-    return parse_plan_drift(res.stdout or "")
+        if plan_res.returncode not in (0, 2):
+            return PlanDriftResult(
+                plan_returncode=plan_res.returncode,
+                plan_error=_subprocess_error_text(
+                    plan_res, f"{tf_binary} plan exited with code {plan_res.returncode}"
+                ),
+            )
+
+        show_cmd = [tf_binary, "show", "-json", str(plan_file)]
+        try:
+            show_res = run_subprocess(show_cmd, cwd=directory, capture_output=True, check=False)
+        except (subprocess.SubprocessError, OSError) as exc:
+            logger.debug("Failed running %s in %s: %s", show_cmd, directory, exc)
+            return PlanDriftResult(plan_returncode=1, plan_error=str(exc))
+
+        if show_res.returncode != 0:
+            return PlanDriftResult(
+                plan_returncode=show_res.returncode,
+                plan_error=_subprocess_error_text(
+                    show_res, f"{tf_binary} show exited with code {show_res.returncode}"
+                ),
+            )
+
+        stdout = show_res.stdout or ""
+        drifted = parse_plan_drift(stdout)
+        failed_checks, unknown_checks = parse_plan_checks(stdout)
+        return PlanDriftResult(
+            drifted=drifted,
+            failed_checks=failed_checks,
+            unknown_checks=unknown_checks,
+            plan_returncode=plan_res.returncode,
+        )
 
 
 # =============================================================================
@@ -480,17 +575,23 @@ def detect_drift(
     state: IaCState | None,
     *,
     drifted_addresses: Sequence[str] | None = None,
+    failed_checks: Sequence[str] | None = None,
+    unknown_checks: Sequence[str] | None = None,
+    plan_error: str = "",
 ) -> IaCDriftReport:
     """Compare declared configuration against recorded state and live drift.
 
-    State comes from `tofu show -json` and live attribute changes come from
-    `tofu plan -refresh-only -json`. An uninitialized directory has state None.
+    State comes from `tofu show -json` and live attribute/check results come from an unlocked
+    `tofu plan -refresh-only -detailed-exitcode -out=<plan>` inspected via `tofu show -json`.
+    An uninitialized directory has state None.
     """
     declared = {
         resource.address
         for resource in config.resources
         if resource.block_type == CONST_HCL_BLOCK_RESOURCE
     }
+    failed_list = sorted(set(failed_checks or ()))
+    unknown_list = sorted(set(unknown_checks or ()))
 
     if state is None:
         return IaCDriftReport(
@@ -500,9 +601,12 @@ def detect_drift(
             missing_from_state=sorted(declared),
             orphaned_in_state=[],
             drifted=[],
+            failed_checks=failed_list,
+            unknown_checks=unknown_list,
             in_sync=[],
             drift_detected=bool(declared),
             state_present=False,
+            plan_error=plan_error,
         )
 
     declared_modules = {module.address for module in config.modules}
@@ -535,9 +639,12 @@ def detect_drift(
         missing_from_state=missing,
         orphaned_in_state=sorted(orphaned),
         drifted=sorted(drifted),
+        failed_checks=failed_list,
+        unknown_checks=unknown_list,
         in_sync=sorted(in_sync),
         drift_detected=bool(missing or orphaned or drifted),
         state_present=True,
+        plan_error=plan_error,
     )
 
 
@@ -557,6 +664,7 @@ __all__ = [
     "holds_local_resource_state",
     "is_directory_initialized",
     "parse_hcl_directory",
+    "parse_plan_checks",
     "parse_plan_drift",
     "parse_show_state",
     "read_plan_drift",
