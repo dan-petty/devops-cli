@@ -7,7 +7,7 @@ import os
 import secrets
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Final, NotRequired, TypedDict, assert_never
 
@@ -28,8 +28,6 @@ from devops_cli.config.constants import (
     CONST_HELM_DAEMONSET_RELEASES,
     CONST_HELM_MIN_VERSION,
     CONST_HELM_TEARDOWN_RETAINED_RELEASES,
-    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS,
-    CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK,
     CONST_K8S_DEVOPS_CONFIGMAP,
     CONST_K8S_DEVOPS_CONFIGMAP_HISTORY,
     CONST_K8S_DEVOPS_NAMESPACE,
@@ -53,12 +51,6 @@ from devops_cli.k8s.app_sources import (
     repository_origin,
 )
 from devops_cli.k8s.argocd_gate import discover_argocd_applications
-from devops_cli.k8s.argocd_overrides import (
-    application_patch,
-    application_source,
-    host_patches,
-    render_at_revision,
-)
 from devops_cli.k8s.cluster_secrets import (
     BASE_STACK,
     DETACHED_STACKS,
@@ -1006,16 +998,6 @@ def _verify_cluster_ready(effective_context: str | None) -> None:
         raise typer.Exit(1)
 
 
-def _homelab_applications(selected_stacks: Sequence[str]) -> list[str]:
-    """The homelab Argo CD Applications whose hosts the stacks' deploy sets."""
-    wanted = {
-        app
-        for s in selected_stacks
-        for app in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK.get(s, ())
-    }
-    return [app for app in CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS if app in wanted]
-
-
 def _render_devops_configmap(product: Path) -> str:
     """ConfigMap devops-cli-config rendered from the active config, or exit naming what is missing."""
     return _render_from_active_config(
@@ -1158,96 +1140,6 @@ def _apply_devops_configmap(
     if record is not None:
         _patch_devops_configmap_history(record, kubectl_ctx)
         emit_devops_configmap_changed_log(record)
-
-
-def _dry_run_domain(domain: str | None) -> str:
-    """The domain the host overrides would use, or why an Argo CD-managed cluster would refuse."""
-    from devops_cli.k8s.template import resolve_template_domain
-
-    try:
-        return resolve_template_domain(domain)
-    except KubernetesContextError as exc:
-        return f"no usable domain, so an Argo CD-managed cluster refuses ({exc})"
-
-
-def _homelab_host_overrides(
-    selected_stacks: Sequence[str],
-    domain: str | None,
-    revision: str | None,
-    kubectl_ctx: list[str],
-) -> list[tuple[str, dict[str, Any]]]:
-    """Each homelab Application the stacks deploy, with the merge patch setting its hosts.
-
-    The hosts come from the configured domain and what the Application renders at the revision
-    Argo CD builds (its live `targetRevision`, or `revision` to stage them before a pull request
-    merges into main), never from the local checkout. An Application that renders no host under the
-    placeholder there is refused rather than given an empty patch list, which would drop hosts
-    staged earlier. Nothing is written here, so a refusal changes nothing in the cluster.
-    """
-    applications = _homelab_applications(selected_stacks)
-    if not applications:
-        return []
-    try:
-        from devops_cli.k8s.template import resolve_template_domain
-
-        configured = resolve_template_domain(domain)
-        overrides = []
-        with tempfile.TemporaryDirectory(prefix="devops-argocd-") as workdir:
-            for application in applications:
-                read = [
-                    "kubectl",
-                    "get",
-                    "application",
-                    application,
-                    "-n",
-                    "argocd",
-                    "-o",
-                    "json",
-                ]
-                got = runtime._run_cmd(read + kubectl_ctx, check=False, capture=True)
-                if got.returncode != 0:
-                    raise KubernetesContextError(
-                        f"Argo CD Application '{application}' could not be read: "
-                        f"{(got.stderr or got.stdout).strip()}"
-                    )
-                source = application_source(got.stdout)
-                if revision:
-                    source = replace(source, revision=revision)
-                rendered = render_at_revision(source, Path(workdir) / application, runtime._run_cmd)
-                patches = host_patches(rendered, configured)
-                if not patches:
-                    raise KubernetesContextError(
-                        f"Application '{application}' renders no host under the placeholder domain "
-                        f"at {source.revision}, so there is nothing to set; pass --argocd-revision "
-                        "with the revision the hosts are for."
-                    )
-                overrides.append((application, application_patch(patches)))
-        return overrides
-    except (KubernetesContextError, ValueError) as exc:
-        print_error(f"Cannot derive the homelab hosts for Argo CD: {exc}", prefix=False)
-        raise typer.Exit(1) from exc
-
-
-def _set_homelab_hosts(
-    overrides: Sequence[tuple[str, dict[str, Any]]], kubectl_ctx: list[str]
-) -> None:
-    """Write each Application's host overrides, or exit with kubectl's reason."""
-    for application, patch in overrides:
-        res = runtime._run_cmd(
-            ["kubectl", "patch", "application", application, "-n", "argocd"]
-            + ["--type", "merge", "-p", json.dumps(patch)]
-            + kubectl_ctx,
-            check=False,
-            capture=True,
-        )
-        if res.returncode != 0:
-            print_error(
-                f"Could not set the homelab hosts on Argo CD Application '{application}': "
-                f"{(res.stderr or res.stdout).strip()}",
-                prefix=False,
-            )
-            raise typer.Exit(1)
-        print_success(f"Argo CD Application '{application}' renders the configured hosts")
 
 
 def _apply_kustomizations(kustomizations: Sequence[Path], kubectl_ctx: list[str]) -> None:
@@ -1610,28 +1502,24 @@ def _handle_argo_managed_deployment(
     push_secrets: bool,
     config_map: str | None,
     sandbox_config_map: str | None,
-    domain: str | None = None,
-    revision: str | None = None,
     env: EnvironmentTree | None = None,
     *,
     product: Path | None = None,
     reason: str | None = None,
 ) -> None:
-    """Supply the values git never holds, and leave every manifest to Argo CD.
+    """Supply the values that deploy-stack holds, and leave every manifest to Argo CD.
 
-    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, the
-    credential-free ConfigMap devops-cli-config-sandbox from it too, and the homelab hosts become
-    Kustomize overrides on the Applications that render them (#1290, #4147).
+    Secrets come from the keyring, ConfigMap devops-cli-config from the active config, and the
+    credential-free ConfigMap devops-cli-config-sandbox from it too. The infra repo holds the
+    hosts as patches of the Applications (#7257).
     """
     kubectl_ctx = ["--context", effective_context] if effective_context else []
-    overrides = _homelab_host_overrides(selected_stacks, domain, revision, kubectl_ctx)
     if push_secrets:
         print_info(MESSAGES.k8s.pushing_secrets, prefix=False)
         push_for_stacks(
             _push_stacks_for(selected_stacks, effective_context), effective_context, env=env
         )
     _apply_devops_configmap(config_map, sandbox_config_map, product, kubectl_ctx, reason=reason)
-    _set_homelab_hosts(overrides, kubectl_ctx)
 
     print_info(
         "Argo CD manages the cluster (Application 'cluster' found in namespace 'argocd'). "
@@ -1707,7 +1595,6 @@ def _render_deploy_stack_dry_run(
     all_post_helm: Sequence[Path],
     config_map: str | None,
     sandbox_config_map: str | None,
-    argocd_revision: str | None,
     helm_ctx: list[str],
     source_fetches: Sequence[Sequence[str]],
 ) -> None:
@@ -1761,12 +1648,6 @@ def _render_deploy_stack_dry_run(
                 if sandbox_config_map is not None
                 else None
             ),
-            "argocd_overrides": [
-                f"argocd/{app}: spec.source.kustomize.patches, hosts under "
-                f"{_dry_run_domain(domain)} at {argocd_revision or 'its targetRevision'} "
-                "(if Application 'cluster' exists)"
-                for app in _homelab_applications(selected_stacks)
-            ],
         },
     )
 
@@ -1813,9 +1694,6 @@ def deploy_stack(
         bool,
         typer.Option("--push-secrets/--no-push-secrets", help=HELP.k8s.push_secrets_flag),
     ] = True,
-    argocd_revision: Annotated[
-        str | None, typer.Option("--argocd-revision", help=HELP.k8s.argocd_revision)
-    ] = None,
     reason: Annotated[str | None, typer.Option("--reason", help=HELP.k8s.change_reason)] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.k8s.deploy_dry_run)] = False,
 ) -> None:
@@ -1863,7 +1741,6 @@ def deploy_stack(
                 all_post_helm=all_post_helm,
                 config_map=config_map,
                 sandbox_config_map=sandbox_config_map,
-                argocd_revision=argocd_revision,
                 helm_ctx=helm_ctx,
                 source_fetches=trees.planned,
             )
@@ -1892,8 +1769,6 @@ def deploy_stack(
                 push_secrets,
                 config_map,
                 sandbox_config_map,
-                domain=domain,
-                revision=argocd_revision,
                 env=env,
                 product=product,
                 reason=reason,
