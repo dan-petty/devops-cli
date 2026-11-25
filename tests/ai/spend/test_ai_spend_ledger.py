@@ -549,6 +549,27 @@ def test_a_ledger_records_each_replys_finish_reason(tmp_path: Path) -> None:
     ) == (True, "length", ["length"], [("llama3:8b", "length")])
 
 
+def test_call_observer_receives_cache_read_and_write_token_counts(tmp_path: Path) -> None:
+    """`observe_llm_calls` receives `cache_read_tokens` and `cache_write_tokens` (#5578)."""
+    ledger = SpendLedger(db_path=tmp_path / "spend.db")
+    seen: list[dict[str, object]] = []
+
+    with observe_llm_calls(seen.append):
+        track_request_spend(
+            provider="anthropic",
+            model="claude-sonnet-5-5",
+            server="api.anthropic.com",
+            prompt_tokens=2000,
+            completion_tokens=100,
+            cache_read_tokens=1200,
+            cache_write_tokens=300,
+            ledger=ledger,
+        )
+
+    assert len(seen) == 1
+    assert (seen[0]["cache_read_tokens"], seen[0]["cache_write_tokens"]) == (1200, 300)
+
+
 def test_an_existing_ledger_gains_the_finish_reason_column(tmp_path: Path) -> None:
     """Verify a ledger written before finish_reason existed keeps its rows and records it."""
     db_path = tmp_path / "spend.db"

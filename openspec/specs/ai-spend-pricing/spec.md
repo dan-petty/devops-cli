@@ -569,3 +569,10 @@ Each deployment of `k8s/llm/gateway/config.yaml` with an in-cluster `api_base` S
 #### Scenario: The providers of the in-cluster deployments
 - **WHEN** a test reads the provider and the mode of each in-cluster deployment of the gateway config
 - **THEN** the pairs are `ollama` with `embedding` and `ollama_chat` with `chat`
+
+### Requirement: Observer call record holds cache token counts
+The call record passed to `observe_llm_calls` callbacks via `_notify_call_observers` SHALL include `cache_read_tokens` and `cache_write_tokens` from the tracked spend call.
+
+#### Scenario: Observer sees cache counts
+- **WHEN** `track_request_spend` records 1,200 `cache_read_tokens` and 300 `cache_write_tokens` while `observe_llm_calls` is active
+- **THEN** the observer receives a dictionary with `cache_read_tokens == 1200` and `cache_write_tokens == 300`

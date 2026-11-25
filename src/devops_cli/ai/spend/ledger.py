@@ -1059,6 +1059,8 @@ def track_request_spend(
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "reasoning_tokens": reasoning_tokens,
+            "cache_read_tokens": cache_read_tokens,
+            "cache_write_tokens": cache_write_tokens,
             "cost_usd": cost,
             "cached": cached,
             "request_type": request_type,
