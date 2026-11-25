@@ -424,7 +424,10 @@ def test_a_stop_push_records_the_published_head(job_world: JobWorld) -> None:
 PLAN_SUMMARY = "Keep the last comment of a thread"
 
 
-@pytest.mark.parametrize("plan_subject", [f"docs(openspec): plan #1 {PLAN_SUMMARY}"])
+@pytest.mark.parametrize(
+    "plan_subject",
+    [f"docs(spec): plan #1 {PLAN_SUMMARY}", f"docs(openspec): plan #1 {PLAN_SUMMARY}"],
+)
 def test_the_plan_title_of_a_staged_item_stays_after_a_stop_push(job_world: JobWorld) -> None:
     """The first Job pushes the plan of the item inside a commit of the bot. The next Job takes the
     plan title from the record, so the title stays the plan title (#5341, #6670)."""
@@ -437,7 +440,10 @@ def test_the_plan_title_of_a_staged_item_stays_after_a_stop_push(job_world: JobW
     assert patched["title"] == f"fix(roadmap): {PLAN_SUMMARY}"
 
 
-@pytest.mark.parametrize("plan_subject", ["docs(openspec): plan #1 Fixes #4 in the job"])
+@pytest.mark.parametrize(
+    "plan_subject",
+    ["docs(spec): plan #1 Fixes #4 in the job", "docs(openspec): plan #1 Fixes #4 in the job"],
+)
 def test_a_title_with_a_closing_keyword_gives_way_to_the_title_of_the_issue(
     job_world: JobWorld,
 ) -> None:
@@ -595,7 +601,10 @@ def test_a_return_publish_that_died_after_the_withdraw_returns_the_item_the_next
     assert planned_world.repo.origin_git("branch", "--list", BRANCH) == ""
 
 
-@pytest.mark.parametrize("plan_subject", ["docs(openspec): plan #1 Fixes #4 in the job"])
+@pytest.mark.parametrize(
+    "plan_subject",
+    ["docs(spec): plan #1 Fixes #4 in the job", "docs(openspec): plan #1 Fixes #4 in the job"],
+)
 def test_an_issue_title_with_a_closing_keyword_stops_the_item_before_the_push(
     job_world: JobWorld,
 ) -> None:

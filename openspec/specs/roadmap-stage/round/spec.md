@@ -25,7 +25,7 @@ For each item the job SHALL make the branch `<type>/<issue>-<slug>`, where the t
 - **THEN** the job deletes the pushed branch from `origin`, and the item fails with the refusal
 
 ### Requirement: A staged item gets a draft pull request
-The job SHALL open a draft pull request whose title is `docs(openspec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
+The job SHALL open a draft pull request whose title is `docs(spec): plan #<issue> <summary>` and whose body starts with `Plans #<issue>` and holds no closing keyword. The part of the title after the colon SHALL have at most 60 characters, and the job SHALL NOT cut it: the schema keeps a summary short enough for an issue number of up to 6 digits, and a longer number stops that item with an error. The job SHALL NOT mark the pull request ready: the row `stage_ready` of the Service does.
 
 #### Scenario: The draft opens
 - **WHEN** the job stages a Ready bug
@@ -37,7 +37,7 @@ The job SHALL open a draft pull request whose title is `docs(openspec): plan #<i
 
 #### Scenario: The title of a bug and of a feature
 - **WHEN** the job stages item 12, a bug, and item 13, a feature
-- **THEN** the title of each draft starts with `docs(openspec): plan #12 ` and `docs(openspec): plan #13 `, and the branch of each keeps the type of its issue
+- **THEN** the title of each draft starts with `docs(spec): plan #12 ` and `docs(spec): plan #13 `, and the branch of each keeps the type of its issue
 
 #### Scenario: A summary at the limit
 - **WHEN** the model gives a summary of the most characters that the schema accepts (47: the room after `plan #<issue> ` for an issue number of 6 digits) for item 7 and for item 3249
@@ -172,16 +172,16 @@ After the state comment, the job SHALL post one comment of the run with a hidden
 After the job records an item, it SHALL add to its draft pull request the `type/*` label and the `scope/*` label that the title gives, each only when `.github/labels.yml` on the default branch declares it. A label that GitHub refuses SHALL NOT delete the branch, close the draft or unset the record. The comment of the run SHALL name each label not added and the reason. Rejected credentials SHALL stop the run.
 
 #### Scenario: The title gives a type and a scope
-- **WHEN** the job stages item 1 and the labels file declares `type/docs` and `scope/openspec`
-- **THEN** the draft holds `type/docs` and `scope/openspec` and no other label
+- **WHEN** the job stages item 1 and the labels file declares `type/docs` and `scope/spec`
+- **THEN** the draft holds `type/docs` and `scope/spec` and no other label
 
 #### Scenario: A label is refused and the branch stays
 - **WHEN** GitHub refuses `type/docs` for the draft
 - **THEN** the remote branch exists, the draft is open, and the record holds `stage.branch`, `stage.pr`, `stage.sha` and `stage.text_hash`
 
 #### Scenario: A label is refused and the comment says so
-- **WHEN** GitHub refuses `type/docs` for the draft and accepts `scope/openspec`
-- **THEN** the comment of the run names the pull request, `type/docs` and the reason, and the draft holds `scope/openspec`
+- **WHEN** GitHub refuses `type/docs` for the draft and accepts `scope/spec`
+- **THEN** the comment of the run names the pull request, `type/docs` and the reason, and the draft holds `scope/spec`
 
 #### Scenario: Rejected credentials
 - **WHEN** GitHub answers the label call with HTTP 401

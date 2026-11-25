@@ -3,7 +3,7 @@
 The job turns each item that a label filter names into a branch `<type>/<issue>-<slug>` at the
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
 the refined body, one commit by the identity of the session, and a draft pull request whose title
-is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
+is `docs(spec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
 `Plans #<issue>`. The reply schema holds no limit on the length of the body text: a text over its
 room in the plan form gets a shorter text from one turn of the body rewrite (`pull_retry`), and
 the proposal keeps the full text (#6319). The job never changes the item's Status. The staged

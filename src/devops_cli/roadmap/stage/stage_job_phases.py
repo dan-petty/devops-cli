@@ -430,7 +430,7 @@ class _Prepare:
             (clone.path / name).parent.mkdir(parents=True, exist_ok=True)
             (clone.path / name).write_text(text, encoding="utf-8")
         git_call(clone.path, "add", "--", f"{CONST_OPENSPEC_CHANGES_DIR}/{target.change}")
-        git_call(clone.path, "commit", "--quiet", "-m", f"docs(openspec): scaffold #{number}")
+        git_call(clone.path, "commit", "--quiet", "-m", f"docs(spec): scaffold #{number}")
         listing = issue_listing(self.store, planned, target.item).dump()
         for folder in (self.folders.state, self.folders.work):
             path = folder / CONST_ROADMAP_STAGE_ISSUES_FILE

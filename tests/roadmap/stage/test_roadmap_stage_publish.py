@@ -237,7 +237,7 @@ def test_a_missing_candidate_gives_the_title_of_the_issue_and_the_why_of_the_pro
 
     assert run.exit_code is StageJobExit.RESULT
     body = _published_body(github_api)
-    assert body["title"] == "docs(openspec): plan #1 the job drops a comment"
+    assert body["title"] == "docs(spec): plan #1 the job drops a comment"
     assert body["body"].startswith(make_stage_proposal().why)
 
 
@@ -253,7 +253,7 @@ def test_a_body_text_that_the_form_refuses_gives_the_why_of_the_proposal(
 
     assert run.exit_code is StageJobExit.RESULT
     body = _published_body(github_api)
-    assert body["title"] == "docs(openspec): plan #1 Keep the last comment"
+    assert body["title"] == "docs(spec): plan #1 Keep the last comment"
     assert body["body"].startswith(make_stage_proposal().why)
     assert _record(store, number).get("stage.failed_class") is None
 

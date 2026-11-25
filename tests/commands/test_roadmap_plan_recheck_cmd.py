@@ -34,7 +34,7 @@ DESIGN = f"{ROOT}/design.md"
 ISSUE = 1
 BRANCH = "docs/1-keep-the-last-comment"
 AHEAD = "docs/1-ahead"
-PLAN_TITLE = f"docs(openspec): plan #{ISSUE} Keep the last comment"
+PLAN_TITLE = f"docs(spec): plan #{ISSUE} Keep the last comment"
 PLAN_BODY = f"Plans #{ISSUE}"
 runner = CliRunner()
 

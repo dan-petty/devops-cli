@@ -207,7 +207,7 @@ def test_the_clone_has_the_plan_of_the_fixture_committed_and_no_remote(
         "",
         "",
         base,
-        "docs(openspec): the plan of the fixture (#1)",
+        "docs(spec): the plan of the fixture (#1)",
         "# Proposal\n\nA different why.\n",
     )
 

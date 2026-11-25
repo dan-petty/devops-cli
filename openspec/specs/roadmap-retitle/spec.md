@@ -30,7 +30,7 @@ With `--confirm`, the repair pass SHALL replace only the summary of a title whos
 For a Planned item, the repair pass SHALL take the summary from the title of the plan pull request that the job record names, and SHALL make no model request.
 
 #### Scenario: Planned item with a valid plan title
-- **WHEN** a Planned item has an over-limit title and its plan pull request title is `docs(openspec): plan #<issue> Add a title repair pass`
+- **WHEN** a Planned item has an over-limit title and its plan pull request title is `docs(spec): plan #<issue> Add a title repair pass`
 - **THEN** the new summary is `Add a title repair pass` and the model records no request
 
 ### Requirement: Planned item without a usable plan title is left

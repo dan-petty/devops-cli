@@ -62,7 +62,7 @@ The command SHALL print each problem with its file, its rule and the message of 
 - **THEN** stdout holds no problem line and the exit code is 0.
 
 ### Requirement: Plan-check checks the title of the pull request
-The command SHALL report a problem when the pull request title is not of the form `docs(openspec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
+The command SHALL report a problem when the pull request title is not of the form `docs(spec): plan #<issue> <summary>`, or when the text after the colon is longer than `SUMMARY_MAX_CHARS`.
 
 #### Scenario: A wrong title is reported
 - **WHEN** the pull request title is `feat(roadmap): add plan-check`

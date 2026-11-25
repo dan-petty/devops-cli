@@ -75,7 +75,7 @@ def store() -> InMemoryRoadmapStore:
     seed_stageable(store)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for i in range(2, 5):
         store.seed_issue(f"placeholder {i}")
@@ -132,7 +132,7 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
 
     assert (applied.staged, applied.stopped, applied.failed) == ((1,), (), ())
     assert stage_repo.origin_git("log", "--format=%ae|%s", f"main..{BRANCH}") == (
-        f"{STAGE_EMAIL}|docs(openspec): plan #1 Stop the job dropping a comment"
+        f"{STAGE_EMAIL}|docs(spec): plan #1 Stop the job dropping a comment"
     )
     files = stage_repo.origin_git("ls-tree", "-r", "--name-only", BRANCH, "--", "openspec").split()
     assert files == [
@@ -147,7 +147,7 @@ def test_a_ready_bug_is_staged_with_one_commit_by_the_app(
     assert opened.requested == [*OPEN_STEP_READS, f"POST {API}{PULLS}"]
     request = json.loads(opened.sent[-1].content)
     assert request["draft"] is True
-    assert request["title"] == "docs(openspec): plan #1 Stop the job dropping a comment"
+    assert request["title"] == "docs(spec): plan #1 Stop the job dropping a comment"
     assert (request["head"], request["base"]) == (BRANCH, "main")
     assert (
         request["body"].startswith("The job keeps every comment it reads."),
@@ -160,7 +160,7 @@ def test_the_draft_pull_request_holds_the_labels_of_its_title(
 ) -> None:
     model_fake.answer(make_stage_proposal())
     _stage(store, stage_repo)
-    assert store._roadmap.issues[5].labels == ("type/docs", "scope/openspec")
+    assert store._roadmap.issues[5].labels == ("type/docs", "scope/spec")
 
 
 def test_a_refused_label_keeps_the_staged_item_and_notes_in_the_comment(
@@ -518,7 +518,7 @@ def test_a_refused_push_stops_its_item_and_the_others_are_staged(
     seed_stageable(store, "fix(roadmap): the job drops a label")
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for i in range(3, 5):
         store.seed_issue(f"placeholder {i}")
@@ -930,7 +930,7 @@ def test_the_push_of_a_plan_makes_its_new_repository_in_the_temporary_folder(
         branch="feat/7-plan",
         files={"openspec/changes/7-plan/proposal.md": "# Proposal: #7\n"},
         staged=stage_repo.git("rev-parse", "HEAD"),
-        message="docs(openspec): plan #7",
+        message="docs(spec): plan #7",
         lease=None,
         identity=(STAGE_NAME, STAGE_EMAIL),
     )

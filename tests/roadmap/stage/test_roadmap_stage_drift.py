@@ -32,7 +32,7 @@ BRANCH = "plan/1-keep-the-last-comment"
 CHANGE = "1-keep-the-last-comment"
 NOW = datetime(2026, 11, 14, tzinfo=UTC)
 LABEL = "verdict/fix-plan"
-TITLE = "docs(openspec): plan #1 Keep the comment"
+TITLE = "docs(spec): plan #1 Keep the comment"
 PROBLEM = PlanProblem("src/a.py", "paths", "not a file on the default branch")
 
 
@@ -146,7 +146,7 @@ def test_the_row_labels_and_comments_a_drifted_plan_and_skips_a_delivery(
     problem = PlanProblem("src/a.py", "paths", "not a file on the default branch")
     reads = _Reads(
         {
-            PULL: _pull("docs(openspec): plan #1 Keep the comment"),
+            PULL: _pull("docs(spec): plan #1 Keep the comment"),
             8: _pull("fix(roadmap): keep the comment", number=8),
         },
         {
@@ -157,7 +157,7 @@ def test_the_row_labels_and_comments_a_drifted_plan_and_skips_a_delivery(
     reads.comments = [IssueComment(id=11, body=f"{PLAN_DRIFT_MARKER}\n\nold")]
     store = _Store(
         [
-            _open(PULL, "docs(openspec): plan #1 Keep the comment"),
+            _open(PULL, "docs(spec): plan #1 Keep the comment"),
             _open(8, "fix(roadmap): keep the comment"),
         ]
     )
@@ -316,7 +316,7 @@ def test_a_plan_that_cites_a_path_moved_on_the_default_branch_is_a_problem(
     stage_repo.untrack("src/devops_cli/sample.py")
     facts = PullFacts(
         number=PULL,
-        title="docs(openspec): plan #1 Keep the comment",
+        title="docs(spec): plan #1 Keep the comment",
         body="Plans #1",
         head_sha=sha,
         base_sha="b" * 40,
@@ -399,7 +399,7 @@ def test_a_plan_head_without_a_change_folder_is_a_problem(stage_repo: StageRepo)
     stage_repo.origin_git("update-ref", f"refs/pull/{PULL}/head", sha)
     facts = PullFacts(
         number=PULL,
-        title="docs(openspec): plan #1 Keep the comment",
+        title="docs(spec): plan #1 Keep the comment",
         body="Plans #1",
         head_sha=sha,
         base_sha="b" * 40,

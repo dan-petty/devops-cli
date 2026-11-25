@@ -45,7 +45,7 @@ The rules of the project:
 
 The reply has these keys and no other, at the top level or inside any entry:
 
-- `summary`: the summary of the title of the pull request in the imperative mood, at most 47 characters, with no full stop. The limit counts the summary as the title shows it. The job puts a handle or a link in a code span, which adds characters, so write no handle or link in the summary. An emoji counts as two characters. The job writes the title as `docs(openspec): plan #<number> <summary>`, because the pull request only plans the item. Start the summary with a verb other than `plan`, and write no issue number in it: the title already has both.
+- `summary`: the summary of the title of the pull request in the imperative mood, at most 47 characters, with no full stop. The limit counts the summary as the title shows it. The job puts a handle or a link in a code span, which adds characters, so write no handle or link in the summary. An emoji counts as two characters. The job writes the title as `docs(spec): plan #<number> <summary>`, because the pull request only plans the item. Start the summary with a verb other than `plan`, and write no issue number in it: the title already has both.
 - `pull_request_body`: what the change does and why, in plain text, at most 800 characters. It is the message of the squash commit. Never write close, closes, closed, fix, fixes, fixed, resolve, resolves or resolved before an issue reference.
 - `why`: the problem the issue solves. Cite the issue as `#<number>`.
 - `what_changes`: a list of strings, one for each change. When `skip_specs` is `true`, one of them says why the change has no spec delta.

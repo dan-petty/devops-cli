@@ -203,7 +203,7 @@ def test_a_valid_plan_gives_the_branch_the_title_the_body_and_the_files(
     (change,) = plan.ready
     assert (change.target.branch, change.title, change.body, change.validated) == (
         f"fix/{item}-the-job-drops-a-comment",
-        "docs(openspec): plan #1 Stop the job dropping a comment",
+        "docs(spec): plan #1 Stop the job dropping a comment",
         (
             f"The job keeps every comment it reads. It dropped the last one.\n\n"
             f"Plans #{item}\n\n"
@@ -338,7 +338,7 @@ def test_the_path_gate_reads_the_commit_the_plan_branches_from(
     plan = _plan(store, stage_repo)
 
     (change,) = plan.ready
-    assert change.title.startswith("docs(openspec): plan #1")
+    assert change.title.startswith("docs(spec): plan #1")
     assert len(_requests(model_fake)) == 1
 
 
@@ -365,7 +365,7 @@ def test_the_model_input_holds_an_overlap_and_the_other_senders_of_a_cited_metri
                 [
                     {
                         "number": 3173,
-                        "title": "docs(openspec): plan #3173 the telemetry page",
+                        "title": "docs(spec): plan #3173 the telemetry page",
                         "state": "OPEN",
                         "files": {"nodes": [{"path": "src/devops_cli/sample.py"}]},
                     }
@@ -386,7 +386,7 @@ def test_the_model_input_holds_an_overlap_and_the_other_senders_of_a_cited_metri
     assert request["overlaps"] == [
         {
             "number": 3173,
-            "title": "docs(openspec): plan #3173 the telemetry page",
+            "title": "docs(spec): plan #3173 the telemetry page",
             "state": "open",
             "plan": True,
             "paths": ["src/devops_cli/sample.py"],
@@ -1671,7 +1671,7 @@ def test_a_summary_that_repeats_plan_in_the_title_goes_back_to_the_model_once(
     assert "problem" not in first
     assert "repeats the word `plan`" in second["problem"]
     (change,) = plan.ready
-    assert change.title == "docs(openspec): plan #1 Stop the job dropping a comment"
+    assert change.title == "docs(spec): plan #1 Stop the job dropping a comment"
 
 
 def test_a_summary_with_the_issue_number_goes_back_and_stops_the_item_after_the_last_return(

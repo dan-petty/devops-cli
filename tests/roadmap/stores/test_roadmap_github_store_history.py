@@ -69,11 +69,11 @@ def test_last_renamed_at_is_none_for_a_title_that_never_changed() -> None:
 
 
 def test_pull_title_reads_a_pull_request_through_the_issues_endpoint() -> None:
-    pull = issue_payload(951, title="docs(openspec): plan #950 Add it", pull_request={"url": "u"})
+    pull = issue_payload(951, title="docs(spec): plan #950 Add it", pull_request={"url": "u"})
     store, _ = recorded_store({"issues/951": pull, "issues/952": issue_payload(952)})
 
     assert (store.pull_title(951), store.pull_title(952)) == (
-        "docs(openspec): plan #950 Add it",
+        "docs(spec): plan #950 Add it",
         None,
     )
 

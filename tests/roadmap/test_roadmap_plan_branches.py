@@ -26,7 +26,7 @@ PULL = 7
 ISSUE = 1
 BRANCH = "docs/1-keep-the-last-comment"
 AHEAD = "docs/1-ahead"
-TITLE = f"docs(openspec): plan #{ISSUE} Keep the last comment"
+TITLE = f"docs(spec): plan #{ISSUE} Keep the last comment"
 TASKS = f"openspec/changes/{ISSUE}-keep-the-last-comment/tasks.md"
 CREATED = date(2026, 11, 4)
 

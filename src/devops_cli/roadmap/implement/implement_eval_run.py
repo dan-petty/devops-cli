@@ -181,7 +181,7 @@ def make_clone(loaded: LoadedCase, repo: Path, work: Path) -> Path:
         (folder.parent / name).write_text(text, encoding="utf-8")
     git(clone, "add", "-A", operation=_OPERATION)
     if git(clone, "status", "--porcelain", operation=_OPERATION):
-        message = f"docs(openspec): the plan of the fixture (#{loaded.case.issue})"
+        message = f"docs(spec): the plan of the fixture (#{loaded.case.issue})"
         git(clone, "commit", "--quiet", "-m", message, operation=_OPERATION)
     return clone
 

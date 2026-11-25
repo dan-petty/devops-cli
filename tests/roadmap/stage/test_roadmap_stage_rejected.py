@@ -118,7 +118,7 @@ def _staged(
     number = seed_stageable(store, body=body)
     if status != "Ready":
         store.set_field(_item(store, number), ItemField.STATUS, status)
-    pull = store.seed_pull("docs(openspec): plan #1 the job drops a comment", head_ref=BRANCH)
+    pull = store.seed_pull("docs(spec): plan #1 the job drops a comment", head_ref=BRANCH)
     store.set_marks(
         _item(store, number),
         {
@@ -687,7 +687,7 @@ def test_rejected_credentials_stop_the_run_at_the_read_of_a_plan_pull_request(
 def _staged_second(store: InMemoryRoadmapStore, api: GitHubApiFake) -> tuple[int, int]:
     """A second staged item, the one the first number's read does not reach."""
     number = seed_stageable(store, "fix(roadmap): the job drops a label")
-    pull = store.seed_pull("docs(openspec): plan #3", head_ref="fix/3-the-job-drops-a-label")
+    pull = store.seed_pull("docs(spec): plan #3", head_ref="fix/3-the-job-drops-a-label")
     store.set_marks(_item(store, number), {StageRecordKey.PR: str(pull)})
     _pull_state(api, pull)
     return number, pull

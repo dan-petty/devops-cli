@@ -122,7 +122,7 @@ def test_a_target_without_openspec_skips_the_archive_step(job_world: JobWorld) -
     applied = job_world.run(two_groups())
 
     assert (applied.drafted, applied.stopped, _count(job_world, ARCHIVE)) == ((1,), (), 0)
-    assert "docs(openspec): archive the change (#1)" not in job_world.origin_log()
+    assert "docs(spec): archive the change (#1)" not in job_world.origin_log()
 
 
 def test_a_target_that_declares_the_steps_runs_them(job_world: JobWorld) -> None:

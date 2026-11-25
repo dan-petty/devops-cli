@@ -1213,7 +1213,7 @@ def test_readiness_runs_every_gh_command_through_the_given_runner(
     assert (len(sent), len(github.gh.calls)) == (4, 4)
 
 
-_PLAN_TITLE = "docs(openspec): plan #3183 add plan-check"
+_PLAN_TITLE = "docs(spec): plan #3183 add plan-check"
 _PLAN_FOLDER = {"filename": "openspec/changes/3183-add-plan-check/proposal.md", "status": "added"}
 
 

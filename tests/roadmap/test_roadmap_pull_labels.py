@@ -98,14 +98,14 @@ def test_remove_pull_labels_passes_unauthenticated_and_stops_early(
 
 
 def test_stale_labels_returns_held_old_excluding_new_in_held_order() -> None:
-    held = ("type/docs", "scope/ai", "scope/openspec", "custom/person")
-    old = TitleLabels(type_label="type/docs", scope_label="scope/openspec")
+    held = ("type/docs", "scope/ai", "scope/spec", "custom/person")
+    old = TitleLabels(type_label="type/docs", scope_label="scope/spec")
     new = TitleLabels(type_label="type/bug", scope_label="scope/ai")
-    assert stale_labels(held, old, new) == ("type/docs", "scope/openspec")
+    assert stale_labels(held, old, new) == ("type/docs", "scope/spec")
 
 
 def test_stale_labels_excludes_labels_not_given_by_old_title() -> None:
-    held = ("type/docs", "scope/openspec", "custom/label")
+    held = ("type/docs", "scope/spec", "custom/label")
     old = TitleLabels(type_label="type/docs")
     new = TitleLabels(type_label="type/bug")
     assert stale_labels(held, old, new) == ("type/docs",)
@@ -113,6 +113,6 @@ def test_stale_labels_excludes_labels_not_given_by_old_title() -> None:
 
 def test_stale_labels_excludes_labels_not_held() -> None:
     held = ("type/docs",)
-    old = TitleLabels(type_label="type/docs", scope_label="scope/openspec")
+    old = TitleLabels(type_label="type/docs", scope_label="scope/spec")
     new = TitleLabels(type_label="type/bug")
     assert stale_labels(held, old, new) == ("type/docs",)

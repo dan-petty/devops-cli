@@ -230,7 +230,7 @@ def _prompt_limit(key: str) -> int:
 
 
 def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the_title() -> None:
-    """The job writes `docs(openspec): plan #<number> <summary>`; the part after the colon has
+    """The job writes `docs(spec): plan #<number> <summary>`; the part after the colon has
     at most `SUMMARY_MAX_CHARS` characters (CONTRIBUTING.md, Naming). The prompt names the one
     limit of the schema, which fits after the longest lead, so the job cuts no summary (#3249)."""
     limit = _prompt_limit("summary")
