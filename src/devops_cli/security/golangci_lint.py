@@ -223,7 +223,7 @@ class GolangciLintScanner(BaseSecurityScanner):
         **kwargs: Any,
     ) -> list[str]:
         """Build argument command list for invoking golangci-lint."""
-        cmd = [self.binary_name, "run", "--out-format", "sarif"]
+        cmd = [self.binary_name, "run", "--output.sarif.path=stdout"]
         if config_file is not None and Path(config_file).exists():
             cmd.extend(["--config", str(config_file)])
         active_linters = list(linters) if linters is not None else list(self.linters)
@@ -231,7 +231,7 @@ class GolangciLintScanner(BaseSecurityScanner):
             if "contextcheck" not in active_linters:
                 active_linters.append("contextcheck")
         if active_linters:
-            cmd.append("--disable-all")
+            cmd.append("--default=none")
             for linter in active_linters:
                 cmd.extend(["--enable", linter])
         return cmd
