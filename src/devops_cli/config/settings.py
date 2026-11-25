@@ -39,7 +39,7 @@ from devops_cli.config.constants import (
     CONST_AI_GATEWAY_PROVIDER,
     CONST_AI_GATEWAY_VIRTUAL_MODELS,
     CONST_AI_JEV_MODEL,
-    CONST_AI_JEV_MODEL_TARGETS,
+    CONST_AI_JEV_MODEL_TARGET_RE,
     CONST_AI_JEV_SYSTEM_ONE_PREFIXES,
     CONST_K8S_LABEL_RE,
     CONST_ROADMAP_IMPLEMENT_CEILING_FACTOR,
@@ -996,17 +996,20 @@ class AIPriceOverride(BaseModel):
     )
 
 
+def is_jev_model_target(name: str) -> bool:
+    """Whether `name` names a versioned TypeSafe Jev model target such as `typesafe/jev-1.14`."""
+    return bool(CONST_AI_JEV_MODEL_TARGET_RE.match(name))
+
+
 def is_decision_model_name(name: str) -> bool:
     """Whether `name` names a System One decision model, such as TypeSafe Jev: `typesafe/jev-1.14`,
-    `jev-…`, a name with the prefix `typesafe:` or `system-one:`, or a gateway route of a Jev
+    `jev-1.13`, a name with the prefix `typesafe:` or `system-one:`, or a gateway route of a Jev
     model, such as `litellm:typesafe/jev-1.14`. `resolve_pydantic_ai_model` builds a
     `SystemOneModel` for such a name."""
     prefix, sep, target = name.partition(":")
     if sep:
-        return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or target.startswith(
-            CONST_AI_JEV_MODEL_TARGETS
-        )
-    return name.startswith(CONST_AI_JEV_MODEL_TARGETS)
+        return prefix in CONST_AI_JEV_SYSTEM_ONE_PREFIXES or is_jev_model_target(target)
+    return is_jev_model_target(name)
 
 
 class AIConfig(BaseModel):

@@ -3343,8 +3343,9 @@ CONST_AI_JEV_DEFAULT_BOOLEAN_THRESHOLD: Final[float] = 0.50
 CONST_AI_JEV_RETRY_ATTEMPTS: Final[int] = 3
 CONST_AI_JEV_HIGH_RISK_THRESHOLD: Final[float] = 0.90
 CONST_AI_JEV_SYSTEM_ONE_PREFIXES: Final[frozenset[str]] = frozenset({"system-one", "typesafe"})
-# The starts of the name of a TypeSafe Jev model with no provider prefix, as `typesafe/jev-1.14`.
-CONST_AI_JEV_MODEL_TARGETS: Final[tuple[str, ...]] = ("typesafe/jev-", "jev-")
+# Versioned TypeSafe Jev model target names with no provider prefix, such as `typesafe/jev-1.14`.
+# Unversioned router names such as `typesafe/jev-router` write text and are refused (#6361).
+CONST_AI_JEV_MODEL_TARGET_RE: Final[re.Pattern[str]] = re.compile(r"^(?:typesafe/)?jev-\d")
 # `devops ai ask-jev` and the MCP tool `ai_ask_jev` (#4306): the bounds of one request. The bounds
 # keep a request small: the command refuses a larger input before it sends anything. The model
 # profile of Jev allows at most 255 options and 10 levels.
