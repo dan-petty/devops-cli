@@ -146,7 +146,11 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
         REFINE_ROW.runner(store=store, repo=REPO, clone_path=git_repo)
 
     assert list(raised.value.failed_items) == [second]
-    assert result_fields(caplog) == [
+    lines = result_fields(caplog)
+    # The context size follows the text of the instructions, so the test holds no number for it.
+    before, after = lines[0].pop("context_before"), lines[0].pop("context_after")
+    assert (before == after, int(before) > 0) == (True, True)
+    assert lines == [
         {
             "job": "refine",
             "repo": REPO,
@@ -167,7 +171,7 @@ def test_a_round_logs_the_next_step_of_each_item_and_the_class_of_a_failed_model
                 "none",
                 "false",
                 "true",
-                {"context_before": "765", "context_after": "765"},
+                {},
             ),
             (second, "error", "false", "provider", "true", "false", {}),
         )
