@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -1172,17 +1173,124 @@ def _run_interactive_chat_turn(
     message_history.extend(agent_res.all_messages())
 
 
+def _git_changed_paths(root: Path) -> tuple[str, ...]:
+    """Return working-tree changed and untracked repository-relative paths."""
+    from devops_cli.core.process import run_subprocess
+
+    proc = run_subprocess(
+        ["git", "-C", str(root), "status", "--porcelain"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return ()
+    paths: list[str] = []
+    for raw_line in proc.stdout.splitlines():
+        if len(raw_line) < 4:
+            continue
+        entry = raw_line[3:].strip()
+        if " -> " in entry:
+            entry = entry.split(" -> ", 1)[1].strip()
+        if entry:
+            paths.append(entry)
+    return tuple(paths)
+
+
+def resolve_chat_lens(
+    persona: str | None,
+    *,
+    repo_dir: Path | None = None,
+    changed_paths: Sequence[str] | None = None,
+) -> tuple[Persona, Any]:
+    """Resolve `--persona` (`auto`, explicit name, or omitted default) to Persona and LensChoice."""
+    from devops_cli.ai.personas.lens import LensChoice, LensEvidence, select_lens
+
+    if persona is None:
+        return Persona.ARCHITECT, LensChoice(lens=Persona.ARCHITECT, rule_id="", source="default")
+    if persona == "auto":
+        paths = (
+            tuple(changed_paths)
+            if changed_paths is not None
+            else _git_changed_paths(repo_dir or Path.cwd())
+        )
+        choice = select_lens(LensEvidence(paths=paths))
+        if choice.lens is not None:
+            return choice.lens, choice
+        return Persona.ARCHITECT, LensChoice(lens=Persona.ARCHITECT, rule_id="", source="default")
+    if persona not in _PERSONA_NAMES:
+        print_error(
+            f"Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}, auto",
+            prefix=False,
+        )
+        raise typer.Exit(1)
+    choice = select_lens(LensEvidence(explicit_persona=persona))
+    return choice.lens or Persona(persona), choice
+
+
+def _run_chat_loop(
+    agent: Any,
+    *,
+    persona_name: str,
+    persona_title: str,
+    thinking: bool,
+    rag: bool,
+    stream: bool,
+    tools: bool,
+    message_history: list[Any],
+) -> None:
+    """Run the interactive chat input/response loop."""
+    import sys
+
+    from devops_cli.lang import MESSAGES
+
+    while True:
+        try:
+            user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
+        except EOFError, KeyboardInterrupt:
+            print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
+            break
+
+        if not user_input:
+            continue
+        if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
+            print_info("[dim]Goodbye.[/dim]", prefix=False)
+            break
+
+        effective_prompt = user_input
+        if rag:
+            rag_snippet = retrieve_rag_context(user_input, persona=persona_name)
+            if rag_snippet:
+                effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
+
+        try:
+            get_console().print(f"\n[bold dark_orange]{persona_title}:[/bold dark_orange] ", end="")
+            sys.stdout.flush()
+            _run_interactive_chat_turn(
+                agent,
+                thinking,
+                effective_prompt,
+                message_history,
+                stream=stream and not tools,
+            )
+        except KeyboardInterrupt:
+            print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
+        except Exception as exc:
+            print_error(f"\nError: {exc}\n", prefix=False)
+            continue
+
+
 @dry_run_class("request-plan")
 @app.command()
-def chat(  # noqa: C901
+def chat(
     persona: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--persona",
             "-p",
-            help=f"Persona to chat with: {', '.join(_PERSONA_NAMES)}",
+            help=f"Persona to chat with: {', '.join(_PERSONA_NAMES)}, auto (default: architect)",
         ),
-    ] = Persona.ARCHITECT,
+    ] = None,
     model: Annotated[
         str | None,
         typer.Option(
@@ -1227,11 +1335,10 @@ def chat(  # noqa: C901
     if dry_run or is_dry_run():
         from devops_cli.ai.ai_plans import plan_ai_chat
 
-        planned = plan_ai_chat(persona=str(persona), model=model)
-        render_request_plan(f"Plan for AI chat with persona '{persona}'", planned)
+        planned_persona = Persona.ARCHITECT.value if persona is None else persona
+        planned = plan_ai_chat(persona=planned_persona, model=model)
+        render_request_plan(f"Plan for AI chat with persona '{planned_persona}'", planned)
         return
-
-    import sys
 
     from devops_cli.ai.client import (
         RequestPriority,
@@ -1239,19 +1346,17 @@ def chat(  # noqa: C901
         get_llm_client,
     )
     from devops_cli.ai.client.factory import build_agent
+    from devops_cli.ai.personas import PERSONAS
+    from devops_cli.ai.personas.lens import record_lens_choice
+    from devops_cli.ai.run_store import digest as content_digest
     from devops_cli.ai.tools import get_persona_tools
     from devops_cli.config.defaults import DEFAULT_CHAT_INVARIANTS
     from devops_cli.config.settings import load_settings
 
-    if persona not in _PERSONA_NAMES:
-        print_error(
-            f"Unknown persona {persona!r}. Choose: {', '.join(_PERSONA_NAMES)}", prefix=False
-        )
-        raise typer.Exit(1)
-
-    from devops_cli.ai.personas import PERSONAS, Persona
-
-    persona_def = PERSONAS[Persona(persona)]
+    resolved_persona, lens_choice = resolve_chat_lens(persona)
+    persona_name = resolved_persona.value
+    persona_def = PERSONAS[resolved_persona]
+    chat_prompt_digest = content_digest(persona_def.chat_prompt)
     system = persona_def.chat_prompt
     if context_file is not None:
         system = system + "\n\n## Project Context\n\n" + context_file.read_text(encoding="utf-8")
@@ -1276,7 +1381,7 @@ def chat(  # noqa: C901
             )
             client.preload_models(blocking=False)
 
-    agent_tools = get_persona_tools(persona) if tools else []
+    agent_tools = get_persona_tools(persona_name) if tools else []
     agent = build_agent(
         task="chat",
         model=model,
@@ -1296,45 +1401,27 @@ def chat(  # noqa: C901
         prefix=False,
     )
 
-    p_token = current_request_priority.set(RequestPriority.HIGH)
-    try:
-        while True:
-            try:
-                user_input = get_console().input("[bold cyan]You:[/bold cyan] ").strip()
-            except EOFError, KeyboardInterrupt:
-                from devops_cli.lang import MESSAGES
-
-                print_info(f"\n[dim]{MESSAGES.messages.goodbye}[/dim]", prefix=False)
-                break
-
-            if not user_input:
-                continue
-            if user_input.lower() in {"exit", "quit", "/exit", "/quit"}:
-                print_info("[dim]Goodbye.[/dim]", prefix=False)
-                break
-
-            effective_prompt = user_input
-            if rag:
-                rag_snippet = retrieve_rag_context(user_input, persona=persona)
-                if rag_snippet:
-                    effective_prompt = f"{rag_snippet}\n\nUser Question: {user_input}"
-
-            try:
-                get_console().print(
-                    f"\n[bold dark_orange]{persona_def.title}:[/bold dark_orange] ", end=""
-                )
-                sys.stdout.flush()
-                _run_interactive_chat_turn(
-                    agent, thinking, effective_prompt, message_history, stream=stream and not tools
-                )
-
-            except KeyboardInterrupt:
-                print_info("\n[dim]Interrupted.[/dim]\n", prefix=False)
-            except Exception as exc:
-                print_error(f"\nError: {exc}\n", prefix=False)
-                continue
-    finally:
-        current_request_priority.reset(p_token)
+    with trace_span("ai.chat") as chat_span:
+        record_lens_choice(
+            lens_choice,
+            caller="chat",
+            span=chat_span,
+            chat_prompt_digest=chat_prompt_digest,
+        )
+        p_token = current_request_priority.set(RequestPriority.HIGH)
+        try:
+            _run_chat_loop(
+                agent,
+                persona_name=persona_name,
+                persona_title=persona_def.title,
+                thinking=thinking,
+                rag=rag,
+                stream=stream,
+                tools=tools,
+                message_history=message_history,
+            )
+        finally:
+            current_request_priority.reset(p_token)
 
 
 # =============================================================================

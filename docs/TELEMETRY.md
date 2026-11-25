@@ -121,6 +121,7 @@ writes by name.
 | `devops_cli_ai_gateway_healthy` | Gauge | `1` | Whether the last health probe of the LLM gateway passed: 1, or 0. |
 | `devops_cli_ai_gateway_failovers_total` | Counter | `1` | Failovers of a gateway model alias to its fallback, by virtual model and simulate: true for a simulated failover. |
 | `devops_cli_ai_capability_gate_total` | Counter | `1` | Failovers to a model below the capability tier of their role, by role, model and decision: rejection when the gate refused it, or override when --force let it through. |
+| `devops_cli_ai_lens_total` | Counter | `1` | Persona lens selections, by caller (chat), lens (one of the six Persona values or none) and source: flag, rule or default. |
 | `devops_cli_rag_query_duration_ms` | Histogram | `ms` | RAG retrieval time, by stage: embedding, search, ranking, or total for the whole query. |
 | `devops_cli_qdrant_retries_total` | Counter | `1` | Qdrant requests retried after a transient error, by operation and error type. |
 | `devops_cli_rag_points` | Gauge | `1` | Points stored in RAG vector collections, by collection. |

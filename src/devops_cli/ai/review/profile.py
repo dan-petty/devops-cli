@@ -120,6 +120,9 @@ class ReviewProfile(BaseModel):
     target: str
     # The review prompts the session started with, so runs of one prompt set can be told apart.
     prompt_digest: str = ""
+    # Selected persona lens and the rule id that picked it (`none` and empty when unselected).
+    lens: str = "none"
+    lens_rule: str = ""
     # The target's conventions (`AGENTS.md` or a peer file) its prompts carried, which
     # the prompt digest does not cover; empty when they carried none.
     conventions_digest: str = ""
@@ -221,6 +224,14 @@ class ReviewProfiler:
         self._rejections: dict[str, int] = {}
         self._osv_snapshot_digest: str = ""
         self._semgrep_registry_digest: str = ""
+        self._lens: str = "none"
+        self._lens_rule: str = ""
+
+    def set_lens(self, lens: str, rule_id: str) -> None:
+        """Record the selected persona lens and the rule id that picked it (#4830)."""
+        with self._lock:
+            self._lens = lens or "none"
+            self._lens_rule = rule_id
 
     def set_osv_snapshot_digest(self, digest: str) -> None:
         """Record the OSV offline database snapshot digest used in review (#1146)."""
@@ -357,6 +368,8 @@ class ReviewProfiler:
             session_id=session_id,
             target=target,
             prompt_digest=self._prompt_digest,
+            lens=self._lens,
+            lens_rule=self._lens_rule,
             conventions_digest=digest(self._conventions) if self._conventions else "",
             tool_versions_digest=tool_versions_digest(tool_runs),
             osv_snapshot_digest=osv_digest,

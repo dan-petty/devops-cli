@@ -3277,6 +3277,8 @@ CONST_AI_BACKENDS: Final[tuple[str, ...]] = ("ollama",)
 # on Ollama itself.
 CONST_AI_CASCADE_PROVIDERS: Final[tuple[str, ...]] = ("litellm", "portkey", "ollama")
 CONST_AI_GATEWAY_DEFAULT_ROUTE: Final[str] = "devops-chat"
+# Upper bound on Prometheus series product (caller x lens x source) for devops_cli_ai_lens_total.
+CONST_AI_MAX_LENS_SERIES: Final[int] = 84
 CONST_THINKING_STATE_THINKING: Final[str] = "thinking"
 # The pydantic-ai model prefix a bare model name takes from `ai.provider`. OpenAI and Copilot
 # models use the chat completions API, as `LLMClient` does, which OpenAI-compatible servers at
