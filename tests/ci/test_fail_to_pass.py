@@ -1319,6 +1319,135 @@ def test_a_repair_alone_does_not_satisfy_the_replay(
     assert "A fix needs at least one changed test that fails on base" in text
 
 
+def test_file_collection_error_repaired_when_all_head_cases_pass() -> None:
+    """A file-level collection error on the plain merge base counts as repaired when head holds at
+    least one case for that module and every head case passes (#6400)."""
+    base = (
+        CaseOutcome(
+            classname="", name="tests.test_mod", status="errored", message="collection failure"
+        ),
+    )
+    head = (
+        CaseOutcome(classname="tests.test_mod", name="test_one", status="passed"),
+        CaseOutcome(classname="tests.test_mod.TestSuite", name="test_two", status="passed"),
+    )
+
+    repaired, refused = fail_to_pass._repaired_and_refused(("tests.test_mod",), base, head)
+
+    assert ([o.test_id for o in repaired], refused) == (["tests.test_mod"], ())
+
+
+def test_unchanged_file_collection_error_repaired_does_not_prove_fix_alone(
+    tmp_path: Path, replay_state: _FailToPassState
+) -> None:
+    """Even when head repairs an unchanged file's collection error, that repair removes only the
+    refusal and does not count as proof without a changed failing test (#6400)."""
+    replay_state.plain_base_junit_xml = JUNIT_TEST_MOD_COLLECTION_ERROR
+    replay_state.head_junit_xml = _junit(("test_kept", "passed", ""), ("test_fixed", "passed", ""))
+    text = _replay_of_test_mod(
+        tmp_path,
+        replay_state,
+        base=BASE_TESTS,
+        head=f"# A comment.\n{BASE_TESTS}",
+        junit=JUNIT_TEST_MOD_COLLECTION_ERROR,
+    )
+
+    assert replay_state.satisfied is False
+    assert "The head repairs tests.test_mod." in text
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        pytest.param(
+            (
+                CaseOutcome(classname="tests.test_mod", name="test_one", status="passed"),
+                CaseOutcome(classname="tests.test_mod", name="test_two", status="failed"),
+            ),
+            id="head-case-failed",
+        ),
+        pytest.param(
+            (CaseOutcome(classname="tests.test_mod_other", name="test_one", status="passed"),),
+            id="no-head-case-for-file",
+        ),
+        pytest.param(
+            (CaseOutcome(classname="", name="tests.test_mod", status="errored"),),
+            id="head-still-errors-collection",
+        ),
+    ],
+)
+def test_file_collection_error_refused_when_head_cases_do_not_all_pass(
+    head: tuple[CaseOutcome, ...],
+) -> None:
+    """A file-level collection error is refused when any head case fails or none match (#6400)."""
+    base = (
+        CaseOutcome(
+            classname="", name="tests.test_mod", status="errored", message="collection failure"
+        ),
+    )
+
+    repaired, refused = fail_to_pass._repaired_and_refused(("tests.test_mod",), base, head)
+
+    assert (repaired, refused) == ((), ("tests.test_mod",))
+
+
+@pytest.mark.live("python")
+def test_error_phase_reader_follows_real_pytest(tmp_path: Path) -> None:
+    """Run real pytest and assert `error_phase` reads pytest's JUnit phase strings (#6400)."""
+    collect_file = tmp_path / "test_collect_err.py"
+    collect_file.write_text("import missing_module_for_6400_phase_check\n", encoding="utf-8")
+    fixture_file = tmp_path / "test_fixture_err.py"
+    fixture_file.write_text(
+        "import pytest\n\n"
+        "@pytest.fixture\n"
+        "def bad_setup():\n"
+        "    raise RuntimeError('setup boom')\n\n"
+        "@pytest.fixture\n"
+        "def bad_teardown():\n"
+        "    yield\n"
+        "    raise RuntimeError('teardown boom')\n\n"
+        "def test_setup_err(bad_setup):\n"
+        "    assert True\n\n"
+        "def test_teardown_err(bad_teardown):\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    junit = tmp_path / "junit.xml"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--continue-on-collection-errors",
+            "--noconftest",
+            "-o",
+            "addopts=",
+            f"--junitxml={junit}",
+            str(collect_file),
+            str(fixture_file),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    outcomes = parse_junit_xml(junit.read_text(encoding="utf-8"))
+    by_name = {o.name: o for o in outcomes}
+    assert (by_name["test_collect_err"].error_phase, by_name["test_collect_err"].proves_fix) == (
+        "collection",
+        True,
+    )
+    assert (by_name["test_setup_err"].error_phase, by_name["test_setup_err"].proves_fix) == (
+        "setup",
+        True,
+    )
+    assert (
+        by_name["test_teardown_err"].error_phase,
+        by_name["test_teardown_err"].proves_fix,
+    ) == ("teardown", False)
+
+
 def test_a_head_replay_that_could_not_run_refuses_the_replay(
     tmp_path: Path, replay_state: _FailToPassState
 ) -> None:
