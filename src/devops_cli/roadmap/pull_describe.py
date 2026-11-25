@@ -112,14 +112,19 @@ def proposal_why(change: ChangeFolder, *, issue: int | None = None) -> str:
 
 
 def declared_label_set(
-    store: RoadmapStore, *, ref: str | None, checkout: Path | None
+    store: RoadmapStore,
+    *,
+    ref: str | None,
+    checkout: Path | None,
+    head: str | None = None,
 ) -> tuple[str, ...]:
-    """The label names that the repository declares in `.github/labels.yml` on `ref`, and, when
-    `checkout` is given and holds the file, those of the file there. A pull request that adds a
-    scope also adds its label, so the label is in the checkout and not yet on the base branch.
-    A file that cannot be read raises `GitHubOperationError` (the base) or `ValidationError` (the
-    checkout), and both name the file."""
-    names = list(pull_labels.declared_labels(store, ref=ref))
+    """The label names that the repository declares in `.github/labels.yml` on `ref` (and `head`
+    when given, #6469), and, when `checkout` is given and holds the file, those of the file there.
+    A pull request that adds a scope also adds its label, so the label is in the checkout or on
+    the head ref and not yet on the base branch. A file that cannot be read raises
+    `GitHubOperationError` (the remote refs) or `ValidationError` (the checkout), and both name the
+    file."""
+    names = list(pull_labels.declared_labels_for_refs(store, ref=ref, head=head))
     local = checkout / CONST_ROADMAP_LABELS_PATH if checkout is not None else None
     if local is not None and local.is_file():
         try:

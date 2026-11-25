@@ -202,7 +202,12 @@ def _summary_problems(summary: str) -> list[str]:
     return [*problems, *_repeat_problems(summary)]
 
 
-def title_problems(title: str, declared: Collection[str] | None = None) -> list[str]:
+def title_problems(
+    title: str,
+    declared: Collection[str] | None = None,
+    *,
+    labels_source: str | None = None,
+) -> list[str]:
     """What breaks the form `<type>(<scope>): <summary>` in `title`, one text for each problem,
     and none when the title is right.
 
@@ -210,8 +215,9 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
     `SUMMARY_MAX_CHARS` characters (`summary_length`), ends with no `...` and is no placeholder.
     The title is on one line: the parser of the check `Semantic PR title` refuses a title that has
     a `\r`, a `\n`, a U+2028 or a U+2029. A scope must have its label in `declared`, the label
-    names that `.github/labels.yml` holds. When `declared` is None the scope is not checked against
-    the labels, as a caller that reads no labels file."""
+    names that `.github/labels.yml` holds, and `labels_source` names the ref(s) checked when given
+    (#6469). When `declared` is None the scope is not checked against the labels, as a caller that
+    reads no labels file."""
     texts = MESSAGES.pr
     if any(mark in title.strip() for mark in _LINE_BREAKS):
         return [texts.form_title_lines]
@@ -230,7 +236,7 @@ def title_problems(title: str, declared: Collection[str] | None = None) -> list[
         problems.append(
             texts.form_title_scope.format(
                 scope=scope,
-                path=CONST_ROADMAP_LABELS_PATH,
+                path=labels_source or CONST_ROADMAP_LABELS_PATH,
                 label=f"{CONST_ROADMAP_SCOPE_LABEL_PREFIX}{scope}",
             )
         )
