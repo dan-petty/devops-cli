@@ -65,9 +65,23 @@ REPLY_KEYS: Final = (
     "unresponsive_engines",
 )
 # The scraping engines that the upstream sites suspended in October 2026 (SearXNG issues 6866 and
-# 6819), and the keyed Brave engine, which the owner dropped on 2026-11-07. A name here is a name
-# of the default settings.yml, and a prefix: `brave` also covers `brave.news`.
-OFF_ENGINES: Final = ("brave", "braveapi", "google", "bing", "startpage", "mojeek", "qwant")
+# 6819), the keyed Brave engine, which the owner dropped on 2026-11-07, and the three Stack
+# Exchange engines (`stackoverflow`, `askubuntu`, `superuser`), which the 2026-11-08 pod log records
+# suspended for too many requests and answering HTTP 400 from `api.stackexchange.com` with no key
+# in the request (the cause of the 400 is not proven). A name here is a name of the default
+# settings.yml, and a prefix: `brave` also covers `brave.news`.
+OFF_ENGINES: Final = (
+    "brave",
+    "braveapi",
+    "google",
+    "bing",
+    "startpage",
+    "mojeek",
+    "qwant",
+    "stackoverflow",
+    "askubuntu",
+    "superuser",
+)
 
 ROLE_UNLABELED_POD = "<unlabeled-pod>"
 ROLE_SEARXNG_POD = "<searxng-pod>"

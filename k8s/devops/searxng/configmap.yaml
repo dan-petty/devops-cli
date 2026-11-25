@@ -5,7 +5,10 @@
 # with `''` when the metrics Secret is missing (#6805). The file keeps only the engines that need
 # no key. The scraping engines of Google, Bing, Brave, Startpage, Mojeek and Qwant were suspended
 # by their upstream sites in October 2026 (SearXNG issues 6866 and 6819), and the keyed Brave
-# engine is not used, so none of them is kept.
+# engine is not used, so none of them is kept. The three Stack Exchange engines (`stackoverflow`,
+# `askubuntu`, `superuser`) are also omitted (#4141): the 2026-11-08 log records HTTP 400 from
+# `api.stackexchange.com` for the three with no key in the request and a suspension for too many
+# requests, and the log holds no reply body, so the cause of the 400 is not proven.
 # The pod logs two lines at start, and both are harmless:
 # - ERROR "X-Forwarded-For nor X-Real-IP header is set!" comes from `log_error_only_once` in
 #   searx/botdetection/trusted_proxies.py. It shows once, because the roadmap Service sends no proxy
@@ -34,9 +37,6 @@ data:
           - duckduckgo
           - wikipedia
           - github
-          - stackoverflow
-          - askubuntu
-          - superuser
           - arxiv
           - mdn
           - docker hub

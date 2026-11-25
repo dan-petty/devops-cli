@@ -45,7 +45,7 @@ The command MUST fail a `json-` row that gets HTTP 403, and the output MUST name
 - **THEN** the command exits 1 and the output names `search.formats`.
 
 ### Requirement: Engines that stay off
-The command MUST fail a row whose reply names an engine that must stay off in `results` or in `unresponsive_engines`. The engines are `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek` and `qwant`, matched as a prefix. The output MUST name the engine.
+The command MUST fail a row whose reply names an engine that must stay off in `results` or in `unresponsive_engines`. The engines are `brave`, `braveapi`, `google`, `bing`, `startpage`, `mojeek`, `qwant`, `stackoverflow`, `askubuntu` and `superuser`, matched as a prefix. The output MUST name the engine.
 
 #### Scenario: A keyed engine is on
 - **WHEN** a reply holds a hit whose engine is `google`
@@ -54,6 +54,10 @@ The command MUST fail a row whose reply names an engine that must stay off in `r
 #### Scenario: A suspended engine is listed as unresponsive
 - **WHEN** `unresponsive_engines` of a reply holds the engine `bing`
 - **THEN** the command exits 1 and the output names `bing`.
+
+#### Scenario: A Stack Exchange engine is listed as unresponsive
+- **WHEN** `unresponsive_engines` of a reply holds the engine `stackoverflow`
+- **THEN** the command exits 1 and the output names `stackoverflow`.
 
 ### Requirement: Bang that names an engine that is off
 The command SHALL send a query that starts with `!` and the name of an engine that the ConfigMap leaves off, and MUST fail the row `bang-off-engine` when the status is not 200 or when the reply holds a hit of that engine.
