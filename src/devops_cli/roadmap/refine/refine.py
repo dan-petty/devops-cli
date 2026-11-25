@@ -1569,6 +1569,10 @@ class DependencyGraph:
         dependency of it leads back."""
         return _path_back(self.edges, number)
 
+    def with_edges(self, number: int, blockers: tuple[int, ...]) -> DependencyGraph:
+        """A graph whose declared edges for `number` are replaced by `blockers` (#6515)."""
+        return replace(self, edges={**self.edges, number: blockers})
+
 
 def _edges_of(
     item: Item, items: Sequence[Item], open_items: Mapping[int, Item], tree: ItemTree
@@ -2988,6 +2992,69 @@ def _question_ends_wait(
     return answer is not None and (repeated_at is None or answer.at >= repeated_at)
 
 
+_CYCLE_PREFIX, _, _CYCLE_SUFFIX = MESSAGES.roadmap.dependency_cycle.partition("{cycle}")
+_RECORDED_CYCLE_RE: Final[re.Pattern[str]] = re.compile(
+    re.escape(_CYCLE_PREFIX) + r"(#\d+(?:\s*→\s*#\d+)+)" + re.escape(_CYCLE_SUFFIX)
+)
+
+
+def _recorded_cycle(body: str) -> tuple[int, ...] | None:
+    """The cycle path recorded under `Suspected block` in refine's section of `body`, or None
+    when none appears (#6515)."""
+    _, section = extract_section_and_outside(body)
+    if section is None:
+        return None
+    suspected = section_text(section, frozenset({_PART_SUSPECTED_BLOCK.casefold()}))
+    match = _RECORDED_CYCLE_RE.search(" ".join(suspected.split()))
+    if match is None:
+        return None
+    return tuple(int(number) for number in re.findall(r"#(\d+)", match.group(1)))
+
+
+def _cycle_still_holds(recorded_cycle: Sequence[int], graph: DependencyGraph) -> bool:
+    """Whether every edge of `recorded_cycle` still exists among the open items of `graph`
+    (#6515)."""
+    if len(recorded_cycle) < 2 or recorded_cycle[0] != recorded_cycle[-1]:
+        return False
+    return all(dst in graph.edges.get(src, ()) for src, dst in itertools.pairwise(recorded_cycle))
+
+
+def _person_cycle_ended(store: RoadmapStore, item: Item, graph: DependencyGraph | None) -> bool:
+    """Whether `item`'s recorded dependency cycle under `Suspected block` no longer exists in the
+    current bodies and records of open items (#6515)."""
+    recorded = _recorded_cycle(item.body)
+    if recorded is None:
+        return False
+    held = (
+        graph
+        if graph is not None
+        else DependencyGraph.of(store.open_items(), tree=ItemTree(store.items))
+    )
+    return not _cycle_still_holds(recorded, held)
+
+
+def _blocked_wait_details(
+    store: RoadmapStore,
+    item: Item,
+    graph: DependencyGraph | None,
+    open_numbers: Collection[int] | None,
+) -> tuple[str, ...] | None:
+    """Open blocker labels for a recorded `BLOCKED` wait, or None when no blocker holds (#6450)."""
+    tree = graph.tree if graph is not None else ItemTree(store.items)
+    open_nums = (
+        open_numbers
+        if open_numbers is not None
+        else (graph.open_numbers if graph is not None else {it.number for it in store.open_items()})
+    )
+    blockers = _open_blockers(open_nums, item, tree)
+    if not blockers:
+        return None
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
+    if held.cycle_of(item.number) is not None:
+        return None
+    return tuple(f"#{number}" for number in blockers)
+
+
 def _still_waiting(
     store: RoadmapStore,
     item: Item,
@@ -3033,23 +3100,13 @@ def _still_waiting(
         case NextStep.EDIT | NextStep.FAILED:
             return _settled_wait(item, step)
         case NextStep.BLOCKED:
-            tree = graph.tree if graph is not None else ItemTree(store.items)
-            open_nums = (
-                open_numbers
-                if open_numbers is not None
-                else (
-                    graph.open_numbers
-                    if graph is not None
-                    else {it.number for it in store.open_items()}
-                )
-            )
-            blockers = _open_blockers(open_nums, item, tree)
-            if not blockers:
+            blocked = _blocked_wait_details(store, item, graph, open_numbers)
+            if blocked is None:
                 return None
-            held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
-            if held.cycle_of(item.number) is not None:
+            details = blocked
+        case NextStep.PERSON:
+            if _person_cycle_ended(store, item, graph):
                 return None
-            details = tuple(f"#{number}" for number in blockers)
         case NextStep.ALTERNATIVES:
             # A recorded verdict ends the wait (#2951): the check writes its block and its record,
             # and the next round sets the item Ready.
@@ -3679,6 +3736,21 @@ def _ensure_alert_key_question(
     return proposal.model_copy(update={"key_questions": [*proposal.key_questions, alert_qa]})
 
 
+def _proposal_cycle(
+    store: RoadmapStore,
+    item: Item,
+    blockers: tuple[int, ...],
+    tree: ItemTree,
+    graph: DependencyGraph | None,
+) -> tuple[int, ...] | None:
+    """The dependency cycle of `item` from `blockers` (its new proposal's open blockers) and the
+    open blockers of the round, or None when `blockers` is empty or leads no path back (#6515)."""
+    if not blockers:
+        return None
+    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
+    return held.with_edges(item.number, blockers).cycle_of(item.number)
+
+
 def refine_one_item(
     store: RoadmapStore,
     item: Item,
@@ -3809,8 +3881,7 @@ def refine_one_item(
         else (graph.open_numbers if graph is not None else {it.number for it in store.open_items()})
     )
     blockers = _open_dependencies(open_nums, proposal, item, tree)
-    held = graph if graph is not None else DependencyGraph.of(store.open_items(), tree=tree)
-    cycle = held.cycle_of(item.number)
+    cycle = _proposal_cycle(store, item, blockers, tree, graph)
     proposal_ready = check_ready(proposal, open_questions, blockers, cycle=cycle)
     # Refine gates Ready on the alternatives check's verdict (#2951): an item with no check stays
     # New and waits for the row, unless the check is off for the repository.
@@ -4224,6 +4295,10 @@ def plan_refine(
                 writer.settle(failure)
             continue
         refined.append(res)
+        if res.skip_reason is None:
+            graph = graph.with_edges(
+                cand.number, _open_dependencies(open_numbers, res.proposal, cand, graph.tree)
+            )
         if res.owner_question is not None:
             frames.setdefault(res.owner_question.hash, cand)
         if writer is not None:
