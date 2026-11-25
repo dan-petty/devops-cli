@@ -315,6 +315,36 @@ def test_the_model_call_rule_limits_every_call_and_links_the_ask_jev_skill() -> 
     ] == []
 
 
+def test_the_draft_rule_marks_a_draft_ready_when_no_agent_work_remains() -> None:
+    """Rule 6 gives a duty, not only a limit: an agent always marks a draft ready when the checks
+    pass and no agent work remains. The template of `devops ai agents` gives the same duty,
+    CONTRIBUTING.md says what agent work is, and each root of the `devops-pr-ci` skill gives the
+    condition with the command (#7217)."""
+    generated = generate_agents_md(parse_project_metadata(REPO_ROOT))
+    texts = {
+        "AGENTS.md": (_rule(6), "Always mark it ready when"),
+        "AGENTS.md.j2": (
+            next(line for line in generated.splitlines() if "as a draft.**" in line),
+            "Always mark it ready with `devops pr ready <pr_number>` when",
+        ),
+        "CONTRIBUTING.md": (
+            (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"),
+            "Agent work is each step that an agent does or will do on the pull request",
+        ),
+    } | {
+        f"{root}/devops-pr-ci": (
+            (REPO_ROOT / root / "devops-pr-ci" / "SKILL.md").read_text(encoding="utf-8"),
+            "Always run `uv run devops pr ready <number>`",
+        )
+        for root in (".agents/skills", ".claude/skills", ".kilocode/skills")
+    }
+    assert [
+        name
+        for name, (text, needle) in texts.items()
+        if needle not in text or "no agent work remains" not in text
+    ] == []
+
+
 def test_agents_md_keeps_the_safety_rules_inline() -> None:
     """The safety rules stay in AGENTS.md, which every session and every implement step reads in
     full, also when their detail moves to the document that owns it (#5421)."""

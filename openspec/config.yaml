@@ -49,4 +49,4 @@ operations:
   apply:
     guidance:
       - >-
-        Implement on a topic branch as AGENTS.md requires: test-first for a group of new behavior, and the verification of the group for any other group. Tick a task in the commit that completes it. Push through the pre-push hook, and mark the pull request ready only after its required checks pass. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change.
+        Implement on a topic branch as AGENTS.md requires: test-first for a group of new behavior, and the verification of the group for any other group. Tick a task in the commit that completes it. Push through the pre-push hook. Always mark the pull request ready when its checks pass and no agent work remains. Do not run sync. The pull request that closes the issue archives its own change as its last commit. Run `uv run devops openspec archive <change>` after every task is ticked. It archives the change, then validates every spec and change.
