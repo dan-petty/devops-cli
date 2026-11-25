@@ -193,9 +193,7 @@ def test_a_first_request_with_the_context_and_the_body_at_their_caps_offers_the_
 ) -> None:
     # The job reads the windows of its own two tasks and of no other (#5903).
     monkeypatch.setattr(stage, "task_window", {"stage": WINDOW, "stage_review": WINDOW}.__getitem__)
-    stage_repo.track(
-        {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
-    )
+    stage_repo.track({"CONTEXT.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)})
     seed_stageable(store, body=_words(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     script = _script()
 
@@ -219,9 +217,7 @@ def test_a_first_request_of_code_with_the_context_and_the_body_at_their_caps_off
     request, so for code the reserve is smaller, and the request must still stay under the limit,
     with room for a small change of the stage prompt (#6103)."""
     monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
-    stage_repo.track(
-        {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
-    )
+    stage_repo.track({"CONTEXT.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)})
     seed_stageable(store, body=_code(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     script = _script()
 
@@ -267,9 +263,7 @@ def test_a_first_request_of_code_at_its_caps_with_comments_offers_the_tools(
     body and many long comments at their caps stays under the limit with the headroom of #6103,
     and gives the newest comment whole (#6167)."""
     monkeypatch.setattr(stage, "task_window", lambda task: WINDOW)
-    stage_repo.track(
-        {"docs/adr/0001-a-decision.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
-    )
+    stage_repo.track({"CONTEXT.md": _code(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)})
     number = seed_stageable(store, body=_code(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     for index in range(40):
         store.seed_comment(number, f"{_decision(index)}\n{_code(300)}")
@@ -464,9 +458,7 @@ def test_the_caps_of_the_context_and_the_body_do_not_grow_with_the_window(
     window: int,
 ) -> None:
     monkeypatch.setattr(stage, "task_window", lambda task: window)
-    stage_repo.track(
-        {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
-    )
+    stage_repo.track({"CONTEXT.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)})
     seed_stageable(store, body=_words(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     script = _script()
 
@@ -485,9 +477,7 @@ def test_a_small_window_cuts_the_caps_to_a_share_of_itself(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(stage, "task_window", lambda task: 8192)
-    stage_repo.track(
-        {"docs/adr/0001-a-decision.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)}
-    )
+    stage_repo.track({"CONTEXT.md": _words(3 * CONST_ROADMAP_STAGE_CONTEXT_MAX_TOKENS)})
     seed_stageable(store, body=_words(3 * CONST_ROADMAP_STAGE_BODY_MAX_TOKENS))
     script = _script()
 
