@@ -408,6 +408,10 @@ class K8sCommandHelp:
         "targetRevision, to stage them before a pull request merges into main (Argo CD-managed "
         "clusters only)."
     )
+    change_reason: str = (
+        "Record a reason, such as an issue number, in the change metadata when "
+        "deploy-stack changes ConfigMap devops-cli-config."
+    )
     run_job: str = (
         "Run a devops command as a Job in namespace devops, from the template of a CronJob "
         "with only its arguments changed, follow its log and exit with its exit code."
