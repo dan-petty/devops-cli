@@ -3681,9 +3681,11 @@ CONST_ROADMAP_REFINE_MAX_TRIES: Final[int] = 3
 # The version of the rules that set the next step of refine: the time from which they hold. A round
 # records it as `refine.rules`. A wait on a person that older rules set gets one new round: the
 # record holds an older version, or, when it holds none, refine's last comment is older (#4795). A
-# change to a rule that sets a next step sets a later time in its pull request. This one decides
-# the cycle step from the new proposal and ends a stale cycle wait (#6515).
-CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 25, 8, 15, 0, tzinfo=UTC)
+# change to a rule that sets a next step sets a later time in its pull request. This one converts
+# post-merge merge and post-release live-proof questions into a Pending a person after the merge
+# criterion (#6445), so existing person waits set before this rule (including #6515) get one new
+# round.
+CONST_ROADMAP_REFINE_RULES_SINCE: Final[datetime] = datetime(2026, 11, 25, 9, 5, 0, tzinfo=UTC)
 # The budget of one item's investigation (#2398): its model requests and tool calls, the calls
 # one turn can make (the function tools go when fewer are left), and the lines and characters of
 # one tool answer, so the run stays inside the analysis context window. qwen3.8:27b made two

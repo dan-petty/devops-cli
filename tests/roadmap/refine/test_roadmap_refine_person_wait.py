@@ -15,11 +15,16 @@ import pytest
 from devops_cli.config import constants
 from devops_cli.roadmap.body_hash import hash_text
 from devops_cli.roadmap.refine.refine import (
+    NextStep,
+    QuestionAnswer,
     apply_refine,
+    check_ready,
+    next_step_of,
     plan_refine,
     refine_left_out,
     select_candidates,
     text_paths,
+    validate_proposal,
 )
 from devops_cli.roadmap.stores.store import (
     CloseReason,
@@ -30,6 +35,7 @@ from tests.support.roadmap_refine import (
     CITED_PATH,
     QUESTION,
     READY,
+    REFINE_HEAD_SHA,
     REFINE_MARKER,
     REPO,
     BodyReadCountingStore,
@@ -476,3 +482,104 @@ def test_a_blocked_wait_of_older_rules_keeps_blocked_when_body_names_open_blocke
         [(number, "blocked")],
         0,
     )
+
+
+@pytest.mark.parametrize(
+    "question_text",
+    [
+        "Who merges the pull request?",
+        "When does the pull request merge?",
+        "Who accepts and merges the ADR?",
+        "Who approves and merges the new record?",
+        "Who confirms the live proof after the merge and the release?",
+        "Who proves the live keys after the merge and the release?",
+        "Who runs the live proof after the release?",
+    ],
+    ids=[
+        "who-merges-pr",
+        "when-pr-merges",
+        "who-accepts-merges-adr",
+        "who-approves-merges-record",
+        "live-proof-after-merge-and-release",
+        "live-keys-after-merge-and-release",
+        "live-proof-after-release",
+    ],
+)
+def test_a_post_merge_or_live_proof_person_question_becomes_a_pending_person_criterion(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake, question_text: str
+) -> None:
+    """Merge questions and post-release live-proof questions convert to a Pending a person after
+    the merge criterion and never wait in New (#6445)."""
+    store.seed_visibility(is_private=True)
+    number = seed_item(store, "New", "P1-High")
+    item = require_item(store, number)
+    qa = QuestionAnswer(
+        question=question_text,
+        answer="A person completes this after delivery.",
+        kind="person",
+        sources=[],
+        options=[],
+    )
+    proposal = READY.model_copy(update={"key_questions": [qa]})
+    validated, open_questions = validate_proposal(
+        proposal, item.body, set(), git_repo, REFINE_HEAD_SHA, store
+    )
+    ready_ok = check_ready(validated, open_questions, (), cycle=None)
+    step, _, _ = next_step_of(validated, open_questions, (), is_ready=ready_ok)
+
+    model_fake.answer(proposal)
+    plan = refine_round(store, git_repo)
+    body = store.read_issue_body(number)
+
+    assert (
+        open_questions,
+        [c.name for c in validated.acceptance_criteria].count("Pending a person after the merge"),
+        ready_ok,
+        step,
+        [r.item.number for r in plan.refined_items],
+        require_item(store, number).status,
+        "### Requirement: Pending a person after the merge" in body,
+    ) == ([], 1, True, NextStep.READY, [number], "Ready", True)
+
+
+def test_pre_build_person_questions_still_wait_including_repository_setting_enabling_merge(
+    git_repo: Path, store: InMemoryRoadmapStore
+) -> None:
+    """Secrets, repository settings (even naming a merge), and hosts still wait on a person
+    (#6445)."""
+    store.seed_visibility(is_private=True)
+    number = seed_item(store, "New", "P1-High")
+    item = require_item(store, number)
+    questions = [
+        QuestionAnswer(
+            question=text,
+            answer="A person decides.",
+            kind="person",
+            sources=[],
+            options=[],
+        )
+        for text in (
+            "Which secret holds the deploy key?",
+            "Which repository setting enables the merge?",
+            "Which host runs the deploy?",
+        )
+    ]
+    proposal = READY.model_copy(update={"key_questions": questions})
+
+    validated, open_questions = validate_proposal(
+        proposal, item.body, set(), git_repo, REFINE_HEAD_SHA, store
+    )
+    ready_ok = check_ready(validated, open_questions, (), cycle=None)
+    step, _, _ = next_step_of(validated, open_questions, (), is_ready=ready_ok)
+
+    assert (
+        len(open_questions),
+        "Pending a person after the merge" in [c.name for c in validated.acceptance_criteria],
+        ready_ok,
+        step,
+    ) == (3, False, False, NextStep.PERSON)
+
+
+def test_refine_rules_since_is_later_than_2026_11_21() -> None:
+    """Moving CONST_ROADMAP_REFINE_RULES_SINCE re-evaluates older person waits (#6445)."""
+    assert constants.CONST_ROADMAP_REFINE_RULES_SINCE > datetime(2026, 11, 21, 13, 2, 6, tzinfo=UTC)

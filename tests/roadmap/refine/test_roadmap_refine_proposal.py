@@ -313,15 +313,22 @@ def test_the_reply_prompt_asks_a_config_criterion_for_a_command_proof_as_the_sta
 
 
 def test_the_reply_prompt_limits_person_questions_to_owner_only_decisions() -> None:
-    """The refine reply prompt reserves person questions for owner-only acts (`a merge, a secret,
-    a repository setting or a host`), not review verdicts or milestones (#7040)."""
+    """The refine reply prompt reserves person questions for pre-build owner acts (`a secret,
+    a repository setting or a host`), with no merge word in the person-kind sentence, and routes
+    post-merge steps to `Pending a person after the merge` (#6445, #7040)."""
     reply = load_task_prompt("roadmap_refine_reply.md")
+    person_line = next(
+        line for line in reply.splitlines() if "`person`" in line and "`kind`" in line
+    )
+    person_sentence = person_line.split(".", 1)[0]
 
     assert (
-        "a merge, a secret, a repository setting or a host" in reply,
+        "a secret, a repository setting or a host" in person_sentence,
+        "merge" in person_sentence.lower(),
+        "Pending a person after the merge" in reply,
         "a review verdict" in reply,
         "a milestone" in reply,
-    ) == (True, False, False)
+    ) == (True, False, True, False, False)
 
 
 def test_refine_proposal_caps_context_at_job_constant(
