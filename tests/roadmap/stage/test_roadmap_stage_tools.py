@@ -22,7 +22,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_STAGE_REFERENCE_MAX_FILES,
 )
 from devops_cli.config.defaults import StageToolset
-from devops_cli.github.client import IssueView, OpenItem
+from devops_cli.github.client import CommentView, IssueView, OpenItem
 from devops_cli.openspec.tool import OpenSpecTool, isolated_openspec
 from devops_cli.roadmap.agent_run import ToolOutcome, empty_answer, error_answer, ok_answer
 from devops_cli.roadmap.refine import refine_investigation
@@ -944,16 +944,31 @@ class _Reads:
     def __init__(self, open_items: list[OpenItem] | None = None) -> None:
         self.asked: list[tuple[str, int | str]] = []
         self.open_items = (
-            [OpenItem(number=3207, title="feat: park #3060", state="open")]
+            [
+                OpenItem(
+                    number=3207,
+                    title="feat: park #3060",
+                    state="open",
+                    author_association="OWNER",
+                )
+            ]
             if open_items is None
             else open_items
         )
 
     def get_issue(self, repo: str, number: int) -> IssueView:
         self.asked.append(("get_issue", number))
-        return IssueView(number=number, title="feat: park", state="open", body="Parks #3060.")
+        return IssueView(
+            number=number,
+            title="feat: park",
+            state="open",
+            body="Parks #3060.",
+            author_association="OWNER",
+        )
 
-    def get_last_comments(self, repo: str, number: int, *, total: int, count: int) -> list[str]:
+    def get_last_comments(
+        self, repo: str, number: int, *, total: int, count: int
+    ) -> list[CommentView]:
         return []
 
     def get_closing_pull(self, repo: str, number: int) -> int | None:

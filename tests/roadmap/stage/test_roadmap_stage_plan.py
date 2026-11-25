@@ -368,6 +368,8 @@ def test_the_model_input_holds_an_overlap_and_the_other_senders_of_a_cited_metri
                         "title": "docs(spec): plan #3173 the telemetry page",
                         "state": "OPEN",
                         "files": {"nodes": [{"path": "src/devops_cli/sample.py"}]},
+                        "authorAssociation": "OWNER",
+                        "author": {"__typename": "User", "login": "a-person"},
                     }
                 ]
             )
@@ -2168,7 +2170,13 @@ def test_the_toolbox_planner_reads_an_issue_of_the_repository_on_github(
         "GET",
         f"/repos/{STAGE_REPO}/issues/3207",
         github_json(
-            {"number": 3207, "title": "feat: park #3060", "state": "open", "body": "Parks."}
+            {
+                "number": 3207,
+                "title": "feat: park #3060",
+                "state": "open",
+                "body": "Parks.",
+                "author_association": "OWNER",
+            }
         ),
     )
     script = Script(call("read_issue", number=3207), make_stage_proposal())
@@ -3250,6 +3258,67 @@ def test_the_request_lists_the_declared_dependencies_with_their_titles(
         {"number": 3, "title": "fix(roadmap): the second dependency"},
         {"number": 99},
     ]
+
+
+@pytest.mark.usefixtures("openspec")
+def test_the_request_leaves_out_the_title_of_an_overlap_and_of_a_dependency_of_an_outside_account(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    open_pulls_api: GitHubApiFake,
+) -> None:
+    from devops_cli.roadmap.stores.store import GitHubState
+
+    left_out = "(title left out: an account with no write access opened the item)"
+    body = "Fix `src/devops_cli/sample.py`.\n\n## Dependencies\n\n- #2 the dependency\n"
+    seed_stageable(store, body=body)
+    store.seed_issue(
+        "fix: a change of an outside account",
+        state=GitHubState.CLOSED,
+        fields={ItemField.PRIORITY: "P1-High"},
+        author_association="NONE",
+        author_login="a-stranger",
+    )
+    open_pulls_api.route(
+        "POST",
+        "/graphql",
+        github_json(
+            _pull_page(
+                [
+                    {
+                        "number": 3173,
+                        "title": "fix: a change of an outside account",
+                        "state": "OPEN",
+                        "files": {"nodes": [{"path": "src/devops_cli/sample.py"}]},
+                        "authorAssociation": "NONE",
+                        "author": {"__typename": "User", "login": "a-stranger"},
+                    }
+                ]
+            )
+        ),
+    )
+    model_fake.answer(
+        make_stage_proposal(
+            feasibility=[f"The probe shows: {SAMPLE_PROBE} {SAMPLE_STATEMENT}"],
+            dependencies=["#3173 changes `src/devops_cli/sample.py`, so this plan waits for it."],
+        )
+    )
+
+    _plan(store, stage_repo)
+
+    (request,) = _requests(model_fake)
+    assert (request["overlaps"], request["issue_dependencies"]) == (
+        [
+            {
+                "number": 3173,
+                "title": left_out,
+                "state": "open",
+                "plan": False,
+                "paths": ["src/devops_cli/sample.py"],
+            }
+        ],
+        [{"number": 2, "title": left_out}],
+    )
 
 
 def test_the_job_time_premise_reads_the_limit_from_the_body() -> None:

@@ -139,6 +139,7 @@ from devops_cli.roadmap.stage.stage_rejected import reasons_of
 from devops_cli.roadmap.stage.stage_validate import validate_change
 from devops_cli.roadmap.stores.store import IssueRecord, Item, RoadmapStore, StageRecordKey
 from devops_cli.roadmap.time_budget import TimeBudget
+from devops_cli.roadmap.trust import TITLE_LEFT_OUT, is_trusted
 from devops_cli.security.sanitizer import mask_secrets, redact_text
 from devops_cli.server.service import RequestBudget
 
@@ -251,7 +252,8 @@ def issue_listing(store: RoadmapStore, planned: PlannedChanges, item: Item) -> L
     """The issue listing of the recheck of the agent (#6705): the item with its body, then each
     issue that an active change folder of the base names, with its number, its title, its URL and
     its state and no body. The issues are read as the recheck reads them from a store: the open
-    Items once, and each other one alone."""
+    Items once, and each other one alone. An issue that an account with no write access opened
+    gives the fixed text `trust.TITLE_LEFT_OUT` in place of its title (`trust.is_trusted`)."""
     open_items = {held.number: held for held in store.open_items()}
     records = [
         IssueRecord(
@@ -263,8 +265,9 @@ def issue_listing(store: RoadmapStore, planned: PlannedChanges, item: Item) -> L
             continue
         held = open_items.get(number) or store.item(number)
         if held is not None:
+            title = held.title if is_trusted(held) else TITLE_LEFT_OUT
             records.append(
-                IssueRecord(number=held.number, title=held.title, url=held.url, state=held.state)
+                IssueRecord(number=held.number, title=title, url=held.url, state=held.state)
             )
     return ListingIssues(tuple(records))
 

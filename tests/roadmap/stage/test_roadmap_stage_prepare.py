@@ -156,6 +156,34 @@ def test_the_listing_of_a_store_over_1_mib_holds_the_item_body_and_the_states_on
     assert listing[number]["body"] == "The job drops the last comment of a thread."
 
 
+def test_the_listing_leaves_out_the_title_of_an_issue_of_an_outside_account(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, folders: RunFolders
+) -> None:
+    other = store.seed_issue(
+        "fix: a change of an outside account",
+        fields=FIELDS,
+        state=GitHubState.CLOSED,
+        author_association="NONE",
+        author_login="a-stranger",
+    )
+    stage_repo.track(
+        render_change(
+            f"{other}-item", make_stage_proposal(), {"comment-thread"}, created=NOW.date()
+        )
+    )
+    number = seed_stageable(store)
+
+    assert _prepare(store, stage_repo, folders, number) is None
+
+    data = (folders.work / CONST_ROADMAP_STAGE_ISSUES_FILE).read_bytes()
+    listing = {record["number"]: record for record in json.loads(data)}
+    assert (listing[other]["title"], listing[other]["state"], listing[number]["title"]) == (
+        "(title left out: an account with no write access opened the item)",
+        "closed",
+        store.item(number).title,
+    )
+
+
 def test_a_failed_read_of_the_comments_fails_the_item_with_ci_infra(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, folders: RunFolders
 ) -> None:
