@@ -1,0 +1,22 @@
+# SLO 1 of k8s/README.md (#4709): the row runs of the roadmap Service that end well, over the
+# 28-day window. `src/devops_cli/prometheus/slo_rules.py` renders the rule group
+# `slo-roadmap-service-rounds` from this file, and the group sits under
+# `serverFiles.devops_cli_alerting_rules.yml` of
+# `k8s/devops/monitoring/prometheus-rules-values.yaml`, which the Prometheus server loads. The
+# group `roadmap-service-recording` reads the same metric and labels, so a move of the row work
+# changes one selector in each place.
+version: "prometheus/v1"
+service: roadmap-service
+slos:
+  - name: rounds
+    objective: 99
+    description: >-
+      A row run of a repository that ends well, over the 28-day window. A run with result success is
+      a good event, and a run with result success or error is a valid event, for each row and
+      repository. A run that ends with another result is in neither side.
+    sli:
+      events:
+        error_query: sum by (repo, row) (increase(devops_cli_service_jobs_total{result="error"}[{{.window}}]))
+        total_query: sum by (repo, row) (increase(devops_cli_service_jobs_total{result=~"success|error"}[{{.window}}]))
+    alerting:
+      name: RoadmapServiceRounds
