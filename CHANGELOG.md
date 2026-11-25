@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.4](https://github.com/dan-petty/devops-cli/compare/v0.211.3...v0.211.4) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#7030](https://github.com/dan-petty/devops-cli/issues/7030)) ([930658a](https://github.com/dan-petty/devops-cli/commit/930658a24c49c00a0af6312348cd302f9e60a14d))
+* **deps:** update uv to v0.13.10 ([#7028](https://github.com/dan-petty/devops-cli/issues/7028)) ([14f2cd6](https://github.com/dan-petty/devops-cli/commit/14f2cd6e222c1568c0796cf3798e9f0b9266900e))
+* **security:** judge DS-0002 in Harbor task Dockerfile ([#7026](https://github.com/dan-petty/devops-cli/issues/7026)) ([20632b8](https://github.com/dan-petty/devops-cli/commit/20632b81baaa143bfd7ac494244c819edf0f3fab))
+
+
+### Code Refactoring
+
+* **roadmap:** run implement on stock Coder with a real shell ([#7031](https://github.com/dan-petty/devops-cli/issues/7031)) ([82c831d](https://github.com/dan-petty/devops-cli/commit/82c831d7fb5dc009a282c8738501368dee0ea714))
+
 ## [0.211.3](https://github.com/dan-petty/devops-cli/compare/v0.211.2...v0.211.3) (2026-11-24)
 
 
