@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.7](https://github.com/dan-petty/devops-cli/compare/v0.221.6...v0.221.7) (2026-11-25)
+
+
+### Bug Fixes
+
+* **roadmap:** stage issue reads keep the reply rule of the document ([#7250](https://github.com/dan-petty/devops-cli/issues/7250)) ([96d1bd6](https://github.com/dan-petty/devops-cli/commit/96d1bd6060c352547df5174e2c013c1764e65a56))
+
 ## [0.221.6](https://github.com/dan-petty/devops-cli/compare/v0.221.5...v0.221.6) (2026-11-25)
 
 
