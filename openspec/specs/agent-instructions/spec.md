@@ -125,8 +125,8 @@ A test SHALL compare the rule titles of the template, rendered for devops-cli, w
 `AGENTS.md` SHALL keep each safety rule inline: never commit or push to `main`, never `--no-verify`, never lower a security or quality threshold, never run bare `gh`, only a person merges and changes secrets, settings and hardware, and the whole private-data rule with its placeholders.
 
 #### Scenario: A safety rule leaves AGENTS.md
-- **WHEN** a change removes a safety rule from `AGENTS.md`, such as the private registry or the device path of the private-data rule
-- **THEN** the safety rule test of `tests/invariants/test_agents_md.py` fails
+- **WHEN** `git grep -n -e "Never commit or push to" -e "Never use" -e "Never lower a security or quality threshold" -e "Never run bare" -e "Only a person" -e "Never commit a secret" -- AGENTS.md` runs
+- **THEN** the output holds each of the six texts
 
 ### Requirement: Agent instructions allow routine label, milestone, duplicate, and evaluation-verdict tasks
 `AGENTS.md` and the routed instructions SHALL limit person-only constraints to merging pull requests (with Renovate exceptions), changing secrets, repository settings and hardware, lowering security or quality thresholds, and release steps, and SHALL NOT reserve managing issue or pull request labels, planning milestones, closing duplicates, or running evaluation verdicts via `devops review verify` solely for a person.
@@ -147,9 +147,9 @@ Rule 2 of `AGENTS.md`, `src/devops_cli/templates/AGENTS.md.j2`, and the `devops-
 Rule 6 of `AGENTS.md` and rule 6 of the `AGENTS.md` that `devops ai agents` generates SHALL tell an agent to always mark a draft pull request ready when the checks pass and no agent work remains. `CONTRIBUTING.md` SHALL say what agent work is, and the `devops-pr-ci` skill SHALL give the same condition with `devops pr ready` in each skill root.
 
 #### Scenario: Rule 6 holds the duty
-- **WHEN** the invariant test reads rule 6 of `AGENTS.md` and rule 6 of the `AGENTS.md` generated for devops-cli
-- **THEN** each holds "Always mark it ready" and "no agent work remains"
+- **WHEN** `git grep -n "no agent work remains" -- AGENTS.md src/devops_cli/templates/AGENTS.md.j2` runs
+- **THEN** the command prints the line of rule 6 of each file
 
 #### Scenario: The routed documents give the condition
-- **WHEN** the invariant test reads `CONTRIBUTING.md` and `devops-pr-ci/SKILL.md` in `.agents/skills`, `.claude/skills` and `.kilocode/skills`
-- **THEN** `CONTRIBUTING.md` says what agent work is, and each skill copy holds "Always run `uv run devops pr ready <number>`" with "no agent work remains"
+- **WHEN** `git grep -l "no agent work remains" -- CONTRIBUTING.md .agents/skills .claude/skills .kilocode/skills` runs
+- **THEN** the command prints `CONTRIBUTING.md` and the `devops-pr-ci/SKILL.md` of each skill root

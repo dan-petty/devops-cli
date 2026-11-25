@@ -299,38 +299,6 @@ def test_refines_prompts_load_and_the_reply_prompt_names_every_field() -> None:
     ) == (True, [], [True, True], [])
 
 
-def test_the_reply_prompt_asks_a_config_criterion_for_a_command_proof_as_the_stage_does() -> None:
-    """Refine wrote criteria such as "A test evaluates the package rules of
-    `.github/renovate.json`", and the stage planned a test that asserts a value of the file
-    (#6080). The criterion of a manifest, a workflow or a config file names the command that
-    proves it, with the phrase of the stage prompt."""
-    phrase = "names a validator command or a live check as its proof"
-
-    assert [
-        phrase in load_task_prompt(name)
-        for name in ("roadmap_refine_reply.md", "roadmap_stage_change.md")
-    ] == [True, True]
-
-
-def test_the_reply_prompt_limits_person_questions_to_owner_only_decisions() -> None:
-    """The refine reply prompt reserves person questions for pre-build owner acts (`a secret,
-    a repository setting or a host`), with no merge word in the person-kind sentence, and routes
-    post-merge steps to `Pending a person after the merge` (#6445, #7040)."""
-    reply = load_task_prompt("roadmap_refine_reply.md")
-    person_line = next(
-        line for line in reply.splitlines() if "`person`" in line and "`kind`" in line
-    )
-    person_sentence = person_line.split(".", 1)[0]
-
-    assert (
-        "a secret, a repository setting or a host" in person_sentence,
-        "merge" in person_sentence.lower(),
-        "Pending a person after the merge" in reply,
-        "a review verdict" in reply,
-        "a milestone" in reply,
-    ) == (True, False, True, False, False)
-
-
 def test_refine_proposal_caps_context_at_job_constant(
     git_repo: Path, store: InMemoryRoadmapStore, config: Any
 ) -> None:

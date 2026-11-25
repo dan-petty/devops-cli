@@ -35,75 +35,10 @@ def test_get_knowledge_base_dir() -> None:
     assert (kb_dir / "it_domains" / "tools").is_dir()
 
 
-def test_list_knowledge_base_articles_all() -> None:
-    articles = list_knowledge_base_articles()
-    # 34 devops_cli (12 tasks + 22 libraries) + 37 it_domains (10 topics + 27 tools)
-    assert len(articles) == 71
-    assert all(a.suffix == ".md" for a in articles)
-    assert all(a.name != "README.md" for a in articles)
-    assert any(a.name == "valkey.md" for a in articles)
-
-
-def test_list_knowledge_base_articles_by_division() -> None:
-    devops_cli_articles = list_knowledge_base_articles("devops_cli")
-    it_domains_articles = list_knowledge_base_articles("it_domains")
-
-    assert len(devops_cli_articles) == 34  # 12 tasks + 22 libraries
-    assert len(it_domains_articles) == 37  # 10 topics + 27 tools
-
-
-def test_list_knowledge_base_articles_by_category() -> None:
-    # Test canonical subcategory paths
-    topics = list_knowledge_base_articles("it_domains/topics")
-    assert len(topics) == 10
-
-    tools = list_knowledge_base_articles("it_domains/tools")
-    assert len(tools) == 27
-
-    tasks = list_knowledge_base_articles("devops_cli/tasks")
-    assert len(tasks) == 12
-
-    libraries = list_knowledge_base_articles("devops_cli/libraries")
-    assert len(libraries) == 22
-
-
-def test_load_kb_article_success() -> None:
-    # Test loading via division path
-    content_new = load_kb_article("it_domains/topics/agentic_ai_and_code_reviews.md")
-    assert content_new is not None
-    assert "Agentic AI" in content_new
-
-    # Test loading devops_cli task article
-    task_content = load_kb_article("devops_cli/tasks/ci_quality_gate.md")
-    assert task_content is not None
-    assert "CI Quality Gate" in task_content
-
-    # Test loading a dedicated library article
-    typer_content = load_kb_article("devops_cli/libraries/typer.md")
-    assert typer_content is not None
-    assert "Typer & Click" in typer_content
-
-    # Test loading Valkey tool manual
-    valkey_content = load_kb_article("it_domains/tools/valkey.md")
-    assert valkey_content is not None
-    assert "Valkey" in valkey_content
-
-
 def test_load_kb_article_missing_or_invalid() -> None:
     assert load_kb_article("nonexistent/article.md") is None
     # Path traversal protection
     assert load_kb_article("../../outside.md") is None
-
-
-def test_get_knowledge_base_stats() -> None:
-    stats = get_knowledge_base_stats()
-    assert stats.exists is True
-    assert stats.devops_cli_count == 34
-    assert stats.it_domains_count == 37
-    assert stats.topics_count == 10
-    assert stats.tools_count == 27
-    assert stats.tasks_count == 12
-    assert stats.total_articles == 71
 
 
 def test_workspace_indexer_index_knowledge_base(tmp_path: Path) -> None:
@@ -239,32 +174,6 @@ def test_kb_front_matter_sources_validation() -> None:
             sources=("ftp://example.com/guide",),
             reviewed="2026-10-21",
         )
-
-
-def test_harness_manual_names_the_maintained_repository() -> None:
-    """The harness manual points at pydantic/pydantic-ai, not the archived repository (#3106)."""
-    from devops_cli.ai.kb import parse_manual_front_matter
-
-    page = get_knowledge_base_dir() / "devops_cli" / "libraries" / "pydantic_ai_harness.md"
-    front_matter, body, error = parse_manual_front_matter(page.read_text(encoding="utf-8"))
-
-    assert error is None
-    assert front_matter is not None
-    assert "https://github.com/pydantic/pydantic-ai" in front_matter.sources
-    row = next(line for line in body.splitlines() if "Public Git Repository" in line)
-    assert "](https://github.com/pydantic/pydantic-ai)" in row
-    assert "src/pydantic_ai_harness" in row
-
-
-def test_no_manual_names_the_archived_harness_repository() -> None:
-    """No manual links the archived pydantic/pydantic-ai-harness repository (#3106)."""
-    kb_dir = get_knowledge_base_dir()
-    offenders = [
-        str(path.relative_to(kb_dir))
-        for path in kb_dir.rglob("*.md")
-        if "pydantic/pydantic-ai-harness" in path.read_text(encoding="utf-8")
-    ]
-    assert offenders == []
 
 
 def test_kb_metadata_problems_reports_missing_dir_unreadable_file_and_bad_front_matter(

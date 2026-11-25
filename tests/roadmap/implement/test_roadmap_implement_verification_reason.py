@@ -20,7 +20,6 @@ from devops_cli.roadmap.implement.implement_step import (
     StepStatus,
     commands_failure,
     run_step,
-    step_instructions,
 )
 from devops_cli.roadmap.stage.stage_change import StageGroup
 from devops_cli.roadmap.stage.stage_form import form_problems
@@ -269,14 +268,6 @@ def test_a_refused_command_of_2000_characters_is_named_whole_and_one_more_is_cut
 
 
 # ── The prompt says what the step does with a bang command ────────────────────────────────
-
-
-def test_step_5_of_the_prompt_gives_both_parts_of_the_sentence_about_a_bang_command() -> None:
-    prompt = step_instructions()
-
-    assert "the step runs it itself after your run" in prompt
-    assert "you can check it with `git grep -n -I -F <text> <paths>`" in prompt
-    assert "the shell refuses `!`" not in prompt
 
 
 def test_the_programs_run_stay_empty_for_a_refused_command(

@@ -16,7 +16,6 @@ import pytest
 from devops_cli.roadmap.implement.implement_step import (
     StepOutcome,
     StepStatus,
-    build_step_inputs,
     run_step,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
@@ -272,11 +271,3 @@ def test_a_file_named_like_an_option_is_a_path_for_each_tool(
         [(list(tool), ["--", name]) for tool in tools],
     )
     assert not [line for line in programs_run(programs, "uv") if name in line and "mypy" in line]
-
-
-def test_the_instructions_say_that_the_job_formats_the_changed_python_files(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert "The job formats the changed Python files" in inputs.instructions

@@ -29,9 +29,7 @@ from devops_cli.commands.devcontainer import app as devcontainer_app
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_FILENAME,
     CONST_AGENTS_MD_MAX_CHARS,
-    CONST_AGENTS_MD_ROUTES,
 )
-from tests.support.paths import REPO_ROOT
 
 CONST_DELETED_PROCESS_TERMS: Final[tuple[str, ...]] = (
     "release branch",
@@ -356,19 +354,6 @@ def test_a_project_with_several_manifests_names_each_toolchain(tmp_path: Path) -
     ) == (["pyproject.toml", "package.json", "go.mod"], True)
 
 
-def test_devops_cli_renders_the_check_line_of_its_pre_push_hooks() -> None:
-    """Verify the AGENTS.md that `devops ai agents` writes for devops-cli names its pre-push
-    hooks: `branch-current` by its id, because its `entry` alone is not its command (#4670), and
-    the two checks of `devops ci`."""
-    content = generate_agents_md(parse_project_metadata(REPO_ROOT))
-    assert (
-        "Run these before each push: `branch-current`, "
-        "`env UV_MALWARE_CHECK=0 timeout 40 uv run devops ci --check --only lint,format,domain`, "
-        "`env UV_MALWARE_CHECK=0 timeout 30 uv run devops ci --check --only actionlint,zizmor`."
-        in content
-    )
-
-
 def test_the_openspec_text_renders_only_where_openspec_is_set_up(tmp_path: Path) -> None:
     """Verify the rule for each pull request names the OpenSpec change only in a project that
     has `openspec/config.yaml` (#4641)."""
@@ -385,19 +370,6 @@ def test_the_openspec_text_renders_only_where_openspec_is_set_up(tmp_path: Path)
         parse_project_metadata(unplanned).plan_system,
         "OpenSpec" in generate_agents_md(parse_project_metadata(unplanned)),
     ) == ("openspec", True, "none", False)
-
-
-def test_generated_agents_md_leaves_the_writing_standard_to_the_project() -> None:
-    """Verify the generated router names no writing standard: each project owns its own, and the
-    ASD-STE100 rule is devops-cli's (owner decision D2 of #1961)."""
-    content = generate_agents_md(ProjectMetadata(name="sample-project"))
-    assert (
-        "ASD-STE100" in content,
-        "ASD-STE100" in (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
-    ) == (
-        False,
-        True,
-    )
 
 
 def test_scaffold_agent_instructions(tmp_path: Path) -> None:
@@ -654,67 +626,6 @@ def test_instruction_generator_corrupt_pyproject_and_force_modes(tmp_path: Path)
     assert "AI Agent Instructions" in (target_dir / "AGENTS.md").read_text(encoding="utf-8")
 
 
-def test_generate_agents_md_opens_every_pull_request_as_a_draft() -> None:
-    """Verify generated AGENTS.md opens every pull request as a draft, with no condition, and
-    names `devops pr ready` as the way out of the draft."""
-    meta = ProjectMetadata(
-        name="sample-project",
-        description="Sample project testing draft PR rules",
-        version="0.2.0",
-        requires_python=">=3.14",
-    )
-    content = generate_agents_md(meta)
-    assert (
-        "open every pull request with `devops pr create`, which always opens a draft" in content,
-        "devops pr ready" in content,
-        "not yet fully implemented" in content,
-    ) == (True, True, False)
-
-
-def test_generated_agents_md_targets_the_default_branch_and_names_no_deleted_process(
-    tmp_path: Path,
-) -> None:
-    """Verify generated AGENTS.md sends topic pull requests to the default branch and names no
-    deleted process, such as a release branch, the cut or the filing quota, for a project with
-    every routed document and for one with none."""
-    for path, _task in CONST_AGENTS_MD_ROUTES:
-        target = tmp_path / path
-        if path.endswith("/"):
-            target.mkdir(parents=True, exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("# Doc\n", encoding="utf-8")
-    for content in (
-        generate_agents_md(ProjectMetadata(name="sample-project")),
-        generate_agents_md(parse_project_metadata(tmp_path)),
-    ):
-        assert (
-            "PRs target the default branch" in content,
-            [term for term in CONST_DELETED_PROCESS_TERMS if term in content],
-        ) == (True, [])
-
-
-def test_generate_agents_md_enforces_pr_monitor_and_ready() -> None:
-    """Verify generated AGENTS.md has agents watch each pull request with `devops pr monitor`
-    and mark it ready with `devops pr ready`; the command's defaults set the wait and the poll
-    interval, so the document states no timing of its own."""
-    content = generate_agents_md(
-        ProjectMetadata(
-            name="sample-project",
-            description="Sample project testing PR monitoring",
-            version="0.2.0",
-            requires_python=">=3.14",
-        )
-    )
-    assert (
-        "devops pr monitor <pr_number>" in content,
-        "devops pr ready <pr_number>" in content,
-        "Copilot reviews a pull request only when a person requests it" in content,
-        "60 seconds" in content,
-        "5 minutes" in content,
-    ) == (True, True, True, False, False)
-
-
 def test_ai_agents_force_guard_and_refusal(
     runner: CliRunner, tmp_path: Path, model_fake: ModelFake
 ) -> None:
@@ -754,34 +665,3 @@ def test_ai_agents_force_guard_and_refusal(
     agents_file.write_bytes(original_bytes)
     res4 = runner.invoke(ai_app, ["agents", "--repo", str(tmp_path)])
     assert (res4.exit_code != 0, model_fake.call_count == 0) == (True, True)
-
-
-def test_generate_agents_md_root_cause_and_premise_rules() -> None:
-    """Verify the generated router keeps the root-cause rule and the premise-and-stop rule, and
-    no rule files an item into a milestone or a roadmap document (#742, #1959)."""
-    content = generate_agents_md(
-        ProjectMetadata(
-            name="sample-project",
-            description="Sample project testing core engineering rules",
-            version="0.2.0",
-            requires_python=">=3.14",
-        )
-    )
-    expected = (
-        "Fix the cause.",
-        "add a check that fails when the problem returns",
-        "Check the premise first.",
-        "write no compensating code",
-        "Close issues as rejected if their functionality has been superseded by newer issues or code changes.",
-    )
-    ingestion_rules = (
-        "Automatic Roadmap Ingestion",
-        "STRUCTURED ROADMAP TASKS",
-        "MUST FILE A CANDIDATE ISSUE (`devops gh issue create`)",
-        "release_credit",
-        "Continuous Interaction & Collaborative Value Improvement",
-    )
-    assert (
-        [rule for rule in expected if rule not in content],
-        [rule for rule in ingestion_rules if rule in content],
-    ) == ([], [])

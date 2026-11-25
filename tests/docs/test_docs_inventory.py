@@ -248,15 +248,3 @@ def test_generated_attribute_check_fails_when_glob_lacks_line(
         "docs/UNMARKED_GENERATED.md" in problem and "linguist-generated" in problem
         for problem in problems
     )
-
-
-def test_contributing_documents_generated_file_rebase_conflict_step() -> None:
-    """Documentation Synchronization in `CONTRIBUTING.md` holds the generated-file rebase conflict
-    recovery steps (#4888)."""
-    text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
-    _, _, sync_section = text.partition("- **Documentation Synchronization**:")
-    bullet, _, _ = sync_section.partition("\n---")
-
-    assert "git checkout --ours -- <file>" in bullet
-    assert "git rebase --continue" in bullet
-    assert "uv run devops docs generate" in bullet

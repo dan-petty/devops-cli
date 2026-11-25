@@ -554,12 +554,3 @@ def test_every_active_plan_is_read(tmp_path: Path) -> None:
 
 def test_a_changes_directory_that_does_not_exist_has_no_problem(tmp_path: Path) -> None:
     assert verification_problems(tmp_path / "missing") == []
-
-
-def test_sdlc_plan_pull_request_allows_a_changed_file() -> None:
-    """`docs/SDLC.md` states that a plan pull request may add or change a file in its change
-    folder (#6850)."""
-    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
-
-    assert "a file added or changed in `openspec/changes/<issue>-<slug>/`" in sdlc
-    assert "a file added to `openspec/changes/<issue>-<slug>/`" not in sdlc

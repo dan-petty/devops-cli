@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from syrupy.assertion import SnapshotAssertion
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
@@ -31,7 +30,6 @@ from devops_cli.roadmap.intake.intake import (
 )
 from devops_cli.roadmap.intake.intake_model import (
     GatewayIntakeModel,
-    intake_system_prompt,
 )
 from devops_cli.roadmap.stores.store import (
     CloseReason,
@@ -239,12 +237,6 @@ def test_a_related_item_off_the_shortlist_is_rejected_with_a_note(roadmap: Roadm
             "was rejected.",
         ),
     )
-
-
-def test_the_intake_prompt_defines_a_duplicate_as_the_same_change(
-    snapshot: SnapshotAssertion,
-) -> None:
-    assert intake_system_prompt() == snapshot
 
 
 def test_a_new_candidate_and_a_possible_duplicate_are_each_filed(

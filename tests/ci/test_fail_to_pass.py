@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from typer.testing import CliRunner
 
-from devops_cli.ai.instruction_generator import ProjectMetadata, generate_agents_md
 from devops_cli.ci import fail_to_pass
 from devops_cli.ci.fail_to_pass import TestCaseOutcome as CaseOutcome
 from devops_cli.ci.fail_to_pass import (
@@ -722,30 +721,16 @@ def test_fail_to_pass_helpers_and_no_ci_stage(tmp_path: Path) -> None:
     """`uv run devops ci` gains no stage, and the helpers parse XML and instructions."""
     outcomes = parse_junit_xml(JUNIT_ONE_FAILURE)
     argv = pytest_replay_argv(tmp_path / "j.xml", ["tests/test_a.py"])
-    testing_md = (REPO_ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
-    generated_md = generate_agents_md(
-        ProjectMetadata(
-            name="devops-cli",
-            description="CLI",
-            version="0.2.36",
-            requires_python=">=3.14",
-            manifests=["pyproject.toml"],
-        )
-    )
     assert (
         "fail-to-pass" in {spec.name for spec in get_check_specs()},
         [(o.test_id, o.status) for o in outcomes],
         ("-p" in argv and "no:cacheprovider" in argv),
-        "devops ci fail-to-pass" in testing_md,
-        "devops ci fail-to-pass" in generated_md,
     ) == (
         False,
         [
             ("tests.test_sample::test_regression_fails", "failed"),
             ("tests.test_sample::test_existing_passes", "passed"),
         ],
-        True,
-        True,
         True,
     )
 

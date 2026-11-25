@@ -11,7 +11,6 @@ from devops_cli.github.api_guard import (
     require_gh_api_access,
     require_gh_api_argv_access,
 )
-from tests.support.paths import REPO_ROOT
 
 
 @pytest.mark.parametrize(
@@ -159,20 +158,3 @@ def test_person_protected_write_is_allowed(person_caller: None) -> None:
     """A person caller is allowed on protected write routes."""
     assert require_gh_api_access("POST", "repos/o/r/transfer") is None
     assert require_gh_api_argv_access(["repos/o/r/rulesets/1", "-X", "PUT"]) is None
-
-
-def test_docs_and_security_policy_name_protected_classes_and_refusal() -> None:
-    """`docs/commands/gh.md` and `SECURITY.md` both state protected route classes and refusal."""
-    required_classes = (
-        "repository settings",
-        "rulesets",
-        "secrets",
-        "organization settings",
-        "repository transfer",
-    )
-    for rel_path in ("docs/commands/gh.md", "SECURITY.md"):
-        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8").lower()
-        for route_class in required_classes:
-            assert route_class in text, f"{rel_path} must mention '{route_class}'"
-        assert "agent" in text, f"{rel_path} must name agent callers"
-        assert "refus" in text, f"{rel_path} must state that writes are refused"

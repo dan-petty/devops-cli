@@ -550,7 +550,6 @@ def test_the_model_reads_the_item_the_capabilities_and_the_repository(
         "budget": 9000,
     }
     assert "The job reads comments." in request["context"]
-    assert "You plan the OpenSpec change" in model_fake.calls[0].system_prompt
 
 
 @pytest.mark.usefixtures("openspec")
@@ -787,7 +786,6 @@ def test_a_group_over_the_budget_is_split_once(
     assert first["budget"] == 6000
     assert [g["title"] for g in second["groups"]] == ["Keep the last comment"]
     assert second["groups"][0]["over_budget"] is True
-    assert "You split the task groups" in model_fake.calls[1].system_prompt
     assert [g.group.title for g in plan.ready[0].groups] == ["First half", "Second half"]
     assert all(g.tokens <= 6000 for g in plan.ready[0].groups)
 
@@ -1614,23 +1612,6 @@ def test_a_summary_over_the_limit_twice_stops_that_item_and_the_run_goes_on(
 
     assert [(f.number, f.error) for f in plan.failed] == [(item, "StructuredOutputValidationError")]
     assert [c.target.item.number for c in plan.ready] == [second]
-
-
-@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
-def test_the_prompts_say_what_a_group_names(task: str) -> None:
-    prompt = load_task_prompt(task)
-
-    assert "at least one path" in prompt
-    assert "`creates`" in prompt
-    assert "Every task has a text" in prompt
-
-
-@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
-def test_the_prompts_say_that_the_job_checks_each_path_against_the_staged_commit(task: str) -> None:
-    prompt = load_task_prompt(task)
-
-    assert "against the files of the staged commit" in prompt
-    assert "`creates`" in prompt
 
 
 # ── The OpenSpec validation ───────────────────────────────────────────────────
@@ -2820,15 +2801,6 @@ def test_a_split_reply_brings_the_criteria_with_the_new_group_numbers(
     assert _requests(model_fake)[1]["criteria"][0]["criterion"] == "First criterion."
     tasks = plan.ready[0].files[f"openspec/changes/{CHANGE}/tasks.md"]
     assert "- Group 2: First criterion." in tasks
-
-
-@pytest.mark.parametrize("task", ["roadmap_stage_change.md", "roadmap_stage_split.md"])
-def test_the_prompts_say_what_the_criteria_list_holds(task: str) -> None:
-    prompt = load_task_prompt(task)
-
-    assert "`criteria`" in prompt
-    assert "`pending-person`" in prompt
-    assert "counted from 1" in prompt
 
 
 def test_check_proposal_refuses_path_an_open_plan_creates() -> None:

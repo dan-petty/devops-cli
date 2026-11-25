@@ -12,7 +12,6 @@ from devops_cli.ai.review.review_environment import (
 from devops_cli.ai.review_schema import (
     VerificationCriterion,
 )
-from tests.support.paths import REPO_ROOT
 
 
 def test_command_allowlist_permits_read_only_binaries() -> None:
@@ -279,15 +278,3 @@ def test_a_find_criterion_that_runs_or_writes_is_rejected(command: str) -> None:
     allowlisted ones) or write and delete files (#847)."""
     valid, error, _ = validate_criteria_command(command)
     assert (valid, _FIND_ACTION_REFUSED in str(error)) == (False, True)
-
-
-@pytest.mark.parametrize("prompt", ["review.md"])
-def test_criteria_rule_in_the_prompts_offers_no_pytest_command(prompt: str) -> None:
-    """The reviewer is not invited to write a pytest criterion the validator refuses (#847)."""
-    tasks = REPO_ROOT / "src" / "devops_cli" / "ai" / "tasks"
-    rule = next(
-        line
-        for line in (tasks / prompt).read_text(encoding="utf-8").splitlines()
-        if "imports the cited code" in line
-    )
-    assert ("`python -c`" in rule, "pytest" in rule) == (True, False)

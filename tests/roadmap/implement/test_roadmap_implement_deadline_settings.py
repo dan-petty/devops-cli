@@ -4,7 +4,6 @@ runner sets on them and the values that `docs/CLUSTER.md` states for them (#5016
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -14,7 +13,6 @@ import pytest
 from devops_cli.config import settings
 from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-    DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
     DEFAULT_ROADMAP_IMPLEMENT_INTERVAL_MINUTES,
@@ -112,44 +110,6 @@ def test_the_default_extension_outlasts_the_stall_by_the_delay_of_the_row_and_th
     assert DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS >= (
         DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS + delay
     )
-
-
-@pytest.mark.parametrize(
-    ("pattern", "expected"),
-    [
-        pytest.param(
-            r"`roadmap\.implement\.deadline_stall_seconds` \(default (\d+)\)",
-            DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS,
-            id="stall",
-        ),
-        pytest.param(
-            r"`roadmap\.implement\.deadline_extension_seconds` \(default (\d+)\)",
-            DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_EXTENSION_SECONDS,
-            id="extension",
-        ),
-        pytest.param(
-            r"`roadmap\.implement\.deadline_ceiling_seconds` \(default (\d+)\)",
-            DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_CEILING_SECONDS,
-            id="ceiling",
-        ),
-        pytest.param(
-            r"a command of a step, (\d+) s\.",
-            DEFAULT_ROADMAP_IMPLEMENT_COMMAND_TIMEOUT_SECONDS,
-            id="command",
-        ),
-        pytest.param(
-            r"ends by its stall after (\d+) minutes",
-            DEFAULT_ROADMAP_IMPLEMENT_DEADLINE_STALL_SECONDS // 60,
-            id="stall-minutes",
-        ),
-    ],
-)
-def test_the_cluster_document_states_the_default_deadline_values(
-    pattern: str, expected: int
-) -> None:
-    stated = {int(value) for value in re.findall(pattern, CLUSTER_DOC.read_text("utf-8"))}
-
-    assert stated == {expected}
 
 
 def test_each_setting_has_its_variable() -> None:

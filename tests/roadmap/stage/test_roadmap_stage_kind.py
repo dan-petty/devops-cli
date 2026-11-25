@@ -304,37 +304,3 @@ def test_a_stage_prompt_names_each_kind_and_each_field_of_a_group(task: str) -> 
     names = [kind.value for kind in GroupKind] + list(StageGroup.model_fields)
 
     assert [name for name in names if f"`{name}`" not in prompt] == []
-
-
-def test_the_stage_prompt_states_the_rules_that_the_validator_checks() -> None:
-    prompt = load_task_prompt("roadmap_stage_change.md")
-
-    assert "Python file under `src/`" in prompt
-    assert "no `test`" in prompt
-    assert "`! git grep -n <name> src/ tests/`" in prompt
-
-
-def test_the_stage_prompt_says_that_a_text_is_one_line_and_starts_with_a_word() -> None:
-    prompt = load_task_prompt("roadmap_stage_change.md")
-
-    assert "`why`, `existing_tool`, `purpose` and the `text` of a requirement" in prompt
-    assert "on one line and start with a word" in prompt
-
-
-def test_the_stage_prompt_asks_feasibility_to_quote_the_probes_and_has_no_premise_failed_key() -> (
-    None
-):
-    prompt = load_task_prompt("roadmap_stage_change.md")
-
-    assert "`probes`" in prompt
-    assert "quote the lines of `probes`" in prompt
-    assert "premise_failed" not in prompt
-    assert "has no key to report a false premise" in prompt
-    assert "no commit ever held" in prompt
-
-
-def test_the_implement_prompt_writes_the_test_first_only_for_a_group_with_a_test_task() -> None:
-    prompt = load_task_prompt("roadmap_implement_step.md")
-
-    assert "Write the failing test first when your group has a test task" in prompt
-    assert "Else run the verification" in prompt

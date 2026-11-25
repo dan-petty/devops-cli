@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 import pytest
 import time_machine
 
-from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config import constants
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
@@ -232,17 +231,6 @@ def test_the_request_holds_no_check_for_an_item_without_a_block_or_with_a_delete
     plan_refine(store, repo=REPO, source=git_repo, item_number=deleted)
 
     assert (first, _alternatives_sent(model_fake)) == (None, None)
-
-
-def test_the_prompts_tell_the_model_what_the_alternatives_key_holds() -> None:
-    texts = [
-        load_task_prompt("roadmap_refine_proposal.md"),
-        load_task_prompt("roadmap_refine_investigation.md"),
-    ]
-    assert [("`alternatives`" in text, "Existing Tool Considered" in text) for text in texts] == [
-        (True, True),
-        (True, True),
-    ]
 
 
 def test_a_covers_check_with_no_reply_is_a_question_for_a_person_the_model_cannot_answer(

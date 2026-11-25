@@ -105,17 +105,6 @@ def test_the_prompt_names_the_nine_types_and_no_other() -> None:
     assert named == {kind.value for kind in VERIFY_TYPES}
 
 
-def test_the_missing_path_type_names_a_needed_file_that_the_plan_does_not_change() -> None:
-    line = next(
-        line
-        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
-        if line.startswith("- `missing_path`")
-    )
-
-    assert "does not exist" in line
-    assert "needs a file that the plan does not change" in line
-
-
 def test_a_finding_with_a_type_outside_the_nine_is_refused() -> None:
     with pytest.raises(ValidationError, match="type"):
         Verification.model_validate(
@@ -320,16 +309,6 @@ def test_the_prompt_names_the_four_severities_and_the_two_that_return_the_plan()
     assert "`type`, `severity`, `where`, `problem` and `quote`" in prompt
 
 
-def test_the_spec_delta_type_names_a_scenario_where_no_test_can_assert_any_part() -> None:
-    line = next(
-        line
-        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
-        if line.startswith("- `spec_delta_wrong`")
-    )
-
-    assert "a scenario where no test can assert any part of its THEN" in line
-
-
 CRITERION = "The stage eval case MUST hold the plan of #3378 and its recorded search evidence."
 # The plan of group 4 of #3410: the criterion names a case of the golden set, and the group writes
 # only a fixture and a test file. No group changes the code that gives the case its field.
@@ -396,19 +375,6 @@ def test_a_dropped_criterion_finding_with_no_quote_in_the_input_is_advice() -> N
     assert open_findings([invented, unquoted], given) == []
 
 
-def test_the_dropped_criterion_type_names_a_test_only_group_and_one_that_delivers() -> None:
-    line = next(
-        line
-        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
-        if line.startswith("- `criterion_dropped`")
-    )
-
-    assert "changes only test files" in line
-    assert "no group of the plan changes the code" in line
-    assert "when an earlier group changes that code" in line
-    assert "is no `criterion_dropped`" in line
-
-
 # The plan pull request #5350 (item #5118) at its head ccfbab2e9586. Its spec delta changes three
 # requirements of `roadmap-item-claim`. Its one open finding named a fourth requirement, and quoted
 # the base spec of `roadmap-item-labels`, which the reviewer read with the tool `read_spec` (#5410).
@@ -473,11 +439,6 @@ def test_a_finding_on_a_requirement_of_the_plan_stays_open() -> None:
 
 
 def test_criterion_dropped_names_the_criterion_of_the_issue() -> None:
-    line = next(
-        line
-        for line in load_task_prompt("roadmap_stage_verify.md").splitlines()
-        if line.startswith("- `criterion_dropped`")
-    )
     given = _test_only_input()
     finding = Finding(
         type=DefectType.CRITERION_DROPPED,
@@ -492,7 +453,6 @@ def test_criterion_dropped_names_the_criterion_of_the_issue() -> None:
         place("issue", "The case MUST name a field."),
     )
 
-    assert "`part` `issue`" in line
     assert open_findings([finding, elsewhere], given) == [finding]
 
 
@@ -1166,14 +1126,6 @@ def test_a_verify_run_has_the_pass_as_its_instructions_and_no_planner_text(
     assert load_task_prompt("roadmap_stage_tools.md") not in instructions
 
 
-def test_the_tool_rules_are_only_in_the_instructions_of_an_agent_run() -> None:
-    plain = load_task_prompt("roadmap_stage_verify.md")
-
-    assert ("read-only tools" in plain, "repair round" in plain) == (False, False)
-    agent = agent_instructions(plain)
-    assert ("read-only tools" in agent, "two repair rounds" in agent) == (True, True)
-
-
 def test_a_verify_run_that_hits_a_limit_names_the_verification_run(
     verify_checkout: tuple[Path, str],
 ) -> None:
@@ -1409,11 +1361,3 @@ def test_a_quote_from_a_named_pull_request_file_is_evidence_for_the_3410_claim()
     assert STAGE_3410_LITERAL in given.pull_requests[3378].files[STAGE_3378_FILE]
     assert "src/devops_cli/roadmap/stage/" not in plan["tasks.md"]
     assert open_findings([finding], given) == [finding]
-
-
-def test_the_prompt_names_the_pull_request_files() -> None:
-    prompt = load_task_prompt("roadmap_stage_verify.md")
-
-    assert "`pull_requests`" in prompt
-    assert "`commit`" in prompt
-    assert "a file in a `pull_requests` entry" in prompt

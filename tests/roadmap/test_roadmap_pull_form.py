@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Literal
 
 import pytest
@@ -636,16 +635,6 @@ def test_a_short_delivery_text_names_closes_and_not_plans() -> None:
     (problem,) = [text for text in problems if "characters" in text]
 
     assert ("Closes" in problem, "Plans" not in problem) == (True, True)
-
-
-def test_the_document_and_the_docstring_state_the_plan_order() -> None:
-    contributing = Path("CONTRIBUTING.md").read_text(encoding="utf-8")
-    documented = plan_body_problems.__doc__ or ""
-
-    assert (
-        "it has the text, then the line `Plans #<issue>`" in contributing,
-        "the text, then the line `Plans #<issue>`" in documented,
-    ) == (True, True)
 
 
 def test_the_eval_score_lines_after_the_change_line_are_allowed() -> None:

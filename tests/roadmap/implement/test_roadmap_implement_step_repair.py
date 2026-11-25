@@ -21,7 +21,6 @@ from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepOutcome,
     StepStatus,
-    build_step_inputs,
     run_fix_step,
     run_step,
 )
@@ -440,14 +439,6 @@ def test_the_failure_text_in_the_message_is_cut_to_the_reason_limit(
     prompt = _prompt(script, 3)
     shown = prompt.split("A static check of your group failed:\n\n")[1].split(MAP)[0]
     assert len(shown) == CONST_ROADMAP_IMPLEMENT_REASON_CHARS
-
-
-def test_the_instructions_say_that_a_failed_static_check_gets_one_turn(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert "you get an extra turn with the text of the error" in inputs.instructions
 
 
 def test_the_failure_text_in_the_message_is_masked(

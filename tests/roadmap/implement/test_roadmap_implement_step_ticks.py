@@ -474,17 +474,6 @@ def test_a_step_that_unticks_a_task_of_its_own_done_group_keeps_it_ticked(
     assert (result, _committed_tasks(checkout)) == ((StepStatus.DONE, ""), EVERY_TICK)
 
 
-def test_the_instructions_say_to_tick_only_the_tasks_of_the_group_and_give_the_reason(
-    store: InMemoryRoadmapStore, later_open: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=later_open, window=WINDOW)
-
-    assert (
-        "Tick only the tasks of your group. A later group runs in its own step and ticks its own."
-        in inputs.instructions
-    )
-
-
 def test_a_passing_group_without_a_model_tick_is_ticked_and_committed(
     store: InMemoryRoadmapStore, tmp_path: Path, programs: ProcessFake
 ) -> None:

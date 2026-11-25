@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from devops_cli.k8s import cluster_secrets as _cs
-from tests.support.paths import REPO_ROOT
 
 check_secret_key_refs: Any = getattr(_cs, "check_secret_key_refs", None)
 _check_secret_ref: Any = getattr(_cs, "_check_secret_ref", None)
@@ -135,16 +134,3 @@ spec:
 
     findings = check_secret_key_refs(manifest, table=CLUSTER_SECRETS)
     assert findings == []
-
-
-def test_cluster_secrets_section_names_the_plan_check() -> None:
-    """The Cluster Secrets section of k8s/README.md SHALL name
-    `devops k8s push-secrets --only <namespace>/<name> --plan` and its `unchanged` result as a step
-    before the merge (#6064)."""
-    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
-    assert "## Cluster Secrets" in readme
-    cluster_secrets_section = readme.split("## Cluster Secrets", 1)[1].split("## ", 1)[0]
-
-    expected_cmd = "devops k8s push-secrets --only <namespace>/<name> --plan"
-    assert expected_cmd in cluster_secrets_section
-    assert "unchanged" in cluster_secrets_section

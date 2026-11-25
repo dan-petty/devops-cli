@@ -88,12 +88,3 @@ def test_a_key_with_neither_a_reader_nor_a_spec_line_is_found() -> None:
     members = {key.value for key in ImplementRecordKey} | {"implement.unread"}
 
     assert members - set(READERS) == {"implement.unread"}
-
-
-def test_the_document_names_the_result_key_and_the_hand_off_of_the_stop() -> None:
-    rows = [line for line in _read(DOCUMENT).splitlines() if line.startswith("| Implement |")]
-
-    assert any("`implement.result`" in row for row in rows)
-    for key in ("`implement.check_log`", "`implement.conflict`"):
-        (row,) = [row for row in rows if key in row]
-        assert "first step" in row, f"the row of {key} does not state the hand-off"

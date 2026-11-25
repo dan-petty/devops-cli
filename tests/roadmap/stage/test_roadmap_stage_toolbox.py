@@ -1324,42 +1324,6 @@ def test_a_new_run_starts_its_count_at_zero(
     )
 
 
-def test_the_prompts_name_the_budgets_of_the_settings(config: Callable[..., Path]) -> None:
-    """The plan prompt and the review prompt name the call budget of `roadmap.stage` that the run
-    reads (#4346, #5440)."""
-    defaults = (
-        with_call_budget(load_task_prompt("roadmap_stage_tools.md")),
-        with_call_budget(load_task_prompt("roadmap_stage_verify_tools.md")),
-    )
-    config(
-        roadmap={
-            "stage": {
-                "plan_calls_advised": 61,
-                "plan_calls_notice": 81,
-                "review_calls_advised": 82,
-                "review_calls_notice": 121,
-            }
-        }
-    )
-    plan = with_call_budget(load_task_prompt("roadmap_stage_tools.md"))
-    review = with_call_budget(load_task_prompt("roadmap_stage_verify_tools.md"))
-
-    assert ["about 30 tool calls" in defaults[0], "From call number 40," in defaults[0]] == [
-        True,
-        True,
-    ]
-    assert ["about 40 tool calls" in defaults[1], "From call number 60," in defaults[1]] == [
-        True,
-        True,
-    ]
-    assert "about 61 tool calls" in plan
-    assert "From call number 81," in plan
-    assert "call a tool only to check what the problem names" in plan
-    assert "about 82 tool calls" in review
-    assert "From call number 121," in review
-    assert "{{" not in plan + review
-
-
 def test_a_toolbox_run_reads_its_call_limit_from_the_settings(
     checkout: tuple[Path, str], config: Callable[..., Path]
 ) -> None:

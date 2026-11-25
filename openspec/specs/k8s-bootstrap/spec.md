@@ -71,15 +71,15 @@ The devcontainer bootstrap SHALL start Minikube with the `docker` driver and set
 `docs/DEVCONTAINER_USAGE.md` SHALL name the `docker` driver and the rootful Podman socket in Topology 1.
 
 #### Scenario: Guide names the driver and socket
-- **WHEN** `uv run pytest tests/docs/test_docs.py -k devcontainer_usage_driver` runs
-- **THEN** the test passes and asserts the Topology 1 section has `--driver=docker` and `/var/run/docker.sock`
+- **WHEN** `git grep -n -e "--driver=docker" -e "/var/run/docker.sock" -- docs/DEVCONTAINER_USAGE.md` runs
+- **THEN** the command prints a line of the Topology 1 section for each of the two texts
 
 ### Requirement: Issue link replacement
 Each `#MINIKUBE_ISSUE` placeholder in `docs/DEVCONTAINER_USAGE.md` SHALL point to issue #6466.
 
 #### Scenario: Placeholder links resolve to the issue
-- **WHEN** `uv run pytest tests/docs/test_docs.py -k minikube_issue_link` runs
-- **THEN** the test passes and asserts the file has no `#MINIKUBE_ISSUE` text and has `#6466`
+- **WHEN** `git grep -n "#MINIKUBE_ISSUE" -- docs/DEVCONTAINER_USAGE.md` runs
+- **THEN** the command exits 1 with no match, and `git grep -n "#6466" -- docs/DEVCONTAINER_USAGE.md` prints a line
 
 ### Requirement: Live Minikube start
 In the devcontainer, `devops k8s switch-context minikube` MUST start a Minikube cluster that `kubectl get nodes` shows Ready.

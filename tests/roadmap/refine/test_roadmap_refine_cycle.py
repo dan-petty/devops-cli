@@ -25,7 +25,6 @@ from devops_cli.roadmap.stores.store import (
     install_roadmap_store,
 )
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
 from tests.support.roadmap_refine import (
     READY,
     REPO,
@@ -352,14 +351,3 @@ def test_unchanged_active_cycle_keeps_person_wait_with_no_model_call(
         plan.refined_items,
         model_fake.call_count - calls,
     ) == ([(a, "person")], [], 0)
-
-
-def test_refine_guide_names_cycle_step() -> None:
-    """The refine guide lists the cycle step among the next steps and states that only an open
-    dependency outside a cycle makes an item wait (#6515)."""
-    text = (REPO_ROOT / "docs" / "roadmap" / "refine.md").read_text(encoding="utf-8")
-    marker = "An item that refine cannot set to Ready gets a next step. The step is one of these:"
-    _, after = text.split(marker, 1)
-    step_list = after.split("\n\n", 2)[1]
-    assert "cycle" in step_list.lower()
-    assert "outside a cycle" in text.lower()

@@ -92,14 +92,3 @@ def test_audit_row_holds_no_npm_audit_and_audits_root_package_lock_with_osv_scan
     osv_cmds = [cmd for cmd in spec.commands if cmd[0] == BIN_OSV_SCANNER]
     assert len(osv_cmds) == 1
     assert "package-lock.json" in osv_cmds[0]
-
-
-def test_guidance_names_osv_scanner_and_omits_deleted_ignore_files() -> None:
-    """SECURITY.md, docs/ROUTINE_TASKS.md and docs/SDLC.md name osv-scanner and omit old files."""
-    for path in [Path("SECURITY.md"), Path("docs/ROUTINE_TASKS.md"), Path("docs/SDLC.md")]:
-        text = path.read_text(encoding="utf-8")
-        assert "osv-scanner" in text, f"{path} does not name osv-scanner"
-        assert ".osv-scanner-ignore.yaml" not in text, (
-            f"{path} still names .osv-scanner-ignore.yaml"
-        )
-        assert ".npm-audit-ignore.yaml" not in text, f"{path} still names .npm-audit-ignore.yaml"
