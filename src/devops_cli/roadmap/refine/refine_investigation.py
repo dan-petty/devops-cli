@@ -667,7 +667,7 @@ def investigate[T: BaseModel](
     instructions: str,
     request: str,
     tools: ToolSet,
-    output_type: type[T],
+    output_type: type[T] | NativeOutput[T] | ToolOutput[T] | PromptedOutput[T],
     output_check: Callable[[T], str | None] | None = None,
     *,
     toolsets: Sequence[Any] | None = None,

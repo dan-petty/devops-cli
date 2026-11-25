@@ -1394,7 +1394,7 @@ def test_a_stopped_run_with_native_output_records_output_mode_and_part_kinds(
         "Instructions.",
         "{}",
         tools,
-        NativeOutput(RefinementProposal),  # type: ignore[arg-type]
+        NativeOutput(RefinementProposal),
     )
 
     assert not isinstance(stopped, RefinementProposal)
