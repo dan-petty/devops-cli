@@ -342,6 +342,7 @@ and excessive permissions fail it, and every other finding is shown. |
 |  | `devops roadmap step COMMAND [ARGS]...` | Run one step of a roadmap job by hand, the same way the Service runs it. Each step has one purpose. Details: docs/roadmap/stage.md. |
 | [**pr**](commands/pr.md) | `devops pr list [OPTIONS]` | List pull requests with base targeting and review status. |
 |  | `devops pr view [OPTIONS] <number>` | View details of a pull request. |
+|  | `devops pr status [OPTIONS]` | Show status of relevant pull requests. |
 |  | `devops pr checks [OPTIONS] <number>` | Check remote CI quality gate status on a pull request. |
 |  | `devops pr evidence [OPTIONS] <number>` | Post the check results of a pull request as one comment: the head commit, a table of the checks with their conclusion and link, the fail-to-pass run of a fix, and the skipped checks. Every number comes from GitHub. A new head commit updates the comment. |
 |  | `devops pr wait [OPTIONS] <number>` | Wait until the checks of a PR settle, then name every blocker of its merge. |

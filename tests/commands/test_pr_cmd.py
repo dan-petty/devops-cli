@@ -926,3 +926,106 @@ def test_an_unpushed_branch_gets_the_remedy(gh_edge: ProcessFake) -> None:
     answer_gh(gh_edge, returncode=1, stderr="aborted: you must first push the current branch")
     result = CliRunner().invoke(app, ["create", "--title", TITLE, "--body", BODY, "--base", "main"])
     assert "git push -u origin HEAD" in result.output
+
+
+def test_pr_view_forwards_json_jq_and_comments(runner: CliRunner, gh_edge: ProcessFake) -> None:
+    """`pr view` forwards `--json`, `--jq`, and `--comments` and skips fallback on raw error (#4842)."""
+    answer_gh(gh_edge, "pr", "view", stdout='"Title"\n')
+    result = runner.invoke(
+        app, ["view", "12", "--json", "number,title", "--jq", ".title", "--comments"]
+    )
+    assert result.exit_code == 0, result.output
+    assert '"Title"' in result.output
+    argv = gh_argv(gh_edge)[0]
+    assert "--comments" in argv
+    assert argv[argv.index("--json") + 1] == "number,title"
+    assert argv[argv.index("--jq") + 1] == ".title"
+
+    answer_gh(gh_edge, returncode=1, stderr="unknown field: bad")
+    failed = runner.invoke(app, ["view", "12", "--json", "bad", "-R", "owner/repo"])
+    assert failed.exit_code == 1
+    assert "unknown field: bad" in failed.output
+    assert len(gh_argv(gh_edge)) == 2
+
+
+def test_pr_list_forwards_head_search_base_json_and_jq(
+    runner: CliRunner, gh_edge: ProcessFake
+) -> None:
+    """`pr list` forwards filters and uses raw JSON/jq output when requested (#4842)."""
+    answer_gh(gh_edge, "pr", "list", stdout='[{"number": 7}]\n')
+    raw_res = runner.invoke(app, ["list", "--head", "feature", "--json", "number"])
+    assert raw_res.exit_code == 0, raw_res.output
+    assert json.loads(raw_res.output) == [{"number": 7}]
+    argv = gh_argv(gh_edge)[0]
+    assert argv[argv.index("--head") + 1] == "feature"
+    assert argv[argv.index("--json") + 1] == "number"
+
+    answer_gh(gh_edge, "pr", "list", stdout="7\n")
+    jq_res = runner.invoke(app, ["list", "--json", "number", "--jq", ".[].number"])
+    assert jq_res.exit_code == 0, jq_res.output
+    assert jq_res.output.strip() == "7"
+    jq_argv = gh_argv(gh_edge)[1]
+    assert jq_argv[jq_argv.index("--jq") + 1] == ".[].number"
+
+    table_payload = (
+        '[{"number": 9, "title": "draft pr", "state": "OPEN", '
+        '"headRefName": "wip", "baseRefName": "main", '
+        '"author": {"login": "alice"}, "updatedAt": "2026-11-24T00:00:00Z", '
+        '"url": "https://example.com/org/repo/pull/9"}]'
+    )
+    answer_gh(gh_edge, "pr", "list", stdout=table_payload)
+    table_res = runner.invoke(app, ["list", "--search", "is:draft", "--base", "main"])
+    assert table_res.exit_code == 0, table_res.output
+    assert "#9" in table_res.output
+    table_argv = gh_argv(gh_edge)[2]
+    assert table_argv[table_argv.index("--search") + 1] == "is:draft"
+    assert table_argv[table_argv.index("--base") + 1] == "main"
+
+
+def test_pr_list_raw_failure_prints_gh_error_without_table(
+    runner: CliRunner, gh_edge: ProcessFake
+) -> None:
+    """A failed `--json` or `--jq` `pr list` run prints `gh`'s error and runs no fallback (#4842)."""
+    answer_gh(gh_edge, returncode=1, stderr="API rate limit exceeded")
+    result = runner.invoke(app, ["list", "--json", "number", "-R", "owner/repo"])
+    assert result.exit_code == 1
+    assert "API rate limit exceeded" in result.output
+    assert "#" not in result.output
+    assert all(argv[:2] == ["pr", "list"] for argv in gh_argv(gh_edge))
+
+
+def test_pr_status_forwards_json_jq_and_repo(runner: CliRunner, gh_edge: ProcessFake) -> None:
+    """`devops pr status` passes options through to `gh pr status` (#4842)."""
+    answer_gh(gh_edge, "pr", "status", stdout='{"currentBranch": null}\n')
+    result = runner.invoke(app, ["status", "--json", "number", "-R", "owner/repo"])
+    assert result.exit_code == 0, result.output
+    assert '"currentBranch"' in result.output
+    argv = gh_argv(gh_edge)[0]
+    assert argv[:3] == ["pr", "status", "--json"]
+    assert argv[argv.index("--json") + 1] == "number"
+    assert argv[argv.index("--repo") + 1] == "owner/repo"
+
+    answer_gh(gh_edge, returncode=1, stderr="not a git repository")
+    err = runner.invoke(app, ["status"])
+    assert err.exit_code == 1
+    assert "not a git repository" in err.output
+
+
+def test_gh_pr_paths_expose_view_list_and_status(runner: CliRunner, gh_edge: ProcessFake) -> None:
+    """`devops gh pr view`, `list`, and `status` expose the same handlers (#4842)."""
+    from devops_cli.commands.gh import app as gh_app
+
+    answer_gh(gh_edge, "pr", "view", stdout='{"title": "hi"}\n')
+    view_res = runner.invoke(gh_app, ["pr", "view", "12", "--json", "title"])
+    assert view_res.exit_code == 0, view_res.output
+    assert '"hi"' in view_res.output
+
+    answer_gh(gh_edge, "pr", "list", stdout='[{"number": 1}]\n')
+    list_res = runner.invoke(gh_app, ["pr", "list", "--json", "number"])
+    assert list_res.exit_code == 0, list_res.output
+    assert '"number"' in list_res.output
+
+    answer_gh(gh_edge, "pr", "status", stdout="Relevant pull requests\n")
+    status_res = runner.invoke(gh_app, ["pr", "status"])
+    assert status_res.exit_code == 0, status_res.output
+    assert "Relevant pull requests" in status_res.output

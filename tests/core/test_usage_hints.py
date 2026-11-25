@@ -169,25 +169,10 @@ def test_ci_list_and_dash_dash_list_print_all_row_names(
             "devops gh api repos/{owner}/{repo}/issues/comments",
         ),
         (("gh", "issue", "list", "--search", "foo"), "devops gh api search/issues"),
-        (
-            ("gh", "pr", "view", "1", "--json", "number"),
-            "devops gh api repos/{owner}/{repo}/pulls/<n>",
-        ),
-        (
-            ("gh", "pr", "view", "1", "--jq", ".number"),
-            "devops gh api repos/{owner}/{repo}/pulls/<n>",
-        ),
-        (
-            ("gh", "pr", "view", "1", "--comments"),
-            "devops gh api repos/{owner}/{repo}/issues/<n>/comments",
-        ),
         (("gh", "pr", "view", "1", "--search", "foo"), "devops gh api search/issues"),
-        (("gh", "pr", "list", "--json", "number"), "devops gh api repos/{owner}/{repo}/pulls"),
-        (("gh", "pr", "list", "--jq", ".[].number"), "devops gh api repos/{owner}/{repo}/pulls"),
         (("gh", "pr", "list", "--comments"), "devops gh api repos/{owner}/{repo}/pulls/comments"),
-        (("gh", "pr", "list", "--search", "foo"), "devops gh api search/issues"),
-        (("pr", "view", "1", "--json", "number"), "devops gh api repos/{owner}/{repo}/pulls/<n>"),
-        (("pr", "list", "--json", "number"), "devops gh api repos/{owner}/{repo}/pulls"),
+        (("pr", "view", "1", "--search", "foo"), "devops gh api search/issues"),
+        (("pr", "list", "--comments"), "devops gh api repos/{owner}/{repo}/pulls/comments"),
     ],
 )
 def test_interim_gh_flag_hints(cli: CliRunnerFn, args: tuple[str, ...], expected_api: str) -> None:
@@ -284,6 +269,9 @@ def test_hint_table_does_not_duplicate_click_difflib_targets() -> None:
                 for opt in getattr(param, "opts", ())
                 if opt.startswith("--")
             ]
+            assert entry.typed not in options, (
+                f"{entry.command_path} {entry.typed!r}: option exists on the command"
+            )
             close = difflib.get_close_matches(entry.typed, options)
         else:
             close = difflib.get_close_matches(entry.typed, list(cmd.commands.keys()))

@@ -3920,10 +3920,58 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {
+        "base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter pull requests by base branch."
+        },
         "dry_run": {
           "default": false,
           "description": "Preview execution plan without mutating external state.",
           "type": "boolean"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter pull requests by head branch."
+        },
+        "jq_expr": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter JSON output using a jq expression."
+        },
+        "json_fields": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Output JSON with the specified fields (comma-separated)."
         },
         "limit": {
           "default": 30,
@@ -3941,6 +3989,18 @@
           ],
           "default": null,
           "description": "Target repository in OWNER/REPO format."
+        },
+        "search": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Filter pull requests with search query."
         },
         "state": {
           "default": "open",

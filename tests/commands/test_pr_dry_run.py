@@ -31,6 +31,7 @@ from devops_cli.commands.pr import (
     reply_thread,
     resolve_all_threads_cmd,
     resolve_threads,
+    status_pr,
     unresolve_thread,
     view_pr,
 )
@@ -72,6 +73,7 @@ PR_COMMAND_CALLBACKS = [
     ("pr list", list_prs, ["pr", "list", "-R", "owner/repo"]),
     ("pr monitor", monitor_pr_command, ["pr", "monitor", "42", "-R", "owner/repo"]),
     ("pr ready", ready_pr, ["pr", "ready", "42", "-R", "owner/repo"]),
+    ("pr status", status_pr, ["pr", "status", "-R", "owner/repo"]),
     ("pr threads list", list_threads, ["pr", "threads", "list", "42", "-R", "owner/repo"]),
     ("pr threads reply", reply_thread, ["pr", "threads", "reply", "PRRT_kwDOAbc", "LGTM"]),
     (
@@ -285,3 +287,64 @@ def test_a_dry_run_refuses_a_labels_file_that_it_cannot_read(
 
     assert result.exit_code == 1
     assert "Expected list of label specifications" in result.output
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_parts"),
+    [
+        (["pr", "view", "12", "--json", "title", "--dry-run"], ["view", "12", "--json", "title"]),
+        (
+            [
+                "pr",
+                "view",
+                "12",
+                "--json",
+                "number,title",
+                "--jq",
+                ".title",
+                "--comments",
+                "--dry-run",
+            ],
+            ["view", "12", "--comments", "--json", "number,title", "--jq", ".title"],
+        ),
+        (
+            ["pr", "list", "--head", "feature", "--json", "number", "--dry-run"],
+            ["list", "--head", "feature", "--json", "number"],
+        ),
+        (
+            ["pr", "list", "--search", "is:draft", "--base", "main", "--dry-run"],
+            ["list", "--search", "is:draft", "--base", "main"],
+        ),
+        (
+            ["pr", "list", "--json", "number", "--jq", ".[].number", "--dry-run"],
+            ["list", "--json", "number", "--jq", ".[].number"],
+        ),
+        (
+            ["pr", "status", "--json", "number", "-q", ".[]", "-R", "owner/repo", "--dry-run"],
+            ["status", "--json", "number", "--jq", ".[]", "--repo", "owner/repo"],
+        ),
+    ],
+)
+def test_pr_passthrough_flags_and_status_dry_run(
+    argv: list[str],
+    expected_parts: list[str],
+    refuse_requests: list[str],
+    process_fake: ProcessFake,
+) -> None:
+    """New `pr view`, `pr list`, and `pr status` flags appear in `--dry-run` with zero calls (#4842)."""
+    result = runner.invoke(app, argv)
+
+    assert result.exit_code == 0, result.output
+    assert process_fake.calls == []
+    for part in expected_parts:
+        assert part in result.output
+
+
+def test_status_dry_run_plan_matches_args_builder() -> None:
+    """`plan_pr_status` matches `pr_status_args` (#4842)."""
+    from devops_cli.github.pr_plans import plan_pr_status, pr_status_args
+
+    plan = plan_pr_status("owner/repo", json_fields="number,title", jq_expr=".title")
+    assert plan[0].argv == tuple(
+        pr_status_args("owner/repo", json_fields="number,title", jq_expr=".title")
+    )
