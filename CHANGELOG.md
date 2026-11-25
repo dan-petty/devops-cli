@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.218.0](https://github.com/dan-petty/devops-cli/compare/v0.217.0...v0.218.0) (2026-11-25)
+
+
+### Features
+
+* **gh:** refuse agent writes to repo and org settings routes ([#7102](https://github.com/dan-petty/devops-cli/issues/7102)) ([2beb257](https://github.com/dan-petty/devops-cli/commit/2beb2576b026c849635513205d4a3ef7efb4f565))
+
+
+### Bug Fixes
+
+* **ai:** read the status of a gateway error frame in chat_stream ([#7112](https://github.com/dan-petty/devops-cli/issues/7112)) ([3734bc1](https://github.com/dan-petty/devops-cli/commit/3734bc156d4d6551b12ba258ee09622a13843bbb))
+* **security:** judge DS-0002 in harbor pytest Dockerfile ([#7109](https://github.com/dan-petty/devops-cli/issues/7109)) ([ae8bc8b](https://github.com/dan-petty/devops-cli/commit/ae8bc8b6f3ea5961979df5eb5b4ab9244896432a))
+* **service:** decode job records in webhook issue caching ([#7111](https://github.com/dan-petty/devops-cli/issues/7111)) ([e06d0b4](https://github.com/dan-petty/devops-cli/commit/e06d0b43d9cab295c9690c8f9c9e8c41fe517026))
+
 ## [0.217.0](https://github.com/dan-petty/devops-cli/compare/v0.216.0...v0.217.0) (2026-11-25)
 
 
