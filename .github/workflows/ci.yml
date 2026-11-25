@@ -458,6 +458,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           IMAGE_CONTENT_PATHS: |
             Dockerfile
+            smoke.Dockerfile
+            .python-version
             .dockerignore
             .trivyignore.yaml
             .github/actions/image-scan
@@ -507,6 +509,13 @@ jobs:
           # so the read needs no login and no `packages` permission (#6404).
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
 
+      # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202).
+      # `--builder default` is the Docker Engine, which holds the loaded image.
+      - name: Run Service Image Smoke Stage
+        if: steps.image_changes.outputs.changed == 'true'
+        run: docker buildx build --builder default --progress=plain -f smoke.Dockerfile --target service-smoke .
+
+      # What a RUN step cannot make: the start of the entrypoint and the sandbox of the pod.
       - name: Run Service Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
         env:
@@ -515,14 +524,7 @@ jobs:
           docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
           curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
           docker stop svc && docker rm svc
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm --entrypoint gh "$IMAGE" --version
-          docker run --rm --entrypoint git "$IMAGE" --version
-          docker run --rm --entrypoint openspec "$IMAGE" --version
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
-          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
 
       - name: Scan Service Image for Vulnerabilities
         if: steps.image_changes.outputs.changed == 'true'
@@ -563,6 +565,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           IMAGE_CONTENT_PATHS: |
             Dockerfile
+            smoke.Dockerfile
+            .python-version
             .dockerignore
             .trivyignore.yaml
             .github/actions/image-scan
@@ -647,15 +651,24 @@ jobs:
           load: true
           push: false
 
+      # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202).
+      # `--builder default` is the Docker Engine, which holds the loaded images. The uv seed stage
+      # is the check of the release, on the devtools image that the Dockerfile pins.
+      - name: Run Runner, MCP Server and UV Seed Smoke Stages
+        if: steps.image_changes.outputs.changed == 'true'
+        run: |
+          DEVTOOLS_IMAGE=$(sed -n -E 's/^FROM ([^ ]+) AS devtools$/\1/p' Dockerfile)
+          test -n "$DEVTOOLS_IMAGE"
+          for target in mcp-server-smoke runner-smoke uv-seed-smoke; do
+            docker buildx build --builder default --progress=plain -f smoke.Dockerfile --target "$target" --build-arg "DEVTOOLS_IMAGE=$DEVTOOLS_IMAGE" .
+          done
+
       - name: Run MCP Server Image Smoke Test
         if: steps.image_changes.outputs.changed == 'true'
         env:
           IMAGE: devops-cli-mcp-server:local
         run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          docker run --rm --entrypoint kubectl "$IMAGE" version --client
-          docker run --rm --entrypoint helm "$IMAGE" version
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
 
@@ -672,14 +685,10 @@ jobs:
         env:
           IMAGE: devops-cli-runner:local
         run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the image, so a missing tool fails it. The size of the image stays under its bound.
-          docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           # A Job builds the venv of its checkout with the dev group before its first agent step (#6517), and the image holds no dev dependency. So the check runs the bootstrap of the Job on a copy of the checkout, checks the tools of its venv, and runs ruff, pytest and mypy from it. The checkout's .python-version names a patch release that the base image can lack.
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
 
@@ -708,9 +717,6 @@ jobs:
           docker cp "$ID:/seed.json" "$SEED_DIR/seed.json"
           docker cp "$ID:/cache" "$SEED_DIR/cache"
           docker rm "$ID" > /dev/null
-          test -f "$SEED_DIR/seed.json"
-          test -d "$SEED_DIR/cache"
-          jq -e '.uv and .python and .uv_lock_sha256' "$SEED_DIR/seed.json" > /dev/null
           find "$SEED_DIR" ! -type l -exec chmod a+rX {} +
           timeout 60 docker run --rm --network none --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" -v "$SEED_DIR:/opt/uv-seed:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$RUNNER_IMAGE" -ec '
             mkdir /home/devops/project &&

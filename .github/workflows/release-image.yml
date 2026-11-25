@@ -153,7 +153,21 @@ jobs:
           IMAGE_REF: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
         run: docker pull "$IMAGE_REF"
 
-      # Each smoke test is the text of the same step of ci.yml.
+      # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202), on
+      # the pushed digest. The default builder is the Docker Engine, which holds the pulled image.
+      - name: Run the Smoke Stage of the Image
+        env:
+          TARGET: ${{ inputs.image }}
+          IMAGE_REF: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          # The build argument of the image: SERVICE_IMAGE, RUNNER_IMAGE and so on.
+          IMAGE_ARG="$(printf '%s' "$TARGET" | tr 'a-z-' 'A-Z_')_IMAGE"
+          DEVTOOLS_IMAGE=$(sed -n -E 's/^FROM ([^ ]+) AS devtools$/\1/p' Dockerfile)
+          test -n "$DEVTOOLS_IMAGE"
+          docker buildx build --progress=plain -f smoke.Dockerfile --target "${TARGET}-smoke" --build-arg "${IMAGE_ARG}=${IMAGE_REF}" --build-arg "DEVTOOLS_IMAGE=${DEVTOOLS_IMAGE}" .
+
+      # What a RUN step cannot make: the entrypoint, the sandbox of the pod and the size. Each of
+      # these is the text of the same step of ci.yml.
       - name: Run Service Image Smoke Test
         if: inputs.image == 'service'
         env:
@@ -162,28 +176,17 @@ jobs:
           docker run -d --name svc --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges -p 8000:8000 "$IMAGE"
           curl -fsS --retry 10 --retry-connrefused --retry-all-errors --retry-delay 1 http://127.0.0.1:8000/healthz
           docker stop svc && docker rm svc
-          docker run --rm --entrypoint id "$IMAGE" -u
-          docker run --rm --entrypoint gh "$IMAGE" --version
-          docker run --rm --entrypoint git "$IMAGE" --version
-          docker run --rm --entrypoint openspec "$IMAGE" --version
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, numpy, pathlib, pytrec_eval, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v uv'; then exit 1; fi
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
-          if docker run --rm --entrypoint python "$IMAGE" -c 'import pytest'; then exit 1; fi
 
       - name: Run Runner Image Smoke Test
         if: inputs.image == 'runner'
         env:
           IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
         run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          # The check runs the version command of every tool of the image in RUNNER_TOOLS (src/devops_cli/roadmap/runner_tools.py) on the image, so a missing tool fails it. The size of the image stays under its bound.
-          docker run --rm --entrypoint python "$IMAGE" -m devops_cli.roadmap.runner_tools
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 7000000000 ]; then echo "The runner image is $size bytes, over the bound of 7000000000."; exit 1; fi
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777 --cap-drop ALL --security-opt no-new-privileges --entrypoint python "$IMAGE" -c "import getpass, pathlib, subprocess; from devops_cli.config.settings import load_settings; from devops_cli.core.process import run_subprocess; from devops_cli.output.file_writer import write_text_file; write_text_file(load_settings().data.dir / 'probe.txt', 'ok'); repo = pathlib.Path.home() / 'probe'; subprocess.run(['git', 'init', '-q', str(repo)], check=True); assert run_subprocess(['git', 'status', '--porcelain'], cwd=repo).returncode == 0; assert getpass.getuser() == 'devops'"
-          if docker run --rm --entrypoint sh "$IMAGE" -c 'command -v gcc'; then exit 1; fi
           # A Job builds the venv of its checkout with the dev group before its first agent step (#6517), and the image holds no dev dependency. So the check runs the bootstrap of the Job on a copy of the checkout, checks the tools of its venv, and runs ruff, pytest and mypy from it. The checkout's .python-version names a patch release that the base image can lack.
           docker run --rm --read-only --tmpfs /tmp --tmpfs /home/devops:mode=1777,exec,size=3g -v "$PWD:/checkout:ro" --cap-drop ALL --security-opt no-new-privileges --entrypoint sh "$IMAGE" -c 'mkdir /home/devops/project && tar -C /checkout --exclude=./.git --exclude=./.venv --exclude=./node_modules -cf - . | tar -C /home/devops/project -xf - && cd /home/devops/project && python -m devops_cli.roadmap.runner_tools /home/devops/project && uv run ruff --version && uv run pytest --version && uv run mypy --version'
 
@@ -192,34 +195,9 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
         run: |
-          docker run --rm --entrypoint id "$IMAGE" -u
           docker run --rm "$IMAGE" --version
-          docker run --rm --entrypoint kubectl "$IMAGE" version --client
-          docker run --rm --entrypoint helm "$IMAGE" version
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
-
-      - name: Run UV Seed Image Smoke Test
-        if: inputs.image == 'uv-seed'
-        env:
-          IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
-        run: |
-          SEED_DIR="$RUNNER_TEMP/uv-seed-smoke"
-          rm -rf "$SEED_DIR"
-          mkdir -p "$SEED_DIR"
-          ID=$(docker create "$IMAGE" true)
-          docker cp "$ID:/seed.json" "$SEED_DIR/seed.json"
-          docker cp "$ID:/cache" "$SEED_DIR/cache"
-          docker rm "$ID" > /dev/null
-          test -f "$SEED_DIR/seed.json"
-          test -d "$SEED_DIR/cache"
-          jq -e --arg lock "$(sha256sum uv.lock | cut -d' ' -f1)" '.uv and .python == "3.14" and .uv_lock_sha256 == $lock' "$SEED_DIR/seed.json" > /dev/null
-          DEVTOOLS_IMAGE=$(sed -n -E 's/^FROM ([^ ]+) AS devtools$/\1/p' Dockerfile)
-          test -n "$DEVTOOLS_IMAGE"
-          EXPECTED_UV=$(jq -r .uv "$SEED_DIR/seed.json")
-          docker pull --quiet "$DEVTOOLS_IMAGE" > /dev/null
-          find "$SEED_DIR" ! -type l -exec chmod a+rX {} +
-          timeout 60 docker run --rm --network none -e UV_PYTHON=/usr/bin/python3.14 -e UV_PYTHON_DOWNLOADS=never -e UV_COMPILE_BYTECODE=0 -e UV_MALWARE_CHECK=0 -e EXPECTED_UV="$EXPECTED_UV" -v "$PWD:/checkout:ro" -v "$SEED_DIR:/seed:ro" --entrypoint python3.14 "$DEVTOOLS_IMAGE" -c 'import os, pathlib, shutil, subprocess; assert subprocess.check_output(["uv", "--version"], text=True).split()[1] == os.environ["EXPECTED_UV"]; pathlib.Path("/tmp/project").mkdir(); shutil.copytree("/checkout", "/tmp/project", ignore=shutil.ignore_patterns(".git", ".venv", "node_modules", "package-lock.json"), dirs_exist_ok=True); shutil.copytree("/seed/cache", "/tmp/uv-cache", symlinks=True, dirs_exist_ok=True); env = {**os.environ, "UV_CACHE_DIR": "/tmp/uv-cache"}; subprocess.run(["uv", "sync", "--locked", "--group", "dev", "--offline"], cwd="/tmp/project", env=env, check=True); [subprocess.run(["uv", "run", "--offline", t, "--version"], cwd="/tmp/project", env=env, check=True) for t in ("ruff", "pytest", "mypy")]'
 
       # The runner scan only reports (scan-exit-code 0): the runner builds FROM the devtools image,
       # and the findings of its tool binaries go to code scanning and stop no build (SECURITY.md,
