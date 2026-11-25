@@ -452,11 +452,7 @@ A text SHALL name a tool when it holds the full `owner/name` of the repository. 
 
 ### Requirement: The model proposes rejected and the job confirms it
 
-The reply MAY hold the key `adr`: the number of the ADR that rejected the tool of a `covers` or
-`partly` verdict. The job SHALL give `rejected` when the ADRs that the model saw hold that ADR, an
-option of its `Considered Options` list names the tool, and no chosen or adopted option names it.
-The check SHALL record the tool URL. The block SHALL keep the tool line with the URL and name the
-ADR as four digits.
+The reply MAY hold `adr` naming the ADR rejecting a `covers` or `partly` tool. Unless the tool is the item's own repository, the job SHALL give `rejected` before testing the inventory when an ADR in `decisions` has a non-chosen `Considered Options` title naming the tool as its subject, ignoring link targets, prepositions, methods, and qualifiers. The block SHALL name the ADR and keep the tool URL.
 
 #### Scenario: Temporal and ADR 0008
 
@@ -491,9 +487,9 @@ ADR as four digits.
 
 #### Scenario: The census replay
 
-- **WHEN** the test reads ADR 0018 for gVisor and bubblewrap, ADR 0008 for APScheduler and ADR 0005
-  for `github/codeql`
+- **WHEN** the test reads ADR 0018 for gVisor, bubblewrap, and agent-sandbox controller, ADR 0024 for IBM Carbon and GitHub Primer, and ADR 0008 for APScheduler 4
 - **THEN** each ADR rejects its tool
+- **AND** ADR 0005 gives `False` for `github/codeql`
 
 #### Scenario: A deferred option
 
@@ -1028,3 +1024,36 @@ A fenced code block or an HTML block that no close ends runs to the end of the b
 - **AND** the check runs three times on the item
 - **THEN** the first write closes the fence at the end of the body and adds the block after it
 - **AND** the quote keeps each of its lines, and only the first run checks the item
+
+### Requirement: ADR rejection ignores link targets
+`rejects()` SHALL ignore Markdown link targets when matching a tool name in an ADR.
+
+#### Scenario: A repository named only in an issue link
+- **WHEN** `rejects()` inspects ADR 0014 with `<owner>/devops-cli` and `devops-cli`
+- **THEN** `rejects()` returns `False`
+
+### Requirement: Modifiers, prepositional objects, and methods do not reject
+`rejects()` SHALL NOT match a bare tool name that only modifies a different head noun, follows a preposition such as `through`, or names the object of a packaging method such as `bundling`.
+
+#### Scenario: A Kubernetes Lease qualifier
+- **WHEN** `rejects()` inspects ADR 0021 with `kubernetes/kubernetes` and `kubernetes`
+- **THEN** `rejects()` returns `False`
+
+#### Scenario: An instrument after through and a CLI qualifier
+- **WHEN** `rejects()` inspects ADR 0006 with `cli/cli` and `gh`
+- **THEN** `rejects()` returns `False`
+
+#### Scenario: Bundling CodeQL CLI is a method
+- **WHEN** `rejects()` inspects ADR 0005 with `github/codeql` and `CodeQL`
+- **THEN** `rejects()` returns `False`
+
+### Requirement: Genuine path rejection precedes inventory while own repository gives in-use
+The verdict check SHALL return `in-use` for the item's own repository first, SHALL confirm precise ADR rejections before testing the inventory, and SHALL then test the inventory.
+
+#### Scenario: Own repository is in-use even when an ADR is cited
+- **WHEN** `validate_reply` checks an item in `<owner>/devops-cli` with ADR 0014 cited for `https://github.com/<owner>/devops-cli`
+- **THEN** the verdict is `in-use`
+
+#### Scenario: Genuine ADR 0018 rejection stays ahead of inventory
+- **WHEN** `validate_reply` checks an item with ADR 0018 cited for `bubblewrap` and an inventory containing `bubblewrap`
+- **THEN** the verdict is `rejected`

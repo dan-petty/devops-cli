@@ -25,7 +25,7 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_DEPS_DEV_PROJECT_URL, DEFAULT_PYPI_PACKAGE_URL
 from devops_cli.roadmap import alternatives
-from devops_cli.roadmap.adr import Adr
+from devops_cli.roadmap.adr import Adr, adr_of
 from devops_cli.roadmap.alternatives import (
     AlternativesPlan,
     AlternativesReply,
@@ -39,7 +39,7 @@ from devops_cli.roadmap.inventory import Inventory, canonical_id, project_of, re
 from devops_cli.roadmap.stores.store import AlternativesRecordKey, ItemField
 from tests.support.fakes.http import WebFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import FIXTURES
+from tests.support.paths import FIXTURES, REPO_ROOT
 from tests.support.roadmap_alternatives import apply_alternatives
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -352,6 +352,107 @@ def test_an_adr_that_chose_the_tool_gives_no_rejected_verdict(
     )
 
     assert (check.verdict, check.adr) == (Verdict.COVERS, None)
+
+
+def _repo_adr(number: int) -> Adr:
+    path = next((REPO_ROOT / "docs" / "adr").glob(f"{number:04d}-*.md"))
+    loaded = adr_of(f"docs/adr/{path.name}", path.read_text(encoding="utf-8"))
+    assert loaded is not None
+    return loaded
+
+
+def test_genuine_adr_rejection_stays_ahead_of_inventory(
+    store: InMemoryRoadmapStore,
+) -> None:
+    """ADR 0018 rejects bubblewrap even when the deployed inventory holds bubblewrap (#6441)."""
+    number = _item(store, "Run commands safely")
+    inventory = Inventory(frozenset(), "RUN apt-get install -y bubblewrap\n")
+
+    check = _check(
+        store,
+        number,
+        _facts(
+            "https://github.com/containers/bubblewrap",
+            project="github.com/containers/bubblewrap",
+        ),
+        inventory=inventory,
+        adrs=(_repo_adr(18),),
+        adr=18,
+        tool_name="bubblewrap",
+    )
+
+    assert (check.verdict, check.adr) == (Verdict.REJECTED, 18)
+
+
+def test_own_repository_returns_in_use_before_adr_rejection() -> None:
+    """The item's own repository is always `in-use`, even if an ADR is cited (#6441)."""
+    store = InMemoryRoadmapStore(repo="dan-petty/devops-cli", is_private=False)
+    number = _item(store, "Add CLI check")
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/dan-petty/devops-cli"),
+        adrs=(_repo_adr(14),),
+        adr=14,
+        tool_name="dan-petty/devops-cli",
+    )
+
+    assert (check.verdict, check.adr, check.in_repository) == (Verdict.IN_USE, None, True)
+
+
+@pytest.mark.parametrize(
+    ("repo", "adr_number", "tool_url", "tool_name", "expected_verdict"),
+    [
+        pytest.param(
+            "example/roadmap",
+            21,
+            "https://github.com/kubernetes/kubernetes",
+            "kubernetes",
+            Verdict.IN_USE,
+            id="5524-kubernetes",
+        ),
+        pytest.param(
+            "example/roadmap",
+            6,
+            "https://github.com/cli/cli",
+            "gh",
+            Verdict.COVERS,
+            id="5323-gh-cli",
+        ),
+        pytest.param(
+            "dan-petty/devops-cli",
+            14,
+            "https://github.com/dan-petty/devops-cli",
+            "devops-cli",
+            Verdict.IN_USE,
+            id="4719-own-repo",
+        ),
+    ],
+)
+def test_replay_of_known_false_rejections_gives_no_rejected(
+    repo: str,
+    adr_number: int,
+    tool_url: str,
+    tool_name: str,
+    expected_verdict: Verdict,
+) -> None:
+    """Replays of #5524, #5323 and #4719 with repo ADRs give no `rejected` verdict (#6441)."""
+    store = InMemoryRoadmapStore(repo=repo, is_private=False)
+    number = _item(store, "Check item")
+    inventory = Inventory(frozenset(), "image: registry.k8s.io/kubernetes/pause:3.9\n")
+
+    check = _check(
+        store,
+        number,
+        _facts(tool_url),
+        inventory=inventory,
+        adrs=(_repo_adr(adr_number),),
+        adr=adr_number,
+        tool_name=tool_name,
+    )
+
+    assert (check.verdict, check.adr) == (expected_verdict, None)
 
 
 def _checked(
