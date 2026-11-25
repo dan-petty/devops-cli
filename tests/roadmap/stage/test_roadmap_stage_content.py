@@ -467,6 +467,37 @@ def test_a_check_with_no_reader_writes_no_count(caplog: pytest.LogCaptureFixture
     assert _re_anchor_lines(caplog) == []
 
 
+def test_stage_change_delegates_to_shared_citation_module_without_private_copies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stage_change delegates parsing and re-anchoring to devops_cli.citation (#6440)."""
+    import devops_cli.citation as citation
+    import devops_cli.roadmap.stage.stage_change as stage_change
+
+    for private_name in ("_LINE_CITATION", "_SYMBOL_CITATION", "_anchored_line", "_line_citation"):
+        assert not hasattr(stage_change, private_name), private_name
+
+    seen_calls: list[str] = []
+    orig_parse = citation.parse_citation
+    orig_reanchor = citation.reanchor_span
+
+    def _spy_parse(raw: Any) -> Any:
+        seen_calls.append("parse")
+        return orig_parse(raw)
+
+    def _spy_reanchor(content: str, span_text: str, **kwargs: Any) -> citation.ReanchorResult:
+        seen_calls.append("reanchor")
+        return orig_reanchor(content, span_text, **kwargs)
+
+    monkeypatch.setattr(citation, "parse_citation", _spy_parse)
+    monkeypatch.setattr(citation, "reanchor_span", _spy_reanchor)
+
+    problems = _cited(f"The probe shows `{CITED}:4:return 1` at the commit.")
+    assert not any(CITED in p for p in problems)
+    assert "parse" in seen_calls
+    assert "reanchor" in seen_calls
+
+
 def test_a_rule_of_the_plan_check_needs_its_self_acceptance_test() -> None:
     plan = _plan_that_adds_a_rule(
         "Write `test_the_rule_refuses_the_plan` in `tests/roadmap/test_roadmap_stage_content.py`"

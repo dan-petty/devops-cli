@@ -42,6 +42,7 @@ from pydantic import (
 )
 from pydantic.json_schema import SkipJsonSchema
 
+import devops_cli.citation as citation
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ci.fail_to_pass import is_source_code
 from devops_cli.config.constants import (
@@ -204,20 +205,6 @@ _LIVING_SPEC_DIRECTORY: Final[str] = "openspec/specs/"
 # in `changes`, so the stage check names it when no group lists it (#3405).
 _MESSAGES_FILE: Final[str] = "src/devops_cli/lang/en/messages.py"
 _MESSAGE_NAME: Final[re.Pattern[str]] = re.compile(r"\bMESSAGES\.roadmap\b")
-# A plan cites a file of the staged commit in its evidence fields: `path:line:text`, or
-# `path:def name` and `path:class name`, which stay true when the code moves (#3422). The path
-# starts at a word boundary, so the host of a URL is no citation, and the cited text of a line
-# ends at the backtick that closes its code span.
-_CITED_PATH: Final[str] = r"[A-Za-z0-9_][A-Za-z0-9_./-]*\.[A-Za-z0-9_]+"
-_LINE_CITATION: Final[re.Pattern[str]] = re.compile(
-    rf"(?<![\w./-])(?P<path>{_CITED_PATH}):(?P<line>\d+):(?P<text>[^`]*)"
-)
-_SYMBOL_CITATION: Final[re.Pattern[str]] = re.compile(
-    rf"(?<![\w./-])(?P<path>{_CITED_PATH}):(?P<kind>def|class)\s+(?P<symbol>[A-Za-z_]\w*)"
-)
-# The fewest characters of the cited text that the check judges: a shorter text matches almost any
-# line, so the check refuses it and asks for a longer one.
-_CITATION_MIN_CHARS: Final[int] = 3
 # The plan check itself. A plan that adds a rule of it writes the text that the new rule judges,
 # so the plan gives a group test that builds its own `StageProposal` and asserts that
 # `content_problems` returns no problem for it (#3404).
@@ -1791,31 +1778,6 @@ def _evidence_texts(proposal: StageProposal) -> list[tuple[str, str]]:
     return named
 
 
-def _cited_text(text: str) -> str:
-    """The cited text as the check compares it: without its backticks and its one trailing full
-    stop, and with each run of white space as one space, as a line of the file reads."""
-    return _squash(text.replace("`", "").strip().removesuffix("."))
-
-
-def _anchored_line(content: str, number: int, cited: str) -> int | None:
-    """The line of `content`, counting from 1, that a citation of line `number` with the text
-    `cited` names: line `number` when it holds the text, else the one line that holds it, because a
-    line number copied from another commit points at a line that moved (#4479). None when no line
-    holds the text, or more than one other line holds it and no line is sure."""
-    lines = [_squash(line) for line in content.splitlines()]
-    if 1 <= number <= len(lines) and cited in lines[number - 1]:
-        return number
-    holding = [index for index, line in enumerate(lines, start=1) if cited in line]
-    return holding[0] if len(holding) == 1 else None
-
-
-def _defines(content: str, kind: str, symbol: str) -> bool:
-    """Whether `content` defines `symbol` with `kind` at any line, as `def name` or
-    `class name` does."""
-    pattern = re.compile(rf"\b{re.escape(kind)}\s+{re.escape(symbol)}\b")
-    return any(pattern.search(_squash(line)) for line in content.splitlines())
-
-
 @dataclass(frozen=True)
 class _Citation:
     """The verdict on one citation of a plan: its problem, or None when the staged file holds it,
@@ -1827,72 +1789,50 @@ class _Citation:
     re_anchored: bool = False
 
 
-def _line_citation(field: str, path: str, line: str, text: str, content: str | None) -> _Citation:
-    """The verdict on one `path:line:text` citation: the staged file holds it when the cited line
-    holds the text or, for a stale line number, when exactly one other line holds the text."""
-    stale = MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
+def _line_citation_verdict(
+    field: str, cited: citation.LineCitation, content: str | None
+) -> _Citation:
+    """The verdict on one `path:line:text` citation delegated to `devops_cli.citation`."""
+    stale = MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=cited.path)
     if content is None:
         return _Citation(stale, of_line=True)
-    cited = _cited_text(text)
-    if len(cited) < _CITATION_MIN_CHARS:
+    normalized = citation.normalize_cited_text(cited.text)
+    if len(normalized) < citation.CITATION_MIN_CHARS:
         return _Citation(
             MESSAGES.roadmap.stage_problem_citation_short.format(
-                field=field, path=path, least=_CITATION_MIN_CHARS
+                field=field, path=cited.path, least=citation.CITATION_MIN_CHARS
             ),
             of_line=True,
         )
-    anchored = _anchored_line(content, int(line), cited)
-    if anchored is None:
+    anchored = citation.reanchor_span(content, normalized, expected_lines=(cited.line, cited.line))
+    if not anchored.matched:
         return _Citation(stale, of_line=True)
-    return _Citation(None, of_line=True, re_anchored=anchored != int(line))
+    return _Citation(None, of_line=True, re_anchored=anchored.re_anchored)
 
 
-def _symbol_citation_problem(
-    field: str, path: str, kind: str, symbol: str, content: str | None
-) -> str | None:
-    """The problem of one `path:def name` or `path:class name` citation, or None when the staged
-    file defines the symbol at some line."""
-    if content is not None and _defines(content, kind, symbol):
-        return None
-    return MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=path)
-
-
-# The text of a line citation that follows `path:line:` in a code span of its own, after the
-# backtick that closes the span of the citation, if there is one.
-_FOLLOWING_QUOTE: Final[re.Pattern[str]] = re.compile(r"`?\s*`(?P<quote>[^`]+)`")
-
-
-def _quoted_text(text: str, match: re.Match[str]) -> str:
-    """The text that a line citation quotes: the text after `path:line:` up to the next backtick,
-    else the code span that follows it. The prompt asks for the text of the line in a code span, so
-    a plan writes `path:line:` and then the text in a span of its own."""
-    quoted = match.group("text")
-    if _cited_text(quoted):
-        return quoted
-    following = _FOLLOWING_QUOTE.match(text, match.end())
-    return following["quote"] if following else quoted
+def _symbol_citation_verdict(
+    field: str, cited: citation.SymbolCitation, content: str | None
+) -> _Citation:
+    """The verdict on one `path:def name` or `path:class name` citation."""
+    if content is not None and citation.defines_symbol(content, cited.kind, cited.symbol):
+        return _Citation(None)
+    return _Citation(
+        MESSAGES.roadmap.stage_problem_citation_stale.format(field=field, path=cited.path)
+    )
 
 
 def _citations(field: str, text: str, read_text: Callable[[str], str | None]) -> list[_Citation]:
     """The verdict on each citation of `text`: the line citations, then the symbol citations."""
-    found = [
-        _line_citation(
-            field,
-            match["path"],
-            match["line"],
-            _quoted_text(text, match),
-            read_text(match["path"]),
-        )
-        for match in _LINE_CITATION.finditer(text)
-    ]
-    found.extend(
-        _Citation(
-            _symbol_citation_problem(
-                field, match["path"], match["kind"], match["symbol"], read_text(match["path"])
-            )
-        )
-        for match in _SYMBOL_CITATION.finditer(text)
-    )
+    found: list[_Citation] = []
+    for match in citation.LINE_CITATION_RE.finditer(text):
+        quote = citation.quoted_line_text(text, match)
+        parsed = citation.parse_citation(f"{match['path']}:{match['line']}:{quote}")
+        if isinstance(parsed, citation.LineCitation):
+            found.append(_line_citation_verdict(field, parsed, read_text(parsed.path)))
+    for match in citation.SYMBOL_CITATION_RE.finditer(text):
+        parsed = citation.parse_citation(match.group(0))
+        if isinstance(parsed, citation.SymbolCitation):
+            found.append(_symbol_citation_verdict(field, parsed, read_text(parsed.path)))
     return found
 
 
@@ -2072,8 +2012,12 @@ def _security_problems(proposal: StageProposal) -> list[str]:
 
 _QUOTED_OUTPUT: Final[re.Pattern[str]] = re.compile(r'["\'][^"\']+["\']')
 _FACT_NUMBER: Final[re.Pattern[str]] = re.compile(r"\b\d+\b")
-_FACT_PATH_LINE: Final[re.Pattern[str]] = re.compile(rf"(?<![\w./-])(?:{_CITED_PATH}):\d+")
-_FACT_PATH: Final[re.Pattern[str]] = re.compile(rf"(?<![\w./-])(?:{_CITED_PATH})(?!\w)")
+_FACT_PATH_LINE: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![\w./-])(?:{citation.CITED_PATH_PATTERN}):\d+"
+)
+_FACT_PATH: Final[re.Pattern[str]] = re.compile(
+    rf"(?<![\w./-])(?:{citation.CITED_PATH_PATTERN})(?!\w)"
+)
 _FACT_SYMBOL: Final[re.Pattern[str]] = re.compile(
     r"\b[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\b|\b[a-z]+_[a-z0-9_]+\b|\b[A-Z][a-z0-9]+[A-Z]\w*\b"
 )
@@ -2429,7 +2373,7 @@ _PATH_EXTENSIONS: Final[tuple[str, ...]] = (
 # A citation span starts with its path: `path:line:text`, `path:line`, `path:start-end` or
 # `path:def name`. The trace gate judges the path, because a run reads the file, not the citation.
 _CITATION_PATH: Final[re.Pattern[str]] = re.compile(
-    rf"^(?P<path>{_CITED_PATH}):(?:\d+(?:-\d+)?(?::|$)|(?:def|class)\s)"
+    rf"^(?P<path>{citation.CITED_PATH_PATTERN}):(?:\d+(?:-\d+)?(?::|$)|(?:def|class)\s)"
 )
 
 
@@ -2439,7 +2383,9 @@ def _is_path_span(span: str) -> bool:
 
 
 # A citation of one line, `path:line` or `path:line:text`, as a search match shows it (#4495).
-_CITED_LINE: Final[re.Pattern[str]] = re.compile(rf"^(?P<path>{_CITED_PATH}):(?P<line>\d+)(?::|$)")
+_CITED_LINE: Final[re.Pattern[str]] = re.compile(
+    rf"^(?P<path>{citation.CITED_PATH_PATTERN}):(?P<line>\d+)(?::|$)"
+)
 
 
 # A call of a toolbox tool with a quoted path as its first argument, `read_file("path", 60, 80)`.
@@ -2902,7 +2848,7 @@ def _is_class_quote(span: str, source: str) -> bool:
     """Whether `span` holds text of the squashed class `source` (#3407). A quote shorter than the
     bound of the citation rule matches almost any source, so it is no quote."""
     quote = _squash(span)
-    return len(quote) >= _CITATION_MIN_CHARS and quote in source
+    return len(quote) >= citation.CITATION_MIN_CHARS and quote in source
 
 
 def _class_claim_line_problems(
@@ -2982,7 +2928,7 @@ def _is_module_quote(span: str, source: str) -> bool:
     """Whether `span` holds a statement of the squashed module `source` (#3458). A quote shorter
     than the bound of the citation rule matches almost any source, so it is no quote."""
     quote = _squash(span)
-    return len(quote) >= _CITATION_MIN_CHARS and quote in source
+    return len(quote) >= citation.CITATION_MIN_CHARS and quote in source
 
 
 def _module_source(
