@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://fastapi.tiangolo.com/"
+  - "https://www.uvicorn.org/"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "api"
+---
+
 # Knowledge Base Task: Workstation REST API Service Engine
 
 ## 1. Overview & Purpose

@@ -180,14 +180,16 @@ def test_every_hand_written_document_names_only_real_commands() -> None:
     problems = describe_unresolved_references(references)
 
     documents_read = {reference.path for reference in references}
-    cli_reference_lines = sum(
-        1 for reference in references if reference.path.endswith("cli_command_reference.md")
+    task_reference_lines = sum(
+        1
+        for reference in references
+        if reference.path.startswith("src/devops_cli/ai/knowledge_base/devops_cli/tasks/")
     )
     assert (
         problems,
         {"README.md", "docs/SELF_IMPROVEMENT.md", "CONTRIBUTING.md", "k8s/README.md"}
         <= documents_read,
-        cli_reference_lines >= 60,
+        task_reference_lines >= 60,
     ) == ([], True, True)
 
 

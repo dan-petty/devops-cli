@@ -1384,7 +1384,7 @@ class DocGenerator:
             "",
             "## Division 1: DevOps CLI Information (`devops_cli/`)",
             "",
-            f"**Total Articles**: {stats.devops_cli_count} manuals covering internals, configuration, tasks, and libraries.",
+            f"**Total Articles**: {stats.devops_cli_count} manuals covering tasks and libraries.",
             "",
             "| Category | Article File | Topic & Scope |",
             "|---|---|---|",

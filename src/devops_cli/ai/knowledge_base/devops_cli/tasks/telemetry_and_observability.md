@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://opentelemetry.io/"
+  - "https://prometheus.io/docs/concepts/metric_types/"
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/TELEMETRY.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "telemetry"
+---
+
 # Knowledge Base Task: Workstation Telemetry & Observability
 
 ## 1. Overview & Purpose

@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://containers.dev/"
+  - "https://github.com/dan-petty/devops-cli/pkgs/container/devops-cli%2Fdevcontainer"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "devcontainer"
+---
+
 # Knowledge Base Task: DevContainer Lifecycle & Configuration
 
 ## 1. Overview & Purpose

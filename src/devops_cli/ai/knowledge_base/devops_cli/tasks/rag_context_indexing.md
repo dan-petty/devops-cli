@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://ollama.com/library/qwen3-embedding"
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/KNOWLEDGE_BASE.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "rag"
+---
+
 # Knowledge Base Task: RAG Semantic Context Indexing & Knowledge Retrieval
 
 ## 1. Overview & Purpose

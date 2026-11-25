@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/dan-petty/devops-cli"
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/CLI_REFERENCE.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "workspace"
+---
+
 # Knowledge Base Task: Repository & Multi-Root Workspace Management
 
 ## 1. Overview & Purpose

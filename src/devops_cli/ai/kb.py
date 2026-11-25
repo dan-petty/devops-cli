@@ -669,6 +669,28 @@ def _extract_group_tool_keys(group: Any) -> set[str]:
     return keys
 
 
+def kb_metadata_problems(kb_dir: Path | None = None) -> list[str]:
+    """Return sorted metadata validation errors across every knowledge base article (#3917)."""
+    root = (kb_dir if kb_dir is not None else get_knowledge_base_dir()).resolve()
+    if not root.is_dir():
+        return [f"{root}: knowledge base directory does not exist"]
+
+    problems: list[str] = []
+    for path in sorted(root.rglob("*.md")):
+        if not path.is_file() or path.name == "README.md":
+            continue
+        rel = path.relative_to(root).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            problems.append(f"{rel}: failed to read ({exc})")
+            continue
+        front_matter, _body, error = parse_manual_front_matter(text)
+        if error is not None or front_matter is None:
+            problems.append(f"{rel}: {error or 'missing YAML front matter'}")
+    return problems
+
+
 def _is_k8s_group(group: Any) -> bool:
     kind = getattr(group, "kind", None)
     if kind and str(kind).lower() == "k8s_object":
@@ -752,6 +774,7 @@ __all__ = [
     "filter_kb_manuals_for_group",
     "get_knowledge_base_dir",
     "get_knowledge_base_stats",
+    "kb_metadata_problems",
     "knowledge_base_digest",
     "list_knowledge_base_articles",
     "load_kb_article",

@@ -1,3 +1,16 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://opentofu.org/"
+  - "https://search.opentofu.org/"
+  - "https://registry.terraform.io/"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "iac"
+---
+
 # Knowledge Base Task: Infrastructure Provisioning with OpenTofu & Terraform
 
 ## 1. Overview & Purpose

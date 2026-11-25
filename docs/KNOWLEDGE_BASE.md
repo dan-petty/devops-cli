@@ -1,19 +1,16 @@
 # DevOps CLI Knowledge Base Catalog
 
-The bundled Knowledge Base provides **75 operational and architectural manuals**
+The bundled Knowledge Base provides **71 operational and architectural manuals**
 grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflows.
 
 ---
 
 ## Division 1: DevOps CLI Information (`devops_cli/`)
 
-**Total Articles**: 38 manuals covering internals, configuration, tasks, and libraries.
+**Total Articles**: 34 manuals covering tasks and libraries.
 
 | Category | Article File | Topic & Scope |
 |---|---|---|
-| `devops_cli` | [`architecture.md`](../src/devops_cli/ai/knowledge_base/devops_cli/architecture.md) | Architecture |
-| `devops_cli` | [`cli_command_reference.md`](../src/devops_cli/ai/knowledge_base/devops_cli/cli_command_reference.md) | Cli Command Reference |
-| `devops_cli` | [`configuration_and_settings.md`](../src/devops_cli/ai/knowledge_base/devops_cli/configuration_and_settings.md) | Configuration And Settings |
 | `libraries` | [`bandit_actionlint.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/bandit_actionlint.md) | Bandit Actionlint |
 | `libraries` | [`cryptography.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/cryptography.md) | Cryptography |
 | `libraries` | [`docker.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/docker.md) | Docker |
@@ -36,7 +33,6 @@ grounding DevOps CLI subcommands, multi-agent AI reviews, and developer workflow
 | `libraries` | [`tiktoken.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/tiktoken.md) | Tiktoken |
 | `libraries` | [`tldextract.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/tldextract.md) | Tldextract |
 | `libraries` | [`typer.md`](../src/devops_cli/ai/knowledge_base/devops_cli/libraries/typer.md) | Typer |
-| `devops_cli` | [`python_packages.md`](../src/devops_cli/ai/knowledge_base/devops_cli/python_packages.md) | Python Packages |
 | `tasks` | [`agent_instructions_scaffolding.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/agent_instructions_scaffolding.md) | Agent Instructions Scaffolding |
 | `tasks` | [`ai_code_review.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md) | Ai Code Review |
 | `tasks` | [`ci_quality_gate.md`](../src/devops_cli/ai/knowledge_base/devops_cli/tasks/ci_quality_gate.md) | Ci Quality Gate |

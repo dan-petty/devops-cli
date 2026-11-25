@@ -1,3 +1,15 @@
+---
+applies_to:
+  - "python>=3.14"
+sources:
+  - "https://github.com/dan-petty/devops-cli"
+  - "https://github.com/dan-petty/devops-cli/blob/main/docs/SDLC.md"
+reviewed: "2026-11-25"
+tags:
+  - "tasks"
+  - "ai-review"
+---
+
 # Knowledge Base Task: AI Code Review
 
 ## 1. Overview & Purpose
