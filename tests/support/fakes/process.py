@@ -18,6 +18,7 @@ import pytest
 
 from devops_cli.config.defaults import DEFAULT_SUBPROCESS_TIMEOUT_SECONDS
 from devops_cli.core import clock as clock_seam
+from devops_cli.core import process as core_process
 from devops_cli.core.process import (
     PlannedProcessResult,
     prepare_tool_cmd,
@@ -266,6 +267,45 @@ class ProcessFake:
         """Prepare command arguments list, injecting standardized uv preview features when starting uv."""
         return prepare_tool_cmd(cmd)
 
+    def _record_checked_call(
+        self,
+        argv: tuple[str, ...],
+        *,
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+        timeout: float = DEFAULT_SUBPROCESS_TIMEOUT_SECONDS,
+        capture_output: bool = True,
+        intent: str | None = None,
+        local_read: bool = False,
+        stdin: str | bytes | None = None,
+        check: bool = False,
+        isolate_env: bool = True,
+        detached: bool = False,
+        extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
+    ) -> ProcessCall:
+        """Validate env overrides through `build_subprocess_env`, record the call, and return it."""
+        core_process.build_subprocess_env(
+            env=env,
+            isolate_env=isolate_env,
+            extra_allowed_keys=extra_allowed_env,
+        )
+        call = ProcessCall(
+            argv=argv,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+            capture_output=capture_output,
+            intent=intent,
+            local_read=local_read,
+            stdin=stdin,
+            check=check,
+            isolate_env=isolate_env,
+            detached=detached,
+            extra_allowed_env=frozenset(extra_allowed_env or ()),
+        )
+        self.calls.append(call)
+        return call
+
     def run(
         self,
         cmd: Sequence[str],
@@ -287,8 +327,8 @@ class ProcessFake:
         as `stdin`.
         """
         full_cmd = prepare_tool_cmd(cmd)
-        call = ProcessCall(
-            argv=tuple(full_cmd),
+        call = self._record_checked_call(
+            tuple(full_cmd),
             cwd=cwd,
             env=env,
             timeout=timeout,
@@ -298,9 +338,8 @@ class ProcessFake:
             stdin=stdin if stdin is not None else input,
             check=check,
             isolate_env=kwargs.get("isolate_env", True),
-            extra_allowed_env=frozenset(kwargs.get("extra_allowed_env") or ()),
+            extra_allowed_env=kwargs.get("extra_allowed_env"),
         )
-        self.calls.append(call)
 
         if is_dry_run() and not (local_read or intent in ("read", "local_read")):
             method = call.argv[0] if call.argv else "process"
@@ -344,6 +383,7 @@ class ProcessFake:
         self,
         cmd: Sequence[str] | list[str],
         *,
+        env: dict[str, str] | None = None,
         isolate_env: bool = True,
         extra_allowed_env: set[str] | list[str] | frozenset[str] | None = None,
     ) -> Any:
@@ -351,14 +391,14 @@ class ProcessFake:
 
         With no `process` scripted, the child has ended at once with the answer's return code.
         """
-        call = ProcessCall(
-            argv=tuple(cmd),
+        call = self._record_checked_call(
+            tuple(cmd),
+            env=env,
             capture_output=False,
             detached=True,
             isolate_env=isolate_env,
-            extra_allowed_env=frozenset(extra_allowed_env or ()),
+            extra_allowed_env=extra_allowed_env,
         )
-        self.calls.append(call)
         ans = self._match_answer(call)
         if isinstance(ans.side_effect, BaseException):
             raise ans.side_effect
@@ -384,8 +424,8 @@ class ProcessFake:
     ) -> subprocess.CompletedProcess[str]:
         """Record and execute an asynchronous subprocess command."""
         full_cmd = prepare_tool_cmd(cmd)
-        call = ProcessCall(
-            argv=tuple(full_cmd),
+        call = self._record_checked_call(
+            tuple(full_cmd),
             cwd=cwd,
             env=env,
             timeout=timeout,
@@ -394,8 +434,9 @@ class ProcessFake:
             local_read=local_read,
             stdin=stdin,
             check=check,
+            isolate_env=kwargs.get("isolate_env", True),
+            extra_allowed_env=kwargs.get("extra_allowed_env"),
         )
-        self.calls.append(call)
 
         if is_dry_run() and not (local_read or intent in ("read", "local_read")):
             method = call.argv[0] if call.argv else "process"
