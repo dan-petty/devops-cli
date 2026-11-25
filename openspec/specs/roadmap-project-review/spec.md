@@ -334,7 +334,7 @@ The loader SHALL refuse a `rows` fact whose query names `namespace` or `pod` in 
 - **THEN** the loader raises no error, each `rows` fact whose query names `namespace` or `pod` in a `by` or `on` clause holds a positive namespace matcher in its query and in its `base` after the fill, and no filled query holds `{namespaces}`
 
 ### Requirement: The dispatcher keeps no row of a workload outside the project namespaces
-When a series of the answer of a `rows` fact of Prometheus or Loki holds a namespace label (`namespace`, `exported_namespace` or `dest_namespace`) outside `roadmap.project_review.namespaces`, or a workload label of the dispatcher list (for example `pod`, `container` or `service`) and no `namespace`, the fact SHALL have the status `error` and a null value. The reason SHALL name the fact and the label, and SHALL hold no label value. The dispatcher SHALL check only the labels of its lists.
+When a Prometheus or Loki `rows` series holds a namespace label outside `roadmap.project_review.namespaces`, or holds no namespace label and any non-`__name__` label outside `_SAFE_ROW_LABELS`, the fact SHALL have status `error` and null value. The reason SHALL name the fact and the first sorted offending label with no label value. Each shipped `rows` fact in `catalog.yaml` SHALL pass, and `dispatch.py`, `catalog.yaml`, and `docs/ROADMAP_WORKFLOW.md` SHALL state this default refusal.
 
 #### Scenario: A row of another namespace
 - **WHEN** `roadmap.project_review.namespaces` is `devops`, the query of the `rows` fact `prometheus.valkey_rows` is `sort_desc(sum without (instance) (redis_memory_used_bytes))`, and the fixture Prometheus answers a series with `namespace` `devops` and `pod` `valkey-0` and a series with `namespace` `other-project` and `pod` `database-0`
@@ -343,6 +343,10 @@ When a series of the answer of a `rows` fact of Prometheus or Loki holds a names
 #### Scenario: A row with a workload label and no namespace
 - **WHEN** the fixture Prometheus answers the same fact with a series with `pod` `database-0` and no `namespace`, or with `container` `database` and no `namespace`
 - **THEN** the fact has the status `error`, and the reason names `pod` or `container` and holds no label value
+
+#### Scenario: A row with an unknown label and no namespace
+- **WHEN** the fixture Prometheus answers the same fact with a series with `name` `other-app` and no `namespace`
+- **THEN** the fact has the status `error`, and the reason names `prometheus.valkey_rows` and `name` and holds no label value
 
 #### Scenario: A row of another namespace in a label of the scrape or of Traefik
 - **WHEN** the fixture Prometheus answers the same fact with a series with `namespace` `devops`, `exported_namespace` `other-project` and `exported_pod` `db-0`, or with a series with `service` `other-project-database-5432@kubernetes` and no `namespace`
@@ -355,6 +359,14 @@ When a series of the answer of a `rows` fact of Prometheus or Loki holds a names
 #### Scenario: A row with no workload label
 - **WHEN** the fixture Prometheus answers the `rows` fact with one series with only the label `resource`, or with only `namespace` `devops` and `pod` `valkey-0`, or with no label
 - **THEN** the fact has the status `ok`, and its value is that one row
+
+#### Scenario: A row with safe labels or a project namespace
+- **WHEN** the fixture Prometheus answers a `rows` fact with one series holding only labels from `_SAFE_ROW_LABELS` (`resource`, `le`), or holding `namespace` `devops` with `name` `app`, or holding no label
+- **THEN** the fact has the status `ok`, and its value is that row
+
+#### Scenario: Shipped catalog rows pass the guard
+- **WHEN** a test loads `catalog.yaml` and runs the guard on synthetic rows holding the kept labels of each `shape: rows` fact
+- **THEN** every shipped `rows` fact passes the guard
 
 ### Requirement: The project namespaces are a setting
 The setting `roadmap.project_review.namespaces` SHALL list the project namespaces whose workloads the review can name. The settings load SHALL refuse an empty list, and each name that is not an RFC 1123 label. The review and its dry run SHALL fill `{namespaces}` from this setting.

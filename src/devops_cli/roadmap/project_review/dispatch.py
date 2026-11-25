@@ -37,10 +37,9 @@ Each other exception stops the run.
 
 A review gives no name of a workload outside the project namespaces (#6615). The loader reads the
 `by (...)` and `on (...)` clauses of a query. The dispatcher also reads the labels of each series
-of a `rows` fact, so a form that keeps every label (no aggregation, `without (...)`, `topk`, `sort`
-or `label_replace`) cannot keep a label of _NAMESPACE_LABELS or _WORKLOAD_LABELS of another
-project in the review. The dispatcher does not check another label, for example a label that
-`label_replace` writes or the application `name` of Argo CD: a fact must not group by such a label.
+of a `rows` fact (#6632): each series must hold only project namespaces in its `_NAMESPACE_LABELS`,
+or, when it holds no namespace label, keep only labels in `_SAFE_ROW_LABELS` (and `__name__`). Any
+series with an unlisted non-namespaced label makes the fact `error` by default.
 """
 
 from __future__ import annotations
@@ -122,28 +121,31 @@ _RANGE: Final = "{range}"
 # `exported_namespace`, and the destination of an Argo CD application. In a series of a `rows`
 # fact, each of them holds a namespace of roadmap.project_review.namespaces, else the fact gives
 # `error`.
+# The labels that name a project namespace: a series with any of these must hold a configured
+# project namespace, else the fact gives `error`.
 _NAMESPACE_LABELS: Final = ("namespace", "exported_namespace", "dest_namespace")
-# The labels that name a workload: the labels by which the catalog facts group (pod, container),
-# the workload labels of kube-state-metrics, the labels that a scrape keeps as `exported_*`, the
-# Service of Traefik and kube-state-metrics, and the volume claim of the kubelet. A series of a
-# `rows` fact that holds one of them holds `namespace`, else the fact gives `error`. The guard
-# reads only these labels and those of _NAMESPACE_LABELS: it does not check another label.
-_WORKLOAD_LABELS: Final = frozenset(
+# Safe-label allowlist for `rows` facts that keep no `_NAMESPACE_LABELS` (#6632): taken from the
+# labels that shipped `rows` facts keep plus Prometheus histogram `le` and summary `quantile`.
+# A non-namespaced series with any label (other than `__name__`) outside this safe list fails the
+# guard by default, so an unknown workload or application label never leaks across namespaces.
+_SAFE_ROW_LABELS: Final = frozenset(
     {
-        "pod",
-        "container",
-        "deployment",
-        "statefulset",
-        "daemonset",
-        "replicaset",
-        "job_name",
-        "cronjob",
-        "created_by_name",
-        "owner_name",
-        "exported_pod",
-        "exported_container",
-        "service",
-        "persistentvolumeclaim",
+        "alertname",
+        "cap",
+        "code_class",
+        "gpu",
+        "health_status",
+        "le",
+        "model",
+        "modelName",
+        "outcome",
+        "quantile",
+        "resource",
+        "result",
+        "row",
+        "rule_group",
+        "state",
+        "sync_status",
     }
 )
 
@@ -326,10 +328,10 @@ def _vector_value(
 
 
 def _foreign_workload(result: PrometheusQueryResult, namespaces: Sequence[str]) -> str | None:
-    """The label of the first series of `result` that names a workload outside `namespaces`:
-    the first label of _NAMESPACE_LABELS whose value is not in `namespaces`, else a label of
-    _WORKLOAD_LABELS of a series with no `namespace`; or None. The value of a label never leaves
-    this function."""
+    """The first offending label of `result`, or None (#6615, #6632): first any label in
+    `_NAMESPACE_LABELS` whose value is outside `namespaces`; otherwise, for a series with no label
+    in `_NAMESPACE_LABELS`, the sorted first label (excluding `__name__`) not in `_SAFE_ROW_LABELS`.
+    No label value ever leaves this function."""
     for series in result.series:
         labels = series.labels
         foreign = [
@@ -337,9 +339,11 @@ def _foreign_workload(result: PrometheusQueryResult, namespaces: Sequence[str]) 
         ]
         if foreign:
             return foreign[0]
-        named = _WORKLOAD_LABELS.intersection(labels)
-        if named and "namespace" not in labels:
-            return min(named)
+        if any(key in labels for key in _NAMESPACE_LABELS):
+            continue
+        unsafe = [key for key in labels if key != "__name__" and key not in _SAFE_ROW_LABELS]
+        if unsafe:
+            return min(unsafe)
     return None
 
 

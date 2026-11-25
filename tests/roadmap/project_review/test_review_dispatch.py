@@ -7,6 +7,7 @@ reason of a missing series (#6612)."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,13 +18,25 @@ import pytest
 import yaml
 
 from devops_cli.config.settings import load_settings
-from devops_cli.roadmap.project_review.catalog import Catalog, load_catalog, window_placeholders
+from devops_cli.models.prometheus import PrometheusQueryResult
+from devops_cli.roadmap.project_review.catalog import (
+    Catalog,
+    Shape,
+    load_catalog,
+    window_placeholders,
+)
 from devops_cli.roadmap.project_review.data import FactStatus, ReviewWindow, WindowKind
-from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
+from devops_cli.roadmap.project_review.dispatch import (
+    ReadContext,
+    _foreign_workload,
+    plan_catalog,
+    read_catalog,
+)
 from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
+from tests.support.paths import REPO_ROOT
 
 REPO = "example/project"
 END = datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC)
@@ -671,3 +684,79 @@ def test_a_row_with_no_workload_label_or_of_a_project_namespace_is_kept(
         [{"labels": dict(labels), "value": 0.25}],
         1,
     )
+
+
+def test_a_row_with_an_unknown_label_and_no_namespace_marks_the_fact_error(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path]
+) -> None:
+    """Default refusal: a non-namespaced row with a label outside the safe list fails (#6632)."""
+    config(prometheus={"url": PROMETHEUS}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    web.serve(lambda _request: _vector(({"name": "other-app", "zebra": "secret"}, 1.0)))
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.argocd_rows", EVERY_LABEL, "rows")])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert (read.status, read.value, read.n) == (FactStatus.ERROR, None, None)
+    assert (
+        "prometheus.argocd_rows" in read.reason,
+        "`name`" in read.reason,
+        "other-app" in read.reason,
+        "secret" in read.reason,
+    ) == (True, True, False, False)
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        {"namespace": "devops", "name": "app"},
+        {"__name__": "http_requests_total", "resource": "cpu", "le": "0.5"},
+        {"code_class": "2xx", "quantile": "0.99"},
+    ],
+)
+def test_a_row_of_a_project_namespace_or_safe_labels_passes(
+    tmp_path: Path, web: WebFake, config: Callable[..., Path], labels: Mapping[str, str]
+) -> None:
+    config(prometheus={"url": PROMETHEUS}, roadmap={"project_review": {"namespaces": ["devops"]}})
+    web.serve(lambda _request: _vector((labels, 1.0)))
+    catalog = _catalog(tmp_path, [_prometheus_fact("prometheus.safe_rows", EVERY_LABEL, "rows")])
+
+    [read] = read_catalog(catalog, _context(tmp_path)).facts
+
+    assert read.status == FactStatus.OK
+
+
+def test_shipped_rows_facts_keep_only_safe_or_namespaced_labels() -> None:
+    """Every shipped `rows` fact in `catalog.yaml` passes `_foreign_workload` (#6632)."""
+    by_clause = re.compile(r"\bby\s*\(([^)]*)\)")
+    catalog = load_catalog()
+    rows_facts = [fact for fact in catalog.facts if fact.shape is Shape.ROWS]
+    assert rows_facts
+    for fact in rows_facts:
+        metric: dict[str, str] = {"__name__": "metric"}
+        for clause in by_clause.findall(fact.query):
+            for raw in clause.split(","):
+                label = raw.strip()
+                if label:
+                    metric[label] = "devops" if label == "namespace" else "val"
+        result = PrometheusQueryResult.model_validate(
+            {
+                "status": "success",
+                "data": {"resultType": "vector", "result": [{"metric": metric, "value": [1, "1"]}]},
+            }
+        )
+        assert _foreign_workload(result, ["devops"]) is None, (
+            f"{fact.id} kept unsafe labels: {metric}"
+        )
+
+
+def test_safe_list_rule_is_documented_in_dispatch_catalog_and_workflow_doc() -> None:
+    """`dispatch.py`, `catalog.yaml`, and `docs/ROADMAP_WORKFLOW.md` name `_SAFE_ROW_LABELS` and
+    default refusal (#6632)."""
+    for rel in (
+        "src/devops_cli/roadmap/project_review/dispatch.py",
+        "src/devops_cli/roadmap/project_review/catalog.yaml",
+        "docs/ROADMAP_WORKFLOW.md",
+    ):
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert "_SAFE_ROW_LABELS" in text, rel
+        assert "default" in text.lower(), rel
