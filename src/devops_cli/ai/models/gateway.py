@@ -30,11 +30,13 @@ from pydantic_ai.exceptions import (
     FallbackExceptionGroup,
     ModelAPIError,
     ModelConnectionError,
+    ModelRequestTimeout,
     ModelTimeoutError,
     UnexpectedModelBehavior,
 )
 from pydantic_ai.messages import ModelMessage, ModelResponse
 from pydantic_ai.models import Model, ModelRequestParameters, StreamedResponse
+from pydantic_ai.models._request_timeout import RequestDeadline
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings, merge_model_settings
@@ -62,6 +64,8 @@ def failed_before_first_event(error: Exception) -> bool:
         return True
     if isinstance(error, ModelAPIError) and error.in_stream:
         return True
+    if isinstance(error, ModelRequestTimeout):
+        return error.setting == "first_event_timeout"
     if isinstance(error, ModelConnectionError):
         return not isinstance(error, ModelTimeoutError)
     return isinstance(error, UnexpectedModelBehavior)
@@ -82,13 +86,30 @@ class GatewayCallModel(WrapperModel):
     """The chat model of a gateway group, sent at most `max_retries` + 1 times for one call, under
     one deadline of `request_timeout` seconds unless the run sets another."""
 
-    def __init__(self, wrapped: Model, *, max_retries: int, request_timeout: float) -> None:
+    def __init__(
+        self,
+        wrapped: Model,
+        *,
+        max_retries: int,
+        request_timeout: float,
+        first_token_timeout: float | None = None,
+    ) -> None:
         super().__init__(wrapped)
         sends = [self.wrapped] * (max_retries + 1)
         self._calls = FallbackModel(*sends, fallback_on=never_sent)
         self._streams = FallbackModel(*sends, fallback_on=failed_before_first_event)
-        self._defaults = ModelSettings(request_timeout=request_timeout, max_retries=0)
+        defaults: ModelSettings = {"request_timeout": request_timeout, "max_retries": 0}
+        if first_token_timeout is not None:
+            defaults["first_event_timeout"] = first_token_timeout
+        self._defaults = defaults
         self.served_model: str | None = None
+
+    def _start_request_deadline(
+        self, model_settings: ModelSettings | None, *, stream: bool
+    ) -> RequestDeadline | None:
+        """Keep `request_timeout` across all sends at the outer wrapper, while letting `_streams`
+        enforce `first_event_timeout` independently on each send (#6000)."""
+        return super()._start_request_deadline(model_settings, stream=False)
 
     @property
     def settings(self) -> ModelSettings | None:
