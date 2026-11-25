@@ -34,7 +34,11 @@ def _unpinned_dockerfile_images(dockerfile: Path) -> list[str]:
         if cmd == "FROM":
             if len(tokens) >= 4 and tokens[2].upper() == "AS":
                 stage_names.add(tokens[3])
-            if "@sha256:" not in tokens[1] and tokens[1] not in stage_names:
+            if (
+                tokens[1] != "scratch"
+                and "@sha256:" not in tokens[1]
+                and tokens[1] not in stage_names
+            ):
                 unpinned.append(line)
         elif cmd == "COPY" and _check_copy_from_ref(tokens, stage_names):
             unpinned.append(line)
@@ -75,3 +79,14 @@ def test_the_service_stage_runs_openspec_with_telemetry_off() -> None:
         "OPENSPEC_NO_UPDATE_CHECK": "1",
     }
     assert env.get("DO_NOT_TRACK") == "1"
+
+
+def test_unpinned_dockerfile_images_allows_scratch_and_reports_unpinned(tmp_path: Path) -> None:
+    """Docker's reserved empty `scratch` base has no digest; other bases must pin `@sha256:`."""
+    sample = tmp_path / "sample.df"
+    sample.write_text(
+        "FROM scratch AS uv-seed\nFROM python:3.14-slim-trixie AS bad\n",
+        encoding="utf-8",
+    )
+
+    assert _unpinned_dockerfile_images(sample) == ["FROM python:3.14-slim-trixie AS bad"]

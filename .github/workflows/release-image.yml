@@ -199,6 +199,28 @@ jobs:
           size=$(docker image inspect "$IMAGE" --format '{{.Size}}')
           if [ "$size" -gt 3000000000 ]; then echo "The mcp-server image is $size bytes, over the bound of 3000000000."; exit 1; fi
 
+      - name: Run UV Seed Image Smoke Test
+        if: inputs.image == 'uv-seed'
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}/${{ inputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          SEED_DIR="$RUNNER_TEMP/uv-seed-smoke"
+          rm -rf "$SEED_DIR"
+          mkdir -p "$SEED_DIR"
+          ID=$(docker create "$IMAGE" true)
+          docker cp "$ID:/seed.json" "$SEED_DIR/seed.json"
+          docker cp "$ID:/cache" "$SEED_DIR/cache"
+          docker rm "$ID" > /dev/null
+          test -f "$SEED_DIR/seed.json"
+          test -d "$SEED_DIR/cache"
+          jq -e --arg lock "$(sha256sum uv.lock | cut -d' ' -f1)" '.uv and .python == "3.14" and .uv_lock_sha256 == $lock' "$SEED_DIR/seed.json" > /dev/null
+          DEVTOOLS_IMAGE=$(sed -n -E 's/^FROM ([^ ]+) AS devtools$/\1/p' Dockerfile)
+          test -n "$DEVTOOLS_IMAGE"
+          EXPECTED_UV=$(jq -r .uv "$SEED_DIR/seed.json")
+          docker pull --quiet "$DEVTOOLS_IMAGE" > /dev/null
+          find "$SEED_DIR" ! -type l -exec chmod a+rX {} +
+          timeout 60 docker run --rm --network none -e UV_PYTHON=/usr/bin/python3.14 -e UV_PYTHON_DOWNLOADS=never -e UV_COMPILE_BYTECODE=0 -e UV_MALWARE_CHECK=0 -e EXPECTED_UV="$EXPECTED_UV" -v "$PWD:/checkout:ro" -v "$SEED_DIR:/seed:ro" --entrypoint python3.14 "$DEVTOOLS_IMAGE" -c 'import os, pathlib, shutil, subprocess; assert subprocess.check_output(["uv", "--version"], text=True).split()[1] == os.environ["EXPECTED_UV"]; pathlib.Path("/tmp/project").mkdir(); shutil.copytree("/checkout", "/tmp/project", ignore=shutil.ignore_patterns(".git", ".venv", "node_modules", "package-lock.json"), dirs_exist_ok=True); shutil.copytree("/seed/cache", "/tmp/uv-cache", symlinks=True, dirs_exist_ok=True); env = {**os.environ, "UV_CACHE_DIR": "/tmp/uv-cache"}; subprocess.run(["uv", "sync", "--locked", "--group", "dev", "--offline"], cwd="/tmp/project", env=env, check=True); [subprocess.run(["uv", "run", "--offline", t, "--version"], cwd="/tmp/project", env=env, check=True) for t in ("ruff", "pytest", "mypy")]'
+
       # The runner scan only reports (scan-exit-code 0): the runner builds FROM the devtools image,
       # and the findings of its tool binaries go to code scanning and stop no build (SECURITY.md,
       # Dedicated Development Resources and Sandboxes). The Service and MCP server scans keep the
