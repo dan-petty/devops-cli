@@ -15,7 +15,6 @@ from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.exceptions.tools import ToolExecutionError
 from devops_cli.lang import HELP, MESSAGES
 from devops_cli.openspec.archive import archive_change, plan_archive
-from devops_cli.openspec.gate import check_openspec, plan_check, version_finding
 from devops_cli.openspec.scaffold import scaffold_change
 from devops_cli.openspec.skills import regenerate_skills
 from devops_cli.openspec.tool import isolated_openspec
@@ -31,6 +30,8 @@ app = new_typer(help=HELP.openspec.app, no_args_is_help=True)
 def check() -> None:
     """Run the OpenSpec gate over the checkout; exit 1 when it finds a problem. A dry run lists
     the commands of the gate and runs none of them."""
+    from devops_cli.openspec.gate import check_openspec, plan_check
+
     if is_dry_run():
         render_request_plan(
             MESSAGES.openspec.check_dry_run_heading,
@@ -54,6 +55,8 @@ def regenerate() -> None:
     """Rewrite the committed OpenSpec skills under the isolated custom profile. The command reads
     the version of the binary first, and stops before it writes when that binary is not at the
     version that `package-lock.json` pins (#5375, #6409)."""
+    from devops_cli.openspec.gate import version_finding
+
     root = find_worktree_root()
     with isolated_openspec(root) as tool:
         if not is_dry_run():

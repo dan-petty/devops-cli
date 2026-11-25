@@ -10,7 +10,7 @@ Conditions).
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -40,26 +40,41 @@ def show_args(change: str) -> tuple[str, ...]:
     return ("show", change, "--json", "--deltas-only")
 
 
-def _rewrites(tool: OpenSpecTool, root: Path, change: str) -> set[tuple[str, str, str]]:
-    """The (capability, requirement, operation) triples `change` rewrites."""
-    shown = tool.read_json(show_args(change), root)
-    return {
-        (delta["spec"], _rewritten_requirement(delta), delta["operation"])
-        for delta in shown["deltas"]
-        if delta["operation"] in CONST_OPENSPEC_REWRITING_OPERATIONS
-    }
+def _delta_rewrites(delta: Mapping[str, Any]) -> tuple[str, str, str] | None:
+    """The (capability, requirement, operation) triple if `delta` rewrites a requirement."""
+    if delta["operation"] not in CONST_OPENSPEC_REWRITING_OPERATIONS:
+        return None
+    return (delta["spec"], _rewritten_requirement(dict(delta)), delta["operation"])
 
 
-def overlapping_requirements(
+def change_deltas(
     tool: OpenSpecTool, root: Path, changes: Iterable[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Read `openspec show --json --deltas-only` deltas once per active change (#5378)."""
+    return {change: list(tool.read_json(show_args(change), root)["deltas"]) for change in changes}
+
+
+def overlapping_deltas(
+    deltas_by_change: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> list[Overlap]:
-    """Each requirement that more than one of the active `changes` under `root` rewrites."""
+    """Each requirement that more than one change in `deltas_by_change` rewrites."""
     rewriters: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
-    for change in changes:
-        for capability, requirement, operation in _rewrites(tool, root, change):
+    for change, deltas in deltas_by_change.items():
+        for delta in deltas:
+            rewrite = _delta_rewrites(delta)
+            if rewrite is None:
+                continue
+            capability, requirement, operation = rewrite
             rewriters[capability, requirement].add((change, operation))
     return [
         Overlap(capability, requirement, tuple(sorted(rewrites)))
         for (capability, requirement), rewrites in sorted(rewriters.items())
         if len({change for change, _ in rewrites}) > 1
     ]
+
+
+def overlapping_requirements(
+    tool: OpenSpecTool, root: Path, changes: Iterable[str]
+) -> list[Overlap]:
+    """Each requirement that more than one of the active `changes` under `root` rewrites."""
+    return overlapping_deltas(change_deltas(tool, root, changes))
