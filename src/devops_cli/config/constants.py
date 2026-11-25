@@ -179,6 +179,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "The infra repos that `devops infra` manages, each with its agent access level, and the "
         "bounds of a plan, a drain and a node restart.",
     ),
+    "store": (
+        "Content Store (`store`)",
+        "S3-compatible content store endpoint, public web base URL, and signing region.",
+    ),
 }
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
@@ -689,16 +693,13 @@ CONST_POPEYE_RESOURCE_GROUPS: Final[frozenset[str]] = frozenset({"", "__root__"}
 # The prefix of the empty directory that a Popeye scan starts in (#2132).
 CONST_POPEYE_SCAN_DIR_PREFIX: Final[str] = "devops-scan-popeye-"
 CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG: Final[str] = (
+    'version: "2"\n'
     "linters:\n"
-    "  disable-all: true\n"
-    "  enable:\n"
-    "    - errcheck\n"
-    "    - govet\n"
-    "    - staticcheck\n"
-    "linters-settings:\n"
-    "  govet:\n"
-    "    enable:\n"
-    "      - lostcancel\n"
+    "  default: none\n"
+    "  settings:\n"
+    "    govet:\n"
+    "      enable:\n"
+    "        - lostcancel\n"
 )
 # Bandit's project file. This repository's names the targets `devops ci security` and an
 # unisolated `devops scan report` of the tree both scan; a review hands Bandit an empty one in
@@ -1665,6 +1666,34 @@ CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
     "pull_requests": "read",
     "secrets": "read",
 }
+CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "actions": "read",
+    "checks": "read",
+    "contents": "read",
+    "issues": "write",
+    "pull_requests": "read",
+}
+CONST_GITHUB_APP_PUBLISH_TOKEN_PERMISSIONS: Final[dict[str, str]] = {
+    "actions": "read",
+    "checks": "read",
+    "contents": "write",
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+}
+
+
+def publish_token_permissions(*, workflows: bool = False) -> dict[str, str]:
+    """Return the GitHub App installation token permissions for the `publish` phase.
+
+    Omits `workflows: write` unless the merged plan names a `.github/workflows/` path.
+    """
+    permissions = dict(CONST_GITHUB_APP_PUBLISH_TOKEN_PERMISSIONS)
+    if workflows:
+        permissions["workflows"] = "write"
+    return permissions
+
+
 # The GitHub App that self-hosted Renovate acts as (#4893). The owner named it on 2026-11-16, so
 # its bot is `dan-petty-renovate[bot]`, which the Fail-to-Pass Check skips.
 CONST_RENOVATE_GITHUB_APP_SLUG: Final[str] = "dan-petty-renovate"
@@ -3249,7 +3278,7 @@ CONST_AI_GATEWAY_VIRTUAL_MODELS: Final[tuple[str, ...]] = (
     "devops-chat",
     "devops-coder",
     "devops-reasoning",
-    "devops-embedding",
+    "qwen3-embedding:0.6b",
 )
 # The gateway groups that a local deployment answers, from the `model_list` of
 # `k8s/llm/gateway/config.yaml`. A reply that names one of them is local, and a model with the
@@ -4037,6 +4066,12 @@ CONST_ROADMAP_STAGE_CANDIDATE_FILE: Final[str] = "PLAN_PULL_REQUEST.md"
 CONST_ROADMAP_STAGE_PLAN_PATCH_FILE: Final[str] = "plan.patch"
 CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE: Final[str] = "candidate.md"
 CONST_ROADMAP_STAGE_ISSUES_FILE: Final[str] = "issues.json"
+# The folder under `work/` that holds the GitHub read snapshot of `--phase prepare` (#6831),
+# the limits on its open-issue JSONL index, and the character cap per pull-request file patch.
+CONST_ROADMAP_STAGE_GITHUB_DIR: Final[str] = "github"
+CONST_ROADMAP_STAGE_GITHUB_INDEX_MAX_ISSUES: Final[int] = 1000
+CONST_ROADMAP_STAGE_GITHUB_INDEX_BODY_CHARS: Final[int] = 500
+CONST_ROADMAP_STAGE_PULL_FILE_PATCH_CHARS: Final[int] = 20000
 # The most characters that GitHub takes in the body of a comment: `publish` of the stage Job fits
 # the plan-state comment to it (#6705).
 CONST_GITHUB_COMMENT_MAX_CHARS: Final[int] = 65536
@@ -6022,3 +6057,8 @@ CONST_CI_CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "domain",
     "roadmap-eval-commits",
 )
+
+# ── Content Store Constants (#4761) ──────────────────────────────────────────
+CONST_STORE_MULTIPART_BYTES: Final[int] = 64 * 1024 * 1024  # 64 MiB
+CONST_STORE_MAX_PRESIGN_SECONDS: Final[int] = 7 * 24 * 60 * 60  # 7 days (SigV4 maximum)
+CONST_STORE_PENDING_RELPATH: Final[str] = "store/pending.jsonl"

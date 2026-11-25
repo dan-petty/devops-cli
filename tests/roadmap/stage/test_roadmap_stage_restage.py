@@ -46,7 +46,7 @@ CHANGE = f"{ISSUE}-{SLUG}"
 BRANCH = f"fix/{CHANGE}"
 ROOT = f"openspec/changes/{CHANGE}"
 STALE = f"{ROOT}/specs/old-capability/spec.md"
-TITLE = "docs(openspec): plan #1 Stop the job dropping a comment"
+TITLE = "docs(spec): plan #1 Stop the job dropping a comment"
 CREATED = date(2026, 11, 16)
 
 
@@ -62,7 +62,7 @@ def store() -> InMemoryRoadmapStore:
     seed_stageable(store)
     store.seed_file(
         ".github/labels.yml",
-        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/openspec"\n  color: "0e8a16"\n',
+        '- name: "type/docs"\n  color: "0075ca"\n- name: "scope/spec"\n  color: "0e8a16"\n',
     )
     for i in range(2, 5):
         store.seed_issue(f"placeholder {i}")

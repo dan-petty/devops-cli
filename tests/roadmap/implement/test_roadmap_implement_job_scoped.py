@@ -743,19 +743,19 @@ def test_a_scoped_check_that_fails_writes_the_delivery_metadata_before_the_push(
         "state": "open",
         "draft": True,
         "merged": False,
-        "title": "docs(openspec): plan #1 the job drops a comment",
+        "title": "docs(spec): plan #1 the job drops a comment",
         "head": {"ref": BRANCH, "sha": ""},
         "base": {"ref": "main", "sha": ""},
         "labels": [
             {"name": "type/docs"},
-            {"name": "scope/openspec"},
+            {"name": "scope/spec"},
             {"name": "type/infra"},
         ],
     }
     route_pull_status(job_world.api, staging)
     pr_issue = job_world.store._roadmap.issues[PULL]
     job_world.store._roadmap.issues[PULL] = pr_issue.model_copy(
-        update={"labels": ("type/docs", "scope/openspec", "type/infra")}
+        update={"labels": ("type/docs", "scope/spec", "type/infra")}
     )
     _fails_until(job_world, PRE_PUSH, "ruff-check....Failed", times=99)
     checked: list[int] = []

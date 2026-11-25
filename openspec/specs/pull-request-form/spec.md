@@ -179,7 +179,7 @@ The builders of the title and the body SHALL return the text as given, or raise 
 - **THEN** the exit status is 1 and stderr says that the issue is no item
 
 ### Requirement: devops pr create refuses a pull request that breaks the form
-Before it sends the create request, `devops pr create` SHALL check `--title`, and `--body` in a repository with OpenSpec, with these rules. When there is a problem, it SHALL print every problem to stderr, exit 1, and open nothing, by `gh` or by the REST fallback. It SHALL check the scope against the labels file on the base branch and, without `--repo`, also against that of the checkout. A pull request that passes SHALL open as a draft, and the command SHALL have no option for another state.
+Before opening a pull request, `devops pr create` SHALL check `--title`, and `--body` where OpenSpec is active, and exit 1 on any violation. Scope labels SHALL be checked against `.github/labels.yml` on the base branch, plus `--head` when `--repo` and `--head` are set, or the checkout when `--repo` is omitted. Refusals SHALL name the checked refs only when `--repo` is set. Passing pull requests SHALL open as drafts.
 
 #### Scenario: A title and a body in the form
 - **WHEN** `devops pr create` is given a title and a body in the form
@@ -199,14 +199,34 @@ Before it sends the create request, `devops pr create` SHALL check `--title`, an
 
 #### Scenario: The base branch declares fewer scopes
 - **WHEN** the labels file on `--base` does not declare `scope/pr`
-- **THEN** the exit status is 1, no create request is sent, and stderr names `scope/pr`
+- **THEN** the exit status is 1, no create request is sent, and stderr names `scope/pr` and `--base`
+
+#### Scenario: A label declared only on the head ref with --repo
+- **WHEN** `--repo` and `--head` are both set, the base ref declares no `scope/tools` label, and the head ref declares it
+- **THEN** `devops pr create` accepts the title, opens the draft, and applies `scope/tools` to the pull request
+
+#### Scenario: A label declared only on the base ref with --head
+- **WHEN** `--repo` and `--head` are both set, the base ref declares `scope/pr`, and the head ref declares no `scope/pr` label
+- **THEN** `devops pr create` accepts the title and opens the draft
+
+#### Scenario: Neither ref declares the scope label with --repo and --head
+- **WHEN** `--repo` and `--head` are both set, and neither the base ref nor the head ref declares `scope/tools`
+- **THEN** the exit status is 1, no create request is sent, and stderr names the base ref, `--head`, and the instruction to declare the label in the same pull request
+
+#### Scenario: Only the base ref is read with --repo and no --head
+- **WHEN** `--repo` is set without `--head`, and the base ref declares no `scope/tools` label
+- **THEN** the exit status is 1, no create request is sent, and stderr names only the base ref
 
 #### Scenario: A scope that only the checkout declares
 - **WHEN** `--repo` is not given, the checkout declares `scope/newscope` and the base branch does not
 - **THEN** a title with the scope `newscope` passes the check and the pull request opens
 
+#### Scenario: The check-out mode keeps its message on refusal
+- **WHEN** `--repo` is not given and `.github/labels.yml` does not declare `scope/tools`
+- **THEN** the exit status is 1, no create request is sent, and stderr prints `.github/labels.yml does not declare \`scope/tools\`` with the instruction to declare the label in the same pull request
+
 #### Scenario: A labels file that cannot be read
-- **WHEN** the base branch has no `.github/labels.yml`
+- **WHEN** the base branch has no `.github/labels.yml` (and `--head` also lacks it when set)
 - **THEN** the exit status is 1, no create request is sent, and stderr names `.github/labels.yml`
 
 #### Scenario: A refused pull request does not reach the fallback
@@ -259,10 +279,10 @@ The summary pattern and the scope list of `.github/workflows/pr-title.yml` SHALL
 - **THEN** the pattern is `^.{1,60}$`, each scope of the workflow passes the check of the title, and a summary of 61 characters does not
 
 ### Requirement: A plan body has the Plans line and no closing keyword
-`devops pr create` SHALL judge the body of a pull request whose title is `docs(openspec): plan #<issue> <summary>` by the form of a plan: exactly one line `Plans #<issue>` that names the issue of the title, no closing reference, and a `Change:` line with the active change folder of the same issue. The command SHALL NOT ask a plan body for a `Closes` line.
+`devops pr create` SHALL judge the body of a pull request whose title is `docs(spec): plan #<issue> <summary>` or legacy `docs(openspec): plan #<issue> <summary>` by the form of a plan: exactly one line `Plans #<issue>` that names the issue of the title, no closing reference, and a `Change:` line with the active change folder of the same issue. The command SHALL NOT ask a plan body for a `Closes` line.
 
 #### Scenario: A plan body in the form opens a draft
-- **WHEN** the title is `docs(openspec): plan #3236 revise scope` and the body has the line `Plans #3236` and the line `Change: \`openspec/changes/3236-x/\``
+- **WHEN** the title is `docs(spec): plan #3236 revise scope` and the body has the line `Plans #3236` and the line `Change: \`openspec/changes/3236-x/\``
 - **THEN** the command opens a draft pull request.
 
 #### Scenario: A plan body that closes its issue opens nothing
@@ -277,27 +297,27 @@ The summary pattern and the scope list of `.github/workflows/pr-title.yml` SHALL
 When the summary of a title holds a word and an issue number (`<word> #<number>`), the rules SHALL give a problem if the first word after the number is that word, and a problem if the text after the number holds the same number. The word SHALL be the last word before the number. The comparison SHALL ignore case and the marks around the word. A later use of the word SHALL NOT be a problem.
 
 #### Scenario: A repeated leading word
-- **WHEN** the title is `docs(openspec): plan #2950 plan alternatives coverage telemetry`
+- **WHEN** the title is `docs(spec): plan #2950 plan alternatives coverage telemetry`
 - **THEN** the rules find one problem, and its text names the word `plan`
 
 #### Scenario: A repeated issue number
-- **WHEN** the title is `docs(openspec): plan #2950 Add coverage for #2950`
+- **WHEN** the title is `docs(spec): plan #2950 Add coverage for #2950`
 - **THEN** the rules find one problem, and its text names `#2950`
 
 #### Scenario: A title with a new leading word
-- **WHEN** the title is `docs(openspec): plan #2950 Add alternatives coverage telemetry`
+- **WHEN** the title is `docs(spec): plan #2950 Add alternatives coverage telemetry`
 - **THEN** the rules find no problem
 
 #### Scenario: A later use of the word
-- **WHEN** the title is `docs(openspec): plan #3200 Refuse placeholder and cut plan text`
+- **WHEN** the title is `docs(spec): plan #3200 Refuse placeholder and cut plan text`
 - **THEN** the rules find no problem
 
 #### Scenario: A repeat with a colon, a dash or a word before
-- **WHEN** the title is `docs(openspec): plan #2950: plan x`, `docs(openspec): plan #2950 - plan x` or `docs(openspec): fix plan #2950 plan x`
+- **WHEN** the title is `docs(spec): plan #2950: plan x`, `docs(spec): plan #2950 - plan x` or `docs(spec): fix plan #2950 plan x`
 - **THEN** the rules find one problem that names the word `plan`
 
 #### Scenario: A number that only starts with the same digits
-- **WHEN** the title is `docs(openspec): plan #2950 add #29501`
+- **WHEN** the title is `docs(spec): plan #2950 add #29501`
 - **THEN** the rules find no problem
 
 ### Requirement: A plan body is built and checked in one module

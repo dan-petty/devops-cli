@@ -132,7 +132,7 @@ def _staged(store: InMemoryRoadmapStore) -> tuple[int, int]:
     """A staged item and its open plan pull request, whose record names that pull request."""
     number = seed_staged(store)
     branch = branch_of(number)
-    pull = store.seed_pull("docs(openspec): plan #1 the job drops a comment", head_ref=branch)
+    pull = store.seed_pull("docs(spec): plan #1 the job drops a comment", head_ref=branch)
     store.set_marks(_held(store, number), {StageRecordKey.PR: str(pull)})
     return number, pull
 

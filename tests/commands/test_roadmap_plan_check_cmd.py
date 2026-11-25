@@ -21,7 +21,7 @@ PULL = 7
 ISSUE = 1
 CHANGE = f"{ISSUE}-keep-the-last-comment"
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
-TITLE = "docs(openspec): plan #1 Stop the job dropping a comment"
+TITLE = "docs(spec): plan #1 Stop the job dropping a comment"
 BODY = "Plans #1\n\nThe job keeps every comment it reads.\n\nChange: `openspec/changes/1-keep-the-last-comment/`"
 runner = CliRunner()
 

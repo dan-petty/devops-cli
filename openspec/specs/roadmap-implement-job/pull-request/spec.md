@@ -142,11 +142,11 @@ The job SHALL set the delivery pull request title using the Conventional Commit 
 - **THEN** `_delivery_title()` returns the title that `delivery_title(self.target.item.title, declared)` returns
 
 #### Scenario: A Staged item
-- **WHEN** the title of the issue is `fix(roadmap): the job drops a comment`, the commit of the staged branch that adds the change folder has the subject `docs(openspec): plan #1 Keep the last comment of a thread`, and the job finishes the change
+- **WHEN** the title of the issue is `fix(roadmap): the job drops a comment`, the commit of the staged branch that adds the change folder has the subject `docs(spec): plan #1 Keep the last comment of a thread`, and the job finishes the change
 - **THEN** the title of the pull request becomes `fix(roadmap): Keep the last comment of a thread`
 
 #### Scenario: An issue that states a goal and a plan that states a smaller change
-- **WHEN** the title of issue 3785 is `fix(k8s): find the source of the <gpu-node> host crashes` and its plan commit has the subject `docs(openspec): plan #3785 Remove the profiler exclusion of the <gpu-node> node (#5182)`
+- **WHEN** the title of issue 3785 is `fix(k8s): find the source of the <gpu-node> host crashes` and its plan commit has the subject `docs(spec): plan #3785 Remove the profiler exclusion of the <gpu-node> node (#5182)` (or legacy `docs(openspec): plan #3785 ...`)
 - **THEN** the title of the pull request is `fix(k8s): Remove the profiler exclusion of the <gpu-node> node`
 
 #### Scenario: A summary at the limit
@@ -177,7 +177,7 @@ The job SHALL set the delivery pull request title using the Conventional Commit 
 - **THEN** it answers ready
 
 #### Scenario: A stage plan with a placeholder title summary is refused
-- **WHEN** the function reads a pull request of kind stage plan whose title is `docs(openspec): plan #3321 x` and whose body is not a placeholder
+- **WHEN** the function reads a pull request of kind stage plan whose title is `docs(spec): plan #3321 x` and whose body is not a placeholder
 - **THEN** it answers refuse and the reason names a placeholder summary
 
 #### Scenario: A stage plan with a placeholder body is refused
@@ -215,8 +215,8 @@ The kind SHALL come from the item that the head branch `<type>/<issue>-<slug>` n
 For each pull request, after the job sets the title and the body, it SHALL add the `type/*` and `scope/*` labels that the new title gives, as `.github/labels.yml` on the default branch declares them. It SHALL remove each such label that the pull request holds, that the old title gave and that the new title does not give. A label of a person SHALL stay. A label that fails SHALL be named in a comment on the pull request and SHALL NOT stop the item. Rejected credentials SHALL stop it.
 
 #### Scenario: A Staged item changes type and scope
-- **WHEN** the pull request holds `type/docs` and `scope/openspec` for the title `docs(openspec): plan #1 keep every comment` and the job sets `fix(roadmap): the job drops a comment`
-- **THEN** the pull request holds `type/bug` and `scope/roadmap` and holds neither `type/docs` nor `scope/openspec`
+- **WHEN** the pull request holds `type/docs` and `scope/spec` for the title `docs(spec): plan #1 keep every comment` and the job sets `fix(roadmap): the job drops a comment`
+- **THEN** the pull request holds `type/bug` and `scope/roadmap` and holds neither `type/docs` nor `scope/spec`
 
 #### Scenario: The labels of the old title are not held
 - **WHEN** the pull request holds no label and the job sets a new title
@@ -261,11 +261,11 @@ The implement job MUST add the issue reference `(#N)` to an intermediate step co
 - **THEN** The step commit title holds one `(#2670)` suffix.
 
 ### Requirement: The archive commit keeps its docs type
-The implement job SHALL keep the title of the archive commit in the form `docs(openspec): archive the change (#N)`, whatever the type and scope of the item.
+The implement job SHALL keep the title of the archive commit in the form `docs(spec): archive the change (#N)`, whatever the type and scope of the item.
 
 #### Scenario: Archive commit of a docs item
 - **WHEN** The implement job archives the change for issue 2670.
-- **THEN** The archive commit title is `docs(openspec): archive the change (#2670)`.
+- **THEN** The archive commit title is `docs(spec): archive the change (#2670)`.
 
 ### Requirement: The job skips a phase that passed at the same head
 `publish` SHALL write `implement.published_sha` after each push, and `implement.checked_sha` after the push of a run that passed the scoped checks. An agent phase whose head equals `implement.checked_sha` SHALL run no scoped check. `publish` SHALL push no commit when the lease holds the new tree already. `prepare` SHALL clear `implement.published_sha`, and `publish` SHALL take it as the lease when it holds a value. The job SHALL clear both keys at the end of the draft and at a return to New.

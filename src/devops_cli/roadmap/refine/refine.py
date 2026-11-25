@@ -229,6 +229,7 @@ from devops_cli.roadmap.body_hash import (
     extract_section_and_outside,
     hash_text,
     is_unchanged,
+    issue_references,
 )
 from devops_cli.roadmap.commit_title import commit_type, corrected_title, unlisted_type_reason
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
@@ -245,6 +246,8 @@ from devops_cli.roadmap.markdown import commonmark_parser
 from devops_cli.roadmap.owner_question import (
     OwnerQuestion,
     QuestionOption,
+    frame_hash,
+    linked_frame_item,
 )
 from devops_cli.roadmap.owner_question import (
     answer_of as question_answer_of,
@@ -717,25 +720,71 @@ def _alternatives_request(
     }
 
 
+def _linked_frame_answer(
+    tool_url: str,
+    question: str,
+    frame_comments: Sequence[IssueComment],
+    actor: str | None,
+) -> IssueComment | None:
+    """The newest trusted person reply after the shared covers frame on the frame item (#6602),
+    excluding comments marked by any roadmap job."""
+    if not frame_comments:
+        return None
+    raw = f"{question} {_A_PERSON_DECIDES}"
+    candidates = dict.fromkeys(
+        (
+            sanitize_text(" ".join(raw.split()), set()),
+            raw,
+            sanitize_text(" ".join(question.split()), set()),
+            question,
+        )
+    )
+    for candidate in candidates:
+        question_hash = _owner_question(tool_url, candidate).hash
+        if not any(frame_hash(comment.body) == question_hash for comment in frame_comments):
+            continue
+        filtered = [
+            comment
+            for comment in frame_comments
+            if frame_hash(comment.body) == question_hash
+            or _comments_without((comment,), CONST_ROADMAP_JOB_COMMENT_MARKERS)
+        ]
+        return question_answer_of(filtered, question_hash, actor=actor)
+    return None
+
+
 def covers_question(
-    check: RecordedCheck | None, comments: Sequence[IssueComment]
+    check: RecordedCheck | None,
+    comments: Sequence[IssueComment],
+    *,
+    frame_comments: Sequence[IssueComment] = (),
+    actor: str | None = None,
 ) -> CoversQuestion | None:
     """The question that a `covers` check puts to a person, or None for any other check. It is
-    answered when a comment of a person follows the job's latest comment, or any comment of a
-    person when the job left none: a comment of a roadmap job is none."""
+    answered when a comment of a person follows the job's latest comment, any comment of a person
+    when the job left none, or when a trusted person replies after the shared frame on the linked
+    frame item (#6602): a comment of a roadmap job, bot, or `actor` is no answer."""
     if check is None or check.verdict is not Verdict.COVERS or not check.tool:
         return None
+    question = MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool)
     after_check = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
     persons = _comments_without(
         comments if after_check is None else after_check, CONST_ROADMAP_JOB_COMMENT_MARKERS
     )
+    frame_reply = (
+        _linked_frame_answer(check.tool, question, frame_comments, actor)
+        if linked_frame_item(comments) is not None
+        else None
+    )
+    replies = [*persons, frame_reply] if frame_reply is not None else list(persons)
+    replies.sort(key=lambda comment: comment.created_at)
     answers = tuple(
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
-        for reply in persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+        for reply in replies[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     )
     return CoversQuestion(
-        MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool),
-        bool(persons),
+        question,
+        bool(replies),
         answers,
     )
 
@@ -1860,6 +1909,21 @@ def next_step_of(
     return NextStep.PERSON, (block,), ()
 
 
+def _owner_question(evidence_url: str, question: str) -> OwnerQuestion:
+    """One owner question with refine's shared options, recommendation, and evidence link."""
+    texts = MESSAGES.roadmap
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+        question=question,
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.refine_owner_question_options.items()
+        ),
+        recommendation=texts.refine_owner_question_recommendation,
+        evidence=(texts.refine_owner_question_evidence.format(url=evidence_url),),
+    )
+
+
 def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> OwnerQuestion | None:
     """The one owner question that `step` asks for `item` (#3077), or None when the step waits on
     no person or the item asks nothing. It asks the first open question only, so one run asks one
@@ -1867,17 +1931,7 @@ def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> Own
     the evidence are the same for every item, so two items that ask one question share its hash."""
     if step is not NextStep.PERSON or not details:
         return None
-    texts = MESSAGES.roadmap
-    return OwnerQuestion(
-        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
-        question=details[0],
-        options=tuple(
-            QuestionOption(text=text, result=result)
-            for text, result in texts.refine_owner_question_options.items()
-        ),
-        recommendation=texts.refine_owner_question_recommendation,
-        evidence=(texts.refine_owner_question_evidence.format(url=item.url),),
-    )
+    return _owner_question(item.url, details[0])
 
 
 def frames_of(items: Sequence[Item]) -> dict[str, Item]:
@@ -2586,11 +2640,6 @@ def _without_other_jobs_comments(comments: Sequence[IssueComment]) -> list[Issue
     return _comments_without(comments, others)
 
 
-# An issue number in text: not part of a word, a path or the reference of another repository, which
-# GitHub writes `owner/repo#N`.
-_ISSUE_REF_RE = re.compile(r"(?<![\w/#])#(\d+)\b")
-
-
 def changed_since(store: RoadmapStore, paths: Sequence[str], since: datetime) -> bool:
     """Whether a commit on the default branch changed one of `paths` at or after `since`."""
     for path in paths:
@@ -2637,12 +2686,9 @@ def text_paths(text: str, *, tracked_paths: Collection[str] | None = None) -> li
 def _text_issues(text: str, own: int) -> list[int]:
     """The numbers of the issues that `text` names, each once and not `own`, the first
     `CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS` of them."""
-    numbers: list[int] = []
-    for match in _ISSUE_REF_RE.finditer(text):
-        number = int(match.group(1))
-        if number != own and number not in numbers:
-            numbers.append(number)
-    return numbers[:CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS]
+    return [number for number in issue_references(text) if number != own][
+        :CONST_ROADMAP_REFINE_MAX_WAIT_CHECKS
+    ]
 
 
 # A code scanning alert reference in text: code-scanning/(alerts/)?123 or alert 123.
@@ -2779,20 +2825,6 @@ def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
     if version.tzinfo is None:
         version = version.replace(tzinfo=UTC)
     return version < CONST_ROADMAP_REFINE_RULES_SINCE
-
-
-def _person_wait_over(
-    store: RoadmapStore,
-    item: Item,
-    refs: str,
-    since: datetime,
-    tracked_paths: Collection[str] | None = None,
-) -> bool:
-    """Whether the wait of `item` on a person is over with no reply: rules older than the current
-    ones set it (#4795), or an issue or a file that `refs` names closed or changed at or after
-    `since`, the start of the wait (`_wait_start`, #3483). A file that `tracked_paths` does not
-    hold ends no wait (#6444)."""
-    return _set_by_older_rules(item, since) or _named_cause_ended(store, refs, since, tracked_paths)
 
 
 def _repeated_at(item: Item) -> datetime | None:
@@ -2970,9 +3002,9 @@ def _still_waiting(
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
     closed, a comment followed refine's last one, a commit on the default branch changed a
     path the block cites after that comment (#2005), or, for a wait on a person, an issue or a
-    file that the text of the wait names closed or changed after it (#3483), or rules older than
-    the current ones set it (#4795). An item the stage
-    job returned gets one new look, and the second return on the same body waits on a person.
+    file that the text of the wait names closed or changed after it (#3483), or, for a wait on a
+    person or an open blocker, rules older than the current ones set it (#4795, #6523). An item the
+    stage job returned gets one new look, and the second return on the same body waits on a person.
     Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
     failed and the next round tries again (#3632). `comments_on` reads the item's comments, which
     the round does only when the count of comments moved since the job record was made, or the
@@ -3051,16 +3083,19 @@ def _wait_still_on(
     store: RoadmapStore,
     tracked_paths: Collection[str] | None = None,
 ) -> WaitingItem | None:
-    """The wait of an item that nothing changed for, from the state of its wait, or None when a
-    cited path changed or the person's reply named by the wait ends it. `tracked_paths` is the set
-    of files that the commit of the round tracks (#6444)."""
+    """The wait of an item that nothing changed for, from the state of its wait, or None when
+    older rules set a person or blocked wait (#4795, #6523), a cited path changed, or a named cause
+    of a person wait ended. `tracked_paths` is the set of files that the commit of the round
+    tracks (#6444)."""
     if state is None:
         return None
     commented_at, refs, marks = state
     since = _wait_start(item, commented_at)
     if _cited_code_changed(store, item, since):
         return None
-    if names_cause and _person_wait_over(store, item, refs, since, tracked_paths):
+    if (names_cause or step is NextStep.BLOCKED) and _set_by_older_rules(item, since):
+        return None
+    if names_cause and _named_cause_ended(store, refs, since, tracked_paths):
         return None
     return WaitingItem(item, step, details, marks=marks)
 
@@ -3449,7 +3484,8 @@ def _job_failure(
         if stopped is not None:
             checks.append(JobCheck.INVESTIGATION_STOPPED)
             parts.append(
-                texts.run_stop_reason.format(error=stopped.reason, message=stopped.message)
+                stopped.stop_reason
+                or texts.run_stop_reason.format(error=stopped.reason, message=stopped.message)
             )
         if any(question.endswith(_MISSING_SOURCE) for question in job_open):
             checks.append(JobCheck.MISSING_SOURCE)
@@ -3702,7 +3738,17 @@ def refine_one_item(
     comments = trusted_replies(store.comments_on(item.number))
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
-    covers = covers_question(check, comments)
+    frame_number = (
+        linked_frame_item(comments)
+        if check is not None and check.verdict is Verdict.COVERS and check.tool
+        else None
+    )
+    frame_comments = (
+        _frame_comments(store, item.number, comments, frame_number)
+        if frame_number is not None and frame_number != item.number
+        else ()
+    )
+    covers = covers_question(check, comments, frame_comments=frame_comments, actor=actor)
     answer = owner_answer_of(
         store,
         item,
@@ -3940,14 +3986,16 @@ def _joined(text: str) -> str:
     return " ".join(text.split())
 
 
-def _deferral_candidate(item: Item, part: DeferredPart, urls: set[str]) -> NewCandidate:
+def _deferral_candidate(
+    item: Item, part: DeferredPart, urls: set[str], apart: Collection[int] = ()
+) -> NewCandidate:
     """The new issue of `part`: its text sanitized like the section, and a body that starts with
     the link to `item`. It has no `source`, so intake links no sub-issue and `item` stays a plain
     item that the stage job takes (#2423)."""
     title = sanitize_text(_joined(part.title), urls)
     body = sanitize_text(part.body.strip(), urls)
     split_from = MESSAGES.roadmap.refine_deferred_split_from.format(number=item.number)
-    return NewCandidate(title=title, body=f"{split_from}\n\n{body}")
+    return NewCandidate(title=title, body=f"{split_from}\n\n{body}", apart=apart)
 
 
 def _plan_deferrals(
@@ -3962,14 +4010,16 @@ def _plan_deferrals(
     """The intake plan of each deferred part of a Ready proposal that no earlier round filed, or
     the detail that keeps the item waiting on a person: a part that intake cannot place, or
     whose text looks like a secret (#2423)."""
+    recorded_numbers = _recorded_numbers(item)
     recorded = {_joined(title) for _, title in _recorded_deferrals(store, item)}
     parts = [part for part in proposal.deferred if _joined(part.title) not in recorded]
     if not parts:
         return (), None
     intake_model = model or build_intake_model()
+    apart = frozenset((item.number, *recorded_numbers))
     planned: list[PlannedDeferral] = []
     for part in parts:
-        candidate = _deferral_candidate(item, part, urls)
+        candidate = _deferral_candidate(item, part, urls, apart=apart)
         refused = MESSAGES.roadmap.refine_deferred_refused.format(title=candidate.title)
         try:
             plan = plan_intake(store, repo=repo, model=intake_model, new=candidate)
@@ -4027,8 +4077,11 @@ def _investigate(
             MESSAGES.roadmap.refine_investigation_stopped.format(
                 number=item.number,
                 repo=repo,
-                reason=MESSAGES.roadmap.run_stop_reason.format(
-                    error=revised.reason, message=revised.message
+                reason=(
+                    revised.stop_reason
+                    or MESSAGES.roadmap.run_stop_reason.format(
+                        error=revised.reason, message=revised.message
+                    )
                 ),
             )
         )

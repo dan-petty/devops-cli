@@ -192,7 +192,7 @@ def test_a_summary_that_ends_with_an_ellipsis_is_refused_by_the_schema() -> None
 
 def test_the_staging_title_holds_the_whole_summary() -> None:
     assert staging_title(3200, "Refuse placeholder text") == (
-        "docs(openspec): plan #3200 Refuse placeholder text"
+        "docs(spec): plan #3200 Refuse placeholder text"
     )
 
 

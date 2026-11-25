@@ -120,6 +120,19 @@ class Collection(BaseModel):
     seconds: float = Field(default=0.0, description="The seconds of the catalog collection.")
 
 
+class RepoReadiness(BaseModel):
+    """The production readiness facts of one repository (#5537)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repo: str = Field(description="The repository, as owner/name.")
+    ref: str | None = Field(default=None, description="The branch or ref evaluated, or null.")
+    facts: list[Fact] = Field(
+        default_factory=list,
+        description="The readiness facts of the repository in guideline order.",
+    )
+
+
 class ReviewData(BaseModel):
     """The contents of `data.json`."""
 
@@ -139,6 +152,10 @@ class ReviewData(BaseModel):
     )
     collection: Collection = Field(
         default_factory=Collection, description="The reads of the catalog collection."
+    )
+    readiness: list[RepoReadiness] = Field(
+        default_factory=list,
+        description="The production readiness facts of the public repositories in settings.",
     )
 
 

@@ -24,7 +24,7 @@ from tests.support.gh_process import answer_origin, gh_argv, mentions
 REPO = "example/roadmap"
 LABELS = "".join(
     f'- name: "{name}"\n  color: "ededed"\n'
-    for name in ("type/feature", "scope/pr", "scope/ai", "type/docs", "scope/openspec")
+    for name in ("type/feature", "scope/pr", "scope/ai", "type/docs", "scope/spec")
 )
 TITLE = "feat(pr): check the form of a pull request"
 BODY = (
@@ -219,7 +219,7 @@ def test_a_dry_run_of_a_pull_request_in_the_form_still_lists_its_requests(
     )
 
 
-PLAN_TITLE = "docs(openspec): plan #3236 revise scope to role tools"
+PLAN_TITLE = "docs(spec): plan #3236 revise scope to role tools"
 PLAN_BODY = (
     "The plan audits the job-role tools and names the follow-up for the rest of the tools.\n\n"
     "Plans #3236\n\n"
@@ -346,3 +346,105 @@ def test_pr_create_applies_length_and_template_checks_to_body_file(
     )
     assert res_tpl.exit_code == 1
     assert gh.calls == []
+
+
+def test_a_scope_declared_only_on_head_is_accepted(
+    runner: CliRunner, labels: InMemoryRoadmapStore
+) -> None:
+    """With `--repo` and `--head`, a scope declared only on the head ref opens the draft (#6469)."""
+    labels.seed_file(
+        ".github/labels.yml",
+        LABELS + '- name: "scope/tools"\n  color: "ededed"\n',
+        ref="feat/tools",
+    )
+    result, gh = _create(runner, "feat(tools): add tool", BODY, "--head", "feat/tools")
+    assert (result.exit_code, len(gh), result.stderr) == (0, 1, "")
+
+
+def test_a_scope_declared_on_head_without_base_labels_file_is_accepted(
+    runner: CliRunner, roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """When `--base` has no `.github/labels.yml` yet, `--head`'s file still validates (#6469)."""
+    roadmap_store.seed_file(
+        ".github/labels.yml",
+        LABELS + '- name: "scope/tools"\n  color: "ededed"\n',
+        ref="feat/onboard",
+    )
+    roadmap_store.seed_file("openspec/config.yaml", "schema: spec-driven\n", ref="b")
+    result, gh = _create(
+        runner, "feat(tools): onboard", BODY, "--base", "b", "--head", "feat/onboard"
+    )
+    assert (result.exit_code, len(gh), result.stderr) == (0, 1, "")
+
+
+def test_a_scope_declared_only_on_base_is_accepted_with_head(
+    runner: CliRunner, labels: InMemoryRoadmapStore
+) -> None:
+    """With `--repo` and `--head`, a scope declared only on the base ref still passes (#6469)."""
+    labels.seed_file(
+        ".github/labels.yml", '- name: "type/feature"\n  color: "ededed"\n', ref="feat/x"
+    )
+    result, gh = _create(runner, TITLE, BODY, "--head", "feat/x")
+    assert (result.exit_code, len(gh), result.stderr) == (0, 1, "")
+
+
+@pytest.mark.parametrize(
+    ("base_args", "expected_base"),
+    [
+        (["--base", "main"], "`main`"),
+        ([], "the default branch"),
+    ],
+)
+def test_refusal_with_repo_and_head_names_both_refs(
+    runner: CliRunner,
+    labels: InMemoryRoadmapStore,
+    base_args: list[str],
+    expected_base: str,
+) -> None:
+    """When neither base nor head declares the scope, the refusal names both refs (#6469)."""
+    labels.seed_file(".github/labels.yml", LABELS, ref="main")
+    labels.seed_file(".github/labels.yml", LABELS, ref="feat/tools")
+    result, gh = _create(runner, "feat(tools): add tool", BODY, *base_args, "--head", "feat/tools")
+    assert (result.exit_code, len(gh)) == (1, 0)
+    assert ".github/labels.yml" in result.stderr
+    assert expected_base in result.stderr
+    assert "`feat/tools`" in result.stderr
+    assert "`scope/tools`" in result.stderr
+    assert "declare the label in the same pull request" in result.stderr
+
+
+def test_refusal_with_repo_and_no_head_names_base_ref_only(
+    runner: CliRunner, labels: InMemoryRoadmapStore
+) -> None:
+    """With `--repo` and no `--head`, the refusal names the base ref only (#6469)."""
+    labels.seed_file(".github/labels.yml", LABELS, ref="main")
+    result, gh = _create(runner, "feat(tools): add tool", BODY, "--base", "main")
+    assert (result.exit_code, len(gh)) == (1, 0)
+    assert ".github/labels.yml on `main` does not declare `scope/tools`" in result.stderr
+    assert "declare the label in the same pull request" in result.stderr
+
+
+def test_refusal_in_checkout_mode_keeps_checkout_message(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gh: ProcessFake
+) -> None:
+    """With no `--repo`, checkout mode keeps the unqualified `.github/labels.yml` message (#6469)."""
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "labels.yml").write_text(LABELS, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    answer_origin(gh, REPO)
+    result = runner.invoke(app, ["create", "--title", "feat(tools): add tool", "--body", BODY])
+    assert result.exit_code == 1
+    assert (
+        "The scope `tools` has no label: .github/labels.yml does not declare `scope/tools`. "
+        "Use a scope with a label, or declare the label in the same pull request."
+    ) in result.stderr
+
+
+def test_head_malformed_labels_yml_stops_with_file_error(
+    runner: CliRunner, labels: InMemoryRoadmapStore
+) -> None:
+    """Malformed `.github/labels.yml` on `--head` stops creation rather than being ignored (#6469)."""
+    labels.seed_file(".github/labels.yml", "not: a list\n", ref="feat/broken")
+    result, gh = _create(runner, TITLE, BODY, "--head", "feat/broken")
+    assert (result.exit_code, len(gh), ".github/labels.yml" in result.stderr) == (1, 0, True)

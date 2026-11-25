@@ -108,3 +108,24 @@ def test_cleanup_judges_each_staged_review_by_its_own_age(tmp_path: Path) -> Non
         True,
         True,
     )
+
+
+def test_cleanup_data_tier_keeps_store_pending_queue_and_referenced_file(tmp_path: Path) -> None:
+    """Cleanup leaves `store/pending.jsonl` and files under `store/` untouched even when stale."""
+    store_dir = tmp_path / ".data" / "store"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    queued_file = store_dir / "queued.json"
+    queued_file.write_text('{"keep": true}\n', encoding="utf-8")
+    pending_jsonl = store_dir / "pending.jsonl"
+    pending_jsonl.write_text(f'{{"local_path": "{queued_file}"}}\n', encoding="utf-8")
+
+    thirty_days_ago = time.time() - (30 * 86400)
+    os.utime(queued_file, (thirty_days_ago, thirty_days_ago))
+    os.utime(pending_jsonl, (thirty_days_ago, thirty_days_ago))
+
+    summary = cleanup_data_tier(repo_root=tmp_path, older_than_seconds=7 * 86400, dry_run=False)
+
+    assert summary.pruned_files == []
+    assert summary.pruned_dirs == []
+    assert pending_jsonl.exists()
+    assert queued_file.exists()

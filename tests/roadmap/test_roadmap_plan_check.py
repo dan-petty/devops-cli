@@ -36,7 +36,7 @@ PULL = 7
 CHANGE = f"{ISSUE}-keep-the-last-comment"
 ISSUE_TITLE = "An issue"
 CREATED = datetime(2026, 11, 4, tzinfo=UTC).date()
-TITLE = "docs(openspec): plan #1 Stop the job dropping a comment"
+TITLE = "docs(spec): plan #1 Stop the job dropping a comment"
 BODY = "Plans #1\n\nThe job keeps every comment it reads.\n\nChange: `openspec/changes/1-keep-the-last-comment/`"
 
 
@@ -202,6 +202,26 @@ def test_a_wrong_title_is_reported(stage_repo: StageRepo) -> None:
     assert [(p.rule, p.message) for p in result.problems] == [
         ("title", MESSAGES.roadmap.plan_check_title.format(number=ISSUE))
     ]
+
+
+def test_a_legacy_openspec_title_is_still_judged_as_a_plan_with_title_error(
+    stage_repo: StageRepo,
+) -> None:
+    sha = _push(stage_repo, _change())
+
+    result = _run(
+        stage_repo,
+        _facts(
+            stage_repo,
+            sha=sha,
+            title="docs(openspec): plan #1 Stop the job dropping a comment",
+        ),
+    )
+
+    assert [(p.rule, p.message) for p in result.problems] == [
+        ("title", MESSAGES.roadmap.plan_check_title.format(number=ISSUE))
+    ]
+    assert "docs(spec): plan #1 <summary>" in result.problems[0].message
 
 
 def test_a_body_with_no_plan_reference_is_reported(stage_repo: StageRepo) -> None:

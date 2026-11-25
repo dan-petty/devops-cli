@@ -66,7 +66,7 @@ You can scaffold a complete, best-practice `.devcontainer/` setup targeting the 
 
 ```bash
 # Initialize a new project with the published GHCR container image
-devops devcontainer init --name my-project --published
+devops devcontainer init --name my-project
 
 # --image currently writes :latest for devops-cli images; pin by editing "image" in the generated .devcontainer/devcontainer.json
 devops devcontainer init --name my-project --image ghcr.io/dan-petty/devops-cli/devcontainer:v<version>

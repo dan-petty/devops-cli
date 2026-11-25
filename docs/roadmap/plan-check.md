@@ -72,7 +72,7 @@ the head commit, whatever the working tree of the checkout holds.
   holds no estimate of the lines of a created file, so the command counts one line for each. For a
   group that creates files, its figure is lower than the stage figure by 32 tokens for each
   estimated line above the first. For any other group, the two figures are equal.
-- The title: `docs(openspec): plan #<issue> <summary>`, with at most `SUMMARY_MAX_CHARS`
+- The title: `docs(spec): plan #<issue> <summary>`, with at most `SUMMARY_MAX_CHARS`
   characters after the colon.
 - The body: at most `BODY_MAX_CHARS` characters above the `Plans` line, one `Plans #<issue>` line,
   and no closing keyword before an issue reference.
@@ -90,7 +90,7 @@ when it holds a closing keyword: that plan closes an issue when it merges.
 
 The job `Plan Check` of the workflow `.github/workflows/pr-title.yml` runs the command for each plan
 pull request of the Service. Its condition selects a pull request that the bot of the Service App
-opened (`service.github_app.bot_login`) and whose title starts with `docs(openspec): plan #`. The
+opened (`service.github_app.bot_login`) and whose title starts with `docs(spec): plan #` (or legacy `docs(openspec): plan #`). The
 condition reads the author of the pull request, not the actor of the event. A job that its
 condition skips reports Success, so the pull requests of a person, of another bot and of the
 release pass.

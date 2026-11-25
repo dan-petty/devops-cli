@@ -25,8 +25,13 @@ from devops_cli.output import write_stdout
 from devops_cli.roadmap.project_review.catalog import load_catalog
 from devops_cli.roadmap.project_review.data import write_review
 from devops_cli.roadmap.project_review.dispatch import planned_sections
+from devops_cli.roadmap.project_review.readiness import (
+    evaluate_repository_readiness,
+    planned_readiness,
+)
 from devops_cli.roadmap.project_review.review import (
     planned_review,
+    render_readiness,
     render_review,
     review_folder,
     run_review,
@@ -60,23 +65,41 @@ def run_cmd(
     week: Annotated[str | None, typer.Option("--week", help=HELP.roadmap.review_week)] = None,
     last: Annotated[str | None, typer.Option("--last", help=HELP.roadmap.review_last)] = None,
     repo: Annotated[str | None, typer.Option("--repo", "-R", help=HELP.roadmap.review_repo)] = None,
+    ref: Annotated[str | None, typer.Option("--ref", help=HELP.roadmap.review_ref)] = None,
     out: Annotated[Path | None, typer.Option("--out", help=HELP.roadmap.review_out)] = None,
     json_output: Annotated[bool, typer.Option("--json", help=HELP.roadmap.review_json)] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help=HELP.roadmap.review_dry_run)] = False,
 ) -> None:
-    """Read the git facts and the catalog facts of one window and write data.json."""
-    if (dry_run or is_dry_run()) and not any((version, since, until, week, last)):
-        write_stdout(planned_sections(load_catalog(), load_settings()) + "\n")
+    """Read the git facts, catalog facts, and readiness report of a window or branch ref."""
+    has_window = any((version, since, until, week, last))
+    if (dry_run or is_dry_run()) and not has_window:
+        if ref is not None:
+            heading = MESSAGES.roadmap.review_readiness_heading.format(repo=repo or ref)
+            render_request_plan(heading, planned_readiness(load_settings(), ref=ref, repo=repo))
+        else:
+            write_stdout(planned_sections(load_catalog(), load_settings()) + "\n")
         return
     now = datetime.now(UTC)
-    request = parse_window(version=version, since=since, until=until, week=week, last=last, now=now)
     checkout = find_repo_root(Path.cwd())
+    if ref is not None and not has_window:
+        from devops_cli.github.session import get_github_session
+
+        target = _repository(checkout, repo)
+        readiness, _is_private = evaluate_repository_readiness(
+            target, session=get_github_session(), now=now, ref=ref
+        )
+        if json_output:
+            write_stdout(readiness.model_dump_json(indent=2) + "\n")
+        else:
+            write_stdout("\n".join(render_readiness(readiness)) + "\n")
+        return
+    request = parse_window(version=version, since=since, until=until, week=week, last=last, now=now)
     if dry_run or is_dry_run():
         heading = MESSAGES.roadmap.review_plan_heading.format(window=request.id, checkout=checkout)
-        render_request_plan(heading, planned_review(checkout, request, repo=repo))
+        render_request_plan(heading, planned_review(checkout, request, repo=repo, ref=ref))
         return
     target = _repository(checkout, repo)
-    data = run_review(checkout, target, request, now=now)
+    data = run_review(checkout, target, request, now=now, ref=ref)
     written = write_review(data, out or review_folder(target, data.window.id))
     if json_output:
         write_stdout(data.model_dump_json(indent=2) + "\n")

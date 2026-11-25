@@ -807,24 +807,26 @@ def _condition_terms(job: dict[str, Any]) -> list[str]:
     return [term.strip() for term in expression.split("&&")]
 
 
+def _eval_term(term: str, event: dict[str, str]) -> bool:
+    cleaned = term.strip()
+    if cleaned.startswith("(") and cleaned.endswith(")") and "||" in cleaned:
+        return any(_eval_term(part, event) for part in cleaned[1:-1].split("||"))
+    equals, starts = _EQUALS_TERM.fullmatch(cleaned), _STARTS_WITH_TERM.fullmatch(cleaned)
+    if cleaned in {"always()", "!cancelled()"}:
+        return True
+    if equals is not None:
+        return event[equals["path"]].lower() == equals["value"].lower()
+    if starts is not None:
+        return event[starts["path"]].lower().startswith(starts["prefix"].lower())
+    raise AssertionError(f"the condition holds a term the test cannot read: {term}")
+
+
 def _runs(job: dict[str, Any], event: dict[str, str]) -> bool:
     """Whether the `if` of `job` is true for `event`, which maps an expression path to its value.
     The condition may hold only `always()`, `!cancelled()`, `==` and `startsWith` terms, joined
-    with `&&`: any other term fails the test. GitHub compares strings with no regard to case in
-    both operators."""
-    for term in _condition_terms(job):
-        equals, starts = _EQUALS_TERM.fullmatch(term), _STARTS_WITH_TERM.fullmatch(term)
-        if term in {"always()", "!cancelled()"}:
-            continue
-        if equals is not None:
-            holds = event[equals["path"]].lower() == equals["value"].lower()
-        elif starts is not None:
-            holds = event[starts["path"]].lower().startswith(starts["prefix"].lower())
-        else:
-            raise AssertionError(f"the condition holds a term the test cannot read: {term}")
-        if not holds:
-            return False
-    return True
+    with `&&` or grouped `(a || b)`: any other term fails the test. GitHub compares strings with
+    no regard to case in both operators."""
+    return all(_eval_term(term, event) for term in _condition_terms(job))
 
 
 def test_the_plan_check_job_waits_for_the_title_check_and_runs_after_a_failed_one() -> None:
@@ -861,18 +863,44 @@ def test_the_plan_check_job_reads_checks_contents_and_pull_requests_only() -> No
 
 def test_the_plan_check_job_selects_the_title_that_the_stage_job_gives_a_plan() -> None:
     """The stage job opens a plan pull request with `staging_title`, and the plan check reads
-    that form. So the title prefix of the condition is the start of every title that the stage job
-    gives: the type, then `plan #` (#3103)."""
+    that form and legacy `docs(openspec): plan #` titles. The workflow `scopes` input uses `spec`
+    instead of `openspec` (#3103, #6007)."""
     from devops_cli.roadmap.stage.stage_change import staging_title
 
+    workflow = _load_workflow(PR_TITLE_PATH)
+    scopes = workflow["jobs"]["semantic-title"]["steps"][0]["with"]["scopes"].split()
     job = _plan_check_job()
-    event = {
+    base_event = {
         EVENT_ACTOR: "dan-petty",
         EVENT_AUTHOR: "devops-cli-service[bot]",
-        EVENT_TITLE: staging_title(3103, "run the plan check on a plan pull request"),
     }
 
-    assert _runs(job, event) is True
+    assert "spec" in scopes
+    assert "openspec" not in scopes
+    assert (
+        _runs(
+            job,
+            {
+                **base_event,
+                EVENT_TITLE: staging_title(3103, "run the plan check on a plan pull request"),
+            },
+        )
+        is True
+    )
+    assert (
+        _runs(
+            job,
+            {**base_event, EVENT_TITLE: "docs(openspec): plan #3103 legacy plan title"},
+        )
+        is True
+    )
+    assert (
+        _runs(
+            job,
+            {**base_event, EVENT_TITLE: "fix(roadmap): not a plan pull request"},
+        )
+        is False
+    )
 
 
 def test_the_alert_workflow_runs_every_day_and_has_no_workflow_run_trigger() -> None:

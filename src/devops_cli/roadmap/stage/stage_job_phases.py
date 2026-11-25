@@ -46,6 +46,7 @@ from devops_cli.ai.client.models import AIClientError, AICredentialsError, spend
 from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.config.constants import (
     CONST_GITHUB_AGENT_REFUSED_ENV,
+    CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
     CONST_GITHUB_COMMENT_MAX_CHARS,
     CONST_OPENSPEC_CHANGES_DIR,
     CONST_ROADMAP_PHASE_INPUT_FILE,
@@ -56,12 +57,14 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_RUN_MODEL_CLONE_DIRNAME,
     CONST_ROADMAP_STAGE_CANDIDATE_FILE,
     CONST_ROADMAP_STAGE_CANDIDATE_OUT_FILE,
+    CONST_ROADMAP_STAGE_GITHUB_DIR,
     CONST_ROADMAP_STAGE_ISSUES_FILE,
     CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
+    publish_token_permissions,
 )
 from devops_cli.config.settings import RoadmapStageConfig, get_active_config_path, load_settings
 from devops_cli.core import clock
-from devops_cli.core.process import finds_github_login
+from devops_cli.core.process import finds_github_login, token_permissions_scope
 from devops_cli.exceptions import (
     DevOpsCLIError,
     GitHubOperationError,
@@ -115,6 +118,7 @@ from devops_cli.roadmap.stage.stage_change import (
     measure_groups,
     shared_texts,
 )
+from devops_cli.roadmap.stage.stage_github_snapshot import write_github_snapshot
 from devops_cli.roadmap.stage.stage_job import (
     BUDGET_SETTING,
     StageJobExit,
@@ -426,12 +430,17 @@ class _Prepare:
             (clone.path / name).parent.mkdir(parents=True, exist_ok=True)
             (clone.path / name).write_text(text, encoding="utf-8")
         git_call(clone.path, "add", "--", f"{CONST_OPENSPEC_CHANGES_DIR}/{target.change}")
-        git_call(clone.path, "commit", "--quiet", "-m", f"docs(openspec): scaffold #{number}")
+        git_call(clone.path, "commit", "--quiet", "-m", f"docs(spec): scaffold #{number}")
         listing = issue_listing(self.store, planned, target.item).dump()
         for folder in (self.folders.state, self.folders.work):
             path = folder / CONST_ROADMAP_STAGE_ISSUES_FILE
             path.write_bytes(listing)
             path.chmod(0o600)
+        write_github_snapshot(
+            self.folders.work / CONST_ROADMAP_STAGE_GITHUB_DIR,
+            repo=self.repo,
+            item=target.item,
+        )
         rejection = next((r for r in plan.rejections if r.number == number), None)
         write_json(
             self.folders.work / CONST_ROADMAP_PHASE_INPUT_FILE,
@@ -495,57 +504,64 @@ def prepare_stage_job(
     file that says so, or None when the agent phase takes the run. Raises as `run_stage_job`
     raises."""
     require_job_token_scope(repo)
-    settings = load_settings().roadmap.stage
-    budget = install_request_budget(settings.github_requests_per_hour)
-    known = known_job(store, item, settings.job)
-    at = now or datetime.now(UTC)
-    seconds = job_time_budget(settings.time_budget_seconds, settings.job_deadline, at)
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        settings = load_settings().roadmap.stage
+        budget = install_request_budget(settings.github_requests_per_hour)
+        known = known_job(store, item, settings.job)
+        at = now or datetime.now(UTC)
+        seconds = job_time_budget(settings.time_budget_seconds, settings.job_deadline, at)
 
-    def ended(run: StageJobRun) -> StageJobRun:
-        _write_state(
+        def ended(run: StageJobRun) -> StageJobRun:
+            _write_state(
+                folders,
+                StageState(
+                    repo=repo,
+                    item=item,
+                    job=settings.job,
+                    known=known,
+                    ended=True,
+                    end=run.exit_code,
+                    result=run.result,
+                    requests=budget.spent(),
+                ),
+            )
+            return run
+
+        if seconds <= 0:
+            return ended(
+                deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
+            )
+        time_budget = TimeBudget.start(seconds, BUDGET_SETTING)
+        prepare = _Prepare(
+            store,
             folders,
-            StageState(
-                repo=repo,
-                item=item,
-                job=settings.job,
-                known=known,
-                ended=True,
-                end=run.exit_code,
-                result=run.result,
-                requests=budget.spent(),
-            ),
+            repo=repo,
+            item=item,
+            settings=settings,
+            budget=budget,
+            known=known,
+            deadline=at + timedelta(seconds=seconds),
+            now=now,
         )
-        return run
-
-    if seconds <= 0:
-        return ended(deadline_end(store, repo, item, settings.job, budget, None, now, known=known))
-    time_budget = TimeBudget.start(seconds, BUDGET_SETTING)
-    prepare = _Prepare(
-        store,
-        folders,
-        repo=repo,
-        item=item,
-        settings=settings,
-        budget=budget,
-        known=known,
-        deadline=at + timedelta(seconds=seconds),
-        now=now,
-    )
-    try:
-        with sigterm_raises():
-            run = prepare.run(Path(source) if source is not None else job_clone(repo))
-    except AttemptKilled as killed:
-        kill = kill_of(time_budget, killed)
-        if kill is AttemptKill.EVICTED:
-            return ended(StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill))
-        return ended(deadline_end(store, repo, item, settings.job, budget, kill, now, known=known))
-    except RoadmapTimeBudgetError:
-        return ended(deadline_end(store, repo, item, settings.job, budget, None, now, known=known))
-    except AICredentialsError:
-        raise
-    except DevOpsCLIError as exc:
-        return ended(stage_error_end(exc, store, repo, item, settings.job, budget, known=known))
-    return None if run is None else ended(run)
+        try:
+            with sigterm_raises():
+                run = prepare.run(Path(source) if source is not None else job_clone(repo))
+        except AttemptKilled as killed:
+            kill = kill_of(time_budget, killed)
+            if kill is AttemptKill.EVICTED:
+                return ended(StageJobRun(StageJobExit.EVICTED, kill.value, budget, kill=kill))
+            return ended(
+                deadline_end(store, repo, item, settings.job, budget, kill, now, known=known)
+            )
+        except RoadmapTimeBudgetError:
+            return ended(
+                deadline_end(store, repo, item, settings.job, budget, None, now, known=known)
+            )
+        except AICredentialsError:
+            raise
+        except DevOpsCLIError as exc:
+            return ended(stage_error_end(exc, store, repo, item, settings.job, budget, known=known))
+        return None if run is None else ended(run)
 
 
 class StageEnd(StrEnum):
@@ -624,6 +640,7 @@ def _request(inputs: StageAgentInput, listing: Path) -> str:
             "branch": inputs.branch,
             "base": inputs.base,
             "issue_listing": str(listing),
+            "github": str(listing.parent / CONST_ROADMAP_STAGE_GITHUB_DIR),
             "candidate": CONST_ROADMAP_STAGE_CANDIDATE_FILE,
             "checks": list(check_commands(inputs, listing)),
         }
@@ -1259,20 +1276,21 @@ def publish_stage_job(
       question of the budget.
     """
     require_job_token_scope(repo)
-    settings = load_settings().roadmap.stage
-    budget = install_request_budget(settings.github_requests_per_hour)
-    try:
-        state = read_stage_state(folders, repo=repo, item=item)
-    except PhaseOutputError as exc:
-        return _unread(store, folders, repo, item, settings, budget, now, exc)
-    for _ in range(state.requests):
-        budget.admit()
-    if state.ended or state.target is None:
-        return StageJobRun(state.end or StageJobExit.FAILURE, state.result, budget)
-    held = store.item(item)
-    target = state.target if held is None else replace(state.target, item=held)
-    run = _Publish(store, folders, state, target, settings=settings, budget=budget, now=now)
-    return run.run()
+    with token_permissions_scope(publish_token_permissions(workflows=False)):
+        settings = load_settings().roadmap.stage
+        budget = install_request_budget(settings.github_requests_per_hour)
+        try:
+            state = read_stage_state(folders, repo=repo, item=item)
+        except PhaseOutputError as exc:
+            return _unread(store, folders, repo, item, settings, budget, now, exc)
+        for _ in range(state.requests):
+            budget.admit()
+        if state.ended or state.target is None:
+            return StageJobRun(state.end or StageJobExit.FAILURE, state.result, budget)
+        held = store.item(item)
+        target = state.target if held is None else replace(state.target, item=held)
+        run = _Publish(store, folders, state, target, settings=settings, budget=budget, now=now)
+        return run.run()
 
 
 def _unread(

@@ -131,6 +131,17 @@ def test_a_label_of_the_other_kind_gives_no_verdict(kind: PullKind, label: str) 
     )
 
 
+def test_plan_prefix_and_kind_support_spec_and_legacy_openspec() -> None:
+    """Plan titles use `docs(spec): plan #`, and `pull_kind` classifies both `docs(spec)` and
+    legacy `docs(openspec)` plan titles as `PullKind.PLAN` (#6007)."""
+    assert PLAN_TITLE_PREFIX == "docs(spec): plan #"
+    assert (
+        pull_kind("docs(spec): plan #12 Add the apply command"),
+        pull_kind("docs(openspec): plan #12 Add the apply command"),
+        pull_kind("docs(spec): archive the change of #12"),
+    ) == (PullKind.PLAN, PullKind.PLAN, PullKind.DELIVERY)
+
+
 def test_the_score_of_stage() -> None:
     """2 mergeable, 1 needs fix, 1 discard plan, 1 issue changed and 1 open plan: the share of
     mergeable is 2/5 and the score (2 + 0.5) / 4."""
@@ -219,7 +230,7 @@ def test_the_read_sends_one_search_for_each_page_and_reads_the_label_events(
         "/graphql",
         _page(
             [
-                pull_node(5, "docs(openspec): plan #1 Add x", ["type/docs", "verdict/fix-plan"]),
+                pull_node(5, "docs(spec): plan #1 Add x", ["type/docs", "verdict/fix-plan"]),
                 pull_node(6, "feat(roadmap): Add x", ["verdict/mergeable"], repo="Example/Infra"),
             ],
             total=4,

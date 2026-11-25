@@ -230,7 +230,7 @@ def _prompt_limit(key: str) -> int:
 
 
 def test_the_summary_limit_of_the_prompt_is_the_limit_of_the_schema_and_fits_the_title() -> None:
-    """The job writes `docs(openspec): plan #<number> <summary>`; the part after the colon has
+    """The job writes `docs(spec): plan #<number> <summary>`; the part after the colon has
     at most `SUMMARY_MAX_CHARS` characters (CONTRIBUTING.md, Naming). The prompt names the one
     limit of the schema, which fits after the longest lead, so the job cuts no summary (#3249)."""
     limit = _prompt_limit("summary")
@@ -1083,3 +1083,17 @@ def test_the_stage_prompt_states_the_unknown_criterion_refusal() -> None:
     assert (
         "The check refuses an entry whose text is not one of the person-written criteria." in prompt
     )
+
+
+def test_the_coder_prompt_names_the_github_snapshot_files() -> None:
+    """#6831: the stock Coder has no GitHub credential and inspects the `work/github/` snapshot."""
+    prompt = load_task_prompt(_CODER_PROMPT)
+
+    for path in (
+        "work/github/issues/",
+        "work/github/pulls.json",
+        "work/github/pull-files/",
+        "work/github/issue-index.jsonl",
+    ):
+        assert path in prompt
+    assert re.search(r"\b(?:grep|rg)\b[^\n]*work/github/issue-index\.jsonl", prompt) is not None

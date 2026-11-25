@@ -12,8 +12,10 @@ from devops_cli.dry_run import PlannedRequest
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.stage.stage_eval_cases import GateName, StageCase, left_out_note
 from devops_cli.roadmap.stage.stage_eval_gates import DefectStatus, ReplayReport
+from devops_cli.roadmap.stage.stage_eval_run import CaseRun
 from devops_cli.roadmap.stage.stage_eval_score import DefectScore, StageScore, pending_reference
 from devops_cli.roadmap.stage.stage_eval_usage import RunUsage
+from devops_cli.security.sanitizer import mask_secrets
 
 
 def _percent(value: float | None) -> str:
@@ -97,9 +99,20 @@ def _score_row(row: DefectScore) -> str:
     )
 
 
+def _case_line(run: CaseRun) -> str:
+    """Format one case outcome with its masked reason when present (#6324)."""
+    texts = MESSAGES.roadmap
+    reason = mask_secrets(run.reason) if run.reason else ""
+    if reason:
+        return texts.stage_eval_score_case_reason.format(
+            name=run.name, outcome=run.outcome, reason=reason
+        )
+    return texts.stage_eval_score_case.format(name=run.name, outcome=run.outcome)
+
+
 def render_score(score: StageScore, *, gateway: str, usage: RunUsage | None = None) -> str:
-    """The score as text: a row for each type of defect, the total, how the cases ended, and with
-    `usage`, the tokens and the spend of the run."""
+    """The score as text: a row for each type of defect, the total, how the cases ended, each
+    case outcome and masked reason, and with `usage`, the tokens and the spend of the run."""
     texts = MESSAGES.roadmap
     lines = [
         texts.stage_eval_score_title.format(
@@ -118,6 +131,7 @@ def render_score(score: StageScore, *, gateway: str, usage: RunUsage | None = No
         texts.stage_eval_score_ended.format(
             ended=", ".join(f"{outcome} {count}" for outcome, count in score.ended.items())
         ),
+        *(_case_line(run) for run in score.case_runs),
     ]
     if score.left_out:
         lines.append(left_out_note(score.left_out))
@@ -150,6 +164,14 @@ def score_json(
         "scored_cases": score.scored[1],
         "total": score.total,
         "ended": {str(outcome): count for outcome, count in score.ended.items()},
+        "case_runs": [
+            {
+                "name": run.name,
+                "outcome": str(run.outcome),
+                "reason": mask_secrets(run.reason),
+            }
+            for run in score.case_runs
+        ],
         "left_out": list(score.left_out),
         "rows": [asdict(row) | {"rate": row.rate} for row in score.rows],
     }

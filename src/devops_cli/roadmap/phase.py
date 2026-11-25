@@ -32,6 +32,7 @@ from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
     ImplementResult,
     Item,
+    JobRecord,
     OwnerQuestionRecordKey,
     RefineRecordKey,
     StageRecordKey,
@@ -249,32 +250,35 @@ def phase_age(
     return max(0.0, (moment - max(candidates)).total_seconds())
 
 
-def has_person_cause(item: Item) -> bool:
-    """Whether the item is stopped or waiting on a person by a recorded cause (#5495)."""
-    record = item.job_record
-    next_step = record.get(RefineRecordKey.NEXT_STEP)
-    if next_step in ("person", "split", "failed"):
+def _has_refine_or_owner_cause(record: JobRecord) -> bool:
+    """Whether `record` holds a refine wait or unanswered owner question (#5495, #6446)."""
+    if record.get(RefineRecordKey.NEXT_STEP) in ("person", "split", "failed"):
         return True
     returned = record.get(RefineRecordKey.RETURNED_BODY_HASH)
     if returned and returned == record.get(RefineRecordKey.BODY_HASH):
         return True
-    if bool(record.get(RefineRecordKey.ALTERNATIVES_ASKED)):
+    if record.get(RefineRecordKey.ALTERNATIVES_ASKED) or record.get(RefineRecordKey.BLOCKED_BY):
         return True
-    if bool(record.get(RefineRecordKey.BLOCKED_BY)):
-        return True
-    if bool(record.get(OwnerQuestionRecordKey.HASH)) and not bool(
+    return bool(record.get(OwnerQuestionRecordKey.HASH)) and not bool(
         record.get(OwnerQuestionRecordKey.ANSWER)
+    )
+
+
+def has_person_cause(item: Item) -> bool:
+    """Whether the item is stopped or waiting on a person by a recorded cause (#5495, #6446)."""
+    record = item.job_record
+    if not item.is_tracker and _has_refine_or_owner_cause(record):
+        return True
+    if any(
+        record.get(key)
+        for key in (
+            ImplementRecordKey.STOPPED,
+            StageRecordKey.NEEDS_SPLIT,
+            StageRecordKey.NEEDS_FIX,
+        )
     ):
         return True
-    if bool(record.get(ImplementRecordKey.STOPPED)):
-        return True
-    if bool(record.get(StageRecordKey.NEEDS_SPLIT)):
-        return True
-    if bool(record.get(StageRecordKey.NEEDS_FIX)):
-        return True
-    if "verdict/fix-plan" in item.labels:
-        return True
-    return False
+    return "verdict/fix-plan" in item.labels
 
 
 def is_stalled(

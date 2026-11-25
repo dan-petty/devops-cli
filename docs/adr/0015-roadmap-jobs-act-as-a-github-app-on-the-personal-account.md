@@ -56,3 +56,5 @@ Amended on 2026-11-12 ([#5058](https://github.com/dan-petty/devops-cli/issues/50
 2026-11-12: Living detail moved to `CONST_GITHUB_APP_TOKEN_PERMISSIONS` in `src/devops_cli/config/constants.py` and to `openspec/specs/github-app-identity/spec.md`; `roadmap-service` runs 1 replica (#5225).
 
 2026-11-23: Fact out of date: the nightly drift Job asks for a third, read-only set, `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS`, with environments and secrets read (#6783).
+
+2026-11-25: Fact out of date: `prepare` asks read permissions plus `issues: write`, and `publish` adds `workflows: write` only for workflow plans (#6780).

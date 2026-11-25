@@ -329,8 +329,9 @@ def test_a_round_with_2_jobs_creates_one_for_the_item_with_none_and_none_for_a_r
 def test_the_jobs_limit_counts_the_running_stage_jobs_of_every_repository(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:
-    """`roadmap.stage.jobs` is the most stage Jobs that run at once in the cluster: each one holds
-    a model call slot of the one model tier. A Job of another repository is no Job to recover."""
+    """`roadmap.stage.jobs` is the most stage Jobs that run at once in the cluster: each one gets
+    its own `service.instance.id` and holds 1 by default until #6319 and #4563 (#6364). A Job of
+    another repository is no Job to recover."""
     seed_stageable(store)
     other = RepoRef("example/other")
     labels = {JOB_NAME_LABEL: JOB_NAME_LABEL_VALUE, **stage_job_labels(other, 3)}
@@ -469,12 +470,16 @@ def test_the_created_job_has_no_owner_reference_and_names_its_item_and_itself(
     (job,) = _creates(kube)
     (container,) = job["spec"]["template"]["spec"]["containers"]
     env = {entry["name"]: entry.get("value") for entry in container["env"]}
+    otel_entries = [e for e in container["env"] if e["name"] == "OTEL_RESOURCE_ATTRIBUTES"]
     assert (
         "ownerReferences" in job["metadata"],
         job["metadata"]["labels"]["roadmap.devops-cli/item"],
         container["args"],
         env["DEVOPS_CLI_ROADMAP_STAGE_JOB"],
         env["DEVOPS_CLI_ROADMAP_STAGE_JOB_DEADLINE"],
+        len(otel_entries),
+        "valueFrom" in otel_entries[0],
+        otel_entries[0].get("value"),
         _counted("created"),
     ) == (
         False,
@@ -482,6 +487,9 @@ def test_the_created_job_has_no_owner_reference_and_names_its_item_and_itself(
         ["roadmap", "stage", "--repo", STAGE_REPO, "--job-item", "1", "--confirm"],
         _name(store),
         _record(store)["stage.job_deadline"],
+        1,
+        False,
+        f"service.instance.id={_name(store)}",
         1.0,
     )
 
@@ -506,8 +514,8 @@ def test_a_round_with_a_running_job_inside_its_deadline_deletes_nothing_and_keep
 def test_the_orphan_rule_runs_before_any_create(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:
-    """An old orphan of item A clears its pending mark in the same round, keeps its branch (#5499),
-    and A gets its Job."""
+    """An old orphan of item A keeps its branch (#5499) and its pending mark (#6668), and A gets
+    its Job."""
     seed_stageable(store)
     store.set_marks(
         _item(store),
@@ -525,7 +533,7 @@ def test_the_orphan_rule_runs_before_any_create(
         stage_repo.origin_git("branch", "--format=%(refname:short)").split(),
         "stage.pending" in _record(store),
         result.created,
-    ) == (sorted([BRANCH, "main"]), False, (_name(store),))
+    ) == (sorted([BRANCH, "main"]), True, (_name(store),))
 
 
 # ── The poll recovery ─────────────────────────────────────────────────────────
@@ -596,9 +604,9 @@ def test_a_check_in_after_the_round_read_its_items_is_no_recovery_and_keeps_the_
 def test_an_orphan_of_a_counted_end_keeps_the_failure_ledger_and_the_item_waits(
     store: InMemoryRoadmapStore, stage_repo: StageRepo, kube: FakeCluster
 ) -> None:
-    """The round cleans the pending mark of a recovered item at once and keeps the branch (#5499);
-    the removal keeps the failure marks and the count of the item: the item waits for its class,
-    and the count grows."""
+    """The round keeps the branch (#5499) and its pending mark (#6668) of a recovered Ready item,
+    and keeps the failure marks and the count of the item: the item waits for its class, and the
+    count grows."""
     seed_stageable(store)
     name = _name(store)
     _check_out(store, 1, name, marks={StageRecordKey.PENDING: _pending(10)})
@@ -618,7 +626,7 @@ def test_an_orphan_of_a_counted_end_keeps_the_failure_ledger_and_the_item_waits(
         result.created,
         again.created,
         _left_out(again, 1),
-    ) == (sorted([BRANCH, "main"]), False, "timeout", "1", (), (), LeftOutKind.FAILED_LATELY)
+    ) == (sorted([BRANCH, "main"]), True, "timeout", "1", (), (), LeftOutKind.FAILED_LATELY)
 
 
 def test_a_free_eviction_with_an_orphan_keeps_its_count(
@@ -885,3 +893,17 @@ def test_the_third_counted_end_on_one_body_returns_the_item_to_new_and_asks_for_
         "split" in comment,
         _creates(kube),
     ) == ("New", False, False, True, True, [])
+
+
+def test_stage_jobs_setting_and_submit_docstring_state_current_reason() -> None:
+    """`roadmap.stage.jobs` and `stage_submit` state the per-Job instance id and owner-decision
+    prerequisites rather than the obsolete one-model-tier claim (#6364)."""
+    from devops_cli.config.settings import RoadmapStageConfig
+    from devops_cli.roadmap.stage import stage_submit
+
+    description = str(RoadmapStageConfig.model_fields["jobs"].description)
+    docstring = stage_submit.__doc__ or ""
+
+    for text in (description, docstring):
+        assert "one model tier" not in text
+        assert "service.instance.id" in text

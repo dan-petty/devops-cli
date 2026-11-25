@@ -155,11 +155,11 @@ def _gateway_embedding_aliases() -> set[str]:
 
 
 def _default_route_embedding_models() -> set[str]:
-    """Return the target model of the `devops-embedding` default gateway route."""
+    """Return the target model of the `qwen3-embedding:0.6b` default gateway route."""
     return {
         route["target_model"]
         for route in DEFAULT_GATEWAY_ROUTES
-        if route["virtual_model"] == "devops-embedding"
+        if route["virtual_model"] == "qwen3-embedding:0.6b"
     }
 
 
@@ -1076,6 +1076,23 @@ def _routes_off_the_gateway(routes: list[GatewayRoute]) -> set[tuple[str, str]]:
     }
 
 
+def _unknown_gateway_model_names(
+    names: list[str] | tuple[str, ...] | set[str],
+    served: set[str] | None = None,
+) -> set[str]:
+    """Return each virtual model name absent from `k8s/llm/gateway/config.yaml` model_name entries."""
+    known = (
+        {
+            str(entry["model_name"])
+            for entry in _gateway_config()["model_list"]
+            if isinstance(entry, dict) and entry.get("model_name")
+        }
+        if served is None
+        else served
+    )
+    return {name for name in names if name not in known}
+
+
 def _failover_routes(state_dir: Path) -> list[GatewayRoute]:
     """Return the route that a failover of each virtual model records, each on a new route
     table."""
@@ -1101,6 +1118,8 @@ def test_every_gateway_route_and_failover_route_names_a_model_that_its_tier_serv
     ]
 
     assert [route.virtual_model for route in routes] == [*CONST_AI_GATEWAY_VIRTUAL_MODELS] * 2
+    assert _unknown_gateway_model_names([route.virtual_model for route in routes]) == set()
+    assert _unknown_gateway_model_names(CONST_AI_GATEWAY_VIRTUAL_MODELS) == set()
     assert _routes_off_the_gateway(routes) == set()
 
 
@@ -1118,7 +1137,7 @@ def test_the_route_check_names_each_route_whose_tier_the_gateway_sends_no_such_m
         for virtual_model, model, service in [
             ("devops-coder", "qwen2.5-coder:14b", DEFAULT_OLLAMA_CLUSTER_SERVICE),
             ("devops-reasoning", "deepseek-r1:70b", DEFAULT_OLLAMA_CLUSTER_SERVICE),
-            ("devops-embedding", "qwen3-embedding:0.6b", "ollama-24gib"),
+            ("qwen3-embedding:0.6b", "qwen3-embedding:0.6b", "ollama-24gib"),
             ("devops-chat", "qwen3.8:27b", "ollama-nowhere"),
             ("devops-review", "qwen3.8:27b", "ollama-64gib-standard"),
         ]
@@ -1127,8 +1146,12 @@ def test_the_route_check_names_each_route_whose_tier_the_gateway_sends_no_such_m
     assert _routes_off_the_gateway(routes) == {
         ("devops-coder", "qwen2.5-coder:14b"),
         ("devops-reasoning", "deepseek-r1:70b"),
-        ("devops-embedding", "qwen3-embedding:0.6b"),
+        ("qwen3-embedding:0.6b", "qwen3-embedding:0.6b"),
         ("devops-chat", "qwen3.8:27b"),
+    }
+    assert _unknown_gateway_model_names(["devops-chat", "devops-unknown", "missing-group"]) == {
+        "devops-unknown",
+        "missing-group",
     }
 
 

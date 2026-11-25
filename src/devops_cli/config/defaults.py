@@ -1052,8 +1052,9 @@ DEFAULT_ROADMAP_STAGE_GATE_RETURNS: int = 3
 # (2026-11-13), and the budget with the margin of `CONST_ROADMAP_STAGE_JOB_MARGIN_SECONDS` ends at
 # the deadline of the Job, 10,800 s.
 DEFAULT_ROADMAP_STAGE_TIME_BUDGET_SECONDS: int = 9000
-# The stage Jobs that run at once (#4559): one keeps one model call in flight, as the model tier
-# serves one call at a time, and keeps the GitHub requests of the stage Jobs in one budget.
+# The stage Jobs that run at once (#4559): gives each stage pod its own `service.instance.id`
+# series and keeps the default at 1 per the 2026-11-19 owner decision until #6319, #4563 and
+# per-Job instance ids are in place (#6364).
 DEFAULT_ROADMAP_STAGE_JOBS: int = 1
 # The GitHub requests that one stage Job may send in an hour (#5483). The stage row of the Service
 # sent 3,357 requests a day (about 140 an hour) on 2026-11-13; a Job starts with an empty cache.
@@ -1445,3 +1446,6 @@ DEFAULT_ANALYSIS_PYTHON_FLOOR: Final[str] = "py314"
 DEFAULT_CLOUDFLARE_MAX_RETRIES: Final[int] = 3
 DEFAULT_CLOUDFLARE_RETRY_MIN_WAIT: Final[float] = 1.0
 DEFAULT_CLOUDFLARE_RETRY_MAX_WAIT: Final[float] = 30.0
+
+# ── Content Store Defaults (#4761) ───────────────────────────────────────────
+DEFAULT_STORE_REGION: Final[str] = "us-east-1"

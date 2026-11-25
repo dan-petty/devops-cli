@@ -147,6 +147,7 @@ def execute_embedding_benchmark(
             models=model_list,
             servers=server_list,
             benchmark_type="embedding",
+            provider=provider,
         )
         if format_type.lower() != "json":
             render_request_plan("Plan for AI benchmark", planned)

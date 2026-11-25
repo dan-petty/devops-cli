@@ -56,6 +56,7 @@ from devops_cli.roadmap.plan_read import (
     specs_at,
     tree_files,
 )
+from devops_cli.roadmap.pr_verdict import is_plan_title
 from devops_cli.roadmap.pull_form import (
     BODY_MAX_CHARS,
     SUMMARY_MAX_CHARS,
@@ -231,7 +232,7 @@ def is_plan(facts: PullFacts) -> bool:
     it is a delivery and the plan form no longer applies to it (#3224, PR #3961)."""
     if _is_a_delivery(facts.body):
         return False
-    return facts.title.strip().startswith(_PLAN_TITLE) or issue_number(facts.body) is not None
+    return is_plan_title(facts.title) or issue_number(facts.body) is not None
 
 
 def _pull_problems(facts: PullFacts, checks: CheckVerdictSummary) -> list[PlanProblem]:

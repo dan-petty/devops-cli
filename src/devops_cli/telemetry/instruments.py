@@ -974,6 +974,12 @@ INFRA_RUNS_TOTAL = Instrument(
     "1",
     "Runs of devops infra that can change or check the hosts of an infra repo, by repo, command (apply, drift, node drain, node uncordon, node restart or node reboot) and result: ok, drift, refused, stopped or failed",
 )
+STORE_PENDING_UPLOADS = Instrument(
+    "devops_cli_store_pending_uploads",
+    InstrumentKind.GAUGE,
+    "1",
+    "Number of uploads queued locally in store/pending.jsonl awaiting sync",
+)
 
 INSTRUMENTS: tuple[Instrument, ...] = (
     COMMAND_TOTAL,
@@ -1091,6 +1097,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     REPOS_DRIFT_ROWS,
     INFRA_DRIFT_HOSTS,
     INFRA_RUNS_TOTAL,
+    STORE_PENDING_UPLOADS,
 )
 
 
@@ -1250,6 +1257,7 @@ __all__ = [
     "ROADMAP_TOOL_CALLS_TOTAL",
     "ROADMAP_TOOL_CUTS_TOTAL",
     "ROADMAP_TOOL_LIMIT_HITS_TOTAL",
+    "STORE_PENDING_UPLOADS",
     "SUBCOMMAND_DURATION",
     "SUBPROCESS_DURATION",
     "TELEMETRY_TESTS_TOTAL",

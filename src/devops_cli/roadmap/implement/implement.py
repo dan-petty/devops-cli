@@ -100,6 +100,7 @@ from devops_cli.roadmap.planned import (
     read_planned_changes,
     tasks_on_default,
 )
+from devops_cli.roadmap.pr_verdict import is_plan_title
 from devops_cli.roadmap.refine.refine import DependencyGraph, inspect_checkout
 from devops_cli.roadmap.stage.stage import (
     LeftOut,
@@ -532,8 +533,8 @@ class _Judge:
         except GitHubNotFoundError:
             return texts.implement_left_pull.format(pull=pull)
         if not status.is_open_draft:
-            plan = item.job_record.get(StageRecordKey.PR) == str(pull) or status.title.startswith(
-                "docs(openspec): plan #"
+            plan = item.job_record.get(StageRecordKey.PR) == str(pull) or is_plan_title(
+                status.title
             )
             if status.state == "open" and plan:
                 return texts.implement_left_plan_ready.format(pull=pull)

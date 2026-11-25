@@ -31,6 +31,9 @@ from devops_cli.roadmap.trust import is_person_comment
 # none of it, with the hash of the question and its option texts.
 _FRAME_OPEN: Final[str] = "<!-- owner-question:"
 _FRAME: Final[re.Pattern[str]] = re.compile(r"<!-- owner-question:(?P<hash>[0-9a-f]{64}) -->")
+_LINK: Final[re.Pattern[str]] = re.compile(
+    r"^The owner question of this item is on #(?P<item>\d+):", re.MULTILINE
+)
 
 
 class QuestionOption(BaseModel):
@@ -99,6 +102,18 @@ def frame_hash(body: str) -> str | None:
     comment holds none, so only the frame of a question answers its hash."""
     found = _FRAME.findall(body)
     return found[-1] if found else None
+
+
+def linked_frame_item(comments: Sequence[IssueComment]) -> int | None:
+    """The item number named by the newest active `OwnerQuestion.link_comment` in `comments`, or
+    None when no comment links to a frame or a newer frame comment took over (#6602)."""
+    for comment in reversed(comments):
+        if frame_hash(comment.body) is not None:
+            return None
+        found = _LINK.findall(comment.body)
+        if found:
+            return int(found[-1])
+    return None
 
 
 def answer_of(

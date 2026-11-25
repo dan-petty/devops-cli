@@ -87,6 +87,7 @@ _COMMAND_SPECS: Final[dict[str, tuple[str, str]]] = {
     ),
     "survey": ("devops_cli.commands.survey", HELP.survey.app),
     "research": ("devops_cli.commands.research", HELP.research.app),
+    "store": ("devops_cli.commands.store", HELP.store.group_help),
     "format": ("devops_cli.commands.ci", HELP.ci.format_cmd),
     "lint": ("devops_cli.commands.ci", HELP.ci.lint),
 }

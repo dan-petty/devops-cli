@@ -67,12 +67,12 @@ def test_gateway_embeddings_use_gateway_url_not_global_api_base(
         api_base_url="http://example.com:1234/v1",
         allow_private_network=True,
     )
-    ai_cfg.tasks.embedding.model = "devops-embedding"
+    ai_cfg.tasks.embedding.model = "qwen3-embedding:0.6b"
 
     embs = EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
 
     assert (calls[-1], len(embs[0])) == (
-        ("http://example.com:4000/v1/embeddings", "Bearer sk-gateway", "devops-embedding"),
+        ("http://example.com:4000/v1/embeddings", "Bearer sk-gateway", "qwen3-embedding:0.6b"),
         8,
     )
 
@@ -83,7 +83,7 @@ def test_gateway_embeddings_prefer_task_api_base_url(web: WebFake) -> None:
     ai_cfg = AIConfig(
         provider="gateway", gateway_url="http://example.com:4000/v1", allow_private_network=True
     )
-    ai_cfg.tasks.embedding.model = "devops-embedding"
+    ai_cfg.tasks.embedding.model = "qwen3-embedding:0.6b"
     ai_cfg.tasks.embedding.api_base_url = "http://example.com:9000/v1"
 
     EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
@@ -103,7 +103,7 @@ def test_gateway_embedding_task_ignores_global_openai_base_url(
         allow_private_network=True,
     )
     ai_cfg.tasks.embedding.provider = "gateway"
-    ai_cfg.tasks.embedding.model = "devops-embedding"
+    ai_cfg.tasks.embedding.model = "qwen3-embedding:0.6b"
 
     EmbeddingsEngine(ai_cfg, api_key="sk-gateway").embed_texts(["hello"])
 

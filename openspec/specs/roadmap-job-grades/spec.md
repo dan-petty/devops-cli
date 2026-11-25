@@ -89,7 +89,7 @@ The package SHALL declare the workflow labels `verdict/mergeable`, `verdict/fix-
 - **THEN** the plan reads `verdict/mergeable`, `verdict/fix-plan`, `verdict/discard-plan` and `verdict/issue-changed`, the delivery reads `verdict/mergeable`, `verdict/fix-implementation`, `verdict/discard-implementation` and `verdict/issue-changed`, and each label is a workflow label
 
 ### Requirement: The first verdict label scores a bot pull request
-A bot pull request whose title starts with `docs(openspec): plan #` SHALL score stage, and each other bot pull request SHALL score implement. The first label event of a verdict label SHALL give the verdict of the pull request. A pull request with no such event SHALL be open. A first verdict label of the other kind SHALL leave the pull request unscored, and the read SHALL log why.
+A bot pull request whose title starts with `docs(spec): plan #` or legacy `docs(openspec): plan #` SHALL score stage, and each other bot pull request SHALL score implement. The first label event of a verdict label SHALL give the verdict of the pull request. A pull request with no such event SHALL be open. A first verdict label of the other kind SHALL leave the pull request unscored, and the read SHALL log why.
 
 #### Scenario: A plan that needs a fix and then can merge
 - **WHEN** the label events of a plan pull request are `type/docs`, `verdict/fix-plan` and `verdict/mergeable`, in this order, and the step fix-plan removed `verdict/fix-plan`

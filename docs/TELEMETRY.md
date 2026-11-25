@@ -212,6 +212,7 @@ writes by name.
 | `devops_cli_repos_drift_rows` | Gauge | `1` | Rows of the last drift check of a repository of service.repos, by repo and state: drift (pending, failed or waiting) or not_readable. `devops repos onboard --all --plan` sets both values of each repository, zero included, and counts no row that informs only. |
 | `devops_cli_infra_drift_hosts` | Gauge | `1` | Hosts of an infra repo with drift in the last drift check, by repo. |
 | `devops_cli_infra_runs_total` | Counter | `1` | Runs of devops infra that can change or check the hosts of an infra repo, by repo, command (apply, drift, node drain, node uncordon, node restart or node reboot) and result: ok, drift, refused, stopped or failed. |
+| `devops_cli_store_pending_uploads` | Gauge | `1` | Number of uploads queued locally in store/pending.jsonl awaiting sync. |
 
 No process sends local savings in USD. `devops_cli_ai_tokens_total{local="true"}`
 counts the tokens that a local model ran for devops-cli. The AI spend dashboard takes

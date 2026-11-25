@@ -49,6 +49,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS,
     CONST_GITHUB_CLONE_URL,
     CONST_ROADMAP_PHASE_AFTER_PATCH_FILE,
     CONST_ROADMAP_PHASE_ARCHIVE_PATCH_FILE,
@@ -60,7 +61,9 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_STATE_FILE,
     CONST_ROADMAP_PHASE_SUMMARY_FILE,
     CONST_ROADMAP_PHASE_WORK_PATCH_FILE,
+    publish_token_permissions,
 )
+from devops_cli.core.process import token_permissions_scope
 from devops_cli.exceptions import GitOperationError
 from devops_cli.exceptions.roadmap import (
     PhaseOutputError,
@@ -247,41 +250,44 @@ def prepare_round(
 ) -> tuple[PullCheckout, JudgedRound]:
     """The part of `prepare` after the judgment: the checkout, the state file and the inputs of
     the agent. Gives the checkout and the judged round, which `--phase all` keeps in memory."""
-    folders.make()
-    checkout = repair.checkout(facts.status, facts.item_num, folders.work)
-    is_plan = _is_plan(facts.item, facts.pull, facts.status)
-    head = facts.status.head_sha
-    behind = checkout.base and not holds(checkout.path, checkout.base, head, operation=_OPERATION)
-    onto = checkout.base if behind else ""
-    state = FixState(
-        repo=facts.repo,
-        pull=facts.pull,
-        item=facts.item_num,
-        status=facts.status.model_dump(mode="json"),
-        check=facts.check,
-        onto=onto,
-    )
-    write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
-    inputs = AgentInput(
-        checkout=str(checkout.path),
-        base=head,
-        onto=onto,
-        item_num=facts.item_num,
-        item=facts.item.model_dump(mode="json") if facts.item is not None else None,
-        check=facts.check,
-        log=facts.log,
-        is_plan=is_plan,
-    )
-    write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
-    return checkout, JudgedRound(
-        facts.repo,
-        facts.pull,
-        facts.item_num,
-        facts.status,
-        facts.check,
-        facts.errors,
-        onto,
-    )
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        folders.make()
+        checkout = repair.checkout(facts.status, facts.item_num, folders.work)
+        is_plan = _is_plan(facts.item, facts.pull, facts.status)
+        head = facts.status.head_sha
+        behind = checkout.base and not holds(
+            checkout.path, checkout.base, head, operation=_OPERATION
+        )
+        onto = checkout.base if behind else ""
+        state = FixState(
+            repo=facts.repo,
+            pull=facts.pull,
+            item=facts.item_num,
+            status=facts.status.model_dump(mode="json"),
+            check=facts.check,
+            onto=onto,
+        )
+        write_json(folders.state / CONST_ROADMAP_PHASE_STATE_FILE, state)
+        inputs = AgentInput(
+            checkout=str(checkout.path),
+            base=head,
+            onto=onto,
+            item_num=facts.item_num,
+            item=facts.item.model_dump(mode="json") if facts.item is not None else None,
+            check=facts.check,
+            log=facts.log,
+            is_plan=is_plan,
+        )
+        write_json(folders.work / CONST_ROADMAP_PHASE_INPUT_FILE, inputs)
+        return checkout, JudgedRound(
+            facts.repo,
+            facts.pull,
+            facts.item_num,
+            facts.status,
+            facts.check,
+            facts.errors,
+            onto,
+        )
 
 
 def prepare_phase(
@@ -298,16 +304,17 @@ def prepare_phase(
     """`--phase prepare`: judge the round, and write its state and the inputs of the agent to the
     run folder. A round that ends here gives its report, which the command prints for the Job,
     and a state that says so."""
-    judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=True)
-    if isinstance(judged, FixChecksReport):
-        folders.make()
-        write_json(
-            folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
-            FixState(repo=repo, pull=pull, ended=True),
-        )
-        return judged
-    prepare_round(judged, repair, folders)
-    return None
+    with token_permissions_scope(CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS):
+        judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=True)
+        if isinstance(judged, FixChecksReport):
+            folders.make()
+            write_json(
+                folders.state / CONST_ROADMAP_PHASE_STATE_FILE,
+                FixState(repo=repo, pull=pull, ended=True),
+            )
+            return judged
+        prepare_round(judged, repair, folders)
+        return None
 
 
 def _fix(
@@ -511,7 +518,11 @@ def _push(
             raise _ClaimedError(report)
 
     try:
-        published = repair.publish(_target(repair, facts, base), patches, before_push)
+        target = _target(repair, facts, base)
+        with token_permissions_scope(
+            publish_token_permissions(workflows=bool(target.workflow_paths))
+        ):
+            published = repair.publish(target, patches, before_push)
     except _ClaimedError as claim:
         return claim.report
     except PublishRefusedError as exc:
@@ -586,52 +597,57 @@ def publish_round(
 ) -> FixChecksReport:
     """The publish of the outcome of the agent phase for the judged round, as the module text
     says."""
-    facts = _live_round(store, client, judged)
-    if isinstance(facts, FixChecksReport):
-        return facts
-    outcome = read_outcome(folders)
-    result, tier = _result(outcome)
-    if result is FixChecksResult.REBASED:
-        return _publish_rebase(store, client, facts, folders, repair, judged.onto)
-    if tier is None:
-        end_round(store, facts, result)
-        return facts.report(result, _text(outcome.reason))
-    patches = [
-        *_branch_patches(folders, facts, judged.onto),
-        (_read_patch(folders), _message(facts, tier)),
-    ]
-    base = judged.onto or facts.status.head_sha
-    published = _push(store, client, facts, repair, patches, base)
-    if isinstance(published, FixChecksReport):
-        return published
-    rounds = facts.rounds + 1
-    record_outcome(
-        store,
-        facts.item,
-        facts.status.head_sha,
-        facts.check,
-        FixChecksResult.REPAIRED,
-        facts.heads,
-        rounds=rounds,
-        errors=facts.errors,
-    )
-    tier1 = tier is FixTier.TIER1
-    # A rebased branch pushes its work too, so tier 1 names the files of its own commit.
-    fixed = [held.path for held in outcome.files] if judged.onto else published.paths
-    named = (
-        [(path, "") for path in fixed]
-        if tier1
-        else [(held.path, held.reason) for held in outcome.files]
-    )
-    if body := named_files(facts.check, tier1=tier1, files=named):
-        post(
-            Target(facts.repo, facts.pull, client=client),
-            MARKER,
-            shown_check(facts.check),
-            body,
+    with token_permissions_scope(publish_token_permissions(workflows=False)):
+        facts = _live_round(store, client, judged)
+        if isinstance(facts, FixChecksReport):
+            return facts
+        outcome = read_outcome(folders)
+        result, tier = _result(outcome)
+        if result is FixChecksResult.REBASED:
+            return _publish_rebase(store, client, facts, folders, repair, judged.onto)
+        if tier is None:
+            end_round(store, facts, result)
+            return facts.report(result, _text(outcome.reason))
+        patches = [
+            *_branch_patches(folders, facts, judged.onto),
+            (_read_patch(folders), _message(facts, tier)),
+        ]
+        base = judged.onto or facts.status.head_sha
+        published = _push(store, client, facts, repair, patches, base)
+        if isinstance(published, FixChecksReport):
+            return published
+        rounds = facts.rounds + 1
+        record_outcome(
+            store,
+            facts.item,
+            facts.status.head_sha,
+            facts.check,
+            FixChecksResult.REPAIRED,
+            facts.heads,
+            rounds=rounds,
+            errors=facts.errors,
         )
-    done = "Tier 1 resolved check with 0 model requests" if tier1 else "Tier 2 model repaired check"
-    return facts.report(FixChecksResult.REPAIRED, done, head=published.commit, rounds=rounds)
+        tier1 = tier is FixTier.TIER1
+        # A rebased branch pushes its work too, so tier 1 names the files of its own commit.
+        fixed = [held.path for held in outcome.files] if judged.onto else published.paths
+        named = (
+            [(path, "") for path in fixed]
+            if tier1
+            else [(held.path, held.reason) for held in outcome.files]
+        )
+        if body := named_files(facts.check, tier1=tier1, files=named):
+            post(
+                Target(facts.repo, facts.pull, client=client),
+                MARKER,
+                shown_check(facts.check),
+                body,
+            )
+        done = (
+            "Tier 1 resolved check with 0 model requests"
+            if tier1
+            else "Tier 2 model repaired check"
+        )
+        return facts.report(FixChecksResult.REPAIRED, done, head=published.commit, rounds=rounds)
 
 
 def _judged_from_state(
@@ -677,20 +693,21 @@ def publish_phase(
     name that pull request. A round that `prepare` ended gives no report here, as `prepare`
     printed it; a judgment with no write refuses a state that says so while a repair or a ready
     mark is due. A round with an outcome goes to `publish_round`."""
-    state = _read_state(folders)
-    if (state.repo, state.pull) != (repo, pull):
-        raise PhaseOutputError("The state file of the run names another pull request")
-    if state.ended:
-        judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=False)
-        if isinstance(judged, FixRound) or judged.result is FixChecksResult.PLANNED:
-            raise PhaseOutputError(
-                "The state file says that the round ended, and the round has a step due"
-            )
-        return None
-    from_state = _judged_from_state(client, state, repo, pull)
-    if isinstance(from_state, FixChecksReport):
-        return from_state
-    return publish_round(store, client, from_state, folders, repair)
+    with token_permissions_scope(publish_token_permissions(workflows=False)):
+        state = _read_state(folders)
+        if (state.repo, state.pull) != (repo, pull):
+            raise PhaseOutputError("The state file of the run names another pull request")
+        if state.ended:
+            judged = judge_round(store, client, repo, pull, head=head, check=check, confirm=False)
+            if isinstance(judged, FixRound) or judged.result is FixChecksResult.PLANNED:
+                raise PhaseOutputError(
+                    "The state file says that the round ended, and the round has a step due"
+                )
+            return None
+        from_state = _judged_from_state(client, state, repo, pull)
+        if isinstance(from_state, FixChecksReport):
+            return from_state
+        return publish_round(store, client, from_state, folders, repair)
 
 
 def repair_round(

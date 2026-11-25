@@ -30,7 +30,7 @@ The Dependencies section of the body names an issue as `#N` or by its quoted tit
 - A block that names an issue that merges in either order (`No merge order`, `Rebase before the second of the two merges`) names no blocker.
 - A `#N` in parentheses with other words is a note and names no blocker, and `(#N)` alone names one. So the hold line `- #6521 (hold: ... of #6519)` names the hold issue #6521 and not the tracker #6519.
 
-The narrower rule, and the end of the section at the marker of a job block (#6613), remove false dependencies, so they set a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-21T13:02:06Z). An item that waits on a person under the older rule, such as an item in a dependency cycle that a false dependency made, gets one new look. The new version ends no blocked wait: an item keeps its recorded blockers until none is an open blocker, a person replies or a person edits the body.
+The narrower rule, and the end of the section at the marker of a job block (#6613), remove false dependencies, so they set a new version of the rules (`CONST_ROADMAP_REFINE_RULES_SINCE`, 2026-11-21T13:02:06Z). An item that waits on a person or on an open blocker under the older rule, such as an item in a dependency cycle or blocked by a false dependency, gets one new look under the current rule (#4795, #6523). If a real dependency remains open under the current rule, the item stays blocked.
 
 Refine adds each issue that the body names by title to the dependencies of the proposal: the one open item with that exact title, else the one closed item with it. Quoted text that is no Conventional Commit title names no issue, and a list item that names `#N` names its issue by the number.
 

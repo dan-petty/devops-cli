@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -86,9 +87,9 @@ class TestDevcontainerCli:
         assert "test-project" in mcp_data["mcpServers"]
         assert mcp_data["mcpServers"]["test-project"]["command"] == "uv"
 
-    def test_init_with_published_flag(self, runner: CliRunner, tmp_path: Path) -> None:
-        """devops devcontainer init --published must use published GHCR image and omit features."""
-        result = runner.invoke(app, ["init", str(tmp_path), "--name", "pub-proj", "--published"])
+    def test_init_uses_published_image_by_default(self, runner: CliRunner, tmp_path: Path) -> None:
+        """devops devcontainer init must use published GHCR image and omit features."""
+        result = runner.invoke(app, ["init", str(tmp_path), "--name", "pub-proj"])
         assert result.exit_code == 0
 
         dc_file = tmp_path / ".devcontainer" / "devcontainer.json"
@@ -96,6 +97,46 @@ class TestDevcontainerCli:
         dc_data = json.loads(dc_file.read_text(encoding="utf-8"))
         assert "ghcr.io/dan-petty/devops-cli/devcontainer" in dc_data["image"]
         assert "features" not in dc_data
+
+    def test_init_help_hides_removed_options(self, runner: CliRunner) -> None:
+        """init --help shows neither --published/-p nor --python (#6486)."""
+        result = runner.invoke(app, ["init", "--help"])
+        assert result.exit_code == 0
+        assert "--published" not in result.output
+        assert not re.search(r"(?<!\S)-p(?!\S)", result.output)
+        assert "--python" not in result.output
+
+    @pytest.mark.parametrize("flag_args", [["--published"], ["-p"], ["--python", "3.13"]])
+    def test_init_rejects_removed_options(
+        self, runner: CliRunner, tmp_path: Path, flag_args: list[str]
+    ) -> None:
+        """init exits nonzero when callers pass removed --published/-p or --python (#6486)."""
+        result = runner.invoke(app, ["init", str(tmp_path), *flag_args])
+        assert result.exit_code != 0
+        assert flag_args[0] in result.output
+
+    def test_init_render_context_omits_python_version(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init passes image and published to devcontainer.json.j2 without python_version (#6486)."""
+        import devops_cli.commands.devcontainer as dc_cmd
+        from devops_cli.core.templating import render_json_template
+
+        recorded: list[dict[str, Any]] = []
+
+        def _record_render(template_name: str, **kwargs: Any) -> str:
+            if template_name == "devcontainer.json.j2":
+                recorded.append(dict(kwargs))
+            return render_json_template(template_name, **kwargs)
+
+        monkeypatch.setattr(dc_cmd, "render_json_template", _record_render)
+        result = runner.invoke(app, ["init", str(tmp_path), "--name", "ctx-proj"])
+
+        assert result.exit_code == 0, result.output
+        assert len(recorded) == 1
+        assert "image" in recorded[0]
+        assert "published" in recorded[0]
+        assert "python_version" not in recorded[0]
 
     def test_init_with_home_volume_and_force(self, runner: CliRunner, tmp_path: Path) -> None:
         """devops devcontainer init with --home-volume and --force must configure mount."""
@@ -113,7 +154,6 @@ class TestDevcontainerCli:
                 "test-vol",
                 "--home-volume",
                 "custom-home-vol",
-                "--published",
                 "--force",
             ],
         )
@@ -153,12 +193,12 @@ class TestDevcontainerCli:
         dc_file = dc_dir / "devcontainer.json"
         dc_file.write_text('{"image": "python:3.12"}', encoding="utf-8")
 
-        result = runner.invoke(app, ["update", str(tmp_path), "--python", "3.14"])
+        result = runner.invoke(app, ["update", str(tmp_path), "--python", "3.13"])
         assert result.exit_code == 0
         assert "Updated image" in result.output
 
         data = json.loads(dc_file.read_text(encoding="utf-8"))
-        assert data["image"] == "mcr.microsoft.com/devcontainers/python:3.14"
+        assert data["image"] == "mcr.microsoft.com/devcontainers/python:3.13"
 
     @pytest.mark.usefixtures("image_programs_installed")
     def test_post_create_command_executes_successfully(

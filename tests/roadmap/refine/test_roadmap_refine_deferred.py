@@ -162,12 +162,14 @@ class _Intake:
     def __init__(self, unusable: Sequence[str] = ()) -> None:
         self.unusable = set(unusable)
         self.titles: list[str] = []
+        self.shortlists: list[list[int]] = []
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
         return [[1.0] for _ in texts]
 
     def propose(self, request: ProposalRequest) -> ModelProposal:
         self.titles.append(request.title)
+        self.shortlists.append([n.number for n in request.shortlist])
         if request.title in self.unusable:
             raise UnusableProposalError("no usable proposal")
         return ModelProposal.model_validate(_PROPOSAL_FIELDS)
@@ -425,9 +427,14 @@ def test_deferred_a_failed_second_filing_records_the_first_and_leaves_the_item(
 def test_deferred_a_later_round_files_only_the_parts_that_no_round_filed(
     store: _Store, git_repo: Path
 ) -> None:
+    unrelated = store.seed_issue(
+        "fix(cli): unrelated finished issue",
+        body="Another area.",
+        fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P3-Low"},
+    )
     store.refuse_creation = {2}
     apply_refine(store, _plan(store, git_repo))
-    (first,) = [issue for issue in store.issues() if issue.number != 1]
+    (first,) = [issue for issue in store.issues() if issue.number not in {1, unrelated}]
     store.refuse_creation = set()
     proposer_intake = _Intake()
     proposer = _Proposer(_PROPOSAL)
@@ -442,16 +449,18 @@ def test_deferred_a_later_round_files_only_the_parts_that_no_round_filed(
     )
     apply_refine(store, plan)
 
-    second = [issue for issue in store.issues() if issue.number not in {1, first.number}]
+    second = [issue for issue in store.issues() if issue.number not in {1, first.number, unrelated}]
     assert (
         '"deferred_issues": [\n  {\n   "number": ' + str(first.number) in proposer.prompts[0],
         proposer_intake.titles,
+        proposer_intake.shortlists,
         [issue.title for issue in second],
         _record(store, 1, RefineRecordKey.DEFERRED),
         _status(store, 1),
     ) == (
         True,
         [_EXPORT.title],
+        [[unrelated]],
         [_EXPORT.title],
         f"{first.number},{second[0].number}",
         "Ready",

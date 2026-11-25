@@ -461,7 +461,7 @@ def test_every_example_test_path_of_the_prompt_and_the_config_is_mirrored(text: 
 
 _OVERLAP = Overlap(
     number=3173,
-    title="docs(openspec): plan #3173 the telemetry page",
+    title="docs(spec): plan #3173 the telemetry page",
     state="open",
     plan=True,
     paths=("docs/TELEMETRY.md",),

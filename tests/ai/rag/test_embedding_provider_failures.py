@@ -74,11 +74,8 @@ def test_ollama_provider_with_no_url_raises_embeddings_error_naming_the_setting(
 
 
 def test_ollama_raises_after_every_node_fails(web: WebFake) -> None:
-    """When every node fails a single text, the error names the model and each node's failure.
-
-    The batch of two is halved once, and the first text failing everywhere ends the call: no
-    further request is sent for the second text.
-    """
+    """When every node fails with 404 or a connect error, the engine tries each node once without
+    halving the batch and names each node's failure (#6722)."""
     posts: list[str] = []
 
     def fake_post(url: str, **kwargs: Any) -> httpx2.Response:
@@ -100,7 +97,7 @@ def test_ollama_raises_after_every_node_fails(web: WebFake) -> None:
         '{"error":"model \\"bge-m3\\" not found"}; '
         "http://example.com:11435/api/embed failed: ConnectError: connection refused",
         "bge-m3",
-        4,
+        2,
     )
 
 

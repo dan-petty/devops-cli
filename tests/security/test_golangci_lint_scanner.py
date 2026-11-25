@@ -10,12 +10,16 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 from devops_cli.ai.review_schema import Finding
 from devops_cli.config.commands import BIN_GOLANGCI_LINT
+from devops_cli.config.constants import CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG
 from devops_cli.security.base import ScanOutcome
 from devops_cli.security.golangci_lint import (
     DEFAULT_LINTERS,
@@ -27,6 +31,7 @@ from devops_cli.security.tool_executor import RecordingToolExecutor
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.scanners import ScannerFake
 from tests.support.fakes.tool_executor import ToolAnswer, ToolExecutorFake
+from tests.support.refused_programs import REFUSED_STAND_IN_DIRNAME
 
 # What golangci-lint 1.64.6 writes when go/packages cannot load the packages: its own text,
 # measured on 2026-10-29, then the standard error of the `go` command.
@@ -102,16 +107,55 @@ def test_golangci_lint_contextcheck_optional() -> None:
 
 
 def test_golangci_lint_build_command() -> None:
-    """build_command constructs the argument list with SARIF output and enabled linters."""
+    """build_command passes v2 SARIF stdout output, --default=none, and enabled linters (#5072)."""
     scanner = GolangciLintScanner()
     cmd = scanner.build_command(Path("."))
-    assert cmd[:3] == ["golangci-lint", "run", "--out-format"]
-    assert cmd[3] == "sarif"
-    assert "--disable-all" in cmd
+    assert cmd[:3] == ["golangci-lint", "run", "--output.sarif.path=stdout"]
+    assert "--default=none" in cmd
+    assert "--out-format" not in cmd
+    assert "--disable-all" not in cmd
 
     enable_indices = [i for i, arg in enumerate(cmd) if arg == "--enable"]
     enabled = [cmd[i + 1] for i in enable_indices]
     assert enabled == ["errcheck", "govet", "staticcheck"]
+    assert cmd.index("--default=none") < enable_indices[0]
+
+
+def test_golangci_lint_review_config_is_v2() -> None:
+    """CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG uses v2 keys with no v1 legacy fields (#5072)."""
+    parsed = yaml.safe_load(CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG)
+    assert isinstance(parsed, dict)
+    assert parsed["version"] == "2"
+    assert "linters-settings" not in parsed
+    linters = parsed["linters"]
+    assert linters["default"] == "none"
+    assert "enable" not in linters
+    assert "disable-all" not in linters
+    assert isinstance(linters["settings"], dict)
+    assert linters["settings"]["govet"] == {"enable": ["lostcancel"]}
+
+
+@pytest.mark.live("golangci-lint")
+def test_golangci_lint_config_verify_accepts_review_config(tmp_path: Path) -> None:
+    """The devtools golangci-lint v2 binary accepts CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG (#5072)."""
+    config_file = tmp_path / ".golangci.yml"
+    config_file.write_text(CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG, encoding="utf-8")
+    clean_path = os.pathsep.join(
+        part
+        for part in os.environ.get("PATH", "").split(os.pathsep)
+        if REFUSED_STAND_IN_DIRNAME not in part
+    )
+    binary = shutil.which(BIN_GOLANGCI_LINT, path=clean_path)
+    assert binary is not None
+
+    done = subprocess.run(
+        [binary, "config", "verify", "-c", str(config_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert (done.stdout + done.stderr).strip() == ""
 
 
 def test_golangci_lint_build_command_with_contextcheck() -> None:
@@ -133,7 +177,7 @@ def test_golangci_lint_sarif_output_conversion() -> None:
                 "tool": {
                     "driver": {
                         "name": "golangci-lint",
-                        "version": "1.64.6",
+                        "version": "2.15.0",
                         "rules": [
                             {
                                 "id": "govet",

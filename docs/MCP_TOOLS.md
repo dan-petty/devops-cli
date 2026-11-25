@@ -325,7 +325,7 @@ Trigger or test circuit-breaker failover of a virtual model to secondary backend
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `virtual_model` | `string` | No | - | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, devops-embedding). Give none with --reset. |
+| `virtual_model` | `string` | No | - | Virtual model alias to trigger failover for (devops-chat, devops-coder, devops-reasoning, qwen3-embedding:0.6b). Give none with --reset. |
 | `simulate` | `boolean` | No | `True` | Simulate failover without altering active routing table. |
 | `force` | `boolean` | No | `False` | Bypass model capability tier minimum checks during failover. |
 | `reset` | `boolean` | No | `False` | Restore the default route of every virtual model and clear the circuit breaker. --simulate and --force apply only to a failover. |

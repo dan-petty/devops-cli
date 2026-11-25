@@ -65,7 +65,7 @@ def test_stop_with_no_request_stops_as_before(
 
     applied = job_world.run(script)
     assert (applied.drafted, applied.stopped, applied.failed) == ((), (1,), ())
-    assert "docs(openspec): amend the plan" not in str(job_world.origin_log())
+    assert "docs(spec): amend the plan" not in str(job_world.origin_log())
     status, _ = _item(job_world)
     assert status == "Blocked"
 

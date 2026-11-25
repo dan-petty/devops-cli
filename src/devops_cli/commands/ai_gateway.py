@@ -80,7 +80,7 @@ def _render_routes_table(routes: list[GatewayRoute]) -> None:
             r.target_model,
             r.backend_type,
             r.backend_url,
-            "✓ healthy" if r.healthy else "✗ degraded",
+            "not checked" if not r.checked else ("✓ healthy" if r.healthy else "✗ degraded"),
         ]
         for r in routes
     ]
@@ -129,8 +129,12 @@ def status_cmd(
         return
 
     settings = load_settings()
-    router = GatewayRouter(settings.ai, provider=provider)
-    result = router.probe_gateway(gateway_url, provider=provider)
+    router = GatewayRouter(settings.ai, provider=provider, api_key=get_ai_api_key(settings))
+    try:
+        result = router.probe_gateway(gateway_url, provider=provider)
+    except AICredentialsError as exc:
+        print_error(str(exc))
+        raise typer.Exit(1) from exc
 
     resolved = normalize_format(output_format)
     if resolved != CONST_OUTPUT_FORMAT_TABLE:

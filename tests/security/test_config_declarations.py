@@ -373,6 +373,11 @@ _VARIABLES_OF_LATER_SETTINGS = frozenset(
         "DEVOPS_CLI_RESEARCH_JUDGE_RECORD_LIMIT",  # #3909
         "DEVOPS_CLI_RESEARCH_JUDGE_DAILY_TOKEN_LIMIT",  # #3909
         "DEVOPS_CLI_VALKEY_USER",  # #4704
+        "DEVOPS_CLI_STORE_S3_ENDPOINT",  # #4761
+        "DEVOPS_CLI_STORE_WEB_BASE_URL",  # #4761
+        "DEVOPS_CLI_STORE_REGION",  # #4761
+        "DEVOPS_CLI_STORE_ACCESS_KEY_ID",  # #4761
+        "DEVOPS_CLI_STORE_SECRET_ACCESS_KEY",  # #4761
     }
 )
 
@@ -414,6 +419,8 @@ _KEYRING_OF_LATER_CREDENTIALS = {
     "github.release_app_private_key": "github_release_app_private_key",  # #6773
     "gitea.token": "gitea_token",  # #1090
     "gitea.argocd_token": "gitea_argocd_token",  # #1082
+    "store.access_key_id": "store_access_key_id",  # #4761
+    "store.secret_access_key": "store_secret_access_key",  # #4761
 }
 
 

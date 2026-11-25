@@ -98,7 +98,12 @@ def test_a_plan_pull_request_carries_the_plan_mark() -> None:
             [
                 _pull(
                     3252,
-                    "docs(openspec): plan #3252 stage context",
+                    "docs(spec): plan #3252 stage context",
+                    "src/devops_cli/roadmap/stage/stage_overlap.py",
+                ),
+                _pull(
+                    3251,
+                    "docs(openspec): plan #3251 legacy stage context",
                     "src/devops_cli/roadmap/stage/stage_overlap.py",
                 ),
                 _pull(
@@ -110,7 +115,7 @@ def test_a_plan_pull_request_carries_the_plan_mark() -> None:
 
     read = open_pulls(reads, "example/roadmap")
 
-    assert [pull.plan for pull in read.pulls] == [True, False]
+    assert [pull.plan for pull in read.pulls] == [True, True, False]
     assert overlaps(read.pulls, ["src/devops_cli/roadmap/stage/stage_overlap.py"])[0].plan is True
 
 

@@ -125,7 +125,7 @@ def test_continue_path_uses_plan_open_step_not_g1_merged_step() -> None:
         _labeled(_ts(2026, 11, 17, 11), "status/ready"),
         _cross_ref_pr(
             200,
-            "docs(openspec): plan #5494 eval funnel",
+            "docs(spec): plan #5494 eval funnel",
             created_at=_ts(2026, 11, 17, 12),
             head_ref=branch,
             state="closed",
@@ -163,7 +163,7 @@ def test_g1_path_tracks_plan_merged_to_ready_delivery_pr() -> None:
         _labeled(_ts(2026, 11, 17, 11), "status/ready"),
         _cross_ref_pr(
             300,
-            "docs(openspec): plan #5494 eval funnel",
+            "docs(spec): plan #5494 eval funnel",
             created_at=_ts(2026, 11, 17, 12),
             head_ref="docs/openspec/5494-eval-funnel",
             merged_at=_ts(2026, 11, 17, 13),
@@ -199,7 +199,7 @@ def _item_ready_to_plan(
     plan_pr = (
         FunnelPull(
             number=1000 + number,
-            title=f"docs(openspec): plan #{number} item",
+            title=f"docs(spec): plan #{number} item",
             head_ref=f"docs/openspec/{number}-item",
             state="open",
             draft=False,
@@ -255,7 +255,7 @@ def test_young_open_item_counts_as_in_progress_outside_share() -> None:
         state="open",
         plan_pr=FunnelPull(
             number=50,
-            title="docs(openspec): plan #1 passed",
+            title="docs(spec): plan #1 passed",
             head_ref="docs/openspec/1-passed",
             state="open",
             draft=False,

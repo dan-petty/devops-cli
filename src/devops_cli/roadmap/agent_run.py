@@ -604,11 +604,12 @@ def record_run_spend(
             model_answer_labels(asked, name),
         )
     served_by = getattr(model, "served_by", None)
+    served_model = getattr(model, "served_model", None) or (answered[-1] if answered else None)
     track_request_spend(
         provider=CONST_AI_GATEWAY_PROVIDER if served_by else str(getattr(model, "system", "")),
         model=asked,
         server=urlsplit(served_by).netloc if served_by else "unknown",
-        served_model=answered[-1] if answered else None,
+        served_model=served_model,
         prompt_tokens=sum(reply.usage.input_tokens for reply in replies),
         completion_tokens=sum(reply.usage.output_tokens for reply in replies),
         cache_read_tokens=sum(reply.usage.cache_read_tokens for reply in replies),

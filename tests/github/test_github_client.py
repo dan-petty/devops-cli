@@ -119,11 +119,11 @@ def test_a_pull_request_is_read_with_its_title_and_both_commits(
 
 def test_get_pull_returns_labels_of_the_pull_request(github_api: GitHubApiFake) -> None:
     payload = dict(_RECORDED["pull_request"]) | {
-        "labels": [{"name": "type/docs"}, {"name": "scope/openspec"}]
+        "labels": [{"name": "type/docs"}, {"name": "scope/spec"}]
     }
     github_api.route("GET", _PULL, github_json(payload))
     pull = _client().get_pull("octocat/Hello-World", 158)
-    assert pull.labels == ("type/docs", "scope/openspec")
+    assert pull.labels == ("type/docs", "scope/spec")
 
 
 def test_a_pull_request_that_lacks_a_title_is_unread(github_api: GitHubApiFake) -> None:
@@ -948,3 +948,65 @@ def test_a_comment_on_an_issue_returns_the_comment_id(
     assert comment_id == 42
     assert github_api.requested == [f"POST {API}/repos/octocat/Hello-World/issues/10/comments"]
     assert json.loads(github_api.sent[0].content) == {"body": "Issue comment."}
+
+
+def test_get_pull_files_returns_paths_and_patches(github_api: GitHubApiFake) -> None:
+    from devops_cli.github.client import PullRequestFilePatch
+
+    github_api.route(
+        "GET",
+        "/repos/octocat/Hello-World/pulls/56/files?per_page=100",
+        github_json(
+            [
+                {
+                    "filename": "src/app.py",
+                    "status": "modified",
+                    "additions": 2,
+                    "changes": 3,
+                    "patch": "@@ -1 +1 @@\n-old\n+new",
+                }
+            ]
+        ),
+    )
+
+    files = _client().get_pull_files("octocat/Hello-World", 56)
+
+    assert files == [
+        PullRequestFilePatch(
+            filename="src/app.py",
+            status="modified",
+            additions=2,
+            changes=3,
+            patch="@@ -1 +1 @@\n-old\n+new",
+        )
+    ]
+
+
+def test_list_open_issues_skips_pulls_and_stops_at_limit(github_api: GitHubApiFake) -> None:
+    from tests.support.fakes.github import next_page
+
+    page1 = [
+        {"number": 10, "title": "PR item", "state": "open", "pull_request": {"url": "u"}},
+        {"number": 11, "title": "First issue", "state": "open", "body": "one"},
+        {"number": 12, "title": "Second issue", "state": "open", "body": "two"},
+    ]
+    page2 = [
+        {"number": 13, "title": "Third issue", "state": "open", "body": "three"},
+    ]
+    github_api.route(
+        "GET",
+        "/repos/octocat/Hello-World/issues?state=open&per_page=100",
+        github_json(
+            page1, headers=next_page("/repos/octocat/Hello-World/issues?state=open&page=2")
+        ),
+    )
+    github_api.route(
+        "GET",
+        "/repos/octocat/Hello-World/issues?state=open&page=2",
+        github_json(page2),
+    )
+
+    issues = _client().list_open_issues("octocat/Hello-World", limit=2)
+
+    assert [issue.number for issue in issues] == [11, 12]
+    assert len(github_api.requested) == 1

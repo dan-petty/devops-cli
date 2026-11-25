@@ -8,9 +8,10 @@
 # A query gives no name of a workload outside the project namespaces (#6615): a rows fact that
 # groups or joins by namespace or pod holds the matcher namespace=~"{namespaces}" in each selector
 # whose metric has a namespace label, in its query and in its base. A row that holds a namespace
-# label outside the setting, or a workload label with no namespace, makes the dispatcher give
-# error for the fact (_NAMESPACE_LABELS and _WORKLOAD_LABELS of dispatch.py). The dispatcher
-# checks only these labels, so a rows fact does not group by another label that names a workload.
+# label outside the setting, or holds no namespace label and has a label (other than __name__) not
+# in _SAFE_ROW_LABELS, makes the dispatcher give error for the fact (dispatch.py, #6632). The
+# dispatcher refuses unlisted non-namespaced labels by default; add new safe grouping labels to
+# _SAFE_ROW_LABELS when adding a non-namespaced rows fact.
 # A listing fact counts only issues and pull requests that changed at or after the window start:
 # with no listing snapshot, the reader reads only those.
 # A prometheus fact whose answer can be empty for "none" names `base`, the metric that it reads:

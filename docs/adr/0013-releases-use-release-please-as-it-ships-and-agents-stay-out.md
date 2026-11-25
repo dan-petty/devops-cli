@@ -4,6 +4,7 @@ date: 2026-10-23
 decision-makers: [owner]
 issue: 1861
 supersedes: ["0012"]
+amended-by: ["0040"]
 body-hash: 925b8bc4bfb68188c23ad6382749a15c83793ac24e662e45e8bd2975cb8dd1d5
 ---
 
@@ -39,3 +40,4 @@ On 2026-10-23 the owner decided to keep agents as far from the release workflow 
 ## Status History
 
 ADR 0013 supersedes [ADR 0012](0012-releases-are-derived-by-release-please-from-trunk-and-milestones-are-planning-buckets.md).
+2026-11-25: Amended by ADR 0040, section Decision Outcome.

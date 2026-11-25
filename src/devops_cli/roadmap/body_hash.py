@@ -455,3 +455,13 @@ def is_unchanged(item: Item, body: str) -> bool:
         item.job_record.get(RefineRecordKey.SECTION_HASH),
     )
     return body_hashes(body) == recorded
+
+
+# An issue number in text: not part of a word, a path or the reference of another repository, which
+# GitHub writes `owner/repo#N`.
+ISSUE_REF_RE: Final[re.Pattern[str]] = re.compile(r"(?<![\w/#])#(\d+)\b")
+
+
+def issue_references(text: str) -> tuple[int, ...]:
+    """The unique `#N` issue numbers referenced in `text`, in order of first appearance (#6198)."""
+    return tuple(dict.fromkeys(int(match.group(1)) for match in ISSUE_REF_RE.finditer(text)))

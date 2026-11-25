@@ -933,7 +933,7 @@ def test_an_archive_commit_that_is_not_the_tip_is_dropped_and_written_again(
     assert pull.pushed_file("src/a.py") == "A = 1\n"
     assert pull.pushed_file(f"openspec/changes/archive/2026-11-21-{pull.number}-test-cap/tasks.md")
     subject = _git(pull.upstream, "log", "-1", "--format=%s", pull.branch)
-    assert subject == f"docs(openspec): archive the change (#{pull.number})"
+    assert subject == f"docs(spec): archive the change (#{pull.number})"
 
 
 def test_an_archive_commit_that_holds_other_paths_stops_the_round(
@@ -990,7 +990,7 @@ def test_an_archive_commit_whose_generated_document_conflicts_too_is_dropped(
     assert plan.reason.startswith("Plan: drop the archive commit of the item")
     assert (report.result, report.reason) == (FixConflictResult.RESOLVED, "")
     subject = _git(pull.upstream, "log", "-1", "--format=%s", pull.branch)
-    assert subject == f"docs(openspec): archive the change (#{pull.number})"
+    assert subject == f"docs(spec): archive the change (#{pull.number})"
 
 
 def test_a_generated_document_that_main_deleted_stays_deleted(

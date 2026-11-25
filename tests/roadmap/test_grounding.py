@@ -7,7 +7,7 @@ import pytest
 from devops_cli.github.client import PullRequestFile
 from devops_cli.roadmap.grounding import ChangedFilesRead, plan_blockers, plan_issue
 
-_TITLE = "docs(openspec): plan #3183 add plan-check"
+_TITLE = "docs(spec): plan #3183 add plan-check"
 _BODY = "Plans #3183\n\nWhy and what.\n\nChange: `openspec/changes/3183-add-plan-check/`"
 _FOLDER = PullRequestFile(
     filename="openspec/changes/3183-add-plan-check/proposal.md", status="added"
@@ -21,12 +21,15 @@ def _blockers(body: str = _BODY, *files: PullRequestFile) -> list[str]:
 
 def test_a_plan_title_names_its_issue() -> None:
     assert plan_issue(_TITLE) == 3183
+    assert plan_issue("docs(openspec): plan #3183 add plan-check") == 3183
 
 
 @pytest.mark.parametrize(
     "title",
     [
         "feat(roadmap): add plan-check",
+        "docs(spec): archive 3183-x",
+        "docs(spec): plan #x y",
         "docs(openspec): archive 3183-x",
         "docs(openspec): plan #x y",
     ],

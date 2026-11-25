@@ -105,7 +105,7 @@ def test_a_repository_that_is_no_owner_and_name_is_refused(cli: Cli, web: WebFak
 
 
 def _plan(number: int, *labels: str) -> dict[str, Any]:
-    return pull_node(number, f"docs(openspec): plan #{number} Add the part", labels)
+    return pull_node(number, f"docs(spec): plan #{number} Add the part", labels)
 
 
 def _verdict_replies(github_api: GitHubApiFake, *nodes: dict[str, Any]) -> None:

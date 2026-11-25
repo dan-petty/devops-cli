@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from devops_cli.config.constants import CONST_ROADMAP_EPIC_LABEL
 from devops_cli.github.client import PullStatus
 from devops_cli.roadmap.stores.store import (
     AlternativesRecordKey,
@@ -27,6 +28,7 @@ def _item(
     status: str | None = None,
     owner: str | None = None,
     state: GitHubState = GitHubState.OPEN,
+    sub_issues: int = 0,
     job_record: dict[str, str] | None = None,
     updated_at: datetime | None = None,
 ) -> Item:
@@ -43,6 +45,7 @@ def _item(
         labels=tuple(item_labels),
         status=status,
         owner=owner,
+        sub_issues=sub_issues,
         job_record=job_record or {},
         updated_at=updated_at or datetime(2026, 11, 15, 0, 0, tzinfo=UTC),
     )
@@ -478,3 +481,38 @@ def test_find_running_units() -> None:
     error_api = MagicMock()
     error_api.list_jobs.side_effect = ClusterJobError("cluster unreachable")
     assert find_running_units("owner/repo", jobs=error_api) == set()
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {RefineRecordKey.NEXT_STEP: "person"},
+        {RefineRecordKey.NEXT_STEP: "split"},
+        {RefineRecordKey.NEXT_STEP: "failed"},
+        {RefineRecordKey.BODY_HASH: "abc", RefineRecordKey.RETURNED_BODY_HASH: "abc"},
+        {RefineRecordKey.ALTERNATIVES_ASKED: "ruff"},
+        {RefineRecordKey.BLOCKED_BY: "#42"},
+        {OwnerQuestionRecordKey.HASH: "q1"},
+    ],
+)
+def test_trackers_ignore_refine_and_owner_person_causes(record: dict[str, str]) -> None:
+    """has_person_cause ignores refine and owner keys on tracker items (#6446)."""
+    from devops_cli.roadmap.phase import has_person_cause
+
+    epic = _item(1, labels=(CONST_ROADMAP_EPIC_LABEL,), job_record=record)
+    parent = _item(2, sub_issues=2, job_record=record)
+    regular = _item(3, job_record=record)
+
+    assert has_person_cause(epic) is False
+    assert has_person_cause(parent) is False
+    assert has_person_cause(regular) is True
+
+
+def test_trackers_keep_execution_stop_person_causes() -> None:
+    """Execution stop keys remain person causes even if an item has tracker markers (#6446)."""
+    from devops_cli.roadmap.phase import has_person_cause
+
+    stopped = _item(
+        1, labels=(CONST_ROADMAP_EPIC_LABEL,), job_record={ImplementRecordKey.STOPPED: "job"}
+    )
+    assert has_person_cause(stopped) is True

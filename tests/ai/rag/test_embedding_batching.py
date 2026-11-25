@@ -348,3 +348,82 @@ def test_only_a_batch_within_the_margin_below_the_latency_threshold_counts_as_fa
     sizes.append(_batch_sizes(engine, sent, 3, 6))
 
     assert sizes == [[4], [2, 2, 2], [2, 2, 2], [4, 2]]
+
+
+@pytest.mark.parametrize("status", [400, 413, 422])
+def test_an_input_refused_status_halves_the_batch_and_returns_accepted_vectors(
+    web: WebFake, status: int
+) -> None:
+    """HTTP 400, 413 and 422 can come from one oversized combined batch, so halving succeeds (#6722)."""
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        if len(inputs(request)) > 2:
+            return httpx2.Response(status, json={"error": "input length exceeds context"})
+        return ollama_reply(request)
+
+    sent = serve(web, reply)
+    engine = ollama_engine([SERVING_BACKEND], batch_size=4)
+
+    vectors = engine.embed_texts(["alpha", "beta", "gamma", "delta"])
+
+    assert (vectors, [len(inputs(request)) for request in sent]) == ([[0.5] * 4] * 4, [4, 2, 2])
+
+
+def test_one_bad_text_on_400_halves_so_good_half_answers_before_raising(web: WebFake) -> None:
+    """When one text is always refused with HTTP 400, halving gets vectors for the good half before
+    the single refused text raises."""
+    succeeded: list[list[str]] = []
+
+    def reply(request: httpx2.Request) -> httpx2.Response:
+        batch = inputs(request)
+        if "too long" in batch:
+            return httpx2.Response(400, json={"error": "input length exceeds context"})
+        succeeded.append(batch)
+        return ollama_reply(request)
+
+    sent = serve(web, reply)
+    engine = ollama_engine([SERVING_BACKEND], batch_size=4)
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts(["ok-1", "ok-2", "too long", "ok-3"])
+
+    assert (raised.value.status, succeeded, [len(inputs(request)) for request in sent]) == (
+        400,
+        [["ok-1", "ok-2"]],
+        [4, 2, 2, 1],
+    )
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_status", "batch_count"),
+    [
+        (httpx2.Response(404, json={"error": 'model "bge-m3" not found'}), 404, 128),
+        (httpx2.Response(401, text="unauthorized"), 401, 4),
+        (httpx2.Response(403, text="forbidden"), 403, 4),
+        (httpx2.Response(503, text="service unavailable"), 503, 4),
+        (httpx2.ConnectError("connection refused"), None, 4),
+        (EmbeddingsError("unexpected backend error"), None, 4),
+    ],
+    ids=["404-128-texts", "401", "403", "503", "connect-error", "unknown-error"],
+)
+def test_permanent_network_and_unknown_errors_do_not_halve_the_batch(
+    web: WebFake,
+    failure: httpx2.Response | Exception,
+    expected_status: int | None,
+    batch_count: int,
+) -> None:
+    """Permanent HTTP replies, connect errors and unknown errors affect the whole request, so
+    one batch sends one request instead of halving across all texts (#6722)."""
+
+    def reply(_request: httpx2.Request) -> httpx2.Response:
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    sent = serve(web, reply)
+    engine = ollama_engine([SERVING_BACKEND], batch_size=batch_count)
+
+    with pytest.raises(EmbeddingsError) as raised:
+        engine.embed_texts([f"chunk-{idx}" for idx in range(batch_count)])
+
+    assert (len(sent), raised.value.status) == (1, expected_status)

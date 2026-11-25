@@ -41,7 +41,7 @@ The implement agent rebases onto the tip of the default branch that `prepare` re
 
 - An agent that writes the settings of its clone reaches no call with the token: `publish` reads no file of the clone and runs no program of the agent.
 - `publish` writes one commit of the bot for each patch: for implement, and for fix-checks on a branch that it rebased (#6639), the work, the archive and the work after the archive; for fix-checks, also the fix. The commits of the agent stay in the agent clone. A killed implement Job loses the groups of its run.
-- Until #3700, one process mints one token for the three phases, so the token keeps `workflows: write`. `publish` refuses a workflow file that the merged plan does not name.
+- `prepare` asks read permissions plus `issues: write`; `publish` asks `workflows: write` only for a workflow file that the merged plan names, and refuses any other.
 
 ### Confirmation
 

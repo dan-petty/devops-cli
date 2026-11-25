@@ -3331,7 +3331,7 @@ class RoadmapMessages:
     retitle_comment_type_changed: str = (
         "{marker}\nThe job changed the type of the title. The type `{type}` is not a type of the "
         "project, so the stage job could not take this item. The types are: {types}.\n\n"
-        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+        "- Before: `{old}`\n- Source of the summary: {source}"
     )
     retitle_comment_type_skipped: str = (
         "{marker}\nThe type `{type}` of the title is not a type of the project, so the stage job "
@@ -3355,7 +3355,7 @@ class RoadmapMessages:
     retitle_comment_changed: str = (
         "{marker}\nThe job shortened the title of this item. The summary had {length} characters, "
         "and the limit is {limit}. The type and the scope stay.\n\n"
-        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+        "- Before: `{old}`\n- Source of the summary: {source}"
     )
     retitle_comment_skipped: str = (
         "{marker}\nThe summary of the title has {length} characters, and the limit is {limit}. "
@@ -4241,7 +4241,7 @@ class RoadmapMessages:
     implement_stop_question_second: str = (
         "A second plan request was received for group {group}: {defect}. Evidence: {evidence}"
     )
-    implement_commit_split: str = "docs(openspec): split group {group} (#{number})"
+    implement_commit_split: str = "docs(spec): split group {group} (#{number})"
     implement_stop_split_missing: str = (
         "A group is over the limit of the step, and no splitter is configured."
     )
@@ -5875,7 +5875,7 @@ class RoadmapMessages:
     )
     plan_read_bad_spec: str = "`{path}` is no spec delta under `specs/<capability>/`."
     plan_check_line: str = "{path}: {rule}: {message}"
-    plan_check_title: str = "The title is not `docs(openspec): plan #{number} <summary>`."
+    plan_check_title: str = "The title is not `docs(spec): plan #{number} <summary>`."
     plan_check_title_long: str = (
         "The text of the title after the colon has {length} characters, and the limit is {limit}."
     )
@@ -6470,6 +6470,7 @@ class RoadmapMessages:
     intake_reason_person: str = "a person placed it in {milestone}, and that placement stands."
     intake_comment: str = "{marker}\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
+    intake_comment_field_reason: str = "- {field}: {reason}"
     intake_p0_granted: str = (
         "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
     )
@@ -6788,6 +6789,8 @@ class RoadmapMessages:
         "gate catches ({rate})."
     )
     stage_eval_score_ended: str = "Cases by end: {ended}."
+    stage_eval_score_case: str = "- {name} ({outcome})"
+    stage_eval_score_case_reason: str = "- {name} ({outcome}): {reason}"
     stage_eval_usage_tokens: str = "Tokens: {input} in, {output} out."
     stage_eval_usage_spend: str = "Spend: {spend:.4f} USD at the hosted price of the model."
     stage_eval_usage_unpriced: str = "Spend: no price for the model."
@@ -7386,6 +7389,9 @@ class RoadmapMessages:
     review_catalog_unknown_fact: str = (
         "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )
+    review_readiness_heading: str = "Readiness {repo}:"
+    review_readiness_manual: str = "manual check"
+    review_readiness_unread: str = "check kind '{kind}' is not readable in this review"
 
 
 @dataclass(frozen=True)

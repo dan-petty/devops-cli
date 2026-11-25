@@ -56,7 +56,7 @@ LABELS_FILE = """\
   color: 0075CA
 - name: type/bug
   color: D73A4A
-- name: scope/openspec
+- name: scope/spec
   color: 0E8A16
 - name: scope/roadmap
   color: 0E8A16
@@ -109,7 +109,7 @@ OPEN_DRAFT = {
     "state": "open",
     "draft": True,
     "merged": False,
-    "title": "docs(openspec): plan #1 Stop the job dropping a comment",
+    "title": "docs(spec): plan #1 Stop the job dropping a comment",
     "head": {"ref": BRANCH, "sha": ""},
     "base": {"ref": "main", "sha": ""},
     "labels": [],
@@ -187,7 +187,7 @@ def merge_plan(
     commit, which holds no summary of the plan unless a test gives one."""
     write_change(repo.clone, tasks, number, slug=slug, archived=archived)
     repo.git("add", "-A")
-    repo.git("commit", "-q", "-m", subject or f"docs(openspec): plan #{number}")
+    repo.git("commit", "-q", "-m", subject or f"docs(spec): plan #{number}")
     repo.git("push", "-q", "origin", "main")
 
 
@@ -372,7 +372,7 @@ _LOGIN = STAGE_NAME
 # The commits of the bot that `publish` puts on the branch of a drafted run: the work of the run,
 # and the archive (#3702).
 WORK_COMMIT = "fix(roadmap): the job drops a comment (#1)"
-ARCHIVE_COMMIT = "docs(openspec): archive the change (#1)"
+ARCHIVE_COMMIT = "docs(spec): archive the change (#1)"
 
 
 class PullFake:

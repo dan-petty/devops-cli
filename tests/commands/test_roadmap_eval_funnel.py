@@ -164,7 +164,7 @@ def test_cli_json_reports_cohorts_paths_loki_and_missing_lines(
             [
                 _pull_item(
                     200,
-                    "docs(openspec): plan #10 One",
+                    "docs(spec): plan #10 One",
                     "docs/openspec/10-one",
                     created_at="2026-11-17T12:00:00Z",
                     updated_at="2026-11-17T13:00:00Z",
@@ -180,7 +180,7 @@ def test_cli_json_reports_cohorts_paths_loki_and_missing_lines(
                 ),
                 _pull_item(
                     202,
-                    "docs(openspec): plan #11 Two",
+                    "docs(spec): plan #11 Two",
                     "docs/openspec/11-two",
                     created_at="2026-11-18T12:00:00Z",
                     updated_at="2026-11-18T12:30:00Z",
@@ -219,7 +219,7 @@ def test_cli_json_reports_cohorts_paths_loki_and_missing_lines(
                         "type": "issue",
                         "issue": {
                             "number": 200,
-                            "title": "docs(openspec): plan #10 One",
+                            "title": "docs(spec): plan #10 One",
                             "state": "closed",
                             "draft": False,
                             "created_at": "2026-11-17T12:00:00Z",
@@ -267,7 +267,7 @@ def test_cli_json_reports_cohorts_paths_loki_and_missing_lines(
                         "type": "issue",
                         "issue": {
                             "number": 202,
-                            "title": "docs(openspec): plan #11 Two",
+                            "title": "docs(spec): plan #11 Two",
                             "state": "open",
                             "draft": False,
                             "created_at": "2026-11-18T12:00:00Z",

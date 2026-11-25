@@ -944,7 +944,7 @@ class _ItemRun:
         if isinstance(judged, Applied):
             tasks_file.write_text(judged.tasks_md, encoding="utf-8")
             self._commit_if_changed(
-                f"docs(openspec): amend the plan of group {group_number} (#{self.number})"
+                f"docs(spec): amend the plan of group {group_number} (#{self.number})"
             )
             self.amendments.append(judged.amendment)
             amended_groups.add(group_number)
@@ -1081,7 +1081,7 @@ class _ItemRun:
         new_md = _record_amendment(new_md, split_amendment.bullet())
         self.amendments.append(split_amendment)
         tasks_file.write_text(new_md, encoding="utf-8")
-        self._commit_if_changed(f"docs(openspec): split group {group.number} (#{self.number})")
+        self._commit_if_changed(f"docs(spec): split group {group.number} (#{self.number})")
 
     def _groups(self) -> None:
         change = self._active_change()

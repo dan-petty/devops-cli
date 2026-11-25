@@ -3,7 +3,7 @@
 The job turns each item that a label filter names into a branch `<type>/<issue>-<slug>` at the
 fetched default branch, with the OpenSpec change `openspec/changes/<issue>-<slug>/` written from
 the refined body, one commit by the identity of the session, and a draft pull request whose title
-is `docs(openspec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
+is `docs(spec): plan #<issue> <summary>` (a plan is no fix: #2714) and whose body starts with
 `Plans #<issue>`. The reply schema holds no limit on the length of the body text: a text over its
 room in the plan form gets a shorter text from one turn of the body rewrite (`pull_retry`), and
 the proposal keeps the full text (#6319). The job never changes the item's Status. The staged
@@ -4175,6 +4175,7 @@ def _stop_on_budget(store: RoadmapStore, stopped: OverBudget) -> None:
             StageRecordKey.FAILED_ERROR: None,
             StageRecordKey.FAILED_STEP: None,
             StageRecordKey.FAILED_CLASS: None,
+            StageRecordKey.PENDING: None,
             OwnerQuestionRecordKey.HASH: question.hash,
             OwnerQuestionRecordKey.TEXT: question.question,
             OwnerQuestionRecordKey.ANSWER: None,
@@ -4199,14 +4200,22 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     """Close the draft of a closed item and delete its branch, then clear the keys of the plan of
     the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
     Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
-    that is gone needs only the record cleared. Under #5499, an App-only branch of a Ready item
-    is kept so the stage pipeline can resume on it."""
+    that is gone needs only the record cleared. Under #5499 and #6668, an App-only branch of an
+    open Ready orphan is kept with its `stage.pending` mark so the stage pipeline can resume on it."""
+    kept_orphan = (
+        not removal.gone and removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY
+    )
     if not removal.gone:
         if removal.pull is not None:
             get_github_session().client.close_pull(repo, removal.pull)
-        if not (removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY):
+        if not kept_orphan:
             _git(source, "push", "origin", "--delete", removal.branch)
-    store.set_marks(removal.item, dict.fromkeys(STAGE_REMOVAL_KEYS))
+    cleared = (
+        tuple(key for key in STAGE_REMOVAL_KEYS if key is not StageRecordKey.PENDING)
+        if kept_orphan
+        else STAGE_REMOVAL_KEYS
+    )
+    store.set_marks(removal.item, dict.fromkeys(cleared))
 
 
 def _delete_rejected_branch(source: Path, branch: str, tip: str) -> None:

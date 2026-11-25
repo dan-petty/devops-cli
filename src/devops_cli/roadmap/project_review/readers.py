@@ -183,12 +183,15 @@ def read_github(
     reads: Reads,
     *,
     newest_first: str | None = None,
+    paginate: bool = True,
 ) -> list[Any]:
     """The entries of the REST listing at `path`, page by page. With `newest_first`, the read
     stops after the first page that holds an entry whose `newest_first` time is at or before
-    `start`. A page that is not an array is kept whole."""
+    `start`. A page that is not an array is kept whole. Set `paginate=False` for single resources
+    such as `/repos/<owner>/<name>/contents/<path>`."""
     found: list[Any] = []
-    for page in session.pages(_with_page_size(path)):
+    target = _with_page_size(path) if paginate else f"/{path.lstrip('/')}"
+    for page in session.pages(target):
         reads.add(ReaderKind.GITHUB)
         if not isinstance(page, list):
             found.append(page)

@@ -11,6 +11,7 @@ no branch.
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_PHASE_STATE_FILE,
     CONST_ROADMAP_STAGE_PLAN_PATCH_FILE,
 )
+from devops_cli.github.rate_limiter import get_github_rate_limiter
 from devops_cli.openspec.scaffold import scaffold_proposal
 from devops_cli.roadmap.failure import FailureClass
 from devops_cli.roadmap.stage.stage_job import StageJobExit, StageJobRun
@@ -70,6 +72,9 @@ def gate_repo(
     stage_repo: StageRepo, openspec_fake: OpenSpecFake, github_api: GitHubApiFake
 ) -> StageRepo:
     """A stage repository that the OpenSpec gate reads as sound, and GitHub that opens a draft."""
+    get_github_rate_limiter().update_quota(
+        "graphql", remaining=5000, limit=5000, reset_epoch=time.time() + 600.0
+    )
     stage_repo.track(gate_files(openspec_fake.version))
     openspec_fake.script(validate_args(PHASE_CHANGE), 0, VALID_REPORT)
     github_api.route(
