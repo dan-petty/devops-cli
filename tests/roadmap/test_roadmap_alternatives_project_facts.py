@@ -551,3 +551,149 @@ def test_the_census_tools_in_use_give_in_use_with_no_model_call(
         [number for number in used if not found[number]],
         [number for number in new if found[number]],
     ) == (58, True, [1387, 2003], [3612])
+
+
+@pytest.mark.parametrize(
+    ("url", "purl", "verdict"),
+    [
+        pytest.param(
+            "https://github.com/python/cpython",
+            "pkg:pypi/httpx@0.28.1",
+            Verdict.COVERS,
+            id="python-covers",
+        ),
+        pytest.param(
+            "https://github.com/python/cpython",
+            "pkg:pypi/httpx@0.28.1",
+            Verdict.PARTLY,
+            id="python-partly",
+        ),
+        pytest.param(
+            "https://github.com/golang/go",
+            "pkg:golang/github.com/spf13/cobra@1.8.0",
+            Verdict.COVERS,
+            id="go",
+        ),
+        pytest.param(
+            "https://github.com/rust-lang/rust",
+            "pkg:cargo/serde@1.0.210",
+            Verdict.COVERS,
+            id="rust",
+        ),
+        pytest.param(
+            "https://github.com/ruby/ruby",
+            "pkg:gem/rails@7.2.0",
+            Verdict.COVERS,
+            id="ruby",
+        ),
+        pytest.param(
+            "https://github.com/dotnet/runtime",
+            "pkg:nuget/Newtonsoft.Json@13.0.3",
+            Verdict.COVERS,
+            id="dotnet",
+        ),
+        pytest.param(
+            "https://github.com/nodejs/node",
+            "pkg:npm/zod@3.23.0",
+            Verdict.COVERS,
+            id="node",
+        ),
+    ],
+)
+def test_standard_library_of_a_used_language_gets_in_use(
+    store: InMemoryRoadmapStore, web: WebFake, url: str, purl: str, verdict: Verdict
+) -> None:
+    store.seed_dependencies(purl)
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts(url),
+        inventory=read_inventory(store, None, PATHS),
+        verdict=verdict,
+    )
+
+    assert (
+        check.verdict,
+        IN_REPOSITORY in check.new_body.splitlines(),
+        web.requested,
+    ) == (Verdict.IN_USE, True, [])
+
+
+@pytest.mark.parametrize(
+    ("url", "rel_path", "content"),
+    [
+        pytest.param(
+            "https://github.com/python/cpython",
+            "k8s/helper.py",
+            "x = 1\n",
+            id="python-suffix",
+        ),
+        pytest.param(
+            "https://github.com/golang/go",
+            "k8s/init.go",
+            "package main\n",
+            id="go-suffix",
+        ),
+        pytest.param(
+            "https://github.com/nodejs/node",
+            "k8s/check.mjs",
+            "export const ok = true;\n",
+            id="node-mjs-suffix",
+        ),
+    ],
+)
+def test_standard_library_gets_in_use_from_deployed_file_suffix_without_sbom(
+    store: InMemoryRoadmapStore,
+    web: WebFake,
+    tmp_path: Path,
+    url: str,
+    rel_path: str,
+    content: str,
+) -> None:
+    file = tmp_path / rel_path
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(content, encoding="utf-8")
+    number = _item(store)
+
+    check = _check(store, number, _facts(url), inventory=read_inventory(store, tmp_path, PATHS))
+
+    assert (check.verdict, web.requested) == (Verdict.IN_USE, [])
+
+
+def test_third_party_tool_in_a_used_language_keeps_covers(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    store.seed_dependencies("pkg:pypi/httpx@0.28.1")
+    web.content(
+        DEFAULT_DEPS_DEV_PROJECT_URL.format(project="github.com%2Fsqlalchemy%2Fsqlalchemy"),
+        json.dumps({"versions": []}).encode(),
+    )
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/sqlalchemy/sqlalchemy"),
+        inventory=read_inventory(store, None, PATHS),
+    )
+
+    assert check.verdict is Verdict.COVERS
+
+
+def test_standard_library_without_a_language_signal_keeps_covers(
+    store: InMemoryRoadmapStore, web: WebFake, tmp_path: Path
+) -> None:
+    (tmp_path / "k8s").mkdir()
+    (tmp_path / "k8s" / "deploy.yaml").write_text("kind: ConfigMap\n", encoding="utf-8")
+    number = _item(store)
+
+    check = _check(
+        store,
+        number,
+        _facts("https://github.com/python/cpython"),
+        inventory=read_inventory(store, tmp_path, PATHS),
+    )
+
+    assert (check.verdict, web.requested) == (Verdict.COVERS, [])

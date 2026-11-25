@@ -1029,6 +1029,7 @@ A fenced code block or an HTML block that no close ends runs to the end of the b
 - **THEN** the first write closes the fence at the end of the body and adds the block after it
 - **AND** the quote keeps each of its lines, and only the first run checks the item
 
+<<<<<<< HEAD
 ### Requirement: ADR rejection ignores link targets
 `rejects()` SHALL ignore Markdown link targets when matching a tool name in an ADR.
 
@@ -1061,3 +1062,24 @@ The verdict check SHALL return `in-use` for the item's own repository first, SHA
 #### Scenario: Genuine ADR 0018 rejection stays ahead of inventory
 - **WHEN** `validate_reply` checks an item with ADR 0018 cited for `bubblewrap` and an inventory containing `bubblewrap`
 - **THEN** the verdict is `rejected`
+
+### Requirement: Standard library of a used language counts as in-use
+
+`Inventory.uses` MUST return `True` when a tool's upstream project is the standard library of a language signaled either by a package PURL type in the repository SBOM or by a deployed file suffix under `config.inventory_paths`, without calling `deps.dev`. Third-party packages in that ecosystem MUST NOT match through this rule, and a repository with no matching package PURL or deployed suffix MUST NOT mark the standard library as in use.
+
+#### Scenario: Standard library of a used language gets in-use
+- **WHEN** the repository SBOM holds `pkg:pypi/httpx` and the model proposes `https://github.com/python/cpython` (`covers` or `partly`)
+- **THEN** `Inventory.uses` returns `True` without calling `deps.dev` and the verdict becomes `in-use`
+
+#### Scenario: Standard library gets in-use from a deployed suffix with empty SBOM
+- **WHEN** the repository SBOM is empty, a deployed path holds a `.py` file, and the model proposes `https://github.com/python/cpython`
+- **THEN** `Inventory.uses` returns `True` without calling `deps.dev` and the verdict becomes `in-use`
+
+#### Scenario: Third-party tool keeps covers
+- **WHEN** the repository SBOM holds only `pkg:pypi/httpx` and the model proposes `https://github.com/sqlalchemy/sqlalchemy` as `covers`
+- **THEN** the standard library rule does not match and the verdict stays `covers`
+
+#### Scenario: No standard-library rule without a language signal
+- **WHEN** the repository SBOM is empty, no deployed path has a matching suffix, and the model proposes `https://github.com/python/cpython` as `covers`
+- **THEN** `Inventory.uses` returns `False` and the verdict stays `covers`
+>>>>>>> 50e1865e0 (fix(roadmap): mark a used language's stdlib as in-use (#6347))
