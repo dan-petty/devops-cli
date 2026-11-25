@@ -22,7 +22,7 @@ OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool f
 ## 2. Usage Information & Architecture
 
 - **Dual-Binary Dispatch**: Automatically detects and uses `tofu` if installed, falling back to `terraform` seamlessly.
-- **Directory Convention** (the infra repository; `devops tf deploy-cloud -p <provider>` runs an example):
+- **Directory Convention** (the infra repository; `devops tf deploy-cloud --provider <provider>` runs an example):
   ```text
   tf/
   ├── modules/       # Reusable modules: aws-eks, azure-aks, gcp-gke
@@ -49,13 +49,13 @@ OpenTofu is an open-source, community-driven Infrastructure as Code (IaC) tool f
 devops tf init tf/examples/aws
 
 # Generate execution plan with variable file (a copy of tf/examples/aws/aws.tfvars.example)
-devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
+devops tf plan --var-file dev.tfvars --out dev.tfplan tf/examples/aws
 
 # Apply generated plan
-devops tf apply tf/examples/aws --plan-file dev.tfplan
+devops tf apply --plan-file dev.tfplan tf/examples/aws
 
 # Show structured output values as JSON
-devops tf output tf/examples/aws --json
+devops tf output --json tf/examples/aws
 
 # Inspect initialization and state status
 devops tf status tf/examples/aws

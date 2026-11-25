@@ -22,7 +22,7 @@ devops tf init [OPTIONS] <directory>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--upgrade`, `-u` | `boolean` | - | Upgrade modules and plugins. |
+| `--upgrade` | `boolean` | - | Upgrade modules and plugins. |
 | `--reconfigure` | `boolean` | - | Reconfigure backend, ignoring existing state. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -46,8 +46,8 @@ devops tf plan [OPTIONS] <directory>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
-| `--out`, `-o` | `path` | - | Write generated plan to file. |
+| `--var-file` | `path` | - | Path to variable definitions file. |
+| `--out` | `path` | - | Write generated plan to file. |
 | `--destroy` | `boolean` | - | Generate a plan to destroy all resources. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -71,8 +71,8 @@ devops tf apply [OPTIONS] <directory>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
-| `--plan-file`, `-p` | `path` | - | Explicit plan file to apply. |
+| `--var-file` | `path` | - | Path to variable definitions file. |
+| `--plan-file` | `path` | - | Explicit plan file to apply. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -96,7 +96,7 @@ devops tf destroy [OPTIONS] <directory>
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--var-file` | `path` | - | Path to variable definitions file. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
@@ -169,6 +169,94 @@ devops tf fmt [OPTIONS] <directory>
 |---|---|---|---|
 | `--check`, `-c` | `boolean` | - | Check formatting without writing files. |
 | `--recursive`, `-r` | `boolean` | `True` | Format subdirectories recursively. |
+
+---
+
+## `devops tf import`
+
+**Import existing infrastructure resources into OpenTofu state.**
+
+```bash
+devops tf import [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops tf state`
+
+**Inspect and manage resources in OpenTofu state.**
+
+```bash
+devops tf state [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops tf show`
+
+**Show OpenTofu state or saved plan output.**
+
+```bash
+devops tf show [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
+## `devops tf force-unlock`
+
+**Release a stuck OpenTofu state lock by lock ID.**
+
+```bash
+devops tf force-unlock [OPTIONS] <directory>
+```
+
+**Arguments:**
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `<directory>` | `path` | No | Target directory containing OpenTofu configuration. |
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
 
@@ -252,9 +340,9 @@ devops tf deploy-cloud [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--provider`, `-p` | `string` | - | AI or cloud provider. |
+| `--provider` | `string` | - | AI or cloud provider. |
 | `--auto-approve` | `boolean` | - | Skip interactive confirmation prompts. |
-| `--var-file`, `-v` | `path` | - | Path to variable definitions file. |
+| `--var-file` | `path` | - | Path to variable definitions file. |
 | `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
 
 ---
@@ -296,7 +384,7 @@ devops tf notify-plan [OPTIONS]
 
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
-| `--plan-file`, `-p` | `path` | - | Path to raw plan output or log file. The file is required and must exist. |
+| `--plan-file` | `path` | - | Path to raw plan output or log file. The file is required and must exist. |
 | `--pr` | `integer` | - | Pull request number for the pr field of the JSON or YAML output. The command sends nothing to the pull request. |
 | `--json` | `boolean` | - | Output findings or metrics as JSON. |
 | `--format`, `-f` | `string` | `table` | Output format (table, json, yaml, csv) |

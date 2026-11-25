@@ -18,7 +18,7 @@ graph LR
 ```
 
 - **Execution Engine**: `devops tf` detects the tofu or terraform binary automatically.
-- **Path Resolution**: `devops tf deploy-cloud -p <provider>` runs `tofu init` and `tofu apply` in `tf/examples/<provider>/` of an infra checkout (e.g. `tf/examples/aws`), with `<provider>.tfvars.example` there as the default variable file. The other commands take the folder as an argument.
+- **Path Resolution**: `devops tf deploy-cloud --provider <provider>` runs `tofu init` and `tofu apply` in `tf/examples/<provider>/` of an infra checkout (e.g. `tf/examples/aws`), with `<provider>.tfvars.example` there as the default variable file. The other commands take the folder as an argument.
 - **Telemetry Integration**: Emits OpenTelemetry trace spans with execution duration, resource changes count, and provider metadata.
 
 ---
@@ -32,13 +32,13 @@ devops tf init tf/examples/aws
 
 # 2. Generate and save execution plan (dev.tfvars is a copy of
 #    tf/examples/aws/aws.tfvars.example with your values)
-devops tf plan tf/examples/aws -v dev.tfvars -o dev.tfplan
+devops tf plan --var-file dev.tfvars --out dev.tfplan tf/examples/aws
 
 # 3. Apply the generated plan file
-devops tf apply tf/examples/aws --plan-file dev.tfplan
+devops tf apply --plan-file dev.tfplan tf/examples/aws
 
 # 4. View structured JSON output attributes
-devops tf output tf/examples/aws --json
+devops tf output --json tf/examples/aws
 
 # 5. Check state file status and provider initialization
 devops tf status tf/examples/aws
@@ -50,7 +50,7 @@ devops tf status tf/examples/aws
 
 1. **Always Use Plan Files**: Never run `devops tf apply` without a pre-computed `.tfplan` file in production workflows.
 2. **Provider Caching**: Enable OpenTofu provider caching (`plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"`) in developer workstations to avoid repeated downloads.
-3. **Format All HCL**: Run `devops tf fmt tf/ --check` across all `.tf` files (not enforced by `devops ci`).
+3. **Format All HCL**: Run `devops tf fmt --check tf/` across all `.tf` files (not enforced by `devops ci`).
 4. **Environment Separation**: Maintain separate variable files (`dev.tfvars`, `staging.tfvars`, `prod.tfvars`) and separate state keys for each environment.
 
 ---
@@ -65,7 +65,7 @@ devops tf status tf/examples/aws
 
 ## 6. General Standards & Reference Guidelines
 
-- **File Layout** (the infra repository; `devops tf deploy-cloud -p <provider>` runs an example):
+- **File Layout** (the infra repository; `devops tf deploy-cloud --provider <provider>` runs an example):
   ```text
   tf/
   ├── modules/           # Reusable modules: aws-eks, azure-aks, gcp-gke

@@ -5,6 +5,7 @@ A dry run makes zero external requests and returns ordered PlannedRequest items.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 from devops_cli.dry_run.requests import PlannedRequest
@@ -14,6 +15,7 @@ def build_tf_init_cmd(
     binary: str = "tofu",
     upgrade: bool = False,
     reconfigure: bool = False,
+    extra_args: Sequence[str] = (),
 ) -> list[str]:
     """Build the command vector for OpenTofu directory initialization."""
     cmd = [binary, "init"]
@@ -21,6 +23,7 @@ def build_tf_init_cmd(
         cmd.append("-upgrade")
     if reconfigure:
         cmd.append("-reconfigure")
+    cmd.extend(extra_args)
     return cmd
 
 
@@ -29,9 +32,12 @@ def plan_tf_init(
     upgrade: bool = False,
     reconfigure: bool = False,
     binary: str = "tofu",
+    extra_args: Sequence[str] = (),
 ) -> list[PlannedRequest]:
     """Plan initialization requests for an OpenTofu working directory."""
-    cmd = build_tf_init_cmd(binary=binary, upgrade=upgrade, reconfigure=reconfigure)
+    cmd = build_tf_init_cmd(
+        binary=binary, upgrade=upgrade, reconfigure=reconfigure, extra_args=extra_args
+    )
     return [
         PlannedRequest(
             method="EXEC",
@@ -46,6 +52,7 @@ def build_tf_plan_cmd(
     var_file: Path | str | None = None,
     out: Path | str | None = None,
     destroy: bool = False,
+    extra_args: Sequence[str] = (),
 ) -> list[str]:
     """Build the command vector for generating an OpenTofu execution plan."""
     cmd = [binary, "plan"]
@@ -59,6 +66,7 @@ def build_tf_plan_cmd(
         cmd.extend(["-out", resolved])
     if destroy:
         cmd.append("-destroy")
+    cmd.extend(extra_args)
     return cmd
 
 
@@ -68,9 +76,12 @@ def plan_tf_plan(
     out: Path | str | None = None,
     destroy: bool = False,
     binary: str = "tofu",
+    extra_args: Sequence[str] = (),
 ) -> list[PlannedRequest]:
     """Plan OpenTofu plan generation requests."""
-    cmd = build_tf_plan_cmd(binary=binary, var_file=var_file, out=out, destroy=destroy)
+    cmd = build_tf_plan_cmd(
+        binary=binary, var_file=var_file, out=out, destroy=destroy, extra_args=extra_args
+    )
     return [
         PlannedRequest(
             method="EXEC",
@@ -85,6 +96,7 @@ def build_tf_apply_cmd(
     var_file: Path | str | None = None,
     plan_file: Path | str | None = None,
     auto_approve: bool = False,
+    extra_args: Sequence[str] = (),
 ) -> list[str]:
     """Build the command vector for applying OpenTofu infrastructure."""
     cmd = [binary, "apply"]
@@ -99,6 +111,7 @@ def build_tf_apply_cmd(
             cmd.extend(["-var-file", resolved])
         if auto_approve:
             cmd.append("-auto-approve")
+    cmd.extend(extra_args)
     return cmd
 
 
@@ -108,6 +121,7 @@ def plan_tf_apply(
     plan_file: Path | str | None = None,
     auto_approve: bool = False,
     binary: str = "tofu",
+    extra_args: Sequence[str] = (),
 ) -> list[PlannedRequest]:
     """Plan OpenTofu apply execution requests."""
     cmd = build_tf_apply_cmd(
@@ -115,6 +129,7 @@ def plan_tf_apply(
         var_file=var_file,
         plan_file=plan_file,
         auto_approve=auto_approve,
+        extra_args=extra_args,
     )
     return [
         PlannedRequest(
@@ -129,6 +144,7 @@ def build_tf_destroy_cmd(
     binary: str = "tofu",
     var_file: Path | str | None = None,
     auto_approve: bool = False,
+    extra_args: Sequence[str] = (),
 ) -> list[str]:
     """Build the command vector for destroying OpenTofu infrastructure."""
     cmd = [binary, "destroy"]
@@ -138,6 +154,7 @@ def build_tf_destroy_cmd(
         cmd.extend(["-var-file", resolved])
     if auto_approve:
         cmd.append("-auto-approve")
+    cmd.extend(extra_args)
     return cmd
 
 
@@ -146,9 +163,12 @@ def plan_tf_destroy(
     var_file: Path | str | None = None,
     auto_approve: bool = False,
     binary: str = "tofu",
+    extra_args: Sequence[str] = (),
 ) -> list[PlannedRequest]:
     """Plan OpenTofu destroy execution requests."""
-    cmd = build_tf_destroy_cmd(binary=binary, var_file=var_file, auto_approve=auto_approve)
+    cmd = build_tf_destroy_cmd(
+        binary=binary, var_file=var_file, auto_approve=auto_approve, extra_args=extra_args
+    )
     return [
         PlannedRequest(
             method="EXEC",
@@ -162,6 +182,7 @@ def build_tf_output_cmd(
     binary: str = "tofu",
     json_mode: bool = False,
     raw: bool = False,
+    extra_args: Sequence[str] = (),
 ) -> list[str]:
     """Build the command vector for querying OpenTofu outputs."""
     cmd = [binary, "output"]
@@ -169,6 +190,7 @@ def build_tf_output_cmd(
         cmd.append("-json")
     elif raw:
         cmd.append("-raw")
+    cmd.extend(extra_args)
     return cmd
 
 
@@ -177,13 +199,41 @@ def plan_tf_output(
     json_mode: bool = False,
     raw: bool = False,
     binary: str = "tofu",
+    extra_args: Sequence[str] = (),
 ) -> list[PlannedRequest]:
     """Plan OpenTofu output queries."""
-    cmd = build_tf_output_cmd(binary=binary, json_mode=json_mode, raw=raw)
+    cmd = build_tf_output_cmd(binary=binary, json_mode=json_mode, raw=raw, extra_args=extra_args)
     return [
         PlannedRequest(
             method="EXEC",
             target=f"{binary} output",
+            argv=tuple(cmd),
+        )
+    ]
+
+
+def build_tf_passthrough_cmd(
+    verb: str,
+    extra_args: Sequence[str] = (),
+    binary: str = "tofu",
+) -> list[str]:
+    """Build the command vector for a thin pass-through OpenTofu subcommand."""
+    return [binary, verb, *extra_args]
+
+
+def plan_tf_passthrough(
+    verb: str,
+    directory: Path | str,
+    extra_args: Sequence[str] = (),
+    binary: str = "tofu",
+) -> list[PlannedRequest]:
+    """Plan a thin pass-through OpenTofu subcommand."""
+    _ = directory
+    cmd = build_tf_passthrough_cmd(verb=verb, extra_args=extra_args, binary=binary)
+    return [
+        PlannedRequest(
+            method="EXEC",
+            target=f"{binary} {verb}",
             argv=tuple(cmd),
         )
     ]
