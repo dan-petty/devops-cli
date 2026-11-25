@@ -38,7 +38,8 @@ orphan gets its Job in the same round.
 
 **Submit.** The selection is the normal one (`read_stage_round`), with each item that a running
 stage Job works on left out, up to `roadmap.stage.jobs` less the stage Jobs that run in the
-cluster, for every repository: each one holds a model call slot of the one model tier. The count
+cluster, for every repository: each Job gets its own `service.instance.id` equal to its Job name,
+and the 2026-11-19 owner decision holds the default at 1 until #6319 and #4563 (#6364). The count
 also stays inside the places that the model Jobs of the cluster leave free, less one for each
 fix-checks Job that waits suspended, so a fix goes first (`job_launcher.model_slots`, #5027). For each item that
 it takes, the round writes the check-out with the claim `owner/service` first, then creates the Job

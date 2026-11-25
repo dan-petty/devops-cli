@@ -1506,7 +1506,7 @@ class RoadmapStageConfig(RowCadenceConfig):
         default=False,
     )
     jobs: Annotated[int, Variable()] = Field(
-        description="The most stage Jobs that run at once in the cluster, for every repository together: each Job holds a model call slot of the one model tier and a GitHub request budget of its own. The stage row of the Service lists the stage Jobs by their component label, and creates a Job for each Ready item that the selection takes, up to this count less the Jobs that run. Every stage pod sends the one telemetry instance `roadmap-stage`, which holds while one pod runs at a time",
+        description="The most stage Jobs that run at once in the cluster, for every repository together: each Job holds its own GitHub request budget and its own telemetry `service.instance.id` equal to its Job name. The stage row of the Service lists the stage Jobs by their component label, and creates a Job for each Ready item that the selection takes, up to this count less the Jobs that run. The owner decision of 2026-11-19 keeps the default at 1 until #6319, #4563 and per-Job instance ids (#6364)",
         default=DEFAULT_ROADMAP_STAGE_JOBS,
         ge=1,
     )

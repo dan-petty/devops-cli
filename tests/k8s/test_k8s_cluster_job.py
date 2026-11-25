@@ -257,3 +257,25 @@ def test_the_template_container_is_found_by_its_name(
 def test_the_image_digest_is_read_from_either_template(make: Any) -> None:
     cronjob = make(RUNNER_TEMPLATE, image="registry.example.com/runner@sha256:abc")
     assert image_digest(cronjob, RUNNER_TEMPLATE) == "sha256:abc"
+
+
+def test_two_stage_jobs_carry_distinct_plain_instance_ids() -> None:
+    """Each stage Job receives its own `service.instance.id` from `stage_job_env` as a plain env
+    value without `valueFrom`, keeping each Job in its own Prometheus series (#6364)."""
+    first = _stage_job(item=42, plan_key="key-one")
+    second = _stage_job(item=43, plan_key="key-two")
+
+    entries = [
+        next(
+            entry
+            for entry in job["spec"]["template"]["spec"]["containers"][0]["env"]
+            if entry["name"] == "OTEL_RESOURCE_ATTRIBUTES"
+        )
+        for job in (first, second)
+    ]
+
+    assert [("valueFrom" in entry, entry.get("value")) for entry in entries] == [
+        (False, f"service.instance.id={first['metadata']['name']}"),
+        (False, f"service.instance.id={second['metadata']['name']}"),
+    ]
+    assert entries[0]["value"] != entries[1]["value"]
