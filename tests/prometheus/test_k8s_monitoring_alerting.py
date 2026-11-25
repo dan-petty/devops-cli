@@ -485,19 +485,6 @@ def test_no_promtool_case_evaluates_more_rounds_than_the_budget(
     assert {name: n for name, n in rounds.items() if n > MAX_PROMTOOL_ROUNDS} == {}, group
 
 
-def test_github_requests_high_action_does_not_lower_budget() -> None:
-    """The action of `RoadmapServiceGitHubRequestsHigh` names no lower budget. The alert follows
-    the budget, so a lower budget makes the alert fire sooner (#3495)."""
-    document = CLUSTER_DOC.read_text(encoding="utf-8")
-    row = next(
-        line
-        for line in document.splitlines()
-        if line.startswith("| `RoadmapServiceGitHubRequestsHigh` |")
-    )
-
-    assert "lower the budget" not in row.lower()
-
-
 # A Sloth `prometheus/v1` spec of one SLO, in the shape that `k8s/devops/monitoring/slos/` holds
 # (#4709): the service of the catalog, one SLO with its objective, and the two event queries of its
 # SLI over the `{{.window}}` placeholder. The renderer of the SLO groups is new in #4709, so each

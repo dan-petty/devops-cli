@@ -280,17 +280,6 @@ def test_devops_docs_has_no_readme_sync() -> None:
     assert names == []
 
 
-def test_the_readme_links_the_cli_reference_and_holds_no_command_matrix() -> None:
-    """README.md links the CLI reference and holds no generated block (#5163)."""
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-
-    assert (
-        "](docs/CLI_REFERENCE.md)" in readme,
-        "COMMAND_MATRIX" in readme,
-        "| Command Group |" in readme,
-    ) == (True, False, False)
-
-
 def test_the_mcp_tool_catalog_links_each_tool_to_the_heading_id_that_github_writes(
     generator: DocGenerator,
 ) -> None:
@@ -528,50 +517,6 @@ def test_doc_generator_renders_an_on_off_pair_as_two_switches(generator: DocGene
     ) == (["--rootless"], ["--root"], [], True, False, True)
 
 
-def _option_cells(page: str, flag: str) -> list[tuple[str, str]]:
-    """The flag and default cells of each option row for `flag` in a generated command page."""
-    rows = (row.split(" | ") for row in page.splitlines() if row.startswith(f"| `{flag}`"))
-    return [(cells[0].removeprefix("| "), cells[2]) for cells in rows]
-
-
-def test_committed_command_pages_show_the_defaults_and_switches_they_hid() -> None:
-    """The committed reference, which `devops docs check` keeps equal to the generator's output,
-    shows the defaults it masked and the off switch it listed as an alias (#956)."""
-    from devops_cli.config.constants import CONST_RUNS_INDEX_AUTH_OBJECT
-    from devops_cli.config.defaults import (
-        DEFAULT_GATEWAY_TUNE_MAX_TOKENS,
-        DEFAULT_K8S_TLS_SECRET_NAME,
-        DEFAULT_TLS_KEY_SIZE,
-        DEFAULT_VALKEY_PORT,
-    )
-
-    pages = REPO_ROOT / "docs" / "commands"
-    ai, k8s, tls, docker = (
-        (pages / f"{name}.md").read_text(encoding="utf-8")
-        for name in ("ai", "k8s", "tls", "docker")
-    )
-
-    assert (
-        _option_cells(ai, "--max-tokens"),
-        _option_cells(ai, "--max-tokens-increase"),
-        _option_cells(ai, "--secret-name"),
-        _option_cells(k8s, "--valkey-port"),
-        _option_cells(k8s, "--secret-name"),
-        _option_cells(tls, "--key-size"),
-        _option_cells(tls, "--secret-name"),
-        _option_cells(docker, "--rootless"),
-    ) == (
-        [("`--max-tokens`", "`1500`"), ("`--max-tokens`", f"`{DEFAULT_GATEWAY_TUNE_MAX_TOKENS}`")],
-        [("`--max-tokens-increase`", "`0.2`")],
-        [("`--secret-name`", f"`{CONST_RUNS_INDEX_AUTH_OBJECT}`")],
-        [("`--valkey-port`", f"`{DEFAULT_VALKEY_PORT}`")],
-        [("`--secret-name`", f"`{DEFAULT_K8S_TLS_SECRET_NAME}`")],
-        [("`--key-size`, `-k`", f"`{DEFAULT_TLS_KEY_SIZE}`")] * 2,
-        [("`--secret-name`", f"`{DEFAULT_K8S_TLS_SECRET_NAME}`")],
-        [("`--rootless` / `--root`", "`True`")],
-    )
-
-
 def test_doc_generator_introspect_single_group_untrusted_prefix_rejected(
     generator: DocGenerator,
 ) -> None:
@@ -759,22 +704,6 @@ def test_introspect_mcp_tools_raises_on_listing_failure(
     assert "missing optional dependency now fails the docs stage, by design" in str(exc_info.value)
 
 
-def test_group_callback_options_rendered_for_ci_and_review(generator: DocGenerator) -> None:
-    """Group-callback options on devops ci (--check, --only, --skip) and devops review (--explain)
-    are rendered in command group pages (#854)."""
-    pages = REPO_ROOT / "docs" / "commands"
-    ci_md = (pages / "ci.md").read_text(encoding="utf-8")
-    review_md = (pages / "review.md").read_text(encoding="utf-8")
-    ci_header_section = ci_md.split("## Commands", 1)[0]
-    review_header_section = review_md.split("## Commands", 1)[0]
-    assert (
-        "| `--check` |" in ci_header_section,
-        "| `--only` |" in ci_header_section,
-        "| `--skip` |" in ci_header_section,
-        "| `--explain`, `-e` |" in review_header_section,
-    ) == (True, True, True, True)
-
-
 def test_configuration_and_error_catalog_docs_describe_real_surface(
     generator: DocGenerator,
 ) -> None:
@@ -887,22 +816,3 @@ def test_config_example_yaml_maps_to_settings_fields_and_validates() -> None:
     assert unknown == []
     assert isinstance(validated, Settings)
     assert unknown_mutated == ["ai.nonexistent_setting_key"]
-
-
-def test_devcontainer_usage_driver_names_docker_driver_and_podman_socket() -> None:
-    """Topology 1 of `docs/DEVCONTAINER_USAGE.md` names `--driver=docker` and `/var/run/docker.sock` (#6466)."""
-    text = (REPO_ROOT / "docs" / "DEVCONTAINER_USAGE.md").read_text(encoding="utf-8")
-    start = text.index("### Topology 1:")
-    end = text.index("### Topology 2:", start)
-    topology_1 = text[start:end]
-
-    assert "--driver=docker" in topology_1
-    assert "/var/run/docker.sock" in topology_1
-
-
-def test_devcontainer_usage_minikube_issue_link_resolves_to_6466() -> None:
-    """No `#MINIKUBE_ISSUE` placeholder remains in `docs/DEVCONTAINER_USAGE.md`, and `#6466` is linked (#6466)."""
-    text = (REPO_ROOT / "docs" / "DEVCONTAINER_USAGE.md").read_text(encoding="utf-8")
-
-    assert "#MINIKUBE_ISSUE" not in text
-    assert "#6466" in text

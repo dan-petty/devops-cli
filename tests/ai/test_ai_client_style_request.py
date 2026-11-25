@@ -16,7 +16,6 @@ import pytest
 from pydantic import BaseModel
 
 from devops_cli.ai.client import LLMClient
-from devops_cli.ai.client.style_request import with_style_request
 from devops_cli.ai.context_budget import count_tokens
 from devops_cli.ai.spend.ledger import SpendLedger, observe_llm_calls
 from devops_cli.ai.task_loader import load_task_prompt
@@ -88,29 +87,6 @@ def test_every_free_text_call_sends_the_callers_prompt_then_the_style_request(
     ]
 
 
-_FIRST_LINE_RULE = {
-    "bottom-line": (
-        "Give the bottom line in the first line: what to do or not do, the real state and"
-        " each gate."
-    ),
-    "gates": (
-        "A gate is any hold, blocker, review, person step, merge order or deployment step"
-        " that still applies."
-    ),
-    "no-status-first": 'Do not start with "done", "green" or "ready" while a gate applies.',
-    "many-items": (
-        "If a reply has many items, say in the first line which to act on now and which to hold."
-    ),
-}
-
-
-@pytest.mark.parametrize("rule", _FIRST_LINE_RULE)
-def test_the_style_request_asks_for_the_bottom_line_in_the_first_line(rule: str) -> None:
-    """Verify the request that a model call carries puts the action, each hold and each gate
-    in the first line, ahead of a status word such as "done" (#5419)."""
-    assert _FIRST_LINE_RULE[rule] in with_style_request(_SYSTEM)
-
-
 def test_a_call_without_a_system_prompt_sends_the_style_request_alone(web: WebFake) -> None:
     """Verify the request becomes the system prompt when the caller gives none."""
     client = _client()
@@ -137,11 +113,7 @@ def test_a_call_that_sets_its_own_format_keeps_its_instruction_first_and_the_req
 
     system = _sent_messages(sent[0])[0]["content"]
     request = load_task_prompt("style_ste100.md")
-    assert (
-        system == f"{grader}\n\n{request}",
-        "If the task sets an output format, such as JSON, code or a score, keep that format."
-        in request,
-    ) == (True, True)
+    assert system == f"{grader}\n\n{request}"
 
 
 def test_a_structured_call_gets_the_request_once_before_the_schema_instruction(

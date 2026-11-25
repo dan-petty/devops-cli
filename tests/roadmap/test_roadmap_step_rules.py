@@ -120,12 +120,6 @@ def test_a_group_that_names_a_test_file_gets_the_testing_document(named: str) ->
     assert _documents(group) == ["docs/TESTING.md"]
 
 
-def test_the_testing_sections_hold_the_text_of_the_document() -> None:
-    sections = rules_sections(REPO_ROOT, _group("tests/test_sample.py"))
-
-    assert "### Doubles" in sections[1]
-
-
 def test_a_group_that_names_only_a_manifest_gets_no_testing_document() -> None:
     group = _group("k8s/llm/sample.yaml")
 

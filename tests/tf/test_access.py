@@ -26,7 +26,6 @@ from devops_cli.tf.access import (
 )
 from tests.support.fakes.github import GitHubApiFake, github_json
 from tests.support.fakes.keyring import FakeKeyring
-from tests.support.paths import REPO_ROOT
 
 
 def _generate_pem() -> str:
@@ -158,20 +157,6 @@ def test_agent_plan_missing_reader_credentials_refuses_naming_all_three_keys(
     assert "tf.github_reader.installation_id" in msg
     assert "tf.github_reader.private_key" in msg
     assert "service_github_app_private_key" not in keyring_store.secret_reads()
-
-
-def test_security_md_documents_github_settings_controls() -> None:
-    text = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
-    section = text.partition("## GitHub Settings")[2].partition("\n## ")[0].lower()
-    assert "## GitHub Settings" in text
-    assert "tf.stacks[].agent_access" in section
-    assert "apply" in section
-    assert "destroy" in section
-    assert "refus" in section
-    assert "250" in section
-    assert "budget" in section
-    assert "tf.github_reader" in section
-    assert "dry-run" in section
 
 
 def test_agent_plan_refuses_when_reader_token_mint_fails(

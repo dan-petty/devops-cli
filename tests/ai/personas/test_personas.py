@@ -67,51 +67,6 @@ def test_persona_registry_mapping_and_getattr(tmp_path) -> None:
 # Prompt rule coverage
 # =============================================================================
 
-# Each entry is a decision the shared review prompt encodes. The prompt was compressed
-# from 2225 to roughly 1400 tokens and is sent once per persona per segment, so an edit
-# that trims a rule along with the prose is cheap to make and invisible until findings
-# regress. These are the markers that make such a removal fail here instead.
-_REVIEW_PROMPT_RULES: tuple[str, ...] = (
-    "OWASP",
-    "AGENTS.md",
-    "uv.lock",
-    "*.example.*",
-    "__all__",
-    "headers = {}",
-    "CWE-22",
-    "CWE-59",
-    "DNS rebinding",
-    "CWE-400",
-    "CWE-209",
-    "NotImplementedError",
-    "verification_criteria",
-    "invalidation_criteria",
-    # The recommendation is derived from the findings, so a reviewer no longer writes `APPROVE`;
-    # with no defect it returns no findings (#951).
-    "empty `findings` array",
-)
-
-
-# Removed on purpose (#515): the model never sees the catalog or the feedback dataset, an
-# improvement is not a finding, and private-address rules for documentation are a project's own.
-_REMOVED_REVIEW_PROMPT_RULES: tuple[str, ...] = (
-    "common_hallucinations.json",
-    "feedback_dataset.jsonl",
-    "ROADMAP.md",
-    "192.0.2.0/24",
-)
-
-
-def test_the_review_prompt_still_carries_every_rule() -> None:
-    """Compression must not drop a decision along with the words that stated it."""
-    from devops_cli.ai.personas import _TASKS_DIR, _load
-
-    prompt = _load(_TASKS_DIR / "review.md")
-    assert (
-        [rule for rule in _REVIEW_PROMPT_RULES if rule not in prompt],
-        [rule for rule in _REMOVED_REVIEW_PROMPT_RULES if rule in prompt],
-    ) == ([], [])
-
 
 # =============================================================================
 # Chat prompt

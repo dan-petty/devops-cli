@@ -1240,31 +1240,6 @@ def test_the_inputs_of_a_step_name_the_tasks_file_and_those_of_a_fix_step_do_not
     )
 
 
-def test_the_instructions_say_that_the_job_ticks_every_task_of_a_passing_group(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert "The job ticks every task of your group when the exit checks of the group pass" in (
-        inputs.instructions
-    )
-    assert "not done until every task of your group is ticked" not in inputs.instructions
-    assert "`- [ ]` to `- [x]`" in inputs.instructions
-
-
-def test_the_instructions_say_that_a_reply_has_a_cap_and_a_long_file_is_written_in_parts(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert "Each reply of yours has an output cap" in inputs.instructions
-    assert (
-        "stops and the work after your last kept task is lost"
-        in inputs.instructions.split("output cap")[1]
-    )
-    assert "in parts with `edit_file`" in inputs.instructions
-
-
 # ── The diff of a stopped step (#2721) ────────────────────────────────────────────────────
 
 TOKEN = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"

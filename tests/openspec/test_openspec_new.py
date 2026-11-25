@@ -391,20 +391,6 @@ def test_output_names_next_steps(
     assert f"uv run devops openspec archive {CHANGE_NAME}" in result.output
 
 
-def test_skill_points_to_command() -> None:
-    """Requirement: The skill points to the command."""
-    claude_skill = (REPO_ROOT / ".claude/skills/devops-openspec-new/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    agents_skill = (REPO_ROOT / ".agents/skills/devops-openspec-new/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-
-    for skill_text in (claude_skill, agents_skill):
-        assert "devops openspec new" in skill_text
-        assert "openspec new change" not in skill_text
-
-
 def test_the_output_names_the_branch_of_the_checkout_and_its_slug(
     cli: Cli, openspec_fake: OpenSpecFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:

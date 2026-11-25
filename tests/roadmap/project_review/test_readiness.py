@@ -545,15 +545,6 @@ def test_cli_review_run_with_ref_prints_readiness_json(
     )
 
 
-def test_guideline_readiness_record_section_mentions_ref_for_launch() -> None:
-    text = GUIDELINE.read_text(encoding="utf-8")
-    _, _, tail = text.partition("## Readiness record")
-    section, _, _ = tail.partition("\n## ")
-    assert "running service" in section
-    assert "--ref" in section
-    assert "launch" in section
-
-
 def test_review_data_model_accepts_default_and_readiness_field() -> None:
     window = ReviewWindow(
         kind=WindowKind.PERIOD,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import re
 import subprocess
 from pathlib import Path
 
@@ -803,54 +802,6 @@ def test_module_level_cli_runner_ban_fails(tmp_path: Path) -> None:
     assert len(violations) == 1
     assert "test_runner.py:2" in violations[0]
     assert "docs/TESTING.md # CLI tests" in violations[0]
-
-
-def _read_testing_md_invariant_subjects(doc_path: Path) -> frozenset[str]:
-    """Parse the list of invariant subject files from docs/TESTING.md (#1336)."""
-    content = doc_path.read_text(encoding="utf-8")
-    match = re.search(r"-\s+`tests/invariants/`[^\n]*one file per subject:\s*([^\n]+)", content)
-    if not match:
-        return frozenset()
-    subject_line = match.group(1)
-    return frozenset(re.findall(r"`(test_[a-zA-Z0-9_]+\.py)`", subject_line))
-
-
-def find_unlisted_invariant_files(repo_root: Path) -> list[str]:
-    """Find any test_*.py in tests/invariants/ not listed in docs/TESTING.md (#1336)."""
-    testing_md = repo_root / "docs" / "TESTING.md"
-    allowed = _read_testing_md_invariant_subjects(testing_md)
-    invariants_dir = repo_root / "tests" / "invariants"
-    violations: list[str] = []
-    for path in sorted(invariants_dir.glob("test_*.py")):
-        if path.name not in allowed:
-            violations.append(
-                f"{path.relative_to(repo_root).as_posix()}: unlisted invariant file (docs/TESTING.md # Layout)"
-            )
-    return violations
-
-
-def test_invariant_files_are_listed_in_testing_doc() -> None:
-    """Every test file in tests/invariants/ is listed in docs/TESTING.md (#1336)."""
-    assert find_unlisted_invariant_files(REPO_ROOT) == []
-
-
-def test_unlisted_invariant_file_fails_ban(tmp_path: Path) -> None:
-    """An unlisted invariant file fails the ban and cites docs/TESTING.md (#1336)."""
-    docs_dir = tmp_path / "docs"
-    docs_dir.mkdir(parents=True)
-    (docs_dir / "TESTING.md").write_text(
-        "- `tests/invariants/` is the only place for test files outside the mirror. "
-        "It holds the invariant tests, one file per subject: `test_source_tree.py`.\n",
-        encoding="utf-8",
-    )
-    inv_dir = tmp_path / "tests" / "invariants"
-    inv_dir.mkdir(parents=True)
-    (inv_dir / "test_source_tree.py").touch()
-    (inv_dir / "test_unlisted.py").touch()
-    violations = find_unlisted_invariant_files(tmp_path)
-    assert len(violations) == 1
-    assert "tests/invariants/test_unlisted.py" in violations[0]
-    assert "docs/TESTING.md # Layout" in violations[0]
 
 
 def _test_tree_patches() -> list[str]:

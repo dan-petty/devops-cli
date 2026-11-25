@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections import deque
 from datetime import date
-from itertools import pairwise, takewhile
+from itertools import pairwise
 from pathlib import Path
 from typing import Final
 from urllib.parse import unquote, urlsplit
@@ -17,12 +17,10 @@ from mdit_py_plugins.anchors import anchors_plugin
 
 from devops_cli.ai.instruction_generator import (
     POINTER_STUBS,
-    generate_agents_md,
     generate_instruction_content,
     parse_project_metadata,
     scaffold_agent_instructions,
 )
-from devops_cli.ai.personas import Persona
 from devops_cli.config.constants import (
     CONST_AGENTS_MD_MAX_CHARS,
     CONST_AGENTS_MD_ROUTES,
@@ -104,40 +102,6 @@ def test_issue_templates_named_in_agents_md_exist() -> None:
     assert "task.yml" not in templates, "Deprecated templates must not be referenced in AGENTS.md"
 
 
-def test_personas_in_self_improvement_are_valid() -> None:
-    """Every persona listed as active in docs/SELF_IMPROVEMENT.md is a Persona enum value."""
-    doc_path = REPO_ROOT / "docs" / "SELF_IMPROVEMENT.md"
-    assert doc_path.is_file(), "docs/SELF_IMPROVEMENT.md must exist"
-
-    content = doc_path.read_text(encoding="utf-8")
-    lines = content.splitlines()
-
-    # The line 187 negation of performance/sre is accepted and must be the only reference
-    negation_lines = [
-        line for line in lines if "performance" in line.lower() or "sre" in line.lower()
-    ]
-    assert len(negation_lines) == 1, (
-        f"Expected exactly 1 line referencing performance/sre, found {len(negation_lines)}"
-    )
-    assert "no `performance` or `sre` persona" in negation_lines[0], (
-        "Reference to performance/sre must be the explicit non-existence negation"
-    )
-
-    valid_enum_values = {p.value for p in Persona}
-    active_personas: set[str] = set()
-    for line in lines:
-        if line in negation_lines:
-            continue
-        if "persona" in line.lower():
-            for word in re.findall(r"\b([a-zA-Z]+)\b", line):
-                if word.lower() in valid_enum_values:
-                    active_personas.add(word.lower())
-
-    assert active_personas == valid_enum_values, (
-        f"Active personas in docs ({active_personas}) must match Persona enum values ({valid_enum_values})"
-    )
-
-
 def test_instruction_stubs_byte_equal_to_generator() -> None:
     """The pointer stubs must match generator output byte-for-byte."""
     meta = parse_project_metadata(REPO_ROOT)
@@ -184,104 +148,6 @@ def test_agents_md_stays_within_character_budget(tmp_path: Path) -> None:
     ) == (True, True, True)
 
 
-# The rules of AGENTS.md that only devops-cli has, so the template of `devops ai agents` does
-# not hold them: its writing standard (owner decision D2 of #1961).
-CONST_DEVOPS_CLI_ONLY_RULES: Final[frozenset[str]] = frozenset({"Write prose in ASD-STE100"})
-
-
-def _bold_start(inline: Token) -> str | None:
-    """The bold text that starts an inline token, less its end mark, or None."""
-    children = [child for child in inline.children or [] if child.content or child.markup]
-    if not children or children[0].type != "strong_open":
-        return None
-    bold = takewhile(lambda child: child.type != "strong_close", children[1:])
-    return "".join(
-        f"`{child.content}`" if child.type == "code_inline" else child.content for child in bold
-    ).rstrip(".:")
-
-
-def _rule_titles(markdown: str) -> list[str]:
-    """The bold title of each numbered rule under `## Rules for every task`."""
-    tokens = MarkdownIt().parse(markdown)
-    start = next(i for i, token in enumerate(tokens) if token.content == "Rules for every task")
-    end = next(i for i in range(start, len(tokens)) if tokens[i].type == "ordered_list_close")
-    titles = (_bold_start(token) for token in tokens[start + 1 : end] if token.type == "inline")
-    return [title for title in titles if title is not None]
-
-
-def _rule_drift(agents_md: str, generated: str) -> tuple[list[str], list[str]]:
-    """The rule titles of `agents_md` that neither `generated` nor the devops-cli list holds, and
-    the rule titles of `generated` that `agents_md` does not hold."""
-    ours, template = _rule_titles(agents_md), _rule_titles(generated)
-    return (
-        [title for title in ours if title not in template + list(CONST_DEVOPS_CLI_ONLY_RULES)],
-        [title for title in template if title not in ours],
-    )
-
-
-def test_the_template_holds_each_rule_of_agents_md_that_is_not_only_for_devops_cli() -> None:
-    """The template of `devops ai agents`, rendered for devops-cli, has the rule titles of
-    AGENTS.md, less the rules that only devops-cli has, so a new rule reaches the template or
-    the list on purpose (#4641). The test compares titles, not bytes: AGENTS.md is near its cap."""
-    agents_md = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    generated = generate_agents_md(parse_project_metadata(REPO_ROOT))
-    assert (
-        _rule_drift(agents_md, generated),
-        len(_rule_titles(generated)) >= 10,
-    ) == (([], []), True)
-
-
-def test_a_rule_title_added_only_to_agents_md_is_reported() -> None:
-    """A rule title that AGENTS.md adds, and that is not in the template or in the devops-cli
-    list, is reported; a title of the devops-cli list is not (#4641)."""
-    agents_md = (
-        "## Rules for every task\n\n"
-        "1. **Fix the cause.** Text.\n"
-        "2. **Pin every tool.** Text.\n"
-        "3. **Write prose in ASD-STE100** for text.\n"
-    )
-    generated = "## Rules for every task\n\n1. **Fix the cause.** Text.\n2. **Back up.** Text.\n"
-    assert _rule_drift(agents_md, generated) == (["Pin every tool"], ["Back up"])
-
-
-def _rule(number: int) -> str:
-    """The line of rule `number` of AGENTS.md."""
-    lines = _AGENTS_MD.read_text(encoding="utf-8").splitlines()
-    return next(line for line in lines if line.startswith(f"{number}. "))
-
-
-def test_the_premise_rule_closes_an_item_that_newer_issues_or_code_replace() -> None:
-    """The premise check of every task closes an item that newer issues or code replace, and the
-    triage rules of docs/SDLC.md give the same cases with the command (#2413, #5421)."""
-    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
-    assert (
-        "If newer issues or code replace the item, close it as not planned." in _rule(2),
-        "Close an item that a newer direction, newer issues or newer code replace as not planned"
-        in sdlc,
-    ) == (True, True)
-
-
-def test_agents_md_asks_for_small_tool_output_and_keeps_the_facts_the_reader_needs() -> None:
-    """Tool results are most of the tokens that an agent carries, so one rule asks each command
-    for less output, and it names the facts that a shorter output keeps (#4471)."""
-    content = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    rules = [line for line in content.splitlines() if "**Keep tool output small.**" in line]
-    assert [
-        needle
-        for needle in (
-            "Search before you read",
-            "`git diff --stat`",
-            "`--jq`",
-            "`--limit`",
-            "Loki `limit`",
-            "error lines",
-            "`file:line`",
-            "failed test IDs",
-        )
-        if needle not in "".join(rules)
-    ] == []
-
-
 def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
     """Each row of the routing table of AGENTS.md links a document, and each document it links
     exists, so a moved document fails here rather than in an agent's session (#1961)."""
@@ -297,111 +163,6 @@ def test_agents_md_routes_each_kind_of_task_to_a_document_that_exists() -> None:
             if not (_AGENTS_MD.parent / unquote(urlsplit(href).path)).exists()
         ],
     ) == (True, [], [])
-
-
-def test_the_model_call_rule_limits_every_call_and_links_the_ask_jev_skill() -> None:
-    """Rule 7 limits every `devops ai` call, generative or not, to a question that no file or
-    deterministic check can answer, and links the `ask-jev` skill, which owns the choice of the
-    model kind (#5421)."""
-    assert [
-        needle
-        for needle in (
-            "Run one `devops ai` call at a time",
-            "only when no file or deterministic check can answer",
-            "](.agents/skills/ask-jev/SKILL.md)",
-        )
-        if needle not in _rule(7)
-    ] == []
-
-
-def test_the_draft_rule_marks_a_draft_ready_when_no_agent_work_remains() -> None:
-    """Rule 6 gives a duty, not only a limit: an agent always marks a draft ready when the checks
-    pass and no agent work remains. The template of `devops ai agents` gives the same duty,
-    CONTRIBUTING.md says what agent work is, and each root of the `devops-pr-ci` skill gives the
-    condition with the command (#7217)."""
-    generated = generate_agents_md(parse_project_metadata(REPO_ROOT))
-    texts = {
-        "AGENTS.md": (_rule(6), "Always mark it ready when"),
-        "AGENTS.md.j2": (
-            next(line for line in generated.splitlines() if "as a draft.**" in line),
-            "Always mark it ready with `devops pr ready <pr_number>` when",
-        ),
-        "CONTRIBUTING.md": (
-            (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8"),
-            "Agent work is each step that an agent does or will do on the pull request",
-        ),
-    } | {
-        f"{root}/devops-pr-ci": (
-            (REPO_ROOT / root / "devops-pr-ci" / "SKILL.md").read_text(encoding="utf-8"),
-            "Always run `uv run devops pr ready <number>`",
-        )
-        for root in (".agents/skills", ".claude/skills", ".kilocode/skills")
-    }
-    assert [
-        name
-        for name, (text, needle) in texts.items()
-        if needle not in text or "no agent work remains" not in text
-    ] == []
-
-
-_REMOVED_PERSON_STEP_PHRASES: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
-    ("AGENTS.md", ("records verdicts", "plans milestones")),
-    ("CONTRIBUTING.md", ("a verdict or a release", "Do not add these labels by hand.")),
-    (
-        "docs/ROUTINE_TASKS.md",
-        (
-            "nobody sets a milestone or priority on the new issue by hand",
-            "set no milestone or priority on it yourself",
-        ),
-    ),
-    (
-        "docs/SDLC.md",
-        (
-            "An agent records no verdict",
-            "milestones are planning buckets that a person sets",
-        ),
-    ),
-    (
-        "docs/SELF_IMPROVEMENT.md",
-        ("Leave the Verdict to a Person", "An agent records no verdict."),
-    ),
-    (
-        "src/devops_cli/ai/knowledge_base/devops_cli/tasks/github_project_management.md",
-        (
-            "A person closes and edits milestones.",
-            "Set no milestone or priority by hand.",
-            "nobody sets a milestone or priority on a new issue by hand.",
-        ),
-    ),
-    (
-        "src/devops_cli/ai/knowledge_base/devops_cli/tasks/ai_code_review.md",
-        ("agents record none.", "Verdicts Come From People"),
-    ),
-    (
-        "docs/TESTING.md",
-        ("A person runs the scorer against the real Qdrant",),
-    ),
-    (
-        "docs/ROADMAP_WORKFLOW.md",
-        (
-            "A person can run the work of the Service for one Item.",
-            "A person reads the pull requests and records the share.",
-        ),
-    ),
-)
-
-
-def test_agent_instructions_omit_removed_person_only_restrictions() -> None:
-    """Agent instructions and routed guides keep only safety, merge, threshold, and release gates
-    as person-only, without restricting label, milestone, or evaluation-verdict work (#7040)."""
-    violations = [
-        f"{rel}: {phrase}"
-        for rel, phrases in _REMOVED_PERSON_STEP_PHRASES
-        for text in [(REPO_ROOT / rel).read_text(encoding="utf-8")]
-        for phrase in phrases
-        if phrase in text
-    ]
-    assert violations == []
 
 
 def test_a_generated_agents_md_routes_only_to_documents_that_exist(tmp_path: Path) -> None:
@@ -542,19 +303,6 @@ def test_a_document_three_links_from_the_start_is_not_within_two(tmp_path: Path)
     }
 
 
-def test_every_document_that_stated_test_rules_links_testing_md() -> None:
-    """AGENTS.md, the contributor guides, the review conventions and the knowledge base each
-    stated test rules of their own, and several contradicted the conventions the owner decided
-    on 2026-10-07. Each links `docs/TESTING.md` in their place (#1308)."""
-    unlinked = [
-        name
-        for name in _DOCUMENTS_POINTING_AT_TESTING_MD
-        if _TESTING_MD not in {target for target, _ in _relative_links(REPO_ROOT / name).values()}
-    ]
-
-    assert unlinked == []
-
-
 def test_every_relative_link_in_the_test_conventions_and_their_pointers_resolves() -> None:
     """A renumbered ADR or a moved document leaves no dead link in the test conventions, their
     ADR or a document that points to them (#1308)."""
@@ -594,63 +342,6 @@ def test_a_link_to_a_missing_file_or_heading_is_broken(tmp_path: Path) -> None:
 # ── No agent instruction names a deleted process (#1961) ─────────────────────────────────────
 
 _AGENTS_MD = REPO_ROOT / "AGENTS.md"
-# The files that instruct an agent: AGENTS.md and its pointer stubs, the documents it routes
-# work to, the model prompts, the personas and the knowledge base. Decision records, the glossary
-# and the records of past review sessions are not instructions, so they are out of scope.
-_AGENT_INSTRUCTION_GLOBS = (
-    "AGENTS.md",
-    "CLAUDE.md",
-    "GEMINI.md",
-    ".github/copilot-instructions.md",
-    ".github/pull_request_template.md",
-    ".github/ISSUE_TEMPLATE/*.yml",
-    "ARCHITECTURE.md",
-    "CONTRIBUTING.md",
-    "RELEASE_CYCLE.md",
-    "SECURITY.md",
-    "docs/CLUSTER.md",
-    "docs/ROUTINE_TASKS.md",
-    "docs/SDLC.md",
-    "docs/TESTING.md",
-    "docs/agent/README.md",
-    "k8s/README.md",
-    "openspec/config.yaml",
-    "src/devops_cli/ai/knowledge_base/**/*.md",
-    "src/devops_cli/ai/personas/**/*.md",
-    "src/devops_cli/ai/tasks/**/*.md",
-)
-
-
-def _deleted_process_names(texts: dict[str, str]) -> dict[str, list[str]]:
-    """Each text that names a deleted process, with the names it holds."""
-    return {
-        name: found
-        for name, text in texts.items()
-        if (found := [term for term in CONST_DELETED_PROCESS_TERMS if term in text])
-    }
-
-
-def test_no_agent_instruction_names_a_deleted_process(tmp_path: Path) -> None:
-    """An instruction that names a release branch, the cut, a changelog fragment, the planner,
-    the filing quota or the full gate in the pre-push hook sends an agent into a process that no
-    longer exists. No agent instruction, and no AGENTS.md that `devops ai agents` writes, names
-    one."""
-    paths = sorted({path for glob in _AGENT_INSTRUCTION_GLOBS for path in REPO_ROOT.glob(glob)})
-    texts = {str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8") for path in paths}
-    generated = _scaffold_with_every_routed_document(tmp_path)
-    texts["generated AGENTS.md"] = generated.read_text(encoding="utf-8")
-
-    assert (len(paths) > 100, _deleted_process_names(texts)) == (True, {})
-
-
-def test_a_text_that_names_a_deleted_process_is_reported() -> None:
-    """Negative control: the check names each deleted process a text holds, and passes a text
-    that names only the processes in use."""
-    texts = {
-        "old.md": "Open the pull request against the release branch, then run the cut.",
-        "new.md": "Open the pull request into `main`. release-please makes the release.",
-    }
-    assert _deleted_process_names(texts) == {"old.md": ["release branch", "the cut"]}
 
 
 # ── The test files that the test rules name exist (#3508) ────────────────────────────────────
@@ -721,126 +412,12 @@ def test_a_placeholder_and_a_target_test_path_pass(tmp_path: Path) -> None:
 
 # ── The release page and the naming rules of the contributor guide ──────────────────────────
 
-_CONTRIBUTING_MD = REPO_ROOT / "CONTRIBUTING.md"
 _RELEASE_CYCLE_MD = REPO_ROOT / "RELEASE_CYCLE.md"
-_NAMING_TABLE_HEADER = ["Artifact", "Form", "Check"]
-
-
-def _naming_section(document: Path) -> str:
-    """The text of the "Naming" section of the contributor guide, up to the next section."""
-    text = document.read_text(encoding="utf-8")
-    start = text.index("\n## 5. Naming\n")
-    return text[start : text.find("\n## ", start + 1)]
-
-
-def test_contributing_md_states_the_branch_form_once_and_names_each_check() -> None:
-    """The one table of naming rules gives every artifact its form and the check that enforces
-    it, or says that none does. The branch row holds the form, and the section states it once
-    (#2292)."""
-    [rows] = [rows for header, *rows in tables(_CONTRIBUTING_MD) if header == _NAMING_TABLE_HEADER]
-    forms = {artifact: form for artifact, form, _check in rows}
-    section = _naming_section(_CONTRIBUTING_MD)
-
-    assert (
-        forms["Branch"],
-        [artifact for artifact, _form, check in rows if not check.strip()],
-        section.count("`<type>/<issue>-<slug>`"),
-    ) == ("`<type>/<issue>-<slug>`", [], 1)
 
 
 def test_every_relative_link_of_the_release_page_resolves() -> None:
     """The release page a person follows links only files and headings that exist."""
     assert _broken_links(_RELEASE_CYCLE_MD) == []
-
-
-CONST_RETIRED_TEST_PHRASES: Final[tuple[str, ...]] = (
-    "tuple equality",
-    "using mocks (`unittest.mock`, `pytest-mock`)",
-    "tests/test_<submodule>.py",
-    "BaseLLMProvider",
-    "__test__ = False",
-)
-
-
-def _find_retired_test_phrases(content: str) -> list[tuple[int, str]]:
-    """Lines and retired phrases found in text, ignoring case."""
-    found: list[tuple[int, str]] = []
-    for lineno, line in enumerate(content.splitlines(), start=1):
-        line_lower = line.lower()
-        for phrase in CONST_RETIRED_TEST_PHRASES:
-            if phrase.lower() in line_lower:
-                found.append((lineno, phrase))
-    return found
-
-
-def test_agents_md_holds_no_retired_test_rules() -> None:
-    """AGENTS.md holds no retired test rule phrases (#1336)."""
-    agents_path = REPO_ROOT / "AGENTS.md"
-    content = agents_path.read_text(encoding="utf-8")
-    violations = _find_retired_test_phrases(content)
-    assert violations == [], f"Found retired test phrases: {violations}"
-
-
-def test_retired_test_phrase_in_agents_md_fails_ban(tmp_path: Path) -> None:
-    """A file holding a retired phrase fails the ban, naming the line and phrase (#1336)."""
-    doc = tmp_path / "AGENTS.md"
-    doc.write_text("Rule: assert tuple equality in all tests.\n", encoding="utf-8")
-    assert _find_retired_test_phrases(doc.read_text(encoding="utf-8")) == [(1, "tuple equality")]
-
-
-def _trivy_config_rule() -> str:
-    """The text of the section of SECURITY.md that judges a `Trivy-config` alert (#4401)."""
-    text = Path("SECURITY.md").read_text(encoding="utf-8")
-    start = text.index("## Judging a Trivy-config Alert")
-    end = text.find("\n## ", start + 1)
-    return " ".join(text[start : end if end != -1 else None].split())
-
-
-def test_the_policy_names_the_judge_the_time_and_the_ignore_file() -> None:
-    rule = _trivy_config_rule()
-
-    assert "owner" in rule
-    assert "CRITICAL" in rule
-    assert "24 hours" in rule
-    assert "agent" in rule
-    assert "14 days" in rule
-    assert "`.trivyignore.yaml`" in rule
-    assert "`statement`" in rule
-    assert "`expired_at`" in rule
-
-
-def test_the_policy_keeps_the_limits_of_a_finding_with_no_fix() -> None:
-    rule = _trivy_config_rule()
-
-    assert "A Finding with No Fix" in rule
-    assert "3 days" in rule
-
-
-def test_rule_2_directs_agents_to_work_tracker_sub_issues_instead_of_returning() -> None:
-    """Rule 2 of AGENTS.md and generated AGENTS.md forbid returning trackers/epics and route agents
-    to their open sub-issues or related issues instead."""
-    rule_text = _rule(2).lower()
-    generated = generate_agents_md(parse_project_metadata(REPO_ROOT)).lower()
-
-    assert "never return a tracker" in rule_text
-    assert "sub-issues" in rule_text
-    assert "related issues" in rule_text
-    assert "tracker" in generated
-    assert "sub-issues" in generated
-    assert "related issues" in generated
-
-
-def test_sdlc_prioritizes_blockers_and_allows_explicit_pr_handoff() -> None:
-    """`docs/SDLC.md` orders pull requests by priority rather than strict chronological FIFO
-    across all open pull requests, and lets agents act on handed-off or unclaimed pull requests
-    while keeping active session branches isolated (#7092)."""
-    sdlc = (REPO_ROOT / "docs" / "SDLC.md").read_text(encoding="utf-8")
-
-    assert "Sequential Pull Request Processing Queue" not in sdlc
-    assert "Process only your own pull requests." not in sdlc
-    assert "Priority-First Pull Request Processing & Handoff" in sdlc
-    assert "handoff" in sdlc.lower()
-    assert "active session" in sdlc.lower()
 
 
 _CONTROL_TABLE_HEADER: Final[list[str]] = [

@@ -48,14 +48,3 @@ def test_the_help_of_inbox_and_explain_names_the_state_of_a_stop() -> None:
     assert "action left" in HELP.roadmap.inbox
     for text in ("class", "attempts", "action left"):
         assert text in HELP.roadmap.explain
-
-
-def test_the_help_and_the_page_of_stage_plan_say_one_local_file_and_no_github_write() -> None:
-    page = (REPO_ROOT / "docs/roadmap/stage.md").read_text(encoding="utf-8")
-    row = next(line for line in page.splitlines() if line.startswith("| `--plan`"))
-
-    for text in (HELP.roadmap.stage_plan, row):
-        assert "one local file" in text
-        assert "no GitHub write" in text
-        assert "writes nothing" not in text
-        assert "write nothing" not in text

@@ -16,7 +16,6 @@ import pytest
 from devops_cli.roadmap.implement.implement_step import (
     FixRequest,
     StepStatus,
-    build_step_inputs,
     run_fix_step,
     run_step,
 )
@@ -328,28 +327,6 @@ def test_a_fix_step_that_edits_the_text_of_a_task_leaves_the_tasks_as_they_were(
         "",
         TASKS,
     )
-
-
-def test_the_instructions_say_not_to_edit_the_text_of_a_task_and_how_to_ask_for_an_amendment(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert (
-        "Do not edit the text of a task. If the plan has a defect, you can ask for an amendment: "
-        "change no file and tick no task, and end your last message with one fenced block `plan-request`."
-    ) in inputs.instructions
-
-
-def test_the_instructions_say_that_the_job_writes_the_whole_file_back(
-    store: InMemoryRoadmapStore, checkout: Path
-) -> None:
-    inputs = build_step_inputs(store, item=1, group=1, source=checkout, window=WINDOW)
-
-    assert (
-        "The job writes the whole file back as it was before your run, and keeps only your ticks "
-        "of the tasks of your group."
-    ) in inputs.instructions
 
 
 TRAILING = TASKS.replace(

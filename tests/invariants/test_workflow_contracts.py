@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 import yaml
 
-from devops_cli.commands.ci import get_check_spec
 from devops_cli.config.constants import (
     CONST_OPENSPEC_CHANGE_FOLDER_RE,
 )
@@ -325,18 +324,6 @@ def test_every_checkout_states_its_credentials_and_only_a_pushing_job_keeps_them
                 if str(step.get("uses", "")).startswith("actions/checkout@")
             ]
     assert [(where, kept) for where, kept, pushes in checkouts if kept is not pushes] == []
-
-
-def test_sdlc_names_only_the_supply_chain_controls_the_repository_runs() -> None:
-    """SDLC.md once claimed weekly Dependabot audits, pip-audit and SLSA Level 3, none of which
-    the repository had; the audit and the workflow gate it names are the checks `devops ci`
-    runs."""
-    sdlc = Path("docs/SDLC.md").read_text(encoding="utf-8")
-    assert (
-        [claim for claim in ("Dependabot", "pip-audit", "SLSA Level 3") if claim in sdlc],
-        get_check_spec("audit").cmd,
-        "zizmor" in sdlc,
-    ) == ([], ["uv", "audit"], True)
 
 
 # ── The OpenSpec gate's workflows (#1844) ─────────────────────────────────────

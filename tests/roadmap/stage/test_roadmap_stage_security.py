@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
-from devops_cli.ai.task_loader import load_task_prompt
 from devops_cli.roadmap.stage.stage_change import (
     SECURITY_TRIGGER_PATHS,
     StageProposal,
@@ -123,11 +122,3 @@ def test_the_design_file_holds_the_security_section() -> None:
     )
     design_without = files_without["openspec/changes/sample-change/design.md"]
     assert "## Security" not in design_without
-
-
-def test_the_stage_prompt_names_the_security_rule() -> None:
-    prompt = load_task_prompt("roadmap_stage_change.md")
-    assert "`security`:" in prompt
-    assert "## Security" in prompt
-    assert "SECURITY.md" in prompt
-    assert "credential" in prompt

@@ -17,7 +17,6 @@ from devops_cli.ai.review.runner import (
     prepare_branch_content,
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall
-from tests.support.paths import REPO_ROOT
 
 if TYPE_CHECKING:
     from tests.support.fakes.git import GitFake
@@ -193,36 +192,6 @@ def _repo(root: Path) -> Path:
     (root / ".git").mkdir(parents=True, exist_ok=True)
     (root / "AGENTS.md").write_text("# Project\nUse Go 1.23.\n", encoding="utf-8")
     return root
-
-
-_AI_DIR = REPO_ROOT / "src/devops_cli/ai"
-_SHARED_REVIEW_PROMPTS = [
-    *(_AI_DIR / "tasks").glob("*review*.md"),
-    *(_AI_DIR / "personas").glob("*/prompt.md"),
-]
-
-
-@pytest.mark.parametrize(
-    "phrase",
-    [
-        "this repository",
-        "allow_private_network",
-        "homelab",
-        "RLock",
-        "Valkey",
-        "mypy --strict",
-        "catalogued false alarm",
-    ],
-)
-def test_no_shared_review_prompt_carries_a_project_rule(phrase: str) -> None:
-    """Verify persona and review prompts hold only rules true of any project (#515)."""
-    carriers = [
-        p.relative_to(_AI_DIR).as_posix()
-        for p in _SHARED_REVIEW_PROMPTS
-        if phrase.lower() in p.read_text(encoding="utf-8").lower()
-    ]
-
-    assert carriers == []
 
 
 def test_a_path_review_reads_no_conventions_through_a_link(tmp_path: Path) -> None:

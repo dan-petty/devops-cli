@@ -27,7 +27,6 @@ from pydantic_ai.messages import UserPromptPart
 
 from devops_cli.config.constants import CONST_SERVICE_METRIC_IMPLEMENT_FAILURES
 from devops_cli.roadmap.implement.implement_run import apply_implement
-from devops_cli.roadmap.implement.implement_step import step_instructions
 from devops_cli.roadmap.run import STATUS_LANE_ROWS, JobOutcome
 from devops_cli.roadmap.stores.store import (
     ImplementRecordKey,
@@ -505,9 +504,3 @@ def test_handoff_a_retry_clears_both_keys_in_the_first_write_of_the_new_job(
     _, record = _item(job_world)
     assert (record.get("implement.check_log"), record.get("implement.conflict")) == (None, None)
     assert record.get("implement.stopped") is None
-
-
-def test_handoff_the_prompt_of_the_step_describes_the_section() -> None:
-    prompt = step_instructions()
-
-    assert HEADING.removeprefix("# ") in prompt

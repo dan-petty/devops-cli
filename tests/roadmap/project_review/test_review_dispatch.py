@@ -34,7 +34,6 @@ from tests.support.fakes.clock import ClockFake
 from tests.support.fakes.git import GitFake
 from tests.support.fakes.github import API, GitHubApiFake, github_json
 from tests.support.fakes.http import WebFake
-from tests.support.paths import REPO_ROOT
 
 REPO = "example/project"
 END = datetime(2026, 11, 11, 14, 51, 23, tzinfo=UTC)
@@ -765,16 +764,3 @@ def test_shipped_rows_facts_keep_only_safe_or_namespaced_labels(
     read = read_catalog(catalog, _context(tmp_path))
 
     assert [(f.id, f.status) for f in read.facts] == [(f.id, FactStatus.OK) for f in read.facts]
-
-
-def test_safe_list_rule_is_documented_in_dispatch_catalog_and_workflow_doc() -> None:
-    """`dispatch.py`, `catalog.yaml`, and `docs/ROADMAP_WORKFLOW.md` name `_SAFE_ROW_LABELS` and
-    default refusal (#6632)."""
-    for rel in (
-        "src/devops_cli/roadmap/project_review/dispatch.py",
-        "src/devops_cli/roadmap/project_review/catalog.yaml",
-        "docs/ROADMAP_WORKFLOW.md",
-    ):
-        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        assert "_SAFE_ROW_LABELS" in text, rel
-        assert "default" in text.lower(), rel

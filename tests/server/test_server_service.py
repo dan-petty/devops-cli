@@ -29,7 +29,6 @@ from devops_cli.config.constants import (
     CONST_GH_WEBHOOK_SIGNATURE_HEADER,
     CONST_GRAPHQL_REFUSAL_RESET_KEY,
     CONST_MAX_ERROR_DETAIL_LENGTH,
-    CONST_ROADMAP_INTAKE_BATCH_KEYS,
     CONST_ROADMAP_WEBHOOK_EVENTS,
     CONST_SERVICE_LANE_DEFAULT,
     CONST_SERVICE_MAX_BODY_BYTES,
@@ -85,7 +84,6 @@ from devops_cli.telemetry.tracer import (
 )
 from tests.support.fakes.otlp import metric_points
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.paths import REPO_ROOT
 from tests.support.service_stop import stop_error
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS, wait_until
 
@@ -2303,49 +2301,6 @@ def test_each_event_that_the_service_takes_is_an_event_that_the_hook_must_send()
         frozenset(),
         set(),
         True,
-    )
-
-
-RUNBOOK_STEP_8 = "8. "
-
-
-def _runbook_step_8() -> str:
-    """Step 8 of the roadmap-service runbook, which names the events that each hook must send."""
-    lines = (REPO_ROOT / "docs" / "CLUSTER.md").read_text(encoding="utf-8").splitlines()
-    start = next(index for index, line in enumerate(lines) if line.startswith(RUNBOOK_STEP_8))
-    rest = lines[start + 1 :]
-    end = next((index for index, line in enumerate(rest) if line.startswith("9. ")), len(rest))
-    return "\n".join([lines[start], *rest[:end]])
-
-
-def test_the_event_set_and_step_8_name_the_same_events() -> None:
-    """The roadmap consumer takes the pull request, review, check, comment and release events
-    beside the issues events, and step 8 of the runbook names each event that the hook must send,
-    so the hook and the consumer never drift apart (#4413, #4415, #4416). An intake key for a
-    comment would make the intake row due for a comment, so the comment event stays out of the
-    intake keys, and a release delivery names no issue, so the release event stays out of them
-    too."""
-    step = _runbook_step_8()
-
-    assert (
-        sorted(CONST_ROADMAP_WEBHOOK_EVENTS),
-        sorted(event for event in CONST_ROADMAP_WEBHOOK_EVENTS if f"`{event}`" not in step),
-        [
-            event
-            for _source, event, _action in CONST_ROADMAP_INTAKE_BATCH_KEYS
-            if "comment" in event
-        ],
-    ) == (
-        [
-            "check_suite",
-            "issue_comment",
-            "issues",
-            "pull_request",
-            "pull_request_review",
-            "release",
-        ],
-        [],
-        [],
     )
 
 

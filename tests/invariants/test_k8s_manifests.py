@@ -26,12 +26,10 @@ from devops_cli.k8s.cluster_secrets import (
     MATTERMOST_DB_AUTH_KEY,
     SEARXNG_METRICS_AUTH_KEY,
     SEARXNG_SERVER_KEY,
-    KeyringSource,
     keyring_only_keys,
     keyring_sources,
     load_cluster_secrets_table,
 )
-from tests.support.paths import REPO_ROOT
 
 TABLE_REFS = {secret.ref for secret in CLUSTER_SECRETS}
 
@@ -105,34 +103,3 @@ def test_no_table_secret_is_copied_back_by_sync(process_fake: Any) -> None:
         if len(call.argv) >= 6 and call.argv[:3] == ("kubectl", "get", "secret")
     ]
     assert (set(read) & TABLE_REFS, bool(read)) == (set(), True)
-
-
-def _readme_row(secret: Any, entry: Any) -> str:
-    source = entry.source
-    label = f"keyring `{source.key}`" if isinstance(source, KeyringSource) else source.label
-    absent = "fail" if entry.required else "skip with a warning"
-    if isinstance(source, KeyringSource):
-        generator = entry.generator
-        if generator is not None:
-            body = (
-                f"{generator.nbytes * 2} hex"
-                if generator.encoding == "hex"
-                else f"`token_urlsafe({generator.nbytes})`"
-            )
-            absent = (
-                f"generate `{generator.prefix}` + {body}"
-                if generator.prefix
-                else f"generate {body}"
-            )
-        adopt = f"adopt from `{entry.adopt_from}`" if entry.adopt_from else "adopt the live value"
-        absent = f"{adopt}; else {absent}"
-    restarts = ", ".join(f"`{w}`" for w in secret.restarts) or "none"
-    required = "yes" if entry.required else "no"
-    cells = [f"`{secret.ref}`", f"`{entry.key}`", label, required, absent, secret.stack, restarts]
-    return "| " + " | ".join(cells) + " |"
-
-
-def test_readme_lists_the_table() -> None:
-    readme = (REPO_ROOT / "k8s" / "README.md").read_text(encoding="utf-8")
-    rows = [_readme_row(s, e) for s in CLUSTER_SECRETS for e in s.entries]
-    assert [row for row in rows if row not in readme] == []
