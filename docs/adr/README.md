@@ -184,6 +184,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0037](0037-tool-commands-mirror-and-pass-through-options.md) | Tool commands mirror and pass through options | accepted | 2026-11-12 |  |
 | [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
 | [0039](0039-homepage-is-the-cluster-start-page.md) | Homepage is the cluster start page | accepted | 2026-11-25 |  |
-| [0040](0040-renovate-pins-product-refs-to-release-tags.md) | Renovate pins product refs to release tags after cutover | proposed | 2026-11-25 | amends 0013 |
+| [0040](0040-renovate-pins-product-refs-to-release-tags.md) | Renovate pins product refs to release tags after cutover | accepted | 2026-11-25 | amends 0013 |
 
 <!-- ADR_INDEX_END -->

@@ -1,10 +1,11 @@
 ---
-status: proposed
+status: accepted
 date: 2026-11-25
 decision-makers: [owner]
 issue: 5135
 tracker: 5120
 amends: ["0013"]
+body-hash: 8572947cb23a9edd12561f4455e6718f4db821e81f4ed5484e4486e1ad97ce7b
 ---
 
 # Renovate pins product refs to release tags after cutover
