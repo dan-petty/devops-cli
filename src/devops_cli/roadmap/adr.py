@@ -59,6 +59,23 @@ _SEPARATOR = r"[\s._-]+"
 # tags": the chosen marker wins, so the safe test removes the negative phrases first.
 _CHOSEN_OPTION = re.compile(r"\b(?:chosen|adopted)\b", re.IGNORECASE)
 _NOT_CHOSEN_OPTION = re.compile(r"\bnot\s+(?:chosen|adopted)\b", re.IGNORECASE)
+# Option-title normalization for rejects() (#6441): strip parenthetical notes, method gerunds,
+# trailing prepositional tails (without cutting hyphenated words such as "in-process"), and
+# leading determiners/adoption verbs.
+_PAREN_GROUP = re.compile(r"\([^)]*\)")
+_METHOD_PREFIX = re.compile(r"^(?:bundling|vendoring)\b", re.IGNORECASE)
+_PREP_TAIL = re.compile(
+    r"\s+(?:for|through|via|with|from|of|on|in|by|to|after|before|under|without|until|against|"
+    r"beside|as|between|into|instead)(?=\s|$).*",
+    re.IGNORECASE,
+)
+_LEAD_WORDS = re.compile(
+    r"^(?:(?:a|an|the|each|every|one|our|any|adopt|use|using|keep|run)\b\s+)+",
+    re.IGNORECASE,
+)
+_CLAUSE_SPLIT = re.compile(r"\s*,\s*|\s+\b(?:and|or)\b\s+", re.IGNORECASE)
+_VERSION_TOKEN = re.compile(r"v?\d+(?:\.\d+)*", re.IGNORECASE)
+_EDGE_PUNCT = ".,:;\"'"
 
 
 def _says_chosen(option: str) -> bool:
@@ -250,9 +267,9 @@ def fit_to_budget(adrs: Sequence[Adr], *, max_tokens: int) -> tuple[Adr, ...]:
     return tuple(kept)
 
 
-def _spans(text: str) -> tuple[list[str], list[str]]:
-    """The prose of `text` and its marked spans: the code spans, the text and the target of each
-    link, and the text in strong emphasis. A fenced block is prose."""
+def _spans(text: str, *, include_href: bool = True) -> tuple[list[str], list[str]]:
+    """The prose of `text` and its marked spans: the code spans, the text and (when `include_href`
+    is True) the target of each link, and the text in strong emphasis. A fenced block is prose."""
     prose: list[str] = []
     marked: list[str] = []
     for token in MARKDOWN.parse(text):
@@ -264,7 +281,8 @@ def _spans(text: str) -> tuple[list[str], list[str]]:
         for child in token.children or ():
             if child.type in {"strong_open", "link_open"}:
                 depth += 1
-                marked.append(str(child.attrGet("href") or ""))
+                if include_href:
+                    marked.append(str(child.attrGet("href") or ""))
             elif child.type in {"strong_close", "link_close"}:
                 depth -= 1
             elif child.type == "code_inline":
@@ -280,14 +298,14 @@ def _whole(word: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w-]){word}(?![\w-])", re.IGNORECASE)
 
 
-def names(text: str, *tool_names: str) -> bool:
+def names(text: str, *tool_names: str, include_href: bool = True) -> bool:
     """Whether `text` names a tool by one of `tool_names`, each a repository (`owner/name`), a
     package name or the name that a person writes for the tool. Case does not matter, and a space,
     `-`, `_` or `.` is one separator. A name of two words or more, such as `argo-workflows`, names
     the tool anywhere in the text. A name of one word, such as `just` or `task`, is also a word of
     prose, so it names the tool only in a code span, in a link or in strong emphasis; the full
     `owner/name` names it anywhere."""
-    prose, marked = _spans(text)
+    prose, marked = _spans(text, include_href=include_href)
     anywhere = [*prose, *marked]
     for name in filter(None, tool_names):
         owner, _, short = name.rpartition("/")
@@ -315,15 +333,102 @@ def _options(text: str) -> list[str]:
     return options
 
 
-def rejects(adr: Adr, *tool_names: str) -> bool:
-    """Whether `adr` rejects the tool that `tool_names` name (#4661, #5082): an option of its
-    `Considered Options` names the tool, and neither its title nor a chosen or adopted option
-    names it. An option that an ADR defers counts as rejected, because the check runs again when
-    the ADR changes. ADR 0010 names OpenSpec in other options, but its chosen option names
-    OpenSpec too, so it rejects no OpenSpec."""
-    if names(adr.title, *tool_names):
+def _option_title_text(option: str) -> str:
+    """The visible subject title of one option list item without link targets (#6441).
+
+    Stops after a leading bold sentence ending in `.` (as in `**IBM Carbon tokens.** ...`),
+    else before the top-level separator colon (as in `**Temporal**: rejected.`). Parenthetical
+    notes are removed so side-notes do not name rejected tools.
+    """
+    inline = MARKDOWN.parseInline(option)
+    children: Sequence[Token] = (inline[0].children or ()) if inline else ()
+    non_empty = [c for c in children if not (c.type == "text" and not c.content)]
+    parts: list[str] = []
+    depth = 0
+    started_strong = len(non_empty) > 0 and non_empty[0].type == "strong_open"
+    for child in non_empty:
+        if child.type in {"strong_open", "link_open", "em_open"}:
+            depth += 1
+        elif child.type in {"strong_close", "link_close", "em_close"}:
+            depth = max(depth - 1, 0)
+            if started_strong and depth == 0 and child.type == "strong_close":
+                if "".join(parts).rstrip().endswith("."):
+                    break
+        elif child.type in {"code_inline", "softbreak", "hardbreak"}:
+            parts.append(" " if child.type != "code_inline" else child.content)
+        elif child.type == "text":
+            text = child.content
+            if depth == 0 and (cut := re.search(r":|\.(?:\s|$)", text)) is not None:
+                parts.append(text[: cut.start()])
+                break
+            parts.append(text)
+    return _PAREN_GROUP.sub(" ", "".join(parts)).strip()
+
+
+def _matches_head_phrase(phrase: str, tool_words: list[str]) -> bool:
+    """Whether `phrase` names `tool_words` as its head noun, versioned head, or multi-word
+    product compound (#6441)."""
+    tokens = [tok.strip(_EDGE_PUNCT) for tok in phrase.split() if tok.strip(_EDGE_PUNCT)]
+    if not tokens:
         return False
-    named = [option for option in _options(adr.options) if names(option, *tool_names)]
+    token_subs = [[word.lower() for word in re.split(_SEPARATOR, tok) if word] for tok in tokens]
+    target = [word.lower() for word in tool_words]
+    for start in range(len(tokens)):
+        if target == ["cli"] and start > 0 and tokens[start] == "CLI":
+            continue
+        collected: list[str] = []
+        for end in range(start + 1, len(tokens) + 1):
+            collected.extend(token_subs[end - 1])
+            if collected == target:
+                tail = tokens[end:]
+                if not tail:
+                    return True
+                if len(tail) == 1 and _VERSION_TOKEN.fullmatch(tail[0]):
+                    return True
+                if (
+                    len(target) >= 2
+                    and len(tail) == 1
+                    and tail[0].casefold() != "cli"
+                    and tail[0].islower()
+                ):
+                    return True
+                break
+            if len(collected) >= len(target):
+                break
+    return False
+
+
+def _option_names_tool(option: str, *tool_names: str) -> bool:
+    """Whether a `Considered Options` item names one of `tool_names` as the option's subject
+    (#6441)."""
+    title = _option_title_text(option)
+    if not title:
+        return False
+    for name in filter(None, tool_names):
+        owner, _, short = name.rpartition("/")
+        if owner and short and _whole(re.escape(name)).search(title):
+            return True
+        words = [word for word in re.split(_SEPARATOR, short) if word]
+        if not words:
+            continue
+        for clause in _CLAUSE_SPLIT.split(title):
+            cleaned = clause.strip(" .,:;")
+            if not cleaned or _METHOD_PREFIX.match(cleaned):
+                continue
+            head = _LEAD_WORDS.sub("", _PREP_TAIL.sub("", cleaned)).strip(" .,:;")
+            if head and _matches_head_phrase(head, words):
+                return True
+    return False
+
+
+def rejects(adr: Adr, *tool_names: str) -> bool:
+    """Whether `adr` rejects the tool that `tool_names` name (#4661, #5082, #6441): an option of
+    its `Considered Options` names the tool as its subject (ignoring link targets, modifiers,
+    prepositional instruments, and packaging methods), and neither its title nor a chosen or
+    adopted option names it."""
+    if names(adr.title, *tool_names, include_href=False):
+        return False
+    named = [option for option in _options(adr.options) if _option_names_tool(option, *tool_names)]
     if not named:
         return False
     return not any(_says_chosen(option) for option in named)
