@@ -1707,6 +1707,43 @@ def _marked(qa: QuestionAnswer, owner_decisions: Sequence[str]) -> QuestionAnswe
     return qa.model_copy(update={"answer": f"{answer} {marker}".strip()})
 
 
+_POST_MERGE_CRITERION_NAME: Final[str] = "Pending a person after the merge"
+_POST_MERGE_QUESTION_PREFIX: Final[re.Pattern[str]] = re.compile(r"\b(?:who|when)\b", re.IGNORECASE)
+_POST_MERGE_PREBUILD_WORDS: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:secret|repository setting|host)\b", re.IGNORECASE
+)
+_POST_MERGE_MERGE_VERB: Final[re.Pattern[str]] = re.compile(r"\bmerg(?:e|es)\b", re.IGNORECASE)
+_POST_MERGE_TARGET: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:pull request|pr|record|adr|change|draft)\b", re.IGNORECASE
+)
+_POST_RELEASE_CHECK: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:confirms?|proves?|runs?|verifies?|checks?)\b", re.IGNORECASE
+)
+_POST_RELEASE_SUBJECT: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:live\s+(?:proof|keys?|check)|proof|check)\b", re.IGNORECASE
+)
+_POST_RELEASE_TIMING: Final[re.Pattern[str]] = re.compile(
+    r"\bafter\s+(?:the\s+)?(?:merge\s+and\s+(?:the\s+)?)?(?:merge|release)\b", re.IGNORECASE
+)
+
+
+def _is_post_merge_person_question(question: str) -> bool:
+    """Whether a `person` question asks about post-merge delivery or post-release live proof
+    rather than a pre-build plan decision (#6445)."""
+    if _POST_MERGE_PREBUILD_WORDS.search(question):
+        return False
+    if not _POST_MERGE_QUESTION_PREFIX.search(question):
+        return False
+    if _POST_MERGE_MERGE_VERB.search(question) and _POST_MERGE_TARGET.search(question):
+        return True
+    return bool(
+        re.search(r"\bwho\b", question, re.IGNORECASE)
+        and _POST_RELEASE_CHECK.search(question)
+        and _POST_RELEASE_SUBJECT.search(question)
+        and _POST_RELEASE_TIMING.search(question)
+    )
+
+
 def validate_proposal(
     proposal: RefinementProposal,
     body: str,
@@ -1719,16 +1756,19 @@ def validate_proposal(
     """Deterministically validates proposal sources, key questions, decisions and block paths.
     Returns (validated_proposal, open_questions).
 
-    A fact with no verified source and a question only a person decides are open questions, and
-    so is each of the body's unanswered key questions whose number no answer names (#2398). The
-    key questions and owner decisions are the person's, read from the body outside refine's
-    own section, so a refined item's section never asks its own questions again (#1758). Only
-    the block paths that the checkout holds are kept (#2005). A `covers` question (#2652) is open
-    with the mark of a question for a person until a person replies; after that it is numbered
-    after the body's questions, and open until an answer names it.
+    A fact with no verified source and a pre-build question only a person decides are open
+    questions, and so is each of the body's unanswered key questions whose number no answer names
+    (#2398). Post-merge merge and post-release live-proof `person` questions convert into a
+    `Pending a person after the merge` criterion with no open question (#6445). The key questions
+    and owner decisions are the person's, read from the body outside refine's own section, so a
+    refined item's section never asks its own questions again (#1758). Only the block paths that
+    the checkout holds are kept (#2005). A `covers` question (#2652) is open with the mark of a
+    question for a person until a person replies; after that it is numbered after the body's
+    questions, and open until an answer names it.
     """
     open_questions: list[str] = []
     validated_qa: list[QuestionAnswer] = []
+    has_post_merge_step = False
     persons_text, _ = extract_section_and_outside(body)
     owner_decisions = [
         line.strip().lower()
@@ -1741,6 +1781,9 @@ def validate_proposal(
             open_questions.append(f"{qa.question} {_MISSING_SOURCE}")
             continue
         if qa.kind == "person":
+            if _is_post_merge_person_question(qa.question):
+                has_post_merge_step = True
+                continue
             open_questions.append(f"{qa.question} {_A_PERSON_DECIDES}")
         validated_qa.append(_marked(qa.model_copy(update={"sources": valid_srcs}), owner_decisions))
 
@@ -1761,9 +1804,25 @@ def validate_proposal(
     valid_deps = list(
         dict.fromkeys([*(dep for dep in proposal.dependencies if dep in all_known_issues), *titled])
     )
+    validated_criteria = list(proposal.acceptance_criteria)
+    if has_post_merge_step and not any(
+        criterion.name.strip() == _POST_MERGE_CRITERION_NAME for criterion in validated_criteria
+    ):
+        validated_criteria.append(
+            AcceptanceCriterion(
+                name=_POST_MERGE_CRITERION_NAME,
+                requirement=(
+                    "After the pull request merges, a person MUST complete the post-merge step."
+                ),
+                scenario="Post-merge person step",
+                when="the pull request is merged and released",
+                then="a person completes or confirms the post-merge check",
+            )
+        )
 
     validated_proposal = proposal.model_copy(
         update={
+            "acceptance_criteria": validated_criteria,
             "key_questions": validated_qa,
             "dependencies": valid_deps,
             "block_paths": _block_paths(proposal.block_paths, source, sha),
