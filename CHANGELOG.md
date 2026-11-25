@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.5](https://github.com/dan-petty/devops-cli/compare/v0.221.4...v0.221.5) (2026-11-25)
+
+
+### Code Refactoring
+
+* **tests:** remove tests that force a version or a setting ([#7234](https://github.com/dan-petty/devops-cli/issues/7234)) ([f1bacff](https://github.com/dan-petty/devops-cli/commit/f1bacfff8b26291e2e0556f02774eae74eca68f2))
+
 ## [0.221.4](https://github.com/dan-petty/devops-cli/compare/v0.221.3...v0.221.4) (2026-11-25)
 
 
