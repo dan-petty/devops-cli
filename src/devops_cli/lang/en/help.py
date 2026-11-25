@@ -2525,6 +2525,10 @@ class RoadmapCommandHelp:
         "The repository as owner/name (default: the origin of the checkout). It must be the "
         "origin of the checkout."
     )
+    review_ref: str = (
+        "Branch or ref for the readiness report (reads file checks at that ref instead of the "
+        "default branch)."
+    )
     review_out: str = (
         "The folder of data.json (default: project-review/<owner>/<name>/<window id> under the "
         "data directory)."

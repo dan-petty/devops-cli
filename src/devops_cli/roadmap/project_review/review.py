@@ -25,7 +25,7 @@ from devops_cli.roadmap.project_review.catalog import (
     namespaces_value,
     utc_text,
 )
-from devops_cli.roadmap.project_review.data import Fact, FactStatus, ReviewData
+from devops_cli.roadmap.project_review.data import Fact, FactStatus, RepoReadiness, ReviewData
 from devops_cli.roadmap.project_review.dispatch import ReadContext, plan_catalog, read_catalog
 from devops_cli.roadmap.project_review.facts import review_facts
 from devops_cli.roadmap.project_review.functional import functional_change
@@ -38,6 +38,11 @@ from devops_cli.roadmap.project_review.git_read import (
     log_args,
     tag_args,
     tag_commit_args,
+)
+from devops_cli.roadmap.project_review.readiness import (
+    collect_readiness,
+    planned_readiness,
+    readiness_targets,
 )
 from devops_cli.roadmap.project_review.window import (
     PeriodRequest,
@@ -59,6 +64,7 @@ def run_review(
     *,
     catalog: Catalog | None = None,
     now: datetime | None = None,
+    ref: str | None = None,
 ) -> ReviewData:
     """The data of the window that `request` names: the git facts read from `checkout`, then the
     facts of `catalog`, the shipped catalog by default, read at `now`."""
@@ -66,12 +72,14 @@ def run_review(
     tags = read_tags(checkout, pattern)
     window = resolve_window(checkout, request, tags, pattern)
     facts = review_facts(checkout, window, tags, pattern)
+    settings = load_settings()
+    moment = now or datetime.now(UTC)
     context = ReadContext(
         checkout=checkout,
         repo=repo,
         window=window,
-        settings=load_settings(),
-        now=now or datetime.now(UTC),
+        settings=settings,
+        now=moment,
     )
     result = read_catalog(catalog or load_catalog(), context)
     if not any(
@@ -88,12 +96,18 @@ def run_review(
             else []
         )
         facts = [*facts, functional_change(checkout, window, titles)]
+    readiness: list[RepoReadiness] = (
+        collect_readiness(settings, session=context.session(), now=moment, ref=ref).repositories
+        if readiness_targets(settings)
+        else []
+    )
     return ReviewData(
         repo=repo,
         window=window,
         facts=[*facts, *result.facts],
         disagreements=result.disagreements,
         collection=result.collection,
+        readiness=readiness,
     )
 
 
@@ -129,6 +143,7 @@ def planned_review(
     *,
     repo: str | None = None,
     catalog: Catalog | None = None,
+    ref: str | None = None,
 ) -> list[PlannedRequest]:
     """The git commands that a run of `request` starts, in order, then the reads of `catalog`,
     the shipped catalog by default."""
@@ -138,11 +153,11 @@ def planned_review(
         case VersionRequest():
             window = [tag_commit_args(request.base_tag), tag_commit_args(request.head_tag)]
         case PeriodRequest():
-            ref = texts["ref"]
+            ref_name = texts["ref"]
             window = [
                 default_ref_args(),
-                commit_before_args(ref, f"@{int(request.start.timestamp())}"),
-                commit_before_args(ref, f"@{int(request.end.timestamp())}"),
+                commit_before_args(ref_name, f"@{int(request.start.timestamp())}"),
+                commit_before_args(ref_name, f"@{int(request.end.timestamp())}"),
             ]
     pattern = review_tag_pattern(checkout)
     each = MESSAGES.roadmap.review_plan_each_file
@@ -162,7 +177,18 @@ def planned_review(
         for args, repeat in steps
     ]
     reads = plan_catalog(catalog or load_catalog(), _plan_values(request, repo), checkout)
-    return [*git, *reads]
+    readiness = planned_readiness(load_settings(), ref=ref)
+    return [*git, *reads, *readiness]
+
+
+def render_readiness(report: RepoReadiness) -> list[str]:
+    """Format one repository's readiness rows as compact human-readable lines."""
+    heading = MESSAGES.roadmap.review_readiness_heading.format(repo=report.repo)
+    rows: list[str] = [heading]
+    for fact in report.facts:
+        state = fact.value["state"] if isinstance(fact.value, dict) else fact.status.value
+        rows.append(f"  {fact.id}: {state} ({fact.source})")
+    return rows
 
 
 def _shown(fact: Fact) -> str:
@@ -175,9 +201,10 @@ def _shown(fact: Fact) -> str:
 
 
 def render_review(data: ReviewData, written: Path) -> str:
-    """The window, one line for each fact, and the path of `data.json`."""
+    """The window, one line for each fact, readiness rows when present, and `data.json` path."""
     texts = MESSAGES.roadmap
     window = data.window
+    readiness_lines = [line for entry in data.readiness for line in render_readiness(entry)]
     lines = [
         texts.review_window_line.format(
             id=window.id,
@@ -189,6 +216,7 @@ def render_review(data: ReviewData, written: Path) -> str:
         ),
         texts.review_previous_line.format(id=window.previous_id or texts.review_no_previous),
         *(f"  {fact.id}: {_shown(fact)}" for fact in data.facts),
+        *readiness_lines,
         *(
             texts.review_disagreement_line.format(
                 id=pair.id,

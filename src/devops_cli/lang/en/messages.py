@@ -7386,6 +7386,9 @@ class RoadmapMessages:
     review_catalog_unknown_fact: str = (
         "the disagreement {pair} names the fact {fact}, which the catalog does not hold."
     )
+    review_readiness_heading: str = "Readiness {repo}:"
+    review_readiness_manual: str = "manual check"
+    review_readiness_unread: str = "check kind '{kind}' is not readable in this review"
 
 
 @dataclass(frozen=True)
