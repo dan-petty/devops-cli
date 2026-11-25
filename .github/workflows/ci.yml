@@ -488,10 +488,10 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Docker Buildx
-        if: steps.image_changes.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
+      # No builder container: the build runs in the Docker Engine of the runner, whose containerd
+      # image store reads the registry cache (#7205). So the image is in the engine with no tar
+      # copy, and the engine pulls each base image one time for the build, the smoke stage and the
+      # scan. The next image job does the same.
       - name: Build and Load Service Image
         if: steps.image_changes.outputs.changed == 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -510,10 +510,9 @@ jobs:
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/service:buildcache
 
       # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202).
-      # `--builder default` is the Docker Engine, which holds the loaded image.
       - name: Run Service Image Smoke Stage
         if: steps.image_changes.outputs.changed == 'true'
-        run: docker buildx build --builder default --progress=plain -f smoke.Dockerfile --target service-smoke .
+        run: docker buildx build --progress=plain -f smoke.Dockerfile --target service-smoke .
 
       # What a RUN step cannot make: the start of the entrypoint and the sandbox of the pod.
       - name: Run Service Image Smoke Test
@@ -595,10 +594,6 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Docker Buildx
-        if: steps.image_changes.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
       # One bake call builds the runner and the MCP server target in one build graph, so the stages
       # that both targets share build one time. The step writes the bake file, so the cache ref of
       # each target keeps the expression of the repository and the job commits no static bake file.
@@ -651,16 +646,15 @@ jobs:
           load: true
           push: false
 
-      # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202).
-      # `--builder default` is the Docker Engine, which holds the loaded images. The uv seed stage
-      # is the check of the release, on the devtools image that the Dockerfile pins.
+      # The checks that need no running container are RUN steps of smoke.Dockerfile (#7202). The
+      # uv seed stage is the check of the release, on the devtools image that the Dockerfile pins.
       - name: Run Runner, MCP Server and UV Seed Smoke Stages
         if: steps.image_changes.outputs.changed == 'true'
         run: |
           DEVTOOLS_IMAGE=$(sed -n -E 's/^FROM ([^ ]+) AS devtools$/\1/p' Dockerfile)
           test -n "$DEVTOOLS_IMAGE"
           for target in mcp-server-smoke runner-smoke uv-seed-smoke; do
-            docker buildx build --builder default --progress=plain -f smoke.Dockerfile --target "$target" --build-arg "DEVTOOLS_IMAGE=$DEVTOOLS_IMAGE" .
+            docker buildx build --progress=plain -f smoke.Dockerfile --target "$target" --build-arg "DEVTOOLS_IMAGE=$DEVTOOLS_IMAGE" .
           done
 
       - name: Run MCP Server Image Smoke Test
