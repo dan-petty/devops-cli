@@ -23,9 +23,7 @@ devops devcontainer init [OPTIONS] <repo_path>
 | Option / Flag | Type | Default | Description |
 |---|---|---|---|
 | `--name`, `-n` | `string` | - | Project name. |
-| `--python` | `string` | `3.14` | Python version for base template. |
 | `--image`, `-i` | `string` | - | Base container image (defaults to published devops-cli image). |
-| `--published`, `-p` | `boolean` | `True` | Use published GHCR image (defaults to True). |
 | `--minikube` / `--no-minikube` | `boolean` | `True` | Forward the ports of the services of the Minikube stack. |
 | `--home-volume` | `string` | - | Custom volume name for /home/vscode (defaults to `<project_name>-home`). |
 | `--force`, `-f` | `boolean` | - | Overwrite existing devcontainer.json and configurations. |

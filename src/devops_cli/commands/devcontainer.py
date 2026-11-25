@@ -97,9 +97,6 @@ def init(
     project_name: Annotated[
         str | None, typer.Option("--name", "-n", help=HELP.devcontainer.project_name)
     ] = None,
-    python_version: Annotated[
-        str, typer.Option("--python", help=HELP.devcontainer.python_version)
-    ] = get_project_python_version(),
     image: Annotated[
         str | None,
         typer.Option(
@@ -108,14 +105,6 @@ def init(
             help=HELP.devcontainer.image,
         ),
     ] = None,
-    published: Annotated[
-        bool,
-        typer.Option(
-            "--published",
-            "-p",
-            help=HELP.devcontainer.published,
-        ),
-    ] = True,
     minikube: Annotated[
         bool,
         typer.Option("--minikube/--no-minikube", help=HELP.devcontainer.minikube),
@@ -171,7 +160,6 @@ def init(
     rendered = render_json_template(
         "devcontainer.json.j2",
         project_name=name,
-        python_version=python_version,
         image=selected_image,
         published=is_published,
         home_volume=resolved_home_vol,
