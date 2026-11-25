@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.6](https://github.com/dan-petty/devops-cli/compare/v0.221.5...v0.221.6) (2026-11-25)
+
+
+### Bug Fixes
+
+* **deps:** lock file maintenance ([#7240](https://github.com/dan-petty/devops-cli/issues/7240)) ([97db990](https://github.com/dan-petty/devops-cli/commit/97db990324f608850b8379c38c1cb3f287984320))
+* **deps:** update ghcr.io/dan-petty/devtools Docker tag to v1.2.2 ([#7239](https://github.com/dan-petty/devops-cli/issues/7239)) ([7db6829](https://github.com/dan-petty/devops-cli/commit/7db6829800cae63d07714f08350907f61f4f4c3a))
+
+
+### Performance Improvements
+
+* **ci:** run the Runner Image scans in parallel ([#7241](https://github.com/dan-petty/devops-cli/issues/7241)) ([e092d10](https://github.com/dan-petty/devops-cli/commit/e092d1074a2ceaae2db94b423bf6e2e60fa6b1fb)), closes [#7236](https://github.com/dan-petty/devops-cli/issues/7236)
+
 ## [0.221.5](https://github.com/dan-petty/devops-cli/compare/v0.221.4...v0.221.5) (2026-11-25)
 
 
