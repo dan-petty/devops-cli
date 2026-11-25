@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.211.6](https://github.com/dan-petty/devops-cli/compare/v0.211.5...v0.211.6) (2026-11-25)
+
+
+### Performance Improvements
+
+* **roadmap:** build one Markdown parser, not one per read ([#7036](https://github.com/dan-petty/devops-cli/issues/7036)) ([4899853](https://github.com/dan-petty/devops-cli/commit/48998538d889ee43457f127521990d8e29cb837d))
+
 ## [0.211.5](https://github.com/dan-petty/devops-cli/compare/v0.211.4...v0.211.5) (2026-11-25)
 
 
