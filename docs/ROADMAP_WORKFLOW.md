@@ -235,7 +235,7 @@ A stop has a class (`roadmap/failure.py`, #3065). A stop site that knows its cau
 
 The Job runs these actions by itself:
 - the fix rounds of `roadmap.implement.repair_rounds` for a failed check,
-- `amend` for a request of the kinds `path`, `command` and `task`,
+- `amend` for a request of the kinds `path`, `add_path`, `command`, `task` and `group`,
 - `return` for a `premise` request, and for a behavior group that adds a guard which the branch already defines ([the premise of a group](roadmap/implement.md)), each after `publish` takes back what earlier Jobs of the Item pushed,
 - the split of a group whose inputs exceed the context window.
 
@@ -249,8 +249,10 @@ A stopped step can request a small change of its plan. The last message of the s
 
 The judge applies only these kinds of requests:
 - `path`: replace a missing path with a tracked file that has the same file name. The old path must not be marked `(new)` in the group.
+- `add_path`: append a tracked repository path outside `openspec/` to an existing `Changes:` or `Reads:` line (`header` set to `Changes` or `Reads`, with `new` and no `old`).
 - `command`: replace a verification command with a permitted program that starts with `uv run devops`. The new command must keep the paths in the same order.
 - `task`: append one unticked task at the end of the group, with the next task number.
+- `group`: replace an unticked group with one smaller group that keeps the same number, fewer tasks, and no unlisted path (`new`).
 
 An amendment changes only the text of an unticked group in `tasks.md` and the section `## Amendments`. It never changes `proposal.md`, `design.md`, files under `specs/`, the section `## Criteria`, a ticked task or files outside the change folder. The job applies at most one amendment for each group. It commits the change, adds a bullet to `## Amendments`, and runs the group again.
 

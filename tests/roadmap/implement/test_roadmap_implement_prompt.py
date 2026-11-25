@@ -165,6 +165,15 @@ def test_the_prompt_names_the_plan_request_block_and_five_kinds() -> None:
         assert f"`{kind}`" in prompt or f'"{kind}"' in prompt or kind in prompt
 
 
+def test_the_prompt_documents_add_path_and_group_amendments() -> None:
+    """Bounded `add_path` and `group` amendment kinds implemented in `implement_amend.py` must be
+    documented in `roadmap_implement_step.md` so steps use them instead of blocking (#7093)."""
+    prompt = load_task_prompt(PROMPT)
+
+    for token in ("`add_path`", "`header`", "`Changes`", "`Reads`", "`group`"):
+        assert token in prompt
+
+
 def test_the_prompt_says_an_agent_asking_for_amendment_changes_no_file_and_ticks_no_task() -> None:
     prompt = load_task_prompt(PROMPT)
 
