@@ -644,37 +644,37 @@ serverFiles:
       - name: slo-llm-gateway-requests
         rules:
         - record: slo:sli_error:ratio_rate5m
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[5m]))) / (sum(increase(litellm_proxy_total_requests_metric_total[5m])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[5m])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[5m])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate30m
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[30m]))) / (sum(increase(litellm_proxy_total_requests_metric_total[30m])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[30m])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[30m])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate1h
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[1h])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1h])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[1h])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate2h
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[2h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[2h])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[2h])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[2h])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate6h
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[6h]))) / (sum(increase(litellm_proxy_total_requests_metric_total[6h])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[6h])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[6h])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate1d
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1d]))) / (sum(increase(litellm_proxy_total_requests_metric_total[1d])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[1d])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[1d])))
           labels:
             service: llm-gateway
             slo: requests
         - record: slo:sli_error:ratio_rate3d
-          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[3d]))) / (sum(increase(litellm_proxy_total_requests_metric_total[3d])))
+          expr: (sum(increase(litellm_proxy_failed_requests_metric_total[3d])) or vector(0)) / (sum(increase(litellm_proxy_total_requests_metric_total[3d])))
           labels:
             service: llm-gateway
             slo: requests
@@ -835,57 +835,57 @@ serverFiles:
       - name: slo-runner-jobs-duration
         rules:
         - record: slo:sli_error:ratio_rate5m
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[5m])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[5m]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[5m])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[5m])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[5m]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[5m])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate30m
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[30m])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[30m]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[30m])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[30m])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[30m]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[30m])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate1h
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[1h]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[1h]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1h])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate2h
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[2h])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[2h]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[2h])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[2h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[2h]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[2h])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate6h
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[6h]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[6h])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[6h]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[6h])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate1d
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[1d]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1d])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[1d]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1d])
             > 0))
           labels:
             service: runner-jobs
             slo: duration
         - record: slo:sli_error:ratio_rate3d
-          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d])
-            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-runner-.+"}[3d]))
-            >= 3600)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d])
+          expr: (count((last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[3d])
+            - on (job_name) last_over_time(kube_job_status_start_time{job_name=~"devops-cli-(implement|runner)-.+"}[3d]))
+            >= 3600) or vector(0)) / (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[3d])
             > 0))
           labels:
             service: runner-jobs
@@ -912,7 +912,7 @@ serverFiles:
               and
               slo:sli_error:ratio_rate5m{service="runner-jobs", slo="duration"} > (13.44 * 0.1)
             )
-            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1h]) > 0) >= 20)
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1h]) > 0) >= 20)
           labels:
             severity: critical
         - alert: RunnerJobsDurationPage6h
@@ -922,7 +922,7 @@ serverFiles:
               and
               slo:sli_error:ratio_rate30m{service="runner-jobs", slo="duration"} > (5.6 * 0.1)
             )
-            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[6h]) > 0) >= 20)
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[6h]) > 0) >= 20)
           labels:
             severity: critical
         - alert: RunnerJobsDurationTicket1d
@@ -932,7 +932,7 @@ serverFiles:
               and
               slo:sli_error:ratio_rate2h{service="runner-jobs", slo="duration"} > (2.8 * 0.1)
             )
-            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[1d]) > 0) >= 20)
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[1d]) > 0) >= 20)
           labels:
             severity: warning
         - alert: RunnerJobsDurationTicket3d
@@ -942,7 +942,7 @@ serverFiles:
               and
               slo:sli_error:ratio_rate6h{service="runner-jobs", slo="duration"} > (0.93 * 0.1)
             )
-            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-runner-.+"}[3d]) > 0) >= 20)
+            and on () (count(last_over_time(kube_job_status_completion_time{job_name=~"devops-cli-(implement|runner)-.+"}[3d]) > 0) >= 20)
           labels:
             severity: warning
       # END slo-rules

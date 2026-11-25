@@ -28,15 +28,16 @@ tests:
   - name: 12 of the 20 runner Jobs end at 3,600 s or later, so every reachable alert fires
     interval: 1m
     input_series:
-      # 20 runner Jobs end within the last hour, 12 of them at 4,000 s and 8 of them at 500 s: an
+      # 20 runner Jobs end within the last hour, 12 of them at 4,000 s (including both
+      # `devops-cli-implement-*` and `devops-cli-runner-*` job names) and 8 of them at 500 s: an
       # error ratio of 0.6, above the 0.56 of the 6 hour page row and above both ticket rows.
-      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-01"}'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-implement-slow-01"}'
         values: '1000x91'
-      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-01"}'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-implement-slow-01"}'
         values: '5000x91'
-      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-02"}'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-implement-slow-02"}'
         values: '1000x91'
-      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-slow-02"}'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-implement-slow-02"}'
         values: '5000x91'
       - series: 'kube_job_status_start_time{job_name="devops-cli-runner-slow-03"}'
         values: '1000x91'
@@ -224,10 +225,17 @@ tests:
         values: '1000x91'
       - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-19"}'
         values: '1500x91'
-      - series: 'kube_job_status_start_time{job_name="devops-cli-runner-quiet-20"}'
+      - series: 'kube_job_status_start_time{job_name="devops-cli-implement-quiet-20"}'
         values: '1000x91'
-      - series: 'kube_job_status_completion_time{job_name="devops-cli-runner-quiet-20"}'
+      - series: 'kube_job_status_completion_time{job_name="devops-cli-implement-quiet-20"}'
         values: '1500x91'
+    promql_expr_test:
+      # With 0 slow Jobs and 20 fast Jobs, `slo:sli_error:ratio_rate1h` still returns 0.
+      - expr: slo:sli_error:ratio_rate1h{service="runner-jobs", slo="duration"}
+        eval_time: 90m
+        exp_samples:
+          - labels: 'slo:sli_error:ratio_rate1h{service="runner-jobs", slo="duration"}'
+            value: 0
     alert_rule_test:
       - eval_time: 90m
         alertname: RunnerJobsDurationPage1h

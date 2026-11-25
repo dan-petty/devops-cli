@@ -13,7 +13,7 @@ slos:
       fails is an error event, and each request is a valid event.
     sli:
       events:
-        error_query: sum(increase(litellm_proxy_failed_requests_metric_total[{{.window}}]))
+        error_query: sum(increase(litellm_proxy_failed_requests_metric_total[{{.window}}])) or vector(0)
         total_query: sum(increase(litellm_proxy_total_requests_metric_total[{{.window}}]))
     alerting:
       name: LlmGatewayRequests

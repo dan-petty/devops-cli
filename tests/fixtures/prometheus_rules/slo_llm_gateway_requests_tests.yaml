@@ -150,3 +150,30 @@ tests:
               severity: warning
               service: llm-gateway
               slo: requests
+
+  - name: Zero failed-request series still records ratio 0 and fires no alert
+    interval: 1m
+    input_series:
+      # When the gateway has had no failed requests since start, the failure counter has no series;
+      # `or vector(0)` keeps `slo:sli_error:ratio_rate1h` at 0 while requests exist.
+      - series: 'litellm_proxy_total_requests_metric_total{job="llm-gateway"}'
+        values: '0+100x90'
+    promql_expr_test:
+      - expr: slo:sli_error:ratio_rate1h{service="llm-gateway", slo="requests"}
+        eval_time: 90m
+        exp_samples:
+          - labels: 'slo:sli_error:ratio_rate1h{service="llm-gateway", slo="requests"}'
+            value: 0
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage1h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsPage6h
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket1d
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: LlmGatewayRequestsTicket3d
+        exp_alerts: []
