@@ -245,6 +245,8 @@ from devops_cli.roadmap.markdown import commonmark_parser
 from devops_cli.roadmap.owner_question import (
     OwnerQuestion,
     QuestionOption,
+    frame_hash,
+    linked_frame_item,
 )
 from devops_cli.roadmap.owner_question import (
     answer_of as question_answer_of,
@@ -717,25 +719,71 @@ def _alternatives_request(
     }
 
 
+def _linked_frame_answer(
+    tool_url: str,
+    question: str,
+    frame_comments: Sequence[IssueComment],
+    actor: str | None,
+) -> IssueComment | None:
+    """The newest trusted person reply after the shared covers frame on the frame item (#6602),
+    excluding comments marked by any roadmap job."""
+    if not frame_comments:
+        return None
+    raw = f"{question} {_A_PERSON_DECIDES}"
+    candidates = dict.fromkeys(
+        (
+            sanitize_text(" ".join(raw.split()), set()),
+            raw,
+            sanitize_text(" ".join(question.split()), set()),
+            question,
+        )
+    )
+    for candidate in candidates:
+        question_hash = _owner_question(tool_url, candidate).hash
+        if not any(frame_hash(comment.body) == question_hash for comment in frame_comments):
+            continue
+        filtered = [
+            comment
+            for comment in frame_comments
+            if frame_hash(comment.body) == question_hash
+            or _comments_without((comment,), CONST_ROADMAP_JOB_COMMENT_MARKERS)
+        ]
+        return question_answer_of(filtered, question_hash, actor=actor)
+    return None
+
+
 def covers_question(
-    check: RecordedCheck | None, comments: Sequence[IssueComment]
+    check: RecordedCheck | None,
+    comments: Sequence[IssueComment],
+    *,
+    frame_comments: Sequence[IssueComment] = (),
+    actor: str | None = None,
 ) -> CoversQuestion | None:
     """The question that a `covers` check puts to a person, or None for any other check. It is
-    answered when a comment of a person follows the job's latest comment, or any comment of a
-    person when the job left none: a comment of a roadmap job is none."""
+    answered when a comment of a person follows the job's latest comment, any comment of a person
+    when the job left none, or when a trusted person replies after the shared frame on the linked
+    frame item (#6602): a comment of a roadmap job, bot, or `actor` is no answer."""
     if check is None or check.verdict is not Verdict.COVERS or not check.tool:
         return None
+    question = MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool)
     after_check = replies_after_marker(comments, CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER)
     persons = _comments_without(
         comments if after_check is None else after_check, CONST_ROADMAP_JOB_COMMENT_MARKERS
     )
+    frame_reply = (
+        _linked_frame_answer(check.tool, question, frame_comments, actor)
+        if linked_frame_item(comments) is not None
+        else None
+    )
+    replies = [*persons, frame_reply] if frame_reply is not None else list(persons)
+    replies.sort(key=lambda comment: comment.created_at)
     answers = tuple(
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
-        for reply in persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
+        for reply in replies[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     )
     return CoversQuestion(
-        MESSAGES.roadmap.refine_alternatives_question.format(url=check.tool),
-        bool(persons),
+        question,
+        bool(replies),
         answers,
     )
 
@@ -1860,6 +1908,21 @@ def next_step_of(
     return NextStep.PERSON, (block,), ()
 
 
+def _owner_question(evidence_url: str, question: str) -> OwnerQuestion:
+    """One owner question with refine's shared options, recommendation, and evidence link."""
+    texts = MESSAGES.roadmap
+    return OwnerQuestion(
+        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
+        question=question,
+        options=tuple(
+            QuestionOption(text=text, result=result)
+            for text, result in texts.refine_owner_question_options.items()
+        ),
+        recommendation=texts.refine_owner_question_recommendation,
+        evidence=(texts.refine_owner_question_evidence.format(url=evidence_url),),
+    )
+
+
 def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> OwnerQuestion | None:
     """The one owner question that `step` asks for `item` (#3077), or None when the step waits on
     no person or the item asks nothing. It asks the first open question only, so one run asks one
@@ -1867,17 +1930,7 @@ def owner_question_of(item: Item, step: NextStep, details: Sequence[str]) -> Own
     the evidence are the same for every item, so two items that ask one question share its hash."""
     if step is not NextStep.PERSON or not details:
         return None
-    texts = MESSAGES.roadmap
-    return OwnerQuestion(
-        marker=CONST_ROADMAP_REFINE_COMMENT_MARKER,
-        question=details[0],
-        options=tuple(
-            QuestionOption(text=text, result=result)
-            for text, result in texts.refine_owner_question_options.items()
-        ),
-        recommendation=texts.refine_owner_question_recommendation,
-        evidence=(texts.refine_owner_question_evidence.format(url=item.url),),
-    )
+    return _owner_question(item.url, details[0])
 
 
 def frames_of(items: Sequence[Item]) -> dict[str, Item]:
@@ -3702,7 +3755,17 @@ def refine_one_item(
     comments = trusted_replies(store.comments_on(item.number))
     returned = _stage_return(item, comments)
     check = recorded_check(item, current_body)
-    covers = covers_question(check, comments)
+    frame_number = (
+        linked_frame_item(comments)
+        if check is not None and check.verdict is Verdict.COVERS and check.tool
+        else None
+    )
+    frame_comments = (
+        _frame_comments(store, item.number, comments, frame_number)
+        if frame_number is not None and frame_number != item.number
+        else ()
+    )
+    covers = covers_question(check, comments, frame_comments=frame_comments, actor=actor)
     answer = owner_answer_of(
         store,
         item,
