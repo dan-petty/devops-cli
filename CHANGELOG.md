@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.212.0](https://github.com/dan-petty/devops-cli/compare/v0.211.6...v0.212.0) (2026-11-25)
+
+
+### Features
+
+* **roadmap:** add 67 cases to the implement golden set ([#7041](https://github.com/dan-petty/devops-cli/issues/7041)) ([30d54b7](https://github.com/dan-petty/devops-cli/commit/30d54b781cc57d6f93e6fa38a1c7501359fcd2c7))
+
 ## [0.211.6](https://github.com/dan-petty/devops-cli/compare/v0.211.5...v0.211.6) (2026-11-25)
 
 
