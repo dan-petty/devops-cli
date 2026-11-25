@@ -1290,3 +1290,29 @@ def test_gateway_constants_and_comment_reference_served_embedding_and_real_test_
         True,
         False,
     )
+
+
+def test_status_reports_rejected_api_key_without_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    config: Any,
+    cli: Any,
+    web: WebFake,
+) -> None:
+    """When GET /model/info returns 401, `status` exits non-zero and names DEVOPS_CLI_AI_API_KEY."""
+    monkeypatch.setenv("DEVOPS_CLI_AI_API_KEY", "sk-wrong")
+    config(ai={"gateway_url": GATEWAY_URL, "allow_private_network": True})
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        if request.url.path == "/v1/model/info":
+            return httpx2.Response(401, json={"error": {"message": "Unauthorized"}})
+        return httpx2.Response(200)
+
+    web.serve(answer)
+
+    result = cli("ai", "gateway", "status")
+
+    assert (
+        result.exit_code,
+        "DEVOPS_CLI_AI_API_KEY" in result.output,
+        "not checked" in result.output,
+    ) == (1, True, False)
