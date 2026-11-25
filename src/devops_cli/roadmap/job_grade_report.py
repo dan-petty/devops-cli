@@ -36,17 +36,18 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from devops_cli.config.settings import load_settings
+from devops_cli.exceptions import ServiceRequestError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.k8s.logql import query_loki_metrics
 from devops_cli.lang import MESSAGES
-from devops_cli.models.prometheus import PrometheusQueryResult
+from devops_cli.models.prometheus import PrometheusQueryResult, PrometheusSeries
 from devops_cli.roadmap.job_grade import (
     EfficiencyWork,
     GradeMeasure,
@@ -162,6 +163,19 @@ _EFFICIENCY: Final[Mapping[GradeQueryKind, tuple[str, str]]] = {
 _FIRST_PASS_COUNTS: Final = tuple(
     sorted({limit.count for limits in FIRST_PASS_LIMITS.values() for limit in limits})
 )
+_FIRST_PASS_KEEP: Final = f"{_KEY}, {', '.join(_FIRST_PASS_COUNTS)}"
+_DRAFTED_KEEP: Final = "repo, item, pull, repair_rounds"
+_COUNT_KINDS: Final = frozenset(
+    {
+        GradeQueryKind.COUNTS,
+        GradeQueryKind.CLASSES,
+        GradeQueryKind.FIRST_PASSES,
+        GradeQueryKind.DRAFTED,
+    }
+)
+_SERIES_LIMIT_ERROR: Final = "maximum number of series"
+_MIN_SPLIT_SECONDS: Final = 3600
+_HTTP_BAD_REQUEST: Final = 400
 
 type _Key = tuple[str, str | None]
 
@@ -353,37 +367,47 @@ def _count_label(count: str) -> str:
     return count_label(count)
 
 
-def _query(kind: GradeQueryKind, window: GradeWindow, repo: RepoRef | None) -> GradeQuery:
+def _query_expr(kind: GradeQueryKind, duration: str, repo: RepoRef | None) -> str:
+    """Build the LogQL metric expression for `kind` over `duration`, retaining only used labels."""
     lines = _lines(repo)
     match kind:
         case GradeQueryKind.COUNTS:
-            expr = f"sum by ({_KEY}, version, success, infra) (count_over_time({lines} [{window}]))"
+            keep = f"{_KEY}, version, success, infra"
+            return f"sum by ({keep}) (count_over_time({lines} | keep {keep} [{duration}]))"
         case GradeQueryKind.CLASSES:
-            expr = (
-                f"sum by ({_KEY}, failure_class) "
-                f'(count_over_time({lines} | success="false" | infra="false" [{window}]))'
+            by = f"{_KEY}, failure_class"
+            return (
+                f"sum by ({by}) (count_over_time("
+                f'{lines} | success="false" | infra="false" | keep {by}, success, infra [{duration}]))'
             )
         case GradeQueryKind.DRAFTED:
             pipeline = f"{RESULT_LINES} | regexp `{_ITEM_FIELDS}`"
             if repo is not None:
                 pipeline += f" | repo=~`(?i){re.escape(repo.display)}`"
-            expr = (
-                "sum by (repo, item, pull, repair_rounds) (count_over_time("
+            return (
+                f"sum by ({_DRAFTED_KEEP}) (count_over_time("
                 f'{pipeline} | roadmap_job="{RoadmapJob.IMPLEMENT}" | result="drafted" '
                 f'| infra="false" {_count_label("repair_rounds")} {_count_label("pull")} '
-                f"[{window}]))"
+                f"| keep {_DRAFTED_KEEP} [{duration}]))"
             )
         case GradeQueryKind.FIRST_PASSES:
             counts = " ".join(_count_label(count) for count in _FIRST_PASS_COUNTS)
-            expr = (
-                f"sum by ({_KEY}, {', '.join(_FIRST_PASS_COUNTS)}) "
-                f'(count_over_time({lines} | success="true" | infra="false" {counts} [{window}]))'
+            return (
+                f"sum by ({_FIRST_PASS_KEEP}) (count_over_time("
+                f'{lines} | success="true" | infra="false" {counts} '
+                f"| keep {_FIRST_PASS_KEEP} [{duration}]))"
             )
         case _:
             count, template = _EFFICIENCY[kind]
-            unwrapped = f'{lines} |~ " {count}=[0-9]+ " {_count_label(count)} | unwrap {count}'
-            expr = template.format(lines=unwrapped, window=window, key=_KEY)
-    return GradeQuery(kind, window, expr)
+            unwrapped = (
+                f'{lines} |~ " {count}=[0-9]+ " {_count_label(count)} '
+                f"| keep {_KEY}, {count} | unwrap {count}"
+            )
+            return template.format(lines=unwrapped, window=duration, key=_KEY)
+
+
+def _query(kind: GradeQueryKind, window: GradeWindow, repo: RepoRef | None) -> GradeQuery:
+    return GradeQuery(kind, window, _query_expr(kind, window.value, repo))
 
 
 def plan_grade_queries(window: GradeWindow, repo: RepoRef | None = None) -> tuple[GradeQuery, ...]:
@@ -778,20 +802,114 @@ def _read_verdicts(search: str, since: datetime) -> VerdictRead:
     )
 
 
+def _format_duration(seconds: int) -> str:
+    """Format `seconds` as an integer LogQL range duration."""
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}h"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
+def _utc_stamp(moment: datetime) -> str:
+    """Format `moment` as RFC 3339 UTC for Loki's `time` parameter."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _is_series_limit(exc: ServiceRequestError) -> bool:
+    """Whether `exc` reports Loki's HTTP 400 series-count limit."""
+    return exc.status_code == _HTTP_BAD_REQUEST and _SERIES_LIMIT_ERROR in str(exc).casefold()
+
+
+def _sum_query_results(
+    left: PrometheusQueryResult, right: PrometheusQueryResult
+) -> PrometheusQueryResult:
+    """Sum two disjoint count query vectors by series label set."""
+    totals: dict[tuple[tuple[str, str], ...], float] = defaultdict(float)
+    labels_by_key: dict[tuple[tuple[str, str], ...], dict[str, str]] = {}
+    for part in (left, right):
+        for series in part.series:
+            key = tuple(sorted(series.labels.items()))
+            labels_by_key.setdefault(key, dict(series.labels))
+            totals[key] += _number(series.value)
+    merged = [
+        PrometheusSeries(
+            labels=labels_by_key[key],
+            value=str(int(total)) if total.is_integer() else repr(total),
+        )
+        for key, total in totals.items()
+    ]
+    return PrometheusQueryResult(status=left.status, series=merged)
+
+
+def _query_count_split(
+    kind: GradeQueryKind,
+    span_seconds: int,
+    repo: RepoRef | None,
+    loki_url: str,
+    *,
+    end: datetime,
+    duration_text: str | None = None,
+    eval_at: str | None = None,
+) -> PrometheusQueryResult:
+    """Run a count query, recursively halving its window down to `1h` on series-limit 400s."""
+    expr = _query_expr(kind, duration_text or _format_duration(span_seconds), repo)
+    try:
+        return query_loki_metrics([expr], loki_url, at=eval_at)[0]
+    except ServiceRequestError as exc:
+        left_seconds = span_seconds // 2
+        right_seconds = span_seconds - left_seconds
+        if (
+            not _is_series_limit(exc)
+            or left_seconds < _MIN_SPLIT_SECONDS
+            or right_seconds < _MIN_SPLIT_SECONDS
+        ):
+            raise
+        first_end = end - timedelta(seconds=right_seconds)
+        first = _query_count_split(
+            kind, left_seconds, repo, loki_url, end=first_end, eval_at=_utc_stamp(first_end)
+        )
+        second = _query_count_split(
+            kind, right_seconds, repo, loki_url, end=end, eval_at=_utc_stamp(end)
+        )
+        return _sum_query_results(first, second)
+
+
+def _query_all(
+    queries: Sequence[GradeQuery], repo: RepoRef | None, loki_url: str, *, end: datetime
+) -> dict[str, PrometheusQueryResult]:
+    """Execute planned grade queries, splitting rejected count queries by half-window."""
+    answers: dict[str, PrometheusQueryResult] = {}
+    for query in queries:
+        if query.kind in _COUNT_KINDS:
+            span_seconds = int(query.window.span.total_seconds())
+            answers[query.key] = _query_count_split(
+                query.kind,
+                span_seconds,
+                repo,
+                loki_url,
+                end=end,
+                duration_text=query.window.value,
+            )
+        else:
+            answers[query.key] = query_loki_metrics([query.expr], loki_url)[0]
+    return answers
+
+
 def grade_report(
     window: GradeWindow, repo: RepoRef | None, loki_url: str, *, now: datetime | None = None
 ) -> GradeReport:
     """Send the planned queries to Loki, read the verdicts of the bot pull requests from GitHub
     when a bot is set, and build the report."""
-    queries = plan_grade_queries(window, repo)
-    answers = query_loki_metrics([query.expr for query in queries], loki_url)
     at = now or datetime.now(UTC)
+    queries = plan_grade_queries(window, repo)
+    answers = _query_all(queries, repo, loki_url, end=at)
     search = plan_verdict_search(window, repo, at)
     return build_grade_report(
         window,
         repo,
         loki_url,
-        {query.key: answer for query, answer in zip(queries, answers, strict=True)},
+        answers,
         _read_verdicts(search, at - window.span) if search is not None else None,
     )
 

@@ -12,8 +12,8 @@ other form:
 
 - a stream selector with `=`, `!=`, `=~` and `!~`, where a missing label is the empty value;
 - the line filters `|=`, `!=`, `|~` and `!~`;
-- `| json` with or without fields, `| drop`, `| regexp`, `| unwrap`, and the label filters `=`,
-  `!=`, `=~` and `!~`;
+- `| json` with or without fields, `| drop`, `| keep`, `| regexp`, `| unwrap`, and the label
+  filters `=`, `!=`, `=~` and `!~`;
 - `| line_format` with the templates `{{.<label>}}` and `{{ or .<label> __line__ }}`;
 - `sum by (...) (count_over_time(... [<range>]))`, `sum by (...) (sum_over_time(... [<range>]))`,
   and `quantile_over_time(<q>, ... [<range>]) by (...)` and `max_over_time(... [<range>]) by (...)`.
@@ -54,6 +54,7 @@ _STAGES: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("line", re.compile(rf"\s*(?P<op>\|=|!=|\|~|!~)\s*(?P<arg>{_STRING})")),
     ("json", re.compile(rf"\s*\|\s*json(?:\s+(?P<arg>{_NAMES}))?(?=\s*(?:[|!]|$))")),
     ("drop", re.compile(rf"\s*\|\s*drop\s+(?P<arg>{_NAMES})")),
+    ("keep", re.compile(rf"\s*\|\s*keep\s+(?P<arg>{_NAMES})")),
     ("line_format", re.compile(rf"\s*\|\s*line_format\s+(?P<arg>{_STRING})")),
     ("regexp", re.compile(rf"\s*\|\s*regexp\s+(?P<arg>{_STRING})")),
     ("unwrap", re.compile(r"\s*\|\s*unwrap\s+(?P<arg>\w+)")),
@@ -215,6 +216,12 @@ def _drop(parsed: re.Match[str], row: _Row) -> bool:
     return True
 
 
+def _keep(parsed: re.Match[str], row: _Row) -> bool:
+    kept = set(_names(parsed["arg"])) | {_ERROR}
+    row.labels = {name: value for name, value in row.labels.items() if name in kept}
+    return True
+
+
 def _line_format_stage(parsed: re.Match[str], row: _Row) -> bool:
     row.text = _line_format(_unquote(parsed["arg"]), row.text, row.labels)
     return True
@@ -247,6 +254,7 @@ _RUNS: Final[dict[str, Callable[[re.Match[str], _Row], bool]]] = {
     "line": _line_filter,
     "json": _json_stage,
     "drop": _drop,
+    "keep": _keep,
     "line_format": _line_format_stage,
     "regexp": _regexp,
     "unwrap": _unwrap,
