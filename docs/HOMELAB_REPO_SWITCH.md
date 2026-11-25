@@ -202,19 +202,30 @@ Revert: Remove the check, its test and the Renovate rule with a devops-cli pull 
 
 ## Step 13: prune on, leaves first
 
-Who: an agent. A person merges each pull request.
+Who: an agent. A person merges each pull request, and the owner accepts the objects to prune.
 
-1. Homelab pull request A turns prune on in each child Application of `cluster`.
-2. After pull request A is synced and its checks pass, homelab pull request B turns prune on in `cluster` and `bootstrap`. One pull request cannot make this order sure.
+Each Application that gets prune also gets the sync option `Prune=confirm`: a sync that has an object to prune waits for an approval, and so does a deletion of the Application ([Argo CD sync options](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/#resource-pruning-requires-confirmation)). Without it, an infra update that homelab Renovate merges deletes each object that its render drops, with no review. The ConfigMaps of a `configMapGenerator` with a hashed name set the annotation `argocd.argoproj.io/sync-options: Prune=true`, so a rollout waits for nothing.
 
-Check, before each merge:
+1. Post the objects to prune on #5134, with what each was checked against. The owner accepts the list.
+2. Homelab pull request A turns prune on in each child Application of `cluster`.
+3. After pull request A is synced, compare the objects of each waiting sync with the accepted list. Approve the sync only when they are equal (homelab `k8s/README.md`, Prune Approval). Until then, the Application takes no other automated sync.
+4. After the approved syncs and their checks pass, homelab pull request B turns prune on in `cluster` and `bootstrap`. One pull request cannot make this order sure.
 
+Check, before the merge of pull request A:
+
+- Shared check 5 gives exit code 0 for each Application of the copy, or the diff holds only objects that are marked for prune.
+- Shared check 3 equals the list that the owner accepted.
+- Shared check 6 gives no `Pruned` result. A sync with prune off records `PruneSkipped`.
+- Shared check 8 prints only the names of the Applications that an ApplicationSet owns.
+
+Check, before the merge of pull request B:
+
+- Each Application of the copy has no waiting sync.
+- Shared check 3 gives only chart hooks. Argo CD marks a hook with the delete policy `before-hook-creation` for prune, and never prunes it.
 - Shared check 5 gives exit code 0 for each Application of the copy.
-- Shared check 3 equals the baseline.
-- Shared check 6 gives 0.
-- Shared check 8 prints nothing.
+- Shared check 8 prints only the names of the Applications that an ApplicationSet owns.
 
-Revert: `git revert` of the homelab pull request.
+Revert: `git revert` of the homelab pull request. A revert does not bring back an object that a prune deleted.
 
 ## Step 14: the live patches into the homelab files
 
