@@ -73,7 +73,7 @@ dependencies = [
     "statsmodels==0.15.0",
     "prometheus-client==0.26.0",
     "gidgethub==6.0.1",
-    "cachetools==8.0.2",
+    "cachetools==8.0.3",
     "valkey==6.2.0",
     "pybreaker==1.4.1",
     "ruamel-yaml==0.19.1",
