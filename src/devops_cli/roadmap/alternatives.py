@@ -1169,22 +1169,37 @@ def _confirmed_adr(number: int, tool_names: tuple[str, ...], adrs: Sequence[Adr]
     return adr is not None and rejects(adr, *tool_names)
 
 
+def _same_repository(
+    item: Item, tool: CheckedTool, reply: AlternativesReply, repo: str | None
+) -> bool:
+    """Whether `tool` is the repository that holds `item` (#6441)."""
+    own_project = f"github.com/{repo.lower()}" if repo else project_of(item.url)
+    if own_project is None:
+        return False
+    tool_project = tool.project or project_of(tool.url)
+    if tool_project is not None and tool_project == own_project:
+        return True
+    own_slug = own_project.removeprefix("github.com/")
+    return (reply.tool_name or "").strip().casefold() == own_slug
+
+
 def _verdict_of(
     item: Item,
     reply: AlternativesReply,
     tool: CheckedTool | None,
     adrs: Sequence[Adr],
     inventory: Inventory | None,
+    *,
+    repo: str | None = None,
 ) -> tuple[Verdict, int | None, bool]:
     """The verdict of the check, the ADR that rejected its tool (#3505), and whether the
-    repository uses the tool (#4661). The model proposes `rejected` with `adr` and `in-use` with
-    `in_use`, and the job gives one only when the text confirms it: an ADR in force that holds the
-    number and rejects the tool, or a title or a body of the item, outside both blocks of a job,
-    that names the tool. `rejected` comes first. The job also gives `in-use`, with no proposal,
-    when the `inventory` of the repository holds the tool. The job drops a proposal that it cannot
-    confirm, and the verdict of the reply stays."""
+    repository uses the tool (#4661, #6441). The item's own repository gives `in-use` first.
+    Then a confirmed rejected-subject ADR gives `rejected` (even when in the inventory, such as
+    ADR 0018 bubblewrap). Then the inventory gives `in-use`, then `in_use` from the item text."""
     if tool is None:
         return reply.verdict, None, False
+    if _same_repository(item, tool, reply, repo):
+        return Verdict.IN_USE, None, True
     tool_names = (tool.name, reply.tool_name or "")
     if reply.adr is not None:
         if _confirmed_adr(reply.adr, tool_names, adrs):
@@ -1219,6 +1234,7 @@ def validate_reply(
     returns: int = 0,
     chain: ResolverChain[Mapping[str, Any]] | None = None,
     band: Band | None = None,
+    repo: str | None = None,
 ) -> Check | CheckFailure:
     """The check that `reply` makes, or the failure when the job refuses it. `adrs` are the ADRs
     in force that the model saw, which confirm the ADR that the reply names. `inventory` holds the
@@ -1265,7 +1281,7 @@ def validate_reply(
         )
     allowed = tools.allowed_urls
     tool = _checked_tool(reply, tools, now)
-    verdict, adr, in_repository = _verdict_of(item, reply, tool, adrs, inventory)
+    verdict, adr, in_repository = _verdict_of(item, reply, tool, adrs, inventory, repo=repo)
     return _completed(
         Check(
             item=item,
@@ -1403,6 +1419,7 @@ def _check_one(
     now: datetime,
     fetch: bool,
     chain: ResolverChain[Mapping[str, Any]] | None = None,
+    repo: str | None = None,
 ) -> Check | CheckFailure:
     """One item's check: the skip check of a skip class, else its agent run and its validated
     reply. A failed read of deps.dev skips the item (#4661). Raises `AICredentialsError` when the
@@ -1479,6 +1496,7 @@ def _check_one(
             returns=checker.returns,
             chain=chain,
             band=checker.last_band if checker.returns == 0 else None,
+            repo=repo,
         )
     except (httpx2.HTTPError, ValidationError) as exc:
         logger.warning(
@@ -1557,6 +1575,7 @@ def plan_alternatives(
             inventory=inventory,
             now=moment,
             fetch=web.fetch,
+            repo=repo,
         )
         if writer is not None:
             writer.settle(outcome)
