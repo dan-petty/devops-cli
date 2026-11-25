@@ -74,11 +74,12 @@ def test_config_output_json_view() -> None:
 def test_github_token_is_not_a_config_option() -> None:
     """A person's GitHub identity comes only from `gh auth token`: no option, keyring key or
     variable holds a gh token. The GitHub credentials devops-cli keeps are the private keys of
-    four GitHub Apps: the roadmap's (`service.github_app`, ADR 0015), the one Argo CD's GitHub
+    five GitHub Apps: the roadmap's (`service.github_app`, ADR 0015), the one Argo CD's GitHub
     notifier acts as (`argocd.github_app_private_key`, #2000), the one self-hosted Renovate
-    acts as (`renovate.github_app_private_key`, #4897) and the release App whose key
+    acts as (`renovate.github_app_private_key`, #4897), the release App whose key
     `devops repos onboard` puts in the `release` environment
-    (`github.release_app_private_key`, #6773)."""
+    (`github.release_app_private_key`, #6773), and the read-only `devops-settings-reader` App
+    for `tf/github` agent plans (`tf.github_reader.private_key`, #5320)."""
     from devops_cli.config.env import get_all_env_var_specs, secret_keys, setting_variables
 
     def github_section(keys: Iterable[str]) -> list[str]:
@@ -116,6 +117,9 @@ def test_github_token_is_not_a_config_option() -> None:
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_SLUG", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_APP_TOKEN_REPOSITORY", False),
             ("DEVOPS_CLI_SERVICE_GITHUB_REQUESTS_PER_HOUR", False),
+            ("DEVOPS_CLI_TF_GITHUB_READER_APP_ID", False),
+            ("DEVOPS_CLI_TF_GITHUB_READER_INSTALLATION_ID", False),
+            ("DEVOPS_CLI_TF_GITHUB_READER_PRIVATE_KEY", True),
         ],
     )
 
