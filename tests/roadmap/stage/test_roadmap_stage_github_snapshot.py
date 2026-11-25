@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx2
 import pytest
+import time_machine
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import LocalWorkspace
 from pydantic_ai.messages import ModelRequest, UserPromptPart
@@ -359,7 +360,8 @@ def test_agent_phase_offers_stock_tools_only_without_read_issue_or_find_issues(
     ).run_sync("go")
 
     script = ModelScript(say("done"))
-    run_stage_agent(folders, model=script.model())
+    with time_machine.travel(NOW, tick=False):
+        run_stage_agent(folders, model=script.model())
 
     assert script.tools_offered == stock.tools_offered
     offered_names = {name for call in script.tools_offered for name in call}
