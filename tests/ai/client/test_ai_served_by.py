@@ -241,6 +241,33 @@ def test_a_hosted_gateway_reply_is_priced_at_the_deployment_model_that_it_names(
     assert _priced_rows(spend_ledger) == [("devops-chat", *priced)]
 
 
+def test_chat_gateway_call_keeps_order_1_deepseek_deployment_price(
+    web: WebFake, spend_ledger: SpendLedger
+) -> None:
+    """Chat gateway calls keep pricing by the order-1 deployment header `x-litellm-model-name`
+    (#6002)."""
+    order_1 = "openrouter/deepseek/deepseek-v4.1-flash-1017"
+    body = {
+        "model": "deepseek-v4.1-flash-1017",
+        "choices": [{"message": {"content": "OK"}}],
+        "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0},
+    }
+    serve_llm(
+        web,
+        lambda _req: httpx2.Response(200, json=body, headers=_hosted_headers(order_1)),
+    )
+
+    _gateway_client("deepseek-v4.1-flash-1017").chat(
+        "You are terse.", "Reply with OK.", use_cache=False
+    )
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        row = conn.execute(
+            "SELECT model, served_model, pricing_source, round(cost_usd, 6) FROM ai_spend_records"
+        ).fetchone()
+    assert row == ("deepseek-v4.1-flash-1017", order_1, "builtin:hosted_group_prices", 0.0784)
+
+
 def test_cost_command_breaks_spend_down_by_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

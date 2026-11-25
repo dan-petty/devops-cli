@@ -212,6 +212,7 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
         asked = str(getattr(m, "model_name", getattr(m, "model_id", "unknown")))
         served_by = getattr(m, "served_by", None)
         answered = response.model_name
+        served_model = getattr(m, "served_model", None) or answered
         if answered:
             emit(AI_MODEL_ANSWERS_TOTAL, 1, model_answer_labels(asked, answered))
         server_netloc = urlsplit(served_by).netloc if served_by else "unknown"
@@ -223,7 +224,7 @@ def _spend_capability(request_type: str, stage: str | None) -> Any:
             model=asked,
             server=server_netloc,
             served_by=effective_served_by,
-            served_model=answered,
+            served_model=served_model,
             prompt_tokens=getattr(response.usage, "input_tokens", 0),
             completion_tokens=getattr(response.usage, "output_tokens", 0),
             reasoning_tokens=getattr(response.usage, "output_reasoning_tokens", 0),
