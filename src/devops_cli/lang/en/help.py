@@ -3148,6 +3148,20 @@ class ResearchCommandHelp:
 
 
 @dataclass(frozen=True)
+class StoreCommandHelp:
+    group_help: str = "Publish, sync, list, fetch, and verify content-store objects."
+    arg_kind: str = "Content kind (`review-window`, `study`, or `review-session`)."
+    arg_path: str = "Local artifact file path to publish."
+    arg_key: str = "Object key relative to the content kind prefix."
+    arg_dest: str = "Local destination file path (defaults to key basename)."
+    opt_key: str = "Target key under the content kind prefix (defaults to filename)."
+    opt_replace: str = "Overwrite an existing immutable object when checksum differs."
+    opt_prefix: str = "Optional sub-prefix filter under the content kind root."
+    opt_expires: str = "Presigned URL lifetime in seconds (maximum 604800 / 7 days)."
+    opt_endpoint: str = "Additional S3 endpoint URL to test alongside `store.s3_endpoint`."
+
+
+@dataclass(frozen=True)
 class HelpCatalog:
     main: MainHelp = field(default_factory=MainHelp)
     options: OptionHelp = field(default_factory=OptionHelp)
@@ -3194,6 +3208,7 @@ class HelpCatalog:
     pipeline: PipelineCommandHelp = field(default_factory=PipelineCommandHelp)
     dashboard: DashboardCommandHelp = field(default_factory=DashboardCommandHelp)
     sandbox: SandboxCommandHelp = field(default_factory=SandboxCommandHelp)
+    store: StoreCommandHelp = field(default_factory=StoreCommandHelp)
 
 
 HELP = HelpCatalog()

@@ -179,6 +179,10 @@ CONST_SETTINGS_SECTION_METADATA: Final[dict[str, tuple[str, str]]] = {
         "The infra repos that `devops infra` manages, each with its agent access level, and the "
         "bounds of a plan, a drain and a node restart.",
     ),
+    "store": (
+        "Content Store (`store`)",
+        "S3-compatible content store endpoint, public web base URL, and signing region.",
+    ),
 }
 CONST_PROJECT_CONFIG_ENV = "DEVOPS_CLI_CONFIG"  # absolute path overrides CWD lookup
 # A configuration file is only eligible for caching once it has been still for this
@@ -6028,3 +6032,8 @@ CONST_CI_CHECK_ROW_NAMES: Final[tuple[str, ...]] = (
     "domain",
     "roadmap-eval-commits",
 )
+
+# ── Content Store Constants (#4761) ──────────────────────────────────────────
+CONST_STORE_MULTIPART_BYTES: Final[int] = 64 * 1024 * 1024  # 64 MiB
+CONST_STORE_MAX_PRESIGN_SECONDS: Final[int] = 7 * 24 * 60 * 60  # 7 days (SigV4 maximum)
+CONST_STORE_PENDING_RELPATH: Final[str] = "store/pending.jsonl"

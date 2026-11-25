@@ -329,6 +329,11 @@ All configuration options for `devops-cli` can be overridden via environment var
 | `DEVOPS_CLI_SSH_KEY_DIR` | `ssh.key_dir` | No | Directory for SSH key pairs |
 | `DEVOPS_CLI_SSH_KEY_PREFIX` | `ssh.key_prefix` | No | Prefix for generated SSH keys (defaults to devcontainer name or basename pwd) |
 | `DEVOPS_CLI_SSH_ROTATION_DAYS` | `ssh.rotation_days` | No | SSH key rotation interval in days |
+| `DEVOPS_CLI_STORE_ACCESS_KEY_ID` | `store.access_key_id` | 🔒 Yes | Content store S3 access key ID (stored in OS keyring) |
+| `DEVOPS_CLI_STORE_REGION` | `store.region` | No | AWS SigV4 region for content store signing (default: us-east-1) |
+| `DEVOPS_CLI_STORE_S3_ENDPOINT` | `store.s3_endpoint` | No | S3-compatible gateway endpoint URL for the content store |
+| `DEVOPS_CLI_STORE_SECRET_ACCESS_KEY` | `store.secret_access_key` | 🔒 Yes | Content store S3 secret access key (stored in OS keyring) |
+| `DEVOPS_CLI_STORE_WEB_BASE_URL` | `store.web_base_url` | No | Public web base URL serving web-visible store prefixes |
 | `DEVOPS_CLI_TELEMETRY_CAPTURE_LLM_CONTENT` | `telemetry.capture_llm_content` | No | Record LLM prompt and reply text in OpenTelemetry and Logfire telemetry spans. Off by default to prevent exposure of sensitive data |
 | `DEVOPS_CLI_TELEMETRY_ENABLED` | `telemetry.enabled` | No | Export OpenTelemetry traces and metrics |
 | `DEVOPS_CLI_TELEMETRY_ENDPOINT` | `telemetry.endpoint` | No | OpenTelemetry collector that traces and metrics go to; unset, `OTEL_EXPORTER_OTLP_ENDPOINT` names it, else `http://localhost:4318` |

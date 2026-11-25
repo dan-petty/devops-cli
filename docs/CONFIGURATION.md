@@ -383,6 +383,16 @@ The infra repos that `devops infra` manages, each with its agent access level, a
 | `node_ready_timeout_seconds` | `int` | `900` | `DEVOPS_CLI_INFRA_NODE_READY_TIMEOUT_SECONDS` | The longest time in seconds that `devops infra` waits for a node to be Ready again |
 | `repos` | `list` | `[]` | - | The infra repos, each with operational keys only: `repo` (owner/name), `path`, `kube_context`, `ssh_key_prefix` and `agent_access` (`none`, `plan`, `safe` or `full`; `none` when absent). The facts of a repository are in its project profile, `.devops/project.toml`. `devops infra onboard` writes an entry |
 
+## Content Store (`store`)
+
+S3-compatible content store endpoint, public web base URL, and signing region.
+
+| Option | Type | Default | Environment Variable | Description |
+|---|---|---|---|---|
+| `s3_endpoint` | `Union` | - | `DEVOPS_CLI_STORE_S3_ENDPOINT` | S3-compatible gateway endpoint URL for the content store |
+| `web_base_url` | `Union` | - | `DEVOPS_CLI_STORE_WEB_BASE_URL` | Public web base URL serving web-visible store prefixes |
+| `region` | `str` | `us-east-1` | `DEVOPS_CLI_STORE_REGION` | AWS SigV4 region for content store signing (default: us-east-1) |
+
 ## Top-Level Settings
 
 Top-level workstation and environment settings.
