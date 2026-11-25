@@ -21,6 +21,7 @@ Each rule lives in one document only. This guideline owns the rules of [Rules](#
 | The look of a dashboard, a chart, a report and a postmortem table | [The design spec](../DESIGN.md), rules C4, C7, C8, C12, C15 and T10, and the row "Grafana" of [Rules for each target](../DESIGN.md#rules-for-each-target) |
 | No phone-home, private data and egress | [SECURITY.md](../../SECURITY.md) |
 | A finding with no fix, and the response time of a vulnerability | [SECURITY.md](../../SECURITY.md#a-finding-with-no-fix) |
+| Dedicated development resources and sandboxes | [SECURITY.md](../../SECURITY.md#dedicated-development-resources-and-sandboxes) |
 | Nested time limits | [ARCHITECTURE.md](../../ARCHITECTURE.md#6-sre-reliability-observability--quality-gates), section 6, "Nested Time Limits" |
 | The alert rules, the receiver, the GitOps tool, the Secrets and the planned maintenance of one environment | The README of the environment tree |
 | The alert rules, the go-live check and the stop switch of one product | The product document of the service |
