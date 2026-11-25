@@ -1066,8 +1066,9 @@ class CICommandHelp:
     filter_keyword: str = "Filter tests by keyword expression."
     stop_fail: str = "Stop after first failure."
     num_workers: str = (
-        "Number of parallel worker processes. Unset, a run narrowed to the tests that it selects "
-        "runs serially up to 50 collected tests and on a few workers above them, never more than "
+        "Number of parallel worker processes. Unset, a run narrowed to one target module runs "
+        "serially with no collection session; across two or more modules it runs serially up to "
+        "50 collected tests and on a few workers above them, never more than "
         "PYTEST_XDIST_AUTO_NUM_WORKERS, and the full suite on every logical CPU."
     )
     test_paths: str = (

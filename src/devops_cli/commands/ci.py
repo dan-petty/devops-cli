@@ -2150,17 +2150,21 @@ def _worker_cap() -> int:
 
 def _narrowed_workers(targets: list[str] | None, keyword: str | None) -> str | None:
     """The `-n` of a run given none (#1669): none for the full suite, so addopts' `-n logical`
-    applies; serial for a selection of no more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS collected
-    tests, where each xdist worker's start-up and collection cost more than it saves; and the
-    worker cap above that (#4472).
+    applies; serial for a narrowed selection targeting one test module (#5612), or for no more
+    than DEFAULT_CI_TEST_SERIAL_MAX_TESTS collected tests across two or more modules, where each
+    xdist worker's start-up and collection cost more than it saves; and the worker cap above that
+    (#4472).
 
     The collection is a second pytest session, so the run starts it only when its count can
-    change the answer (#5606). A cap of one worker or less is a serial run. Each target module
-    collects one test at least, so more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS target modules with
-    no `-k` filter take the cap. When the collection gives no count, the number of test modules
-    decides, up to DEFAULT_CI_TEST_SERIAL_MAX_FILES."""
+    change the answer (#5606). A single target module or a cap of one worker or less is a serial
+    run. Each target module collects one test at least, so more than
+    DEFAULT_CI_TEST_SERIAL_MAX_TESTS target modules with no `-k` filter take the cap. When the
+    collection gives no count, the number of test modules decides, up to
+    DEFAULT_CI_TEST_SERIAL_MAX_FILES."""
     if targets is None:
         return None
+    if len(targets) <= 1:
+        return "0"
     cap = _worker_cap()
     if cap <= 1:
         return "0"

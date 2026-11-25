@@ -48,7 +48,7 @@ devops ci test [OPTIONS] <paths>
 | `--verbose`, `-v` | `boolean` | - | Enable detailed logging output. |
 | `-k` | `string` | - | Filter tests by keyword expression. |
 | `-x` | `boolean` | - | Stop after first failure. |
-| `-n`, `--numprocesses` | `string` | - | Number of parallel worker processes. Unset, a run narrowed to the tests that it selects runs serially up to 50 collected tests and on a few workers above them, never more than PYTEST_XDIST_AUTO_NUM_WORKERS, and the full suite on every logical CPU. |
+| `-n`, `--numprocesses` | `string` | - | Number of parallel worker processes. Unset, a run narrowed to one target module runs serially with no collection session; across two or more modules it runs serially up to 50 collected tests and on a few workers above them, never more than PYTEST_XDIST_AUTO_NUM_WORKERS, and the full suite on every logical CPU. |
 | `--fallback` / `--no-fallback` | `boolean` | `True` | Run the full suite when a changed source has no covering tests, rather than reporting success without verifying it. |
 | `--repeat` | `integer` | `0` | Run the selected test files N times, one run after another, each in a shuffled order, with seeds counting up from --seed. Each run uses the workers of -n, or else the workers that a narrowed run of the same files gets, with all tests of one file on one worker. 0 runs them once in file order. Refuses the whole suite. |
 | `--seed` | `integer` | - | First shuffle seed for --repeat. Defaults to one derived from HEAD's commit hash; has no effect without --repeat. |

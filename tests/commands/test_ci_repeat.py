@@ -169,16 +169,21 @@ def test_the_repeat_runs_take_the_workers_of_a_narrowed_run_from_one_collection(
     ci_repeat_project: Path, process_fake: ProcessFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no -n, the repeat runs take the workers that a narrowed run of the same files takes:
-    a collection of more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS tests gives the worker cap. One
+    two modules collecting more than DEFAULT_CI_TEST_SERIAL_MAX_TESTS tests give the worker cap. One
     collection chooses the workers of all runs, so a large change runs each shuffled run on the
-    CPUs of the runner, and not on one process (#6564)."""
+    CPUs of the runner, and not on one process (#6564, #5612)."""
     monkeypatch.delenv(WORKERS_VARIABLE, raising=False)
+    (ci_repeat_project / "tests" / "test_y.py").write_text(
+        "def test_y() -> None: ...\n", encoding="utf-8"
+    )
     ids = "".join(
         f"tests/test_x.py::test_{n}\n" for n in range(DEFAULT_CI_TEST_SERIAL_MAX_TESTS + 1)
     )
     process_fake.answer(lambda call: "--collect-only" in call.argv, ProcessAnswer(stdout=ids))
 
-    result, calls = _invoke(process_fake, "--repeat", "2", "--seed", "5", "tests/test_x.py")
+    result, calls = _invoke(
+        process_fake, "--repeat", "2", "--seed", "5", "tests/test_x.py", "tests/test_y.py"
+    )
 
     workers = str(DEFAULT_CI_TEST_NARROWED_WORKERS)
     assert (
@@ -191,7 +196,7 @@ def test_the_repeat_runs_take_the_workers_of_a_narrowed_run_from_one_collection(
         [
             (
                 [*UV_RUN_PYTEST, "-n", workers, *LOADFILE, "-p", "randomly"]
-                + [f"--randomly-seed={seed}", "tests/test_x.py"],
+                + [f"--randomly-seed={seed}", "tests/test_x.py", "tests/test_y.py"],
                 ci_repeat_project,
             )
             for seed in (5, 6)
