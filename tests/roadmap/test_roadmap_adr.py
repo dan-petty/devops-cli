@@ -460,7 +460,7 @@ def _real_adr(number: int) -> Adr:
         (24, ("IBM Carbon",), True),
         (24, ("GitHub Primer", "Primer"), True),
         (8, ("APScheduler",), True),
-        (5, ("github/codeql", "CodeQL"), True),
+        (5, ("github/codeql", "CodeQL"), False),
         (10, ("Fission-AI/OpenSpec", "OpenSpec"), False),
     ],
     ids=[
@@ -478,3 +478,115 @@ def test_the_census_rejections_replay(
     number: int, tool_names: tuple[str, ...], rejected: bool
 ) -> None:
     assert rejects(_real_adr(number), *tool_names) is rejected
+
+
+@pytest.mark.parametrize(
+    ("adr", "tool_names", "rejected"),
+    [
+        pytest.param(
+            _real_adr(14),
+            ("dan-petty/devops-cli", "devops-cli"),
+            False,
+            id="adr-0014-link-target",
+        ),
+        pytest.param(
+            Adr(
+                14,
+                "Checks",
+                "## Considered Options\n\n"
+                "- **See [#2086](https://github.com/example/devops-cli/issues/2086)**: rejected.",
+            ),
+            ("example/devops-cli", "devops-cli"),
+            False,
+            id="link-target-inside-option-title",
+        ),
+        pytest.param(
+            _real_adr(21),
+            ("kubernetes/kubernetes", "kubernetes"),
+            False,
+            id="adr-0021-kubernetes-lease",
+        ),
+        pytest.param(
+            _real_adr(22),
+            ("kubernetes/kubernetes", "kubernetes"),
+            False,
+            id="adr-0022-kubernetes-field",
+        ),
+        pytest.param(
+            _real_adr(6),
+            ("cli/cli", "gh"),
+            False,
+            id="adr-0006-through-gh-cli",
+        ),
+        pytest.param(
+            Adr(
+                6,
+                "Requests",
+                "## Considered Options\n\n- **Using the `gh` CLI**: rejected.",
+            ),
+            ("cli/cli", "gh"),
+            False,
+            id="gh-cli-qualifier-without-preposition",
+        ),
+        pytest.param(
+            _real_adr(5),
+            ("github/codeql", "CodeQL"),
+            False,
+            id="adr-0005-bundling-codeql-cli",
+        ),
+        pytest.param(
+            Adr(
+                5,
+                "Findings",
+                "## Considered Options\n\n- **Bundling CodeQL**: rejected by licence.",
+            ),
+            ("github/codeql", "CodeQL"),
+            False,
+            id="bundling-method-without-cli",
+        ),
+        pytest.param(
+            _real_adr(8),
+            ("dbos-inc/dbos-transact-py", "DBOS Transact"),
+            True,
+            id="adr-0008-dbos-transact-in-process",
+        ),
+        pytest.param(
+            _real_adr(8),
+            ("valkey-io/valkey", "valkey"),
+            False,
+            id="adr-0008-valkey-after-on",
+        ),
+        pytest.param(
+            _real_adr(21),
+            ("astral-sh/uv", "uv"),
+            False,
+            id="adr-0021-uv-cache",
+        ),
+        pytest.param(
+            _real_adr(21),
+            ("valkey-io/valkey", "valkey"),
+            False,
+            id="adr-0021-valkey",
+        ),
+        pytest.param(
+            _real_adr(22),
+            ("dan-petty/devops-cli", "devops-cli"),
+            False,
+            id="adr-0022-devops-cli-paren",
+        ),
+        pytest.param(
+            Adr(
+                14,
+                "Checks",
+                "## Considered Options\n\n- **Use example/devops-cli for this**: rejected.",
+            ),
+            ("example/devops-cli", "devops-cli"),
+            True,
+            id="explicit-owner-name-in-title",
+        ),
+    ],
+)
+def test_rejects_matches_option_subject_and_ignores_links_qualifiers_and_methods(
+    adr: Adr, tool_names: tuple[str, ...], rejected: bool
+) -> None:
+    assert rejects(adr, *tool_names) is rejected
