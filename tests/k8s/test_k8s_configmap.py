@@ -398,10 +398,10 @@ def test_the_sandbox_config_map_keeps_a_number_under_a_credential_like_name(
     ) == ([], 64000, 16000000, 32000000, 80000000)
 
 
-def test_the_configmap_leaves_out_the_read_only_setting() -> None:
-    """Only the drift Job asks for a read-only token, through its own variable, so the ConfigMap
-    that the Service reads never carries the setting (#6783)."""
-    app = GitHubAppConfig.model_validate({**APP.model_dump(), "read_only": True})
+def test_the_configmap_leaves_out_the_drift_setting() -> None:
+    """Only the drift Job asks for the token of the drift check, through its own variable, so the
+    ConfigMap that the Service reads never carries the setting (#6783, #6888)."""
+    app = GitHubAppConfig.model_validate({**APP.model_dump(), "drift_check": True})
 
     rendered = render_devops_configmap_content(
         SAMPLE_TEMPLATE, repos=["owner/repo"], github_app=app

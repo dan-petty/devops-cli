@@ -12,8 +12,10 @@ names that one repository, so a step cannot push to another one (#2667). The imp
 no step without it. A request that names no repository, as the Service sends, also asks for
 `CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS`, which the metrics row needs to read the hooks and
 the traffic (#5017, #4757). A runner Job reads neither, so its token cannot read them (#5058).
-A process that sets `service.github_app.read_only`, as the nightly drift Job does, asks for
-`CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` only, so its token can change nothing (#6783).
+A process that sets `service.github_app.drift_check`, as the nightly drift Job does, asks for
+`CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS` only: the reads of its rows, and Contents write and
+Administration write, without which GitHub gives no merge settings and no bypass actors (#6783,
+#6888).
 `gidgethub.apps.get_installation_access_token` sends no body, so the process posts the request
 through gidgethub's `GitHubAPI`. `core.process` keeps the token, gives it to
 every gh and git child and mints a new one before it expires. The App's login is its bot's,
@@ -35,10 +37,10 @@ from http import HTTPStatus
 from typing import Any
 
 from devops_cli.config.constants import (
+    CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_LEDGER_KEY,
     CONST_GITHUB_APP_METRICS_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_PRIVATE_KEY_ENV,
-    CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS,
     CONST_GITHUB_APP_TOKEN_PERMISSIONS,
     CONST_GITHUB_USER_AGENT,
     CONST_MAX_ERROR_DETAIL_LENGTH,
@@ -81,8 +83,8 @@ class GitHubApp:
 def configured_app(permissions: Mapping[str, str] | None = None) -> GitHubApp:
     """The App the process acts as: `service.github_app` and the private key of the environment.
 
-    When `service.github_app.read_only` is true, `CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS` overrides
-    any explicit `permissions` map so a read-only process cannot widen its token.
+    When `service.github_app.drift_check` is true, `CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS`
+    overrides any explicit `permissions` map, so the drift check always asks for its own set.
 
     Raises ConfigurationError naming each setting that is not set.
     """
@@ -103,7 +105,7 @@ def configured_app(permissions: Mapping[str, str] | None = None) -> GitHubApp:
             key=missing[0],
         )
     effective_permissions = (
-        CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS if config.read_only else permissions
+        CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS if config.drift_check else permissions
     )
     return GitHubApp(
         app_id=config.app_id,

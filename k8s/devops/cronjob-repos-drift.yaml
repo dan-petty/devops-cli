@@ -6,12 +6,14 @@
 # it could not read, so the Job then ends Failed: the gauge is the report.
 #
 # The pod acts as the GitHub App of the Service with one key of Secret devops-cli, the private key
-# of the App, and `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY` makes its installation token ask for
-# read permissions only (CONST_GITHUB_APP_READ_TOKEN_PERMISSIONS). It mounts no ServiceAccount
-# token, and ServiceAccount devops-cli has no Role. Its egress is that of
+# of the App, and `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK` makes its installation token ask for
+# the permissions of the drift check only (CONST_GITHUB_APP_DRIFT_TOKEN_PERMISSIONS): read, and
+# Contents write and Administration write, without which GitHub gives no merge settings and no
+# bypass actors of a ruleset (#6888). The plan sends GET requests only. It mounts no
+# ServiceAccount token, and ServiceAccount devops-cli has no Role. Its egress is that of
 # `devops-default-perimeter-egress`, and it holds no key of the gateway, the cache Valkey or Qdrant.
 #
-# `--only` runs the rows that a read token can read (docs/repos/onboard.md, The nightly Job). The
+# `--only` runs the rows that this token can read (docs/repos/onboard.md, The nightly Job). The
 # rows that read the baseline need the program `copier`, which the runner image gets from the
 # devtools image. Without it, those rows are `not readable`, and the alert
 # RepositorySettingsUnreadable names them.
@@ -77,16 +79,16 @@ spec:
               # The runner image is FROM the devtools image, which gives it the program copier.
               image: ghcr.io/dan-petty/devops-cli/runner
               imagePullPolicy: IfNotPresent
-              # Rows 4 (its GET needs Administration write), 12 (it needs the webhook secrets, and
-              # #4417 deletes it), 13 (with --all it reads no live state), 14 (only with --service)
-              # and 15 (it informs only, and it needs a Qdrant key) stay out.
+              # Rows 12 (it needs the webhook secrets, and #4417 deletes it), 13 (with --all it
+              # reads no live state), 14 (only with --service) and 15 (it informs only, and it needs
+              # a Qdrant key) stay out.
               args:
                 - repos
                 - onboard
                 - --all
                 - --plan
                 - --only
-                - 0,1,2,3,5,6,7,8,9,10,11
+                - 0,1,2,3,4,5,6,7,8,9,10,11
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -103,7 +105,7 @@ spec:
                     secretKeyRef:
                       name: devops-cli
                       key: DEVOPS_CLI_SERVICE_GITHUB_APP_PRIVATE_KEY
-                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY
+                - name: DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK
                   value: "true"
                 # The alerts select the series of this job name, so a run on a workstation
                 # (job="devops-cli") never counts.

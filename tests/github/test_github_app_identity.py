@@ -60,13 +60,14 @@ JOB_PERMISSIONS = {
 }
 # A token that names no repository, as the Service mints, also asks for those of the metrics row.
 ROADMAP_PERMISSIONS = {**JOB_PERMISSIONS, "repository_hooks": "read", "administration": "read"}
-# A read-only process, as the nightly drift Job of `devops repos onboard --all --plan` (#6783), asks
-# for the read permissions of the GETs of its rows and for no other one.
-READ_PERMISSIONS = {
+# The drift check, the nightly Job of `devops repos onboard --all --plan` (#6783), asks for the
+# permissions of the GETs of its rows. GitHub gives the merge settings only with Contents write, and
+# the bypass actors of a ruleset only with Administration write (#6888).
+DRIFT_PERMISSIONS = {
     "actions": "read",
-    "administration": "read",
+    "administration": "write",
     "checks": "read",
-    "contents": "read",
+    "contents": "write",
     "environments": "read",
     "issues": "read",
     "metadata": "read",
@@ -183,16 +184,17 @@ def test_a_runner_job_asks_for_a_token_that_names_one_repository_and_no_metrics_
     }
 
 
-def test_a_read_only_process_asks_for_a_token_with_read_permissions_only(
+def test_the_drift_check_asks_for_its_own_permissions(
     app_identity: GitHubApiFake, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The drift Job sets `DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY`, so its token can change
-    nothing on GitHub: no permission of the request has the level write (#6783)."""
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", "true")
+    """The drift Job sets `DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK`, so its token asks for the
+    drift set only: Contents write and Administration write, and read for each other permission
+    (#6783, #6888)."""
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK", "true")
     reset_github_session()
     app_identity.route("POST", MINT, _installation_token("ghs_first", timedelta(hours=1)))
     github_token()
-    assert json.loads(app_identity.sent[0].content) == {"permissions": READ_PERMISSIONS}
+    assert json.loads(app_identity.sent[0].content) == {"permissions": DRIFT_PERMISSIONS}
 
 
 def test_the_variable_of_the_job_sets_the_repository_of_the_token(
@@ -551,12 +553,12 @@ def test_an_app_request_whose_token_is_refused_counts_once_with_status_none(
     )
 
 
-def test_configured_app_accepts_explicit_permissions_and_read_only_wins(
+def test_configured_app_accepts_explicit_permissions_and_drift_check_wins(
     app_identity: GitHubApiFake, config: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`configured_app(permissions=...)` sends those permissions instead of
-    `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, while `service.github_app.read_only` keeps the read-only
-    set (#6780)."""
+    `CONST_GITHUB_APP_TOKEN_PERMISSIONS`, while `service.github_app.drift_check` keeps the set of the
+    drift check (#6780, #6888)."""
     from devops_cli.config.constants import CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS
     from devops_cli.github.app_installation import configured_app, mint_installation_token
 
@@ -577,14 +579,14 @@ def test_configured_app_accepts_explicit_permissions_and_read_only_wins(
         },
     )
 
-    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_READ_ONLY", "true")
+    monkeypatch.setenv("DEVOPS_CLI_SERVICE_GITHUB_APP_DRIFT_CHECK", "true")
     app_identity.route("POST", MINT, _installation_token("ghs_ro", timedelta(hours=1)))
     token_ro, _, _ = mint_installation_token(
         configured_app(permissions=CONST_GITHUB_APP_PREPARE_TOKEN_PERMISSIONS)
     )
     assert (token_ro, json.loads(app_identity.sent[1].content)) == (
         "ghs_ro",
-        {"permissions": READ_PERMISSIONS},
+        {"permissions": DRIFT_PERMISSIONS},
     )
 
 
