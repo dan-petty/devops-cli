@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from devops_cli.commands.k8s.bootstrap import bootstrap
+from devops_cli.commands.k8s.catalog import k8s_catalog
 from devops_cli.commands.k8s.cluster_context import (
     apply,
     contexts,
@@ -87,6 +88,7 @@ app.command("lint")(k8s_lint)
 app.command("audit")(k8s_audit)
 app.command("check-deprecated")(k8s_check_deprecated)
 app.command("image-pins")(k8s_image_pins)
+app.command("catalog", help=HELP.k8s.catalog)(k8s_catalog)
 app.command("crawl4ai-check")(k8s_crawl4ai_check)
 app.command("searxng-check")(k8s_searxng_check)
 app.command("probe")(k8s_probe)

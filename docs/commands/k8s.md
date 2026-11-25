@@ -567,6 +567,25 @@ devops k8s image-pins [OPTIONS] <target>
 
 ---
 
+## `devops k8s catalog`
+
+**Generate or check the Kubernetes service catalog from rendered Argo CD Applications, catalog.toml, Sloth SLO specs, service dashboards, and UI annotations.**
+
+```bash
+devops k8s catalog [OPTIONS]
+```
+
+**Options:**
+
+| Option / Flag | Type | Default | Description |
+|---|---|---|---|
+| `--k8s-dir` | `path` | - | The environment tree: the Kubernetes folder of the infra repo. Default: kubernetes.dir of the project profile of the current repository, else of the one infra repo that gives it. |
+| `--check` | `boolean` | - | Compare the generated Markdown catalog against CATALOG.md without writing it, and exit 1 when missing or out of date. |
+| `--format` | `string` | `markdown` | Output format for `devops k8s catalog`: markdown or json. |
+| `--dry-run` | `boolean` | - | Preview execution plan without mutating external state. |
+
+---
+
 ## `devops k8s crawl4ai-check`
 
 **Check that the Crawl4AI service refuses internal targets. It sends each of five routes

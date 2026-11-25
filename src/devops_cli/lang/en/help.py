@@ -518,6 +518,15 @@ class K8sCommandHelp:
         "A kustomization folder to render in place of the Argo CD Applications of the environment "
         "tree, such as k8s/devops."
     )
+    catalog: str = (
+        "Generate or check the Kubernetes service catalog from rendered Argo CD Applications, "
+        "catalog.toml, Sloth SLO specs, service dashboards, and UI annotations."
+    )
+    catalog_check: str = (
+        "Compare the generated Markdown catalog against CATALOG.md without writing it, and exit "
+        "1 when missing or out of date."
+    )
+    catalog_format: str = "Output format for `devops k8s catalog`: markdown or json."
     rbac_namespace: str = (
         "Audit only this namespace's RoleBindings and Roles; ClusterRoleBindings are always read."
     )

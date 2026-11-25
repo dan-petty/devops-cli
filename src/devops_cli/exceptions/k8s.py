@@ -310,9 +310,16 @@ class VolumeMoveStrandedError(VolumeMoveError):
         self.new_volume = new_volume
 
 
+class CatalogError(KubernetesError):
+    """Raised when `devops k8s catalog` finds catalog, SLO, dashboard, or workload mismatches (#5535)."""
+
+    error_code = "K8S_CATALOG_ERROR"
+
+
 __all__ = [
     "ApplicationSourceError",
     "ArgoCDGateError",
+    "CatalogError",
     "ChaosExecutionError",
     "ClusterJobError",
     "ClusterSecretPushError",
