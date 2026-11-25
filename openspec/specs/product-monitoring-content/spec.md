@@ -71,3 +71,10 @@ The promtool test file of `roadmap-service-recording` SHALL hold a `promql_expr_
 #### Scenario: The cases of the recording group pass
 - **WHEN** `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` runs
 - **THEN** the command exits 0, each record value has a case, and a case that evaluates more rounds than `MAX_PROMTOOL_ROUNDS` fails the check
+
+### Requirement: The Gitea backup age has an alert rule
+The rule group `gitea-backup` in `k8s/devops/monitoring/prometheus-rules-values.yaml` SHALL hold the warning alert `GiteaBackupTooOld`, whose expression SHALL fire when `time() - k8up_jobs_last_successful_timestamp{job_type="backup"}` is more than 93600 seconds, and `tests/prometheus/test_k8s_monitoring_alerting.py` SHALL list that series in `SERVED_SERIES` and the group with its case file in `RULE_GROUP_TESTS`.
+
+#### Scenario: An old backup warns and a fresh one stays quiet
+- **WHEN** `uv run devops ci test tests/prometheus/test_k8s_monitoring_alerting.py` runs
+- **THEN** the command exits 0, the case of a last successful backup 27 hours old fires `GiteaBackupTooOld` with severity warning, and the case of a backup 20 hours old keeps it quiet
