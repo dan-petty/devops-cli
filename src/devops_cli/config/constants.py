@@ -4703,6 +4703,7 @@ CONST_K8S_DOCTOR_RULE_POD_UNSCHEDULABLE: Final[str] = "pod-unschedulable"
 CONST_K8S_DOCTOR_RULE_POD_NOT_READY: Final[str] = "pod-not-ready"
 CONST_K8S_DOCTOR_RULE_WARNING_EVENTS: Final[str] = "warning-events"
 CONST_K8S_DOCTOR_RULE_VERSION_SKEW: Final[str] = "version-skew"
+CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD: Final[str] = "orphaned-workload"
 
 # ── Kubernetes Doctor: the Gitea stack (#2187) ───────────────────────────────
 CONST_K8S_DOCTOR_STACK_GITEA: Final[str] = "gitea"

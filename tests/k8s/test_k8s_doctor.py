@@ -429,10 +429,16 @@ def test_doctor_namespace_narrows_the_calls(process_fake: ProcessFake) -> None:
     )
 
 
+def _answer_clean_konmon(process_fake: ProcessFake) -> None:
+    """Stub a clean `konmon check orphaned -o json` answer for legacy ProcessFake doctor tests."""
+    process_fake.answer(("konmon", "check", "orphaned"), ProcessAnswer(stdout='{"findings": []}'))
+
+
 def test_doctor_json_output_round_trips(
     cluster: FakeCluster, cli: Callable[..., Any], process_fake: ProcessFake
 ) -> None:
     """JSON and YAML output formats serialize the DoctorReport correctly."""
+    _answer_clean_konmon(process_fake)
     cluster.context_names.append("test-cluster")
     cluster.core = FakeCoreV1(nodes=[node("worker-broken", ready="False")])
     cluster.version = FakeVersion("v1.37.1")
@@ -466,6 +472,7 @@ def test_doctor_exit_codes(
     cluster: FakeCluster, cli: Callable[..., Any], process_fake: ProcessFake
 ) -> None:
     """Exit codes are 0 (clean), 2 (findings), and 1 (unreachable/error with secret masking)."""
+    _answer_clean_konmon(process_fake)
     clean_core = FakeCoreV1(nodes=[node("worker-1", ready="True")], pods=[healthy_pod("app-1")])
     findings_core = FakeCoreV1(nodes=[node("worker-1", ready="False")], pods=[])
     secret_err = Exception("Auth failed: token=secret_token_xyz123 invalid credentials")
@@ -562,6 +569,7 @@ def test_doctor_has_no_kubectl_skew_when_no_kubectl_states_its_version(
     process_fake: ProcessFake,
 ) -> None:
     """With no kubectl on PATH, the skew rule of kubectl gives no finding."""
+    _answer_clean_konmon(process_fake)
     process_fake.answer(["kubectl", "version"], ProcessAnswer(returncode=127))
     core = FakeCoreV1(nodes=[node("worker-1")])
 
@@ -653,3 +661,205 @@ def test_doctor_collect_reads_server_version_from_core_api_client(
 
     snapshot = collect(core)
     assert snapshot.server_version == "v1.31.2"
+
+
+def test_doctor_runs_konmon_orphaned_and_maps_four_workload_kinds(
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    cli: Callable[..., Any],
+) -> None:
+    """`devops k8s doctor` runs `konmon check orphaned`, maps four workload kinds, drops others,
+    and passes only read-only arguments."""
+    from devops_cli.config.constants import CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD
+
+    payload = {
+        "findings": [
+            {
+                "check": "orphaned",
+                "kind": "Deployment",
+                "namespace": "apps",
+                "name": "api",
+                "message": "not managed by a controller or GitOps tool",
+            },
+            {
+                "check": "orphaned",
+                "kind": "StatefulSet",
+                "namespace": "apps",
+                "name": "db",
+                "message": "not managed by a controller or GitOps tool",
+            },
+            {
+                "check": "orphaned",
+                "kind": "DaemonSet",
+                "namespace": "apps",
+                "name": "agent",
+                "message": "not managed by a controller or GitOps tool",
+            },
+            {
+                "check": "orphaned",
+                "kind": "CronJob",
+                "namespace": "apps",
+                "name": "nightly",
+                "message": "not managed by a controller or GitOps tool",
+            },
+            {
+                "check": "orphaned",
+                "kind": "Service",
+                "namespace": "apps",
+                "name": "api",
+                "message": "not managed by a controller or GitOps tool",
+            },
+        ]
+    }
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=1, stdout=json.dumps(payload)),
+    )
+    process_fake.answer(
+        ["kubectl", "version", "--client", "-o", "json"],
+        ProcessAnswer(stdout='{"clientVersion":{"gitVersion":"v1.37.1"}}'),
+    )
+
+    cluster.context_names.append("lab")
+    cluster.core = FakeCoreV1(nodes=[node("worker-1", ready="True")], pods=[healthy_pod("ok-0")])
+    cluster.version = FakeVersion("v1.37.1")
+    KubernetesService.install(cluster)
+
+    result = cli("k8s", "doctor", "--context", "lab", "--namespace", "apps", "--format", "json")
+
+    assert result.exit_code == 2
+    report = json.loads(result.stdout)
+    orphan_resources = [
+        f["resource"]
+        for f in report["findings"]
+        if f["rule"] == CONST_K8S_DOCTOR_RULE_ORPHANED_WORKLOAD
+    ]
+    assert sorted(orphan_resources) == [
+        "CronJob/apps/nightly",
+        "DaemonSet/apps/agent",
+        "Deployment/apps/api",
+        "StatefulSet/apps/db",
+    ]
+    assert "Service/apps/api" not in orphan_resources
+
+    konmon_calls = [c for c in process_fake.calls if c.argv and c.argv[0] == "konmon"]
+    assert len(konmon_calls) == 1
+    args = konmon_calls[0].argv[1:]
+    assert "orphaned" in args
+    assert "-o" in args
+    assert "json" in args
+    assert "-n" in args
+    assert "apps" in args
+    assert "--context" in args
+    assert "lab" in args
+    mutating = {"apply", "create", "delete", "patch", "replace", "edit", "drain", "scale"}
+    assert mutating.isdisjoint(set(args))
+
+
+def test_doctor_reports_missing_konmon_and_continues_other_checks(
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    cli: Callable[..., Any],
+) -> None:
+    """When konmon is missing, doctor reports a konmon finding and keeps running other checks."""
+    from devops_cli.config.constants import CONST_K8S_DOCTOR_RULE_VERSION_SKEW
+
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(side_effect=FileNotFoundError),
+    )
+    process_fake.answer(
+        ["kubectl", "version", "--client", "-o", "json"],
+        ProcessAnswer(stdout='{"clientVersion":{"gitVersion":"v1.31.2"}}'),
+    )
+
+    cluster.core = FakeCoreV1(nodes=[node("worker-1", ready="True")])
+    cluster.version = FakeVersion("v1.37.0")
+    KubernetesService.install(cluster)
+
+    result = cli("k8s", "doctor", "--format", "json")
+
+    assert result.exit_code == 2
+    findings = json.loads(result.stdout)["findings"]
+    assert any("konmon" in (f["resource"] + " " + f["cause"]).lower() for f in findings)
+    assert any(
+        f["rule"] == CONST_K8S_DOCTOR_RULE_VERSION_SKEW and f["resource"] == "kubectl"
+        for f in findings
+    )
+
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=127, stderr="Executable 'konmon' not found in PATH"),
+    )
+    not_found_res = cli("k8s", "doctor", "--format", "json")
+    assert not_found_res.exit_code == 2
+    assert any("konmon" in f["cause"].lower() for f in json.loads(not_found_res.stdout)["findings"])
+
+
+def test_doctor_reports_failed_konmon_and_invalid_json_without_aborting(
+    cluster: FakeCluster,
+    process_fake: ProcessFake,
+    cli: Callable[..., Any],
+) -> None:
+    """Non-zero exit with stderr or invalid JSON yields a konmon finding while preserving cluster findings."""
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=1, stderr="permission denied\n"),
+    )
+    cluster.core = FakeCoreV1(nodes=[node("worker-bad", ready="False")])
+    cluster.version = FakeVersion("v1.37.1")
+    KubernetesService.install(cluster)
+
+    fail_res = cli("k8s", "doctor", "--format", "json")
+    assert fail_res.exit_code == 2
+    fail_findings = json.loads(fail_res.stdout)["findings"]
+    assert any(
+        "konmon" in f["resource"].lower() and "permission denied" in f["cause"].lower()
+        for f in fail_findings
+    )
+    assert any(f["rule"] == CONST_K8S_DOCTOR_RULE_NODE_NOT_READY for f in fail_findings)
+
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=0, stdout="{not valid json"),
+    )
+    bad_json_res = cli("k8s", "doctor", "--format", "json")
+    assert bad_json_res.exit_code == 2
+    bad_json_findings = json.loads(bad_json_res.stdout)["findings"]
+    assert any("konmon" in (f["resource"] + " " + f["cause"]).lower() for f in bad_json_findings)
+    assert any(f["rule"] == CONST_K8S_DOCTOR_RULE_NODE_NOT_READY for f in bad_json_findings)
+
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=0, stdout="[]"),
+    )
+    non_dict_res = cli("k8s", "doctor", "--format", "json")
+    assert non_dict_res.exit_code == 2
+    assert any(
+        "konmon" in (f["resource"] + " " + f["cause"]).lower()
+        for f in json.loads(non_dict_res.stdout)["findings"]
+    )
+
+    process_fake.answer(
+        ("konmon", "check", "orphaned"),
+        ProcessAnswer(returncode=2, stdout='{"findings": [], "notChecked": ["secrets"]}'),
+    )
+    partial_res = cli("k8s", "doctor", "--format", "json")
+    assert partial_res.exit_code == 2
+    assert any(
+        "secrets" in f["cause"] and f["resource"] == "konmon"
+        for f in json.loads(partial_res.stdout)["findings"]
+    )
+
+
+def test_doctor_dry_run_includes_konmon_orphaned_plan(cli: Callable[..., Any]) -> None:
+    """Doctor dry-run request plan includes the read-only `konmon check orphaned` invocation."""
+    from devops_cli.k8s.doctor import plan_doctor_requests
+
+    planned = plan_doctor_requests(namespace="apps", context="lab")
+    assert any(
+        req.method == "konmon" and "orphaned" in req.target and "apps" in req.target
+        for req in planned
+    )
+    result = cli("k8s", "doctor", "--dry-run")
+    assert (result.exit_code, "konmon" in result.stdout) == (0, True)
