@@ -190,7 +190,7 @@ def test_the_same_call_twice_has_one_digest_and_no_event_holds_the_command(
     trace = ImplementTrace(step="group 1")
     same = ("run_command", {"command": "pytest tests/test_sample.py --flag=sentinel-value"})
     other = ("run_command", {"command": "pytest tests/other_sentinel.py"})
-    script = ModelScript(tool_calls(same, same, other), say("Done."))
+    script = ModelScript(tool_calls(same), tool_calls(same), tool_calls(other), say("Done."))
 
     _step(store, checkout, script, trace)
 
