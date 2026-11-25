@@ -3331,7 +3331,7 @@ class RoadmapMessages:
     retitle_comment_type_changed: str = (
         "{marker}\nThe job changed the type of the title. The type `{type}` is not a type of the "
         "project, so the stage job could not take this item. The types are: {types}.\n\n"
-        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+        "- Before: `{old}`\n- Source of the summary: {source}"
     )
     retitle_comment_type_skipped: str = (
         "{marker}\nThe type `{type}` of the title is not a type of the project, so the stage job "
@@ -3355,7 +3355,7 @@ class RoadmapMessages:
     retitle_comment_changed: str = (
         "{marker}\nThe job shortened the title of this item. The summary had {length} characters, "
         "and the limit is {limit}. The type and the scope stay.\n\n"
-        "- Before: `{old}`\n- After: `{new}`\n- Source of the summary: {source}"
+        "- Before: `{old}`\n- Source of the summary: {source}"
     )
     retitle_comment_skipped: str = (
         "{marker}\nThe summary of the title has {length} characters, and the limit is {limit}. "
@@ -6470,6 +6470,7 @@ class RoadmapMessages:
     intake_reason_person: str = "a person placed it in {milestone}, and that placement stands."
     intake_comment: str = "{marker}\n{fields}"
     intake_comment_field: str = "- {field}: {value}. {reason}"
+    intake_comment_field_reason: str = "- {field}: {reason}"
     intake_p0_granted: str = (
         "P0: the {kind} {value} is evidence GitHub confirms, from a trusted source."
     )

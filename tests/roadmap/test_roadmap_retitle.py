@@ -491,3 +491,32 @@ def test_the_retitle_model_reads_its_own_task_and_not_the_task_of_intake(
     assert [(call["task"], call["config"].model) for call in model_fake.factory_calls] == [
         ("retitle", "retitle-model")
     ]
+
+
+@pytest.mark.parametrize(
+    ("old_title", "expected_new"),
+    [
+        (OLD, f"fix(roadmap): {NEW_SUMMARY}"),
+        ("security(ssh): verify node host keys", "fix(security): verify node host keys"),
+    ],
+    ids=["long-summary", "unlisted-type"],
+)
+def test_retitle_comment_keeps_before_and_source_and_omits_after_line_contract(
+    store: InMemoryRoadmapStore, old_title: str, expected_new: str
+) -> None:
+    """Contract: the retitle comment keeps Before and Source of the summary, omits `- After:`, and
+    repeats the new title on no comment line (#6198)."""
+    number = _item(store, title=old_title)
+    plan = plan_retitle(store, repo=REPO, model=FakeModel())
+
+    apply_retitle(store, plan)
+
+    assert _title(store, number) == expected_new
+    (comment,) = store.comments_on(number)
+    assert (
+        CONST_ROADMAP_RETITLE_COMMENT_MARKER in comment.body,
+        f"- Before: `{old_title}`" in comment.body,
+        "- Source of the summary:" in comment.body,
+        "- After:" in comment.body,
+        any(expected_new in line for line in comment.body.splitlines()),
+    ) == (True, True, True, False, False)

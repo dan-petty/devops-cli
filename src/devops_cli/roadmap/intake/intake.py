@@ -149,7 +149,7 @@ from devops_cli.exceptions.roadmap import RoadmapIntakeError, RoadmapItemChanged
 from devops_cli.exceptions.security import SecurityError
 from devops_cli.exceptions.validation import ValidationError
 from devops_cli.lang import MESSAGES
-from devops_cli.roadmap.body_hash import text_of_a_person
+from devops_cli.roadmap.body_hash import issue_references, text_of_a_person
 from devops_cli.roadmap.commit_title import commit_scope, commit_summary, commit_type
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
 from devops_cli.roadmap.intake.intake_model import (
@@ -214,13 +214,14 @@ class Outcome(StrEnum):
 @dataclass(frozen=True)
 class NewCandidate:
     """A candidate that is not an issue yet: its title and body, the link it came from, the
-    evidence its caller attaches, and who files it."""
+    evidence its caller attaches, who files it, and any issue numbers to exclude from comparison."""
 
     title: str
     body: str
     source: str | None = None
     evidence: tuple[Evidence, ...] = ()
     filed_by: Filer = Filer.AGENT
+    apart: Collection[int] = ()
 
     def filed_body(self) -> str:
         """The body the issue is filed with: the candidate's, then a `Source:` line under a
@@ -878,12 +879,15 @@ def _source_issue(run: _Run, subject: Subject) -> int | None:
 
 
 def _apart(run: _Run, subject: Subject) -> set[int]:
-    """The issues a candidate is compared with none of: itself, the issue its source links, and
-    that issue's sub-issues, the other parts of the split, which are planned to be different
-    changes (#1985, #2265)."""
+    """The issues a candidate is compared with none of: itself, the issue its source links,
+    that issue's sub-issues, and any explicit `apart` numbers of a new candidate (#1985, #2265,
+    #6198)."""
     source = _source_issue(run, subject)
     siblings = [] if source is None else [i.number for i in run.issues if i.parent == source]
-    return {number for number in (subject.number, source, *siblings) if number is not None}
+    explicit = () if subject.new is None else subject.new.apart
+    return {
+        number for number in (subject.number, source, *siblings, *explicit) if number is not None
+    }
 
 
 def _with_regression_reference(subject: Subject, entry: _Entry) -> Subject:
@@ -1068,7 +1072,8 @@ def _priority(store: IntakeReads, subject: Subject, proposal: Proposal) -> tuple
     why = _p0_refusal(store, subject, evidence)
     named = {"kind": _kind_name(evidence), "value": evidence.value}
     if why is None:
-        return CONST_ROADMAP_CRITICAL_PRIORITY, MESSAGES.roadmap.intake_p0_granted.format(**named)
+        granted = MESSAGES.roadmap.intake_p0_granted.format(**named)
+        return CONST_ROADMAP_CRITICAL_PRIORITY, f"{proposal.priority_reason} {granted}".strip()
     refused = MESSAGES.roadmap.intake_p0_refused.format(why=why, **named)
     priority = (
         CONST_ROADMAP_P1_PRIORITY
@@ -1115,31 +1120,36 @@ def _reason_lines(
     priority: tuple[str, str],
     judgement: _Judgement,
     title: _TitleLabels,
+    body: str = "",
 ) -> tuple[tuple[str, str, str], ...]:
     """The facts of the reason comment that the labels do not show (#4836), each with its name
-    and reason: a scope with no label, the reason of a Priority other than P2-Medium, which most
-    items get, or of a P0 decision on evidence, then the possible original or the related item,
-    whose number the comment links. The type, scope, Value and Effort are on the labels."""
+    and reason: a scope with no label, the reason of a Priority other than P2-Medium or of a P0
+    decision on evidence (without repeating the label value, #6198), then the possible original
+    or any related item whose number the body does not already reference (#6198)."""
     lines = list(title.lines)
-    if priority[0] != CONST_ROADMAP_P2_PRIORITY or proposal.evidence is not None:
-        lines.append((ItemField.PRIORITY.value, priority[0], priority[1]))
+    if priority[1] and (priority[0] != CONST_ROADMAP_P2_PRIORITY or proposal.evidence is not None):
+        lines.append((ItemField.PRIORITY.value, "", priority[1]))
     texts = MESSAGES.roadmap
     if judgement.possible_duplicate is not None:
         original = texts.intake_possible_duplicate_value.format(number=judgement.possible_duplicate)
         why = texts.intake_possible_duplicate_reason.format(reason=judgement.reason)
         lines.append((texts.intake_possible_duplicate_field, original, why))
-    if judgement.related is not None:
+    if judgement.related is not None and judgement.related not in issue_references(body):
         related = texts.intake_related_value.format(number=judgement.related)
         lines.append((texts.intake_related_field, related, judgement.reason))
     return tuple(lines)
 
 
 def _comment(lines: Sequence[tuple[str, str, str]]) -> str:
-    """The reason comment: one line for each fact, with its reason. A line with no reason ends
-    at its value."""
+    """The reason comment: one line for each fact, with its reason. A line with no value states
+    its field and reason; a line with no reason ends at its value."""
     rendered = "\n".join(
-        MESSAGES.roadmap.intake_comment_field.format(
-            field=name, value=value, reason=reason
+        (
+            MESSAGES.roadmap.intake_comment_field_reason.format(field=name, reason=reason)
+            if not value
+            else MESSAGES.roadmap.intake_comment_field.format(
+                field=name, value=value, reason=reason
+            )
         ).rstrip()
         for name, value, reason in lines
     )
@@ -1289,7 +1299,7 @@ class _Planner:
         fields = _fields(subject, proposal)
         added = None if subject.type_label else type_label
         scope_added = title.scope_label if subject.scope_label is None else None
-        lines = _reason_lines(proposal, priority, judgement, title)
+        lines = _reason_lines(proposal, priority, judgement, title, body=subject.body)
         comment = (
             None
             if not lines
