@@ -183,5 +183,6 @@ The links to the OpenSpec change, the spec, the settings and the issue.
 | [0036](0036-the-stage-agent-runs-stock-coder-and-publish-checks.md) | The stage agent runs stock Coder, and publish checks | proposed | 2026-11-23 | amends 0030 |
 | [0037](0037-tool-commands-mirror-and-pass-through-options.md) | Tool commands mirror and pass through options | accepted | 2026-11-12 |  |
 | [0038](0038-owner-decisions-on-what-agents-may-do.md) | Owner decisions on what agents may do | accepted | 2026-11-05 |  |
+| [0039](0039-homepage-is-the-cluster-start-page.md) | Homepage is the cluster start page | accepted | 2026-11-25 |  |
 
 <!-- ADR_INDEX_END -->
