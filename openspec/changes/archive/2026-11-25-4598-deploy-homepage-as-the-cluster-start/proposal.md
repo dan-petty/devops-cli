@@ -6,7 +6,7 @@ The cluster has about 21 Ingress objects and more service UIs with no Ingress, a
 
 ## What Changes
 
-- Adds `docs/adr/0037-homepage-is-the-cluster-start-page.md`, an accepted record that chooses Homepage as the cluster start page at the `start` host, names the tools compared and refuses the other options.
+- Adds `docs/adr/0039-homepage-is-the-cluster-start-page.md`, an accepted record that chooses Homepage as the cluster start page at the `start` host, names the tools compared and refuses the other options.
 - Regenerates the index table of `docs/adr/README.md` with `uv run devops docs generate`.
 - Plans no manifest, because the environment-freeze row refuses a branch that changes an environment path outside the two product folders, so the start page objects land in dan-petty/homelab.
 - Keeps the theme input of the design spec in the record: `color: stone` and no `theme` key, so the theme switcher stays.
@@ -25,7 +25,7 @@ None.
 
 ## Impact
 
-- Documents: `docs/adr/0037-homepage-is-the-cluster-start-page.md`, `docs/adr/README.md`
+- Documents: `docs/adr/0039-homepage-is-the-cluster-start-page.md`, `docs/adr/README.md`
 
 ## Feasibility
 
@@ -36,7 +36,7 @@ None.
 - `read_file docs/HOMELAB_REPO_SWITCH.md` lines 180-300 showed `docs/HOMELAB_REPO_SWITCH.md:184:The rule is by folder, so a new environment file is refused too.`, so a new file of the start page is refused as well, and `docs/HOMELAB_REPO_SWITCH.md:268:Homelab CI runs the environment checks that #5131 lists.` gives the environment checks to the CI of dan-petty/homelab.
 - `docs/HOMELAB_REPO_SWITCH.md:254:delete the override path of #1290: the constants` removes `CONST_K8S_ARGOCD_HOMELAB_APPLICATIONS_BY_STACK` and the override path at step 15, so the plan adds no entry to a table that is on its way out.
 - The record is the part that this repository keeps: `docs/adr/README.md:11:- A dependency or a tool.` names a tool as a reason to write a record, and `docs/adr/README.md:40:3. The merge by the owner accepts the record.` gives the approval that a merge carries.
-- `list_files docs/adr` listed `docs/adr/0036-the-stage-agent-runs-stock-coder-and-publish-checks.md` as the newest record, so the new record is `docs/adr/0037-homepage-is-the-cluster-start-page.md`.
+- `list_files docs/adr` listed `docs/adr/0038-owner-decisions-on-what-agents-may-do.md` as the newest record on `origin/main`, so the new record is `docs/adr/0039-homepage-is-the-cluster-start-page.md`.
 - `read_file src/devops_cli/roadmap/adr.py` line 5 showed `src/devops_cli/roadmap/adr.py:5:`consulted` and `informed`) and the keys of this project (`issue`, `tracker`, `supersedes`,`, so the front matter takes `issue` and `body-hash` as well as the keys of MADR 4.
 - `read_file src/devops_cli/docs/adr_records.py` lines 30-47 showed `src/devops_cli/docs/adr_records.py:32:_MAX_BODY_WORDS: Final = 1000`, `src/devops_cli/docs/adr_records.py:33:_MAX_TITLE_WORDS: Final = 10` and `src/devops_cli/docs/adr_records.py:34:_MAX_SLUG_CHARACTERS: Final = 60`, so the title `Homepage is the cluster start page` has 6 words and the slug `homepage-is-the-cluster-start-page` has 34 characters.
 - `read_file tests/invariants/test_adr_records.py` showed `tests/invariants/test_adr_records.py:18:def test_each_record_keeps_the_rules_of_the_decision_records() -> None:` and `tests/invariants/test_adr_records.py:22:def test_the_index_of_the_readme_is_the_generated_index() -> None:`, so one verify checks the record and its index row.
