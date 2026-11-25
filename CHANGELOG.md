@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.213.0](https://github.com/dan-petty/devops-cli/compare/v0.212.0...v0.213.0) (2026-11-25)
+
+
+### Features
+
+* **cli:** add the tool pass-through registry and its ADR ([#7047](https://github.com/dan-petty/devops-cli/issues/7047)) ([85f53f2](https://github.com/dan-petty/devops-cli/commit/85f53f2cffe6982ae523e3947c8ebdbdea7e2b8d))
+* **security:** Deny free-text MCP parameters that can carry a secret ([#7049](https://github.com/dan-petty/devops-cli/issues/7049)) ([f75ece3](https://github.com/dan-petty/devops-cli/commit/f75ece317fe1ce504ef6abe63b5db5e82982de04))
+
 ## [0.212.0](https://github.com/dan-petty/devops-cli/compare/v0.211.6...v0.212.0) (2026-11-25)
 
 
