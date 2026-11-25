@@ -12,7 +12,7 @@ It uses {% for language, version in toolchains %}{{ language }}{% if version %} 
 
 1. **One issue, one pull request.** Work on a topic branch. Topic PRs target the default branch. The PR title is a Conventional Commit, and the PR body closes its one issue (`Closes #<issue>`).{% if plan_system == "openspec" %} Plan it as the OpenSpec change `openspec/changes/<issue>-<slug>/`, and archive the change in the last commit with `devops openspec archive <change>`.{% endif %}
 
-2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. If the item cannot be built as written, write no compensating code: comment the evidence on the issue and stop. Close issues as rejected if their functionality has been superseded by newer issues or code changes.
+2. **Check the premise first.** Confirm it against the real system: upstream documents, library source or command output. Never return a tracker: work its open sub-issues or related issues. If a leaf item cannot be built as written, write no compensating code: comment the evidence on the issue and stop. Close issues as rejected if their functionality has been superseded by newer issues or code changes.
 3. **Use an open tool before you build.** Name the tool or library that covers the need.
 4. **Test new behavior first.** Write the failing test before the code. Prove any other change with a command.{% if python %} A fix pull request shows that its new tests fail on the base with `devops ci fail-to-pass --base <ref>`.{% endif %}
 

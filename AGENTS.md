@@ -5,7 +5,7 @@
 ## Rules for every task
 
 1. **One issue, one pull request.** Work on a topic branch from `origin/main`. Never commit or push to `main`.
-2. **Check the premise first.** Confirm it against the real system: upstream documents, source or command output. If newer issues or code replace the item, close it as not planned. If it cannot be built as written, write no compensating code: return it with the evidence and stop. Stop also when you swallow an error, make product code detect tests, or put a second fix on a fix.
+2. **Check the premise first.** Confirm against docs, source or command output. Never return a tracker: work its open sub-issues or related issues. If newer issues or code replace the item, close it as not planned. If a leaf item cannot be built as written, write no compensating code: return it with evidence and stop. Stop also when you swallow an error, make product code detect tests, or put a second fix on a fix.
 3. **Use an open tool before you build.** Name the tool or library that covers the need. To build instead, write the cost in tokens and time. This rule outranks every other convention.
 4. **Test new behavior first.** Prove other changes with a command.
 5. **Pass the checks.** Never use `--no-verify`. Never lower a security or quality threshold; only the owner can allow it ([exceptions](SECURITY.md#a-finding-with-no-fix)). A check that averages over 5 min + 1 min tolerance is a P0 bug.
@@ -18,7 +18,7 @@
 12. **Keep your own files out of git.** Put agent files under `.data/agent/` and scratch scripts under `.data/agent/scratch/`. Back up a file outside the workspace before you edit it. Never change `config.yaml`.
 13. **Keep tool output small.** Search before you read, and read only the lines you need. Ask each command for less output: `git diff --stat`, `--jq`, `--limit`, a Loki `limit`. Keep each necessary fact: error lines, `file:line`, failed test IDs.
 
-**Only a person** merges pull requests (exceptions: Renovate merges a security fix after the required checks pass, #6031, and a minor, patch or digest update after each of its checks passes, #6547) and changes secrets, repository settings and hardware. Agents manage labels, milestones, duplicates and evaluation verdicts. They run every other project command, but no release step.
+**Only a person** merges pull requests (exceptions: Renovate merges a security fix after the required checks pass, #6031, and a minor, patch or digest update after each of its checks passes, #6547) and changes secrets, repository settings and hardware. Agents manage labels, milestones, duplicates, evaluation verdicts and every non-release command.
 
 ## Where to look
 

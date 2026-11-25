@@ -17,7 +17,7 @@ from devops_cli.roadmap.return_item import (
     plan_return,
     render_return_plan,
 )
-from devops_cli.roadmap.stores.store import ItemField, RefineRecordKey, StageRecordKey
+from devops_cli.roadmap.stores.store import GitHubState, ItemField, RefineRecordKey, StageRecordKey
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 
 REPO = "owner/repo"
@@ -154,3 +154,74 @@ def test_return_takes_no_ref(cli: Callable[..., Any]) -> None:
     """Return reads no repository file, so it has no ref to read one at."""
     result = cli("roadmap", "return", "42", "--repo", REPO, "--comment", "x", "--ref", "main")
     assert result.exit_code == 2
+
+
+def test_plan_return_refuses_tracker_and_names_open_sub_issues_and_related_issues() -> None:
+    """Returning a tracker sets it to New where refine and stage ignore it; `plan_return` refuses
+    trackers and names open sub-issues and open related issues instead."""
+    store = InMemoryRoadmapStore(repo=REPO)
+    open_sub = store.seed_issue(
+        "fix(roadmap): first child task",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "Ready"},
+        labels=("type/bug",),
+    )
+    closed_sub = store.seed_issue(
+        "fix(roadmap): done child task",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "Ready"},
+        labels=("type/bug",),
+        state=GitHubState.CLOSED,
+    )
+    related_open = store.seed_issue(
+        "feat(roadmap): related work",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "Ready"},
+        labels=("type/feature",),
+    )
+    tracker = store.seed_issue(
+        "feat(roadmap): tracker issue",
+        body=f"Umbrella issue. Related: #{related_open}\n",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "New"},
+        labels=("type/epic",),
+    )
+    store.add_sub_issue(tracker, open_sub)
+    store.add_sub_issue(tracker, closed_sub)
+    before = store.job_writes()
+
+    with pytest.raises(DevOpsCLIError) as exc_info:
+        plan_return(store, tracker, "Too broad for one pull request.", REPO)
+
+    message = str(exc_info.value)
+    assert f"#{tracker}" in message
+    assert f"#{open_sub}" in message
+    assert f"#{related_open}" in message
+    assert f"#{closed_sub}" not in message
+    assert store.job_writes() == before
+
+
+def test_return_command_refuses_empty_epic_tracker_without_writes(
+    cli: Callable[..., Any], roadmap_store: InMemoryRoadmapStore
+) -> None:
+    """A `type/epic` tracker with no open sub-issues is still refused with closing/splitting
+    guidance and makes no write."""
+    epic = roadmap_store.seed_issue(
+        "feat(roadmap): empty epic",
+        body="Tracks upcoming improvements.",
+        fields={ItemField.PRIORITY: "P2-Medium", ItemField.STATUS: "Ready"},
+        labels=("type/epic",),
+    )
+
+    result = cli(
+        "roadmap",
+        "return",
+        str(epic),
+        "--repo",
+        REPO,
+        "--comment",
+        "Cannot be built as a single PR.",
+        "--confirm",
+    )
+
+    stored = roadmap_store.item(epic)
+    assert stored is not None
+    assert (result.exit_code, stored.status, roadmap_store.job_writes()) == (1, "Ready", [])
+    assert "tracker" in result.output.lower()
+    assert "sub-issue" in result.output.lower()

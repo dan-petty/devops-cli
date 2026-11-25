@@ -15,9 +15,13 @@ item, and an item waits on the open sub-issues of another tracker, not on the tr
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
+from dataclasses import dataclass
 
 from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.body_hash import text_of_a_person
+from devops_cli.roadmap.markdown import commonmark_parser
 from devops_cli.roadmap.refine.refine import (
     DependencyGraph,
     body_dependencies,
@@ -25,6 +29,26 @@ from devops_cli.roadmap.refine.refine import (
     title_dependencies,
 )
 from devops_cli.roadmap.stores.store import GitHubState, Item, ItemTree, RoadmapStore
+
+_ISSUE_REF_RE = re.compile(r"(?<![A-Za-z0-9_/])#([1-9]\d*)\b")
+
+
+@dataclass(frozen=True)
+class TrackerEntry:
+    """One open sub-issue or open related issue of a tracker, with its open blocker numbers."""
+
+    number: int
+    title: str
+    status: str | None = None
+    blockers: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class TrackerWork:
+    """Open deliverable sub-issues and open related issues referenced by a tracker."""
+
+    sub_issues: tuple[TrackerEntry, ...] = ()
+    related: tuple[TrackerEntry, ...] = ()
 
 
 def open_blockers(
@@ -132,3 +156,68 @@ def open_dependency(
     if cycle is None:
         return open_reason
     return MESSAGES.roadmap.dependency_cycle.format(cycle=cycle_text(cycle))
+
+
+def _tracker_entry(
+    candidate: Item,
+    open_items: Sequence[Item],
+    open_by_number: dict[int, Item],
+    tree: ItemTree,
+) -> TrackerEntry:
+    """Build a `TrackerEntry` with declared open blockers for `candidate`."""
+    deps = [
+        *body_dependencies(candidate.body),
+        *title_dependencies(candidate.body, open_items).numbers,
+    ]
+    blockers = open_blockers(candidate, deps, open_by_number.get, tree)
+    return TrackerEntry(
+        number=candidate.number,
+        title=candidate.title,
+        status=candidate.status,
+        blockers=blockers,
+    )
+
+
+def _sub_issue_numbers(item: Item, tree: ItemTree, skipped: set[int]) -> tuple[int, ...]:
+    """Direct open sub-issues of `item`, expanding non-empty child trackers to their open leaves."""
+    expanded: set[int] = set()
+    numbers: list[int] = []
+    for child in tree.open_sub_issues(item.number):
+        if not child.is_tracker:
+            numbers.append(child.number)
+            continue
+        leaves = list(_open_work(child.number, tree, skipped, expanded))
+        numbers.extend(leaves or [child.number])
+    return tuple(dict.fromkeys(numbers))
+
+
+def _related_numbers(body: str) -> tuple[int, ...]:
+    """Issue `#N` references found in plain inline prose written by a person."""
+    found: list[int] = []
+    for token in commonmark_parser().parse(text_of_a_person(body)):
+        if token.type != "inline":
+            continue
+        for child in token.children or ():
+            if child.type == "text":
+                found.extend(int(match.group(1)) for match in _ISSUE_REF_RE.finditer(child.content))
+    return tuple(dict.fromkeys(found))
+
+
+def tracker_work(item: Item, open_items: Sequence[Item]) -> TrackerWork:
+    """Return open deliverable sub-issues and open related issues referenced by tracker `item`."""
+    open_by_number = {each.number: each for each in open_items if each.state is GitHubState.OPEN}
+    tree = ItemTree.of(list(open_by_number.values()))
+    ancestors = tree.ancestors(item)
+    skipped = {item.number, *ancestors}
+    sub_entries = tuple(
+        _tracker_entry(open_by_number[number], open_items, open_by_number, tree)
+        for number in _sub_issue_numbers(item, tree, skipped)
+        if number in open_by_number
+    )
+    excluded = {item.number, *ancestors, *(entry.number for entry in sub_entries)}
+    related_entries = tuple(
+        _tracker_entry(open_by_number[number], open_items, open_by_number, tree)
+        for number in _related_numbers(item.body)
+        if number not in excluded and number in open_by_number
+    )
+    return TrackerWork(sub_issues=sub_entries, related=related_entries)

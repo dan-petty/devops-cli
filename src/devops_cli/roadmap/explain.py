@@ -33,6 +33,7 @@ from devops_cli.github.client import PullStatus
 from devops_cli.github.session import get_github_session
 from devops_cli.lang import MESSAGES
 from devops_cli.output.formatters.scalars import format_duration
+from devops_cli.roadmap.dependencies import TrackerEntry, TrackerWork, tracker_work
 from devops_cli.roadmap.follow import follow_command
 from devops_cli.roadmap.implement.implement import (
     ImplementPlan,
@@ -122,6 +123,9 @@ class Explanation:
     phase: str = ""
     phase_age: float = 0.0
     stop: StopState | None = None
+    is_tracker: bool = False
+    tracker_sub_issues: tuple[TrackerEntry, ...] = ()
+    tracker_related_issues: tuple[TrackerEntry, ...] = ()
 
     def as_dict(self) -> dict[str, object]:
         """The explanation as the JSON object of `explain --json` (#3217): the number, the totals
@@ -316,6 +320,7 @@ def explain_item(
     pulls = _delivery_pulls(repo, item)
     item_phase = derive_phase(item, pulls=pulls).value
     item_phase_age = derive_phase_age(item, pulls=pulls)
+    work = tracker_work(item, store.open_items()) if item.is_tracker else TrackerWork()
     return Explanation(
         repo,
         number,
@@ -337,6 +342,9 @@ def explain_item(
         phase=item_phase,
         phase_age=item_phase_age,
         stop=stop_state_of(item),
+        is_tracker=item.is_tracker,
+        tracker_sub_issues=work.sub_issues,
+        tracker_related_issues=work.related,
     )
 
 
@@ -402,6 +410,45 @@ def _stop_lines(explained: Explanation) -> list[str]:
     return lines
 
 
+def _tracker_lines(explained: Explanation) -> list[str]:
+    """Render open sub-issues and open related issues when `explained` is a tracker."""
+    if not (
+        explained.is_tracker or explained.tracker_sub_issues or explained.tracker_related_issues
+    ):
+        return []
+    texts = MESSAGES.roadmap
+    lines: list[str] = []
+    if explained.tracker_sub_issues:
+        lines.append(texts.explain_tracker_sub_issues_heading.format(number=explained.number))
+        for entry in explained.tracker_sub_issues:
+            block_state = (
+                texts.explain_tracker_blocked_by.format(
+                    issues=", ".join(f"#{blocker}" for blocker in entry.blockers)
+                )
+                if entry.blockers
+                else texts.explain_tracker_unblocked
+            )
+            lines.append(
+                texts.explain_tracker_sub_issue_line.format(
+                    number=entry.number,
+                    status=entry.status or "None",
+                    block_state=block_state,
+                    title=entry.title,
+                )
+            )
+    else:
+        lines.append(texts.explain_tracker_no_sub_issues.format(number=explained.number))
+    if explained.tracker_related_issues:
+        related = ", ".join(
+            texts.explain_tracker_related_item.format(
+                number=entry.number, status=entry.status or "None", title=entry.title
+            )
+            for entry in explained.tracker_related_issues
+        )
+        lines.append(texts.explain_tracker_related.format(issues=related))
+    return lines
+
+
 def render_explanation(explained: Explanation) -> str:
     """The explanation as the report of the command: the issue, then one line for each job, the
     lines of the stop of the item, the line of the effort set, the command that follows the run of
@@ -431,6 +478,7 @@ def render_explanation(explained: Explanation) -> str:
         line = texts.explain_line_yes if verdict.takes else texts.explain_line_no
         lines.append(line.format(job=job, reason=verdict.reason))
     lines.extend(_stop_lines(explained))
+    lines.extend(_tracker_lines(explained))
     if explained.implement_effort:
         lines.append(explained.implement_effort)
     lines.append(texts.explain_follow.format(command=follow_command(explained.number)))

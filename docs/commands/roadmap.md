@@ -351,7 +351,7 @@ devops roadmap repair [OPTIONS]
 
 ## `devops roadmap return`
 
-**Return an item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. The item gets the label status/new in place of its other status/* label.**
+**Return a leaf item to New with an evidence comment, handing it back to refinement when it cannot be built as specified or needs a refactor beyond its scope. Refuses trackers (type/epic or items with sub-issues), whose open sub-issues or related issues should be worked instead. The item gets the label status/new in place of its other status/* label.**
 
 ```bash
 devops roadmap return [OPTIONS] <item>

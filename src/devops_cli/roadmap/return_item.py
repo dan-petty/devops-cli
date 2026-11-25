@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from devops_cli.dry_run.requests import PlannedRequest
 from devops_cli.exceptions import DevOpsCLIError
+from devops_cli.lang import MESSAGES
+from devops_cli.roadmap.dependencies import TrackerEntry, tracker_work
 from devops_cli.roadmap.request_plan import StoreRequests
 from devops_cli.roadmap.status_sync import StatusFacts, derive_status, write_status
 
@@ -40,6 +42,11 @@ class ReturnPlan:
         return derive_status(_RETURNED)
 
 
+def _format_tracker_entry(entry: TrackerEntry) -> str:
+    """Format one open sub-issue or related issue for the tracker-return error message."""
+    return f"#{entry.number} ({entry.title})"
+
+
 def plan_return(
     store: RoadmapStore,
     item_number: int,
@@ -48,10 +55,24 @@ def plan_return(
     *,
     marks: Mapping[Any, str | int | None] | None = None,
 ) -> ReturnPlan:
-    """Validate that the issue is an item of the roadmap and return the ReturnPlan."""
+    """Validate that the issue is a non-tracker roadmap item and return the ReturnPlan."""
     item = store.item(item_number)
     if item is None:
         raise DevOpsCLIError(f"#{item_number} is not an item of the roadmap.")
+    if item.is_tracker:
+        work = tracker_work(item, store.open_items())
+        actionable = (*work.sub_issues, *work.related)
+        texts = MESSAGES.roadmap
+        guidance = (
+            texts.return_tracker_open_work.format(
+                issues=", ".join(_format_tracker_entry(entry) for entry in actionable)
+            )
+            if actionable
+            else texts.return_tracker_no_open_work
+        )
+        raise DevOpsCLIError(
+            texts.return_tracker_refused.format(number=item_number, guidance=guidance)
+        )
     clean_comment = comment.strip()
     if not clean_comment:
         raise DevOpsCLIError("An evidence comment is required when returning an item to New.")

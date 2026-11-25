@@ -3010,6 +3010,24 @@ class RoadmapMessages:
     follow_command: str = "devops roadmap follow {number}"
     inbox_follow: str = "Follow it with `{command}`."
     explain_follow: str = "Follow the run with `{command}`."
+    explain_tracker_sub_issues_heading: str = "Open sub-issues of tracker #{number}:"
+    explain_tracker_sub_issue_line: str = "- #{number} ({status}, {block_state}): {title}"
+    explain_tracker_unblocked: str = "unblocked"
+    explain_tracker_blocked_by: str = "blocked by {issues}"
+    explain_tracker_no_sub_issues: str = (
+        "Tracker #{number} has no open sub-issues; close it if delivered or file sub-issues."
+    )
+    explain_tracker_related: str = "Related open issues: {issues}."
+    explain_tracker_related_item: str = "#{number} ({status}): {title}"
+    return_tracker_refused: str = (
+        "Issue #{number} is a tracker (`type/epic` or has sub-issues), so it cannot be returned "
+        "to New; refine and stage skip trackers because their sub-issues deliver them. {guidance}"
+    )
+    return_tracker_open_work: str = "Work its open sub-issues or related issues instead: {issues}."
+    return_tracker_no_open_work: str = (
+        "No open sub-issues or open related issues were found; close it if delivered or file and "
+        "link sub-issues instead."
+    )
     item_left_filter: str = "The filter takes {family} {wanted}. The item has {family} {have}."
     item_left_limit: str = (
         "It passes every rule, but a run takes {limit} item(s) and {limit} item(s) of higher "
