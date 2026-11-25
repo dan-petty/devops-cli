@@ -689,16 +689,13 @@ CONST_POPEYE_RESOURCE_GROUPS: Final[frozenset[str]] = frozenset({"", "__root__"}
 # The prefix of the empty directory that a Popeye scan starts in (#2132).
 CONST_POPEYE_SCAN_DIR_PREFIX: Final[str] = "devops-scan-popeye-"
 CONST_REVIEW_SCAN_GOLANGCI_LINT_CONFIG: Final[str] = (
+    'version: "2"\n'
     "linters:\n"
-    "  disable-all: true\n"
-    "  enable:\n"
-    "    - errcheck\n"
-    "    - govet\n"
-    "    - staticcheck\n"
-    "linters-settings:\n"
-    "  govet:\n"
-    "    enable:\n"
-    "      - lostcancel\n"
+    "  default: none\n"
+    "  settings:\n"
+    "    govet:\n"
+    "      enable:\n"
+    "        - lostcancel\n"
 )
 # Bandit's project file. This repository's names the targets `devops ci security` and an
 # unisolated `devops scan report` of the tree both scan; a review hands Bandit an empty one in
