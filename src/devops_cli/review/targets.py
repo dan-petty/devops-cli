@@ -7,6 +7,8 @@ from pathlib import Path, PurePath, PurePosixPath
 
 from devops_cli.config.constants import (
     CONST_BINARY_EXTENSIONS,
+    CONST_DOCS_CLASS_GENERATED,
+    CONST_DOCS_INVENTORY,
     CONST_MAX_FILE_SIZE_BYTES,
     CONST_REVIEW_GENERATED_FILES,
     CONST_REVIEW_ROUTED_PATH_PATTERNS,
@@ -33,8 +35,12 @@ def is_secret_scan_only(
     posix = PurePosixPath(str(path).replace("\\", "/").removeprefix("./"))
     if is_fixture_path(posix, path_classes=path_classes):
         return True
+    routed_patterns = (
+        *CONST_REVIEW_ROUTED_PATH_PATTERNS,
+        *CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED],
+    )
     return posix.name in CONST_REVIEW_GENERATED_FILES or any(
-        posix.full_match(pattern) for pattern in CONST_REVIEW_ROUTED_PATH_PATTERNS
+        posix.full_match(pattern) for pattern in routed_patterns
     )
 
 

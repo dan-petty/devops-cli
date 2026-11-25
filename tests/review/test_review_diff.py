@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
+from devops_cli.config.constants import (
+    CONST_DOCS_CLASS_GENERATED,
+    CONST_DOCS_INVENTORY,
+    CONST_REVIEW_ROUTED_PATH_PATTERNS,
+)
 from devops_cli.config.defaults import DEFAULT_REVIEW_MAX_DIFF_CHARS
+from devops_cli.docs.inventory import documents_of_class
 from devops_cli.review.diff import (
     diff_blocks,
     diff_file_names,
@@ -11,6 +19,8 @@ from devops_cli.review.diff import (
     extract_file_diff_hunks,
     number_source_lines,
 )
+from devops_cli.review.targets import is_secret_scan_only
+from tests.support.paths import REPO_ROOT
 
 
 def test_extract_diff_hunks() -> None:
@@ -151,3 +161,32 @@ def test_diff_blocks_skips_secret_scan_only_files() -> None:
     blocks = diff_blocks(diff)
     assert len(blocks) == 1
     assert "src/main.py" in blocks[0]
+
+
+def test_routed_patterns_exclude_generated_globs_and_skip_all_generated_docs() -> None:
+    """CONST_REVIEW_ROUTED_PATH_PATTERNS holds no generated glob, and every generated doc is
+    secret-scan only (#4888)."""
+    generated_globs = set(CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED])
+    assert not (set(CONST_REVIEW_ROUTED_PATH_PATTERNS) & generated_globs)
+    assert "docs/commands/*.md" not in CONST_REVIEW_ROUTED_PATH_PATTERNS
+    assert "docs/CLI_REFERENCE.md" not in CONST_REVIEW_ROUTED_PATH_PATTERNS
+
+    generated_paths = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in documents_of_class(REPO_ROOT, CONST_DOCS_CLASS_GENERATED)
+    ]
+    assert len(generated_paths) >= 50
+    assert all(is_secret_scan_only(path) for path in generated_paths)
+    assert is_secret_scan_only("README.md") is False
+
+
+def test_is_secret_scan_only_follows_generated_inventory_dynamically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Adding a glob to the generated inventory class makes matching paths secret-scan only."""
+    monkeypatch.setitem(
+        CONST_DOCS_INVENTORY,
+        CONST_DOCS_CLASS_GENERATED,
+        (*CONST_DOCS_INVENTORY[CONST_DOCS_CLASS_GENERATED], "docs/EXTRA_GENERATED.md"),
+    )
+    assert is_secret_scan_only("docs/EXTRA_GENERATED.md") is True

@@ -19,8 +19,17 @@ uv.lock linguist-generated
 CHANGELOG.md linguist-generated
 .release-please-manifest.json linguist-generated
 tests/module_durations.json linguist-generated
-docs/CLI_REFERENCE.md linguist-generated
-docs/commands/*.md linguist-generated
+docs/CLI_REFERENCE.md linguist-generated=true
+docs/CONFIGURATION.md linguist-generated=true
+docs/ENV_VARS.md linguist-generated=true
+docs/ERRORS.md linguist-generated=true
+docs/KNOWLEDGE_BASE.md linguist-generated=true
+docs/MCP_TOOLS.md linguist-generated=true
+docs/TELEMETRY.md linguist-generated=true
+docs/commands/*.md linguist-generated=true
+CLAUDE.md linguist-generated=true
+GEMINI.md linguist-generated=true
+.github/copilot-instructions.md linguist-generated=true
 
 # Vendored files: the data of a third party, which nobody edits. GitHub leaves them out of the
 # language counts, and `devops ai rag index` leaves them out of the index. The tiktoken

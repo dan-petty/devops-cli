@@ -191,6 +191,7 @@ In bash, `${=F}`, `${(f)...}` and `print -r --` fail. The forms `printf '%s'`, `
   ```bash
   uv run devops docs generate
   ```
+  On a rebase conflict in a generated document, run `git checkout --ours -- <file>` (in a rebase, "ours" is `main`) and continue with `git rebase --continue`. Then run `uv run devops docs generate` once on the final tree and commit.
   `vale` checks the hand-written prose against the four ASD-STE100 rules of AGENTS.md rule 9 at the suggestion level. The devtools image installs it; run `vale docs/TESTING.md`. Every Markdown file belongs to exactly one class of the documentation inventory (`CONST_DOCS_INVENTORY` in `src/devops_cli/config/constants.py`), so a pull request that adds a document lists it there. `devops docs check` resolves the `devops` command lines of every hand-written and prompt document against the live command tree, so a command named in prose is a command that exists.
 
 ---
