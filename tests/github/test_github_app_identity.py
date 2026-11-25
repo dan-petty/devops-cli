@@ -11,7 +11,7 @@ import json
 import logging
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -732,11 +732,38 @@ def test_fix_checks_phases_scope_token_permissions(
     from devops_cli.core.process import active_token_permissions
     from devops_cli.github.client import PullStatus
     from devops_cli.roadmap.phases.files import OutcomeKind, RunFolders
+    from devops_cli.roadmap.phases.publish import NewTree, Published, PublishTarget
     from devops_cli.roadmap.steps import fix_checks_phases
-    from devops_cli.roadmap.steps.fix_checks import FixChecksReport, FixChecksResult
+    from devops_cli.roadmap.steps.fix_checks import (
+        FixChecksReport,
+        FixChecksResult,
+        Fixed,
+        FixRound,
+        PullCheckout,
+        Repair,
+    )
     from devops_cli.roadmap.steps.fix_checks_phases import FixTier
 
     seen: list[tuple[str, dict[str, str] | None]] = []
+
+    def _repair(
+        workflows: tuple[str, ...] = (),
+        publish: Callable[
+            [PublishTarget, Sequence[tuple[bytes, str]], Callable[[NewTree], None]],
+            Published | None,
+        ]
+        | None = None,
+    ) -> Repair:
+        return Repair(
+            checkout=lambda *_a: PullCheckout(path=tmp_path),
+            tier1=lambda *_a: Fixed(done=True),
+            model=lambda _reader: lambda *_a: Fixed(done=True),
+            patch=lambda *_a: None,
+            publish=publish or (lambda *_a: Published(commit="b" * 40, paths=())),
+            author=lambda: ("bot[bot]", "bot@example.com"),
+            rebase=lambda *_a: Fixed(done=True),
+            workflows=lambda *_a: workflows,
+        )
 
     def fake_judge_round(*_a: object, **_k: object) -> FixChecksReport:
         seen.append(("fix_checks_prepare", active_token_permissions()))
@@ -750,7 +777,7 @@ def test_fix_checks_phases_scope_token_permissions(
         2,
         head=None,
         check=None,
-        repair=SimpleNamespace(),
+        repair=_repair(),
         folders=RunFolders(tmp_path / "fc-prep"),
     )
 
@@ -762,25 +789,24 @@ def test_fix_checks_phases_scope_token_permissions(
         base_ref="main",
         mergeable=True,
     )
-    facts = SimpleNamespace(
+    facts = FixRound(
         repo="o/r",
         pull=2,
+        status=status,
         item_num=2,
         item=None,
-        status=status,
+        heads=(),
         check="ci",
         errors=1,
         rounds=0,
-        heads=(),
-        report=lambda result, reason="", **_k: FixChecksReport(
-            repo="o/r", pull=2, result=result, head="a" * 40, reason=reason
-        ),
     )
     original_target = fix_checks_phases._target
 
-    def capture_ambient_target(repair_arg: object, facts_arg: object, base_arg: str) -> object:
+    def capture_ambient_target(
+        repair_arg: Repair, facts_arg: FixRound, base_arg: str
+    ) -> PublishTarget:
         seen.append(("fix_checks_publish_ambient", active_token_permissions()))
-        return original_target(repair_arg, facts_arg, base_arg)  # type: ignore[arg-type]
+        return original_target(repair_arg, facts_arg, base_arg)
 
     monkeypatch.setattr(fix_checks_phases, "_live_round", lambda *_a, **_k: facts)
     monkeypatch.setattr(
@@ -801,23 +827,22 @@ def test_fix_checks_phases_scope_token_permissions(
     monkeypatch.setattr(fix_checks_phases, "_target", capture_ambient_target)
 
     def run_publish(workflows: tuple[str, ...]) -> None:
-        def fake_publish(_target: object, _patches: object, _before: object) -> SimpleNamespace:
+        def fake_publish(
+            _target: PublishTarget,
+            _patches: Sequence[tuple[bytes, str]],
+            _before: Callable[[NewTree], None],
+        ) -> Published:
             tag = "fix_checks_publish_wf" if workflows else "fix_checks_publish_no_wf"
             seen.append((tag, active_token_permissions()))
-            return SimpleNamespace(commit="b" * 40, paths=["src/a.py"])
+            return Published(commit="b" * 40, paths=("src/a.py",))
 
-        repair = SimpleNamespace(
-            author=lambda: ("bot[bot]", "bot@example.com"),
-            workflows=lambda *_a: workflows,
-            publish=fake_publish,
-        )
         judged_round = fix_checks_phases.JudgedRound("o/r", 2, 2, status, "ci", 1, "")
         fix_checks_phases.publish_round(
             SimpleNamespace(),
             SimpleNamespace(),
             judged_round,
             RunFolders(tmp_path / ("fc-pub-wf" if workflows else "fc-pub")),
-            repair,  # type: ignore[arg-type]
+            _repair(workflows=workflows, publish=fake_publish),
         )
 
     run_publish(())
