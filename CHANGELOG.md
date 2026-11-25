@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.3](https://github.com/dan-petty/devops-cli/compare/v0.221.2...v0.221.3) (2026-11-25)
+
+
+### Bug Fixes
+
+* **mcp:** start the server with no dev-only packages ([#7213](https://github.com/dan-petty/devops-cli/issues/7213)) ([99b044a](https://github.com/dan-petty/devops-cli/commit/99b044a4f927667349dec73bf109ee11bae1824c))
+
 ## [0.221.2](https://github.com/dan-petty/devops-cli/compare/v0.221.1...v0.221.2) (2026-11-25)
 
 
