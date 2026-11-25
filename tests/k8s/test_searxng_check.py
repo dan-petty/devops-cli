@@ -53,7 +53,18 @@ def test_the_reply_keys_are_the_seven_of_the_search_api() -> None:
 
 def test_the_engines_that_stay_off_are_the_keyed_and_suspended_ones() -> None:
     assert sorted(OFF_ENGINES) == sorted(
-        ["brave", "braveapi", "google", "bing", "startpage", "mojeek", "qwant"]
+        [
+            "brave",
+            "braveapi",
+            "google",
+            "bing",
+            "startpage",
+            "mojeek",
+            "qwant",
+            "stackoverflow",
+            "askubuntu",
+            "superuser",
+        ]
     )
 
 
@@ -105,7 +116,20 @@ def test_a_reply_without_a_hit_is_a_problem_unless_the_caller_expects_none() -> 
 
 
 @pytest.mark.parametrize(
-    "engine", ["google", "bing", "brave", "brave.news", "braveapi", "startpage", "mojeek", "qwant"]
+    "engine",
+    [
+        "google",
+        "bing",
+        "brave",
+        "brave.news",
+        "braveapi",
+        "startpage",
+        "mojeek",
+        "qwant",
+        "stackoverflow",
+        "askubuntu",
+        "superuser",
+    ],
 )
 def test_a_hit_of_an_engine_that_stays_off_is_a_problem_that_names_the_engine(engine: str) -> None:
     body = _body(_reply(results=[_HIT, {**_HIT, "engine": engine}]))
@@ -115,12 +139,13 @@ def test_a_hit_of_an_engine_that_stays_off_is_a_problem_that_names_the_engine(en
     assert [engine in problem for problem in problems] == [True]
 
 
-def test_an_engine_that_stays_off_and_is_listed_as_unresponsive_is_a_problem() -> None:
-    body = _body(_reply(unresponsive_engines=[["bing", "CAPTCHA"], ["duckduckgo", "timeout"]]))
+@pytest.mark.parametrize("engine", ["bing", "stackoverflow"])
+def test_an_engine_that_stays_off_and_is_listed_as_unresponsive_is_a_problem(engine: str) -> None:
+    body = _body(_reply(unresponsive_engines=[[engine, "CAPTCHA"], ["duckduckgo", "timeout"]]))
 
     problems = reply_problems(200, body)
 
-    assert [("bing" in problem) for problem in problems] == [True]
+    assert [(engine in problem) for problem in problems] == [True]
 
 
 def test_a_kept_engine_that_is_unresponsive_is_no_problem() -> None:
