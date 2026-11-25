@@ -44,7 +44,8 @@ def test_mcp_tool_schema_and_argv_parsing(
         for p in click_cmd.params
         if p.name not in _IGNORED_PARAM_NAMES
         and not (format_json and p.name in _JSON_PARAM_NAMES)
-        and (not restrictions or p.name in restrictions["allowed"])
+        and (not restrictions or p.name not in restrictions.get("denied", ()))
+        and (not restrictions or p.name in restrictions.get("allowed", {p.name}))
     ]
     schema_props = list(tool.parameters.get("properties", {}).keys())
     assert schema_props == expected_params
@@ -107,3 +108,27 @@ def test_the_roadmap_eval_stage_command_publishes_no_mcp_tool() -> None:
     exposed_paths = {entry[0] for entry in CONST_MCP_EXPOSURE_TABLE}
     assert ("roadmap", "eval", "stage") not in exposed_paths
     assert asyncio.run(mcp.get_tool("roadmap_eval_stage")) is None
+
+
+def test_a_denied_option_leaves_the_tool_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A path restriction with `denied` omits that option, with or without an `allowed` set."""
+    from devops_cli.ai.mcp import generator
+
+    path = ("sandbox", "deploy")
+    command = generator.resolve_click_command(path)
+    with_env, _ = generator._introspect_command_parameters(command, False, ())
+    monkeypatch.setitem(generator._PATH_PARAM_RESTRICTIONS, path, {"denied": frozenset({"env"})})
+    without_env, _ = generator._introspect_command_parameters(command, False, path)
+
+    assert ("env" in {p.name for p in with_env}, "env" in {p.name for p in without_env}) == (
+        True,
+        False,
+    )
+
+
+def test_sandbox_deploy_publishes_no_env_and_valkey_set_is_no_tool() -> None:
+    """`env` and the `valkey set` value are free text a model could fill with a secret (#3230)."""
+    sandbox_deploy = asyncio.run(mcp.get_tool("sandbox_deploy"))
+    properties = sandbox_deploy.parameters.get("properties", {})
+
+    assert ("env" in properties, asyncio.run(mcp.get_tool("valkey_set"))) == (False, None)

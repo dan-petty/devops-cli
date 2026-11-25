@@ -35,7 +35,7 @@ def test_export_schemas_command(runner: CliRunner, tmp_path: Path) -> None:
     out_dir = tmp_path / "mcp_schemas"
     result = runner.invoke(app, ["export-schemas", "--output-dir", str(out_dir)])
     trivy_schema = json.loads((out_dir / "scan_trivy.json").read_text(encoding="utf-8"))
-    mutating_schema = json.loads((out_dir / "valkey_set.json").read_text(encoding="utf-8"))
+    mutating_schema = json.loads((out_dir / "tf_apply.json").read_text(encoding="utf-8"))
     assert (
         result.exit_code,
         (out_dir / "instructions.md").exists(),

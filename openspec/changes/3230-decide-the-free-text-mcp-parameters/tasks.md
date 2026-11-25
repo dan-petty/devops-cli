@@ -11,14 +11,13 @@ Reads: `src/devops_cli/ai/mcp/generator.py`, `tests/ai/mcp/test_mcp_exposure_tab
 
 ## 2. Deny env on sandbox deploy, drop valkey set, and update dependent tests
 
-Reads: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`.
+Reads: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`. Changes: `src/devops_cli/ai/mcp/generator.py`, `src/devops_cli/config/constants.py`, `src/devops_cli/roadmap/stage/stage_run_allowlist.py`, `tests/ai/mcp/test_mcp_exposure_table.py`, `tests/ai/mcp/test_mcp_tool_registry.py`.
 
 - [ ] 2.1 In `tests/ai/mcp/test_mcp_exposure_table.py`, add a test that asserts the schema of `sandbox_deploy` has no `env` property and that the generated tool names hold no `valkey_set`
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` fails on the base
 - [ ] 2.2 Add `("sandbox", "deploy")` to `_PATH_PARAM_RESTRICTIONS` with `denied` holding `env`. Remove `("valkey", "set")` from `CONST_MCP_EXPOSURE_TABLE` in `src/devops_cli/config/constants.py` and from `_PATH_PARAM_RESTRICTIONS`
   - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py` passes
-- [ ] 2.3 Add `("valkey", "set")` to `mcp_command_exclusions` and update `test_export_schemas_command` to check `tf_apply.json` in `tests/commands/test_mcp_tools_and_schema_export.py`. Update `floor_expected_false` in `tests/ai/mcp/test_mcp_tool_registry.py` and the input contract tests in `tests/ai/mcp/test_mcp_argument_refusal.py` to use `tf_apply` instead of `valkey_set`
-  - Verification: `$ uv run devops ci test tests/ai/mcp/test_mcp_exposure_table.py tests/commands/test_mcp_tools_and_schema_export.py tests/ai/mcp/test_mcp_tool_registry.py tests/ai/mcp/test_mcp_argument_refusal.py` passes
+- [ ] 2.3 Update `test_export_schemas_command` to check `tf_apply.json` in `tests/commands/test_mcp_tools_and_schema_export.py`. Update `ROW_COUNT` in `tests/roadmap/stage/test_stage_run_allowlist.py`, `floor_expected_false` in `tests/ai/mcp/test_mcp_tool_registry.py`, the input contract tests in `tests/ai/mcp/test_mcp_argument_refusal.py` to use `tf_apply` instead of `valkey_set`, and the tool-listing snapshot. A command that the exposure table does not name is excluded, so no exclusion list needs an entry
 
 ## 3. Add the free-text sink guard and allow-list k8s_diff_helm values
 

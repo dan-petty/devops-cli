@@ -34,7 +34,9 @@ _PARAM_DESCRIPTIONS: dict[tuple[tuple[str, ...], str], str] = {
 # The options of a command that its MCP tool publishes. A command lists an option here when the
 # other options are for a person at the command line. A URL option is input from the model that
 # calls the tool, so the tool does not publish it. The tool queries the service that the
-# configuration names.
+# configuration names. A `denied` set names options that the tool never publishes, whether an
+# `allowed` set exists or not: it covers a free-text option that copies a value into an
+# environment, a file or a store, which a model could fill with a secret (#3230).
 _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
     ("telemetry", "profile"): {
         "allowed": frozenset({"trace_id"}),
@@ -47,10 +49,7 @@ _PATH_PARAM_RESTRICTIONS: dict[tuple[str, ...], dict[str, Any]] = {
     ("valkey", "stats"): {"allowed": frozenset(), "required": frozenset()},
     ("valkey", "info"): {"allowed": frozenset({"section"}), "required": frozenset()},
     ("valkey", "get"): {"allowed": frozenset({"key"}), "required": frozenset()},
-    ("valkey", "set"): {
-        "allowed": frozenset({"key", "value", "ex", "dry_run"}),
-        "required": frozenset(),
-    },
+    ("sandbox", "deploy"): {"denied": frozenset({"env"})},
     ("valkey", "flush"): {
         "allowed": frozenset({"all_databases", "dry_run"}),
         "required": frozenset(),
@@ -308,11 +307,16 @@ def _introspect_command_parameters(
             continue
         if format_json and p.name in _JSON_PARAM_NAMES:
             continue
-        if restrictions and p.name not in restrictions["allowed"]:
+        if restrictions and (
+            p.name in restrictions.get("denied", ())
+            or p.name not in restrictions.get("allowed", {p.name})
+        ):
             continue
         py_type = _deduce_parameter_type(p)
         default_val = _normalize_default(getattr(p, "default", None))
-        is_required = bool(p.required or (restrictions and p.name in restrictions["required"]))
+        is_required = bool(
+            p.required or (restrictions and p.name in restrictions.get("required", ()))
+        )
         field = _build_parameter_field(
             p, default_val, is_required, _PARAM_DESCRIPTIONS.get((path, p.name))
         )
