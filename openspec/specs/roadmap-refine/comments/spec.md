@@ -35,22 +35,22 @@ The owner-question frame of refine SHALL name the parts of the refine section th
 - **THEN** the frame names the first point of `Open questions`, and its hidden hash is the hash of the first question
 
 ### Requirement: Refine posts a comment only on a changed result
-Refine SHALL post its comment only when the next step, the section without its `checked-at` line or the item that holds the frame differs from the round before, or when the round files a deferred part. A round that posts no comment SHALL record as `refine.repeated_at` the time at which it read the comments. A round that posts one SHALL clear it.
+Refine SHALL post its comment only when the next step, the section without its `checked-at` line or the item that holds the frame differs from the round before, or when the round files a deferred part. Every written non-failed round SHALL record `refine.read_at` as the time at which it read the comments and SHALL write no `refine.repeated_at`.
 
 #### Scenario: The same result after a reply
 - **WHEN** a person replies and the next round finds the same question
-- **THEN** the round posts no comment and records `refine.repeated_at`
+- **THEN** the round posts no comment and records `refine.read_at`
 
 #### Scenario: A changed next step
 - **WHEN** a reply answers the question and the next round sets the item Ready
-- **THEN** the round posts one event line and clears `refine.repeated_at`
+- **THEN** the round posts one event line, records `refine.read_at`, and leaves `refine.repeated_at` unset
 
 #### Scenario: A changed section
 - **WHEN** a reply gives another split and the next round finds the split step again
 - **THEN** the round posts one event line
 
 ### Requirement: A round with no comment starts the wait
-The wait SHALL start at the later of refine's last comment and `refine.repeated_at`. A reply and an answer to a frame on another item SHALL end a wait only when made at or after that start. The model SHALL read each reply since refine's last comment. A stage return SHALL count from refine's last comment, so a second return whose comment the store refuses as a repeat still waits on a person.
+The wait SHALL start at `refine.read_at`, falling back to refine's last comment when absent. Trusted comments made after the start, excluding refine's own comments and other job comments, SHALL end the wait and reach the model alongside replies after refine's last comment. A stage return SHALL count from refine's last comment.
 
 #### Scenario: A second reply after a round with no comment
 - **WHEN** a person replies, the next round finds the same question, a later round runs, and then the person replies again
@@ -58,7 +58,15 @@ The wait SHALL start at the later of refine's last comment and `refine.repeated_
 
 #### Scenario: A reply while a round with no comment runs
 - **WHEN** a person replies after a round read the comments and before it writes, and the round finds the same question
-- **THEN** `refine.repeated_at` is the time of the read, and the next round sends the reply to the model
+- **THEN** `refine.read_at` is the time of the read, and the next round sends the reply to the model
+
+#### Scenario: A reply while a round that posts a comment runs
+- **WHEN** a person replies at T+1, after the round read comments at T and before the round posts its comment at T+2
+- **THEN** the next round ends the wait, sends the reply of T+1 to the model, and ignores refine's own comment of T+2
+
+#### Scenario: A reply at or before the read time
+- **WHEN** the only person reply after an earlier refine comment was made at or before the recorded `refine.read_at`
+- **THEN** the next round keeps the item waiting and makes no model call
 
 ### Requirement: A frame moves when the item that holds it closes
 Refine SHALL record as `refine.frame` the item whose comment holds the frame of the question that it asked. The wait SHALL end when the open item that holds that frame is another item, and the next round SHALL post the frame when no older open item asks the question.
@@ -73,3 +81,17 @@ The dry run of `devops roadmap refine` SHALL show the refine comment under the c
 #### Scenario: The plan of a round and of one item
 - **WHEN** the request plan of a round and of `--item 7` is built
 - **THEN** the comment request of each holds the condition text of `refine_changed`
+
+### Requirement: A failed round records no read time
+A round that fails its job SHALL NOT record `refine.read_at` for the item, so replies read by that failed round stay unread for the next round.
+
+#### Scenario: A reply read by a failed round is sent again
+- **WHEN** a round reads a reply of a person and then fails its job
+- **THEN** the job record holds no `refine.read_at` from the failed round and the next round sends that reply to the model
+
+### Requirement: An item with no recorded read time uses refine's last comment
+When an item's job record holds no `refine.read_at`, a round SHALL use refine's last comment as the start of the wait and SHALL record `refine.read_at` for that round.
+
+#### Scenario: An item whose record holds only the earlier repeat time keeps its wait
+- **WHEN** an item's job record holds `refine.repeated_at` and no `refine.read_at`
+- **THEN** the round sends replies that follow refine's last comment and writes `refine.read_at`

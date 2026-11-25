@@ -17,7 +17,7 @@ When refine leaves an item New with an open dependency or a suspected block, it 
 - **THEN** the job record holds no `refine.block_paths`
 
 ### Requirement: A change to the code that a block cites ends the wait
-Without `--item`, `devops roadmap refine` SHALL look at an unchanged waiting item again when a commit on the default branch changed one of its recorded `refine.block_paths` at or after the start of the wait: the later of refine's last comment on the item and `refine.repeated_at`. When no recorded path changed at or after that start, the item SHALL keep waiting on its next step, and the round SHALL make no model call for it.
+Without `--item`, `devops roadmap refine` SHALL look at an unchanged waiting item again when a commit on the default branch changed one of its recorded `refine.block_paths` at or after `refine.read_at` (or refine's last comment when absent). Otherwise the item SHALL keep waiting with no model call.
 
 #### Scenario: The cited path changes after refine's last comment
 - **WHEN** an item waits on an open blocker, or on a suspected block, with `refine.block_paths` `src/sample.py`, and a commit on the default branch changes `src/sample.py` five minutes after refine's last comment on the item
@@ -118,7 +118,7 @@ Without `--item`, a round SHALL read no comment of an item that waits on a block
 - **THEN** the next round lists the item as waiting on its blocker, reads no comment of the item and makes no model call
 
 ### Requirement: The exits of a wait need no comment read
-A round SHALL end the wait of an item whose count of comments is the recorded one, with no read of its comments, when every recorded blocker is closed, when a commit on the default branch changed a recorded `refine.block_paths` path, or, for a wait on a person, when an issue or a path of `refine.wait_refs` closed or changed. Only a change at or after the later of `refine.commented_at` and `refine.repeated_at` SHALL count. The `updated_at` of the item SHALL NOT be part of the check.
+A round SHALL end the wait of an item whose count of comments equals `refine.comments_seen`, with no read of its comments, when blockers close or a recorded `refine.block_paths` or `refine.wait_refs` entry changes at or after `refine.read_at` (or `refine.commented_at` when absent). `updated_at` SHALL NOT count.
 
 #### Scenario: A blocker closes
 - **WHEN** a recorded wait holds a blocker, and a person closes the blocker
@@ -129,7 +129,7 @@ A round SHALL end the wait of an item whose count of comments is the recorded on
 - **THEN** the next round refines the item, and the `updated_at` of the item is the one it had before
 
 ### Requirement: A new comment ends the saving
-A round SHALL read the comments of an item that waits when its count of comments differs from the recorded one. A reply at or after the start of the wait, the later of refine's last comment and `refine.repeated_at`, SHALL end the wait. A comment that is no reply SHALL cost one read, and the round SHALL record the new count.
+A round SHALL read the comments of an item that waits when its count of comments differs from `refine.comments_seen`. A trusted reply made after the start of the wait (`refine.read_at`, else refine's last comment) SHALL end the wait. A comment that is no reply SHALL cost one read, and the round SHALL record the new count.
 
 #### Scenario: A reply
 - **WHEN** a person replies to the comment of an item that waits on a person with a recorded wait

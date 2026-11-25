@@ -49,11 +49,11 @@ The labels hold the Status and `checked-at` the commit. The comment that carries
 `CONST_ROADMAP_REFINE_COMMENT_MARKER` is one event line that names the next step and the parts of
 the section that hold it, and it posts only when the next step, the section without its `checked-at`
 line or the item that holds the frame differs from the round before, or when the round files a
-deferred part (#6196). A round that posts none records the time at which it read the comments
-(`RefineRecordKey.REPEATED_AT`), and the wait starts at the later of that time and refine's last
-comment. A later round looks at an unchanged item again when a comment follows the start of the
-wait, or when every item that blocks it is closed. The comments since refine's last one reach the
-model as `replies`, also those that a round with no comment read. A round that reads the comments of
+deferred part (#6196). Every round that writes a non-failed result records the time at which it
+read the comments (`RefineRecordKey.READ_AT`), and the wait starts at that time (#6371). A later
+round looks at an unchanged item again when a trusted comment follows that time, or when every
+item that blocks it is closed. Comments after refine's last one or after `READ_AT` reach the model
+as `replies`, also those that a round with no comment read. A round that reads the comments of
 a waiting item records what they gave (`RefineRecordKey.COMMENTS_SEEN`, `COMMENTED_AT` and
 `WAIT_REFS`: the count of comments the issue listing carried, the time of refine's last comment, and
 the issues and paths that the parts of the section that name a cause and the replies name). So an
@@ -71,8 +71,8 @@ causes the block (`block_paths`). Refine records those that the checkout holds, 
 commit on the default branch changed one of them at or after the start of the wait (#2005). That
 costs one commit read for each recorded path of an item that still waits, once a round. When such a
 look finds the result of the round before, or the store refuses its comment as a repeat, the round
-records the time of its read (`RefineRecordKey.REPEATED_AT`), and the wait starts at that time, so
-one change gives one look (#4793, #6196).
+records `RefineRecordKey.READ_AT` as its read time, so one change gives one look (#4793, #6196,
+#6371).
 The check of the alternatives job (#2650) is an input of both model calls (`alternatives`: its
 verdict, tool, block and latest comment whole). The block holds the result, and the comment the
 evidence of the run (#6195). A `covers` verdict is a question that only a person
@@ -2831,40 +2831,46 @@ def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
     return version < CONST_ROADMAP_REFINE_RULES_SINCE
 
 
-def _repeated_at(item: Item) -> datetime | None:
-    """The time of the last round on `item` that posted no comment (`RefineRecordKey.REPEATED_AT`):
-    its result was the one of the round before (#6196), or the store refused its comment as a
-    repeat (#4793). None when the record holds none, or a value that is no time."""
-    recorded = item.job_record.get(RefineRecordKey.REPEATED_AT)
+def _read_at(item: Item) -> datetime | None:
+    """The time at which the last written round on `item` read its comments (`RefineRecordKey.READ_AT`),
+    or None when the record holds none or a value that is not a time (#6371)."""
+    recorded = item.job_record.get(RefineRecordKey.READ_AT)
     if not recorded:
         return None
     try:
         return as_utc(datetime.fromisoformat(recorded))
     except ValueError:
-        logger.warning(
-            "The time of the round with no comment recorded on #%d is not a time.", item.number
-        )
+        logger.warning("The read time recorded on #%d is not a time.", item.number)
         return None
 
 
 def _wait_start(item: Item, commented_at: datetime) -> datetime:
-    """The start of the wait of `item`: `commented_at`, the time of refine's last comment, or the
-    later time of a round that posted no comment (`_repeated_at`). That round read the replies
-    before it and looked at the item after the change that ended the wait before, so neither ends
-    a later wait (#4793, #6196)."""
-    repeated_at = _repeated_at(item)
-    return commented_at if repeated_at is None else max(commented_at, repeated_at)
+    """The start of the wait of `item`: `RefineRecordKey.READ_AT` when recorded (#6371), else
+    `commented_at`, the time of refine's last comment."""
+    read_at = _read_at(item)
+    return commented_at if read_at is None else read_at
 
 
 def _since_wait_start(item: Item, comments: Sequence[IssueComment]) -> list[IssueComment]:
-    """The comments after refine's last comment on `item` made at or after the start of its wait
-    (`_wait_start`), oldest first: those that no round read yet (#6196). Empty when refine left no
-    comment."""
+    """The trusted comments of persons after the wait of `item` started, oldest first (#6196,
+    #6371): comments made after `RefineRecordKey.READ_AT`, excluding refine's own comments and
+    other job comments, or comments after refine's last comment when no read time is recorded."""
     marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
     if not marked:
         return []
-    since = _wait_start(item, comments[marked[-1]].created_at)
-    return [comment for comment in comments[marked[-1] + 1 :] if comment.created_at >= since]
+    last_refine = marked[-1]
+    read_at = _read_at(item)
+    if read_at is None:
+        return comments_without_jobs(comments[last_refine + 1 :])
+    commented_at = comments[last_refine].created_at
+    same_tick_post = read_at == commented_at
+    after = [
+        comment
+        for index, comment in enumerate(comments)
+        if comment.created_at > read_at
+        or (same_tick_post and index > last_refine and comment.created_at >= commented_at)
+    ]
+    return comments_without_jobs(after)
 
 
 def _stage_return(item: Item, comments: Sequence[IssueComment]) -> IssueComment | None:
@@ -2988,8 +2994,8 @@ def _question_ends_wait(
     if holder.number == item.number:
         return False
     answer = questions.answer(item, comments_on)
-    repeated_at = _repeated_at(item)
-    return answer is not None and (repeated_at is None or answer.at >= repeated_at)
+    read_at = _read_at(item)
+    return answer is not None and (read_at is None or answer.at > read_at)
 
 
 _CYCLE_PREFIX, _, _CYCLE_SUFFIX = MESSAGES.roadmap.dependency_cycle.partition("{cycle}")
@@ -3682,7 +3688,7 @@ def _proposal_request(
         "number": item.number,
         "title": item.title,
         "body": current_body,
-        "replies": _replies_for_model(comments),
+        "replies": _replies_for_model(comments, read_at=_read_at(item)),
         "stage_return": _stage_evidence(returned),
         "alternatives": _alternatives_request(check, comments, covers),
         "context": _proposal_context(ctx, alert),
@@ -4173,12 +4179,26 @@ def _stage_evidence(returned: IssueComment | None) -> str | None:
     return None if returned is None else stage_comment_text(returned.body)
 
 
-def _replies_for_model(comments: Sequence[IssueComment]) -> list[str]:
-    """The replies the model reads: the comments after refine's last comment, or every comment
-    when refine left none, the newest `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token
-    cap (#1758)."""
-    replies = replies_since_refine(comments)
-    persons = _without_other_jobs_comments(comments) if replies is None else replies
+def _replies_for_model(
+    comments: Sequence[IssueComment], *, read_at: datetime | None = None
+) -> list[str]:
+    """The replies the model reads: person comments after refine's last comment or after
+    `read_at` when recorded (#6371), or every comment when refine left none, the newest
+    `CONST_ROADMAP_REFINE_MAX_REPLIES`, each cut to its token cap (#1758)."""
+    marked = [i for i, c in enumerate(comments) if CONST_ROADMAP_REFINE_COMMENT_MARKER in c.body]
+    if not marked:
+        persons = comments_without_jobs(comments)
+    elif read_at is None:
+        persons = comments_without_jobs(comments[marked[-1] + 1 :])
+    else:
+        last_refine = marked[-1]
+        persons = comments_without_jobs(
+            [
+                comment
+                for index, comment in enumerate(comments)
+                if index > last_refine or comment.created_at > read_at
+            ]
+        )
     kept = persons[-CONST_ROADMAP_REFINE_MAX_REPLIES:]
     return [
         truncate_to_token_limit(reply.body, max_tokens=CONST_ROADMAP_REFINE_MAX_REPLY_TOKENS)
@@ -4614,9 +4634,12 @@ def _refine_marks(r: RefinedItem, deferred: Sequence[int], section_hash: str | N
         else None,
         OwnerQuestionRecordKey.ANSWER: _recorded_answer(r),
         RefineRecordKey.FRAME: None if r.frame is None else str(r.frame),
-        RefineRecordKey.REPEATED_AT: r.read_at.isoformat() if r.repeated else None,
         **_failure_marks(r.item, r.failure, r.tries),
     }
+    if r.failure is None:
+        marks[RefineRecordKey.READ_AT] = r.read_at.isoformat()
+    if RefineRecordKey.REPEATED_AT in r.item.job_record:
+        marks[RefineRecordKey.REPEATED_AT] = None
     if r.judge is not None or RefineRecordKey.JUDGE in r.item.job_record:
         marks[RefineRecordKey.JUDGE] = r.judge.value if r.judge is not None else None
     if deferred:
@@ -4656,14 +4679,11 @@ def _apply_refined(store: RoadmapStore, r: RefinedItem, *, repo: str) -> RefineA
     else:
         store.set_marks(r.item, marks, body=body)
 
-    # Comment: a round whose result changed posts it (#6196), and a repeat that the store refuses
-    # starts the wait at the read of this round (#4793)
+    # Comment: a round whose result changed posts it (#6196); `read_at` is already recorded above.
     comments = 0
     comment = r.reason_comment
     if comment and store.comment(r.item.number, comment):
         comments = 1
-    elif comment:
-        store.set_marks(r.item, {RefineRecordKey.REPEATED_AT: r.read_at.isoformat()})
     return RefineApplied(
         refined_count=1,
         readied_count=readied,

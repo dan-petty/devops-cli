@@ -204,6 +204,7 @@ def test_a_round_whose_result_is_the_one_before_posts_no_comment_and_its_read_st
 
     assert (
         [body for body in comment_bodies(store, number) if REFINE_MARKER in body][1:],
+        require_item(store, number).job_record.get(RefineRecordKey.READ_AT),
         require_item(store, number).job_record.get(RefineRecordKey.REPEATED_AT),
         [(w.item.number, w.step) for w in quiet.waiting_items],
         quiet_calls,
@@ -212,6 +213,7 @@ def test_a_round_whose_result_is_the_one_before_posts_no_comment_and_its_read_st
     ) == (
         [],
         read_at.isoformat(),
+        None,
         [(number, NextStep.PERSON)],
         0,
         [number],
@@ -243,11 +245,13 @@ def test_a_reply_made_while_a_round_with_no_comment_runs_ends_the_wait(
         again = plan_refine(store, repo=REPO, source=git_repo)
 
     assert (
+        require_item(store, number).job_record.get(RefineRecordKey.READ_AT),
         require_item(store, number).job_record.get(RefineRecordKey.REPEATED_AT),
         [r.item.number for r in again.refined_items],
         replies_sent(model_fake),
     ) == (
         read_at.isoformat(),
+        None,
         [number],
         ["The first reply.", "The reply during the round."],
     )
@@ -275,7 +279,8 @@ def test_a_round_whose_next_step_changes_posts_one_event_with_no_commit_and_no_s
         "Status" in ready,
         REFINE_HEAD_SHA[:7] in ready,
         require_item(store, number).job_record.get(RefineRecordKey.REPEATED_AT),
-    ) == ("Ready", True, True, False, False, None)
+        require_item(store, number).job_record.get(RefineRecordKey.READ_AT) is not None,
+    ) == ("Ready", True, True, False, False, None, True)
 
 
 def test_a_round_whose_section_changes_posts_the_event_again(
@@ -399,3 +404,167 @@ def test_an_answer_on_the_frame_of_an_older_item_resumes_the_linked_item_once(
         sorted(w.item.number for w in quiet.waiting_items),
         model_fake.call_count - calls,
     ) == ([older, newer], [2, 1], [older, newer], 0)
+
+
+def test_a_reply_made_while_a_round_that_posts_a_comment_runs_reaches_the_model(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person replies after a round read comments at T and before it posts its comment at T+2.
+    That reply is older than refine's new comment, so READ_AT starts the wait at T and sends
+    that reply to the next round, while refine's own T+2 comment and replies <= T do not (#6371).
+    """
+    store.seed_visibility(is_private=True)
+    with time_machine.travel(_START, tick=False) as clock:
+        number = seed_item(store, "New", "P1-High")
+        model_fake.answer(QUESTION)
+        refine_round(store, git_repo)
+
+        clock.shift(timedelta(days=1, hours=1))
+        base = datetime.now(UTC)
+        clock.shift(timedelta(minutes=5))
+        store.as_actor("alice").comment(number, "Before the read.")
+        clock.shift(timedelta(minutes=5))
+        read_at = datetime.now(UTC)
+        model_fake.answer(SPLIT)
+        plan = plan_refine(store, repo=REPO, source=git_repo)
+
+        clock.shift(timedelta(minutes=1))
+        store.as_actor("alice").comment(number, "During the comment round.")
+        clock.shift(timedelta(minutes=1))
+        apply_refine(store, plan)
+
+        clock.shift(timedelta(minutes=5))
+        model_fake.answer(READY)
+        again = refine_round(store, git_repo)
+        quiet_calls = model_fake.call_count
+        clock.shift(timedelta(minutes=5))
+        quiet = plan_refine(store, repo=REPO, source=git_repo)
+
+    record = require_item(store, number).job_record
+    assert (
+        [r.item.number for r in again.refined_items],
+        replies_sent(model_fake),
+        require_item(store, number).status,
+        record.get(RefineRecordKey.READ_AT),
+        record.get(RefineRecordKey.REPEATED_AT),
+        quiet.refined_items,
+        model_fake.call_count - quiet_calls,
+    ) == (
+        [number],
+        ["During the comment round."],
+        "Ready",
+        (base + timedelta(minutes=17)).isoformat(),
+        None,
+        [],
+        0,
+    )
+    assert read_at == base + timedelta(minutes=10)
+
+
+def test_a_reply_at_or_before_read_at_keeps_the_item_waiting(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A person reply follows refine's earlier comment, at or before the recorded read time:
+    neither an older reply nor refine's own later comment wakes the next round (#6371)."""
+    store.seed_visibility(is_private=True)
+    with time_machine.travel(_START, tick=False) as clock:
+        number = seed_item(store, "New", "P1-High")
+        model_fake.answer(QUESTION)
+        refine_round(store, git_repo)
+        clock.shift(timedelta(days=1, hours=1))
+        clock.shift(timedelta(minutes=5))
+        store.as_actor("alice").comment(number, "Already read reply.")
+        clock.shift(timedelta(minutes=5))
+        read_at = datetime.now(UTC)
+        model_fake.answer(SPLIT)
+        plan = plan_refine(store, repo=REPO, source=git_repo)
+        clock.shift(timedelta(minutes=2))
+        apply_refine(store, plan)
+
+        calls = model_fake.call_count
+        clock.shift(timedelta(minutes=5))
+        quiet = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        require_item(store, number).job_record.get(RefineRecordKey.READ_AT),
+        [(w.item.number, w.step) for w in quiet.waiting_items],
+        quiet.refined_items,
+        model_fake.call_count - calls,
+    ) == (read_at.isoformat(), [(number, NextStep.SPLIT)], [], 0)
+
+
+def test_a_failed_round_records_no_read_at_and_replays_its_reply(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """A round that reads a reply and fails its job writes no READ_AT, so the reply reaches the
+    next round."""
+    store.seed_visibility(is_private=True)
+    bad_proposal = READY.model_copy(update={"problem_statement": ""})
+    with time_machine.travel(_START, tick=False) as clock:
+        number = seed_item(store, "New", "P1-High")
+        model_fake.answer(QUESTION)
+        refine_round(store, git_repo)
+
+        clock.shift(timedelta(minutes=5))
+        store.as_actor("alice").comment(number, "Please check again.")
+        clock.shift(timedelta(minutes=5))
+        model_fake.answer(bad_proposal)
+        refine_round(store, git_repo)
+        recorded_after_fail = require_item(store, number).job_record.get(RefineRecordKey.READ_AT)
+
+        clock.shift(timedelta(minutes=5))
+        model_fake.answer(READY)
+        resumed = refine_round(store, git_repo)
+
+    assert (
+        recorded_after_fail,
+        [r.item.number for r in resumed.refined_items],
+        replies_sent(model_fake),
+        require_item(store, number).job_record.get(RefineRecordKey.READ_AT),
+    ) == (
+        _START.isoformat(),
+        [number],
+        ["Please check again."],
+        (_START + timedelta(minutes=15)).isoformat(),
+    )
+
+
+def test_an_item_holding_only_repeated_at_falls_back_to_refine_comment_and_writes_read_at(
+    git_repo: Path, store: InMemoryRoadmapStore, model_fake: ModelFake
+) -> None:
+    """When only REPEATED_AT is recorded and READ_AT is absent, the round falls back to refine's
+    last comment, keeps replies after that comment, and records READ_AT."""
+    store.seed_visibility(is_private=True)
+    with time_machine.travel(_START, tick=False) as clock:
+        number = seed_item(store, "New", "P1-High")
+        model_fake.answer(QUESTION)
+        refine_round(store, git_repo)
+
+        clock.shift(timedelta(minutes=5))
+        store.as_actor("alice").comment(number, "Reply after refine comment.")
+        clock.shift(timedelta(minutes=5))
+        item = require_item(store, number)
+        store.set_marks(
+            item,
+            {
+                RefineRecordKey.READ_AT: None,
+                RefineRecordKey.REPEATED_AT: datetime.now(UTC).isoformat(),
+            },
+        )
+
+        clock.shift(timedelta(minutes=5))
+        model_fake.answer(READY)
+        round_done = refine_round(store, git_repo)
+
+    record = require_item(store, number).job_record
+    assert (
+        [r.item.number for r in round_done.refined_items],
+        replies_sent(model_fake),
+        record.get(RefineRecordKey.READ_AT),
+        record.get(RefineRecordKey.REPEATED_AT),
+    ) == (
+        [number],
+        ["Reply after refine comment."],
+        (_START + timedelta(minutes=15)).isoformat(),
+        None,
+    )
