@@ -20,13 +20,18 @@ FROM ghcr.io/dan-petty/devtools:1.1.13@sha256:6bfb62747e0c2b26a3001cd69428749296
 # this file, and BuildKit keys the cache of a `COPY --from` or a bind mount on the content of the
 # files that it reads. So the dependency layers of the runner, Service and MCP server images keep
 # their cache when only `src/` and the version change, and a node that holds the previous release
-# pulls only the project layer.
+# pulls only the project layer. The stage also gives the uv seed its input: the dev requirements,
+# and a stub project with the build backend of `pyproject.toml`.
 FROM python:3.14-slim-trixie@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b AS lock
 COPY --from=uv /uv /usr/local/bin/
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv export --locked --no-dev --extra review --no-emit-project --format requirements-txt \
-      -o /lock/runtime.txt
+      -o /lock/runtime.txt && \
+    uv export --locked --group dev --no-emit-project --format requirements-txt -o /lock/dev.txt && \
+    mkdir -p /lock/stub/seedstub && touch /lock/stub/seedstub/__init__.py && \
+    python -c 'import tomllib; build = tomllib.load(open("pyproject.toml", "rb"))["build-system"]; print(f"[project]\nname = \"seedstub\"\nversion = \"0\"\n[build-system]\nrequires = {build["requires"]}\nbuild-backend = \"{build["build-backend"]}\"")' \
+      > /lock/stub/pyproject.toml
 
 # uv and the venv of the runtime requirements, for the Service and MCP server images. No file of the
 # project is in this stage. Each uv install mounts the uv cache of root, so no layer holds the cache.
@@ -141,9 +146,15 @@ USER 1000:1000
 ENTRYPOINT ["devops"]
 
 # The uv cache seed for runner Job checkouts (#4814). Built FROM `devtools` so it carries the
-# exact uv and Python 3.14 of `runner`, populates `/cache` with `uv sync --locked --group dev`
-# matching `bootstrap_checkout` in `src/devops_cli/roadmap/runner_tools.py`, and records
-# `/seed.json` for `_seed_fits`. Placed before `service` so a default build still builds Service.
+# exact uv and Python 3.14 of `runner`. It fills `/cache` with the dev requirements of `uv.lock`,
+# as the sync of `bootstrap_checkout` in `src/devops_cli/roadmap/runner_tools.py` needs them, and
+# installs the stub project of `lock` as editable, which puts the build backend of the project into
+# the cache. It reads only `lock`, so a release, which changes only the version, builds it from
+# cache and keeps its layer (#7208). The stage `uv-seed-smoke` of `smoke.Dockerfile` syncs a
+# checkout from the seed with no network. Placed before `service` so a default build still builds
+# Service. The install of the requirements leaves the index pages of PyPI in the cache, which a
+# sync of a lock file does not read, so the stage removes them (60 MB). The stub project then gets
+# the pages of the build backend again.
 FROM devtools AS uv-seed-build
 
 WORKDIR /app
@@ -153,15 +164,25 @@ ENV UV_CACHE_DIR=/cache \
     UV_PYTHON_DOWNLOADS=never \
     UV_COMPILE_BYTECODE=0
 
-COPY pyproject.toml uv.lock ./
-COPY src/ ./src/
-RUN uv sync --locked --group dev && \
-    /usr/bin/python3.14 -c 'import hashlib, json, pathlib, subprocess, sys; pathlib.Path("/seed.json").write_text(json.dumps({"uv": subprocess.check_output(["uv", "--version"], text=True).split()[1], "python": f"{sys.version_info.major}.{sys.version_info.minor}", "uv_lock_sha256": hashlib.sha256(pathlib.Path("uv.lock").read_bytes()).hexdigest()}) + "\n", encoding="utf-8")' && \
-    find /cache /seed.json ! -type l -exec chmod a+rX {} +
+COPY --from=lock /lock/dev.txt /lock/dev.txt
+COPY --from=lock /lock/stub /lock/stub
+RUN uv venv /tmp/venv && \
+    uv pip sync --python /tmp/venv --require-hashes /lock/dev.txt && \
+    rm -rf /cache/simple-v* && \
+    uv pip install --python /tmp/venv --no-deps --editable /lock/stub && \
+    rm -rf /tmp/venv && \
+    find /cache ! -type l -exec chmod a+rX {} +
+
+# `seed.json` records the `uv.lock` of the seed, which `_seed_fits` compares with the one of a
+# checkout. This stage is the only one of the seed that a release builds again.
+FROM uv-seed-build AS uv-seed-record
+COPY uv.lock ./
+RUN /usr/bin/python3.14 -c 'import hashlib, json, pathlib, subprocess, sys; pathlib.Path("/seed.json").write_text(json.dumps({"uv": subprocess.check_output(["uv", "--version"], text=True).split()[1], "python": f"{sys.version_info.major}.{sys.version_info.minor}", "uv_lock_sha256": hashlib.sha256(pathlib.Path("uv.lock").read_bytes()).hexdigest()}) + "\n", encoding="utf-8")' && \
+    chmod a+r /seed.json
 
 FROM scratch AS uv-seed
-COPY --from=uv-seed-build /cache /cache
-COPY --from=uv-seed-build /seed.json /seed.json
+COPY --link --from=uv-seed-build /cache /cache
+COPY --link --from=uv-seed-record /seed.json /seed.json
 
 # The layers of the Service and MCP server images that a change of `src/` keeps: git, the Node
 # runtime, gh and OpenSpec, and the venv of the runtime requirements. gh comes from the devtools
