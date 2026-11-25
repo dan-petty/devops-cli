@@ -175,6 +175,7 @@ from devops_cli.roadmap.decision_step import Band
 from devops_cli.roadmap.dependencies import open_blockers, open_dependency
 from devops_cli.roadmap.digest_clears import has_digest_clear
 from devops_cli.roadmap.failure import FailureClass, StepName, failure_class_of, retry_after
+from devops_cli.roadmap.implement.record_clear import run_clear_marks
 from devops_cli.roadmap.item_comments import HeldComment, RequestForm, fit_comments, held_comments
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.owner_question import OwnerQuestion, QuestionOption
@@ -4240,7 +4241,11 @@ def _reject_plan(
     it (`staged`): then its Status stays as it is."""
     if rejection.branch is not None:
         _delete_rejected_branch(source, rejection.branch, rejection.branch_sha)
-    marks = dict.fromkeys(STAGE_PLAN_KEYS) | {StageRecordKey.REJECTED: rejection.plan.record}
+    marks = (
+        dict.fromkeys(STAGE_PLAN_KEYS)
+        | run_clear_marks(rejection.item)
+        | {StageRecordKey.REJECTED: rejection.plan.record}
+    )
     if staged:
         store.comment(rejection.number, rejection.comment)
         store.set_marks(rejection.item, marks)

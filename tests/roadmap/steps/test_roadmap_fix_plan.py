@@ -1608,3 +1608,29 @@ def test_a_revision_that_does_not_read_back_is_not_pushed(
         assert _record(store)[FixPlanRecordKey.RESULT] == "failed"
         assert _record(store)[FixPlanRecordKey.ATTEMPTS] == "1"
         assert (line["result"], line["class"]) == ("failed", "plan_unreadable")
+
+
+def test_a_finished_runner_job_does_not_skip_a_fix_plan_draft(
+    store: InMemoryRoadmapStore,
+    stage_repo: StageRepo,
+    model_fake: ModelFake,
+    verifier: ModelFake,
+    github_api: GitHubApiFake,
+) -> None:
+    """fix_plan ignores a finished implement.job when implement.job_state is set (#5251)."""
+    plan = needs_fix_plan(store, stage_repo, github_api)
+    item = store.item(plan.number)
+    assert item is not None
+    store.set_marks(
+        item,
+        {
+            ImplementRecordKey.JOB: "devops-cli-runner-1",
+            ImplementRecordKey.JOB_STATE: "failed",
+        },
+    )
+    verifier.answer(Verification(findings=[]))
+
+    run = _run(store, stage_repo, verifier)
+
+    assert run.target is not None
+    assert run.target.item.number == plan.number

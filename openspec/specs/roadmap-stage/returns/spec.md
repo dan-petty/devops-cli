@@ -285,3 +285,10 @@ The record of a rejected plan MUST hold only the paths that the default branch h
 #### Scenario: A decimal and a version in the reason of a rejected plan
 - **WHEN** the reason of a rejected plan names a decimal and a version before a file that the default branch holds, and `text_paths` reads the reason with the tree of the default branch
 - **THEN** the record of `stage.rejected` holds that file and neither value
+
+### Requirement: A rejected plan clears the implement run keys
+When `stage` records a closed, unmerged plan pull request as rejected, it SHALL clear the implement run keys while preserving non-run history (`implement.continuations`, `implement.digest_clears`, `implement.spend`).
+
+#### Scenario: Rejected plan clears implement run keys
+- **WHEN** `stage` records a rejected plan for an item holding `implement.job`, `implement.job_state`, `implement.stopped`, `implement.failure`, `implement.branch`, `implement.pr`, and `implement.continuations`
+- **THEN** the implement run keys are cleared while `implement.continuations` and `stage.rejected` remain, `recorded_branch` returns `None`, and `sync_statuses` derives `Ready` after the item becomes `Ready`

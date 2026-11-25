@@ -797,3 +797,54 @@ def test_the_request_of_a_run_that_names_the_item_holds_the_reason_that_the_run_
     assert [r.number for r in plan.rejections] == [number]
     assert [change.target.item.number for change in plan.ready] == [number]
     assert EVIDENCE in str(request["rejected_plan"])
+
+
+def test_a_rejected_plan_clears_implement_run_keys_and_allows_ready_and_routing(
+    store: InMemoryRoadmapStore, stage_repo: StageRepo, github_api: GitHubApiFake
+) -> None:
+    """Rejecting a closed plan PR clears stale implement run keys while keeping continuations (#5251)."""
+    from devops_cli.roadmap.implement.implement import recorded_branch
+    from devops_cli.roadmap.status_sync import facts_of, sync_status
+    from devops_cli.roadmap.stores.store import ImplementRecordKey
+
+    number, pull = _staged(store, github_api)
+    _comment(store, pull, EVIDENCE)
+    stage_repo.push_branch(BRANCH, author=STAGE_NAME)
+    store.set_marks(
+        _item(store, number),
+        {
+            ImplementRecordKey.JOB: "devops-cli-runner-1",
+            ImplementRecordKey.JOB_STATE: "failed",
+            ImplementRecordKey.STOPPED: "push",
+            ImplementRecordKey.FAILURE: "plan_defect",
+            ImplementRecordKey.LEFT_ACTION: "wait",
+            ImplementRecordKey.CHECK: "pytest",
+            ImplementRecordKey.BRANCH: "fix/1-old-impl",
+            ImplementRecordKey.PR: "5140",
+            ImplementRecordKey.CONTINUATIONS: "2",
+        },
+    )
+
+    _applied(store, stage_repo)
+
+    returned = _item(store, number)
+    full_record = returned.job_record
+    for cleared in (
+        ImplementRecordKey.JOB,
+        ImplementRecordKey.JOB_STATE,
+        ImplementRecordKey.STOPPED,
+        ImplementRecordKey.FAILURE,
+        ImplementRecordKey.LEFT_ACTION,
+        ImplementRecordKey.CHECK,
+        ImplementRecordKey.BRANCH,
+        ImplementRecordKey.PR,
+    ):
+        assert full_record.get(cleared) is None
+    assert full_record.get(ImplementRecordKey.CONTINUATIONS) == "2"
+    assert StageRecordKey.REJECTED in full_record
+
+    assert recorded_branch(returned) is None
+    store.set_field(returned, ItemField.STATUS, "Ready")
+    ready_item = _item(store, number)
+    assert sync_status(store, ready_item, facts_of(ready_item, plan_merged=False)) is None
+    assert _item(store, number).status == "Ready"

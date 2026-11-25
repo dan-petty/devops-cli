@@ -66,6 +66,7 @@ from devops_cli.roadmap.implement.implement_trace import (
     last_failing_command,
     summary_table,
 )
+from devops_cli.roadmap.implement.record_clear import DELIVERY_CLEAR_KEYS
 from devops_cli.roadmap.owner_question import OwnerQuestion
 from devops_cli.roadmap.project_profile import ProjectStep
 from devops_cli.roadmap.pull_labels import (
@@ -392,19 +393,18 @@ class RunReport:
         comment = template.format(
             marker=CONST_ROADMAP_IMPLEMENT_COMMENT_MARKER, evidence=f"{fence}\n{evidence}\n{fence}"
         )
-        apply_return(self.store, plan_return(self.store, self.number, comment, self.repo))
+        apply_return(
+            self.store,
+            plan_return(self.store, self.number, comment, self.repo),
+            clear_implement=False,
+        )
         self.store.set_marks(
             self.fresh(),
-            {
-                ImplementRecordKey.GROUP: None,
-                ImplementRecordKey.SHA: None,
-                ImplementRecordKey.BRANCH: None,
-                ImplementRecordKey.PR: None,
-                ImplementRecordKey.BASE: None,
-                ImplementRecordKey.PLAN_SUMMARY: None,
+            dict.fromkeys(
+                key for key in DELIVERY_CLEAR_KEYS if key is not ImplementRecordKey.RESULT
+            )
+            | {
                 ImplementRecordKey.SPEND: self.spend(),
-                ImplementRecordKey.CHECKED_SHA: None,
-                ImplementRecordKey.PUBLISHED_SHA: None,
                 ImplementRecordKey.RESULT: ImplementResult.RETURNED.value,
             },
         )

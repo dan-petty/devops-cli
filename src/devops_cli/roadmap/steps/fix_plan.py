@@ -175,10 +175,10 @@ from devops_cli.roadmap.stage.stage_verify import (
     finding_line,
     findings_section,
 )
+from devops_cli.roadmap.status_sync import job_holds
 from devops_cli.roadmap.stores.store import (
     FixPlanRecordKey,
     GitHubState,
-    ImplementRecordKey,
     StageRecordKey,
 )
 from devops_cli.roadmap.time_budget import TimeBudget
@@ -553,7 +553,7 @@ def _record_reason(
     wait = timedelta(hours=CONST_ROADMAP_FIX_PLAN_WAIT_HOURS)
     if pull is None or item.status != CONST_ROADMAP_STATUS_READY:
         return texts.fix_plan_left_not_staged
-    if item.job_record.get(ImplementRecordKey.JOB):
+    if job_holds(item):
         return texts.fix_plan_left_runner
     if (owner := claimed_by(item)) is not None:
         return texts.item_left_claimed.format(owner=owner)
