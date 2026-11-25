@@ -2781,20 +2781,6 @@ def _set_by_older_rules(item: Item, commented_at: datetime) -> bool:
     return version < CONST_ROADMAP_REFINE_RULES_SINCE
 
 
-def _person_wait_over(
-    store: RoadmapStore,
-    item: Item,
-    refs: str,
-    since: datetime,
-    tracked_paths: Collection[str] | None = None,
-) -> bool:
-    """Whether the wait of `item` on a person is over with no reply: rules older than the current
-    ones set it (#4795), or an issue or a file that `refs` names closed or changed at or after
-    `since`, the start of the wait (`_wait_start`, #3483). A file that `tracked_paths` does not
-    hold ends no wait (#6444)."""
-    return _set_by_older_rules(item, since) or _named_cause_ended(store, refs, since, tracked_paths)
-
-
 def _repeated_at(item: Item) -> datetime | None:
     """The time of the last round on `item` that posted no comment (`RefineRecordKey.REPEATED_AT`):
     its result was the one of the round before (#6196), or the store refused its comment as a
@@ -2970,9 +2956,9 @@ def _still_waiting(
     the wait is over and refine looks at it again (#1758): the round recorded no step, a blocker
     closed, a comment followed refine's last one, a commit on the default branch changed a
     path the block cites after that comment (#2005), or, for a wait on a person, an issue or a
-    file that the text of the wait names closed or changed after it (#3483), or rules older than
-    the current ones set it (#4795). An item the stage
-    job returned gets one new look, and the second return on the same body waits on a person.
+    file that the text of the wait names closed or changed after it (#3483), or, for a wait on a
+    person or an open blocker, rules older than the current ones set it (#4795, #6523). An item the
+    stage job returned gets one new look, and the second return on the same body waits on a person.
     Only a body edit ends an `EDIT` or a `FAILED` wait, and a `RETRY` is never a wait: the job
     failed and the next round tries again (#3632). `comments_on` reads the item's comments, which
     the round does only when the count of comments moved since the job record was made, or the
@@ -3051,16 +3037,19 @@ def _wait_still_on(
     store: RoadmapStore,
     tracked_paths: Collection[str] | None = None,
 ) -> WaitingItem | None:
-    """The wait of an item that nothing changed for, from the state of its wait, or None when a
-    cited path changed or the person's reply named by the wait ends it. `tracked_paths` is the set
-    of files that the commit of the round tracks (#6444)."""
+    """The wait of an item that nothing changed for, from the state of its wait, or None when
+    older rules set a person or blocked wait (#4795, #6523), a cited path changed, or a named cause
+    of a person wait ended. `tracked_paths` is the set of files that the commit of the round
+    tracks (#6444)."""
     if state is None:
         return None
     commented_at, refs, marks = state
     since = _wait_start(item, commented_at)
     if _cited_code_changed(store, item, since):
         return None
-    if names_cause and _person_wait_over(store, item, refs, since, tracked_paths):
+    if (names_cause or step is NextStep.BLOCKED) and _set_by_older_rules(item, since):
+        return None
+    if names_cause and _named_cause_ended(store, refs, since, tracked_paths):
         return None
     return WaitingItem(item, step, details, marks=marks)
 

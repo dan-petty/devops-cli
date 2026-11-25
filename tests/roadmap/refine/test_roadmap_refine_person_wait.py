@@ -33,11 +33,13 @@ from tests.support.roadmap_refine import (
     REFINE_MARKER,
     REPO,
     BodyReadCountingStore,
+    blocked_by_issue,
     refine_comment_at,
     refine_round,
     require_item,
     seed_item,
     seed_person_wait,
+    seed_with_body,
     stage_returns,
 )
 
@@ -368,3 +370,109 @@ def test_a_recorded_version_that_is_no_time_counts_as_none_and_one_with_no_zone_
         [r.item.number for r in plan.refined_items],
         [r.getMessage() for r in caplog.records if r.getMessage() == warned],
     ) == ([number], [] if no_zone else [warned])
+
+
+def _blocked_wait_set_at(
+    source: Path,
+    model_fake: ModelFake,
+    commented: timedelta,
+    rules: timedelta | None,
+    *,
+    body: str | None = None,
+    blocker_title: str | None = None,
+) -> tuple[InMemoryRoadmapStore, int, int]:
+    """A New item that waits on an open In Progress blocker since refine's comment at `commented`
+    from the current rules, with `refine.rules` set to `rules` from the current rules (or cleared)."""
+    current = constants.CONST_ROADMAP_REFINE_RULES_SINCE
+    clock = [current + commented]
+    store = BodyReadCountingStore(repo=REPO, clock=lambda: clock[0])
+    store.seed_visibility(is_private=True)
+    blocker = seed_item(store, "In Progress", "P1-High", title=blocker_title)
+    if body is None:
+        number = seed_item(store, "New", "P1-High")
+    else:
+        number = seed_with_body(store, body.format(blocker=blocker))
+    model_fake.answer(blocked_by_issue(blocker))
+    refine_round(store, source)
+    store.set_marks(
+        require_item(store, number),
+        {RefineRecordKey.RULES: None if rules is None else (current + rules).isoformat()},
+    )
+    clock[0] = datetime.now(UTC)
+    return store, number, blocker
+
+
+@pytest.mark.parametrize(
+    ("commented", "rules"),
+    [(_DAY_BEFORE, None), (_HOUR_AFTER, _DAY_BEFORE)],
+    ids=["comment-before-the-rules", "older-recorded-rules"],
+)
+def test_a_blocked_wait_that_older_rules_set_gets_one_new_look_on_an_unchanged_body(
+    git_repo: Path, model_fake: ModelFake, commented: timedelta, rules: timedelta | None
+) -> None:
+    """A blocked wait recorded by older rules gets one new look in the next refine round (#6523)."""
+    store, number, _ = _blocked_wait_set_at(git_repo, model_fake, commented, rules)
+    model_fake.answer(READY)
+
+    first = refine_round(store, git_repo)
+
+    assert (
+        [r.item.number for r in first.refined_items],
+        require_item(store, number).job_record.get(RefineRecordKey.RULES),
+    ) == ([number], constants.CONST_ROADMAP_REFINE_RULES_SINCE.isoformat())
+
+
+@pytest.mark.parametrize(
+    ("commented", "rules"),
+    [(_HOUR_AFTER, None), (_DAY_BEFORE, timedelta(0))],
+    ids=["comment-after-the-rules", "current-recorded-rules"],
+)
+def test_a_blocked_wait_that_the_current_rules_set_keeps_waiting(
+    git_repo: Path, model_fake: ModelFake, commented: timedelta, rules: timedelta | None
+) -> None:
+    """A blocked wait recorded under current rules keeps waiting on its open blocker (#6523)."""
+    store, number, _ = _blocked_wait_set_at(git_repo, model_fake, commented, rules)
+    calls = model_fake.call_count
+
+    plan = plan_refine(store, repo=REPO, source=git_repo)
+
+    assert (
+        [(w.item.number, w.step.value) for w in plan.waiting_items],
+        plan.refined_items,
+        model_fake.call_count - calls,
+    ) == ([(number, "blocked")], [], 0)
+
+
+def test_a_blocked_wait_of_older_rules_keeps_blocked_when_body_names_open_blocker(
+    git_repo: Path, model_fake: ModelFake
+) -> None:
+    """When older rules end a blocked wait, the new look keeps the item blocked if its Dependencies
+    section still names an open blocker under the current rule (#6523)."""
+    blocker_title = "fix(core): open dependency"
+    store, number, blocker = _blocked_wait_set_at(
+        git_repo,
+        model_fake,
+        _HOUR_AFTER,
+        _DAY_BEFORE,
+        body=f'Problem body.\n\n## Dependencies\n- "{blocker_title}"\n',
+        blocker_title=blocker_title,
+    )
+    model_fake.answer(READY)
+    first = refine_round(store, git_repo)
+    calls = model_fake.call_count
+    again = plan_refine(store, repo=REPO, source=git_repo)
+
+    record = require_item(store, number).job_record
+    assert (
+        [r.item.number for r in first.refined_items],
+        record.get(RefineRecordKey.BLOCKED_BY),
+        record.get(RefineRecordKey.RULES),
+        [(w.item.number, w.step.value) for w in again.waiting_items],
+        model_fake.call_count - calls,
+    ) == (
+        [number],
+        str(blocker),
+        constants.CONST_ROADMAP_REFINE_RULES_SINCE.isoformat(),
+        [(number, "blocked")],
+        0,
+    )
