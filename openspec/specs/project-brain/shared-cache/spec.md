@@ -346,3 +346,10 @@ After an out-of-process Job completes (`implement_submit._fresh`, `stage_job.che
 #### Scenario: Read back checks live GitHub even when Valkey has a fresh entry
 - **WHEN** `status_sync._read_back` verifies a Status write while the brain holds an entry younger than one hour.
 - **THEN** `status_sync._read_back` reads with `fresh=True` against GitHub rather than trusting the unverified cache entry alone.
+
+### Requirement: Webhook issue caching decodes job records
+`issue_from_event` SHALL decode the split job record dictionary through `decode_job_record` before constructing `IssueRecord`, normalizing integer `implement.repair_rounds` values and filtering unknown or malformed record keys.
+
+#### Scenario: An issue webhook carries integer repair rounds and an unknown key
+- **WHEN** a signed `issues` or `issue_comment` webhook arrives for an issue whose body holds `implement.repair_rounds` as an integer and an unknown or malformed key
+- **THEN** the webhook returns HTTP 202 and the cached `IssueRecord.job_record` holds the string value for `implement.repair_rounds` without raising a validation error

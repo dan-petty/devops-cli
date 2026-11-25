@@ -151,6 +151,90 @@ def test_a_labeled_issue_event_writes_the_entry_before_the_wake(
     assert current == cached_at_wake
 
 
+def test_an_issue_event_with_int_repair_rounds_decodes_the_job_record(
+    shared_valkey: ValkeyCacheTier, valkey_server: FakeServer
+) -> None:
+    """An issue webhook decodes integer record fields via `decode_job_record` without failing validation (#7110)."""
+    service = _Service()
+    app = _app(service)
+
+    body = json.dumps(
+        {
+            "repository": {"full_name": REPO},
+            "action": "labeled",
+            "sender": {"login": "alice"},
+            "issue": {
+                "number": 43,
+                "title": "Issue with int repair rounds",
+                "body": 'Body text\n\n<!-- devops-roadmap-record {"implement.repair_rounds": 0, "Status": "Ready", "unknown.future_key": 7} -->',
+                "state": "open",
+                "updated_at": "2026-11-25T06:00:00Z",
+                "labels": [{"name": "status/ready"}],
+            },
+        }
+    ).encode("utf-8")
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/github",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                CONST_GH_WEBHOOK_EVENT_HEADER: "issues",
+                CONST_GH_WEBHOOK_DELIVERY_HEADER: "delivery-43",
+                CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(body, SECRET),
+            },
+        )
+
+    assert response.status_code == 202
+    entry = cached_issue(REPO, 43)
+    assert entry is not None
+    assert entry.record.job_record == {"implement.repair_rounds": "0", "Status": "Ready"}
+
+
+def test_a_comment_event_with_int_repair_rounds_and_malformed_field_decodes_cleanly(
+    shared_valkey: ValkeyCacheTier, valkey_server: FakeServer
+) -> None:
+    """An issue_comment webhook decodes integer repair rounds and drops non-string record fields (#7110)."""
+    service = _Service()
+    app = _app(service)
+
+    body = json.dumps(
+        {
+            "repository": {"full_name": REPO},
+            "action": "created",
+            "sender": {"login": "alice"},
+            "issue": {
+                "number": 44,
+                "title": "Comment on issue with malformed field",
+                "body": 'Body text\n\n<!-- devops-roadmap-record {"implement.repair_rounds": 2, "refine.next_step": 999} -->',
+                "state": "open",
+                "updated_at": "2026-11-25T06:05:00Z",
+            },
+            "comment": {
+                "body": "Person note",
+                "author_association": "COLLABORATOR",
+                "created_at": "2026-11-25T06:05:00Z",
+            },
+        }
+    ).encode("utf-8")
+    with TestClient(app) as client:
+        response = client.post(
+            "/webhooks/github",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                CONST_GH_WEBHOOK_EVENT_HEADER: "issue_comment",
+                CONST_GH_WEBHOOK_DELIVERY_HEADER: "delivery-44",
+                CONST_GH_WEBHOOK_SIGNATURE_HEADER: _sign(body, SECRET),
+            },
+        )
+
+    assert response.status_code == 202
+    entry = cached_issue(REPO, 44)
+    assert entry is not None
+    assert entry.record.job_record == {"implement.repair_rounds": "2"}
+
+
 def test_newer_own_write_issue_webhook_updates_cache_without_waking_lane(
     shared_valkey: ValkeyCacheTier, valkey_server: FakeServer
 ) -> None:
