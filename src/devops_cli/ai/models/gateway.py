@@ -39,6 +39,8 @@ from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings, merge_model_settings
 
+from devops_cli.ai.client.network import gateway_served_model
+
 # The transport phases of a failure that sent no request: the connect, and the wait for a free
 # connection of the pool.
 _NOT_SENT: Final = frozenset({"connect", "pool"})
@@ -86,6 +88,7 @@ class GatewayCallModel(WrapperModel):
         self._calls = FallbackModel(*sends, fallback_on=never_sent)
         self._streams = FallbackModel(*sends, fallback_on=failed_before_first_event)
         self._defaults = ModelSettings(request_timeout=request_timeout, max_retries=0)
+        self.served_model: str | None = None
 
     @property
     def settings(self) -> ModelSettings | None:
@@ -98,8 +101,17 @@ class GatewayCallModel(WrapperModel):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ) -> ModelResponse:
-        with _last_error():
-            return await self._calls.request(messages, model_settings, model_request_parameters)
+        token = gateway_served_model.set(None)
+        self.served_model = None
+        try:
+            with _last_error():
+                response = await self._calls.request(
+                    messages, model_settings, model_request_parameters
+                )
+            self.served_model = gateway_served_model.get()
+            return response
+        finally:
+            gateway_served_model.reset(token)
 
     @asynccontextmanager
     async def request_stream(
@@ -109,14 +121,20 @@ class GatewayCallModel(WrapperModel):
         model_request_parameters: ModelRequestParameters,
         run_context: RunContext[Any] | None = None,
     ) -> AsyncIterator[StreamedResponse]:
-        async with AsyncExitStack() as stack:
-            with _last_error():
-                stream = await stack.enter_async_context(
-                    self._streams.request_stream(
-                        messages, model_settings, model_request_parameters, run_context
+        token = gateway_served_model.set(None)
+        self.served_model = None
+        try:
+            async with AsyncExitStack() as stack:
+                with _last_error():
+                    stream = await stack.enter_async_context(
+                        self._streams.request_stream(
+                            messages, model_settings, model_request_parameters, run_context
+                        )
                     )
-                )
-            yield stream
+                self.served_model = gateway_served_model.get()
+                yield stream
+        finally:
+            gateway_served_model.reset(token)
 
 
 __all__ = ["GatewayCallModel", "failed_before_first_event", "never_sent"]

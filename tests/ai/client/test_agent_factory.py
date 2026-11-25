@@ -327,3 +327,88 @@ def test_build_agent_with_gateway_url_as_served_by_does_not_classify_as_local_sp
     assert row[1] != "local"
     assert row[2] > 0.0
     assert row[3] is None
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["blocking", "stream"])
+@pytest.mark.parametrize(
+    ("header_model", "expected_served", "expected_cost"),
+    [
+        pytest.param(
+            "openrouter/deepseek/deepseek-v4.1-flash",
+            "openrouter/deepseek/deepseek-v4.1-flash",
+            0.3,
+            id="order-2-header",
+        ),
+        pytest.param(None, "deepseek-v4.1-flash-1017", 0.0784, id="no-header-fallback"),
+    ],
+)
+def test_build_agent_gateway_deployment_header_prices_and_keeps_answer_group(
+    web: Any,
+    spend_ledger: SpendLedger,
+    otlp: FakeCollector,
+    monkeypatch: pytest.MonkeyPatch,
+    stream: bool,
+    header_model: str | None,
+    expected_served: str,
+    expected_cost: float,
+) -> None:
+    """Agent runs capture `x-litellm-model-name` onto `GatewayCallModel` for ledger pricing while
+    keeping the body model group on `devops_cli_ai_model_answers_total` (#6002)."""
+    from collections.abc import AsyncIterable
+
+    import httpx2
+
+    from devops_cli.ai import pydantic_ai_bridge
+    from devops_cli.config.settings import Settings
+    from tests.support.llm_stream_fakes import SSE, completion_chunks
+
+    group = "deepseek-v4.1-flash-1017"
+    settings = Settings()
+    settings.k8s.domain = "example.com"
+    settings.ai.provider = "gateway"
+    settings.ai.gateway_url = _GATEWAY_URL
+    settings.ai.max_retries = 0
+    monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _s: "sk-test")
+
+    headers = {"x-litellm-model-name": header_model} if header_model is not None else {}
+    body = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": group,
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0, "total_tokens": 1_000_000},
+    }
+
+    def serve(req: httpx2.Request) -> httpx2.Response:
+        if not stream:
+            return httpx2.Response(200, json=body, headers=headers)
+
+        async def _chunks() -> Any:
+            for frame in completion_chunks(body):
+                yield frame
+
+        return httpx2.Response(200, headers={**headers, "content-type": SSE}, content=_chunks())
+
+    web.serve(serve)
+
+    async def _drain(_ctx: Any, events: AsyncIterable[Any]) -> None:
+        async for _ in events:
+            pass
+
+    agent = build_agent(group, settings=settings)
+    if stream:
+        agent.run_sync("Hi", event_stream_handler=_drain)
+    else:
+        agent.run_sync("Hi")
+
+    with contextlib.closing(sqlite3.connect(spend_ledger.db_path)) as conn:
+        row = conn.execute(
+            "SELECT model, served_model, pricing_source, round(cost_usd, 6) FROM ai_spend_records"
+        ).fetchone()
+    assert row == (group, expected_served, "builtin:hosted_group_prices", expected_cost)
+    assert otlp.points("devops_cli_ai_model_answers_total") == [
+        ({"asked": group, "answered": group, "fallback": "false", "row": "other"}, 1)
+    ]

@@ -166,7 +166,10 @@ def create_pydantic_ai_provider(
 
         level = EgressLevel.PRIVATE if allow_private_network else EgressLevel.LOOPBACK
         if gateway_caller:
-            from devops_cli.ai.client.network import name_gateway_caller
+            from devops_cli.ai.client.network import (
+                capture_gateway_served_model,
+                name_gateway_caller,
+            )
             from devops_cli.telemetry.library_spans import instrument_gateway_client
 
             # The router of the gateway retries a chat call, and `GatewayCallModel` sends it again
@@ -175,7 +178,12 @@ def create_pydantic_ai_provider(
             # route that the gateway does not retry, so its transport keeps the retries.
             retries = 3 if prov_name in _SYSTEM_ONE_NAMES else None
             gateway_client = async_http_client(
-                level, event_hooks={"request": [name_gateway_caller]}, retries=retries
+                level,
+                event_hooks={
+                    "request": [name_gateway_caller],
+                    "response": [capture_gateway_served_model],
+                },
+                retries=retries,
             )
             instrument_gateway_client(gateway_client)
             init_kwargs["http_client"] = gateway_client

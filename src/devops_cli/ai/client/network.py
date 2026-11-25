@@ -119,6 +119,9 @@ def extract_served_by(headers: Mapping[str, str] | None) -> str | None:
 # The deployment model a gateway named in a streamed response's headers, read with the backend.
 stream_served_model: ContextVar[str | None] = ContextVar("stream_served_model", default=None)
 
+# The deployment model a gateway response header named for a pydantic-ai agent call (#6002).
+gateway_served_model: ContextVar[str | None] = ContextVar("gateway_served_model", default=None)
+
 # The model name reported in stream chunks/payloads.
 stream_model: ContextVar[str | None] = ContextVar("stream_model", default=None)
 
@@ -176,6 +179,11 @@ def extract_served_model(headers: Mapping[str, str] | None) -> str | None:
     if not headers:
         return None
     return (headers.get(CONST_AI_GATEWAY_SERVED_MODEL_HEADER) or "").strip() or None
+
+
+async def capture_gateway_served_model(response: httpx2.Response) -> None:
+    """Response event hook capturing `x-litellm-model-name` for pydantic-ai agent calls (#6002)."""
+    gateway_served_model.set(extract_served_model(response.headers))
 
 
 # Why a streamed reply ended, set by the stream reader when the provider's final frame arrives.

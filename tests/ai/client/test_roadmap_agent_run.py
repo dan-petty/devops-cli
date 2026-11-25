@@ -809,3 +809,57 @@ def test_a_reply_that_names_a_model_keeps_that_name_for_the_price(
         "deepseek-v4.1-flash-1017",
         "builtin:hosted_group_prices",
     )
+
+
+def test_record_run_spend_order_2_deployment_header_prices_and_keeps_answer_group(
+    web: Any,
+    spend_ledger: SpendLedger,
+    otlp: FakeCollector,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`record_run_spend` prices a streamed or blocking `GatewayCallModel` run at the deployment
+    model named in `x-litellm-model-name`, while keeping the body group on answer counters
+    (#6002)."""
+    import httpx2
+    from pydantic_ai import Agent
+
+    from devops_cli.ai import pydantic_ai_bridge
+    from devops_cli.config.settings import Settings
+    from tests.support.llm_stream_fakes import serve_llm
+
+    group = "deepseek-v4.1-flash-1017"
+    order_2 = "openrouter/deepseek/deepseek-v4.1-flash"
+    settings = Settings()
+    settings.k8s.domain = "example.com"
+    settings.ai.provider = "gateway"
+    settings.ai.gateway_url = _GATEWAY_URL
+    settings.ai.max_retries = 0
+    monkeypatch.setattr(pydantic_ai_bridge, "get_ai_api_key", lambda _s: "sk-test")
+
+    body = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 0,
+        "model": group,
+        "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
+        ],
+        "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0, "total_tokens": 1_000_000},
+    }
+    serve_llm(
+        web, lambda _req: httpx2.Response(200, json=body, headers={"x-litellm-model-name": order_2})
+    )
+
+    model = pydantic_ai_bridge.resolve_pydantic_ai_model(group, settings=settings)
+    result = Agent(model).run_sync("Hi")
+    record_run_spend(model, result.new_messages(), 0.5, stage="implement")
+
+    served_model, pricing_source, cost = _spend_row(spend_ledger)
+    assert (served_model, pricing_source, round(cost, 6)) == (
+        order_2,
+        "builtin:hosted_group_prices",
+        0.3,
+    )
+    assert otlp.points("devops_cli_ai_model_answers_total") == [
+        ({"asked": group, "answered": group, "fallback": "false", "row": "other"}, 1)
+    ]
