@@ -244,3 +244,10 @@ When a build of a path source fails in the dry run of `devops k8s deploy-stack` 
 #### Scenario: A failed dry-run build is listed and the dry runs go on
 - **WHEN** `kubectl kustomize` of `<tmp>/env/logging` exits 1 with a warning of Kustomize and then the error of kubectl over several lines, and `devops k8s deploy-stack` and `devops k8s teardown-stack` run with `--stack logging --k8s-dir <tmp>/env --dry-run`
 - **THEN** both commands exit 0, give `null` as the objects of `logging: env/logging`, and list `logging: env/logging` in `details.kustomize_fetches` with the error of kubectl as one line, which ends with the cause
+
+### Requirement: A native deploy applies no GPU feature discovery
+`devops k8s deploy-stack` of the stacks `infra` and `all` SHALL apply the kustomization `monitoring` of the environment tree and SHALL NOT apply a kustomization `gpu-feature-discovery`.
+
+#### Scenario: Dry run of the infra stack
+- **WHEN** a person runs `devops k8s deploy-stack --stack infra --k8s-dir <tree> --dry-run`
+- **THEN** the listed kustomizations after the root one are `<tree>/monitoring` only
