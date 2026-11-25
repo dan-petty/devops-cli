@@ -69,7 +69,7 @@ def scaffold_proposal(issue: int) -> str:
     return (
         f"# Proposal: #{issue}\n\n"
         "## Why\n"
-        f"<!-- State the problem or motivation. Closes #{issue}. --> {marker}\n\n"
+        f"<!-- State the problem or motivation for #{issue}. --> {marker}\n\n"
         "## What Changes\n"
         f"<!-- Describe what this change adds, changes, or removes. --> {marker}\n\n"
         "## Capabilities\n"

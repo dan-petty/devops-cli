@@ -187,12 +187,55 @@ def test_a_proposal_with_no_why_is_refused(runner: CliRunner, checkout: Path) ->
     assert (result.exit_code, "has no section `Why`" in result.stderr) == (1, True)
 
 
+@pytest.mark.parametrize(
+    ("raw_why", "expected_why"),
+    [
+        ("This change sets the overhead and closes #1.", "This change sets the overhead."),
+        ("A bug stopped pr describe. Closes #1.", "A bug stopped pr describe."),
+        ("Closes #1. A bug stopped pr describe.", "A bug stopped pr describe."),
+        ("Fixes: #1. A bug stopped pr describe.", "A bug stopped pr describe."),
+    ],
+)
 @pytest.mark.usefixtures("issue")
-def test_a_why_with_a_closing_keyword_is_refused(runner: CliRunner, checkout: Path) -> None:
+def test_a_why_closing_the_delivered_issue_is_dropped(
+    runner: CliRunner, checkout: Path, raw_why: str, expected_why: str
+) -> None:
+    """`devops pr describe` drops closing clauses targeting the delivered issue (#5398)."""
     proposal = checkout / "openspec" / "changes" / f"1-{SLUG}" / "proposal.md"
-    proposal.write_text("# Proposal\n\n## Why\n\nThis closes #7 for good.\n", encoding="utf-8")
+    proposal.write_text(f"# Proposal\n\n## Why\n\n{raw_why}\n", encoding="utf-8")
+    _archive(checkout)
+    result = _describe(runner, "--summary", "build the form of a pull request")
+
+    assert (result.exit_code, result.stderr) == (0, "")
+    assert f"\n\n{expected_why}\n\nCloses #1\n" in result.stdout
+    assert result.stdout.count("Closes #1") == 1
+
+
+@pytest.mark.parametrize(
+    "bad_why",
+    [
+        "This closes #7 for good.",
+        "This fixes #9999 and closes #1.",
+    ],
+)
+@pytest.mark.usefixtures("issue")
+def test_a_why_with_a_closing_keyword_is_refused(
+    runner: CliRunner, checkout: Path, bad_why: str
+) -> None:
+    proposal = checkout / "openspec" / "changes" / f"1-{SLUG}" / "proposal.md"
+    proposal.write_text(f"# Proposal\n\n## Why\n\n{bad_why}\n", encoding="utf-8")
     result = _describe(runner, "--summary", "build the form of a pull request")
     assert (result.exit_code, "closing keyword" in result.stderr) == (1, True)
+
+
+@pytest.mark.usefixtures("issue")
+def test_a_why_with_only_delivered_closing_clause_is_refused_as_empty(
+    runner: CliRunner, checkout: Path
+) -> None:
+    proposal = checkout / "openspec" / "changes" / f"1-{SLUG}" / "proposal.md"
+    proposal.write_text("# Proposal\n\n## Why\n\nCloses #1.\n", encoding="utf-8")
+    result = _describe(runner, "--summary", "build the form of a pull request")
+    assert (result.exit_code, "has no section `Why`" in result.stderr) == (1, True)
 
 
 @pytest.mark.usefixtures("issue", "checkout")

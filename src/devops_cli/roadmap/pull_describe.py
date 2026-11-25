@@ -84,10 +84,14 @@ def find_change(root: Path, issue: int, *, today: date) -> ChangeFolder:
     )
 
 
-def proposal_why(change: ChangeFolder) -> str:
+def proposal_why(change: ChangeFolder, *, issue: int | None = None) -> str:
     """The "why" of the proposal of `change` on one line, with a handle or a link in a code span
     so it pings no one. A proposal with no section `Why` raises `ValidationError`."""
-    from devops_cli.roadmap.stage.stage_change import closing_keyword_in, safe_text
+    from devops_cli.roadmap.stage.stage_change import (
+        closing_keyword_in,
+        safe_text,
+        strip_closing_keyword,
+    )
 
     proposal = change.folder / _PROPOSAL
     section = (
@@ -96,6 +100,8 @@ def proposal_why(change: ChangeFolder) -> str:
         else ""
     )
     text = safe_text(section.partition("\n")[2])
+    if issue is not None:
+        text = strip_closing_keyword(text, issue)
     if not text:
         raise ValidationError(
             MESSAGES.pr.describe_no_why.format(path=f"{change.path}/{_PROPOSAL}"), field="why"
@@ -156,7 +162,7 @@ def describe_pull(
     declared = declared_label_set(store, ref=None, checkout=root if local_labels else None)
     title = build_title(item.title, summary, declared)
     body = build_body(
-        why=why if why is not None else proposal_why(change),
+        why=why if why is not None else proposal_why(change, issue=issue),
         issue=issue,
         change=change.path,
         attribution=attribution,
