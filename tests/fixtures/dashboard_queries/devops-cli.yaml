@@ -274,3 +274,25 @@ tests:
             value: 35
           - labels: '{resource="graphql"}'
             value: 5
+
+  # Two concurrent stage Jobs export under different `instance` labels and aggregate into one
+  # `roadmap-stage` line on the GitHub quota panel (#6364).
+  - name: two stage Jobs with distinct instances sum into one roadmap-stage series
+    shape: zero_start
+    interval: 15m
+    input_series:
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-one", resource="core", status="200"}'
+        values: '_x96 0+20x96'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-two", resource="core", status="200"}'
+        values: '_x96 0+10x96'
+    promql_expr_test:
+      - panel: 'GitHub quota: core requests per hour'
+        ref_id: A
+        variables: {__interval: 1h, job: roadmap-stage}
+        expr: 'round(sum by (job) (increase(devops_cli_github_requests_total{job=~"$job",resource="core",status!="304"}[$__interval])))'
+        bars: 24h
+        total: 2880
+        eval_time: 48h
+        exp_samples:
+          - labels: '{job="roadmap-stage"}'
+            value: 2880

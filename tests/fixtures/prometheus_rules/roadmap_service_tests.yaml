@@ -489,7 +489,7 @@ tests:
     interval: 1m
     input_series:
       # 960 requests of a stage Job in the hour, against its budget of 1000.
-      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="roadmap-stage", resource="core", status="200"}'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-one", resource="core", status="200"}'
         values: '0+16x90'
       - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
         values: '1000x120'
@@ -499,12 +499,40 @@ tests:
         exp_alerts:
           - exp_labels:
               severity: warning
+              instance: devops-cli-stage-one
             exp_annotations:
               summary: "The stage Jobs sent 960 GitHub requests in the last hour"
               description: "The stage Jobs sent more than 90% of the hourly GitHub request budget of a stage Job (roadmap.stage.github_requests_per_hour) in one hour (docs/CLUSTER.md, Roadmap service)."
       - eval_time: 90m
         alertname: RoadmapServiceGitHubRequestsHigh
         exp_alerts: []
+
+  - name: Two concurrent stage Jobs below each Job budget stay quiet while one over budget fires on its instance
+    interval: 1m
+    input_series:
+      # Job one sends 600 requests and job two sends 600 requests: together 1200, but each stays
+      # under 90% of the 1000 per-Job budget. Job three sends 960 and fires on its own instance.
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-a", resource="core", status="200"}'
+        values: '0+10x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-b", resource="core", status="200"}'
+        values: '0+10x90'
+      - series: 'devops_cli_github_requests_total{job="roadmap-stage", instance="devops-cli-stage-c", resource="core", status="200"}'
+        values: '_x90 0+16x90'
+      - series: 'devops_cli_service_budget_limit_requests{job="roadmap-stage", instance="roadmap-stage"}'
+        values: '1000x200'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: RoadmapStageGitHubRequestsHigh
+        exp_alerts: []
+      - eval_time: 180m
+        alertname: RoadmapStageGitHubRequestsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              instance: devops-cli-stage-c
+            exp_annotations:
+              summary: "The stage Jobs sent 960 GitHub requests in the last hour"
+              description: "The stage Jobs sent more than 90% of the hourly GitHub request budget of a stage Job (roadmap.stage.github_requests_per_hour) in one hour (docs/CLUSTER.md, Roadmap service)."
 
   - name: The model requests of the stage Jobs count with the requests of the Service
     interval: 1m

@@ -166,8 +166,9 @@ def stage_jobs_selector() -> dict[str, str]:
 
 def stage_job_env(repo: RepoRef, name: str, deadline: datetime) -> dict[str, str]:
     """The plain environment values of the stage Job `name`: the repository of its GitHub token,
-    the name of the Job, and the time at which the deadline of the Job ends. The admission policy
-    refuses `valueFrom` but for the keys of the Secret, so these values are plain."""
+    the name of the Job, the time at which the deadline of the Job ends, and a distinct
+    `service.instance.id` equal to `name`. The admission policy refuses `valueFrom` but for the
+    keys of the Secret, so these values are plain."""
     from devops_cli.config.env import setting_variables
 
     variables = setting_variables()
@@ -175,6 +176,7 @@ def stage_job_env(repo: RepoRef, name: str, deadline: datetime) -> dict[str, str
         variables[CONST_GITHUB_APP_TOKEN_REPOSITORY_SETTING]: repo.display,
         variables[CONST_ROADMAP_STAGE_JOB_SETTING]: name,
         variables[CONST_ROADMAP_STAGE_JOB_DEADLINE_SETTING]: deadline.astimezone(UTC).isoformat(),
+        "OTEL_RESOURCE_ATTRIBUTES": f"service.instance.id={name}",
     }
 
 

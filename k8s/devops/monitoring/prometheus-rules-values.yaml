@@ -180,16 +180,15 @@ serverFiles:
               summary: 'The roadmap Service used {{ $value | humanizePercentage }} of its hourly GitHub request budget'
               description: "The roadmap Service sent more than 90% of its hourly GitHub request budget in one hour (docs/CLUSTER.md, Roadmap service)."
           # 90% of the hourly budget of a stage Job (roadmap.stage.github_requests_per_hour), which
-          # the pod reports while it runs. Every stage pod sends the one instance roadmap-stage, so
-          # the sum is the requests of one pod while roadmap.stage.jobs is 1. A limit over 1 needs
-          # an instance for each Job before this sum compares with one budget.
+          # the pod reports while it runs. Each stage Job receives its own instance id (#6364), so
+          # summing by instance compares each Job individually against one Job budget.
           - alert: RoadmapStageGitHubRequestsHigh
             expr: >-
-              sum(
+              sum by (instance) (
               (last_over_time(devops_cli_github_requests_total{job="roadmap-stage", status!="304"}[1h])
               unless last_over_time(devops_cli_github_requests_total{job="roadmap-stage", status!="304"}[1h] offset 1h))
               or increase(devops_cli_github_requests_total{job="roadmap-stage", status!="304"}[1h])
-              ) > on() 0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-stage"})
+              ) > on() group_left() (0.9 * max(devops_cli_service_budget_limit_requests{job="roadmap-stage"}))
             for: 0m
             labels:
               severity: warning
