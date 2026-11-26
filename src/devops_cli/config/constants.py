@@ -2967,8 +2967,9 @@ class BrainRead(StrEnum):
     """The `result` label of `devops_cli_brain_reads_total` (#4668): the tier that gave the value
     (`memory`, `local` for the local snapshot file, `shared`), the source when no tier held it,
     the fallback when the shared tier failed or its breaker was open, a private repository,
-    which the shared tier does not hold, and a repository whose visibility read failed, whose
-    shared copy is not used (#6611)."""
+    which the shared tier does not hold, and a repository whose visibility is not known, whose
+    shared copy is not used (#6611): its read failed, or a webhook delivery carried no visibility
+    and the process held no answer (#7292)."""
 
     MEMORY = "memory"
     LOCAL = "local"
@@ -2987,7 +2988,8 @@ class BrainWrite(StrEnum):
     newer, kept local for a private repository that the process does not send the `sweep` ACL user
     of `valkey-devops` for (#4704), the shared copy removed of a repository that became private or
     whose visibility read failed and whose last save is older than 30 minutes, or kept local for a
-    repository whose visibility read failed (#6611)."""
+    repository whose visibility is not known (#6611): its read failed, or a webhook delivery
+    carried no visibility and the process held no answer (#7292)."""
 
     SHARED = "shared"
     UNCHANGED = "unchanged"

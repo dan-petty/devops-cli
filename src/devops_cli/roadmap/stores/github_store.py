@@ -876,7 +876,7 @@ class GitHubRoadmapStore(RoadmapStore):
         """The issue numbered `number`, Item or not, from one read, or None when it is a pull
         request or does not exist."""
         row = request_labels().get("row", "")
-        cached = cached_issue(self._repo, number)
+        cached = self._cached_issue(number)
         if cached is not None and not fresh and cached.is_fresh():
             emit(BRAIN_CACHE_TOTAL, 1, {"row": row, "result": "hit"})
             return cached.record
@@ -889,13 +889,21 @@ class GitHubRoadmapStore(RoadmapStore):
         if found is None or found.pull_request is not None:
             return None
         record = found.record()
-        remember_issue(
-            self._repo,
-            CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)),
-        )
+        self._remember_issue(CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)))
         if self._all is not None:
             self._all = self._all | {record.number: record}
         return record
+
+    def _cached_issue(self, number: int) -> CachedIssue | None:
+        """The brain entry of issue `number`. The shared tier holds the entries of a private
+        repository only for the `sweep` ACL user, so the cache takes the visibility from the read
+        of this store when the process holds no answer (#7292)."""
+        return cached_issue(self._repo, number, is_private=self.repository_is_private)
+
+    def _remember_issue(self, entry: CachedIssue) -> None:
+        """Write `entry` to the brain, with the visibility read of this store as `_cached_issue`
+        has it: the entry of a private repository stays out of the shared tier (#7292)."""
+        remember_issue(self._repo, entry, is_private=self.repository_is_private)
 
     def _revalidate_issue(self, number: int, entry: CachedIssue) -> IssueRecord | None:
         """Revalidate a stale cached issue with a conditional GET carrying its ETag."""
@@ -908,7 +916,7 @@ class GitHubRoadmapStore(RoadmapStore):
 
         if status == HTTPStatus.NOT_MODIFIED:
             new_entry = entry.model_copy(update={"checked_at": now, "etag": etag})
-            remember_issue(self._repo, new_entry)
+            self._remember_issue(new_entry)
             return new_entry.record
 
         if status == HTTPStatus.NOT_FOUND:
@@ -922,7 +930,7 @@ class GitHubRoadmapStore(RoadmapStore):
             return None
         record = payload.record()
         new_entry = CachedIssue(record=record, etag=etag, checked_at=now)
-        remember_issue(self._repo, new_entry)
+        self._remember_issue(new_entry)
         if self._all is not None:
             self._all = self._all | {record.number: record}
         return record
@@ -1298,13 +1306,12 @@ class GitHubRoadmapStore(RoadmapStore):
             self._all = (self._all or {}) | {
                 number: kept.model_copy(update={"labels": (*kept.labels, label)})
             }
-        cached = cached_issue(self._repo, number)
+        cached = self._cached_issue(number)
         existing = cached.record if cached is not None else kept
         if existing is not None and label not in existing.labels:
             new_record = existing.model_copy(update={"labels": (*existing.labels, label)})
-            remember_issue(
-                self._repo,
-                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC)),
+            self._remember_issue(
+                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC))
             )
 
     def unlabel_issue(self, number: int, label: str) -> None:
@@ -1317,15 +1324,14 @@ class GitHubRoadmapStore(RoadmapStore):
                     update={"labels": tuple(held for held in kept.labels if held != label)}
                 )
             }
-        cached = cached_issue(self._repo, number)
+        cached = self._cached_issue(number)
         existing = cached.record if cached is not None else kept
         if existing is not None and label in existing.labels:
             new_record = existing.model_copy(
                 update={"labels": tuple(held for held in existing.labels if held != label)}
             )
-            remember_issue(
-                self._repo,
-                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC)),
+            self._remember_issue(
+                CachedIssue(record=new_record, etag=None, checked_at=datetime.now(UTC))
             )
 
     def evidence_holds(self, evidence: Evidence) -> bool:
@@ -1529,10 +1535,7 @@ class GitHubRoadmapStore(RoadmapStore):
         record = issue.record()
         if self._all is not None:
             self._all = self._all | {record.number: record}
-        remember_issue(
-            self._repo,
-            CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)),
-        )
+        self._remember_issue(CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC)))
         return record
 
     def _write(self, args: list[str], action: str, *, input: str | None = None) -> str:

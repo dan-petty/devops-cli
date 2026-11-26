@@ -2658,7 +2658,11 @@ def test_report_reads_live_issue_when_brain_cache_holds_stale_in_progress(
         updated_at=now,
         job_record={ImplementRecordKey.JOB.value: "runner-job-1"},
     )
-    remember_issue(STAGE_REPO, CachedIssue(record=stale_record, etag='W/"1"', checked_at=now))
+    remember_issue(
+        STAGE_REPO,
+        CachedIssue(record=stale_record, etag='W/"1"', checked_at=now),
+        private=False,
+    )
     stale_item = select_items([stale_record])[0]
 
     implement_submit._report(
