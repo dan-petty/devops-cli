@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.11](https://github.com/dan-petty/devops-cli/compare/v0.221.10...v0.221.11) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ai:** read an HTTP 402 of the provider as a spent key ([#7265](https://github.com/dan-petty/devops-cli/issues/7265)) ([f9e7823](https://github.com/dan-petty/devops-cli/commit/f9e7823ec1442e8fd9d5ef928256895ce9564d4b))
+
+
+### Code Refactoring
+
+* **repos:** remove the npm ci step of worktrees add ([#7267](https://github.com/dan-petty/devops-cli/issues/7267)) ([3128f86](https://github.com/dan-petty/devops-cli/commit/3128f866e925acfb7f0411ff8a0ad82f225434d9))
+
 ## [0.221.10](https://github.com/dan-petty/devops-cli/compare/v0.221.9...v0.221.10) (2026-11-26)
 
 
