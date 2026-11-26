@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.15](https://github.com/dan-petty/devops-cli/compare/v0.221.14...v0.221.15) (2026-11-26)
+
+
+### Bug Fixes
+
+* **k8s:** give the runner Jobs the credentials of the cache Valkey ([#7296](https://github.com/dan-petty/devops-cli/issues/7296)) ([def639d](https://github.com/dan-petty/devops-cli/commit/def639d716cc50f4bfceb1af3da9d4b787e62038))
+
 ## [0.221.14](https://github.com/dan-petty/devops-cli/compare/v0.221.13...v0.221.14) (2026-11-26)
 
 
