@@ -4,7 +4,7 @@
 The command `python -m devops_cli.release.release_files` SHALL read the files that the pull request changes from the compare of `main` and its head commit, SHALL exit 1 with one reason for each path that `RELEASE_FILES` does not hold or that the pull request does not modify, and SHALL exit 0 when every path is a release file that the pull request modifies.
 
 #### Scenario: The command refuses a source file
-- **WHEN** The compare of `main` and the head commit holds `src/devops_cli/main.py` and `CHANGELOG.md`.
+- **WHEN** The compare of `main` and the head commit holds only `src/devops_cli/main.py`.
 - **THEN** `check_release_files` exits 1 and writes the reason that names `src/devops_cli/main.py`.
 
 #### Scenario: A clean release pull request
