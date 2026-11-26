@@ -521,6 +521,200 @@ def test_a_query_the_guard_allows_reaches_the_provider(
     assert web.requested == [_DUCKDUCKGO]
 
 
+# A host that the guard refuses, and the rule that the refusal names.
+_REFUSED_HOSTS = [
+    pytest.param("nas.lan", "an internal host name", id="lan-name"),
+    pytest.param("printer.local", "an internal host name", id="local-name"),
+    pytest.param("192.168.1.5", "a private address", id="v4-address"),
+    pytest.param("10.0.0.7", "a private address", id="v4-address-class-a"),
+    pytest.param("[fd00::1]", "a private address", id="v6-address"),
+]
+_PUBLIC_HOST = "docs.python.org"
+
+# The forms of a word that names a host with no scheme.
+_BARE_FORMS = [
+    pytest.param("{host}", id="bare"),
+    pytest.param("{host}:8080", id="port"),
+    pytest.param("{host}/api", id="path"),
+    pytest.param("{host}:8080/api", id="port-path"),
+]
+
+# The forms of a word that names a host in a URL.
+_URL_FORMS = [
+    pytest.param("https://{host}", id="scheme"),
+    pytest.param("https://{host}/api", id="scheme-path"),
+    pytest.param("http://{host}:8080", id="scheme-port"),
+    pytest.param("http://{host}:8080/api", id="scheme-port-path"),
+    pytest.param("https://{host}/api?x=1", id="scheme-path-query"),
+    pytest.param("https://{host}?x=1", id="scheme-query"),
+    pytest.param("https://{host}/api#part", id="scheme-path-fragment"),
+    pytest.param("https://{host}#part", id="scheme-fragment"),
+    pytest.param("HTTPS://{host}/api", id="upper-case-scheme"),
+    pytest.param("ftp://{host}/api", id="other-scheme"),
+    pytest.param("//{host}/api", id="scheme-relative"),
+    pytest.param("(https://{host}/api)", id="in-parentheses"),
+    pytest.param('"https://{host}/api"', id="in-double-quotes"),
+    pytest.param("'https://{host}/api'", id="in-single-quotes"),
+    pytest.param("<https://{host}/api>", id="in-angle-brackets"),
+    pytest.param("[text](https://{host}/api)", id="markdown-link"),
+    pytest.param("[text](https://{host})", id="markdown-link-no-path"),
+    pytest.param("url=https://{host}/api", id="after-a-prefix"),
+    pytest.param("https://web.example.com/save/http://{host}/api", id="in-a-path"),
+    pytest.param("https://example.com/?u=http://{host}/api", id="in-a-query"),
+    pytest.param("https://web.example.com/save/http%3A%2F%2F{host}%2Fapi", id="encoded-in-a-path"),
+    pytest.param("https://example.com/?u=http%3A%2F%2F{host}%2Fapi", id="encoded-in-a-query"),
+]
+
+
+def _refusal(query: str) -> str | None:
+    """The message of the refusal of `query`, or None when the guard allows the query."""
+    try:
+        web_search(query)
+    except SearchQueryRefused as refused:
+        return str(refused)
+    return None
+
+
+@pytest.mark.parametrize("form", _BARE_FORMS)
+@pytest.mark.parametrize(("host", "rule"), _REFUSED_HOSTS)
+def test_a_host_word_is_read_by_its_host(
+    web: WebFake, chain_of: Callable[..., None], form: str, host: str, rule: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to open {form.format(host=host)} now")
+
+    assert (refusal, web.requested) == (f"The search was refused: the query holds {rule}.", [])
+
+
+@pytest.mark.parametrize("form", _URL_FORMS)
+@pytest.mark.parametrize(("host", "rule"), _REFUSED_HOSTS)
+def test_a_url_word_is_read_by_its_host(
+    web: WebFake, chain_of: Callable[..., None], form: str, host: str, rule: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to open {form.format(host=host)} now")
+
+    assert (refusal, web.requested) == (f"The search was refused: the query holds {rule}.", [])
+
+
+@pytest.mark.parametrize(
+    ("word", "rule"),
+    [
+        pytest.param("https://NAS.LAN/api", "an internal host name", id="upper-case-name"),
+        pytest.param("HTTP://PRINTER.LOCAL:8080", "an internal host name", id="upper-case-url"),
+        pytest.param("http://[FD00::1]/api", "a private address", id="upper-case-v6-address"),
+        pytest.param("https://nas.lan./api", "an internal host name", id="name-with-a-dot"),
+        pytest.param("http://printer.local.:8080", "an internal host name", id="dot-then-port"),
+        pytest.param("http://192.168.1.5./api", "a private address", id="address-with-a-dot"),
+        pytest.param("10.0.0.7.:8080", "a private address", id="bare-address-with-a-dot"),
+        pytest.param("http://[fd00::1]", "a private address", id="v6-address-at-the-end"),
+        pytest.param("url=http://[fd00::1]", "a private address", id="v6-address-after-a-prefix"),
+        pytest.param("http://[fe80::1%25eth0]/api", "a private address", id="v6-address-zone"),
+        pytest.param("http://localhost:8080/api", "an internal host name", id="localhost"),
+    ],
+)
+def test_a_url_word_is_read_by_its_host_in_each_spelling_of_the_host(
+    web: WebFake, chain_of: Callable[..., None], word: str, rule: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to open {word} now")
+
+    assert (refusal, web.requested) == (f"The search was refused: the query holds {rule}.", [])
+
+
+@pytest.mark.parametrize("form", [*_BARE_FORMS, *_URL_FORMS])
+def test_a_word_of_a_public_host_reaches_the_provider(
+    web: WebFake, chain_of: Callable[..., None], form: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to open {form.format(host=_PUBLIC_HOST)} now")
+
+    assert (refusal, web.requested) == (None, [_DUCKDUCKGO])
+
+
+@pytest.mark.parametrize(
+    "word",
+    [
+        pytest.param("pydantic-ai", id="package-name"),
+        pytest.param("v1.2.3", id="version-tag"),
+        pytest.param("3.14", id="version-number"),
+        pytest.param("foo/bar", id="path"),
+        pytest.param("C:\\path", id="drive-path"),
+        pytest.param("key=value", id="key-and-value"),
+        pytest.param("list[int]", id="type-with-brackets"),
+        pytest.param("https://example.com/docs/settings.local", id="url-path-like-a-name"),
+        pytest.param("https://example.com/?next=http%3A%2F%2Fdocs.python.org", id="encoded-url"),
+    ],
+)
+def test_a_word_with_no_refused_host_reaches_the_provider(
+    web: WebFake, chain_of: Callable[..., None], word: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to use {word} now")
+
+    assert (refusal, web.requested) == (None, [_DUCKDUCKGO])
+
+
+@pytest.mark.parametrize(
+    ("word", "refusal"),
+    [
+        pytest.param("https://[name]:6443/healthz", None, id="name-in-brackets"),
+        pytest.param(
+            "https://[nas.lan]:6443/healthz",
+            "The search was refused: the query holds an internal host name.",
+            id="internal-name-in-brackets",
+        ),
+        pytest.param(
+            "http://[192.168.1.5]/api",
+            "The search was refused: the query holds a private address.",
+            id="v4-address-in-brackets",
+        ),
+        pytest.param(
+            "[a](https://nas.lan)[b](https://docs.python.org)",
+            "The search was refused: the query holds an internal host name.",
+            id="two-markdown-links",
+        ),
+        pytest.param(
+            "http://nas.lan\uff0fapi",
+            "The search was refused: the query holds an internal host name.",
+            id="full-width-slash",
+        ),
+    ],
+)
+def test_a_text_that_the_url_parser_refuses_is_read_part_by_part(
+    web: WebFake, chain_of: Callable[..., None], word: str, refusal: str | None
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    assert (_refusal(f"how to open {word} now"), web.requested) == (
+        refusal,
+        [] if refusal else [_DUCKDUCKGO],
+    )
+
+
+@pytest.mark.parametrize("host", ["nas.lan", "192.168.1.5", _PUBLIC_HOST])
+def test_a_url_word_with_user_info_is_refused_by_the_secret_rule(
+    web: WebFake, chain_of: Callable[..., None], host: str
+) -> None:
+    chain_of("duckduckgo")
+    _duckduckgo_answers(web)
+
+    refusal = _refusal(f"how to open https://user@{host}/api now")
+
+    assert (refusal, web.requested) == ("The search was refused: the query holds a secret.", [])
+
+
 def test_a_failed_attempt_logs_the_backend_and_the_status_and_never_the_key_or_the_query(
     web: WebFake, chain_of: Callable[..., None], caplog: pytest.LogCaptureFixture
 ) -> None:

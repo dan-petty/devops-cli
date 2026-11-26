@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import ipaddress
 import urllib.parse
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import httpx2
 
+from devops_cli.config.constants import CONST_PROSE_TRAILING_PUNCTUATION, CONST_URL_CANDIDATE_RE
+
 if TYPE_CHECKING:
     from urllib.parse import SplitResult
+
+# A character that ends a URL in prose or in Markdown, and so is not a part of the URL.
+_URL_END: Final[str] = "`<>\"'"
 
 
 def get_url_origin(value: str) -> httpx2.Origin | None:
@@ -19,6 +24,17 @@ def get_url_origin(value: str) -> httpx2.Origin | None:
         return httpx2.URL(clean).origin
     except ValueError, httpx2.InvalidURL:
         return None
+
+
+def url_candidates(text: str) -> list[str]:
+    """Each text in `text` that starts with a scheme and `://`, in its order. A candidate ends at
+    a quote, a backtick or an angle bracket, and prose punctuation after it is not a part of it.
+    No parser has read a candidate: the caller parses it with `urlsplit`, which can refuse it."""
+    candidates: list[str] = []
+    for candidate in CONST_URL_CANDIDATE_RE.findall(text):
+        end = min((i for i, char in enumerate(candidate) if char in _URL_END), default=None)
+        candidates.append(candidate[:end].rstrip(CONST_PROSE_TRAILING_PUNCTUATION))
+    return candidates
 
 
 def _bracket_bare_ipv6(s: str) -> str:
