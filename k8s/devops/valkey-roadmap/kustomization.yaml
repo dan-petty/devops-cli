@@ -19,11 +19,11 @@ labels:
       app.kubernetes.io/part-of: devops-cli-stack
     includeTemplates: true
 resources:
-  - https://github.com/dan-petty/infra//k8s/bases/valkey?ref=v0.24.2
+  - https://github.com/dan-petty/infra//k8s/bases/valkey?ref=v0.24.3
 components:
-  - https://github.com/dan-petty/infra//k8s/components/valkey-persistence?ref=v0.24.2
-  - https://github.com/dan-petty/infra//k8s/components/valkey-exporter?ref=v0.24.2
-  - https://github.com/dan-petty/infra//k8s/components/valkey-acl?ref=v0.24.2
+  - https://github.com/dan-petty/infra//k8s/components/valkey-persistence?ref=v0.24.3
+  - https://github.com/dan-petty/infra//k8s/components/valkey-exporter?ref=v0.24.3
+  - https://github.com/dan-petty/infra//k8s/components/valkey-acl?ref=v0.24.3
 # Application devops waits for a confirmation before each prune (Prune=confirm). The old ConfigMap
 # of a changed valkey.conf goes at each rollout, so the generated ConfigMap prunes with no
 # confirmation.
