@@ -15,9 +15,9 @@ qualifier such as `repo:` of another repository.
 Each query passes the guard of the web search (`devops_cli.ai.web_search`) before it reaches a
 provider or the decision point: the guard refuses a secret, an e-mail address, a private address
 and an internal host name. The guard reads the text of the item and also the plain words, because
-the words are what leaves the process, and a host of a URL is a word of its own only there. A
-refused query is dropped, and it adds 1 to `devops_cli_brain_references_total` with the provider
-`step` and the result `refused`.
+the words are what leaves the process. It reads the host of a URL in both. A refused query is
+dropped, and it adds 1 to `devops_cli_brain_references_total` with the provider `step` and the
+result `refused`.
 """
 
 from __future__ import annotations

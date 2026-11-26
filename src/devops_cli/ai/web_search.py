@@ -14,12 +14,13 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import unicodedata
 from collections.abc import Iterator
 from dataclasses import dataclass
 from email.errors import MessageError
 from email.headerregistry import Address
 from typing import Final, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx2
 
@@ -54,7 +55,7 @@ from devops_cli.exceptions.config import ConfigurationError
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.http.egress import EgressLevel, configured_level
 from devops_cli.http.entry import http_client
-from devops_cli.http.urls import service_base_url
+from devops_cli.http.urls import service_base_url, url_candidates
 from devops_cli.security.reference_extractor import (
     is_local_or_reserved_domain,
     is_private_or_local_ip,
@@ -65,6 +66,8 @@ from devops_cli.telemetry.instruments import WEB_SEARCHES_TOTAL, emit
 logger = logging.getLogger(__name__)
 
 _PROSE_EDGES: Final[str] = ".,;:!?\"'`(){}<>"
+# The characters that end a part of a text that the URL parser refuses: a slash and a bracket.
+_PART_ENDS: Final[dict[int, int]] = str.maketrans("/[]", "   ")
 _HTTP_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
 _SEARXNG_SETTING: Final[str] = "search.searxng_url"
 
@@ -430,18 +433,50 @@ def _private_part(text: str) -> str | None:
     host name. None when no token is."""
     for token in text.split():
         word = token.strip(_PROSE_EDGES)
-        host = _host_of(word)
         if _is_email(word):
             return "the query holds an e-mail address"
-        if _is_private_address(host):
-            return "the query holds a private address"
-        if is_local_or_reserved_domain(host):
-            return "the query holds an internal host name"
+        for host in _hosts_of(word):
+            if _is_private_address(host):
+                return "the query holds a private address"
+            if is_local_or_reserved_domain(host):
+                return "the query holds an internal host name"
     return None
 
 
+def _hosts_of(word: str) -> Iterator[str]:
+    """The hosts that `word` names, each with no dot at its end.
+
+    `word` is read as a host with no scheme (`_host_of`) and as a URL, and each URL that it holds
+    is read too: a URL in a longer word, and a URL in the path or the query of another URL. Each
+    of these is read again from `word` with its percent-encoding decoded one time.
+    """
+    for text in dict.fromkeys((word, unquote(word))):
+        yield _host_of(text).rstrip(".")
+        for url in dict.fromkeys((text, *url_candidates(text))):
+            yield from (host.rstrip(".") for host in _url_hosts(url))
+
+
+def _url_hosts(url: str) -> Iterator[str]:
+    """The host of the URL `url`, or nothing when it has none.
+
+    A text that the URL parser refuses, such as `https://[name]:6443`, is no URL. The parser
+    refuses a text for its brackets or for a character that NFKC changes to a URL delimiter. Such
+    a text is read in its NFKC form, and each part of it between a slash and a bracket is read as
+    an address or as a host with no scheme.
+    """
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        for part in unicodedata.normalize("NFKC", url).translate(_PART_ENDS).split():
+            yield from (part, _host_of(part.strip(_PROSE_EDGES)))
+        return
+    if host:
+        yield host
+
+
 def _host_of(word: str) -> str:
-    """The host of `word`, which may carry a port or brackets, or `word` when it names no host."""
+    """The host of `word`, which may carry a port, a path or brackets, or `word` when it names no
+    host."""
     try:
         return urlsplit(f"//{word}").hostname or word
     except ValueError:

@@ -27,20 +27,19 @@ from pydantic_ai.messages import ToolReturn
 from devops_cli.ai.page_text import PageText, fetch_page_text
 from devops_cli.ai.web_search import normalize_url
 from devops_cli.config.constants import (
-    CONST_PROSE_TRAILING_PUNCTUATION,
     CONST_ROADMAP_PAGE_FETCH_MAX,
     CONST_ROADMAP_PAGE_FETCH_MAX_CHARS,
     CONST_ROADMAP_PAGE_FETCH_RESULT_ERROR,
     CONST_ROADMAP_PAGE_FETCH_RESULT_LIMIT,
     CONST_ROADMAP_PAGE_FETCH_RESULT_OK,
     CONST_ROADMAP_PAGE_FETCH_RESULT_REFUSED,
-    CONST_URL_CANDIDATE_RE,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.exceptions.ai import PageTextError
 from devops_cli.exceptions.base import DevOpsCLIError
 from devops_cli.exceptions.security import SSRFBlockedError
 from devops_cli.exceptions.validation import InvalidURLError
+from devops_cli.http.urls import url_candidates
 from devops_cli.lang import MESSAGES
 from devops_cli.roadmap.agent_run import empty_answer, error_answer, ok_answer
 from devops_cli.roadmap.fence import code_fence
@@ -49,9 +48,6 @@ from devops_cli.telemetry.instruments import ROADMAP_PAGE_FETCHES_TOTAL, emit
 TOOLSET_REFINE: Final[str] = "refine"
 TOOLSET_ALTERNATIVES: Final[str] = "alternatives"
 TOOLSET_STAGE: Final[str] = "stage"
-
-# A character that ends a URL in prose or in Markdown, and so is not a part of the URL.
-_URL_END: Final[str] = "`<>\"'"
 
 
 def page_fetch_configured() -> bool:
@@ -74,13 +70,7 @@ def urls_in_order(text: str) -> list[str]:
     """The http and https URLs that `text` names, as `normalize_url` spells them, in their order.
     A URL ends at a quote, a backtick or an angle bracket, and prose punctuation after it is not a
     part of it. A candidate that the URL parser refuses is left out."""
-    urls: list[str] = []
-    for candidate in CONST_URL_CANDIDATE_RE.findall(text):
-        end = min((i for i, char in enumerate(candidate) if char in _URL_END), default=None)
-        url = candidate[:end].rstrip(CONST_PROSE_TRAILING_PUNCTUATION)
-        if _is_web_url(url):
-            urls.append(normalize_url(url))
-    return urls
+    return [normalize_url(url) for url in url_candidates(text) if _is_web_url(url)]
 
 
 def named_urls(*texts: str) -> frozenset[str]:

@@ -77,7 +77,7 @@ The step makes no model call of its own. Its queries come from two sources:
 
 The step takes a rule query and a query of the model in turn, and it sends at most 3 queries for an item. A query is plain words: a colon and a quote leave it, so no text of an item names a search qualifier.
 
-Each query passes the query guard of the web search before it reaches a provider or the decision point. The guard refuses a secret, an e-mail address, a private address and an internal host name. It reads the text of the item and also the plain words, because the host of a URL is a word of its own only there. A refused query is dropped and counted with the provider `step` and the result `refused`. A text of the item that the URL parser refuses, such as `https://[name]:6443/healthz`, names no URL and stops no step.
+Each query passes the query guard of the web search before it reaches a provider or the decision point. The guard refuses a secret, an e-mail address, a private address and an internal host name. It reads the text of the item and also the plain words, because the plain words are what leaves the process. It reads the host of a URL in both. A refused query is dropped and counted with the provider `step` and the result `refused`. A text of the item that the URL parser refuses, such as `https://[name]:6443/healthz`, names no URL and stops no step.
 
 The providers are data:
 

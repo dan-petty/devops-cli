@@ -102,3 +102,12 @@ def test_a_query_that_the_guard_of_the_web_search_refuses_reaches_no_provider(
         ("pydantic-ai", "typed agent"),
         [({"provider": "step", "result": "refused"}, 6.0)],
     )
+
+
+def test_a_code_span_with_a_url_is_read_by_the_host_of_the_url(otlp: FakeCollector) -> None:
+    body = "Run `curl http://nas.lan/api` and `wget http://192.168.1.5:8080/x`. Use `pydantic-ai`."
+
+    assert (rule_queries(body), otlp.points(BRAIN_REFERENCES_TOTAL.name)) == (
+        ["pydantic-ai"],
+        [({"provider": "step", "result": "refused"}, 2.0)],
+    )
