@@ -55,6 +55,7 @@ from devops_cli.roadmap.stores.store import (
     IssueRecord,
     decode_job_record,
     split_record,
+    written_elsewhere,
 )
 
 # The modules `visibility`, `valkey.cache` and `valkey.tiered` are imported in the functions that
@@ -221,14 +222,17 @@ def forget_issue(
 
 
 def issue_from_event(repo: str | RepoRef, issue: WebhookIssue) -> CachedIssue:
-    """Build a `CachedIssue` from the `WebhookIssue` of an issue event."""
+    """Build a `CachedIssue` from the `WebhookIssue` of an issue event. The block of the body is
+    read as the record of this issue, as the GitHub store reads it: a block that was written for
+    another issue gives an empty job record and `foreign_record` (#7347)."""
     ref = repo if isinstance(repo, RepoRef) else RepoRef(repo)
+    number = issue.number or 0
     clean_body, held = split_record(issue.body, issue=f"#{issue.number}")
-    job_record = decode_job_record(held, issue=f"#{issue.number}")
+    job_record = decode_job_record(held, issue=f"#{issue.number}", number=number)
     state = GitHubState.CLOSED if issue.state.lower() == "closed" else GitHubState.OPEN
     labels = tuple(lbl.name for lbl in issue.labels if lbl.name)
     record = IssueRecord(
-        number=issue.number or 0,
+        number=number,
         title=issue.title,
         url=f"https://github.com/{ref.display}/issues/{issue.number}",
         body=clean_body,
@@ -238,5 +242,6 @@ def issue_from_event(repo: str | RepoRef, issue: WebhookIssue) -> CachedIssue:
         pull_request=issue.pull_request is not None,
         updated_at=issue.updated_at,
         job_record=job_record,
+        foreign_record=written_elsewhere(held, number=number),
     )
     return CachedIssue(record=record, etag=None, checked_at=datetime.now(UTC))

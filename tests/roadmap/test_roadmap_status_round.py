@@ -211,7 +211,7 @@ def test_the_row_watch_sets_planned_for_a_plan_pull_request_that_merged(
         "state": "closed",
         "draft": False,
         "merged": True,
-        "head": {"sha": HEAD},
+        "head": {"sha": HEAD, "ref": BRANCH},
     }
     api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(payload))
 

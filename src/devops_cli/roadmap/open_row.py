@@ -116,13 +116,16 @@ def _held(item: Item) -> bool:
 
 def open_candidates(store: RoadmapStore, ls_remote: str) -> list[OpenCandidate]:
     """The pushed branches of open items that the row may open, in the order of the items. It
-    reads the listing of the store and `ls_remote`, and sends no request."""
+    reads the listing of the store and `ls_remote`, and sends no request. A recorded branch that
+    does not name the item is no delivery branch of it (#7347)."""
     heads = _heads(ls_remote)
     held_issues = {issue_of_branch(pull.head_ref) for pull in store.open_pulls()}
     found = []
     for item in store.open_items():
         branch = item.job_record.get(ImplementRecordKey.BRANCH)
         if not branch or branch not in heads or item.number in held_issues or _held(item):
+            continue
+        if issue_of_branch(branch) != item.number:
             continue
         found.append(OpenCandidate(item=item, branch=branch, sha=heads[branch]))
     return found

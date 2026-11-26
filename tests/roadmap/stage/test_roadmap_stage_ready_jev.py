@@ -22,7 +22,7 @@ from tests.support.fakes.github import (
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_implement import PASS, PULL, seed_staged
+from tests.support.roadmap_implement import BRANCH, PASS, PULL, seed_staged
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -84,7 +84,7 @@ def _pull(api: GitHubApiFake, head: str = HEAD) -> None:
         {
             "state": "open",
             "draft": True,
-            "head": {"sha": head},
+            "head": {"sha": head, "ref": BRANCH},
             "base": {"ref": "main", "sha": STALE_BASE},
             "labels": [],
         }
@@ -161,7 +161,9 @@ def test_with_the_setting_off_jev_is_never_asked(
     api.route(
         "GET",
         f"/repos/{STAGE_REPO}/pulls/{PULL}",
-        github_json({"state": "open", "draft": True, "head": {"sha": HEAD}, "labels": []}),
+        github_json(
+            {"state": "open", "draft": True, "head": {"sha": HEAD, "ref": BRANCH}, "labels": []}
+        ),
     )
     api.route(
         "GET",

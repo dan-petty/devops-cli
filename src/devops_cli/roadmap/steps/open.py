@@ -287,16 +287,22 @@ def _upsert_marked_comment(repo: str, pull_number: int, comment_body: str) -> bo
 
 
 def _record_pr_marks(
-    store: RoadmapStore | None, item_num: int | None, kind: str, pr_num: int
+    store: RoadmapStore | None, item_num: int | None, kind: str, pr_num: int, head: str
 ) -> None:
-    """Record `<kind>.pr` in the item record."""
+    """Record `<kind>.pr` in the item record. A plan also records its head branch `head` as
+    `stage.branch`, in the same write, when the branch names the item: a row takes a pull request
+    as the plan of an item by its number and its head branch (`recorded_plan`, #7347)."""
     if not store or not item_num:
         return
     item = store.item(item_num)
     if not item:
         return
-    key = StageRecordKey.PR if kind == "plan" else ImplementRecordKey.PR
-    store.set_marks(item, {key: str(pr_num)})
+    marks: dict[StageRecordKey | ImplementRecordKey, str] = {
+        StageRecordKey.PR if kind == "plan" else ImplementRecordKey.PR: str(pr_num)
+    }
+    if kind == "plan" and issue_of_branch(head) == item_num:
+        marks[StageRecordKey.BRANCH] = head
+    store.set_marks(item, marks)
 
 
 def _sync_status(store: RoadmapStore | None, item_num: int | None, kind: str) -> None:
@@ -374,7 +380,7 @@ def _handle_existing_pull(
             request.repo, existing.number, request.comment_body
         )
 
-    _record_pr_marks(request.store, target_issue, request.kind, existing.number)
+    _record_pr_marks(request.store, target_issue, request.kind, existing.number, request.head)
     _sync_status(request.store, target_issue, request.kind)
 
     status = (
@@ -432,7 +438,7 @@ def _handle_new_pull(
     if request.comment_body:
         _upsert_marked_comment(request.repo, created.number, request.comment_body)
 
-    _record_pr_marks(request.store, target_issue, request.kind, created.number)
+    _record_pr_marks(request.store, target_issue, request.kind, created.number, request.head)
     _sync_status(request.store, target_issue, request.kind)
 
     return OpenResult(

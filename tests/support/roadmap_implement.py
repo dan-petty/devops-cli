@@ -226,10 +226,21 @@ def seed_staged(
 
 
 def route_pull_status(
-    api: GitHubApiFake, status: dict[str, object] = OPEN_DRAFT, pull: int = PULL
+    api: GitHubApiFake,
+    status: dict[str, object] = OPEN_DRAFT,
+    pull: int = PULL,
+    *,
+    branch: str | None = None,
 ) -> None:
-    """GitHub's answer to the read of the state of pull request `pull`."""
-    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{pull}", github_json(status))
+    """GitHub's answer to the read of the state of pull request `pull`. The answer names the head
+    branch `branch`. With no `branch`, a status that names no head branch gets `BRANCH`, the
+    staged branch of item 1: GitHub gives each pull request its head branch, and the jobs compare
+    it with the recorded branch of the item."""
+    given = status.get("head")
+    head: dict[str, object] = {"ref": BRANCH, **(given if isinstance(given, dict) else {})}
+    if branch is not None:
+        head["ref"] = branch
+    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{pull}", github_json({**status, "head": head}))
 
 
 @pytest.fixture

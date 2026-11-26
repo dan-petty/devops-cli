@@ -20,6 +20,7 @@ from datetime import datetime, timedelta
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 from devops_cli.config.constants import CONST_ROADMAP_STAGE_ORPHAN_AGE_SECONDS
+from devops_cli.git.branch_form import issue_of_branch
 from devops_cli.roadmap.stores.store import GitHubState, Item, StageRecordKey
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,13 @@ def orphan_mark(
 ) -> PendingStage | None:
     """The mark of `item` when the item can hold an orphan: it is open, its record holds no
     pull request, and the mark is at least as old as the age limit at `now`, or the check-out of
-    the item names the stage Job `job` of this pod, or the Job of the item ended (`freed`)."""
+    the item names the stage Job `job` of this pod, or the Job of the item ended (`freed`). The
+    job pushes the branch `<type>/<issue>-<slug>` of the item, so a mark whose branch does not
+    name the item is no mark of an orphan of it (#7347)."""
     if item.state is not GitHubState.OPEN or item.job_record.get(StageRecordKey.PR):
         return None
     pending = recorded_pending(item)
-    if pending is None:
+    if pending is None or issue_of_branch(pending.branch) != item.number:
         return None
     if freed or (job is not None and item.job_record.get(StageRecordKey.JOB) == job):
         return pending

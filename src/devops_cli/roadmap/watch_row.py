@@ -21,6 +21,11 @@ when `draft_readiness` answers ready for the draft that `read_ready_draft` reads
 hold one pull request as the plan and as the delivery of its item, and `read_draft` then judges it
 as the delivery, so a task that is not ticked keeps it a draft; the row judges a refused head once
 (#6123).
+
+A pull request is the plan of an item only when the record of the item names its number and its
+head branch (`recorded_plan`, #7347). The GraphQL read gives the head branch of each open pull
+request. The REST round and the read of the plans that are no more open read the pull request
+first, and write for the item only when the head branch is the recorded branch.
 """
 
 from __future__ import annotations
@@ -119,6 +124,7 @@ from devops_cli.roadmap.stores.store import (
     Item,
     RoadmapStore,
     StageRecordKey,
+    recorded_plan,
 )
 from devops_cli.telemetry.instruments import ROADMAP_CONFLICTED_PULLS, emit
 
@@ -137,6 +143,7 @@ query OpenRoadmapPulls($owner: String!, $name: String!, $cursor: String) {
         isDraft
         mergeable
         headRefOid
+        headRefName
         baseRefName
         author {
           login
@@ -307,13 +314,19 @@ def _delivers_an_item(
     return None
 
 
-def _find_plan_item(store: RoadmapStore, pull_number: int) -> Item | None:
-    """Find open item whose stage.pr matches pull_number."""
+def _is_plan_of(item: Item, pull_number: int, head_ref: str | None) -> bool:
+    """Whether pull request `pull_number`, whose head branch is `head_ref`, is the plan of `item`:
+    the record of the item names the number and the branch (`recorded_plan`)."""
+    plan = recorded_plan(item)
+    return plan is not None and plan.is_pull(pull_number, head_ref)
+
+
+def _find_plan_item(store: RoadmapStore, pull_number: int, head_ref: str | None) -> Item | None:
+    """The open item whose plan is pull request `pull_number` with the head branch `head_ref`.
+    The recorded branch names its item, so at most one item has the plan."""
     for item in store.items():
-        if item.state is GitHubState.OPEN:
-            recorded = item.job_record.get(StageRecordKey.PR) or ""
-            if recorded.isdigit() and int(recorded) == pull_number:
-                return item
+        if item.state is GitHubState.OPEN and _is_plan_of(item, pull_number, head_ref):
+            return item
     return None
 
 
@@ -729,7 +742,7 @@ def _process_graphql_nodes(
         head_sha = str(node.get("headRefOid") or "")
         author_login = (node.get("author") or {}).get("login", "")
 
-        plan_item = _find_plan_item(ctx.store, pr_number)
+        plan_item = _find_plan_item(ctx.store, pr_number, node.get("headRefName"))
         delivery_item = _delivers_an_item(ctx.store, body, base_ref, default_branch)
 
         if plan_item is not None:
@@ -779,20 +792,20 @@ def _delivered_candidates(
     recorded_pulls: Mapping[int, WatchLedgerEntry],
 ) -> dict[int, tuple[Item | None, bool]]:
     """The candidates of a scoped round: the delivered pull requests that an open Item records as
-    `stage.pr`, or that the watch ledger holds. A delivered number that neither source names sends
-    no request (#4413)."""
+    its plan (`recorded_plan`), or that the watch ledger holds. A delivered number that neither
+    source names sends no request (#4413). The item of a candidate is a hint: the round reads the
+    pull request, and takes the item only when the head branch is the recorded branch."""
     wanted = frozenset(pull_numbers)
     candidates: dict[int, tuple[Item | None, bool]] = {}
     for item in store.items():
-        rec = item.job_record.get(StageRecordKey.PR)
+        plan = recorded_plan(item)
         if (
             item.state is GitHubState.OPEN
-            and rec
-            and rec.isdigit()
-            and int(rec) in wanted
-            and item.job_record.get(StageRecordKey.READY) != rec
+            and plan is not None
+            and plan.pull in wanted
+            and item.job_record.get(StageRecordKey.READY) != str(plan.pull)
         ):
-            candidates[int(rec)] = (item, True)
+            candidates[plan.pull] = (item, True)
     for number in pull_numbers:
         if number not in candidates and number in recorded_pulls:
             candidates[number] = (None, False)
@@ -810,9 +823,9 @@ def _collect_rest_candidates(
         return _delivered_candidates(store, pull_numbers, recorded_pulls or {})
     candidates: dict[int, tuple[Item | None, bool]] = {}
     for item in store.items():
-        rec = item.job_record.get(StageRecordKey.PR)
-        if rec and rec.isdigit() and item.job_record.get(StageRecordKey.READY) != rec:
-            candidates[int(rec)] = (item, True)
+        plan = recorded_plan(item)
+        if plan is not None and item.job_record.get(StageRecordKey.READY) != str(plan.pull):
+            candidates[plan.pull] = (item, True)
     for listed in store.open_pulls():
         if listed.number not in candidates:
             candidates[listed.number] = (None, False)
@@ -830,7 +843,7 @@ def _resolve_rest_item(
     """Resolve the Item and plan indicator for a REST pull request."""
     if known_item is not None:
         return known_item, is_plan_hint
-    plan_item = _find_plan_item(store, pr_number)
+    plan_item = _find_plan_item(store, pr_number, pull_status.head_ref)
     if plan_item is not None:
         return plan_item, True
     delivery_item = _delivers_an_item(store, pull_status.body, pull_status.base_ref, default_branch)
@@ -850,6 +863,10 @@ def _process_rest_pulls(
 
     for pr_number, (known_item, is_plan_hint) in candidate_prs.items():
         pull_status: PullStatus = client.get_pull_status(ctx.repo, pr_number)
+        # The record of the hinted item names the number. Only the head branch of the pull
+        # request proves that it is the plan of that item (#7347).
+        if known_item is not None and not _is_plan_of(known_item, pr_number, pull_status.head_ref):
+            known_item, is_plan_hint = None, False
         if not pull_status.is_open_draft and not pull_status.draft and pull_status.state != "open":
             if known_item is not None and is_plan_hint:
                 ctx.store.set_marks(known_item, {StageRecordKey.READY: str(pr_number)})
@@ -889,21 +906,23 @@ def _process_rest_pulls(
 
 def _check_closed_stage_plans(ctx: _WatchContext, pull_numbers: tuple[int, ...] = ()) -> None:
     """Check recorded stage plan drafts that are no longer open. With `pull_numbers`, read the
-    delivered plan pull requests of the scoped round only (#4413)."""
+    delivered plan pull requests of the scoped round only (#4413). A pull request whose head
+    branch is not the recorded branch is not the plan of the item, and the row sends no write
+    for it (#7347)."""
     client = get_github_session().client
     for item in ctx.store.items():
-        recorded = item.job_record.get(StageRecordKey.PR)
-        if not recorded or not recorded.isdigit():
+        plan = recorded_plan(item)
+        if plan is None or item.job_record.get(StageRecordKey.READY) == str(plan.pull):
             continue
-        if item.job_record.get(StageRecordKey.READY) == recorded:
-            continue
-        plan_pr = int(recorded)
+        plan_pr = plan.pull
         if pull_numbers and plan_pr not in pull_numbers:
             continue
         try:
             plan_status = client.get_pull_status(ctx.repo, plan_pr)
         except (GitHubOperationError, GitHubRateLimitError, GitHubNotFoundError, OSError) as exc:
             logger.warning("Could not read pull status for plan PR #%d: %s", plan_pr, exc)
+            continue
+        if not plan.is_pull(plan_pr, plan_status.head_ref):
             continue
         if not plan_status.is_open_draft:
             ctx.store.set_marks(item, {StageRecordKey.READY: str(plan_pr)})

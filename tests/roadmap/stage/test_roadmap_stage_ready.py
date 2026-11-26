@@ -36,7 +36,15 @@ from tests.support.fakes.github import (
 )
 from tests.support.fakes.process import ProcessAnswer, ProcessCall, ProcessFake
 from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
-from tests.support.roadmap_implement import BRANCH, FAIL, PASS, PULL, RUNNING, seed_staged
+from tests.support.roadmap_implement import (
+    BRANCH,
+    FAIL,
+    PASS,
+    PULL,
+    RUNNING,
+    branch_of,
+    seed_staged,
+)
 from tests.support.roadmap_stage import STAGE_REPO
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -54,13 +62,14 @@ def _pull(
     merged: bool = False,
     head: str = HEAD,
     labels: tuple[str, ...] = (),
+    branch: str = BRANCH,
 ) -> None:
-    """GitHub's answer to the read of pull request `number`."""
+    """GitHub's answer to the read of pull request `number`, whose head branch is `branch`."""
     payload = {
         "state": state,
         "draft": draft,
         "merged": merged,
-        "head": {"sha": head, "ref": BRANCH},
+        "head": {"sha": head, "ref": branch},
         "base": {"ref": "main"},
         "labels": [{"name": name} for name in labels],
     }
@@ -295,8 +304,8 @@ def test_one_refused_pull_request_does_not_stop_the_next_and_fails_the_round_nam
 ) -> None:
     first = seed_staged(store)
     second = seed_staged(store, pull=SECOND_PULL)
-    for number in (PULL, SECOND_PULL):
-        _pull(api, number, head=str(number) * 40)
+    for item, number in ((first, PULL), (second, SECOND_PULL)):
+        _pull(api, number, head=str(number) * 40, branch=branch_of(item))
         _checks(api, PASS, head=str(number) * 40)
     ready.refused.add(str(PULL))
 
@@ -366,8 +375,8 @@ def test_a_head_that_moved_after_the_checks_stays_a_draft_and_is_read_again(
     api.route(
         "GET",
         f"/repos/{STAGE_REPO}/pulls/{PULL}",
-        github_json({**opened, "head": {"sha": HEAD}}),
-        github_json({**opened, "head": {"sha": "b" * 40}}),
+        github_json({**opened, "head": {"sha": HEAD, "ref": BRANCH}}),
+        github_json({**opened, "head": {"sha": "b" * 40, "ref": BRANCH}}),
     )
     _checks(api, PASS)
 
@@ -487,3 +496,34 @@ def test_a_finished_runner_job_does_not_hold_back_a_green_draft(
     applied = mark_stage_ready(store, repo=STAGE_REPO)
 
     assert applied.marked == (number,)
+
+
+@pytest.mark.parametrize(
+    ("state", "merged"), [("open", False), ("closed", True)], ids=["green-draft", "merged"]
+)
+def test_a_pull_request_whose_head_branch_is_not_the_recorded_branch_is_not_the_plan_of_the_item(
+    store: InMemoryRoadmapStore, api: GitHubApiFake, ready: _Ready, state: str, merged: bool
+) -> None:
+    """The record names the pull request by its number, and its head branch is not `stage.branch`
+    (#7347): the round marks nothing ready and sends no record write."""
+    seed_staged(store)
+    payload = {
+        "state": state,
+        "draft": state == "open",
+        "merged": merged,
+        "head": {"sha": HEAD, "ref": "feat/4107-add-the-rows"},
+        "base": {"ref": "main"},
+        "labels": [],
+    }
+    api.route("GET", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json(payload))
+    _checks(api, PASS)
+    writes = len(store.job_writes())
+
+    applied = mark_stage_ready(store, repo=STAGE_REPO)
+
+    assert (applied.marked, applied.settled, ready.calls, store.job_writes()[writes:]) == (
+        (),
+        (),
+        [],
+        [],
+    )

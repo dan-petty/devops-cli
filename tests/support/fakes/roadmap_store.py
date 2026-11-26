@@ -43,6 +43,7 @@ from devops_cli.config.constants import (
 )
 from devops_cli.exceptions import git as git_errors
 from devops_cli.exceptions.git import GitHubFileNotFoundError, GitHubOperationError
+from devops_cli.roadmap.stores import store as record_store
 from devops_cli.roadmap.stores.store import (
     Candidate,
     Change,
@@ -136,6 +137,14 @@ def _changed_at(comment: IssueComment) -> datetime:
     """When `comment` last changed: its last edit, else its creation. Read by name, so that the
     fail-to-pass replay loads this module against a base tree whose comment has no edit time."""
     return getattr(comment, "updated_at", None) or comment.created_at
+
+
+def _own_record(held: Mapping[str, Any], number: int) -> Mapping[str, Any]:
+    """The record `held` of issue `number` as a read takes it (`own_record`, #7347): empty when
+    it was written for another issue. Read by name, so that the fail-to-pass replay runs this
+    module against a base tree whose store reads each block as the record of its issue."""
+    own = getattr(record_store, "own_record", None)
+    return held if own is None else own(held, number=number)
 
 
 def _number(args: tuple[object, ...]) -> int | None:
@@ -1111,20 +1120,30 @@ class InMemoryRoadmapStore(RoadmapStore):
         """The issue as a read returns it: its record block taken out of the body and read."""
         name = f"#{issue.number}"
         body, held = split_record(issue.body, issue=name)
-        return issue.model_copy(
-            update={
-                "body": body,
-                "job_record": decode_job_record(held, issue=name),
-                "comments": len(self._roadmap.comments.get(issue.number, [])),
-            }
-        )
+        own = _own_record(held, issue.number)
+        update: dict[str, Any] = {
+            "body": body,
+            "job_record": decode_job_record(own, issue=name),
+            "comments": len(self._roadmap.comments.get(issue.number, [])),
+        }
+        if held and not own:
+            update["foreign_record"] = True
+        return issue.model_copy(update=update)
 
     def _block(
         self, issue: IssueRecord, changes: Mapping[Any, str | None] | None = None
     ) -> str | None:
         """The issue's record block with `changes` made, or the block it holds when there are no
-        changes; None when it holds none and there are none."""
+        changes; None when it holds none and there are none. A job writes the block as the GitHub
+        store does (`record_block`, #7347): it replaces a block that was written for another
+        issue. A person's view keeps the block as it is."""
         _, held = split_record(issue.body, issue=f"#{issue.number}")
+        # Read by name: the fail-to-pass replay runs this module against a base tree whose
+        # store has no `record_block`, and merges into each block.
+        written = getattr(record_store, "record_block", None)
+        if written is not None and self._writes_job_record:
+            block: str | None = written(held, changes or {}, number=issue.number)
+            return block
         if not held and not changes:
             return None
         return encode_job_record(held, changes or {})

@@ -31,6 +31,10 @@ a draft. The round posts one note and records `stage.jev` with the head commit, 
 only for a new head commit, or after an error. The check only holds: a pass leaves the decision to
 the checks above, and the check never marks a draft ready, merges or closes.
 
+A pull request is the plan of an item only when the record names its number and its head branch
+(`recorded_plan`, #7347). The round reads the pull request of a record that names a plan, and
+records no outcome for a pull request whose head branch is not the recorded branch.
+
 A pull request that fails stops that item only. The round then fails and names each item. That
 holds for a 404 too: GitHub answers 404 for a repository the token cannot see, so the answer does
 not prove that the pull request is gone, and the row records nothing. Rejected credentials, a rate
@@ -74,6 +78,7 @@ from devops_cli.roadmap.stores.store import (
     Item,
     RoadmapStore,
     StageRecordKey,
+    recorded_plan,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,13 +102,14 @@ class StageReadyApplied:
 
 def _recorded_pull(item: Item) -> int | None:
     """The number of the draft that the round reads for `item`, or None when it reads none: the
-    item is closed, holds no `stage.pr`, has `stage.ready` for it, or has a runner Job."""
+    item is closed, its record names no plan (`recorded_plan`), has `stage.ready` for it, or has
+    a runner Job."""
     if item.state is not GitHubState.OPEN or job_holds(item):
         return None
-    recorded = item.job_record.get(StageRecordKey.PR) or ""
-    if not recorded.isdigit() or item.job_record.get(StageRecordKey.READY) == recorded:
+    plan = recorded_plan(item)
+    if plan is None or item.job_record.get(StageRecordKey.READY) == str(plan.pull):
         return None
-    return int(recorded)
+    return plan.pull
 
 
 def _jev_holds(store: RoadmapStore, repo: str, item: Item, number: int, status: PullStatus) -> bool:
@@ -151,10 +157,15 @@ def _read_plan_change(
     return ChangeFacts(archived=False, tasks_text=tasks_text, archive_required=False)
 
 
-def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome:
-    """Read pull request `number` of `item` and mark it ready when it is a green draft."""
+def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome | None:
+    """Read pull request `number` of `item` and mark it ready when it is a green draft. None when
+    the head branch of the pull request is not the recorded branch: it is not the plan of the
+    item, and the round records no outcome for it (#7347)."""
     client = get_github_session().client
     status = client.get_pull_status(repo, number)
+    plan = recorded_plan(item)
+    if plan is None or not plan.is_pull(number, status.head_ref):
+        return None
     if not status.is_open_draft:
         store.set_marks(item, {StageRecordKey.READY: str(number)})
         if status.merged:
@@ -192,7 +203,9 @@ def _settle(store: RoadmapStore, repo: str, item: Item, number: int) -> _Outcome
 def _run_one(
     store: RoadmapStore, repo: str, item: Item, number: int, outcomes: dict[int, _Outcome]
 ) -> None:
-    outcomes[item.number] = _settle(store, repo, item, number)
+    outcome = _settle(store, repo, item, number)
+    if outcome is not None:
+        outcomes[item.number] = outcome
 
 
 def mark_stage_ready(store: RoadmapStore, *, repo: str) -> StageReadyApplied:

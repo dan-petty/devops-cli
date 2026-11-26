@@ -4844,6 +4844,7 @@ class RoadmapMessages:
     stage_heading_failed: str = "## Failed"
     stage_heading_removals: str = "## Staged branches to remove"
     stage_heading_kept: str = "## Staged branches kept"
+    stage_heading_resets: str = "## Records to replace"
     stage_ready_line: str = (
         "- #{number} {title}: branch `{branch}`, {count} task group(s), the largest {largest} "
         "tokens{note}"
@@ -4855,6 +4856,10 @@ class RoadmapMessages:
     stage_removal_line: str = "- #{number}: `{branch}`{note}"
     stage_removal_gone: str = " is gone, and the job clears the record"
     stage_kept_line: str = "- #{number}: `{branch}`: {reason}"
+    stage_reset_line: str = (
+        "- #{number}: the record in the body was written for another issue, and the job replaces it"
+    )
+    stage_reset_log: str = "stage record replaced: repo=%s item=#%d"
     stage_applied: str = (
         "Staged {staged} item(s), stopped {stopped} on the budget, removed {removed} staged "
         "branch(es)."

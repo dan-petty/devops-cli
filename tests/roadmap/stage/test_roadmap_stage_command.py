@@ -300,14 +300,22 @@ def test_confirm_reports_the_items_it_returned_after_a_rejected_plan(
     github_api: GitHubApiFake,
 ) -> None:
     number = seed_stageable(roadmap_store)
-    pull = roadmap_store.seed_pull("plan of #1", head_ref="fix/1-the-job-drops-a-comment")
+    branch = "fix/1-the-job-drops-a-comment"
+    pull = roadmap_store.seed_pull("plan of #1", head_ref=branch)
     item = roadmap_store.item(number)
     assert item is not None
-    roadmap_store.set_marks(item, {StageRecordKey.PR: str(pull)})
+    roadmap_store.set_marks(item, {StageRecordKey.PR: str(pull), StageRecordKey.BRANCH: branch})
     github_api.route(
         "GET",
         f"/repos/{STAGE_REPO}/pulls/{pull}",
-        github_json({"state": "closed", "merged": False, "draft": False}),
+        github_json(
+            {
+                "state": "closed",
+                "merged": False,
+                "draft": False,
+                "head": {"sha": "abc", "ref": branch},
+            }
+        ),
     )
 
     result = _stage(cli, stage_repo, "--confirm")

@@ -19,33 +19,37 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
 
-BRANCH = "fix/3-the-job-drops-a-comment"
-CLOSE = f"PATCH {API}/repos/{STAGE_REPO}/pulls/7"
+BRANCH = "fix/1-the-job-drops-a-comment"
+PULL = 2
+"""The draft pull request of issue #1, which the store opens as its second issue."""
+CLOSE = f"PATCH {API}/repos/{STAGE_REPO}/pulls/{PULL}"
 
 
 @pytest.fixture(autouse=True)
 def closed_pull(github_api: GitHubApiFake) -> GitHubApiFake:
-    github_api.route("PATCH", f"/repos/{STAGE_REPO}/pulls/7", github_json({"number": 7}))
+    github_api.route("PATCH", f"/repos/{STAGE_REPO}/pulls/{PULL}", github_json({"number": PULL}))
     return github_api
 
 
 def _staged_item(
     state: GitHubState = GitHubState.CLOSED, *, branch: str = BRANCH
 ) -> InMemoryRoadmapStore:
-    """A store whose issue #1 holds the record of a staged branch."""
+    """A store whose issue #1 holds the record of a staged branch and of its open draft, the
+    pull request `PULL` on that branch."""
     store = InMemoryRoadmapStore(repo=STAGE_REPO)
     number = store.seed_issue(
         "fix(roadmap): the job drops a comment",
         state=state,
         fields={ItemField.STATUS: "Ready", ItemField.PRIORITY: "P1-High"},
     )
+    pull = store.seed_pull("docs(spec): plan #1 the job drops a comment", head_ref=branch)
     item = store.item(number)
     assert item is not None
     store.set_marks(
         item,
         {
             StageRecordKey.BRANCH: branch,
-            StageRecordKey.PR: "7",
+            StageRecordKey.PR: str(pull),
             StageRecordKey.SHA: "abc",
         },
     )
@@ -87,7 +91,7 @@ def test_a_closed_item_loses_a_branch_that_only_the_app_wrote_to(
     plan = _plan(store, stage_repo)
     applied = apply_stage(store, plan, source=stage_repo.clone)
 
-    assert [(r.number, r.branch, r.pull) for r in plan.removals] == [(1, BRANCH, 7)]
+    assert [(r.number, r.branch, r.pull) for r in plan.removals] == [(1, BRANCH, PULL)]
     assert applied.removed == (1,)
     assert _branches(stage_repo) == ["main"]
     assert closed_pull.requested == [CLOSE]
@@ -105,7 +109,7 @@ def test_a_closed_item_loses_a_branch_whose_other_commit_is_a_clean_merge_by_a_p
     plan = _plan(store, stage_repo)
     applied = apply_stage(store, plan, source=stage_repo.clone)
 
-    assert [(r.number, r.branch, r.pull) for r in plan.removals] == [(1, BRANCH, 7)]
+    assert [(r.number, r.branch, r.pull) for r in plan.removals] == [(1, BRANCH, PULL)]
     assert applied.removed == (1,)
     assert _branches(stage_repo) == ["main"]
     assert closed_pull.requested == [CLOSE]
@@ -151,8 +155,10 @@ def test_an_open_item_keeps_its_staged_branch(
 
     closed_pull.route(
         "GET",
-        f"/repos/{STAGE_REPO}/pulls/7",
-        github_json({"state": "open", "draft": True, "merged": False}),
+        f"/repos/{STAGE_REPO}/pulls/{PULL}",
+        github_json(
+            {"state": "open", "draft": True, "merged": False, "head": {"sha": "abc", "ref": BRANCH}}
+        ),
     )
 
     plan = _plan(store, stage_repo)
@@ -160,4 +166,4 @@ def test_an_open_item_keeps_its_staged_branch(
 
     assert (plan.removals, plan.kept) == ((), ())
     assert BRANCH in _branches(stage_repo)
-    assert closed_pull.requested == [f"GET {API}/repos/{STAGE_REPO}/pulls/7"]
+    assert closed_pull.requested == [f"GET {API}/repos/{STAGE_REPO}/pulls/{PULL}"]

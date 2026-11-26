@@ -44,6 +44,7 @@ from devops_cli.roadmap.stores.store import (
 from tests.support.roadmap_implement import (
     TITLE,
     JobWorld,
+    branch_of,
     long_run_trace,
     push_staged_branch,
     route_pull_status,
@@ -122,7 +123,7 @@ def test_explain_names_the_effort_set_and_whether_the_fallback_applies(
     job_world.store.add_label(job_world.number, "owner/agent")
     medium = seed_staged(job_world.store, labels=("type/bug", "effort/medium"), pull=6)
     push_staged_branch(job_world.repo, number=medium)
-    route_pull_status(job_world.api, pull=6)
+    route_pull_status(job_world.api, pull=6, branch=branch_of(medium))
 
     explained = _explain(job_world, medium)
     line = TEXTS.explain_effort_line.format(
@@ -140,7 +141,7 @@ def test_a_medium_effort_item_waits_for_the_low_effort_item_that_the_run_takes(
 ) -> None:
     medium = seed_staged(job_world.store, labels=("type/bug", "effort/medium"), pull=6)
     push_staged_branch(job_world.repo, number=medium)
-    route_pull_status(job_world.api, pull=6)
+    route_pull_status(job_world.api, pull=6, branch=branch_of(medium))
 
     explained = _explain(job_world, medium)
 

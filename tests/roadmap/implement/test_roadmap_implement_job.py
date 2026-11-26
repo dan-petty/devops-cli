@@ -1348,7 +1348,7 @@ def test_a_secret_in_the_path_of_a_conflicted_file_reaches_neither_comment_nor_r
 def test_a_step_that_stops_does_not_stop_the_next_item(job_world: JobWorld) -> None:
     second = seed_staged(job_world.store, pull=6)
     push_staged_branch(job_world.repo, number=second)
-    route_pull_status(job_world.api, pull=6)
+    route_pull_status(job_world.api, pull=6, branch=branch_of(second))
     job_world.api.route(
         "GET",
         f"/repos/{STAGE_REPO}/issues/6/comments?per_page=100",
@@ -2469,8 +2469,9 @@ def test_a_run_over_two_planned_items_reads_each_base_spec_once(planned_world: J
 
 
 def test_a_run_over_two_staged_items_lists_the_branch_of_each_item(job_world: JobWorld) -> None:
-    second = seed_staged(job_world.store)
+    second = seed_staged(job_world.store, pull=6)
     push_staged_branch(job_world.repo, number=second)
+    route_pull_status(job_world.api, pull=6, branch=branch_of(second))
     since = len(job_world.programs.calls)
 
     plan = job_world.plan(limit=2)

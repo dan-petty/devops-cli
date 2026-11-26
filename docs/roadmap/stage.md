@@ -153,6 +153,10 @@ The reply of the planner has no key to say that the premise of the issue is fals
 
 Each run also removes the draft and the branch of a closed item, when only the identity of the session wrote to them.
 
+A run takes a recorded name as the name of an item only with proof (#7347). A recorded branch is the branch of an item only when it names the item (`<type>/<issue>-<slug>`). A recorded pull request is the plan of an item only when its head branch is the recorded branch. This holds for the branch and the draft of a closed item, for the branch of an intent mark and for the plan pull request of a staged item.
+
+Each run first replaces the job record of an item whose body holds a record that was written for another issue, with one write ([The issue of a record](../ROADMAP_WORKFLOW.md#the-issue-of-a-record)). A person can transfer an issue to another repository, and the issue then holds the record of the repository that it left. The plan of a run lists these items under `## Records to replace`.
+
 ## The orphan draft of a failed write
 
 The job writes the intent mark `stage.pending` before it pushes the branch of an item. The mark is JSON with the branch name and the time. The write of the record after the draft clears it. When that write fails, or the worker dies between the push and the record, the item keeps the mark and has a pushed branch and a draft but no `stage.pr`. This is an orphan.

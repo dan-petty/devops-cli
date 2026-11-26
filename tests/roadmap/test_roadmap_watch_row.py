@@ -92,6 +92,7 @@ def _graphql_pr_node(
     base_ref: str = "main",
     labels: tuple[str, ...] = (),
     contexts: list[dict[str, Any]] | None = None,
+    head_ref: str | None = None,
 ) -> dict[str, Any]:
     if contexts is None:
         contexts = [
@@ -110,6 +111,7 @@ def _graphql_pr_node(
         "labels": {"nodes": [{"name": name} for name in labels]},
         "mergeable": mergeable,
         "headRefOid": head,
+        "headRefName": head_ref,
         "baseRefName": base_ref,
         "author": {"login": author},
         "commits": {
@@ -367,10 +369,18 @@ def test_a_green_delivery_draft_gets_the_ready_path_after_a_fix_or_a_drafted_end
     store.set_marks(held, marks)
     pr_num = store.seed_pull("feat: delivery PR", head_ref=f"feat/{issue}-deliv", draft=True)
     if staged:
-        store.set_marks(held, {ImplementRecordKey.PR: str(pr_num), StageRecordKey.PR: str(pr_num)})
+        store.set_marks(
+            held,
+            {
+                ImplementRecordKey.PR: str(pr_num),
+                StageRecordKey.PR: str(pr_num),
+                StageRecordKey.BRANCH: f"feat/{issue}-deliv",
+            },
+        )
     node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
+        head_ref=f"feat/{issue}-deliv",
         is_draft=True,
         body=f"Closes #{issue}",
         author="devops-cli-service",
@@ -482,7 +492,7 @@ def _drafted_delivery(store: InMemoryRoadmapStore, *, staged: bool = False) -> t
         ImplementRecordKey.PR: str(pr_num),
     }
     if staged:
-        marks[StageRecordKey.PR] = str(pr_num)
+        marks |= {StageRecordKey.PR: str(pr_num), StageRecordKey.BRANCH: f"feat/{issue}-deliv"}
     store.set_field(held, ItemField.STATUS, "In Review", marks=marks)
     return issue, pr_num
 
@@ -494,6 +504,7 @@ def _delivery_node(pr_num: int, issue: int, **fields: Any) -> dict[str, Any]:
         "body": f"Closes #{issue}",
         "author": "devops-cli-service",
         "head": HEAD_FAIL,
+        "head_ref": f"feat/{issue}-deliv",
         **fields,
     }
     return _graphql_pr_node(number=pr_num, **values)
@@ -897,11 +908,14 @@ def test_watch_row_marks_ready_bot_plan_draft(
     pr_num = store.seed_pull("plan: my plan", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    store.set_marks(
+        item, {StageRecordKey.PR: str(pr_num), StageRecordKey.BRANCH: f"feat/{issue_num}-test"}
+    )
 
     node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
+        head_ref=f"feat/{issue_num}-test",
         is_draft=True,
         author="devops-cli-service[bot]",
         check_state="SUCCESS",
@@ -936,10 +950,18 @@ def test_watch_row_leaves_an_implement_draft_with_an_unticked_task_group_a_draft
     pull = store.seed_pull("feat(roadmap): Add the sample", head_ref=branch, draft=True)
     item = store.item(issue)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pull), ImplementRecordKey.PR: str(pull)})
+    store.set_marks(
+        item,
+        {
+            StageRecordKey.PR: str(pull),
+            StageRecordKey.BRANCH: branch,
+            ImplementRecordKey.PR: str(pull),
+        },
+    )
     node = _graphql_pr_node(
         number=pull,
         head=HEAD_PASS,
+        head_ref=branch,
         is_draft=True,
         author="devops-cli-service[bot]",
         check_state="SUCCESS",
@@ -970,10 +992,13 @@ def test_watch_row_holds_the_ready_mark_of_a_plan_that_a_verdict_sent_back(
     pr_num = store.seed_pull("plan: my plan", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    store.set_marks(
+        item, {StageRecordKey.PR: str(pr_num), StageRecordKey.BRANCH: f"feat/{issue_num}-test"}
+    )
     node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
+        head_ref=f"feat/{issue_num}-test",
         is_draft=True,
         author="devops-cli-service[bot]",
         check_state="SUCCESS",
@@ -1168,7 +1193,9 @@ def test_watch_row_graphql_pagination_and_non_roadmap_pr(
     pr_num = store.seed_pull("plan: plan pr", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    store.set_marks(
+        item, {StageRecordKey.PR: str(pr_num), StageRecordKey.BRANCH: f"feat/{issue_num}-test"}
+    )
 
     # Page 1 has non-roadmap PR #999 and hasNextPage=True
     non_roadmap_node = _graphql_pr_node(
@@ -1178,6 +1205,7 @@ def test_watch_row_graphql_pagination_and_non_roadmap_pr(
     plan_node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
+        head_ref=f"feat/{issue_num}-test",
         is_draft=True,
         author="devops-cli-service[bot]",
         check_state="SUCCESS",
@@ -1231,11 +1259,14 @@ def test_watch_row_jev_completeness_and_needs_fix(
     pr_num = store.seed_pull("plan: plan pr", head_ref=f"feat/{issue_num}-test", draft=True)
     item = store.item(issue_num)
     assert item is not None
-    store.set_marks(item, {StageRecordKey.PR: str(pr_num)})
+    store.set_marks(
+        item, {StageRecordKey.PR: str(pr_num), StageRecordKey.BRANCH: f"feat/{issue_num}-test"}
+    )
 
     node = _graphql_pr_node(
         number=pr_num,
         head=HEAD_PASS,
+        head_ref=f"feat/{issue_num}-test",
         is_draft=True,
         author="devops-cli-service[bot]",
         check_state="SUCCESS",
@@ -1286,7 +1317,10 @@ def test_watch_row_rest_fallback_and_closed_stage_plans(
         plan_item = store.item(plan_issue)
         assert plan_item is not None
         plan_pr = 555
-        store.set_marks(plan_item, {StageRecordKey.PR: str(plan_pr)})
+        plan_branch = f"feat/{plan_issue}-closed-plan"
+        store.set_marks(
+            plan_item, {StageRecordKey.PR: str(plan_pr), StageRecordKey.BRANCH: plan_branch}
+        )
 
         github_api.route(
             "GET",
@@ -1320,7 +1354,7 @@ def test_watch_row_rest_fallback_and_closed_stage_plans(
                     "merged": True,
                     "draft": False,
                     "body": "Plan PR",
-                    "head": {"sha": HEAD_PASS, "ref": "plan/closed"},
+                    "head": {"sha": HEAD_PASS, "ref": plan_branch},
                     "base": {"ref": "main", "repo": {"default_branch": "main"}},
                 }
             ),

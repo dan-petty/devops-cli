@@ -155,7 +155,7 @@ from devops_cli.exceptions import (
     ToolExecutionError,
     ValidationError,
 )
-from devops_cli.git.branch_form import branch_name
+from devops_cli.git.branch_form import branch_name, issue_of_branch
 from devops_cli.git.worktree_add import (
     issue_holder,
     read_remote_heads,
@@ -384,6 +384,7 @@ from devops_cli.roadmap.stores.store import (
     IssueComment,
     Item,
     ItemTree,
+    OpenPull,
     OwnerQuestionRecordKey,
     RefineRecordKey,
     RoadmapStore,
@@ -1258,7 +1259,9 @@ class StagePlan:
     the items that failed, and the issues left out with their reasons. `missing` holds the project
     files that the default branch lacks, which onboarding adds (#4629). `attempts` holds the
     counts of each item that the planner tried (#4845). `queue` is the queue of the selection
-    (`StageSelection.queue`, #5470)."""
+    (`StageSelection.queue`, #5470). `resets` holds the items whose body holds a record that was
+    written for another issue (`foreign_record`): the writer replaces each such record with one
+    write (#7347)."""
 
     repo: str
     sha: str = ""
@@ -1280,6 +1283,7 @@ class StagePlan:
     missing: tuple[str, ...] = ()
     attempts: tuple[StageAttempt, ...] = ()
     queue: int = 0
+    resets: tuple[Item, ...] = ()
 
 
 def _stage_error(message: str, target: StageTarget) -> RoadmapStageError:
@@ -3126,13 +3130,16 @@ def _reconcile(
 ) -> tuple[tuple[Removal, ...], tuple[KeptBranch, ...]]:
     """Judge the staged branch of each closed item whose record holds one: removed when the
     branch is gone or every commit past the default branch is the clone identity's or a clean
-    merge by a person, else kept. With `only`, a stage Job judges that item and no other."""
+    merge by a person, else kept. With `only`, a stage Job judges that item and no other. A
+    recorded branch that does not name the item is no staged branch of it (#7347)."""
     pushed = set(remote_branches(remote_heads))
     removals: list[Removal] = []
     kept: list[KeptBranch] = []
     for item in _items_of(store, only):
         branch = item.job_record.get(StageRecordKey.BRANCH)
         if item.state is not GitHubState.CLOSED or not branch:
+            continue
+        if issue_of_branch(branch) != item.number:
             continue
         pull = _pull_of(item)
         if branch not in pushed:
@@ -3388,8 +3395,10 @@ def read_stage_round(
     every_orphan: bool = False,
 ) -> StageRound:
     """The reads of a stage round, with no model call and no write: the plans that a person
-    closed with no merge, the staged branches of closed items, the orphans, and the selection of
-    up to `limit` items. The writer of the round then removes and rejects what the plan holds.
+    closed with no merge, the staged branches of closed items, the orphans, the items whose body
+    holds a record that was written for another issue, and the selection of up to `limit` items.
+    The writer of the round then replaces those records, and removes and rejects what the plan
+    holds.
 
     `named`, `item_number`, `job` and `why` are those of `plan_stage`. `busy` names the stage Job
     of each item that a Job works on, which the selection leaves out. The marks of the items of
@@ -3406,6 +3415,7 @@ def read_stage_round(
     orphans, orphans_kept = _orphans(
         store, source, heads, now or datetime.now(UTC), only=only, job=job, freed=freed
     )
+    resets = tuple(item for item in _items_of(store, only) if item.foreign_record)
     settings = load_settings().roadmap.stage
     with observe_step(repo, _ROW, StepName.SELECT):
         sha, _, planned, selection, missing = read_stage_selection(
@@ -3443,6 +3453,7 @@ def read_stage_round(
         rejections=rejections.found,
         missing=missing,
         queue=selection.queue,
+        resets=resets,
     )
     return StageRound(plan, planned, selection.selected)
 
@@ -4222,8 +4233,10 @@ def _remove_staged(store: RoadmapStore, repo: str, source: Path, removal: Remova
     """Close the draft of a closed item and delete its branch, then clear the keys of the plan of
     the item but its failure ledger (`STAGE_REMOVAL_KEYS`), which keeps the check-out of a stage
     Job, the failure marks, the count toward the split and the free evictions (#4559). A branch
-    that is gone needs only the record cleared. Under #5499 and #6668, an App-only branch of an
-    open Ready orphan is kept with its `stage.pending` mark so the stage pipeline can resume on it."""
+    that is gone needs only the record cleared. The draft is the pull request that the writer
+    found with the branch as its head (`StageWriter._remove`, #7347). Under #5499 and #6668, an
+    App-only branch of an open Ready orphan is kept with its `stage.pending` mark so the stage
+    pipeline can resume on it."""
     kept_orphan = (
         not removal.gone and removal.orphan and removal.item.status == CONST_ROADMAP_STATUS_READY
     )
@@ -4540,12 +4553,22 @@ class StageWriter:
         )
 
     def begin(self, plan: StagePlan, selected: Collection[int]) -> None:
-        """Write what needs no model: the removals, the rejections of the items outside `selected`
-        and the failures that `plan` holds. A rejection of a selected item waits for its plan."""
+        """Write what needs no model: the record resets, the removals, the rejections of the items
+        outside `selected` and the failures that `plan` holds. A rejection of a selected item
+        waits for its plan. A reset is one write with no mark: the store replaces a record that
+        was written for another issue, so the body holds no key of it after the round (#7347)."""
         self._repo, self._sha = plan.repo, plan.sha
         self._rejections = {r.number: r for r in plan.rejections if r.number in selected}
-        drafts = cache(self._draft_heads)
+        drafts = cache(self._open_pulls)
+        reset: list[int] = []
         with self._recording(plan.failed):
+            write_each(
+                [(item, partial(self._store.set_marks, item, {})) for item in plan.resets],
+                reset,
+                self._failed,
+            )
+            for number in reset:
+                logger.info(MESSAGES.roadmap.stage_reset_log, plan.repo, number)
             write_each(
                 [(r.item, partial(self._remove, plan.repo, r, drafts)) for r in plan.removals],
                 self._removed,
@@ -4581,18 +4604,23 @@ class StageWriter:
         self._rejected = list(begun.rejected)
         self._failed = list(begun.failed)
 
-    def _draft_heads(self) -> dict[str, int]:
-        """The number of the open pull request of each head branch: one read for the round."""
-        drafts: dict[str, int] = {}
-        for pull in self._store.open_pulls():
-            drafts.setdefault(pull.head_ref, pull.number)
-        return drafts
+    def _open_pulls(self) -> tuple[OpenPull, ...]:
+        """The open pull requests of the repository: one read for the round."""
+        return tuple(self._store.open_pulls())
 
-    def _remove(self, repo: str, removal: Removal, drafts: Callable[[], Mapping[str, int]]) -> None:
-        """Remove a staged branch. The draft of an orphan is not in the record, so it is found by
-        its head branch in the one read of the open pull requests (#4051)."""
-        if removal.orphan and not removal.gone:
-            removal = replace(removal, pull=drafts().get(removal.branch))
+    def _remove(
+        self, repo: str, removal: Removal, drafts: Callable[[], Sequence[OpenPull]]
+    ) -> None:
+        """Remove a staged branch. Its draft is an open pull request whose head branch is the
+        branch of the removal, found in the one read of the open pull requests. The draft of an
+        orphan is not in the record, so it is the first such pull request (#4051). A recorded
+        number names the draft only when that pull request has the branch as its head (#7347)."""
+        if not removal.gone:
+            heads = [pull.number for pull in drafts() if pull.head_ref == removal.branch]
+            if removal.orphan:
+                removal = replace(removal, pull=heads[0] if heads else None)
+            elif removal.pull not in heads:
+                removal = replace(removal, pull=None)
         _remove_staged(self._store, repo, self._source, removal)
 
     def settle(
@@ -4841,6 +4869,7 @@ def render_stage_plan(plan: StagePlan) -> str:
         texts.stage_kept_line.format(number=k.number, branch=k.branch, reason=k.reason)
         for k in plan.kept
     ]
+    resets = [texts.stage_reset_line.format(number=item.number) for item in plan.resets]
     rejected = [
         texts.stage_rejected_line.format(
             number=r.number,
@@ -4880,7 +4909,8 @@ def render_stage_plan(plan: StagePlan) -> str:
     lines += _section(texts.stage_heading_failed, failed)
     lines += _section(texts.stage_heading_removals, removals)
     lines += _section(texts.stage_heading_kept, kept)
-    if not (ready or over or left or failed or removals or kept or returned or rejected):
+    lines += _section(texts.stage_heading_resets, resets)
+    if not (ready or over or left or failed or removals or kept or returned or rejected or resets):
         lines += ["", texts.stage_nothing]
     return "\n".join(lines)
 

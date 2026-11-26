@@ -221,7 +221,7 @@ def test_a_retry_finds_the_branch_and_the_pull_request_that_the_job_recorded(
     """The stage pair names a merged pull request. The implement pair names the open draft."""
     new_branch = f"fix/1-{SLUG}"
     push_staged_branch(stage_repo, author="devops-roadmap[bot]", slug=SLUG)
-    route_pull_status(github_api, pull=9)
+    route_pull_status(github_api, pull=9, branch=new_branch)
     number = seed_staged(store, record=False)
     item = store.item(number)
     assert item is not None
