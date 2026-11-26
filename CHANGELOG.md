@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.221.10](https://github.com/dan-petty/devops-cli/compare/v0.221.9...v0.221.10) (2026-11-26)
+
+
+### Bug Fixes
+
+* **repos:** Install the pinned Node tools in new worktrees ([#7260](https://github.com/dan-petty/devops-cli/issues/7260)) ([53fa096](https://github.com/dan-petty/devops-cli/commit/53fa096f84ab17084d70f4732ecb59f14952e75e))
+
 ## [0.221.9](https://github.com/dan-petty/devops-cli/compare/v0.221.8...v0.221.9) (2026-11-25)
 
 
