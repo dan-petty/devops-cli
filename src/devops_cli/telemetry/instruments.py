@@ -738,10 +738,13 @@ BRAIN_READS_TOTAL = Instrument(
     "devops_cli_brain_reads_total",
     InstrumentKind.COUNTER,
     "1",
-    "Reads of the project brain (#4668), by store (snapshot, fact or issue) and result: memory, "
+    "Reads of the project brain (#4668), by store (snapshot, fact, issue, or brain_index for the "
+    "index of the alternatives results, #4676) and result: memory, "
     "local or shared for the tier that gave the value (local is the snapshot file of the "
     "process), source when no tier held it, fallback when the shared tier failed or its breaker "
-    "was open, private for a repository that the shared tier does not hold, and unknown for a "
+    "was open, or when a brain-sync did not complete because the store of the index did not "
+    "answer or is not configured, private for a repository that the shared tier does not hold, "
+    "and unknown for a "
     "repository whose visibility is not known (its read failed, or a webhook delivery carried "
     "none and the process held none), whose shared copy is not used",
 )
@@ -753,7 +756,8 @@ BRAIN_WRITES_TOTAL = Instrument(
     "unchanged when the shared snapshot already holds the same records, skipped while the tier "
     "failed, oversize for a value over 1 MiB or a snapshot over 128 MiB of record JSON, which "
     "stays local, older when the shared "
-    "snapshot is newer or another writer won, private, removed for the shared snapshot of a "
+    "snapshot is newer or another writer won, or when the brain index holds the entry of a "
+    "newer check (#4676), private, removed for the shared snapshot of a "
     "repository that became private or of a repository whose visibility read failed and whose "
     "last save is older than 30 minutes, and unknown for a repository whose visibility is not "
     "known (its read failed, or a webhook delivery carried none and the process held none), "
@@ -787,6 +791,29 @@ BRAIN_GITHUB_REQUESTS_SAVED_TOTAL = Instrument(
     "1",
     "Listing pages of a full read that a process did not send because it took the shared "
     "snapshot (#4668), by store",
+)
+BRAIN_ENTRIES = Instrument(
+    "devops_cli_brain_entries",
+    InstrumentKind.GAUGE,
+    "1",
+    "Item entries that the brain index of a repository held when the last brain-sync of the "
+    "alternatives row ended (#4676), by store (brain_index) and repo",
+)
+BRAIN_SYNC_LAG = Instrument(
+    "devops_cli_brain_sync_lag_seconds",
+    InstrumentKind.GAUGE,
+    "s",
+    "Time from the end of a brain-sync of a repository to the next one, which copies the "
+    "alternatives results into the brain index (#4676), by store (brain_index) and repo. The "
+    "bound is the interval of the alternatives row and the time of one round; a sync that does "
+    "not complete records no value",
+)
+BRAIN_FIRST_READS_TOTAL = Instrument(
+    "devops_cli_brain_first_reads_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Alternatives checks whose item the brain index held no entry for, so the check ran with "
+    "no entry of its item and wrote the first one (#4676), by row",
 )
 EMBEDDING_CACHE_SIZE = Instrument(
     "devops_cli_embedding_cache_size",
@@ -1084,6 +1111,9 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     BRAIN_WRITES_TOTAL,
     VALKEY_CACHE_ERRORS_TOTAL,
     BRAIN_GITHUB_REQUESTS_SAVED_TOTAL,
+    BRAIN_ENTRIES,
+    BRAIN_SYNC_LAG,
+    BRAIN_FIRST_READS_TOTAL,
     EMBEDDING_CACHE_SIZE,
     RAG_EMBEDDING_BATCH_SIZE,
     RAG_EMBEDDING_BATCH_RESIZES_TOTAL,
@@ -1185,9 +1215,12 @@ __all__ = [
     "AI_STRUCTURED_ATTEMPTS_TOTAL",
     "AI_TOKENS_TOTAL",
     "BRAIN_CACHE_TOTAL",
+    "BRAIN_ENTRIES",
+    "BRAIN_FIRST_READS_TOTAL",
     "BRAIN_GITHUB_REQUESTS_SAVED_TOTAL",
     "BRAIN_READS_TOTAL",
     "BRAIN_REFERENCES_TOTAL",
+    "BRAIN_SYNC_LAG",
     "BRAIN_WRITES_TOTAL",
     "CI_CHECKS_TOTAL",
     "CI_GATE_SLOT_WAIT",

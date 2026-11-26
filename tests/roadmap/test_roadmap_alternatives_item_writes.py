@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from fakeredis import FakeServer, FakeValkey
 from pydantic_ai.messages import ModelMessage, ToolReturnPart, UserPromptPart
 from typer.testing import CliRunner
 
@@ -33,6 +34,7 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.scripted_model import Script, call
 
 if TYPE_CHECKING:
+    from devops_cli.valkey.cache import ValkeyCacheTier
     from tests.support.fakes.http import WebFake
 
 pytestmark = pytest.mark.usefixtures("keyring_store")
@@ -168,6 +170,26 @@ def test_rate_limit_in_the_write_of_check_two_ends_the_round_and_keeps_check_one
         _written(store, 1),
         [_written(store, n) for n in range(2, 6)],
     ) == ([1, 2], (True, True, True), [nothing] * 4)
+
+
+def test_the_round_of_the_row_copies_each_written_check_into_the_brain_index(
+    store: InMemoryRoadmapStore,
+    monkeypatch: pytest.MonkeyPatch,
+    roadmap_state_valkey: ValkeyCacheTier,
+    valkey_server: FakeServer,
+) -> None:
+    """After its checks, the row runs `brain-sync` (#4676): the index of `valkey-roadmap` holds
+    one item entry for each of the 5 checks of the round, each with the verdict of its block."""
+    _Model(monkeypatch)
+
+    _run_alternatives_adapter(store, repo=REPO)
+
+    index = FakeValkey(server=valkey_server, decode_responses=True)
+    keys = [f"roadmap:v1:brain-item:{REPO}:{number}" for number in range(1, 6)]
+    assert (
+        sorted(index.scan_iter("roadmap:v1:brain-item:*")),
+        [index.hget(key, "verdict") for key in keys],
+    ) == (keys, ["none"] * 5)
 
 
 def test_plan_only_the_command_makes_no_write(
