@@ -42,10 +42,10 @@ The store SHALL compare the answer of a conditional read with `If-None-Match` wi
 - **THEN** `issue(7)` returns None
 
 ### Requirement: A refused answer logs the requested number
-For an answer that names another issue, the store SHALL log one warning that holds the requested number and the name of its own repository, and no field of the answer.
+For an answer that names another issue, the store SHALL log a warning that holds the requested number and the name of its own repository. No log line of the store SHALL hold a field of the answer.
 
 #### Scenario: The warning names the requested number only
-- **WHEN** the fake GitHub answers the read of `repos/acme/widgets/issues/7` with a payload whose `number` is 12 and whose `repository_url` names `acme/other`
+- **WHEN** a store that read no listing reads issue 7, and the fake GitHub answers the read of `repos/acme/widgets/issues/7` with a payload whose `number` is 12 and whose `repository_url` names `acme/other`
 - **THEN** the store logs one warning that holds `#7` and `acme/widgets`, and holds neither `12` nor `acme/other`
 
 ### Requirement: A write is refused when its read answers with another issue
