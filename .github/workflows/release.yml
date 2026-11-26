@@ -3,8 +3,10 @@ name: Release
 # release-please makes every release (ADR 0013). On each push to main it opens or updates one
 # release pull request, which holds the version, CHANGELOG.md and the manifest. A person merges
 # that pull request, or the workflow release-merge.yml merges it every 6 hours (#3921), or, for an
-# urgent fix, GitHub merges it when its checks pass (#1966); the next run then creates the GitHub
-# release and its tag, and the publish jobs below run only for that run.
+# urgent fix, GitHub merges it when its checks pass (#1966); the next run then creates the tag and
+# a draft GitHub release, and the publish jobs below run only for that run. The job assets publishes
+# the release after it attaches the files: the repository has immutable releases, and a published
+# release takes no more files (#7328).
 on:
   push:
     branches:
@@ -45,7 +47,7 @@ jobs:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           # The token gets only what release-please-action documents: the release pull request,
-          # its labels, the CHANGELOG.md and version commits, the tag and the GitHub release.
+          # its labels, the CHANGELOG.md and version commits, the tag and the draft release.
           permission-contents: write
           permission-issues: write
           permission-pull-requests: write
@@ -124,11 +126,16 @@ jobs:
           uv build
           cd dist && sha256sum -- * > SHA256SUMS.txt
 
-      - name: Upload the Packages to the Release
+      # One script, so the publication runs only after the upload passes (`bash -e`). A failure
+      # leaves the release a draft, and "Re-run failed jobs" runs this job again (RELEASE_CYCLE.md,
+      # A Release That Stays a Draft). No file can reach the release after the publication.
+      - name: Attach the Packages and Publish the Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release upload --clobber "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS.txt
+        run: |
+          gh release upload --clobber "$TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS.txt
+          gh release edit "$TAG" --draft=false
 
   # The Dev Containers CLI builds the image, so it holds the features of
   # .devcontainer/devcontainer.json and the user vscode a child repository runs as (#1895). Three

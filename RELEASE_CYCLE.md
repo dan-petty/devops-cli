@@ -49,11 +49,11 @@ The scheduled workflow `release-merge.yml` also runs every 6 hours as a safety n
 
 ## What the Merge Publishes
 
-The `Release` run of the merge creates the GitHub release and its tag. Then these jobs publish:
+The `Release` run of the merge creates the tag and the GitHub release as a draft (`draft` and `force-tag-creation` in `release-please-config.json`). The repository has immutable releases, which `devops repos onboard` turns on: a published release takes no more files, and its tag cannot move. So `Upload Release Assets` attaches the files to the draft and then publishes it, in one step. The image jobs do not wait for the publication. Then these jobs publish:
 
 | Job | Publishes |
 | :--- | :--- |
-| `Upload Release Assets` | The wheel, the sdist and `SHA256SUMS.txt`, attached to the GitHub release |
+| `Upload Release Assets` | The wheel, the sdist and `SHA256SUMS.txt`, attached to the draft release, and then the release itself |
 | `Build DevContainer Image`, `Smoke-Test DevContainer Image`, `Attest & Tag DevContainer Image` | `ghcr.io/dan-petty/devops-cli/devcontainer`, tagged with the release tag and `latest` |
 | `Service Image / Build`, `Service Image / Verify`, `Service Image / Attest & Tag` | `ghcr.io/dan-petty/devops-cli/service`, tagged with the release tag and `latest` |
 | `Runner Image / Build`, `Runner Image / Verify`, `Runner Image / Attest & Tag` | `ghcr.io/dan-petty/devops-cli/runner`, the image of the implement Job, tagged with the release tag and `latest` |
@@ -70,6 +70,21 @@ Argo CD Image Updater then moves the Service, the CronJob templates of the runne
 3. If the cause is outside the repository, such as a registry outage, click **Re-run failed jobs**. The jobs that passed keep their results. A re-run of a `Verify` job pulls and scans the same digest again.
 4. If the scan of an image finds a vulnerability that a new package outside the repository fixes, open the `Build` job of that image and re-run that job. GitHub also re-runs the `Verify` and `Attest & Tag` jobs of the image, so the new build takes the new packages and `Verify` scans the new digest. Do not use **Re-run all jobs**: release-please then runs again, finds no release to create, and each image job skips.
 5. If the cause is in the repository, fix it in a pull request into `main`. The fix ships in the next release.
+
+### A Release That Stays a Draft
+
+A release stays a draft when `Upload Release Assets` fails, or when `Release Please` fails after it created the draft. The tag exists in both cases. Until the publication, the release is not the latest release and the roadmap Service comments no `Released in <tag>`.
+
+When `Release Please` fails, the run builds no package file and no image, because each publish job needs that job. Look at the labels of the release pull request:
+
+- With the label `autorelease: pending`, each `Release` run tries the release again. Delete the draft, which keeps the tag, and then click **Re-run failed jobs**. The re-run creates the draft again and runs the publish jobs. With no deletion, a second draft for the same tag can result.
+- Without that label, no run creates this release again. Publish the draft by hand (step 2). This version gets no image, and the next release ships the changes in its images.
+
+When only `Upload Release Assets` fails, the images do not depend on it.
+
+1. If no newer release is published, click **Re-run failed jobs**. The upload replaces the files that the draft already holds, and the job then publishes. A re-run uses the workflow file of the failed run, so a later fix of the workflow does not apply to it. Never use **Re-run all jobs**: release-please finds no release to create, so the job skips.
+2. Publish the draft by hand, in the GitHub web UI under **Releases**, when no re-run can publish it, or when a newer release is published. After the publication, no file can be added or replaced. If the upload of the last run passed, publish the files as they are. If not, make all three files from one build: delete each file that the draft holds, check out the tag, run `uv build --clear`, run `cd dist && sha256sum -- * > SHA256SUMS.txt`, and attach the wheel, the sdist and `SHA256SUMS.txt`. Without `--clear`, `dist/` can keep old builds, and the checksum file lists them. When a newer release is published, clear **Set as the latest release**.
+3. The publication can fail with HTTP 403 or 404 when the files under `.github/workflows/` on `main` differ from those of the release commit. GitHub then asks for the `workflows` permission, which `GITHUB_TOKEN` cannot have ([Update a release](https://docs.github.com/en/rest/releases/releases#update-a-release)). A re-run fails the same way, so publish by hand.
 
 ## Versioning Policy
 

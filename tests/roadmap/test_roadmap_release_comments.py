@@ -184,6 +184,21 @@ def test_an_old_release_a_draft_and_a_prerelease_cause_no_read_and_no_comment(
     assert github.comments == {}
 
 
+def test_a_draft_with_no_publication_time_stops_no_comment_of_the_round(
+    github: GitHubFake, ledger: Path
+) -> None:
+    """A release is a draft until its files are attached, and GitHub lists a draft with
+    `published_at: null` (#7328)."""
+    github.seed_release("v1.1.0", _changelog(11), None, draft=True)
+
+    _round(github, ledger)
+
+    assert [comment.split("\n")[0] for comment in github.comments[101]] == [
+        "<!-- devops roadmap release v1.0.0 released -->"
+    ]
+    assert list(json.loads(ledger.read_text("utf-8"))["releases"]) == ["v1.0.0"]
+
+
 def test_a_release_older_than_the_window_leaves_the_ledger(
     github: GitHubFake, ledger: Path
 ) -> None:
