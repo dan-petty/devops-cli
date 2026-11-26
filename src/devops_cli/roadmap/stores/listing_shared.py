@@ -49,6 +49,7 @@ local file only. The shared tier holds the data of a private repository only for
 sends the `sweep` ACL user of `valkey-devops` (#4704), which holds `~valkey:roadmap:*` (ADR 0023
 section 8): the store reads the visibility of a repository only after Valkey answered, and uses
 and writes the shared copy for a public answer, and for a private answer only under `SWEEP_USER`.
+The module `visibility` holds the check and its answers, which the issue cache also uses (#7292).
 A private answer under any other user or none removes the shared copy of a repository that became
 private. A failed visibility read gives an unknown answer: the store does not read or write the
 shared copy, and reads the visibility again after `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS`.
@@ -72,12 +73,10 @@ import zlib
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from enum import StrEnum
 from functools import cached_property
 from itertools import batched
 from typing import Any, Final
 
-from cachetools import TLRUCache
 from pydantic import AwareDatetime, BaseModel, ConfigDict, ValidationError
 
 from devops_cli.config.constants import (
@@ -88,21 +87,17 @@ from devops_cli.config.constants import (
     ValkeyCacheError,
 )
 from devops_cli.config.defaults import (
-    DEFAULT_BRAIN_MEMORY_ENTRIES,
     DEFAULT_BRAIN_SNAPSHOT_LOAD_BUDGET_SECONDS,
     DEFAULT_BRAIN_SNAPSHOT_LOAD_MAX_BYTES,
     DEFAULT_BRAIN_SNAPSHOT_SCAN_COUNT,
     DEFAULT_BRAIN_SNAPSHOT_TEMPORARY_TTL_SECONDS,
     DEFAULT_BRAIN_SNAPSHOT_TTL_SECONDS,
     DEFAULT_BRAIN_VALUE_MAX_BYTES,
-    DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS,
     DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS,
     DEFAULT_GH_REST_PER_PAGE,
     DEFAULT_ROADMAP_INTAKE_SNAPSHOT_MAX_AGE_HOURS,
 )
-from devops_cli.config.settings import load_settings
 from devops_cli.core import clock
-from devops_cli.exceptions import DevOpsCLIError
 from devops_cli.github.repo_ref import RepoRef
 from devops_cli.roadmap.stores.github_store import GhRunner, GitHubRoadmapStore
 from devops_cli.roadmap.stores.listing_snapshot import (
@@ -111,6 +106,13 @@ from devops_cli.roadmap.stores.listing_snapshot import (
     SnapshotStore,
 )
 from devops_cli.roadmap.stores.store import IssueRecord
+from devops_cli.roadmap.stores.visibility import (
+    Visibility,
+    configured_valkey_user,
+    for_user,
+    reset_visibility,
+    visibility_of,
+)
 from devops_cli.telemetry.instruments import (
     BRAIN_GITHUB_REQUESTS_SAVED_TOTAL,
     VALKEY_CACHE_ERRORS_TOTAL,
@@ -661,66 +663,14 @@ def shared_snapshot_store() -> ValkeySnapshotStore | None:
         return _stores[0]
 
 
-class Visibility(StrEnum):
-    """The answer of the visibility check of a repository: public, private, or unknown when the
-    read of GitHub failed. A public repository has a shared copy, and so has a private one while
-    the process sends the `sweep` ACL user (ADR 0023 section 8)."""
-
-    PUBLIC = "public"
-    PRIVATE = "private"
-    UNKNOWN = "unknown"
-
-
-def _monotonic() -> float:
-    """The clock of the visibility answers: the clock seam, which the `clock` fixture moves."""
-    return clock.monotonic()
-
-
-def _visibility_expiry(name: str, answer: Visibility, now: float) -> float:
-    """When the process reads the visibility of a repository again: after
-    `DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS` for an unknown answer, else after
-    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS`."""
-    if answer is Visibility.UNKNOWN:
-        return now + DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS
-    return now + DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS
-
-
-_VISIBILITY_LOCK = threading.Lock()
-# The visibility answers of this process, by `RepoRef.key`. A `TLRUCache` is not thread-safe, so
-# each use holds the lock.
-_visibility: TLRUCache[str, Visibility] = TLRUCache(
-    maxsize=DEFAULT_BRAIN_MEMORY_ENTRIES, ttu=_visibility_expiry, timer=_monotonic
-)
-
-
 def repository_visibility(repo: str, *, runner: GhRunner | None = None) -> Visibility:
-    """The visibility of `repo` that GitHub gives, read once for each repository and its time to
-    live (`_visibility_expiry`). A failed read gives `Visibility.UNKNOWN`: the shared tier gets no
-    data that could be private (ADR 0023 section 8), keeps only a copy saved in the last
-    `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and removes an older one, and a process that is out of
-    GitHub quota sends no visibility read for each round."""
-    name = RepoRef(repo).key
-    with _VISIBILITY_LOCK:
-        held = _visibility.get(name)
-    if held is not None:
-        return held
+    """The visibility of `repo` that GitHub gives, through the one check of the shared tier
+    (`visibility_of`): read once for each repository and the time to live of its answer. A failed
+    read gives `Visibility.UNKNOWN`: the shared tier gets no data that could be private (ADR 0023
+    section 8), keeps only a copy saved in the last `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` and
+    removes an older one."""
     store = GitHubRoadmapStore(repo) if runner is None else GitHubRoadmapStore(repo, runner=runner)
-    try:
-        answer = Visibility.PRIVATE if store.repository_is_private() else Visibility.PUBLIC
-    except DevOpsCLIError as exc:
-        logger.warning(
-            "The visibility of %s is not known, so the round does not use or write its shared "
-            "copy, removes the copy if its last save is older than %s s, and reads the "
-            "visibility again after %s s: %s",
-            repo,
-            DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS,
-            DEFAULT_BRAIN_VISIBILITY_FAILURE_TTL_SECONDS,
-            exc,
-        )
-        answer = Visibility.UNKNOWN
-    with _VISIBILITY_LOCK:
-        _visibility[name] = answer
-    return answer
+    return visibility_of(repo, store.repository_is_private)
 
 
 def reset_shared_snapshots() -> None:
@@ -728,8 +678,7 @@ def reset_shared_snapshots() -> None:
     process starts."""
     with _STORE_LOCK:
         _stores.clear()
-    with _VISIBILITY_LOCK:
-        _visibility.clear()
+    reset_visibility()
 
 
 def _now() -> datetime:
@@ -753,17 +702,6 @@ def _stale(held: HeldMeta) -> bool:
     return 0 <= held.pttl < _STALE_TTL_BELOW_MS
 
 
-SWEEP_USER: Final[str] = "sweep"
-"""The ACL user of the role that writes the shared snapshot of a private repository (#4704).
-The `sweep` user holds `~valkey:roadmap:*`, so its process reads and writes the shared copy of a
-private repository; no other role does."""
-
-
-def _configured_valkey_user() -> str | None:
-    """The ACL user that this process sends, from `valkey.username`; None when it names none."""
-    return load_settings().valkey.username or None
-
-
 @dataclass(frozen=True)
 class TieredSnapshotStore:
     """The local snapshot store of a process and the shared one in Valkey, as one store.
@@ -779,7 +717,7 @@ class TieredSnapshotStore:
     visibility: Callable[[str], Visibility] = repository_visibility
     clock: Callable[[], datetime] = _now
     schema_key: str = LISTING_SCHEMA_KEY
-    user: Callable[[], str | None] = _configured_valkey_user
+    user: Callable[[], str | None] = configured_valkey_user
 
     def load(self, repo: str) -> ListingSnapshot | None:
         local = self.local.load(repo)
@@ -839,9 +777,7 @@ class TieredSnapshotStore:
         whose last save is older than `DEFAULT_BRAIN_VISIBILITY_TTL_SECONDS` (`_stale`), and
         leaves a fresher copy as it is. Valkey checks the age again when it removes the copy, so a
         save during the visibility read keeps it."""
-        visibility = self.visibility(repo)
-        if visibility is Visibility.PRIVATE and self.user() == SWEEP_USER:
-            visibility = Visibility.PUBLIC
+        visibility = for_user(self.visibility(repo), self.user())
         if held is None:
             return visibility
         if visibility is Visibility.PRIVATE:
@@ -871,12 +807,10 @@ class TieredSnapshotStore:
 
 __all__ = [
     "META_FIELD",
-    "SWEEP_USER",
     "HeldMeta",
     "SharedMeta",
     "TieredSnapshotStore",
     "ValkeySnapshotStore",
-    "Visibility",
     "may_replace",
     "repository_visibility",
     "reset_shared_snapshots",

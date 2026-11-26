@@ -44,8 +44,8 @@ if TYPE_CHECKING:
     from devops_cli.roadmap.stores.listing_shared import (
         TieredSnapshotStore,
         ValkeySnapshotStore,
-        Visibility,
     )
+    from devops_cli.roadmap.stores.visibility import Visibility
 
 STARTED = datetime(2026, 1, 1, 10, 0, tzinfo=UTC)
 REPOSITORY_URL = f"https://api.github.com/repos/{REPO}"
@@ -66,13 +66,13 @@ def _issue(number: int, *, updated: str = "2026-01-01T09:00:00Z", **changes: Any
 
 
 def _public(repo: str) -> Visibility:
-    from devops_cli.roadmap.stores.listing_shared import Visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     return Visibility.PUBLIC
 
 
 def _private(repo: str) -> Visibility:
-    from devops_cli.roadmap.stores.listing_shared import Visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     return Visibility.PRIVATE
 
@@ -468,7 +468,7 @@ def test_a_private_repository_is_shared_only_under_the_sweep_user(
     """A round of a private repository writes its shared copy while the process sends the `sweep`
     user, and a round of a new process that sends no user removes the copy and uses none."""
     from devops_cli.config.settings import reset_settings_cache
-    from devops_cli.roadmap.stores.listing_shared import SWEEP_USER
+    from devops_cli.roadmap.stores.visibility import SWEEP_USER
 
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
     github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
@@ -655,7 +655,7 @@ def test_a_save_during_a_failed_visibility_read_keeps_the_shared_copy(
     loads the repository, and while its visibility read fails, another process with a public
     answer saves the same records, which sets the TTL of the key again. The copy is fresh when
     the load would remove it, so the key stays: only the save counts a write."""
-    from devops_cli.roadmap.stores.listing_shared import Visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     snapshot = _snapshot(STARTED, 2, 1)
     _tiered(tmp_path / "first").save(snapshot)
@@ -686,7 +686,8 @@ def test_a_public_answer_is_kept_for_half_an_hour(clock: ClockFake) -> None:
     public answer, and an unknown answer removes a copy older than 30 min, so the shared copy of
     a repository that became private goes at most 1 hour after the change, the bound that the
     owner accepted on 2026-11-21."""
-    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     replies = iter(
         [
@@ -711,7 +712,8 @@ def test_a_public_answer_is_kept_for_half_an_hour(clock: ClockFake) -> None:
 def test_an_unknown_visibility_is_kept_for_the_failure_ttl(clock: ClockFake) -> None:
     """A failed visibility read is kept for 60 s: a check after 59 s gives unknown with no new
     read, and a check after 61 s reads GitHub again and gives public."""
-    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     replies = iter([(1, "API rate limit exceeded"), {"data": {"repository": {"isPrivate": False}}}])
     runner = RecordedGh({"isPrivate": lambda args: next(replies)})
@@ -1207,7 +1209,7 @@ def test_a_repository_that_became_private_leaves_the_shared_tier(
 ) -> None:
     """A round of a public repository writes its shared copy. A round after the repository
     became private removes the key, uses no shared copy and counts `removed`."""
-    from devops_cli.roadmap.stores.listing_shared import Visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     github_api.route("GET", FULL, github_json([_issue(2), _issue(1)]))
     github_api.route("GET", _since("2026-01-01T08:59:00Z"), github_json([]))
@@ -1233,7 +1235,8 @@ def test_one_shared_key_and_one_visibility_read_hold_a_repository_in_each_spelli
 ) -> None:
     """GitHub names ignore case: a save as `Dan-Petty/DevOps-CLI` and a load as
     `dan-petty/devops-cli` use one key, and the visibility of the two is read once."""
-    from devops_cli.roadmap.stores.listing_shared import Visibility, repository_visibility
+    from devops_cli.roadmap.stores.listing_shared import repository_visibility
+    from devops_cli.roadmap.stores.visibility import Visibility
 
     spelled = "Dan-Petty/DevOps-CLI"
     runner = RecordedGh({"isPrivate": {"data": {"repository": {"isPrivate": False}}}})

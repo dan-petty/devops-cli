@@ -8,11 +8,14 @@ from pydantic import BaseModel, ConfigDict
 
 
 class WebhookRepository(BaseModel):
-    """The repository a GitHub event is about."""
+    """The repository a GitHub event is about. `private` is the visibility that GitHub gives in
+    each delivery: true for a private and for an internal repository. It is None for a payload
+    that does not carry it."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     full_name: str
+    private: bool | None = None
 
 
 class WebhookSender(BaseModel):

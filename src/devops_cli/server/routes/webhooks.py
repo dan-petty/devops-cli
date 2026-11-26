@@ -415,17 +415,23 @@ def _handle_and_filter_infra(
 
 
 def _remember_delivery_issue(repo: str, payload: GitHubWebhookPayload | None) -> None:
-    """Remember the delivery issue if present."""
+    """Remember the delivery issue if present. The shared tier holds the issues of a public
+    repository only (#7292), and the route sends no GitHub read: the visibility is the one that
+    the signed delivery carries (`repository.private`), else the answer of the visibility check
+    that the process holds. With neither, the cache writes nothing."""
     if payload is not None and payload.issue and payload.issue.number is not None:
         from devops_cli.roadmap.stores.brain_issues import issue_from_event, remember_issue
 
-        remember_issue(repo, issue_from_event(repo, payload.issue))
+        remember_issue(
+            repo, issue_from_event(repo, payload.issue), private=payload.repository.private
+        )
 
 
 def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> None:
     """Refresh the cached issue from an App bot `issues` webhook only when its `updated_at` time
     is strictly newer than the stored entry, so stale or same-second hooks cannot replace newer
-    writes (#7063)."""
+    writes (#7063). The read and the write take the visibility as `_remember_delivery_issue`
+    does, so the issue of a private repository stays out of the shared tier (#7292)."""
     issue = payload.issue
     if (
         payload.comment is not None
@@ -440,11 +446,12 @@ def _remember_own_delivery_issue(repo: str, payload: GitHubWebhookPayload) -> No
         remember_issue,
     )
 
-    existing = cached_issue(repo, issue.number)
+    private = payload.repository.private
+    existing = cached_issue(repo, issue.number, private=private)
     if existing is not None and existing.record.updated_at is not None:
         if issue.updated_at is None or issue.updated_at <= existing.record.updated_at:
             return
-    remember_issue(repo, issue_from_event(repo, issue))
+    remember_issue(repo, issue_from_event(repo, issue), private=private)
 
 
 def _own_write_refusal(bot: str | None, payload: GitHubWebhookPayload) -> str | None:
