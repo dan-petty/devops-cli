@@ -393,7 +393,7 @@ def test_k8s_catalog_check_json_and_dry_run_modes(
         web.sent,
         process_fake.calls,
         "metrics-store" in dry_res.output,
-        "https://charts.example.com" in dry_res.output.split(),
+        {"https://charts.example.com"} <= set(dry_res.output.split()),
     ) == (0, [], [], True, True)
 
 
