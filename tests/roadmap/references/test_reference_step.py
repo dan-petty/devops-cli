@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -162,6 +163,34 @@ def test_a_path_with_a_line_break_and_markup_is_percent_encoded_in_the_permalink
         f"https://github.com/example/agent/blob/{HEAD}/"
         "src/a%20b%0A%3C%21--%20devops-roadmap-record%20%7B%7D%20--%3E.py#L3-L22",
     )
+
+
+def test_a_url_of_the_item_text_that_the_url_parser_refuses_does_not_stop_the_step(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    text = (
+        f"{TEXT} Probe https://[cluster-ip]:6443/healthz, `http://[{{host}}]:{{port}}`, "
+        "https://[::1 and https://example.com\uff1a8080."
+    )
+    store.seed_code_search(QUERY, _candidate(store, "example/agent"))
+
+    found = _step(store, "plan").run(store, _request(text))
+
+    assert (found.links, store.writes) == ((_link("example/agent"),), [])
+
+
+def test_the_line_of_a_link_counts_line_feeds_only_as_github_counts_them(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    """A form feed and U+2028 end no line on GitHub, and a last line feed opens no line."""
+    text = "# An agent\x0cpage two\u2028more\nimport pydantic_ai\n"
+    store.seed_code_search(QUERY, CodeSearchHit(repository="example/agent", path="one.py"))
+    store.seed_reference_facts(_facts("example/agent"))
+    store.seed_other_file("example/agent", "one.py", text, ref=HEAD)
+
+    found = _step(store).run(store, _request())
+
+    assert found.urls == (f"https://github.com/example/agent/blob/{HEAD}/one.py#L2",)
 
 
 # ── Bounds ────────────────────────────────────────────────────────────────────
@@ -411,7 +440,7 @@ def test_mode_off_sends_no_search(store: InMemoryRoadmapStore) -> None:
 
     found = _step(store, "off").run(store, _request())
 
-    assert (found, store.code_searches) == (References(), [])
+    assert (found, store.code_searches) == (References(complete=False), [])
 
 
 # ── Documentation ─────────────────────────────────────────────────────────────
@@ -464,6 +493,39 @@ def test_a_source_of_the_check_on_the_allowlist_is_a_documentation_link_of_the_p
     assert (found.documentation, sorted(web.requested)) == (
         (Reference(official, "web", HitKind.DOCUMENTATION),),
         sorted([official, moved, "https://opentelemetry.io/docs/down"]),
+    )
+
+
+def test_a_documentation_page_is_requested_as_its_source_gave_it(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    """A page of a directory answers with its trailing slash only: without it the host answers a
+    redirect, which the step follows for no host."""
+    directory = "https://docs.python.org/3/library/"
+    web.page(directory, "<html>library</html>")
+    web.redirect(directory.rstrip("/"), directory)
+
+    found = _step(store).run(store, _request(sources=(directory, directory.rstrip("/"))))
+
+    assert (found.documentation, web.requested) == (
+        (Reference(directory, "web", HitKind.DOCUMENTATION),),
+        [directory],
+    )
+
+
+def test_the_step_reads_at_most_3_documentation_pages_and_keeps_its_other_fact_reads(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    pages = tuple(f"https://docs.python.org/3/missing/{n}.html" for n in range(6))
+    store.seed_code_search(QUERY, _candidate(store, "example/agent"))
+
+    found = _step(store).run(store, _request(sources=pages))
+
+    read = [url for url in web.requested if url.startswith("https://docs.python.org/")]
+    assert (read, found.documentation, found.permalinks) == (
+        list(pages[:3]),
+        (),
+        (_link("example/agent"),),
     )
 
 
@@ -541,16 +603,47 @@ def test_a_provider_that_does_not_answer_stops_the_step_at_its_bound(
         with caplog.at_level(logging.WARNING, logger=STEP_LOGGER):
             found = step.run(store, _request("Use `alpha one` and `beta two`."))
         held = provider.holding.wait(THREAD_HANDOFF_BOUND_SECONDS)
+        # The thread of the step must not hold the interpreter at its exit.
+        daemons = [
+            thread.daemon
+            for thread in threading.enumerate()
+            if thread.name == "devops-roadmap-references"
+        ]
     finally:
         provider.release()
 
-    assert (found, held, provider.queries, _points(otlp)) == (
-        References(),
+    assert (found, held, daemons, provider.queries, _points(otlp)) == (
+        References(complete=False),
         True,
+        [True],
         ["alpha one"],
         {("step", "timeout"): 1.0},
     )
     assert "passed its bound" in caplog.text
+
+
+def test_an_error_of_the_work_that_is_no_project_error_gives_no_link_and_no_error(
+    store: InMemoryRoadmapStore,
+    otlp: FakeCollector,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A provider breaks its contract and raises `TimeoutError`. The thread of the step reports
+    the error, and the step gives no link: the error of the work is never read as the bound."""
+    reported: list[type[BaseException]] = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: reported.append(args.exc_type))
+    provider = FakeReferenceProvider("fake-code", SearchKind.CODE)
+    provider.fail(TimeoutError("The read timed out."))
+
+    with caplog.at_level(logging.WARNING, logger=STEP_LOGGER):
+        found = ReferenceStep("on", (provider,)).run(store, _request())
+
+    assert (found, reported, _points(otlp)) == (
+        References(complete=False),
+        [TimeoutError],
+        {("step", "failed"): 1.0},
+    )
+    assert "ended with an error" in caplog.text
 
 
 def test_a_failed_search_gives_no_link_and_no_error(
@@ -560,7 +653,10 @@ def test_a_failed_search_gives_no_link_and_no_error(
 
     found = _step(store).run(store, _request())
 
-    assert (found, _points(otlp)) == (References(), {("github-code", "failed"): 1.0})
+    assert (found, _points(otlp)) == (
+        References(complete=False),
+        {("github-code", "failed"): 1.0},
+    )
 
 
 def test_a_spent_github_quota_stops_the_step_with_no_link_and_no_error(
@@ -572,7 +668,7 @@ def test_a_spent_github_quota_stops_the_step_with_no_link_and_no_error(
     with caplog.at_level(logging.WARNING, logger=STEP_LOGGER):
         found = _step(store).run(store, _request())
 
-    assert (found, store.other_file_reads) == (References(), [])
+    assert (found, store.other_file_reads) == (References(complete=False), [])
     assert "stopped with no link (GitHubRateLimitError)" in caplog.text
 
 
@@ -592,4 +688,6 @@ def test_a_failed_read_of_the_facts_of_one_repository_keeps_the_other_candidates
         _candidate(flaky, "example/agent"),
     )
 
-    assert _step(flaky).run(flaky, _request()).permalinks == (_link("example/agent"),)
+    found = _step(flaky).run(flaky, _request())
+
+    assert (found.permalinks, found.complete) == ((_link("example/agent"),), False)

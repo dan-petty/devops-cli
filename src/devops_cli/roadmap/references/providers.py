@@ -40,6 +40,9 @@ GITHUB_CODE = "github-code"
 GITHUB_REPOSITORY = "github-repository"
 # The provider of a documentation link that the sources of the check give.
 WEB = "web"
+# The provider label of what the step counts for itself: a query that the guard refused, a step
+# that passed its time bound, and a step whose work ended with an error.
+STEP = "step"
 # The most repositories of one item: each result of each code search.
 _MAX_REPOSITORIES = (
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES
@@ -194,6 +197,7 @@ def open_providers(
 __all__ = [
     "GITHUB_CODE",
     "GITHUB_REPOSITORY",
+    "STEP",
     "WEB",
     "GitHubCodeSearch",
     "GitHubRepositorySearch",

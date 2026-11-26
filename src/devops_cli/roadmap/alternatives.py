@@ -68,8 +68,9 @@ item body and at most 3 `reference_queries` of the same model reply, so it makes
 call. `roadmap.alternatives.references` is its mode. `off` runs nothing. `plan` writes the
 verified links to the log and counts them. `on` writes at most 3 permalinks and 3 documentation
 links in the block and in the comment of the check, and records them in `alternatives.refs`. The
-step fails soft: with no link, the check writes its verdict as before. A change of the links alone
-is no change of the result, so it posts no comment.
+step fails soft: with no link, the check writes its verdict as before. A step that failed, and a
+step in mode `plan` or `off`, leave the links of an earlier check in the block and in the record. A
+change of the links alone is no change of the result, so it posts no comment.
 
 The check is off when the repository is private, its visibility cannot be read, or no search
 provider is configured: a verdict `none` would then say that no tool exists when none was looked for.
@@ -175,6 +176,7 @@ from devops_cli.roadmap.references.step import (
     References,
     ReferenceStep,
     open_reference_step,
+    recorded_references,
 )
 from devops_cli.roadmap.refine.refine import (
     comments_without_jobs,
@@ -387,6 +389,8 @@ class AlternativesTools(ResearchToolset):
 
     store: RoadmapStore
     allowed_urls: set[str] = field(default_factory=set)
+    # Each URL that a search returned, as the provider gave it, by its normalized form (#4672).
+    given_urls: dict[str, str] = field(default_factory=dict)
     facts: dict[str, ToolFacts] = field(default_factory=dict)
     searches: list[Search] = field(default_factory=list)
     search_calls: int = 0
@@ -424,6 +428,7 @@ class AlternativesTools(ResearchToolset):
         if answer.answered:
             self.searches.append(Search(query, len(found)))
         self.allowed_urls |= {normalize_url(url) for url in found}
+        self.given_urls.update({normalize_url(url): url for url in found})
         if self.pages is not None:
             self.pages.offer(found)
         return answer.text
@@ -598,9 +603,12 @@ class Check:
     and the comment, the event of a change of the result, empty for a skip class (#6195).
     `adr_hash` is the hash of the ADRs that the model read, none for a skip class, and
     `in_repository` says that the repository uses the tool of an `in-use` verdict (#4661).
-    `reference_queries` are the queries of the model reply for the reference step. `references`
-    holds the links that the write of the check writes, which the step gives in mode `on` only,
-    and `references_found` counts the links that the step verified in any mode (#4672)."""
+    `reference_queries` are the queries of the model reply for the reference step, and
+    `reference_sources` the sources of the reply as their tool gave them. `references` holds the
+    links that the block shows. With `writes_references`, they are the links of the step, and the
+    write records them: mode `on`, and a step that ran to its end or found a link. Else they are
+    the links that the job record holds from an earlier check, and the write leaves the record as
+    it is. `references_found` counts the links that the step verified in any mode (#4672)."""
 
     item: Item
     verdict: Verdict
@@ -621,7 +629,9 @@ class Check:
     in_repository: bool = False
     returns: int = 0
     reference_queries: tuple[str, ...] = ()
+    reference_sources: tuple[str, ...] = ()
     references: References = field(default_factory=References)
+    writes_references: bool = False
     references_found: int = 0
 
 
@@ -1355,6 +1365,13 @@ def validate_reply(
             reference_queries=tuple(
                 reply.reference_queries[:CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES]
             ),
+            # The reference step requests a page as the search gave its URL: a host answers the
+            # page of a directory with its last slash only.
+            reference_sources=tuple(
+                dict.fromkeys(
+                    tools.given_urls.get(normalize_url(url), url) for url in reply.sources
+                )
+            ),
         )
     )
 
@@ -1468,8 +1485,11 @@ def _with_references(
     repo: str,
 ) -> Check:
     """`check` after the reference step of its item (#4672). The step reads the body outside the
-    block of the job, the queries of the model reply and the sources of the check. Only mode `on`
-    gives the check links to write: the body and the comment then hold them."""
+    block of the job, the queries of the model reply and the sources of the check. The check
+    writes the links of the step only in mode `on`, and only when the step ran to its end or
+    found a link. A step that failed says nothing about the item, and mode `plan` and mode `off`
+    write nothing: the check then shows the links that the job record holds, so the block and the
+    record stay as they are."""
     text, _ = extract_section_and_outside(
         check.item.body,
         CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -1484,12 +1504,20 @@ def _with_references(
             repo=repo,
             now=check.checked_at,
             model_queries=check.reference_queries,
-            sources=check.sources,
+            sources=check.reference_sources,
             inventory=inventory,
         ),
     )
-    written = found if step.mode == "on" else References()
-    return _completed(replace(check, references=written, references_found=len(found.links)))
+    writes = step.mode == "on" and (found.complete or bool(found.links))
+    recorded = check.item.job_record.get(AlternativesRecordKey.REFS)
+    return _completed(
+        replace(
+            check,
+            references=found if writes else recorded_references(recorded),
+            writes_references=writes,
+            references_found=len(found.links),
+        )
+    )
 
 
 def _check_one(
@@ -1787,9 +1815,10 @@ class AlternativesWriter:
         one result line for the repository (#4845); a check whose body a person changed since the
         read logs none, as the next run checks the item again. The recorded body hash is the hash
         of the body that the check writes, so the close of an open block that the write adds
-        before the block is no change on the next run (#6627). The links of the reference step
-        go to `alternatives.refs`, which a check with no link clears, and each written link adds 1
-        to `devops_cli_brain_references_total` with the result `linked` (#4672)."""
+        before the block is no change on the next run (#6627). A check that writes the links of
+        the reference step puts them in `alternatives.refs`, clears the key when the step found
+        none, and adds 1 to `devops_cli_brain_references_total` with the result `linked` for each
+        link. Any other check leaves the key as it is (#4672)."""
         if isinstance(outcome, CheckFailure):
             self._store.set_marks(
                 outcome.item,
@@ -1817,8 +1846,9 @@ class AlternativesWriter:
         }
         if AlternativesRecordKey.FAILED_REASON in outcome.item.job_record:
             marks[AlternativesRecordKey.FAILED_REASON] = None
-        links = outcome.references.links
-        if links or AlternativesRecordKey.REFS in outcome.item.job_record:
+        links = outcome.references.links if outcome.writes_references else ()
+        recorded = AlternativesRecordKey.REFS in outcome.item.job_record
+        if outcome.writes_references and (links or recorded):
             marks[AlternativesRecordKey.REFS] = " ".join(link.url for link in links) or None
         self._store.set_marks(outcome.item, marks, body=outcome.new_body)
         if posts:

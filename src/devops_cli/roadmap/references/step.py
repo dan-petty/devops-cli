@@ -39,12 +39,12 @@ import contextvars
 import logging
 import threading
 from collections.abc import Callable, Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING
-from urllib.parse import quote, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx2
 from pydantic import ValidationError
@@ -61,7 +61,11 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES,
 )
 from devops_cli.exceptions.base import DevOpsCLIError
-from devops_cli.exceptions.git import GitHubOperationError, GitHubRateLimitError
+from devops_cli.exceptions.git import (
+    GitHubFileNotFoundError,
+    GitHubOperationError,
+    GitHubRateLimitError,
+)
 from devops_cli.http.egress import EgressLevel
 from devops_cli.http.entry import http_client
 from devops_cli.roadmap.inventory import (
@@ -73,6 +77,7 @@ from devops_cli.roadmap.inventory import (
 from devops_cli.roadmap.page_fetch import named_urls
 from devops_cli.roadmap.references.candidates import Candidate, facts_gate, hit_gate, ranked
 from devops_cli.roadmap.references.providers import (
+    STEP,
     WEB,
     Hit,
     HitKind,
@@ -94,9 +99,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# The provider label of a step that passed its time bound.
-_STEP = "step"
+_THREAD_NAME = "devops-roadmap-references"
 _HTTPS = "https"
+_GITHUB_HOST = "github.com"
+# The path segment of a link to a file on GitHub, after the owner and the repository.
+_BLOB = "blob"
+# The provider of a link that a check shows from the job record of an earlier check.
+RECORDED = "recorded"
 # The reserved and the unreserved punctuation of a URL (RFC 3986), and the percent sign.
 _URL_CHARS = ":/?#[]@!$&'()*+,;=-._~%"
 # The failed reads of deps.dev that the step takes as no fact.
@@ -115,10 +124,13 @@ class Reference:
 @dataclass(frozen=True)
 class References:
     """The verified links of one item: at most 3 permalinks of reference implementations, and at
-    most 3 links of official documentation."""
+    most 3 links of official documentation. `complete` says that the step ran to its end and each
+    of its searches and reads answered. A step that did not run, that failed or that passed its
+    bound is not complete: its missing links say nothing about the item."""
 
     permalinks: tuple[Reference, ...] = ()
     documentation: tuple[Reference, ...] = ()
+    complete: bool = True
 
     @property
     def links(self) -> tuple[Reference, ...]:
@@ -129,6 +141,48 @@ class References:
     def urls(self) -> tuple[str, ...]:
         """The URL of each link, the permalinks first."""
         return tuple(link.url for link in self.links)
+
+
+def _split(url: str) -> SplitResult | None:
+    """The parts of `url`, or None for a text that the URL parser refuses."""
+    try:
+        return urlsplit(url)
+    except ValueError:
+        return None
+
+
+def _is_plain_https(url: str) -> bool:
+    """Whether `url` is an https URL written with the characters of a URL only, so it writes no
+    markup into an issue."""
+    parts = _split(url)
+    return parts is not None and parts.scheme == _HTTPS and url == quote(url, safe=_URL_CHARS)
+
+
+def _is_file_link(url: str) -> bool:
+    """Whether `url` is a link to a file of a repository on GitHub."""
+    parts = _split(url)
+    if parts is None:
+        return False
+    segments = [segment for segment in parts.path.split("/") if segment]
+    return (parts.hostname or "").lower() == _GITHUB_HOST and segments[2:3] == [_BLOB]
+
+
+def recorded_references(record: str | None) -> References:
+    """The links that `alternatives.refs` of a job record holds from an earlier check, as the
+    block lists them: the links to files on GitHub as permalinks, and each other link as
+    documentation. A check that writes no link of its own shows these, so its write leaves the
+    links of the block as they are. A text that is no https URL is left out. The result is not
+    complete: it is no result of a step."""
+    urls = [url for url in (record or "").split() if _is_plain_https(url)]
+    return References(
+        tuple(Reference(url, RECORDED, HitKind.CODE) for url in urls if _is_file_link(url)),
+        tuple(
+            Reference(url, RECORDED, HitKind.DOCUMENTATION)
+            for url in urls
+            if not _is_file_link(url)
+        ),
+        complete=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -152,10 +206,14 @@ class ReferenceRequest:
 @dataclass
 class Budget:
     """The requests that the step of one item may still send. `stop` ends the budget: the step
-    then sends no new request."""
+    then sends no new request. `failed` says that a search or a read of the item did not answer,
+    so the links of the item are not complete. One item reads at most 3 documentation pages, so
+    the candidates keep their fact reads."""
 
     code_searches: int = 0
     fact_reads: int = 0
+    page_reads: int = 0
+    failed: bool = False
     stopped: threading.Event = field(default_factory=threading.Event)
 
     def take_code_search(self) -> bool:
@@ -174,6 +232,19 @@ class Budget:
         self.fact_reads += 1
         return True
 
+    def take_page_read(self) -> bool:
+        """Whether one more read of a documentation page fits; if it does, counts it. A page read
+        is a fact read too."""
+        if self.page_reads >= CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS:
+            return False
+        if not self.take_fact_read():
+            return False
+        self.page_reads += 1
+        return True
+
+    def fail(self) -> None:
+        self.failed = True
+
     def stop(self) -> None:
         self.stopped.set()
 
@@ -181,8 +252,9 @@ class Budget:
 # ── Searches ──────────────────────────────────────────────────────────────────
 
 
-def _ask(provider: ReferenceProvider, query: str, number: int) -> list[Hit]:
-    """The hits of `query` from `provider`, none when the search fails. Counts the search."""
+def _ask(provider: ReferenceProvider, query: str, number: int, budget: Budget) -> list[Hit]:
+    """The hits of `query` from `provider`, none when the search fails. Counts the search, and a
+    failed search marks the links of the item as not complete."""
     try:
         hits = provider.search(query)
     except GitHubRateLimitError:
@@ -196,6 +268,7 @@ def _ask(provider: ReferenceProvider, query: str, number: int) -> list[Hit]:
             type(exc).__name__,
         )
         count(provider.name, Result.FAILED)
+        budget.fail()
         return []
     count(provider.name, Result.HIT if hits else Result.EMPTY)
     return hits
@@ -209,7 +282,7 @@ def _search(
     hits: list[Hit] = []
     for index, query in enumerate(queries):
         if code and budget.take_code_search():
-            hits += _ask(code[index % len(code)], query, number)
+            hits += _ask(code[index % len(code)], query, number, budget)
     return hits
 
 
@@ -227,7 +300,7 @@ def _search_facts(
     for provider in providers:
         if provider.kind is SearchKind.CODE or not budget.take_fact_read(reserve=reserve):
             continue
-        for found in _ask(provider, repositories_query(names), number):
+        for found in _ask(provider, repositories_query(names), number, budget):
             if found.facts is not None:
                 known[found.repository.casefold()] = found.facts
     return known
@@ -250,32 +323,29 @@ def _page_answers(url: str) -> bool:
 
 def _on_allowlist(url: str) -> bool:
     """Whether `url` is an https URL of a host on the documentation allowlist, written with the
-    characters of a URL only, so no link writes markup into an issue."""
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
-    return (
-        parts.scheme == _HTTPS
-        and host in CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS
-        and url == quote(url, safe=_URL_CHARS)
-    )
+    characters of a URL only. A text that the URL parser refuses is no URL."""
+    parts = _split(url)
+    host = (parts.hostname or "").lower() if parts is not None else ""
+    return _is_plain_https(url) and host in CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS
 
 
 def _documentation(
     hits: Sequence[Hit], request: ReferenceRequest, linked: frozenset[str], budget: Budget
 ) -> tuple[Reference, ...]:
-    """The verified documentation links: the documentation hits of the providers and the sources
-    of the check whose host is on the allowlist, that the item does not link, and whose page
-    answers."""
+    """The verified documentation links, at most 3: the documentation hits of the providers and
+    the sources of the check whose host is on the allowlist, that the item does not link, and
+    whose page answers. The request is for the URL as its source gave it: a host answers the page
+    of a directory with its last slash only, and a redirect is no answer. The step reads at most
+    3 pages for an item."""
     pages = [(hit.url, hit.provider) for hit in hits if hit.kind is HitKind.DOCUMENTATION]
     pages += [(url, WEB) for url in request.sources]
     kept: dict[str, Reference] = {}
-    for raw, provider in pages:
-        if len(kept) >= CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS:
-            break
-        url = normalize_url(raw)
-        if url in kept or url in linked or not _on_allowlist(url):
+    for url, provider in pages:
+        key = normalize_url(url)
+        if key in kept or key in linked or not _on_allowlist(url):
             continue
-        if not budget.take_fact_read():
+        full = len(kept) >= CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS
+        if full or not budget.take_page_read():
             break
         try:
             answers = _page_answers(url)
@@ -287,18 +357,21 @@ def _documentation(
                 type(exc).__name__,
             )
             count(provider, Result.FAILED)
+            budget.fail()
             continue
         if answers:
-            kept[url] = Reference(url, provider, HitKind.DOCUMENTATION)
+            kept[key] = Reference(url, provider, HitKind.DOCUMENTATION)
     return tuple(kept.values())
 
 
 # ── Candidates ────────────────────────────────────────────────────────────────
 
 
-def _read_facts(store: RoadmapStore, hit: Hit, number: int) -> ReferenceFacts | None:
+def _read_facts(
+    store: RoadmapStore, hit: Hit, number: int, budget: Budget
+) -> ReferenceFacts | None:
     """The reference facts of the repository of `hit`, or None when the read fails or GitHub has
-    no such repository."""
+    no such repository. A failed read marks the links of the item as not complete."""
     try:
         return store.reference_facts(hit.repository)
     except GitHubRateLimitError:
@@ -310,6 +383,7 @@ def _read_facts(store: RoadmapStore, hit: Hit, number: int) -> ReferenceFacts | 
             hit.repository,
             type(exc).__name__,
         )
+        budget.fail()
         return None
 
 
@@ -383,7 +457,7 @@ def _candidates(
     for hit in hits:
         if not budget.take_fact_read(reserve=reserve):
             break
-        facts = _read_facts(store, hit, request.number)
+        facts = _read_facts(store, hit, request.number, budget)
         if facts is None or facts.head_sha is None or facts_gate(facts, request.now) is not None:
             continue
         candidates.append(_with_rank_facts(Candidate(hit, facts), request, budget))
@@ -395,20 +469,25 @@ def _candidates(
 
 def _lines_of(text: str, query: str) -> tuple[int, int]:
     """The line range of the link into `text`: from the first line that holds the longest word of
-    `query`, or else any word of it, or else line 1, for the span of one link."""
-    lines = [line.casefold() for line in text.splitlines()]
+    `query`, or else any word of it, or else line 1, for the span of one link. A line ends at a
+    line feed only, as GitHub counts the lines of a file: `str.splitlines` also ends a line at a
+    form feed and at U+2028. A last line feed opens no line."""
+    lines = [line.casefold() for line in text.removesuffix("\n").split("\n")]
     words = sorted({word.casefold() for word in query.split()}, key=len, reverse=True)
     matches = (
         number for word in words for number, line in enumerate(lines, start=1) if word in line
     )
     first = next(matches, 1)
-    last = min(first + CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES - 1, max(len(lines), 1))
+    last = min(first + CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES - 1, len(lines))
     return first, max(first, last)
 
 
-def _permalink(store: RoadmapStore, candidate: Candidate, number: int) -> str | None:
+def _permalink(
+    store: RoadmapStore, candidate: Candidate, number: int, budget: Budget
+) -> str | None:
     """The permalink of `candidate` at the head commit of its repository, or None when
-    `repository_file` does not answer its path at that commit."""
+    `repository_file` does not answer its path at that commit. A read that fails for another
+    cause than a missing file marks the links of the item as not complete."""
     hit, sha = candidate.hit, candidate.facts.head_sha
     if sha is None:
         return None
@@ -416,15 +495,23 @@ def _permalink(store: RoadmapStore, candidate: Candidate, number: int) -> str | 
         text = store.repository_file(hit.path, ref=sha, repository=hit.repository)
     except GitHubRateLimitError:
         raise
-    except GitHubOperationError as exc:
+    except GitHubFileNotFoundError:
         logger.info(
-            "The reference step of #%d dropped %s of %s: the head commit does not answer the "
-            "path (%s).",
+            "The reference step of #%d dropped %s of %s: the head commit does not hold the path.",
+            number,
+            hit.path,
+            hit.repository,
+        )
+        return None
+    except GitHubOperationError as exc:
+        logger.warning(
+            "The reference step of #%d could not read %s of %s at its head commit (%s).",
             number,
             hit.path,
             hit.repository,
             type(exc).__name__,
         )
+        budget.fail()
         return None
     # A path is text of another repository, and git allows a line break and markup in it. The
     # link holds the path percent-encoded, so no path writes markup into an issue.
@@ -441,7 +528,7 @@ def _verified(
             break
         if not budget.take_fact_read():
             break
-        url = _permalink(store, candidate, number)
+        url = _permalink(store, candidate, number, budget)
         if url is not None:
             kept.append((candidate, Reference(url, candidate.hit.provider, HitKind.CODE)))
     return kept
@@ -500,25 +587,50 @@ def find_references(
     rank = ranked(_candidates(store, gated, request, budget))
     kept = _verified(store, rank, request.number, budget)
     _shadow_relevance(relevance, kept, request, budget)
-    return References(tuple(reference for _, reference in kept), documentation)
+    permalinks = tuple(reference for _, reference in kept)
+    return References(permalinks, documentation, complete=not budget.failed)
 
 
-def _bounded(work: Callable[[], References], budget: Budget, seconds: float) -> References | None:
-    """What `work` returns, or None when it does not end in `seconds`. The work runs in a thread
-    of its own with the context of the caller, and an error of the work raises here. After the
-    bound the budget is stopped, so the work sends no new request and its thread ends after the
-    request in flight."""
-    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="devops-roadmap-references")
-    future = pool.submit(contextvars.copy_context().run, work)
-    try:
-        return future.result(timeout=seconds)
-    except TimeoutError:
-        if future.done():
-            raise
+class _Ended(StrEnum):
+    """How the work of a step ended with no result: it passed the bound, or its thread ended with
+    an error that is no project error."""
+
+    BOUND = "bound"
+    ERROR = "error"
+
+
+def _bounded(work: Callable[[], References], budget: Budget, seconds: float) -> References | _Ended:
+    """What `work` returns, or how it ended with no result.
+
+    The work runs in a daemon thread of its own, with the context of the caller, and the caller
+    waits `seconds` for it. A project error of the work raises here. Another error ends the
+    thread, which reports it with its trace through `threading.excepthook`, and gives
+    `_Ended.ERROR`: the error of the work is never read as the bound.
+
+    After the bound the budget is stopped, and the result is `_Ended.BOUND`. The work then sends
+    no new request. A request in flight is not cut: it goes on until its own timeout, and the
+    thread ends after it. The thread is a daemon, so it never holds the interpreter at its
+    exit."""
+    done: list[References] = []
+    failed: list[DevOpsCLIError] = []
+
+    def run() -> None:
+        try:
+            done.append(work())
+        except DevOpsCLIError as exc:
+            failed.append(exc)
+
+    worker = threading.Thread(
+        target=contextvars.copy_context().run, args=(run,), name=_THREAD_NAME, daemon=True
+    )
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
         budget.stop()
-        return None
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+        return _Ended.BOUND
+    if failed:
+        raise failed[0]
+    return done[0] if done else _Ended.ERROR
 
 
 @dataclass(frozen=True)
@@ -533,10 +645,12 @@ class ReferenceStep:
 
     def run(self, store: RoadmapStore, request: ReferenceRequest) -> References:
         """The verified links of the item of `request`. The step fails soft: a spent GitHub
-        quota, another error of a provider and a passed time bound give no link and a warning.
-        Mode `plan` writes each link to the log and counts it, and mode `off` runs nothing."""
+        quota, another error of a provider and a passed time bound give a warning and a result
+        that is not complete, with no link. Mode `plan` writes each link to the log and counts
+        it. Mode `off` runs nothing, so its result is not complete either."""
+        stopped = References(complete=False)
         if self.mode == "off":
-            return References()
+            return stopped
         budget = Budget()
         try:
             found = _bounded(
@@ -552,18 +666,29 @@ class ReferenceStep:
                 request.number,
                 type(exc).__name__,
             )
-            return References()
-        if found is None:
-            logger.warning(
-                "The reference step of #%d passed its bound of %.0f s and gave no link.",
-                request.number,
-                self.seconds,
-            )
-            count(_STEP, Result.TIMEOUT)
-            return References()
+            return stopped
+        if isinstance(found, _Ended):
+            self._log_ended(request.number, found)
+            return stopped
         if self.mode == "plan":
             self._log_plan(request.number, found)
         return found
+
+    def _log_ended(self, number: int, ended: _Ended) -> None:
+        if ended is _Ended.BOUND:
+            logger.warning(
+                "The reference step of #%d passed its bound of %.0f s and gave no link.",
+                number,
+                self.seconds,
+            )
+            count(STEP, Result.TIMEOUT)
+            return
+        logger.warning(
+            "The reference step of #%d ended with an error that is no project error, and gave "
+            "no link. Its thread reported the error with its trace.",
+            number,
+        )
+        count(STEP, Result.FAILED)
 
     @staticmethod
     def _log_plan(number: int, found: References) -> None:
@@ -603,4 +728,5 @@ __all__ = [
     "References",
     "find_references",
     "open_reference_step",
+    "recorded_references",
 ]

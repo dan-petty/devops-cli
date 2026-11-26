@@ -17,12 +17,14 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from pydantic_ai.messages import ToolReturnPart
 
 from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_END_MARKER,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
 )
 from devops_cli.config.defaults import DEFAULT_FIRECRAWL_SEARCH_URL
+from devops_cli.exceptions.git import GitHubOperationError
 from devops_cli.roadmap.alternatives import AlternativesReply, Verdict, plan_alternatives
 from devops_cli.roadmap.body_hash import extract_section_and_outside
 from devops_cli.roadmap.references.providers import SearchKind
@@ -133,6 +135,15 @@ def _record(store: InMemoryRoadmapStore, number: int) -> dict[Any, str | None]:
     item = store.item(number)
     assert item is not None
     return item.job_record
+
+
+def _searched(messages: list[Any]) -> bool:
+    """Whether the run of an item made its web search."""
+    return any(
+        isinstance(part, ToolReturnPart) and part.tool_name == "search_web"
+        for message in messages
+        for part in getattr(message, "parts", ())
+    )
 
 
 def _linked(otlp: FakeCollector) -> list[tuple[dict[str, Any], float]]:
@@ -264,7 +275,7 @@ def test_mode_plan_changes_no_issue_text_and_no_job_record(
         _permalink("example/agent") in comment.body,
         AlternativesRecordKey.REFS in _record(store, number),
     ) == (
-        References(),
+        References(complete=False),
         1,
         [f"Alternatives check of {NOW.date()}: none.", "Tool: none found.", f"Reason: {REASON}"],
         False,
@@ -331,7 +342,93 @@ def test_a_recheck_with_other_links_posts_no_comment_and_one_with_no_link_clears
     ) == ((1, _permalink("example/other"), f"- {_permalink('example/other')}"), None, False)
 
 
+def test_a_failed_step_in_mode_on_keeps_the_links_of_the_earlier_check(
+    store: InMemoryRoadmapStore, config: Callable[..., Any], otlp: FakeCollector
+) -> None:
+    """A step that failed found no link, which is not "the item has no link": the block and the
+    record keep the links of the earlier check."""
+    _mode(config, "on")
+    number = _item(store)
+    store.seed_code_search(IMPORT, _candidate(store, "example/agent"))
+    apply_alternatives(store, _plan(store, Script(SEARCH, NONE)))
+    store.fail_read("search_code", GitHubOperationError("HTTP 502", operation="roadmap.read"))
+
+    plan = _plan_one(store, number)
+    written = apply_alternatives(store, plan)
+
+    (check,) = plan.checks
+    link = _permalink("example/agent")
+    assert (
+        written,
+        check.references_found,
+        _block(store, number)[-2:],
+        _record(store, number).get(AlternativesRecordKey.REFS),
+        _linked(otlp),
+    ) == (
+        1,
+        0,
+        ["Reference implementations:", f"- {link}"],
+        link,
+        [({"provider": "github-code", "result": "linked"}, 1.0)],
+    )
+
+
+@pytest.mark.parametrize("mode", ["plan", "off"])
+def test_a_recheck_in_mode_plan_or_off_leaves_the_links_of_the_block_and_of_the_record(
+    store: InMemoryRoadmapStore, config: Callable[..., Any], web: WebFake, mode: str
+) -> None:
+    _mode(config, "on")
+    number = _item(store)
+    official = "https://docs.python.org/3/library/ast.html"
+    _serve(web, official)
+    web.page(official, "<html>ast</html>")
+    reply = NONE.model_copy(update={"sources": [official]})
+    store.seed_code_search(IMPORT, _candidate(store, "example/agent"))
+    apply_alternatives(store, _plan(store, Script(SEARCH, reply)))
+    before = (_block(store, number)[-5:], _record(store, number).get(AlternativesRecordKey.REFS))
+    _mode(config, mode)
+    store.seed_code_search(IMPORT, _candidate(store, "example/other"))
+
+    apply_alternatives(store, _plan(store, Script(SEARCH, reply), item_number=number))
+
+    after = (_block(store, number)[-5:], _record(store, number).get(AlternativesRecordKey.REFS))
+    assert (before, after) == (
+        (
+            [
+                "Reference implementations:",
+                f"- {_permalink('example/agent')}",
+                "",
+                "Official documentation:",
+                f"- {official}",
+            ],
+            f"{_permalink('example/agent')} {official}",
+        ),
+        before,
+    )
+
+
 # ── It fails soft ─────────────────────────────────────────────────────────────
+
+
+def test_a_url_that_the_url_parser_refuses_leaves_the_verdict_of_a_skip_class_and_of_an_item(
+    store: InMemoryRoadmapStore,
+) -> None:
+    body = (
+        f"{BODY}\n\nProbe https://[cluster-ip]:6443/healthz, `http://[{{host}}]:{{port}}`, "
+        "https://[::1 and https://example.com\uff1a8080."
+    )
+    skipped = _item(store, "docs(roadmap): a change", body)
+    checked = _item(store, "Run an agent", body)
+
+    plan = _plan(store, Script(lambda messages: NONE if _searched(messages) else SEARCH))
+    written = apply_alternatives(store, plan)
+
+    assert (
+        written,
+        plan.failures,
+        _record(store, skipped).get(AlternativesRecordKey.VERDICT),
+        _record(store, checked).get(AlternativesRecordKey.VERDICT),
+    ) == (2, [], "not-applicable", "none")
 
 
 def test_an_optional_provider_that_is_down_at_the_start_does_not_stop_the_check(
@@ -378,4 +475,4 @@ def test_a_provider_that_holds_a_request_past_the_bound_leaves_the_verdict_of_th
         written,
         plan.failures,
         _record(store, number).get(AlternativesRecordKey.VERDICT),
-    ) == (True, [IMPORT], References(), 1, [], "none")
+    ) == (True, [IMPORT], References(complete=False), 1, [], "none")

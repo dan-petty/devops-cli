@@ -60,15 +60,25 @@ def page_fetch_configured() -> bool:
     return bool(load_settings().crawl4ai.url)
 
 
+def _is_web_url(url: str) -> bool:
+    """Whether `url` is an http or https URL that `urlsplit` reads. The parser refuses some texts
+    with `ValueError`, such as a host in brackets that is no IPv6 address (`https://[name]:6443`)
+    and a host with a full-width colon: such a text names no page (#4672)."""
+    try:
+        return urlsplit(url).scheme in ("http", "https")
+    except ValueError:
+        return False
+
+
 def urls_in_order(text: str) -> list[str]:
     """The http and https URLs that `text` names, as `normalize_url` spells them, in their order.
     A URL ends at a quote, a backtick or an angle bracket, and prose punctuation after it is not a
-    part of it."""
+    part of it. A candidate that the URL parser refuses is left out."""
     urls: list[str] = []
     for candidate in CONST_URL_CANDIDATE_RE.findall(text):
         end = min((i for i, char in enumerate(candidate) if char in _URL_END), default=None)
         url = candidate[:end].rstrip(CONST_PROSE_TRAILING_PUNCTUATION)
-        if urlsplit(url).scheme in ("http", "https"):
+        if _is_web_url(url):
             urls.append(normalize_url(url))
     return urls
 
