@@ -44,7 +44,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx2
 from pydantic import ValidationError
@@ -97,6 +97,8 @@ logger = logging.getLogger(__name__)
 # The provider label of a step that passed its time bound.
 _STEP = "step"
 _HTTPS = "https"
+# The reserved and the unreserved punctuation of a URL (RFC 3986), and the percent sign.
+_URL_CHARS = ":/?#[]@!$&'()*+,;=-._~%"
 # The failed reads of deps.dev that the step takes as no fact.
 _READ_ERRORS = (httpx2.HTTPError, ValidationError)
 
@@ -247,10 +249,15 @@ def _page_answers(url: str) -> bool:
 
 
 def _on_allowlist(url: str) -> bool:
-    """Whether `url` is an https URL of a host on the documentation allowlist."""
+    """Whether `url` is an https URL of a host on the documentation allowlist, written with the
+    characters of a URL only, so no link writes markup into an issue."""
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
-    return parts.scheme == _HTTPS and host in CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS
+    return (
+        parts.scheme == _HTTPS
+        and host in CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS
+        and url == quote(url, safe=_URL_CHARS)
+    )
 
 
 def _documentation(
@@ -419,7 +426,9 @@ def _permalink(store: RoadmapStore, candidate: Candidate, number: int) -> str | 
             type(exc).__name__,
         )
         return None
-    return render_permalink(hit.repository, sha, hit.path, _lines_of(text, hit.query))
+    # A path is text of another repository, and git allows a line break and markup in it. The
+    # link holds the path percent-encoded, so no path writes markup into an issue.
+    return render_permalink(hit.repository, sha, quote(hit.path), _lines_of(text, hit.query))
 
 
 def _verified(

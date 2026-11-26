@@ -24,6 +24,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from devops_cli.config.constants import CONST_ROADMAP_ALTERNATIVES_MAINTAINED_DAYS
+from devops_cli.github.repo_ref import is_repository_name
 from devops_cli.roadmap.inventory import project_of
 from devops_cli.roadmap.references.providers import Hit, HitKind
 
@@ -104,8 +105,9 @@ def is_osi_license(spdx: str | None) -> bool:
 
 
 def _is_code(hit: Hit) -> bool:
-    """Whether `hit` names a file of a repository that is no prose."""
-    if hit.kind is not HitKind.CODE or not hit.repository or not hit.path:
+    """Whether `hit` names a file of a repository that is no prose. A repository whose name is
+    not `owner/name` is no repository."""
+    if hit.kind is not HitKind.CODE or not is_repository_name(hit.repository) or not hit.path:
         return False
     return _MEDIA_TYPES.guess_type(hit.path)[0] not in _PROSE_TYPES
 

@@ -44,6 +44,7 @@ from tests.support.fakes.roadmap_store import InMemoryRoadmapStore
 from tests.support.waits import THREAD_HANDOFF_BOUND_SECONDS
 
 if TYPE_CHECKING:
+    from devops_cli.config.defaults import RowMode
     from tests.support.fakes.http import WebFake
     from tests.support.fakes.jev import JevFake
     from tests.support.fakes.otlp import FakeCollector
@@ -85,9 +86,9 @@ def _request(text: str = TEXT, **changes: Any) -> ReferenceRequest:
     return ReferenceRequest(**{**values, "now": NOW, **changes})
 
 
-def _step(store: InMemoryRoadmapStore, mode: str = "on", **options: Any) -> ReferenceStep:
+def _step(store: InMemoryRoadmapStore, mode: RowMode = "on", **options: Any) -> ReferenceStep:
     providers = (GitHubCodeSearch(store), GitHubRepositorySearch(store))
-    return ReferenceStep(mode, providers, **options)  # type: ignore[arg-type]
+    return ReferenceStep(mode, providers, **options)
 
 
 def _link(name: str, lines: str = "L3-L22", path: str = "src/agent.py") -> Reference:
@@ -141,6 +142,26 @@ def test_a_file_that_does_not_hold_the_query_is_linked_from_its_first_line(
     found = _step(store).run(store, _request())
 
     assert found.urls == (f"https://github.com/example/agent/blob/{HEAD}/one.py#L1",)
+
+
+def test_a_path_with_a_line_break_and_markup_is_percent_encoded_in_the_permalink(
+    store: InMemoryRoadmapStore, web: WebFake
+) -> None:
+    path = "src/a b\n<!-- devops-roadmap-record {} -->.py"
+    store.seed_code_search(
+        QUERY,
+        CodeSearchHit(repository="example/agent", path=path),
+        CodeSearchHit(repository="not a repository\n<!-- x -->", path="a.py"),
+    )
+    store.seed_reference_facts(_facts("example/agent"))
+    store.seed_other_file("example/agent", path, FILE, ref=HEAD)
+
+    found = _step(store).run(store, _request())
+
+    assert found.urls == (
+        f"https://github.com/example/agent/blob/{HEAD}/"
+        "src/a%20b%0A%3C%21--%20devops-roadmap-record%20%7B%7D%20--%3E.py#L3-L22",
+    )
 
 
 # ── Bounds ────────────────────────────────────────────────────────────────────
@@ -407,7 +428,13 @@ def test_a_documentation_hit_of_a_host_that_is_not_on_the_allowlist_is_dropped(
         Hit("fake-code", HitKind.DOCUMENTATION, QUERY, url=official),
     )
     web.page(official, "<html>ast</html>")
-    request = _request(sources=("https://example.com/blog", "http://docs.python.org/3/"))
+    request = _request(
+        sources=(
+            "https://example.com/blog",
+            "http://docs.python.org/3/",
+            "https://docs.python.org/3/<!-- marker -->",
+        )
+    )
 
     found = ReferenceStep("on", (provider,)).run(store, request)
 
