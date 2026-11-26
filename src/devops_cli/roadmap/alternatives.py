@@ -10,10 +10,11 @@ that its check read differs from the hash of the ADRs at HEAD, or its check reco
 An item whose last check failed less than `roadmap.alternatives.retry_days` ago is
 left out. `--item` checks the one item it names whenever it is open.
 
-**Skip classes.** A fixed rule, not the model, names the items that need no search (#2946): a
+**Skip classes.** A fixed rule, not the model, names the items that need no model (#2946): a
 title of the Conventional Commit type `test`, `docs`, `refactor`, `chore`, `ci` or `perf`, and a
 `fix` whose body holds a Python traceback. Such an item gets the verdict `not-applicable` with its
-class, and the job makes no model call and no search for it.
+class, and the job makes no model call and no web search for it. The reference step sends the rule
+queries of its body only (#4672).
 
 **The run.** For every other item, `investigate` of refine's investigation runs the agent with
 three tools: a web search, a GitHub repository read and a PyPI package read. A reply
@@ -60,6 +61,17 @@ refuses no reply for its length and cuts no text or list of it. A check adds a c
 changes an earlier one. A comment after the job's last one reaches the next check as a reply. A skipped item gets only `alternatives.failed_at` and
 `alternatives.failed_error` in its job record; a written check clears both.
 
+**References (#4672).** After the verdict of an item, the reference step
+(`devops_cli.roadmap.references`) searches public code for reference implementations and takes
+the official documentation among the sources of the check. Its queries are the rule queries of the
+item body and at most 3 `reference_queries` of the same model reply, so it makes no generative
+call. `roadmap.alternatives.references` is its mode. `off` runs nothing. `plan` writes the
+verified links to the log and counts them. `on` writes at most 3 permalinks and 3 documentation
+links in the block and in the comment of the check, and records them in `alternatives.refs`. The
+step fails soft: with no link, the check writes its verdict as before. A step that failed, and a
+step in mode `plan` or `off`, leave the links of an earlier check in the block and in the record. A
+change of the links alone is no change of the result, so it posts no comment.
+
 The check is off when the repository is private, its visibility cannot be read, or no search
 provider is configured: a verdict `none` would then say that no tool exists when none was looked for.
 """
@@ -69,6 +81,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -98,6 +111,7 @@ from devops_cli.config.constants import (
     CONST_ROADMAP_ALTERNATIVES_MAX_FACT_READS,
     CONST_ROADMAP_ALTERNATIVES_MAX_LICENSE_CHARS,
     CONST_ROADMAP_ALTERNATIVES_MAX_SEARCHES,
+    CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES,
     CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR,
     CONST_ROADMAP_ALTERNATIVES_SEARCH_RESULTS,
     CONST_ROADMAP_ALTERNATIVES_START_MARKER,
@@ -154,6 +168,16 @@ from devops_cli.roadmap.item_comments import (
 )
 from devops_cli.roadmap.job_result import RoadmapJob, log_job_result
 from devops_cli.roadmap.page_fetch import TOOLSET_ALTERNATIVES, PageFetch, named_urls
+from devops_cli.roadmap.references.mcp_provider import configured_optional_providers
+from devops_cli.roadmap.references.providers import Result, count
+from devops_cli.roadmap.references.relevance import relevance_of
+from devops_cli.roadmap.references.step import (
+    ReferenceRequest,
+    References,
+    ReferenceStep,
+    open_reference_step,
+    recorded_references,
+)
 from devops_cli.roadmap.refine.refine import (
     comments_without_jobs,
     replies_after_marker,
@@ -215,7 +239,8 @@ class AlternativesReply(BaseModel):
     `tool_name` is the name that the ADR or the item writes for the tool. The job confirms each
     proposal against the text, and keeps the verdict of the reply when it cannot (#3505).
     `reason` is the reason of the verdict (#2944). The prompt asks for a brief reply, and the schema
-    sets no length: a long reply is written whole (#6168)."""
+    sets no length: a long reply is written whole (#6168). `reference_queries` are the code search
+    queries of the reference step, of which the job sends at most 3 (#4672)."""
 
     verdict: Verdict
     reason: str = Field(min_length=1)
@@ -226,6 +251,7 @@ class AlternativesReply(BaseModel):
     covers: list[str] = Field(default_factory=list)
     lacks: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
+    reference_queries: list[str] = Field(default_factory=list)
 
 
 # ── The facts a tool read ─────────────────────────────────────────────────────
@@ -363,6 +389,8 @@ class AlternativesTools(ResearchToolset):
 
     store: RoadmapStore
     allowed_urls: set[str] = field(default_factory=set)
+    # Each URL that a search returned, as the provider gave it, by its normalized form (#4672).
+    given_urls: dict[str, str] = field(default_factory=dict)
     facts: dict[str, ToolFacts] = field(default_factory=dict)
     searches: list[Search] = field(default_factory=list)
     search_calls: int = 0
@@ -400,6 +428,7 @@ class AlternativesTools(ResearchToolset):
         if answer.answered:
             self.searches.append(Search(query, len(found)))
         self.allowed_urls |= {normalize_url(url) for url in found}
+        self.given_urls.update({normalize_url(url): url for url in found})
         if self.pages is not None:
             self.pages.offer(found)
         return answer.text
@@ -573,7 +602,13 @@ class Check:
     """One item's check, ready to write: the body with the job's block, which holds the result,
     and the comment, the event of a change of the result, empty for a skip class (#6195).
     `adr_hash` is the hash of the ADRs that the model read, none for a skip class, and
-    `in_repository` says that the repository uses the tool of an `in-use` verdict (#4661)."""
+    `in_repository` says that the repository uses the tool of an `in-use` verdict (#4661).
+    `reference_queries` are the queries of the model reply for the reference step, and
+    `reference_sources` the sources of the reply as their tool gave them. `references` holds the
+    links that the block shows. With `writes_references`, they are the links of the step, and the
+    write records them: mode `on`, and a step that ran to its end or found a link. Else they are
+    the links that the job record holds from an earlier check, and the write leaves the record as
+    it is. `references_found` counts the links that the step verified in any mode (#4672)."""
 
     item: Item
     verdict: Verdict
@@ -593,6 +628,11 @@ class Check:
     adr_hash: str | None = None
     in_repository: bool = False
     returns: int = 0
+    reference_queries: tuple[str, ...] = ()
+    reference_sources: tuple[str, ...] = ()
+    references: References = field(default_factory=References)
+    writes_references: bool = False
+    references_found: int = 0
 
 
 @dataclass(frozen=True)
@@ -1040,11 +1080,26 @@ def _result_before(check: Check) -> str:
     return texts.alternatives_comment_before_no_tool.format(verdict=verdict)
 
 
+def _reference_sections(references: References) -> list[list[str]]:
+    """The links of the reference step, as the block and the comment list them: the permalinks of
+    the reference implementations, then the official documentation (#4672). No link gives no
+    section."""
+    texts = MESSAGES.roadmap
+    return [
+        _list_section(
+            texts.alternatives_block_references, [link.url for link in references.permalinks]
+        ),
+        _list_section(
+            texts.alternatives_block_documentation, [link.url for link in references.documentation]
+        ),
+    ]
+
+
 def _comment_of(check: Check) -> str:
     """The comment of a check, the event of a change of its result: the marker, the line that says
-    the result in the block of the body changed and what it was before, and the folded evidence of
-    the run. The result itself is in the block only (#6195). A skip class has no evidence, so it
-    gets no comment: the text is empty."""
+    the result in the block of the body changed and what it was before, the links of the reference
+    step (#4672), and the folded evidence of the run. The result itself is in the block only
+    (#6195). A skip class has no evidence, so it gets no comment: the text is empty."""
     if check.skip_class:
         return ""
     texts = MESSAGES.roadmap
@@ -1053,6 +1108,7 @@ def _comment_of(check: Check) -> str:
             CONST_ROADMAP_ALTERNATIVES_COMMENT_MARKER,
             texts.alternatives_comment_changed.format(before=_result_before(check)),
         ],
+        *_reference_sections(check.references),
         _folded_section(check),
     ]
     return "\n\n".join("\n".join(section) for section in sections if section)
@@ -1061,9 +1117,10 @@ def _comment_of(check: Check) -> str:
 def _block_of(check: Check) -> str:
     """The block of the body, between the job's two markers: the current result of the check. Its
     first lines give the date and the verdict, the skip class, the basis of a verdict of the job,
-    the tool and the reason of the model; then what the tool covers and what it lacks (#6195). A
-    code fence or an HTML block that its text leaves open gets its close before the end marker, so
-    the end marker stays an HTML block of its own (#6627)."""
+    the tool and the reason of the model; then what the tool covers and what it lacks (#6195), and
+    the links of the reference step (#4672). A code fence or an HTML block that its text leaves
+    open gets its close before the end marker, so the end marker stays an HTML block of its own
+    (#6627)."""
     texts = MESSAGES.roadmap
     detail = texts.alternatives_block_no_tool if check.tool is None else _tool_line(check.tool)
     skip = (
@@ -1085,6 +1142,7 @@ def _block_of(check: Check) -> str:
         head,
         _list_section(texts.alternatives_block_covers, check.covers),
         _list_section(texts.alternatives_block_lacks, check.lacks),
+        *_reference_sections(check.references),
     ]
     inside = close_open_block("\n\n".join("\n".join(section) for section in sections if section))
     return "\n".join(
@@ -1132,8 +1190,8 @@ def _completed(partial: Check) -> Check:
 
 
 def _skip_check(item: Item, skip_class: str, now: datetime) -> Check | CheckFailure:
-    """The check of a skip-class item: `not-applicable` with its class, and no tool and no search;
-    or the failure when the body holds an unpaired marker."""
+    """The check of a skip-class item: `not-applicable` with its class, and no tool and no web
+    search; or the failure when the body holds an unpaired marker."""
     problem = _marker_problem(item.body)
     if problem is not None:
         return CheckFailure(
@@ -1304,6 +1362,16 @@ def validate_reply(
             new_body="",
             comment="",
             returns=returns,
+            reference_queries=tuple(
+                reply.reference_queries[:CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES]
+            ),
+            # The reference step requests a page as the search gave its URL: a host answers the
+            # page of a directory with its last slash only.
+            reference_sources=tuple(
+                dict.fromkeys(
+                    tools.given_urls.get(normalize_url(url), url) for url in reply.sources
+                )
+            ),
         )
     )
 
@@ -1409,7 +1477,81 @@ def _stopped_failure(
     )
 
 
+def _with_references(
+    store: RoadmapStore,
+    check: Check,
+    step: ReferenceStep,
+    inventory: Inventory | None,
+    repo: str,
+) -> Check:
+    """`check` after the reference step of its item (#4672). The step reads the body outside the
+    block of the job, the queries of the model reply and the sources of the check. The check
+    writes the links of the step only in mode `on`, and only when the step ran to its end or
+    found a link. A step that failed says nothing about the item, and mode `plan` and mode `off`
+    write nothing: the check then shows the links that the job record holds, so the block and the
+    record stay as they are."""
+    text, _ = extract_section_and_outside(
+        check.item.body,
+        CONST_ROADMAP_ALTERNATIVES_START_MARKER,
+        CONST_ROADMAP_ALTERNATIVES_END_MARKER,
+    )
+    found = step.run(
+        store,
+        ReferenceRequest(
+            number=check.item.number,
+            title=check.item.title,
+            text=text,
+            repo=repo,
+            now=check.checked_at,
+            model_queries=check.reference_queries,
+            sources=check.reference_sources,
+            inventory=inventory,
+        ),
+    )
+    writes = step.mode == "on" and (found.complete or bool(found.links))
+    recorded = check.item.job_record.get(AlternativesRecordKey.REFS)
+    return _completed(
+        replace(
+            check,
+            references=found if writes else recorded_references(recorded),
+            writes_references=writes,
+            references_found=len(found.links),
+        )
+    )
+
+
 def _check_one(
+    store: RoadmapStore,
+    item: Item,
+    *,
+    model: Any,
+    adrs: Sequence[Adr],
+    inventory: Inventory | None,
+    now: datetime,
+    fetch: bool,
+    chain: ResolverChain[Mapping[str, Any]] | None = None,
+    repo: str | None = None,
+    references: ReferenceStep | None = None,
+) -> Check | CheckFailure:
+    """One item's check, and then the reference step of the item when the run has one (#4672). A
+    failed check runs no reference step."""
+    outcome = _verdict_check(
+        store,
+        item,
+        model=model,
+        adrs=adrs,
+        inventory=inventory,
+        now=now,
+        fetch=fetch,
+        chain=chain,
+        repo=repo,
+    )
+    if isinstance(outcome, CheckFailure) or references is None or repo is None:
+        return outcome
+    return _with_references(store, outcome, references, inventory, repo)
+
+
+def _verdict_check(
     store: RoadmapStore,
     item: Item,
     *,
@@ -1528,6 +1670,7 @@ def plan_alternatives(
     investigator: Any = None,
     writer: AlternativesWriter | None = None,
     source: Path | None = None,
+    reference_step: ReferenceStep | None = None,
 ) -> AlternativesPlan:
     """Plans the checks of the selected items. It writes nothing unless the caller gives a
     `writer`: the writer then gets the result of each item as soon as that item is checked, so a
@@ -1535,12 +1678,15 @@ def plan_alternatives(
     `roadmap.alternatives.limit` and `roadmap.alternatives.first_pass_limit`.
     `investigator` is the pydantic-ai model of the runs,
     the `alternatives` task's by default. `source` is a clone of the repository at HEAD, whose
-    deployed paths name the tools in use (#4661); with none, the run reads the SBOM only."""
+    deployed paths name the tools in use (#4661); with none, the run reads the SBOM only.
+    `reference_step` is the reference step of the run (#4672), the one that
+    `roadmap.alternatives.references` and the settings give by default."""
     moment = now or datetime.now(UTC)
     web = web_search_of(store)
     if not web.on:
         return AlternativesPlan(repo=repo, off_reason=web.off_reason)
-    config = load_settings().roadmap.alternatives
+    settings = load_settings()
+    config = settings.roadmap.alternatives
     # The ADRs are the same for each item (#3505). The model sees only the entries that fit the
     # cap, so only they can be confirmed, and their hash selects the items whose check read
     # others (#4661).
@@ -1566,23 +1712,35 @@ def plan_alternatives(
     )
     checks: list[Check] = []
     failures: list[CheckFailure] = []
-    for item in selection.selected:
-        outcome = _check_one(
-            store,
-            item,
-            model=model,
-            adrs=adrs,
-            inventory=inventory,
-            now=moment,
-            fetch=web.fetch,
-            repo=repo,
+    with ExitStack() as opened:
+        # The check is on for a public repository only, so the step of the run is not private.
+        references = reference_step or opened.enter_context(
+            open_reference_step(
+                store,
+                mode=config.references,
+                private=False,
+                optional=configured_optional_providers(settings),
+                relevance=relevance_of(settings),
+            )
         )
-        if writer is not None:
-            writer.settle(outcome)
-        if isinstance(outcome, CheckFailure):
-            failures.append(outcome)
-        else:
-            checks.append(outcome)
+        for item in selection.selected:
+            outcome = _check_one(
+                store,
+                item,
+                model=model,
+                adrs=adrs,
+                inventory=inventory,
+                now=moment,
+                fetch=web.fetch,
+                repo=repo,
+                references=references,
+            )
+            if writer is not None:
+                writer.settle(outcome)
+            if isinstance(outcome, CheckFailure):
+                failures.append(outcome)
+            else:
+                checks.append(outcome)
     return AlternativesPlan(
         repo=repo,
         checks=checks,
@@ -1657,7 +1815,10 @@ class AlternativesWriter:
         one result line for the repository (#4845); a check whose body a person changed since the
         read logs none, as the next run checks the item again. The recorded body hash is the hash
         of the body that the check writes, so the close of an open block that the write adds
-        before the block is no change on the next run (#6627)."""
+        before the block is no change on the next run (#6627). A check that writes the links of
+        the reference step puts them in `alternatives.refs`, clears the key when the step found
+        none, and adds 1 to `devops_cli_brain_references_total` with the result `linked` for each
+        link. Any other check leaves the key as it is (#4672)."""
         if isinstance(outcome, CheckFailure):
             self._store.set_marks(
                 outcome.item,
@@ -1685,9 +1846,15 @@ class AlternativesWriter:
         }
         if AlternativesRecordKey.FAILED_REASON in outcome.item.job_record:
             marks[AlternativesRecordKey.FAILED_REASON] = None
+        links = outcome.references.links if outcome.writes_references else ()
+        recorded = AlternativesRecordKey.REFS in outcome.item.job_record
+        if outcome.writes_references and (links or recorded):
+            marks[AlternativesRecordKey.REFS] = " ".join(link.url for link in links) or None
         self._store.set_marks(outcome.item, marks, body=outcome.new_body)
         if posts:
             self._store.comment(number, outcome.comment)
+        for link in links:
+            count(link.provider, Result.LINKED)
         emit(ROADMAP_ALTERNATIVES_TOTAL, 1, {"verdict": outcome.verdict.value})
         emit(
             ROADMAP_ALTERNATIVES_SEARCHES,
@@ -1702,7 +1869,7 @@ class AlternativesWriter:
         the job refused and `failed` for another failure, with the code of the error as the
         reason. The reason of a check is its skip class, or `none`. `searches` counts the searches
         that a provider answered and `returns` the replies sent back to the model, for a failure
-        too (#6346)."""
+        too (#6346). `references` counts the links that the reference step verified (#4672)."""
         names: dict[str, str] = {}
         if isinstance(outcome, CheckFailure):
             refused = (
@@ -1716,6 +1883,7 @@ class AlternativesWriter:
                 outcome.reason_code or outcome.error_class,
                 outcome.returns,
             )
+            references = 0
             if outcome.band is not None:
                 names["band"] = outcome.band.value
         else:
@@ -1725,6 +1893,7 @@ class AlternativesWriter:
                 outcome.skip_class or "none",
                 outcome.returns,
             )
+            references = outcome.references_found
         names["reason"] = reason
         log_job_result(
             RoadmapJob.ALTERNATIVES,
@@ -1732,7 +1901,7 @@ class AlternativesWriter:
             outcome.item.number,
             result,
             failure=failure,
-            counts={"searches": searches, "returns": returns},
+            counts={"searches": searches, "returns": returns, "references": references},
             names=names,
         )
 

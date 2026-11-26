@@ -126,6 +126,7 @@ from devops_cli.config.defaults import (
     DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS,
     DEFAULT_ROADMAP_ALTERNATIVES_LIMIT,
     DEFAULT_ROADMAP_ALTERNATIVES_RECHECK_DAYS,
+    DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES,
     DEFAULT_ROADMAP_ALTERNATIVES_RETRY_DAYS,
     DEFAULT_ROADMAP_FIX_CHECKS_MAX_WAIT_MINUTES,
     DEFAULT_ROADMAP_FIX_CHECKS_MODE,
@@ -2002,6 +2003,16 @@ class AlternativesConfig(RowCadenceConfig):
     inventory_paths: list[str] = Field(
         description="Paths of a clone, relative to its root, whose files the alternatives check reads for the tools that the repository deploys; a covers or partly tool that they name as a whole word is in use",
         default_factory=lambda: list(DEFAULT_ROADMAP_ALTERNATIVES_INVENTORY_PATHS),
+    )
+
+    references: Annotated[RowMode, Variable()] = Field(
+        description="What the reference step of the alternatives check does after the verdict of an item (ADR 0021, section 8, rule 5). The step searches public code for reference implementations and official documentation, and verifies each link. `off` runs no step. `plan` writes the verified links to the log and counts them, and changes no issue text and no job record. `on` also writes at most 3 permalinks and at most 3 documentation links in the block and the comment, and records them in `alternatives.refs`",
+        default=DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES,
+    )
+
+    references_mcp_url: Annotated[str | None, Variable()] = Field(
+        description="The URL of an MCP server with a code search tool, such as the grep.app server, that the reference step of the alternatives check asks as an optional provider for a public repository. The step sends it the queries of an item and reads the GitHub file links of its answer. A server that is down at the start of a run is left out, and the run continues. With no URL the step has the two GitHub providers only",
+        default=None,
     )
 
 

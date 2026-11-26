@@ -3482,7 +3482,9 @@ class RoadmapMessages:
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
-    alternatives_block_skip_class: str = "Class: {skip_class}, no search."
+    alternatives_block_skip_class: str = "Class: {skip_class}, no model call."
+    alternatives_block_references: str = "Reference implementations:"
+    alternatives_block_documentation: str = "Official documentation:"
     alternatives_block_reason: str = "Reason: {reason}"
     alternatives_block_covers: str = "Covers:"
     alternatives_block_lacks: str = "Lacks:"
@@ -6251,6 +6253,13 @@ class RoadmapMessages:
             "package": "<package>",
             "owner": "<owner>",
             "name": "<name>",
+            "version": "<version>",
+            # No angle brackets in the next four: the requests percent-encode them.
+            "reference_query": "query words",
+            "reference_repositories": "repo:owner/name fork:true",
+            "reference_path": "path/of/the/file",
+            "reference_sha": "head-commit",
+            "documentation_page": "<documentation host>/<page>",
             # No angle brackets: the contents request percent-encodes them, and the name has the
             # form of an ADR file name.
             "adr_file": "NNNN-name.md",
@@ -6309,6 +6318,16 @@ class RoadmapMessages:
             "pypi_package": "the PyPI record of the package {subject}",
             "sbom": "the SBOM that the dependency graph exports",
             "deps_dev_project": "the packages that deps.dev links to the project {subject}",
+            "deps_dev_dependents": "the packages that depend on the package {subject}",
+            "reference_code_search": "a code search for the references of {subject}",
+            "reference_repository_search": "the facts of the repositories of the code hits",
+            "reference_facts": "the head commit and the facts of the repository {subject}",
+            "reference_file": "the file of a reference in {subject} at its head commit",
+            "reference_documentation": "a page of official documentation for {subject}",
+            "reference_mcp_search": (
+                "a code search of the MCP server for the references of {subject}"
+            ),
+            "reference_relevance": ("the answer of the decision model about a link of {subject}"),
             "model_run": "the model's run on {subject}",
             "record": "the job record of {subject}, in its body",
             "set_field": "set {field} on {subject}: its labels and its job record, in one write",
@@ -6338,6 +6357,9 @@ class RoadmapMessages:
             "search": "{provider} search",
             "pypi": "PyPI read",
             "deps_dev": "deps.dev read",
+            "documentation": "documentation read",
+            "mcp": "MCP tool call",
+            "decision": "decision model call",
             "model": "model call",
         }
     )
@@ -6364,6 +6386,7 @@ class RoadmapMessages:
                 "from the record of the earlier check"
             ),
             "inventory_read": "the run checks an item that is no skip class",
+            "references_on": "roadmap.alternatives.references is plan or on",
             "deps_dev_read": (
                 "the SBOM holds a package and neither it nor the deployed paths hold the tool of "
                 "the reply"
@@ -6429,6 +6452,15 @@ class RoadmapMessages:
             "consolidate_citation": "for each path with a line that the model cites",
             "search": "for each search the model asks for, at most {limit} for an item",
             "fact": "for each fact read the model asks for, at most {limit} for an item",
+            "reference_search": (
+                "for each query of the reference step, at most {limit} for an item"
+            ),
+            "reference_fact": (
+                "for each fact read of the reference step, at most {limit} for an item"
+            ),
+            "reference_link": (
+                "for each link that the reference step keeps, at most {limit} for an item"
+            ),
             "stage_item": "for each item the run stages, up to the limit",
             "fix_plan_item": "for each Staged item with a plan pull request, until one qualifies",
             "stage_closed": "for each closed item whose record holds a staged branch",

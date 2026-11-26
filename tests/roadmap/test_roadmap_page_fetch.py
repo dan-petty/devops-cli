@@ -288,3 +288,21 @@ def test_page_of_returns_page_text_and_counts_stage_telemetry(
     limit_outcome = pages.page_of(urls[-1])
     assert isinstance(limit_outcome, ToolReturn)
     assert "limit for this item is reached" in str(limit_outcome.return_value)
+
+
+@pytest.mark.parametrize(
+    "refused",
+    [
+        "https://[cluster-ip]:6443/healthz",
+        "http://[{host}]:{port}",
+        "https://[::1",
+        "https://example.com\uff1a8080",
+    ],
+    ids=["bracket-name", "bracket-placeholder", "open-bracket", "full-width-colon"],
+)
+def test_a_url_that_the_url_parser_refuses_is_no_named_url(refused: str) -> None:
+    """An item text can hold a URL that `urlsplit` refuses with `ValueError` (#4672). It names no
+    page, and the other URLs of the text stay."""
+    text = f"Probe {refused} and read https://example.com/page."
+
+    assert named_urls(text) == frozenset({"https://example.com/page"})

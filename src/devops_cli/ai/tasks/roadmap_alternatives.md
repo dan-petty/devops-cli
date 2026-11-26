@@ -35,6 +35,7 @@ Reply with these keys:
 - `covers`: a few items, about 3, of what the tool covers.
 - `lacks`: a few items, about 3, of what the tool does not cover, or what the issue needs that it lacks.
 - `sources`: a few URLs, about 3, that support your statements. Each one is a source.
+- `reference_queries`: at most 3 queries for a code search that finds reference implementations of the need in public repositories. Write each query as a few plain words that such code holds, such as an import, a function name or a package name: `from pydantic_ai import Agent`. Write no search operator, no quote and no colon. The job sends them after your reply and you do not see their results. Leave the list empty when the issue asks for no code.
 
 Keep the reply brief, because a person reads it in a comment. Write each item of `covers` and `lacks` as a plain phrase of about 12 words, such as `No SARIF output`. Do not repeat the reason, the issue or the tool name, and write no filler words. Keep each fact that a person needs for the decision.
 

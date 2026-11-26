@@ -220,7 +220,8 @@ class AlternativesRecordKey(StrEnum):
     ran, the hash of the body it read outside its own block and the refine section, its verdict,
     and the URL of the tool it found, if any. It also records the canonical id of the tool and the
     hash of the ADRs that the model read (#4661). When the last check failed, the record holds the
-    time of the failure and the class of its error (#2949) until a check is written."""
+    time of the failure and the class of its error (#2949) until a check is written. `REFS` holds
+    the links that the reference step wrote in mode `on`, with a space between them (#4672)."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
@@ -231,6 +232,7 @@ class AlternativesRecordKey(StrEnum):
     FAILED_AT = "alternatives.failed_at"
     FAILED_ERROR = "alternatives.failed_error"
     FAILED_REASON = "alternatives.failed_reason"
+    REFS = "alternatives.refs"
 
 
 class StageRecordKey(StrEnum):
@@ -803,6 +805,39 @@ class RepositoryFacts(BaseModel):
     stars: int = 0
     latest_release: str | None = None
     released_at: datetime | None = None
+
+
+class CodeSearchHit(BaseModel):
+    """One file that GitHub's code search found for a query (#4672): the repository as
+    `owner/name` and the path of the file in it. The search reads the default branch only, and
+    the store gives no file of a private repository."""
+
+    model_config = ConfigDict(frozen=True)
+
+    repository: str
+    path: str
+
+
+class ReferenceFacts(BaseModel):
+    """What GitHub says of a repository that might hold a reference implementation (#4672): what
+    the gates and the rank of the reference step read. `head_sha` is the commit at the head of the
+    default branch, and `has_tests` says that the head holds a directory `tests` or `test`. A
+    repository search gives neither: its facts have no `head_sha`. `private` has no default, so
+    no producer can leave a private repository as public."""
+
+    model_config = ConfigDict(frozen=True)
+
+    full_name: str
+    url: str
+    private: bool
+    description: str = ""
+    license: str | None = None
+    archived: bool = False
+    fork: bool = False
+    pushed_at: datetime | None = None
+    stars: int = 0
+    head_sha: str | None = None
+    has_tests: bool = False
 
 
 class OpenPull(BaseModel):
@@ -1441,9 +1476,12 @@ class RoadmapStore(Protocol):
         """Write `body` as the body of issue `number`, keeping its record block, raising if it is
         not an issue of this repository."""
 
-    def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The text of the repository file at `path` on `ref` (the default branch when None),
-        raising `GitHubFileNotFoundError` when there is no such file."""
+    def repository_file(
+        self, path: str, *, ref: str | None = None, repository: str | None = None
+    ) -> str:
+        """The text of the file at `path` on `ref` (the default branch when None), raising
+        `GitHubFileNotFoundError` when there is no such file. The file is of this repository, or
+        of the repository `repository` (`owner/name`) when it is given (#4672)."""
 
     def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
         """The sorted paths of the files directly in `directory` on `ref` (the default branch when
@@ -1519,6 +1557,21 @@ class RoadmapStore(Protocol):
         repository exports for its default branch, or none when the dependency graph is off
         (#4661). A read that cannot complete raises."""
 
+    def search_code(self, query: str, *, limit: int) -> list[CodeSearchHit]:
+        """At most `limit` files of the public repositories on GitHub whose text holds `query`,
+        from GitHub's code search, best match first (#4672). A file of a private repository is
+        left out. A search that cannot complete raises."""
+
+    def search_repositories(self, query: str, *, limit: int) -> list[ReferenceFacts]:
+        """At most `limit` repositories that match `query`, from GitHub's repository search, each
+        with the facts that the search gives: no head commit and no tests (#4672). A search that
+        cannot complete raises."""
+
+    def reference_facts(self, full_name: str) -> ReferenceFacts | None:
+        """The facts of the repository `full_name` (`owner/name`), which need not be this one,
+        with its head commit and whether it holds tests, in one read; None when GitHub has no
+        such repository (#4672). A read that cannot complete raises."""
+
 
 type StoreFactory = Callable[..., RoadmapStore]
 
@@ -1574,6 +1627,7 @@ __all__ = [
     "ClaimRecordKey",
     "CloseReason",
     "Closure",
+    "CodeSearchHit",
     "ConsolidateRecordKey",
     "Evidence",
     "EvidenceKind",
@@ -1593,6 +1647,7 @@ __all__ = [
     "Milestone",
     "OwnerQuestionRecordKey",
     "PostedComment",
+    "ReferenceFacts",
     "RefineRecordKey",
     "RepositoryFacts",
     "RetitleRecordKey",

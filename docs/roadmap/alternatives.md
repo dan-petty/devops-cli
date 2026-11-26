@@ -58,6 +58,50 @@ A check records the canonical id of its tool in `alternatives.tool_id`, so the v
 
 A check of an item of no skip class also records `alternatives.adr_hash`, the hash of the ADR entries that the model saw. When the ADRs at HEAD give another hash, the item is due again (see [Which items a run takes](#which-items-a-run-takes)).
 
+## The reference step
+
+After the verdict of an item, the reference step looks for reference implementations in public code and for official documentation (#4672). It runs for each checked item, also for an item of a skip class. The setting `roadmap.alternatives.references` is its mode:
+
+| Mode | What the step does |
+| :--- | :--- |
+| `off` | It runs nothing. |
+| `plan` (the default) | It searches and verifies. It writes each verified link to the log and counts it. It changes no issue text and no job record. |
+| `on` | It also gives the links to the check, which writes them in the block, in the comment and in `alternatives.refs`: at most 3 permalinks and at most 3 documentation links. |
+
+The check writes the links of the step only in mode `on`, and only when the step ran to its end or found a link. A step that failed, or that passed its bound, says nothing about the item. Then, and in mode `plan` and mode `off`, the check shows the links that `alternatives.refs` holds from an earlier check, and its write leaves the block and the record as they are. So a rate limit removes no link, and a switch from `on` back to `plan` changes no issue text.
+
+The step makes no model call of its own. Its queries come from two sources:
+
+- The rule queries of the item body: each Python import statement, then the name of each package that a URL of the body names (a PyPI project or a GitHub repository), then each other code span.
+- At most 3 `reference_queries` of the model reply of the same check. An item of a skip class has no reply, so it sends the rule queries only.
+
+The step takes a rule query and a query of the model in turn, and it sends at most 3 queries for an item. A query is plain words: a colon and a quote leave it, so no text of an item names a search qualifier.
+
+Each query passes the query guard of the web search before it reaches a provider or the decision point. The guard refuses a secret, an e-mail address, a private address and an internal host name. It reads the text of the item and also the plain words, because the host of a URL is a word of its own only there. A refused query is dropped and counted with the provider `step` and the result `refused`. A text of the item that the URL parser refuses, such as `https://[name]:6443/healthz`, names no URL and stops no step.
+
+The providers are data:
+
+- `github-code` is GitHub's code search (`GET /search/code`, at most 10 requests a minute). It answers a query with files.
+- `github-repository` is GitHub's repository search (`GET /search/repositories`, at most 30 requests a minute). The step sends it one query for an item, which names the repositories of all code hits, and takes the facts of each repository from the answer.
+- `mcp-code` is an optional provider: the code search tool of the MCP server that `roadmap.alternatives.references_mcp_url` names, such as the grep.app server (`https://mcp.grep.app`). The step uses the first tool of the server that has a `query` argument, and it reads each link to a file on GitHub in the answer as a code hit. With this provider, each second query goes to it. Its connection uses an HTTP client of `devops_cli.http.entry` at the public egress level. The connection and the tool listing have the bound of one tool call (`roadmap.mcp.timeout_seconds`). Each error of the MCP client at the connection, the tool listing, a call, the answer or the close is one error of the provider: the server is unavailable. A provider that fails at a call ends its connection and gets no later query of the run. The failed query goes to `github-code` when the item has a code search left.
+
+Both GitHub searches go through the paced GitHub session, and one search is one request of one page. The run connects an optional provider at its start. A server that is down then is left out, and the check continues with the other providers. A private repository gets the two GitHub providers only, so no text of its items goes to another host. The setting has no URL by default, so the step has the two GitHub providers until a person sets one. The queries of a public item then go to that server.
+
+The gates and the rank are code:
+
+- A hit passes the gates only when it is a code hit, and its repository is public, not archived, not a fork, pushed in the last 365 days, under a license that the OSI approved, not this repository and not linked already in the item. A code hit names a file that is no prose: a file with the suffix of a Markdown, text, reStructuredText, AsciiDoc or HTML file is no implementation. A path with an empty segment, `.` or `..` is no path of a file.
+- The rank of a candidate is the sum of the base-10 logarithm of its stars, the base-10 logarithm of the direct dependents that deps.dev counts for its PyPI package (`GET https://api.deps.dev/v3alpha/systems/pypi/packages/<name>/versions/<version>:dependents`), the number of PyPI packages of the SBOM whose source it is, and 1 when its head holds a directory `tests` or `test`. The deps.dev facts come from the fact cache of the project brain.
+
+The step verifies each link before it keeps it. For a candidate, it reads the head commit of the default branch and then the file with `repository_file` at that commit. A path that the head commit does not hold gives no link. `render_permalink` gives the link `https://github.com/<owner>/<repo>/blob/<sha>/<path>#L<a>-L<b>`. The link starts at the first line that holds the longest word of the query, or at line 1, and it covers at most 20 lines. A line ends at a line feed only, as GitHub counts the lines of a file. The step keeps at most 3 permalinks. A path and a documentation URL are text of another repository or host. The link holds the path percent-encoded, and a documentation URL with a character that is no URL character gives no link, so no link writes markup into an issue.
+
+A documentation link is a source of the check, or a documentation hit of a provider. The step keeps it only when its URL is `https`, its host is on the allowlist `CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS`, the item does not link it already, and one request of the page answers 200. The request is for the URL as the search gave it, with its last slash, and it follows no redirect: a redirect is no answer. The step reads at most 3 pages for an item, so the code candidates keep their fact reads. The allowlist is a constant: `ai.pydantic.dev`, `docs.astral.sh`, `docs.github.com`, `docs.pydantic.dev`, `docs.python.org`, `kubernetes.io`, `opentelemetry.io` and `typer.tiangolo.com`. Only a reviewed code change adds a host. The step keeps at most 3 documentation links, beside the at most 3 permalinks.
+
+The step has bounds for one item: at most 3 code searches, at most 15 fact reads, and 120 s. A fact read is each request that is no code search. The step fails soft. A failed search, a failed read, a spent GitHub quota and a passed time bound each give a warning in the log and fewer links, and the check writes its verdict as before. The step runs in a thread of its own. After the bound it sends no new request, and a request in flight ends at its own timeout. An error of the step that is no project error ends that thread, which reports it with its trace, and the round goes on.
+
+The counter `devops_cli_brain_references_total` counts each search by `provider` and `result` (`hit`, `empty` or `failed`). A verified link adds 1 with `verified` in mode `plan`, or with `linked` when mode `on` writes it. Under the provider `step`, a refused query adds 1 with `refused`, a passed time bound adds 1 with `timeout`, and a step that ended with an error adds 1 with `failed`. The result line of the job gives the number of verified links in `references`.
+
+The decision point `brain.reference_relevance` (ADR 0023, section 7) asks the decision model one question about each permalink that the step keeps: is the candidate file off the need of the item? The point runs in `shadow` only. Its record and its count go to the log and to `devops_cli_decision_point_total`, and no band changes a link. Its cuts file holds start cuts with no labelled case, so the settings refuse the mode `on` until a fit. The point asks nothing for a private repository.
+
 ## What a check writes
 
 With `--confirm`, a check does these things:
@@ -74,11 +118,13 @@ The block holds the current result of the check:
 - the basis of a `rejected` or `in-use` verdict;
 - the tool on one line, with its URL, license, last activity and maintained state;
 - the reason of the model for the verdict;
-- what the tool covers and lacks.
+- what the tool covers and lacks;
+- in mode `on` of the reference step, the permalinks under `Reference implementations:` and the documentation links under `Official documentation:`.
 
 The comment is the event of a change of the result. It repeats no line of the block. It gives:
 
 - one line. It says that the result in the block of the issue body changed, and what the result was before the check. It also says that a person decides what the new result means for the item;
+- in mode `on` of the reference step, the links of the step, as the block lists them;
 - one block that GitHub shows closed, `Searches (<count>)`. It holds the tools considered: every tool whose facts the run read, each with its URL, license and last activity. It also holds the answered searches with their number of results. Last, it holds every source of the reply. GitHub shows each URL as a link.
 
 The prompt asks the model for a brief reply: a reason of one sentence, and a few short items in `covers`, `lacks` and `sources`. The check refuses no reply for its length and cuts no text or list of the model.
@@ -86,6 +132,8 @@ The prompt asks the model for a brief reply: a reason of one sentence, and a few
 Refine reads the result from the block, and the evidence from the latest comment of the job, whole. A comment of an older form also holds what the tool covers and lacks. Refine reads them there when the block has no such list.
 
 A check that posts a comment adds a new one. It never changes the comment of an earlier check.
+
+In mode `on` of the reference step, the job record holds the links of the check in `alternatives.refs`, with a space between them. A check whose step ran to its end and found no link clears the key. A change of the links alone is no change of the result, so it posts no comment: the head commit of a repository moves, and the links move with it.
 
 ## Which items a run takes
 
@@ -119,4 +167,4 @@ The command exits 1 only when it tried items and checked none.
 
 ## Where the rules are
 
-[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id and the ADR hash.
+[roadmap-alternatives](../../openspec/specs/roadmap-alternatives/spec.md) holds the order of the items, the three tools of the agent, the checks on a reply, the comment and the block, the recheck and retry settings, the skip class, the tools in use, the canonical id, the ADR hash and the reference step.

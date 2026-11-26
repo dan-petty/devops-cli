@@ -3883,6 +3883,41 @@ CONST_ROADMAP_ALTERNATIVES_MAX_ADR_TOKENS: Final[int] = 8192
 # The class of error that the job records for a reply it refused (#2949): a refusal raises no
 # exception, so it has no class of its own.
 CONST_ROADMAP_ALTERNATIVES_REFUSED_ERROR: Final[str] = "RefusedReply"
+# The reference step of the alternatives check (#4672). For one item it sends at most 3 code
+# searches and 15 fact reads, and it stops after 120 s. A fact read is each request of the step
+# that is no code search: a repository search, the facts of a repository, a deps.dev read, the
+# file of a permalink and the page of a documentation link. The step keeps at most 3 links of a
+# kind, reads 5 results of one search, and links 20 lines from the first line that holds a word of
+# the query. A query has at most 120 characters, and the one request of a documentation page has
+# 10 s.
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_CODE_SEARCHES: Final[int] = 3
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_FACT_READS: Final[int] = 15
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_SECONDS: Final[float] = 120.0
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_MAX_LINKS: Final[int] = 3
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS: Final[int] = 5
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES: Final[int] = 20
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_QUERY_CHARS: Final[int] = 120
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_TIMEOUT_SECONDS: Final[float] = 10.0
+# The one request of the decision point `brain.reference_relevance` for a link has 10 s, so the
+# requests for 3 links end inside the bound of the step.
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_RELEVANCE_SECONDS: Final[float] = 10.0
+# The hosts of official documentation that a documentation link of the reference step may name
+# (#4672, owner decision of 2026-11-13): the documentation of the project stack. Each host is a
+# public host, which the public egress level of SECURITY.md rule 2 admits, and the step reads a
+# page through `devops_cli.http.entry` at that level. Only a reviewed code change adds a host: no
+# setting widens the list.
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_DOMAINS: Final[frozenset[str]] = frozenset(
+    {
+        "ai.pydantic.dev",
+        "docs.astral.sh",
+        "docs.github.com",
+        "docs.pydantic.dev",
+        "docs.python.org",
+        "kubernetes.io",
+        "opentelemetry.io",
+        "typer.tiangolo.com",
+    }
+)
 # The budget of one step of `devops roadmap implement` (#2664): the characters of one tool result,
 # and the tokens of the window that the inputs leave to the turns of the run. The window is
 # `ai.tasks.implement.context_window`. The model requests and the tool calls of the run are

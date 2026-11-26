@@ -116,6 +116,7 @@ def test_a_written_check_logs_its_verdict_and_its_searches(
             "first_pass": "true",
             "searches": "1",
             "returns": "0",
+            "references": "0",
             "reason": "none",
         }
     ]

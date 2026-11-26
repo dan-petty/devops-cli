@@ -84,8 +84,11 @@ READS = frozenset(
         "changes_since",
         "comments_on",
         "newest_issue_number",
+        "reference_facts",
         "repository_file",
         "repository_is_private",
+        "search_code",
+        "search_repositories",
     }
 )
 
@@ -214,6 +217,13 @@ class _Roadmap:
     labels: list[RepositoryLabel] = field(default_factory=list)
     # The package URLs of the SBOM that `seed_dependencies` made.
     purls: list[str] = field(default_factory=list)
+    # The files of other repositories, by repository, path and ref (#4672).
+    other_files: dict[tuple[str, str, str | None], str] = field(default_factory=dict)
+    # What GitHub's code search and repository search answer for each query, and the reference
+    # facts of each repository, by full name (#4672).
+    code_hits: dict[str, list[Any]] = field(default_factory=dict)
+    found_repositories: dict[str, list[Any]] = field(default_factory=dict)
+    reference_facts: dict[str, Any] = field(default_factory=dict)
 
 
 class InMemoryRoadmapStore(RoadmapStore):
@@ -244,6 +254,12 @@ class InMemoryRoadmapStore(RoadmapStore):
         self.reads: list[str] = []
         # How many times this view read the SBOM.
         self.sbom_reads = 0
+        # Each code search, each repository search, each read of the reference facts of a
+        # repository and each read of a file of another repository, in order (#4672).
+        self.code_searches: list[str] = []
+        self.repository_searches: list[str] = []
+        self.reference_reads: list[str] = []
+        self.other_file_reads: list[tuple[str, str, str | None]] = []
 
     def as_actor(self, actor: str) -> InMemoryRoadmapStore:
         """The same roadmap, written by a person: changes carry their name, and no job record."""
@@ -276,7 +292,8 @@ class InMemoryRoadmapStore(RoadmapStore):
     def fail_read(self, read: str, error: Exception | None) -> None:
         """Make every call of the store method `read` raise `error`, until `error` is None. The
         reads that can fail are `repository_is_private`, `repository_file`, `changes_since`,
-        `newest_issue_number` and `comments_on`."""
+        `newest_issue_number`, `comments_on`, `search_code`, `search_repositories` and
+        `reference_facts`."""
         if read not in READS:
             raise ValueError(f"{read} is no read that the fake can fail.")
         if error is None:
@@ -447,6 +464,26 @@ class InMemoryRoadmapStore(RoadmapStore):
     def seed_dependencies(self, *purls: str) -> None:
         """Add `purls` to the SBOM that the dependency graph of the repository exports."""
         self._roadmap.purls.extend(purls)
+
+    def seed_code_search(self, query: str, *hits: Any) -> None:
+        """Make GitHub's code search answer `query` with `hits`; any other query finds nothing."""
+        self._roadmap.code_hits[query] = list(hits)
+
+    def seed_repository_search(self, query: str, *repositories: Any) -> None:
+        """Make GitHub's repository search answer `query` with `repositories`; any other query
+        finds nothing."""
+        self._roadmap.found_repositories[query] = list(repositories)
+
+    def seed_reference_facts(self, facts: Any) -> None:
+        """Make the repository whose reference facts are `facts`, which GitHub knows."""
+        self._roadmap.reference_facts[facts.full_name] = facts
+
+    def seed_other_file(
+        self, repository: str, path: str, text: str, *, ref: str | None = None
+    ) -> None:
+        """Commit `text` at `path` on `ref` of the repository `repository`, which is not this
+        one."""
+        self._roadmap.other_files[(repository, path, ref)] = text
 
     def raw_body(self, number: int) -> str:
         """Issue `number`'s body as GitHub holds it, its record block included."""
@@ -762,14 +799,21 @@ class InMemoryRoadmapStore(RoadmapStore):
         self.reads.append("path_changed_at")
         return max(self._roadmap.commits.get(path, []), default=None)
 
-    def repository_file(self, path: str, *, ref: str | None = None) -> str:
+    def repository_file(
+        self, path: str, *, ref: str | None = None, repository: str | None = None
+    ) -> str:
         """The text committed at `path` on `ref`, raising when there is none, or the error
-        `fail_read` set."""
+        `fail_read` set: of this repository, or of `repository` when it is given."""
         self._readable("repository_file")
-        text = self._roadmap.files.get((path, ref))
+        if repository is None:
+            text = self._roadmap.files.get((path, ref))
+        else:
+            self.other_file_reads.append((repository, path, ref))
+            text = self._roadmap.other_files.get((repository, path, ref))
         if text is None:
             raise GitHubFileNotFoundError(
-                f"{self._roadmap.repo} has no {path} on {ref or 'its default branch'}.",
+                f"{repository or self._roadmap.repo} has no {path} on "
+                f"{ref or 'its default branch'}.",
                 operation="roadmap.read",
                 details={"path": path[:256], "ref": (ref or "")[:256]},
             )
@@ -809,6 +853,27 @@ class InMemoryRoadmapStore(RoadmapStore):
         self._readable("dependency_purls")
         self.sbom_reads += 1
         return list(self._roadmap.purls)
+
+    def search_code(self, query: str, *, limit: int) -> list[Any]:
+        """The first `limit` hits that `seed_code_search` gave for `query`, or the error
+        `fail_read` set."""
+        self.code_searches.append(query)
+        self._readable("search_code")
+        return list(self._roadmap.code_hits.get(query, []))[:limit]
+
+    def search_repositories(self, query: str, *, limit: int) -> list[Any]:
+        """The first `limit` repositories that `seed_repository_search` gave for `query`, or the
+        error `fail_read` set."""
+        self.repository_searches.append(query)
+        self._readable("search_repositories")
+        return list(self._roadmap.found_repositories.get(query, []))[:limit]
+
+    def reference_facts(self, full_name: str) -> Any:
+        """The facts `seed_reference_facts` gave for `full_name`, or None, or the error
+        `fail_read` set."""
+        self.reference_reads.append(full_name)
+        self._readable("reference_facts")
+        return self._roadmap.reference_facts.get(full_name)
 
     def read_issue_body(self, number: int) -> str:
         """The body of issue `number`, with no record block, raising if it is not an issue of

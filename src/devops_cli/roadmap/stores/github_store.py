@@ -41,8 +41,8 @@ from email.parser import HeaderParser
 from http import HTTPStatus
 from itertools import islice
 from pathlib import PurePosixPath
-from typing import Any, Final, Protocol
-from urllib.parse import quote, urlsplit
+from typing import Any, Final, Protocol, runtime_checkable
+from urllib.parse import quote, urlencode, urlsplit
 
 from pydantic import AliasPath, BaseModel, Field, TypeAdapter
 from pydantic import ValidationError as MalformedPayloadError
@@ -82,6 +82,7 @@ from devops_cli.roadmap.stores.store import (
     ChangeKind,
     CloseReason,
     Closure,
+    CodeSearchHit,
     Evidence,
     EvidenceKind,
     GitHubState,
@@ -93,6 +94,7 @@ from devops_cli.roadmap.stores.store import (
     Milestone,
     OpenPull,
     PostedComment,
+    ReferenceFacts,
     RepositoryFacts,
     RepositoryLabel,
     RoadmapStore,
@@ -146,6 +148,14 @@ class ListingSession(Protocol):
     """Reads a REST listing page by page, as `GitHubSession.paginate` does (#983)."""
 
     def paginate(self, path: str, *, iterable_key: str | None = ...) -> Iterator[Any]: ...
+
+
+@runtime_checkable
+class SearchSession(Protocol):
+    """Sends one REST request and gives its answer, as `GitHubSession.rest` does. A search of
+    the reference step is one request of one page (#4672)."""
+
+    def rest(self, method: str, path: str, *, accept: str | None = ..., body: Any = ...) -> Any: ...
 
 
 # ── Payloads gh returns ───────────────────────────────────────────────────────
@@ -454,6 +464,84 @@ class _ReleasePayload(BaseModel):
     published_at: datetime | None = None
 
 
+class _CodeHitPayload(BaseModel):
+    """One file of the answer of `search/code`: its path and the name of its repository."""
+
+    path: str
+    repository: str = Field(validation_alias=AliasPath("repository", "full_name"))
+    private: bool = Field(validation_alias=AliasPath("repository", "private"))
+
+
+class _FoundRepositoryPayload(BaseModel):
+    """One repository of the answer of `search/repositories`, with the keys `ReferenceFacts`
+    keeps."""
+
+    full_name: str
+    html_url: str
+    private: bool
+    description: str | None = None
+    license: str | None = Field(default=None, validation_alias=AliasPath("license", "spdx_id"))
+    archived: bool = False
+    fork: bool = False
+    pushed_at: datetime | None = None
+    stargazers_count: int = 0
+
+    def facts(self) -> ReferenceFacts:
+        return ReferenceFacts(
+            full_name=self.full_name,
+            url=self.html_url,
+            private=self.private,
+            description=self.description or "",
+            license=self.license,
+            archived=self.archived,
+            fork=self.fork,
+            pushed_at=self.pushed_at,
+            stars=self.stargazers_count,
+        )
+
+
+class _ReferenceRepositoryPayload(BaseModel):
+    """A repository as the GraphQL read of the reference step gives it (#4672). `tests` and
+    `test` are the objects at `HEAD:tests` and `HEAD:test`, None when the head has no such
+    path."""
+
+    full_name: str = Field(validation_alias="nameWithOwner")
+    url: str
+    private: bool = Field(validation_alias="isPrivate")
+    description: str | None = None
+    archived: bool = Field(default=False, validation_alias="isArchived")
+    fork: bool = Field(default=False, validation_alias="isFork")
+    pushed_at: datetime | None = Field(default=None, validation_alias="pushedAt")
+    stars: int = Field(default=0, validation_alias="stargazerCount")
+    license: str | None = Field(default=None, validation_alias=AliasPath("licenseInfo", "spdxId"))
+    head_sha: str | None = Field(
+        default=None, validation_alias=AliasPath("defaultBranchRef", "target", "oid")
+    )
+    tests: dict[str, Any] | None = None
+    test: dict[str, Any] | None = None
+
+    def facts(self) -> ReferenceFacts:
+        return ReferenceFacts(
+            full_name=self.full_name,
+            url=self.url,
+            private=self.private,
+            description=self.description or "",
+            license=self.license,
+            archived=self.archived,
+            fork=self.fork,
+            pushed_at=self.pushed_at,
+            stars=self.stars,
+            head_sha=self.head_sha,
+            has_tests=self.tests is not None or self.test is not None,
+        )
+
+
+class _ReferenceFactsPayload(BaseModel):
+    repository: _ReferenceRepositoryPayload | None = Field(
+        validation_alias=AliasPath("data", "repository")
+    )
+
+
 class _ExternalRefPayload(BaseModel):
     reference_type: str = Field(validation_alias="referenceType")
     reference_locator: str = Field(validation_alias="referenceLocator")
@@ -483,6 +571,11 @@ _IS_PRIVATE = TypeAdapter(_IsPrivatePayload)
 _REPOSITORY_PAYLOAD = TypeAdapter(_RepositoryPayload)
 _RELEASE = TypeAdapter(_ReleasePayload)
 _SBOM = TypeAdapter(_SbomPayload)
+_CODE_HIT = TypeAdapter(_CodeHitPayload)
+_FOUND_REPOSITORY = TypeAdapter(_FoundRepositoryPayload)
+_REFERENCE_FACTS = TypeAdapter(_ReferenceFactsPayload)
+# The key of the answer of a search that holds its results.
+_SEARCH_ITEMS = "items"
 # The SPDX reference type of a package URL.
 _PURL_REFERENCE = "purl"
 _COMMENT = TypeAdapter(_CommentPayload)
@@ -507,6 +600,18 @@ _REPOSITORY = (
     "repository(owner: $owner, name: $name) {{ {selection} }} }}"
 )
 _IS_PRIVATE_QUERY = _REPOSITORY.format(params="", selection="isPrivate")
+# The facts of one repository for the reference step (#4672), in one read: what the gates and the
+# rank need, the commit at the head of the default branch, and the objects at `HEAD:tests` and
+# `HEAD:test`.
+_REFERENCE_FACTS_QUERY = _REPOSITORY.format(
+    params="",
+    selection=(
+        "nameWithOwner url isPrivate description isArchived isFork pushedAt stargazerCount "
+        "licenseInfo { spdxId } defaultBranchRef { target { oid } } "
+        'tests: object(expression: "HEAD:tests") { __typename } '
+        'test: object(expression: "HEAD:test") { __typename }'
+    ),
+)
 _CLOSURES_QUERY = _REPOSITORY.format(
     params=", $first: Int!, $number: Int!",
     selection=(
@@ -760,6 +865,24 @@ def latest_release_args(full_name: str) -> list[str]:
 def sbom_args(repo: str) -> list[str]:
     """The `gh` arguments that read the SPDX SBOM that the dependency graph of `repo` exports."""
     return ["api", f"repos/{repo}/dependency-graph/sbom"]
+
+
+def reference_facts_args(full_name: str) -> list[str]:
+    """The `gh` arguments that read the facts of the repository `full_name` for the reference
+    step."""
+    return repository_query_args(full_name, _REFERENCE_FACTS_QUERY)
+
+
+def code_search_path(query: str, limit: int) -> str:
+    """The path of the one page of GitHub's code search that answers `query` with at most
+    `limit` files."""
+    return f"/search/code?{urlencode({'q': query, 'per_page': limit})}"
+
+
+def repository_search_path(query: str, limit: int) -> str:
+    """The path of the one page of GitHub's repository search that answers `query` with at most
+    `limit` repositories."""
+    return f"/search/repositories?{urlencode({'q': query, 'per_page': limit})}"
 
 
 def is_private_args(repo: str) -> list[str]:
@@ -1355,9 +1478,12 @@ class GitHubRoadmapStore(RoadmapStore):
         )
         return commit is not None
 
-    def repository_file(self, path: str, *, ref: str | None = None) -> str:
-        """The raw text of `path` on `ref` through the contents API, raising when it cannot be read."""
-        return self._contents(path, ref)[0]
+    def repository_file(
+        self, path: str, *, ref: str | None = None, repository: str | None = None
+    ) -> str:
+        """The raw text of `path` on `ref` through the contents API, raising when it cannot be
+        read: of this repository, or of `repository` when it is given (#4672)."""
+        return self._contents(path, ref, repository)[0]
 
     def repository_files(self, directory: str, *, ref: str | None = None) -> list[str]:
         """The sorted paths of the files directly in `directory` on `ref`, from the same contents
@@ -1367,18 +1493,28 @@ class GitHubRoadmapStore(RoadmapStore):
         entries = self._validate(text, _DIRECTORY, where)
         return sorted(entry.path for entry in entries if entry.type == _FILE_ENTRY)
 
-    def _contents(self, path: str, ref: str | None) -> tuple[str, str]:
-        """The raw answer of the contents request for `path` on `ref`, and where it was read."""
-        args = repository_file_args(self._repo, path, ref=ref)
+    def _contents(
+        self, path: str, ref: str | None, repository: str | None = None
+    ) -> tuple[str, str]:
+        """The raw answer of the contents request for `path` on `ref`, and where it was read. The
+        request is for this repository, or for `repository` when it is given."""
+        repo = repository or self._repo
+        if repository is not None and not is_repository_name(repository):
+            raise GitHubOperationError(
+                f"{repo[:80]} is not a repository name.",
+                operation="roadmap.read",
+                details={"name": repo[:256]},
+            )
+        args = repository_file_args(repo, path, ref=ref)
         proc = self._run(args)
         where = f"{path} at {ref or 'the default branch'}"
         if proc.returncode == 0:
             return proc.stdout or "", where
         if gh_http_status(proc.stderr or "") == HTTPStatus.NOT_FOUND:
             raise GitHubFileNotFoundError(
-                f"{self._repo} has no {where}.",
+                f"{repo} has no {where}.",
                 operation="roadmap.read",
-                details={"repo": self._repo[:256], "path": path[:256]},
+                details={"repo": repo[:256], "path": path[:256]},
             )
         raise self._failure(proc, args, f"read {where}", "roadmap.read")
 
@@ -1429,6 +1565,78 @@ class GitHubRoadmapStore(RoadmapStore):
             for ref in package.external_refs
             if ref.reference_type == _PURL_REFERENCE
         ]
+
+    def search_code(self, query: str, *, limit: int) -> list[CodeSearchHit]:
+        """At most `limit` files that GitHub's code search finds for `query`: one request of
+        `search/code` through the GitHub session, which paces it on the code search quota
+        (#4672). The token can read private repositories, so a file of one is left out."""
+        found = self._search(code_search_path(query, limit), _CODE_HIT, "code search", limit)
+        return [
+            CodeSearchHit(repository=hit.repository, path=hit.path)
+            for hit in found
+            if not hit.private
+        ]
+
+    def search_repositories(self, query: str, *, limit: int) -> list[ReferenceFacts]:
+        """At most `limit` repositories that GitHub's repository search finds for `query`: one
+        request of `search/repositories` through the GitHub session, which paces it on the search
+        quota (#4672)."""
+        found = self._search(
+            repository_search_path(query, limit), _FOUND_REPOSITORY, "repository search", limit
+        )
+        return [repository.facts() for repository in found]
+
+    def _search[EntryT](
+        self, path: str, adapter: TypeAdapter[EntryT], what: str, limit: int
+    ) -> list[EntryT]:
+        """The first `limit` results of the search at `path`: one request of one page. GitHub can
+        answer with fewer results than the page asks for and still link a next page, and the read
+        does not follow that link, so one search is one request. An answer that holds no list of
+        results raises."""
+        if limit < 1:
+            return []
+        answer = self._search_session().rest("GET", path)
+        results = answer.get(_SEARCH_ITEMS) if isinstance(answer, Mapping) else None
+        if not isinstance(results, list):
+            raise GitHubOperationError(
+                f"GitHub returned malformed {what} for {self._repo}.",
+                operation="roadmap.read",
+                details={"repo": self._repo[:256], "path": path[:256]},
+            )
+        return [self._validate_entry(entry, adapter, what) for entry in results[:limit]]
+
+    def _search_session(self) -> SearchSession:
+        """The session that sends a search: the store's when it can send one request, else the
+        process's."""
+        session = self._session
+        return session if isinstance(session, SearchSession) else get_github_session()
+
+    def reference_facts(self, full_name: str) -> ReferenceFacts | None:
+        """The facts of the repository `full_name` for the reference step, in one GraphQL read:
+        the license, the stars, the last push, whether it is archived or a fork, the commit at the
+        head of the default branch and whether the head holds tests. None when GitHub has no such
+        repository (#4672). A name that is not `owner/name` is refused before any request."""
+        if not is_repository_name(full_name):
+            raise GitHubOperationError(
+                f"{full_name[:80]} is not a repository name.",
+                operation="roadmap.read",
+                details={"name": full_name[:256]},
+            )
+        args = reference_facts_args(full_name)
+        proc = self._run(args)
+        what = f"the reference facts of {full_name}"
+        if proc.returncode == 0:
+            answer = self._validate(proc.stdout or "", _REFERENCE_FACTS, what)
+            return answer.repository.facts() if answer.repository else None
+        # GitHub answers a repository that does not exist with `repository: null` and an error,
+        # and gh then exits with a failure.
+        try:
+            answer = _REFERENCE_FACTS.validate_json(proc.stdout or "")
+        except MalformedPayloadError:
+            raise self._failure(proc, args, f"read {what}", "roadmap.read") from None
+        if answer.repository is None:
+            return None
+        raise self._failure(proc, args, f"read {what}", "roadmap.read")
 
     # ── Writes ──
 

@@ -86,3 +86,28 @@ def test_the_retry_budget_comes_from_the_constants_module() -> None:
     assert constants.ROADMAP_MCP_CONNECT_RETRY_SECONDS == 30.0
     assert constants.ROADMAP_MCP_CONNECT_RETRY_INITIAL_SECONDS == 1.0
     assert constants.ROADMAP_MCP_CONNECT_RETRY_MAX_SECONDS == 8.0
+
+
+@pytest.mark.asyncio
+async def test_an_optional_toolset_raises_at_its_first_refused_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The optional mode (#4672): a server that is down at the start costs one attempt, and its
+    caller leaves it out."""
+    attempts: list[int] = []
+
+    async def refused(self: Any) -> str:
+        attempts.append(1)
+        raise ConnectionRefusedError("Connection refused")
+
+    monkeypatch.setattr(MCPToolset, "__aenter__", refused)
+    _budget(monkeypatch, 10.0)
+
+    toolset = RoadmapMcpToolset(
+        "http://mcp.example.com", optional=True, target_url="http://mcp.example.com"
+    )
+
+    with pytest.raises(RoadmapMcpUnavailableError) as found:
+        await toolset.__aenter__()
+
+    assert (len(attempts), found.value.url) == (1, "http://mcp.example.com")

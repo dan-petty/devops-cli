@@ -24,11 +24,16 @@ _ROADMAP_DIR: Final[Path] = Path(__file__).parent
 _SHOWN_FROM: Final[Path] = Path(__file__).resolve().parents[2]
 # The modes that need a fitted cuts file: `off` and `rule` run a point with no cuts file (#4847, #5272).
 _FITTED_MODES: Final[frozenset[str]] = frozenset({"shadow", "on"})
-FIT_BAR_POINTS: Final[frozenset[str]] = frozenset({"implement.extension"})
+FIT_BAR_POINTS: Final[frozenset[str]] = frozenset(
+    {"brain.reference_relevance", "implement.extension"}
+)
 
 POINT_CUTS: Final[Mapping[str, Path]] = MappingProxyType(
     {
         "alternatives.reply_fixable": _ROADMAP_DIR / "alternatives_cuts.json",
+        "brain.reference_relevance": (
+            _ROADMAP_DIR / "references" / "reference_relevance_cuts.json"
+        ),
         "implement.extension": _ROADMAP_DIR / "implement" / "implement_extension_cuts.json",
         "stage.verify_screen": _ROADMAP_DIR / "stage" / "jev_screen_cuts.json",
     }

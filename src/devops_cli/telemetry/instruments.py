@@ -440,7 +440,8 @@ DECISION_POINT_TOTAL = Instrument(
     "rule mode adds 4 series (18 total). The registry refuses a catalogue of more "
     "than 110 series: 92 from ADR 0020 section 7 (60 for the first catalogue, 24 for the "
     "three brain.* points and 8 for resolve.question_class) plus 18 for implement.extension. The registry holds "
-    "stage.verify_screen (8 series), alternatives.reply_fixable (8 series), and implement.extension (18 series). The "
+    "stage.verify_screen (8 series), alternatives.reply_fixable (8 series), brain.reference_relevance "
+    "(8 series), and implement.extension (18 series). The "
     "decision record and the outcome record of each decision are log lines that share an "
     "identifier, and their join gives the false-clear rate of a point",
 )
@@ -758,6 +759,20 @@ BRAIN_WRITES_TOTAL = Instrument(
     "known (its read failed, or a webhook delivery carried none and the process held none), "
     "which writes nothing",
 )
+BRAIN_REFERENCES_TOTAL = Instrument(
+    "devops_cli_brain_references_total",
+    InstrumentKind.COUNTER,
+    "1",
+    "Searches and links of the reference step of the alternatives check (#4672), by provider "
+    "and result. The providers are github-code, github-repository, mcp-code for the optional MCP "
+    "server, web for a documentation link among the sources of the check, and step for what the "
+    "step counts for itself. A search adds 1 with hit, empty or failed, and a documentation page "
+    "that cannot be read adds 1 with failed. A verified link adds 1 with verified in mode plan, "
+    "or with linked when mode on writes it. An optional provider that is down at the start of a "
+    "run adds 1 with unavailable. Under the provider step, a query that the guard of the web "
+    "search refuses adds 1 with refused, a step that passes its time bound adds 1 with timeout, "
+    "and a step whose work ends with an error adds 1 with failed. At most 20 series",
+)
 VALKEY_CACHE_ERRORS_TOTAL = Instrument(
     "devops_cli_valkey_cache_errors_total",
     InstrumentKind.COUNTER,
@@ -1065,6 +1080,7 @@ INSTRUMENTS: tuple[Instrument, ...] = (
     EMBEDDING_CACHE_LOOKUPS_TOTAL,
     BRAIN_CACHE_TOTAL,
     BRAIN_READS_TOTAL,
+    BRAIN_REFERENCES_TOTAL,
     BRAIN_WRITES_TOTAL,
     VALKEY_CACHE_ERRORS_TOTAL,
     BRAIN_GITHUB_REQUESTS_SAVED_TOTAL,
@@ -1171,6 +1187,7 @@ __all__ = [
     "BRAIN_CACHE_TOTAL",
     "BRAIN_GITHUB_REQUESTS_SAVED_TOTAL",
     "BRAIN_READS_TOTAL",
+    "BRAIN_REFERENCES_TOTAL",
     "BRAIN_WRITES_TOTAL",
     "CI_CHECKS_TOTAL",
     "CI_GATE_SLOT_WAIT",

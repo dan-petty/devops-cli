@@ -1042,6 +1042,11 @@ DEFAULT_PYPI_TIMEOUT_SECONDS: float = 10.0
 # timeout (#4661).
 DEFAULT_DEPS_DEV_PROJECT_URL: str = "https://api.deps.dev/v3/projects/{project}:packageversions"
 DEFAULT_DEPS_DEV_TIMEOUT_SECONDS: float = 10.0
+# The deps.dev read of the number of packages that depend on one package version (#4672):
+# `{system}`, `{name}` and `{version}` are one URL path segment each.
+DEFAULT_DEPS_DEV_DEPENDENTS_URL: str = (
+    "https://api.deps.dev/v3alpha/systems/{system}/packages/{name}/versions/{version}:dependents"
+)
 # The timeout of one remote MCP tool call (#3221).
 DEFAULT_ROADMAP_MCP_TIMEOUT_SECONDS: float = 30.0
 # The ask-mode research call limit and answer expiry (#3915).
@@ -1259,6 +1264,8 @@ DEFAULT_ROADMAP_INTAKE_JEV: JevMode = "off"
 # log and nothing to GitHub, and `on` acts. Each new row starts in `plan` (rule 5).
 RowMode = Literal["off", "plan", "on"]
 DEFAULT_ROADMAP_FIX_PLAN_MODE: RowMode = "plan"
+# The mode of the reference step of the alternatives check (#4672): `plan` until #6588.
+DEFAULT_ROADMAP_ALTERNATIVES_REFERENCES: RowMode = "plan"
 # The cadence and mode of the row open, which opens the pull request of a pushed bot branch that
 # has none (#5974). A round reads the heads of `origin` with git and sends no GitHub request while
 # no branch waits, so it runs often. It starts in `plan`, as each new row does.

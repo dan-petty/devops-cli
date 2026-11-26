@@ -596,7 +596,11 @@ def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs_and_of_the_tools_i
 
     raw = ("gh", "api", "-H", "Accept: application/vnd.github.raw+json")
     plan = dry_run_alternatives(REPO)
-    reads = {request.argv: request for request in plan.requests}
+    # The reference step reads deps.dev too (#4672), later in the plan: the first read is the
+    # read of the tools in use.
+    reads: dict[tuple[str, ...], Any] = {}
+    for request in plan.requests:
+        reads.setdefault(request.argv, request)
 
     directory = reads[(*raw, f"repos/{REPO}/contents/docs/adr")]
     adr_file = reads[(*raw, f"repos/{REPO}/contents/docs/adr/NNNN-name.md")]
@@ -617,6 +621,96 @@ def test_the_alternatives_dry_run_lists_the_reads_of_the_adrs_and_of_the_tools_i
             "for each item the run checks, at most --limit",
         ),
     ]
+
+
+def test_the_alternatives_dry_run_lists_the_reads_of_the_reference_step(
+    config: Callable[..., Any],
+) -> None:
+    """The reference step (#4672) reads GitHub's code search and repository search on the
+    session, the facts and the file of a candidate through gh, deps.dev, and a documentation
+    page. Mode `off` reads none of them."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    condition = (
+        "the repository is public and a search provider is configured and "
+        "roadmap.alternatives.references is plan or on"
+    )
+    each_item = "for each item the run checks, at most --limit"
+    searches = f"{each_item}; for each query of the reference step, at most 3 for an item"
+    facts = f"{each_item}; for each fact read of the reference step, at most 15 for an item"
+    raw = ("gh", "api", "-H", "Accept: application/vnd.github.raw+json")
+    step = [
+        (
+            ("GET", "https://api.github.com/search/code?q=query+words&per_page=5"),
+            searches,
+        ),
+        (
+            (
+                "GET",
+                "https://api.github.com/search/repositories"
+                "?q=repo%3Aowner%2Fname+fork%3Atrue&per_page=15",
+            ),
+            each_item,
+        ),
+        ((*raw, "repos/<owner/name>/contents/path/of/the/file?ref=head-commit"), facts),
+        (
+            (
+                "GET",
+                "https://api.deps.dev/v3alpha/systems/pypi/packages/<package>/versions/"
+                "<version>:dependents",
+            ),
+            facts,
+        ),
+        (("GET", "https://<documentation host>/<page>"), facts),
+    ]
+
+    by_default = [r for r in dry_run_alternatives(REPO).requests if r.condition == condition]
+    config(roadmap={"alternatives": {"references": "off"}})
+    when_off = [r for r in dry_run_alternatives(REPO).requests if r.condition == condition]
+
+    listed = [(request.argv, request.repeat) for request in by_default]
+    assert ([row in listed for row in step], len(by_default), when_off) == ([True] * 5, 7, [])
+
+
+def test_the_alternatives_dry_run_lists_the_mcp_and_the_decision_requests_when_configured(
+    config: Callable[..., Any],
+) -> None:
+    """With an MCP server and the decision point configured, the reference step also sends a
+    tool call to the server and a request to the decision model (#4672). Neither is in the plan
+    of the default settings."""
+    from devops_cli.roadmap.alternatives import dry_run_alternatives
+
+    def extra() -> list[tuple[str, tuple[str, ...], str]]:
+        return [
+            (request.method, request.argv, request.repeat.rpartition("; ")[2])
+            for request in dry_run_alternatives(REPO).requests
+            if request.method in ("MCP tool call", "decision model call")
+        ]
+
+    by_default = extra()
+    config(
+        ai={"decision_model": "typesafe/jev-1.14"},
+        roadmap={
+            "alternatives": {"references_mcp_url": "https://mcp.example.com/mcp"},
+            "decisions": {"brain.reference_relevance": "shadow"},
+        },
+    )
+
+    assert (by_default, extra()) == (
+        [],
+        [
+            (
+                "MCP tool call",
+                ("POST", "https://mcp.example.com/mcp"),
+                "for each query of the reference step, at most 3 for an item",
+            ),
+            (
+                "decision model call",
+                (),
+                "for each link that the reference step keeps, at most 3 for an item",
+            ),
+        ],
+    )
 
 
 def test_the_alternatives_dry_run_names_no_project_board() -> None:
