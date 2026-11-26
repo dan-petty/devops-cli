@@ -65,12 +65,16 @@ def _item_key(number: int, repo: str = REPO) -> str:
 def _issue(
     number: int,
     *,
-    updated_at: datetime,
+    updated_at: datetime | None,
     checked_at: datetime | None = CHECKED_AT,
     state: GitHubState = GitHubState.OPEN,
+    association: str = "OWNER",
+    record_changes: dict[AlternativesRecordKey, str | None] | None = None,
 ) -> IssueRecord:
-    """Issue `number` of the snapshot, last changed at `updated_at`. With `checked_at`, it holds
-    the block and the record of a `covers` check of that time; with None, it holds no check."""
+    """Issue `number` of the snapshot, last changed at `updated_at`, of an author with the
+    relation `association`. With `checked_at`, it holds the block and the record of a `covers`
+    check of that time, with `record_changes` in place of its values; with None, it holds no
+    check."""
     body, record = "The item needs widgets.", {}
     if checked_at is not None:
         body += (
@@ -85,13 +89,14 @@ def _issue(
             AlternativesRecordKey.VERDICT: "covers",
             AlternativesRecordKey.TOOL: TOOL_URL,
             AlternativesRecordKey.TOOL_ID: TOOL_ID,
-        }
+        } | (record_changes or {})
     return IssueRecord(
         number=number,
         title=f"Build widget {number}",
         url=f"https://github.com/{REPO}/issues/{number}",
         body=body,
         state=state,
+        author_association=association,
         updated_at=updated_at,
         job_record=record,
     )
@@ -240,6 +245,114 @@ def test_the_entry_of_an_item_names_the_five_nearest_items_of_its_tool(
         "7 6 5 4 3",
         "1 2 3 4 5 6 7",
     )
+
+
+# ── A record of a wrong form ──────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("https://[cluster-ip]:6443/healthz", id="a-name-in-brackets"),
+        pytest.param("http://[{host}]:{port}", id="a-template"),
+        pytest.param("https://[::1", id="an-open-bracket"),
+        pytest.param("https://example.com\uff1a8080", id="a-full-width-colon"),
+    ],
+)
+def test_a_tool_url_that_is_no_url_in_one_record_does_not_stop_the_sync(
+    tier: Any, reader: FakeValkey, text: str
+) -> None:
+    """The record of one issue holds a tool URL that the URL parser refuses, and no canonical id.
+    The sync copies the 3 issues, the entry of that issue takes the string as its tool id, and
+    the watermark moves to the last issue."""
+    no_url = {AlternativesRecordKey.TOOL: text, AlternativesRecordKey.TOOL_ID: None}
+    issues = [
+        _issue(1, updated_at=NOW - timedelta(minutes=3)),
+        _issue(2, updated_at=NOW - timedelta(minutes=2), record_changes=no_url),
+        _issue(3, updated_at=NOW - timedelta(minutes=1)),
+    ]
+
+    result = sync_brain_index(REPO, issues, tier=tier, now=NOW)
+
+    assert (
+        result,
+        reader.hget(_item_key(2), "tool_id"),
+        BrainIndex(tier, RepoRef(REPO)).watermark(),
+    ) == (
+        BrainSync(copied=3, entries=3),
+        text,
+        Watermark(changed=NOW - timedelta(minutes=1), number=3, synced_at=NOW),
+    )
+
+
+def test_a_record_value_of_a_wrong_form_does_not_stop_the_sync(
+    tier: Any, reader: FakeValkey
+) -> None:
+    """One record holds a tool id with a lone surrogate, which UTF-8 does not encode. One holds
+    a check time with no zone. The body of one issue holds only the start marker of the block.
+    The sync copies the first two, with the time as UTC, writes no entry for the third, and
+    finishes."""
+    start_marker_only = _issue(3, updated_at=NOW).model_copy(
+        update={"body": "Text.\n\n<!-- devops-roadmap-alternatives:start -->\nAlternatives check"}
+    )
+    issues = [
+        _issue(1, updated_at=NOW, record_changes={AlternativesRecordKey.TOOL_ID: "tool-\ud800"}),
+        _issue(
+            2,
+            updated_at=NOW,
+            record_changes={AlternativesRecordKey.CHECKED_AT: "2026-11-20T08:00:00"},
+        ),
+        start_marker_only,
+    ]
+
+    result = sync_brain_index(REPO, issues, tier=tier, now=NOW)
+
+    assert (
+        result,
+        sorted(reader.scan_iter("roadmap:v1:brain-item:*")),
+        reader.hget(_item_key(2), "checked_at"),
+    ) == (
+        BrainSync(copied=2, entries=2),
+        [_item_key(1), _item_key(2)],
+        "2026-11-20T08:00:00+00:00",
+    )
+
+
+def test_an_issue_with_no_updated_at_is_copied_by_the_first_sync_only(
+    tier: Any, reader: FakeValkey
+) -> None:
+    """A record of the listing with no `updated_at` has its place before each watermark: the
+    sync of an empty index copies it, and the next sync does not copy it again."""
+    issues = [_issue(1, updated_at=None), _issue(2, updated_at=NOW)]
+
+    first = sync_brain_index(REPO, issues, tier=tier, now=NOW)
+    second = sync_brain_index(REPO, issues, tier=tier, now=NOW)
+
+    assert (first, second.copied, reader.xlen(EVENTS_KEY)) == (
+        BrainSync(copied=2, entries=2),
+        0,
+        2,
+    )
+
+
+def test_a_block_that_an_outside_account_wrote_gets_no_entry(tier: Any, reader: FakeValkey) -> None:
+    """An account with no write access opens an issue whose body holds a block and a record of
+    its own. The sync writes no entry for it, names it in no tool hash, and copies the issue of
+    the owner."""
+    issues = [
+        _issue(1, updated_at=NOW - timedelta(minutes=1)),
+        _issue(2, updated_at=NOW, association="NONE"),
+    ]
+
+    result = sync_brain_index(REPO, issues, tier=tier, now=NOW)
+
+    (tool_key,) = reader.keys("roadmap:v1:brain-tool:*")
+    assert (
+        result,
+        reader.keys("roadmap:v1:brain-item:*"),
+        reader.hget(tool_key, "items"),
+        reader.hget(_item_key(1), "near"),
+    ) == (BrainSync(copied=1, entries=1), [_item_key(1)], "1", "")
 
 
 # ── The instruments ───────────────────────────────────────────────────────────

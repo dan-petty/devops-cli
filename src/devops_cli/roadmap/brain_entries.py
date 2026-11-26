@@ -18,7 +18,14 @@ and a lost index is built again from the listing snapshot.
   `CONST_ROADMAP_BRAIN_ITEM_MAX_USES`.
 
 The record is read by the text of its keys, so a key that another version of the record writes
-is read when the record holds it.
+is read when the record holds it. A person can write a record by hand, so no value of it makes
+the read raise: a verdict or a time of a wrong form gives no entry, a tool URL that is no URL is
+its own id, and a link that is no URL is no reference.
+
+**Trust.** The repository is public, and an account with no write access can open an issue whose
+body holds a block and a record. The job checks only the items of trusted authors
+(`devops_cli.roadmap.trust.is_trusted`), so `entry_of` gives no entry for the issue of another
+author.
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ from devops_cli.roadmap.stores.store import (
     Verdict,
     as_utc,
 )
+from devops_cli.roadmap.trust import is_trusted
 
 # The keys of the record that a later version of the record declares: the links of the reference
 # step (#4672) and the entries that the check used (#4682).
@@ -74,7 +82,9 @@ class BrainEntry:
 
 
 def _key_id(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:_KEY_ID_SIZE]
+    """16 hex characters of the SHA-256 of `text`. The JSON of a record can hold a lone
+    surrogate, which UTF-8 does not encode, so such a character is hashed as its escape."""
+    return hashlib.sha256(text.encode("utf-8", "backslashreplace")).hexdigest()[:_KEY_ID_SIZE]
 
 
 def tool_key_id(tool_id: str) -> str:
@@ -156,9 +166,12 @@ def checked_entry(
 
 
 def entry_of(issue: IssueRecord) -> BrainEntry | None:
-    """The entry of `issue`, an issue of the listing snapshot; None for a pull request and for an
-    issue that holds no check."""
-    if issue.pull_request:
+    """The entry of `issue`, an issue of the listing snapshot; None for a pull request, for an
+    issue that holds no check, and for an issue whose author the jobs do not trust
+    (`is_trusted`). The repository is public and the body of an issue holds its record, so an
+    account with no write access can write a block and a record of its own: the job checks only
+    the items of trusted authors, and the index takes no other."""
+    if issue.pull_request or not is_trusted(issue):
         return None
     record = {str(key): value for key, value in issue.job_record.items()}
     return checked_entry(issue.number, issue.state, issue.body, record)

@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from devops_cli.roadmap.brain_entries import (
     BrainEntry,
@@ -116,15 +118,17 @@ def _entry(**changes: Any) -> BrainEntry:
     return BrainEntry(**(fields | changes))
 
 
-def test_an_issue_with_a_block_and_a_recorded_check_gives_its_entry() -> None:
-    """The record gives the verdict, the canonical tool id, the hashes and the time of the check,
-    the block gives the name that the check wrote for the tool, and the issue gives its state."""
-    issue = IssueRecord(
+def _checked_issue(association: str | None, login: str | None) -> IssueRecord:
+    """A closed issue of an author with the relation `association` and the login `login`, with
+    the block and the record of the check with a tool."""
+    return IssueRecord(
         number=7,
         title="Build widgets",
         url="https://github.com/acme/widgets/issues/7",
         body=f"The item needs widgets.\n\n{CHECK_BLOCK}",
         state=GitHubState.CLOSED,
+        author_association=association,
+        author_login=login,
         job_record={
             AlternativesRecordKey.CHECKED_AT: CHECKED_AT,
             AlternativesRecordKey.BODY_HASH: BODY_HASH,
@@ -135,7 +139,40 @@ def test_an_issue_with_a_block_and_a_recorded_check_gives_its_entry() -> None:
         },
     )
 
-    assert entry_of(issue) == _entry(state=GitHubState.CLOSED)
+
+@pytest.mark.parametrize(
+    ("association", "login"),
+    [
+        pytest.param("OWNER", "octocat", id="the-owner"),
+        pytest.param("COLLABORATOR", "hubot", id="a-collaborator"),
+        pytest.param("CONTRIBUTOR", "github-actions[bot]", id="the-bot-of-the-workflows"),
+    ],
+)
+def test_an_issue_with_a_block_and_a_recorded_check_gives_its_entry(
+    association: str, login: str
+) -> None:
+    """The record gives the verdict, the canonical tool id, the hashes and the time of the check,
+    the block gives the name that the check wrote for the tool, and the issue gives its state.
+    The author of the issue is one that the jobs trust."""
+    assert entry_of(_checked_issue(association, login)) == _entry(state=GitHubState.CLOSED)
+
+
+@pytest.mark.parametrize(
+    ("association", "login"),
+    [
+        pytest.param("NONE", "outsider", id="an-outside-account"),
+        pytest.param("CONTRIBUTOR", "outsider", id="a-contributor"),
+        pytest.param("CONTRIBUTOR", "github-actions-x[bot]", id="a-bot-with-a-similar-login"),
+        pytest.param(None, None, id="no-author"),
+    ],
+)
+def test_a_block_and_a_record_in_the_issue_of_an_untrusted_author_give_no_entry(
+    association: str | None, login: str | None
+) -> None:
+    """The repository is public, and the body of an issue holds its record. An account with no
+    write access can write a block and a record of its own. The job checks only the items of
+    trusted authors, so such a block is no check of the job, and the issue gives no entry."""
+    assert entry_of(_checked_issue(association, login)) is None
 
 
 def test_a_check_with_five_reference_links_keeps_the_repositories_of_three() -> None:
@@ -208,6 +245,131 @@ def test_a_recorded_time_with_no_zone_is_a_time_in_utc() -> None:
     assert checked_entry(7, GitHubState.OPEN, CHECK_BLOCK, record) == _entry()
 
 
+# Strings that the URL parser refuses: a name in brackets, a template, an open bracket and a
+# full-width colon in the host.
+NOT_A_URL = [
+    pytest.param("https://[cluster-ip]:6443/healthz", id="a-name-in-brackets"),
+    pytest.param("http://[{host}]:{port}", id="a-template"),
+    pytest.param("https://[::1", id="an-open-bracket"),
+    pytest.param("https://example.com\uff1a8080", id="a-full-width-colon"),
+]
+
+
+@pytest.mark.parametrize("text", NOT_A_URL)
+def test_a_tool_url_that_is_no_url_is_its_own_tool_id(text: str) -> None:
+    """A record holds a tool URL that the URL parser refuses, and no canonical id. The entry
+    takes the string as its tool id, and the read raises nothing."""
+    block = CHECK_BLOCK.replace(TOOL_URL, text)
+
+    assert checked_entry(7, GitHubState.OPEN, block, _record(tool=text, tool_id=None)) == _entry(
+        tool_id=text, tool_url=text
+    )
+
+
+@pytest.mark.parametrize("text", NOT_A_URL)
+def test_a_reference_link_that_is_no_url_is_no_reference(text: str) -> None:
+    """`alternatives.refs` holds a string that the URL parser refuses between two links. The
+    entry keeps the repositories of the two links, and the read raises nothing."""
+    links = (
+        f"https://github.com/acme/frames/blob/0123abc/a.py {text} https://github.com/acme/panels"
+    )
+
+    assert checked_entry(7, GitHubState.OPEN, CHECK_BLOCK, _record(refs=links)) == _entry(
+        refs=("https://github.com/acme/frames", "https://github.com/acme/panels")
+    )
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        pytest.param("https://pypi.org/project/ /", id="a-space"),
+        pytest.param("https://pypi.org/project/..", id="two-dots"),
+        pytest.param("https://pypi.org/project/widget@kit", id="a-name-with-an-at-sign"),
+        pytest.param("https://pypi.org/project/\ud800", id="a-lone-surrogate"),
+    ],
+)
+def test_a_pypi_page_whose_name_is_no_package_name_is_its_own_tool_id(page: str) -> None:
+    """The tool URL is a page of PyPI whose last part is no name of a package. It names no
+    package URL, so the entry takes the string as its tool id, and the read raises nothing."""
+    block = CHECK_BLOCK.replace(TOOL_URL, page)
+
+    assert checked_entry(7, GitHubState.OPEN, block, _record(tool=page, tool_id=None)) == _entry(
+        tool_id=page, tool_url=page
+    )
+
+
+# Each code point, a lone surrogate too: the JSON of a record can hold each of them.
+_TEXT = st.text(st.characters(exclude_categories=()), max_size=24)
+_URL = st.builds(
+    "https://{}/{}/{}".format,
+    st.sampled_from(["github.com", "pypi.org/project", "example.com", "[::1", "[name]:6443"]),
+    _TEXT,
+    _TEXT,
+)
+_VALUE = st.one_of(st.none(), _TEXT, _URL)
+
+
+@given(
+    tool=_VALUE,
+    tool_id=_VALUE,
+    refs=st.lists(st.one_of(_TEXT, _URL), max_size=5).map(" ".join),
+    used=_TEXT,
+    checked_at=st.one_of(st.just(CHECKED_AT), _TEXT),
+    verdict=st.one_of(st.sampled_from(["covers", "partly", "none", "in-use"]), _TEXT),
+    hashes=_VALUE,
+)
+def test_no_value_of_a_record_makes_the_read_of_an_entry_raise(
+    tool: str | None,
+    tool_id: str | None,
+    refs: str,
+    used: str,
+    checked_at: str,
+    verdict: str,
+    hashes: str | None,
+) -> None:
+    """A person can write a record by hand, so each value is open text. For each text, the read
+    gives an entry or none and raises nothing, the entry keeps at most 3 references and 10 used
+    entries, and the tool and each reference have a key id of 16 hex characters."""
+    record = _record(
+        tool=tool,
+        tool_id=tool_id,
+        refs=refs,
+        brain_used=used,
+        checked_at=checked_at,
+        verdict=verdict,
+        body_hash=hashes,
+        adr_hash=hashes,
+    )
+    block = CHECK_BLOCK.replace(TOOL_URL, tool or "")
+
+    entry = checked_entry(7, GitHubState.OPEN, block, record)
+
+    if entry is not None:
+        key_ids = [tool_key_id(entry.tool_id), *map(reference_key_id, entry.refs)]
+        assert (
+            len(entry.refs) <= 3,
+            len(entry.uses) <= 10,
+            [key_id for key_id in key_ids if len(key_id) != 16 or not set(key_id) <= _HEX],
+        ) == (True, True, [])
+
+
+_HEX = frozenset("0123456789abcdef")
+
+
+def test_a_tool_id_that_is_no_unicode_text_has_a_key_id() -> None:
+    """The JSON of a record can hold a lone surrogate, which is no text that UTF-8 encodes. The
+    entry keeps the value, and the key id of the tool is still 16 hex characters."""
+    entry = checked_entry(7, GitHubState.OPEN, CHECK_BLOCK, _record(tool_id="tool-\ud800"))
+    assert entry is not None
+
+    key_id = tool_key_id(entry.tool_id)
+    assert (entry.tool_id, len(key_id), set(key_id) <= set("0123456789abcdef")) == (
+        "tool-\ud800",
+        16,
+        True,
+    )
+
+
 def test_the_entry_names_at_most_ten_used_entries() -> None:
     """`alternatives.brain_used` names the entries that the check used; the entry keeps 10."""
     used = " ".join(f"item:{number}" for number in range(1, 13))
@@ -226,6 +388,10 @@ def test_the_entry_names_at_most_ten_used_entries() -> None:
         pytest.param(CHECK_BLOCK, _record(checked_at=None), id="no-check-time"),
         pytest.param(CHECK_BLOCK, _record(checked_at="yesterday"), id="a-time-that-is-no-time"),
         pytest.param(f"`{START}` and `{END}` in a sentence.", _record(), id="quoted-markers"),
+        pytest.param(f"Text.\n\n{START}\nAlternatives check", _record(), id="a-start-marker-only"),
+        pytest.param(f"Text.\n\n{END}\n", _record(), id="an-end-marker-only"),
+        pytest.param(f"{END}\nText.\n{START}", _record(), id="the-markers-in-the-wrong-order"),
+        pytest.param("", _record(), id="an-empty-body"),
     ],
 )
 def test_an_issue_with_no_block_or_no_recorded_check_gives_no_entry(

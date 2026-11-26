@@ -21,6 +21,11 @@
 - **The gauges name the store and the repository.** One Service keeps several repositories, so `devops_cli_brain_entries` and `devops_cli_brain_sync_lag_seconds` have the labels `store` and `repo`, with `RepoRef.key` as the value.
 - **The egress rule is in `roadmap-service-egress`.** The policy already selects the Service pod and has the type `Egress`. `check_only_the_service_pod_may_reach_the_api_server` compares its whole egress list, so the gate holds the new rule to the pods of the store and TCP 6379.
 - **The ConfigMap names the user, and the Deployment gives the password.** `roadmap.state.username: brain` is in `k8s/devops/configmap.example.yaml`, and `DEVOPS_CLI_ROADMAP_STATE_PASSWORD` comes from key `brain` with `optional: true`. A pod with no password sends no user. A pod that reads the index later sets `DEVOPS_CLI_ROADMAP_STATE_USER` to `agent`, which wins over the file: a load of the settings with both sources gave `agent`.
+- **The index takes only the issues of trusted authors.** The body of an issue holds its job record, and the repository is public, so an account with no write access can write a block and a record. `is_trusted` (`src/devops_cli/roadmap/trust.py:74`) is the rule that decides whose text a job takes, and `_is_eligible` of the check uses it. `entry_of` uses the same rule, so each reader of the listing gets it. The check of an outside author's issue that a person ran with `--item` is then not in the index.
+- **A URL that is no URL is fixed in the inventory.** The docstring of `project_of` says "None when `url` is no URL of a GitHub repository". `_host_and_segments` gives no host for a string that `urlsplit` refuses, and `_pypi_name` reads the name with `canonicalize_name(validate=True)` of `packaging`, so a page with no package name gives no package URL. The read of a PyPI record uses the same functions and had the same error.
+- **The key id of a tool hashes with `backslashreplace`.** The JSON of a record can hold a lone surrogate. Two such ids keep two hashes.
+- **The Secret row restarts the store first, then the Service.** The order of `restarts` is the order of the rollouts. A Service pod that starts before the store has the new aclfile has one refused read, and its breaker opens for 60 seconds.
+- **No guard for a round with no repository name.** `RepoRef(plan.repo)` raises for a name that is not `owner/name`. The Service gives each row the repository that its GitHub reads used, so such a round fails at its listing read, before a check. A guard would hide a programming error.
 
 ## Rejected alternatives
 
@@ -30,6 +35,7 @@
 - **One stream `roadmap:v1:brain-events` for the Service.** Rejected: `RepoRef.valkey_patterns` (`src/devops_cli/github/repo_ref.py:214`) finds only keys that hold the repository, so the removal of a repository would leave its entries in a shared stream.
 - **A new policy file for the egress rule.** Rejected: `k8s/devops/roadmap-service/networkpolicy-egress.yaml` holds the one `Egress` policy of the Service pod, and its gate check compares the whole rule list. A second policy would hold a rule that no check reads.
 - **The nearest items by embeddings in the sync.** Rejected: the step would call the embedding model for each changed item, and #4682 names the aggregate as the source of the nearest items.
+- **Catch `ValueError` around each entry in the sync.** Rejected: the cause is `urlsplit` in `project_of` and `_pypi_name` (`src/devops_cli/roadmap/inventory.py`), which 10 call sites of `src/devops_cli/roadmap/alternatives.py` and `inventory.py` also reach, and a catch in the sync would leave them. A catch would also hide an error of the code.
 - **A fixed bound of 600 s for the lag.** Rejected: the alternatives row runs about six times a day (`docs/roadmap/alternatives.md`, "Which items a run takes"), so the lag is about 4 hours. The description of the instrument gives the bound as the interval of the row and the time of one round.
 
 ## Security

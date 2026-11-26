@@ -41,6 +41,43 @@ The entry SHALL read the block of the check alone and the block with the section
 - **WHEN** the record holds a verdict and a time, and the body holds no block of the job
 - **THEN** the issue gives no entry
 
+### Requirement: Only the issue of a trusted author gives an entry
+The entry reader of the listing SHALL give no entry for an issue whose author the roadmap jobs do not trust (`is_trusted`): an account with no write access that is no trusted bot, and an issue with no author. No item, tool or reference entry SHALL name such an issue.
+
+#### Scenario: A block that an outside account wrote
+- **WHEN** an issue of an author with the relation `NONE` holds a block and a record of a `covers` check, and the sync runs over that issue and an issue of the owner with the same tool
+- **THEN** the index holds one item entry, the one of the issue of the owner, and its tool hash names that issue only
+
+#### Scenario: A bot with a similar login
+- **WHEN** the author of the issue has the login `github-actions-x[bot]` and the relation `CONTRIBUTOR`
+- **THEN** the issue gives no entry, and the issue of `github-actions[bot]` with the same body gives one
+
+### Requirement: No record value stops the read of an entry
+The read of an entry SHALL raise nothing for any text in a value of the job record. A tool URL that the URL parser refuses, and a page of PyPI whose last part is no name of a package, SHALL be its own tool id. A link of `alternatives.refs` that the URL parser refuses SHALL be no reference. A recorded time with no zone SHALL be a time in UTC. The key id of a text that UTF-8 does not encode SHALL be 16 hex characters.
+
+#### Scenario: A tool URL that is no URL
+- **WHEN** the record holds `https://[cluster-ip]:6443/healthz`, `http://[{host}]:{port}`, `https://[::1` or a host with a full-width colon as its tool URL, and no canonical id
+- **THEN** the entry holds that string as its tool id and its tool URL
+
+#### Scenario: A link that is no URL
+- **WHEN** `alternatives.refs` holds one of these strings between two links to GitHub repositories
+- **THEN** the entry holds the two repositories and no third reference
+
+#### Scenario: Open text in each value
+- **WHEN** a property test gives each value of the record open text, with lone surrogates and URLs of GitHub and PyPI with open paths
+- **THEN** the read gives an entry or none and raises nothing, and the tool and each reference of an entry have a key id of 16 hex characters
+
+### Requirement: A string that is no URL names no project
+`project_of` SHALL give no project, and `canonical_id` SHALL give the string itself, for a string that the URL parser refuses. A PyPI record whose project URL is such a string SHALL still give the project of its next URL.
+
+#### Scenario: Four strings that the URL parser refuses
+- **WHEN** `project_of` and `canonical_id` read `https://[cluster-ip]:6443/healthz`, `http://[{host}]:{port}`, `https://[::1` and a host with a full-width colon
+- **THEN** `project_of` gives None and `canonical_id` gives the string, with no error
+
+#### Scenario: A PyPI record with such a project URL
+- **WHEN** a PyPI record names `https://[widget-host]/widget-kit` as its `Repository` and a GitHub repository as its `Homepage`
+- **THEN** the read of the package gives the project of the home page
+
 ### Requirement: Item hash contents
 Each `roadmap:v1:brain-item:<owner>/<name>:<n>` hash SHALL hold the verdict, the tool id, at most 3 reference ids, at most 5 near items, `checked_at`, `body_hash`, `adr_hash`, the state of the issue, the used entries of `alternatives.brain_used` (at most 10) and the schema, with a TTL of 45 days. A reference SHALL be the GitHub repository of a link of `alternatives.refs`, one time for each repository, and its id SHALL be 16 hex characters of the SHA-256 of the URL of the repository.
 
@@ -131,6 +168,21 @@ The alternatives round SHALL finish and SHALL add one `fallback` to `devops_cli_
 - **WHEN** the store answers the copy of the first of 2 changed issues and refuses the copy of the second
 - **THEN** the sync counts one `fallback`, the watermark holds the place of the first issue and no sync time, and the next sync copies the second issue only
 
+### Requirement: A record of a wrong form does not stop the sync
+The sync SHALL copy each other issue, finish and move its watermark when the record or the body of one issue has a wrong form. An issue with no `updated_at` SHALL have its place before each watermark.
+
+#### Scenario: One record with a tool URL that is no URL
+- **WHEN** the snapshot holds 3 changed issues, and the record of the second holds a tool URL that the URL parser refuses
+- **THEN** the sync copies the 3 issues, and the watermark holds the place of the third
+
+#### Scenario: A surrogate, a time with no zone and one marker
+- **WHEN** one record holds a tool id with a lone surrogate, one holds a check time with no zone, and one body holds only the start marker of the block
+- **THEN** the sync copies the first two, with the time as UTC, writes no entry for the third, and finishes
+
+#### Scenario: An issue with no `updated_at`
+- **WHEN** the snapshot holds an issue with no `updated_at` and the sync runs two times
+- **THEN** the first sync copies the issue, and the second does not
+
 ### Requirement: First read of an unchecked item
 The alternatives check SHALL write the verdict that it finds when the brain index has no entry for the item, and the round SHALL count that check as one first read.
 
@@ -158,6 +210,13 @@ The container of Deployment `roadmap-service` SHALL read `DEVOPS_CLI_ROADMAP_STA
 #### Scenario: The k8s check validates the Deployment
 - **WHEN** a person runs `uv run devops ci --check --only k8s`
 - **THEN** the row builds `k8s/devops` with the variable of the Deployment, reports no finding for the aclfile of `valkey-roadmap`, and exits 0
+
+### Requirement: A new password of the store restarts the Service pod
+The row `devops/valkey-roadmap-auth` of the Secret table SHALL name `deployment/valkey-roadmap` and then `deployment/roadmap-service` as its restarts, because the Service pod reads the password of `brain` only at its start.
+
+#### Scenario: The restarts of the row
+- **WHEN** a test reads the row `devops/valkey-roadmap-auth` of the Secret table
+- **THEN** each of its 4 entries names the restarts `deployment/valkey-roadmap` and `deployment/roadmap-service`, in this order
 
 ### Requirement: Pending a person after the merge
 After the merge and the release, the alternatives step MUST run as the App on 3 items and write their results to the brain index.

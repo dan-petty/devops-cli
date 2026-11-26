@@ -52,11 +52,29 @@ Kind: other. Changes: `docs/roadmap/alternatives.md`, `docs/CLUSTER.md`, `k8s/RE
 - [x] 6.1 Add the section "The brain index" to `docs/roadmap/alternatives.md`, the client, its label and its egress rule to the section `valkey-roadmap` of `docs/CLUSTER.md` and to `k8s/README.md`, the checks of rows ST2 and CL4 to `docs/SERVICE_PATTERNS.md`, and write the generated documents again with `devops docs generate`
   - Verification: `$ uv run devops ci --check --only docs` passes
 
+## 7. Keep a record of a wrong form and an outside author out of the sync
+
+Kind: behavior. Reads: `src/devops_cli/roadmap/trust.py`, `src/devops_cli/roadmap/alternatives.py`. Changes: `src/devops_cli/roadmap/inventory.py`, `src/devops_cli/roadmap/brain_entries.py`, `tests/roadmap/test_roadmap_alternatives_project_facts.py`, `tests/roadmap/test_brain_entries.py`, `tests/roadmap/test_brain_sync.py`.
+
+- [x] 7.1 Add the cases of the 4 strings that the URL parser refuses and of a PyPI record with such a project URL to `tests/roadmap/test_roadmap_alternatives_project_facts.py`, the cases of such a tool URL, such a link, a PyPI page with no package name, a lone surrogate, one marker, an untrusted author and the property over open record text to `tests/roadmap/test_brain_entries.py`, and the cases of such a snapshot, an issue with no `updated_at` and an outside author to `tests/roadmap/test_brain_sync.py`
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_project_facts.py tests/roadmap/test_brain_entries.py tests/roadmap/test_brain_sync.py` fails on the base
+- [x] 7.2 Make `project_of` and `_pypi_name` of `src/devops_cli/roadmap/inventory.py` give None for a string that the URL parser refuses and for a PyPI page with no package name, hash a key id with `backslashreplace`, and make `entry_of` give no entry for an issue that `is_trusted` refuses
+  - Verification: `$ uv run devops ci test tests/roadmap/test_roadmap_alternatives_project_facts.py tests/roadmap/test_brain_entries.py tests/roadmap/test_brain_sync.py` passes
+
+## 8. Restart the Service pod on a new password of the store
+
+Kind: behavior. Reads: `k8s/devops/roadmap-service/deployment.yaml`. Changes: `src/devops_cli/k8s/cluster_secrets.py`, `tests/k8s/test_cluster_secret_plan.py`, `k8s/README.md`, `docs/CLUSTER.md`.
+
+- [x] 8.1 Add `deployment/roadmap-service` to the restarts of the 4 rows of `devops/valkey-roadmap-auth` in `test_table_holds_each_secret_entry_with_its_source_and_restarts`
+  - Verification: `$ uv run devops ci test tests/k8s/test_cluster_secret_plan.py` fails on the base
+- [x] 8.2 Add `Workload("deployment", "roadmap-service")` to the restarts of the row in `src/devops_cli/k8s/cluster_secrets.py`, and write the restarts in the 4 rows of `k8s/README.md`
+  - Verification: `$ uv run devops ci test tests/k8s tests/commands/k8s` passes
+
 ## Workflow follow-up
 
 - The digest that the check reads before its model call, the nearest items of the aggregate and the record key `alternatives.brain_used`: #4682.
 - The record key `alternatives.refs` and the sections of the reference step: #4672.
-- The repair of the index, with the items that left a tool or a reference: #4687.
+- The repair of the index, with the items that left a tool or a reference, and the entries of a repository that became private: #4687.
 - The users `router` and `sweep`, the coordination keys and the sentinel of `valkey-roadmap`: #4563.
 - Pending a person: record a scenario of `XADD` with `MAXLEN` and of `SCAN` with `MATCH` for the contract suite of the Valkey fake from a real `valkey-server` (`tests/support/valkey_recording.py`). The devcontainer holds no `valkey-server`.
 - Pending a person: after the merge, run `uv run devops k8s deploy-stack --stack devops` from a checkout of `main`, which writes `roadmap.state.url` and `roadmap.state.username` to ConfigMap `devops-cli-config`, and restart `deployment/roadmap-service` when its pod is older than the ConfigMap.
