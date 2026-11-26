@@ -31,11 +31,13 @@ import httpx2
 from cachetools import cached
 from packageurl import PackageURL
 from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, Field, TypeAdapter
 
 from devops_cli.config.constants import CONST_VALKEY_BRAIN_PREFIX
 from devops_cli.config.defaults import (
     DEFAULT_BRAIN_FACT_TTL_SECONDS,
+    DEFAULT_DEPS_DEV_DEPENDENTS_URL,
     DEFAULT_DEPS_DEV_PROJECT_URL,
     DEFAULT_DEPS_DEV_TIMEOUT_SECONDS,
 )
@@ -85,6 +87,7 @@ _SOURCE_REPO = "SOURCE_REPO"
 class _VersionKey(BaseModel):
     system: str
     name: str
+    version: str = ""
 
 
 class _PackageVersion(BaseModel):
@@ -168,7 +171,7 @@ def _tool_keys(url: str, project: str | None) -> set[str]:
     return keys
 
 
-def _tool_names(url: str) -> list[str]:
+def tool_names(url: str) -> list[str]:
     """The names that a deployed file writes for the tool: the name of its repository or of its
     package."""
     project = project_of(url)
@@ -212,35 +215,99 @@ def _stdlib_in_use(project: str | None, packages: frozenset[str], suffixes: froz
     return bool(lang_suffixes & suffixes) or any(package.startswith(prefix) for package in packages)
 
 
-# The packages that deps.dev links to each project, in the process and in the cache Valkey, by
-# the project key in lower case (#4668). deps.dev answers each client the same.
-_DEPS_DEV_FACTS: TieredMapping[frozenset[str]] = TieredMapping(
-    f"{CONST_VALKEY_BRAIN_PREFIX}:fact:deps-dev",
-    TypeAdapter(frozenset[str]),
+# The package versions that deps.dev links to each project as their source, in the process and in
+# the cache Valkey, by the project key in lower case (#4668): the deps.dev system, the name and the
+# version of each. deps.dev answers each client the same.
+_DEPS_DEV_FACTS: TieredMapping[tuple[tuple[str, str, str], ...]] = TieredMapping(
+    f"{CONST_VALKEY_BRAIN_PREFIX}:fact:deps-dev-versions",
+    TypeAdapter(tuple[tuple[str, str, str], ...]),
     ttl=DEFAULT_BRAIN_FACT_TTL_SECONDS,
 )
+# The number of packages that depend directly on one PyPI package version, by `<name>/<version>`
+# (#4672).
+_DEPENDENTS_FACTS: TieredMapping[int] = TieredMapping(
+    f"{CONST_VALKEY_BRAIN_PREFIX}:fact:deps-dev-dependents",
+    TypeAdapter(int),
+    ttl=DEFAULT_BRAIN_FACT_TTL_SECONDS,
+)
+_PYPI_SYSTEM = "PYPI"
+
+
+class _Dependents(BaseModel):
+    """The answer of the deps.dev read of the dependents of one package version."""
+
+    direct: int = Field(default=0, validation_alias="directDependentCount")
 
 
 @cached(_DEPS_DEV_FACTS, key=str.lower)
-def _linked_packages(project: str) -> frozenset[str]:
-    """The keys of the packages that deps.dev links to `project` as their source, none when
-    deps.dev does not know the project. Raises `httpx2.HTTPError` on another failed read and
-    `pydantic.ValidationError` on a malformed answer. The read goes through the fact cache of the
-    project brain (#4668): a project that a process or another pod read in the last 24 hours sends
-    no request, and a failed read keeps nothing."""
+def _source_versions(project: str) -> tuple[tuple[str, str, str], ...]:
+    """The deps.dev system, the name and the version of each package version that deps.dev links
+    to `project` as its source, none when deps.dev does not know the project. Raises
+    `httpx2.HTTPError` on another failed read and `pydantic.ValidationError` on a malformed
+    answer. The read goes through the fact cache of the project brain (#4668): a project that a
+    process or another pod read in the last 24 hours sends no request, and a failed read keeps
+    nothing."""
     url = DEFAULT_DEPS_DEV_PROJECT_URL.format(project=quote(project, safe=""))
     with http_client(EgressLevel.PUBLIC) as client:
         response = client.get(url, timeout=DEFAULT_DEPS_DEV_TIMEOUT_SECONDS)
     if response.status_code == httpx2.codes.NOT_FOUND:
-        return frozenset()
+        return ()
     response.raise_for_status()
     answer = _ProjectPackageVersions.model_validate_json(response.content)
-    return frozenset(
-        _key(kind, None, version.version_key.name)
+    return tuple(
+        (version.version_key.system, version.version_key.name, version.version_key.version)
         for version in answer.versions
         if version.relation_type == _SOURCE_REPO
-        and (kind := _DEPS_DEV_TYPES.get(version.version_key.system))
     )
+
+
+def _linked_packages(project: str) -> frozenset[str]:
+    """The keys of the packages that deps.dev links to `project` as their source. Raises as
+    `_source_versions` raises."""
+    return frozenset(
+        _key(kind, None, name)
+        for system, name, _ in _source_versions(project)
+        if (kind := _DEPS_DEV_TYPES.get(system))
+    )
+
+
+def _parsed(version: str) -> Version | None:
+    try:
+        return Version(version)
+    except InvalidVersion:
+        return None
+
+
+def newest_pypi_release(project: str) -> tuple[str, str] | None:
+    """The name and the newest version of the PyPI package that deps.dev links to `project` as its
+    source, or None when it links none. The read is the cached read of `_source_versions`, and it
+    raises as that read raises (#4672)."""
+    releases = [
+        (parsed, name, version)
+        for system, name, version in _source_versions(project)
+        if system == _PYPI_SYSTEM and (parsed := _parsed(version)) is not None
+    ]
+    if not releases:
+        return None
+    _, name, version = max(releases)
+    return name, version
+
+
+@cached(_DEPENDENTS_FACTS, key=lambda name, version: f"{canonicalize_name(name)}/{version}")
+def direct_dependents(name: str, version: str) -> int:
+    """How many packages depend directly on the version `version` of the PyPI package `name`, as
+    deps.dev counts them: 0 when deps.dev does not know the version (#4672). Raises
+    `httpx2.HTTPError` on another failed read and `pydantic.ValidationError` on a malformed
+    answer. The read goes through the fact cache of the project brain."""
+    url = DEFAULT_DEPS_DEV_DEPENDENTS_URL.format(
+        system=_PYPI, name=quote(name, safe=""), version=quote(version, safe="")
+    )
+    with http_client(EgressLevel.PUBLIC) as client:
+        response = client.get(url, timeout=DEFAULT_DEPS_DEV_TIMEOUT_SECONDS)
+    if response.status_code == httpx2.codes.NOT_FOUND:
+        return 0
+    response.raise_for_status()
+    return _Dependents.model_validate_json(response.content).direct
 
 
 @dataclass
@@ -263,15 +330,25 @@ class Inventory:
         project = project or project_of(url)
         if _tool_keys(url, project) & self.packages:
             return True
-        if any(_whole_word(name).search(self.deployed) for name in _tool_names(url)):
+        if any(_whole_word(name).search(self.deployed) for name in tool_names(url)):
             return True
         if _stdlib_in_use(project, self.packages, self.suffixes):
             return True
         if project is None or not self.packages:
             return False
+        return bool(self._linked_to(project) & self.packages)
+
+    def shared_packages(self, project: str) -> int:
+        """How many PyPI packages of the SBOM deps.dev links to `project` as their source: the
+        repository at `project` is the source of that many packages that this repository uses
+        (#4672). Raises as deps.dev raises."""
+        prefix = f"{_PYPI}:"
+        return sum(key.startswith(prefix) for key in self._linked_to(project) & self.packages)
+
+    def _linked_to(self, project: str) -> frozenset[str]:
         if project not in self._linked:
             self._linked[project] = _linked_packages(project)
-        return bool(self._linked[project] & self.packages)
+        return self._linked[project]
 
 
 def read_inventory(store: RoadmapStore, source: Path | None, paths: Sequence[str]) -> Inventory:
@@ -284,8 +361,11 @@ def read_inventory(store: RoadmapStore, source: Path | None, paths: Sequence[str
 __all__ = [
     "Inventory",
     "canonical_id",
+    "direct_dependents",
+    "newest_pypi_release",
     "package_keys",
     "project_of",
     "read_inventory",
     "source_project",
+    "tool_names",
 ]

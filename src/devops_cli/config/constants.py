@@ -3899,6 +3899,9 @@ CONST_ROADMAP_ALTERNATIVES_REFERENCE_SEARCH_RESULTS: Final[int] = 5
 CONST_ROADMAP_ALTERNATIVES_REFERENCE_SPAN_LINES: Final[int] = 20
 CONST_ROADMAP_ALTERNATIVES_REFERENCE_QUERY_CHARS: Final[int] = 120
 CONST_ROADMAP_ALTERNATIVES_REFERENCE_DOC_TIMEOUT_SECONDS: Final[float] = 10.0
+# The one request of the decision point `brain.reference_relevance` for a link has 10 s, so the
+# requests for 3 links end inside the bound of the step.
+CONST_ROADMAP_ALTERNATIVES_REFERENCE_RELEVANCE_SECONDS: Final[float] = 10.0
 # The hosts of official documentation that a documentation link of the reference step may name
 # (#4672, owner decision of 2026-11-13): the documentation of the project stack. Each host is a
 # public host, which the public egress level of SECURITY.md rule 2 admits, and the step reads a

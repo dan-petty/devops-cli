@@ -169,7 +169,7 @@ def test_a_mode_that_is_not_off_shadow_rule_or_on_is_refused() -> None:
 
 
 def test_the_registry_holds_each_point_with_its_fitted_cuts() -> None:
-    fitted = {"alternatives.reply_fixable", "stage.verify_screen"}
+    fitted = {"alternatives.reply_fixable", "brain.reference_relevance", "stage.verify_screen"}
     for name in REGISTRY.names:
         point = REGISTRY.point(name)
         if name in fitted:
@@ -179,10 +179,25 @@ def test_the_registry_holds_each_point_with_its_fitted_cuts() -> None:
             assert not point.requires_fit_bar or not point.cuts.is_file()
     assert REGISTRY.names == (
         "alternatives.reply_fixable",
+        "brain.reference_relevance",
         "implement.extension",
         "stage.verify_screen",
     )
-    assert REGISTRY.series_count == 34
+    assert REGISTRY.series_count == 42
+
+
+def test_the_reference_relevance_runs_in_shadow_and_its_start_cuts_refuse_the_mode_on(
+    config: Callable[..., Path],
+) -> None:
+    """The point has start cuts with no labelled case (#4672): `shadow` loads, and the fit bar
+    refuses `on` until a fit."""
+    config(roadmap={"decisions": {"brain.reference_relevance": "shadow"}})
+
+    assert load_settings().roadmap.decisions == {"brain.reference_relevance": "shadow"}
+
+    config(roadmap={"decisions": {"brain.reference_relevance": "on"}})
+    with pytest.raises(ConfigurationError, match=r"brain\.reference_relevance"):
+        load_settings()
 
 
 def test_mode_rule_loads_without_cuts_file_for_implement_extension(

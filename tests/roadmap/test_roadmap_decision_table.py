@@ -46,7 +46,11 @@ def test_each_point_of_the_table_has_its_cuts_file_so_it_takes_on() -> None:
     check_modes(dict.fromkeys(fitted, "on"))
     check_modes(dict.fromkeys(FIT_BAR_POINTS & POINT_CUTS.keys(), "rule"))
 
-    for unfitted in FIT_BAR_POINTS & POINT_CUTS.keys():
-        assert not POINT_CUTS[unfitted].is_file()
-        with pytest.raises(ValueError, match="rule"):
-            check_modes({unfitted: "on"})
+    assert not POINT_CUTS["implement.extension"].is_file()
+    with pytest.raises(ValueError, match="rule"):
+        check_modes({"implement.extension": "on"})
+    # The start cuts of `brain.reference_relevance` hold no labelled case (#4672): `shadow` loads,
+    # and the fit bar refuses `on`.
+    check_modes({"brain.reference_relevance": "shadow"})
+    with pytest.raises(ValueError, match=r"brain\.reference_relevance do not satisfy the fit bar"):
+        check_modes({"brain.reference_relevance": "on"})

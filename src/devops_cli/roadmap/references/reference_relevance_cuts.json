@@ -1,0 +1,15 @@
+{
+  "step": "brain.reference_relevance",
+  "model": "typesafe/jev-1.14",
+  "fitted": "2026-11-26",
+  "cases": 0,
+  "cuts": {
+    "off_need": {
+      "continue_below": 0.5,
+      "flag_at": 0.9
+    }
+  },
+  "report": {
+    "note": "Start cuts of the shadow run, set with no labelled case. The shadow records and the links that a person labels give the cases of the first fit. The fit bar refuses the mode on until then."
+  }
+}
