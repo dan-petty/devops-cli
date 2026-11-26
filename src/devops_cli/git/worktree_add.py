@@ -30,14 +30,12 @@ from typing import Literal, NamedTuple, Protocol
 
 from pydantic import BaseModel, Field
 
-from devops_cli.config.commands import BIN_NPM
 from devops_cli.config.constants import (
     CONST_AGENT_WORKTREE_PREFIX,
     CONST_AGENT_WORKTREES_SUBPATH,
     CONST_GIT_CLI,
     CONST_GIT_MAIN_BRANCH,
     CONST_GIT_REMOTE_ORIGIN,
-    CONST_NPM_LOCKFILE,
 )
 from devops_cli.config.settings import load_settings
 from devops_cli.core.process import run_subprocess
@@ -596,22 +594,6 @@ def add_worktree(
             return _create(repo_root, issue, branch, directory, reclaim, heads, origin)
         _check_names(issue, pushed, type_, slug)
         return _take_over(repo_root, issue, pushed, directory, reclaim, heads, origin)
-
-
-def install_node_tools(directory: Path) -> str | None:
-    """Run `npm ci --ignore-scripts` in `directory` when it holds `package-lock.json`, so that the
-    new worktree gets the Node tools that the lock file pins (#7233). A folder with no lock file
-    starts no process. The answer is None when the install ran or no lock file was there, and the
-    warning text that names the command, the folder and the exit code when the install failed."""
-    if not (directory / CONST_NPM_LOCKFILE).is_file():
-        return None
-    command = [BIN_NPM, "ci", "--ignore-scripts"]
-    proc = run_subprocess(command, cwd=directory, check=False, quiet=True)
-    if proc.returncode == 0:
-        return None
-    return MESSAGES.repos.worktrees_add_node_tools_failed.format(
-        command=" ".join(command), path=str(directory), code=proc.returncode
-    )
 
 
 def read_remote_heads(repo_root: Path) -> str:

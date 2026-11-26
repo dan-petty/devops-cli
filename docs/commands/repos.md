@@ -220,8 +220,6 @@ worktree,
 the standard directory or a pushed branch of origin already holds. A pushed branch whose
 commits past origin/main all have the App as author is a staged branch: the command adds the
 worktree on it and takes --type and --slug from it. After the worktree exists, the command
-runs `npm ci --ignore-scripts` in it when it holds package-lock.json, so the worktree gets the
-Node tools that the lock file pins, and warns when that install fails. Then the command
 claims the issue for an agent with the label owner/agent, and sets the Status In Progress
 when the item is New, Ready or Planned, or has no Status. It only warns if the claim or the
 Status write fails.
