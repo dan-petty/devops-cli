@@ -247,11 +247,12 @@ def test_each_key_has_a_ttl_of_45_days_and_the_watermark_has_none_and_one_writer
 ) -> None:
     """A scan of the store after the write of one item and of the watermark: the item, tool and
     reference hashes and the stream expire in 45 days, and the watermark key has no TTL. No
-    transaction of an item names the watermark key: only the write of the watermark does."""
+    transaction of an item names the watermark key: only the write of the watermark does. Each
+    key starts with `roadmap:v1:brain-`, the key pattern of the ACL users `brain` and `agent`."""
     index.write(_entry(), RELATED)
     index.advance(Watermark(changed=CHECKED_AT, number=7, synced_at=CHECKED_AT))
 
-    ttls = {key: reader.ttl(key) for key in reader.scan_iter("roadmap:v1:brain-*")}
+    ttls = {key: reader.ttl(key) for key in reader.scan_iter("*")}
     in_transactions = {command[1] for block in transactions for command in block[1:-1]}
     assert (ttls, SYNC_KEY in in_transactions) == (
         {
