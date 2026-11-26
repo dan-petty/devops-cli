@@ -1307,16 +1307,14 @@ def _handle_gitops_once(
     json_output: bool = False,
 ) -> None:
     """Execute a single-cycle manifest drift inspection and optional reconciliation."""
-    from devops_cli.argo.gitops import (
-        compute_manifest_state,
-        render_gitops_drift_table,
-        render_gitops_sync_table,
-    )
+    from devops_cli.argo.gitops import render_gitops_drift_table, render_gitops_sync_table
     from devops_cli.output import print_info
 
-    drift = watcher.scan_drift(detect_cold_drift=True)
-    _refuse_paths_with_nothing(
-        watcher.paths, [*compute_manifest_state(watcher.paths), *(Path(e.path) for e in drift)]
+    drift = watcher.scan_drift(
+        detect_cold_drift=True,
+        accept=lambda manifests, events: _refuse_paths_with_nothing(
+            watcher.paths, [*manifests, *(Path(e.path) for e in events)]
+        ),
     )
     sync_res = watcher.sync_now(drift) if drift else None
 

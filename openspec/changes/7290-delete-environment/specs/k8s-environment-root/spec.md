@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: A command refuses a tree that does not hold what it reads
-A command that needs a path that the environment tree does not hold SHALL stop with a `ConfigurationError` that names the tree, the path, `--k8s-dir` and `infra.repos`. A command over the Argo CD Applications SHALL stop the same way when `argocd/apps` and `argocd/bootstrap` hold no Application. No command SHALL read another file in place of a missing one, or report success on such a tree.
+A command that needs a folder, an Application or a path of its own tables that the environment tree does not hold SHALL stop with a `ConfigurationError` that names the tree, the path, `--k8s-dir` and `infra.repos`. A command over the Argo CD Applications SHALL stop the same way when `argocd/apps` and `argocd/bootstrap` hold no Application. No command SHALL read another file in place of a missing one, or report success on such a tree.
 
 #### Scenario: A tree with no Application
 - **WHEN** `devops k8s lint`, `image-pins`, `catalog`, `check-deprecated`, `deploy-stack`, `teardown-stack` or `bootstrap`, also in a dry run, or `devops argo gitops drift` runs on a tree that holds only the folder `devops`
@@ -29,6 +29,14 @@ A command that needs a path that the environment tree does not hold SHALL stop w
 #### Scenario: A folder that lost its manifests
 - **WHEN** `devops argo gitops drift --path <folder>` runs after each manifest of the saved baseline left the folder
 - **THEN** it exits 0 and reports each one as deleted
+
+#### Scenario: A deletion that removed the folder
+- **WHEN** git holds the deletion of the last manifest of a watched folder, the folder is gone and no baseline is saved
+- **THEN** the deletion is reported
+
+#### Scenario: A refused watch
+- **WHEN** `devops argo gitops watch --once` refuses a watched path
+- **THEN** the saved baseline does not change, so a later run reports the drift of the other paths
 
 ## MODIFIED Requirements
 

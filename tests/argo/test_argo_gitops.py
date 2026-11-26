@@ -374,6 +374,53 @@ def test_drift_reports_the_manifests_that_left_a_watched_folder(
     assert (result.exit_code, changes) == (0, ["deleted"])
 
 
+def test_a_refused_watch_keeps_the_saved_baseline(tmp_path: Path, cli: Callable[..., Any]) -> None:
+    """A refused run reports no change, so a later run must still find each change (#7290)."""
+    from devops_cli.argo.gitops import (
+        compute_manifest_state,
+        load_persisted_manifest_state,
+        save_persisted_manifest_state,
+    )
+
+    held = tmp_path / "held"
+    held.mkdir()
+    manifest = held / "app.yaml"
+    manifest.write_text("apiVersion: v1", encoding="utf-8")
+    paths = [held, tmp_path / "missing"]
+    save_persisted_manifest_state(paths, compute_manifest_state(paths))
+    baseline = load_persisted_manifest_state(paths)
+    manifest.write_text("apiVersion: v2", encoding="utf-8")
+
+    result = cli(
+        "argo",
+        "gitops",
+        "watch",
+        "--once",
+        "--app-name",
+        "root-app",
+        "--path",
+        f"{paths[0]},{paths[1]}",
+    )
+
+    assert (result.exit_code != 0, load_persisted_manifest_state(paths)) == (True, baseline)
+
+
+def test_inspect_git_manifest_drift_reports_a_deletion_that_removed_the_folder(
+    tmp_path: Path, process_fake: ProcessFake
+) -> None:
+    """`git rm` of the last manifest removes the folder too, and the deletion is still a change."""
+    from devops_cli.argo.gitops import inspect_git_manifest_drift
+
+    process_fake.answer(["git", "rev-parse"], ProcessAnswer(stdout=f"{tmp_path}\n"))
+    process_fake.answer(["git", "status"], ProcessAnswer(stdout="D  gone/app.yaml\0"))
+
+    events = inspect_git_manifest_drift([tmp_path / "gone"])
+
+    assert [(event.change_type, Path(event.path)) for event in events] == [
+        ("deleted", tmp_path / "gone" / "app.yaml")
+    ]
+
+
 def test_cli_gitops_sync_command(cli: Callable[..., Any]) -> None:
     """Test CLI command devops argo gitops sync with --dry-run."""
     result = cli("argo", "gitops", "sync", "--app-name", "root-app", "--dry-run")
