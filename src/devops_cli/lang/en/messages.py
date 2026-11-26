@@ -3474,7 +3474,9 @@ class RoadmapMessages:
         "Tool: {name} ({url}), {license}, last activity {date}, {maintained}."
     )
     alternatives_block_no_tool: str = "Tool: none found."
-    alternatives_block_skip_class: str = "Class: {skip_class}, no search."
+    alternatives_block_skip_class: str = "Class: {skip_class}, no model call."
+    alternatives_block_references: str = "Reference implementations:"
+    alternatives_block_documentation: str = "Official documentation:"
     alternatives_block_reason: str = "Reason: {reason}"
     alternatives_block_covers: str = "Covers:"
     alternatives_block_lacks: str = "Lacks:"

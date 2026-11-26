@@ -220,7 +220,8 @@ class AlternativesRecordKey(StrEnum):
     ran, the hash of the body it read outside its own block and the refine section, its verdict,
     and the URL of the tool it found, if any. It also records the canonical id of the tool and the
     hash of the ADRs that the model read (#4661). When the last check failed, the record holds the
-    time of the failure and the class of its error (#2949) until a check is written."""
+    time of the failure and the class of its error (#2949) until a check is written. `REFS` holds
+    the links that the reference step wrote in mode `on`, with a space between them (#4672)."""
 
     CHECKED_AT = "alternatives.checked_at"
     BODY_HASH = "alternatives.body_hash"
@@ -231,6 +232,7 @@ class AlternativesRecordKey(StrEnum):
     FAILED_AT = "alternatives.failed_at"
     FAILED_ERROR = "alternatives.failed_error"
     FAILED_REASON = "alternatives.failed_reason"
+    REFS = "alternatives.refs"
 
 
 class StageRecordKey(StrEnum):

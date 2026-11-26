@@ -2706,7 +2706,7 @@ def test_skip_class_an_item_of_the_type_is_not_applicable_with_no_model_call(
         [],
         [
             f"Alternatives check of {NOW.date()}: not-applicable.",
-            f"Class: {kind}, no search.",
+            f"Class: {kind}, no model call.",
             "Tool: none found.",
         ],
         "not-applicable",
@@ -2728,7 +2728,7 @@ def test_skip_class_a_fix_with_a_stack_trace_is_not_applicable_with_no_model_cal
         [(c.verdict, c.skip_class) for c in plan.checks],
         script.seen,
         store.comments_on(number),
-        "Class: fix-with-stack-trace, no search." in _block(store, number).splitlines(),
+        "Class: fix-with-stack-trace, no model call." in _block(store, number).splitlines(),
     ) == (
         [(Verdict.NOT_APPLICABLE, "fix-with-stack-trace")],
         [],
